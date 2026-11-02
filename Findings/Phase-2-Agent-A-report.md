@@ -282,6 +282,12 @@ units, 88 subterrains of 16×16 blocks — consistent with `0x1c4 = 64` and
    startup, on a settings change and when the camera's block index moves by ≥ 2.
    Other lanes that read `renderer.terrain_end` are unaffected; the index/vertex
    buffer layout is still "terrain first, then scenery/water/grass".
+8. **Visible extent changed.** Terrain now ends at the block window (448 world
+   units at the default 7) instead of the whole world, because the client draws
+   nothing outside it. 2-B/2-C: the shipped client pairs that range with its own
+   atmospheric fog/vista, so the viewer's "view distance" slider (2000–24000) no
+   longer describes a terrain extent; judge distance appearance with client fog
+   enabled rather than by widening the window.
 
 ---
 
