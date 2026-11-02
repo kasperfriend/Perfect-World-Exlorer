@@ -12,19 +12,6 @@ use crate::{
 };
 use std::{collections::HashMap, fs::File, path::Path};
 
-/// Manager priority handed to scene/model effect lights.
-///
-/// The native gate is `[element+0xdc] > [manager+0x134]` at `0x70ba3c..0x70ba44`,
-/// which suppresses only the publication (the element keeps progressing and
-/// returns alive). The limit itself is not a constant: `0x40dc8e..0x40dc97` and
-/// `0x40e38a..0x40e394` store an authored region byte into the manager
-/// (`[[0x9b3eec]+0x28]+0x134`), taken from the environment record whose
-/// `+0xc8..+0xca` bytes are copied to `+0xcc..+0xce` by the copy constructor at
-/// `0x59af52..0x59af76`. This reader does not decode that region record yet, so
-/// the limit stays at "no suppression"; inventing a number here would silently
-/// drop authored lights. The gate path itself is exercised by the owner
-/// regressions.
-pub const OWNER_PRIORITY: i32 = i32::MAX;
 
 /// Identity space for ECM model-event owners, kept disjoint from scene effects.
 const MODEL_EVENT_IDENTITY: u64 = 1 << 40;
@@ -212,7 +199,6 @@ impl World {
                     path: gfx_owner::root_path(&effect.path),
                     transform,
                     speed: effect.speed,
-                    priority: OWNER_PRIORITY,
                     start_ms: 0,
                     span_ms: None,
                     outer: None,
@@ -277,7 +263,6 @@ impl World {
                         None => transform.to_cols_array(),
                     },
                     speed: asset.descriptor.render_settings().default_speed,
-                    priority: OWNER_PRIORITY,
                     start_ms: start_ms as u32,
                     span_ms,
                     outer: None,
@@ -304,6 +289,18 @@ impl World {
     /// active. Effects outside the radius are unloaded without publishing.
     pub fn set_view_center(&mut self, x: f32, z: f32, radius: f32) {
         self.view = Some((x, z, radius.max(0.)));
+    }
+    /// Manager light-priority limit (native `[[0x9b3eec]+0x28]+0x134`, written
+    /// from an authored scene/environment byte at `0x40dc97`/`0x40e394`).
+    /// Elements above the limit stop publishing but keep their keypoint clocks,
+    /// `0x70ba3c..0x70ba44`. This reader does not decode the authored record, so
+    /// the default is "no suppression" (the client at its highest light setting)
+    /// rather than an invented threshold that would silently drop lights.
+    pub fn set_light_priority_limit(&mut self, limit: i32) {
+        self.owners.set_priority_limit(limit);
+    }
+    pub fn light_priority_limit(&self) -> i32 {
+        self.owners.priority_limit()
     }
     pub fn gfx_status(&self) -> gfx_owner::Status {
         self.owners.status()

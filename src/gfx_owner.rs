@@ -42,8 +42,6 @@ pub struct Request {
     pub transform: [f32; 16],
     /// Authored play speed; the owner clock is scaled by it once per tick.
     pub speed: f32,
-    /// Manager priority handed to each light element's publication gate.
-    pub priority: i32,
     /// Owner-local activation delay in milliseconds.
     pub start_ms: u32,
     /// Owner lifetime after `start_ms`; `None` runs until removal.
@@ -235,6 +233,12 @@ pub struct Status {
 
 pub struct Manager {
     owners: Vec<Owner>,
+    /// Manager light-priority limit (native `[[0x9b3eec]+0x28]+0x134`). An
+    /// element whose authored `Priority` exceeds this value is skipped by the
+    /// publication gate at `0x70ba3c..0x70ba44` while still advancing. The
+    /// native value is copied from an authored scene/environment byte; this
+    /// reader defaults to "no suppression" instead of inventing one.
+    priority_limit: i32,
     failures: Vec<String>,
     next_serial: u64,
     removed: usize,
@@ -252,6 +256,7 @@ impl Manager {
     pub fn new() -> Self {
         Self {
             owners: Vec::new(),
+            priority_limit: i32::MAX,
             failures: Vec::new(),
             next_serial: 1,
             removed: 0,
@@ -291,6 +296,17 @@ impl Manager {
             state: State::Pending,
         });
         Ok(())
+    }
+
+    /// Set the manager-wide light-priority limit. Elements with a larger
+    /// authored `Priority` stop publishing but keep progressing, exactly like
+    /// the native gate; the limit itself survives owner churn and region unload.
+    pub fn set_priority_limit(&mut self, limit: i32) {
+        self.priority_limit = limit;
+    }
+
+    pub fn priority_limit(&self) -> i32 {
+        self.priority_limit
     }
 
     /// Region/time visibility. Returns false when the identity is not owned.
@@ -377,13 +393,14 @@ impl Manager {
     /// Order follows 0x5b1a00: existing owners tick and publish first, then at
     /// most one pending root is loaded and the update returns immediately.
     pub fn update(&mut self, delta_ms: u32, publications: &mut LightPublications) {
+        let limit = self.priority_limit;
         let mut finished = Vec::new();
         let mut failed = Vec::new();
         for owner in &mut self.owners {
             if !matches!(owner.state, State::Live(_)) {
                 continue;
             }
-            match tick_owner(owner, delta_ms, publications) {
+            match tick_owner(owner, delta_ms, publications, limit) {
                 Ok(true) => {}
                 Ok(false) => finished.push(owner.request.identity),
                 Err(e) => failed.push((owner.request.identity, e)),
@@ -487,6 +504,7 @@ fn tick_owner(
     owner: &mut Owner,
     delta_ms: u32,
     publications: &mut LightPublications,
+    priority_limit: i32,
 ) -> Result<bool, String> {
     let scaled = delta_ms as f32 * owner.request.speed;
     if !scaled.is_finite() || scaled < 0. || scaled >= u32::MAX as f32 {
@@ -500,7 +518,6 @@ fn tick_owner(
         }
     }
     let visible = owner.request.active && owner.elapsed >= start;
-    let priority = owner.request.priority;
     let transform = owner.request.world_transform()?;
     let outer = owner.request.outer;
     let serial = owner.serial;
@@ -509,7 +526,7 @@ fn tick_owner(
     };
     for (index, emitter) in emitters.iter_mut().enumerate() {
         let light: Option<DynamicLight> =
-            emitter.tick(scaled as u32, visible, priority, transform, outer)?;
+            emitter.tick(scaled as u32, visible, priority_limit, transform, outer)?;
         if let Some(light) = light {
             publications.publish(element_identity(serial, index), light);
         }
@@ -544,7 +561,6 @@ mod tests {
             path: "gfx/scene/lamp.gfx".into(),
             transform: placement_transform([0.; 3], [0., 0., 1.], [0., 1., 0.], 1.).unwrap(),
             speed: 1.,
-            priority: 4,
             start_ms: 0,
             span_ms: None,
             outer: None,
@@ -619,15 +635,53 @@ mod tests {
         manager.update(0, &mut publications);
         assert_eq!(publications.len(), 1, "infinite key is still live at 7s");
         publications.consume_into(&mut grid());
-        // A lower manager priority suppresses the same live key.
-        let mut r = request(2, true);
-        r.priority = 3;
+        // A lower manager limit suppresses the same live key.
+        assert_eq!(
+            manager.priority_limit(),
+            i32::MAX,
+            "default: no suppression"
+        );
+        manager.set_priority_limit(3);
+        let r = request(2, true);
         manager.insert(r).unwrap();
         manager.update(0, &mut publications);
         manager.update(0, &mut publications);
         assert_eq!(publications.len(), 1);
         publications.consume_into(&mut grid());
         assert_eq!(manager.status().failures, 0);
+    }
+
+    #[test]
+    fn manager_limit_gates_without_destroying_and_survives_region_unload() {
+        let mut manager = Manager::with_reader(root("gfx/scene/lamp.gfx", &light_file()));
+        // The decoded element is authored with Priority 4.
+        manager.set_priority_limit(4);
+        manager.insert(request(1, true)).unwrap();
+        let mut publications = LightPublications::default();
+        manager.update(0, &mut publications); // lazy load
+        manager.update(0, &mut publications);
+        assert_eq!(
+            publications.len(),
+            1,
+            "priority 4 passes a limit of 4"
+        );
+        publications.consume_into(&mut grid());
+        // Lowering the limit suppresses publication only: the owner stays live
+        // and keeps its clock (0x70bd0b returns alive).
+        manager.set_priority_limit(3);
+        manager.update(16, &mut publications);
+        assert_eq!(publications.len(), 0);
+        assert_eq!(manager.status().live, 1);
+        assert_eq!(manager.status().failures, 0);
+        // Restoring the limit republishes the same live element, with no reload.
+        manager.set_priority_limit(4);
+        manager.update(0, &mut publications);
+        assert_eq!(publications.len(), 1);
+        assert_eq!(manager.status().loads, 1);
+        // Region unload drops owners but not the manager-wide limit.
+        manager.clear(&mut publications);
+        assert_eq!(manager.priority_limit(), 4);
+        assert_eq!(publications.len(), 0);
     }
 
     #[test]
