@@ -1579,3 +1579,23 @@ model-event attachment ownership still require implementation and tests.
 CI `41464185202` for `e59268e` completed SUCCESS (all Linux/unit/GPU and
 Windows checks); it includes the infinite-light wrap fix and archive survey
 binary. The owner-record changes above are subsequent and require their own CI.
+
+### Production PCK → light execution survey reproduced
+
+Ran `gfx-light-runtime-survey google_drive/gfx.pck` using the real production
+PCK reader and production light parser/emitter, not the earlier extracted-text
+wrapper. Local rustc build used real flate2 1.1.10 / miniz_oxide 0.9.1 /
+adler2 2.0.1 / crc32fast 1.5.3 / simd-adler32 0.3.10 sources; no mock archive
+or decompressor. Result: 5,459 text GFX files scanned; 524 light-bearing files,
+546 light elements, 4,259 active source-clock samples, all finite (including
+radius). This remains element-only validation, not owner-graph playback.
+Private client assets stay ignored; reproducibility identities:
+
+- gfx.pck SHA256: `d121fe967b9485ce0ef088a4935d395f02f4b17e16a8346d711dd3681be80f49`
+- world.ecwld SHA256: `6a763c0ea0ac5717adf0a806cc2d2c09e86a4e4a809df60fc8ed0f9a5c319fc8`
+
+CI `41464867197` for `cb44233` completed SUCCESS: Linux all-binary/unit/
+production GPU validation and Windows executable. This includes complete
+owner record retention and the two new scene tests. Confirmation remains
+**No — continue implementation** for full P1.01; the other full-scope gates
+have not been promoted based on this survey or compilation.

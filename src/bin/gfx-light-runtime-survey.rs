@@ -52,6 +52,7 @@ fn run(path: &Path) -> Result<(), String> {
                         .position
                         .iter()
                         .chain(&light.color)
+                        .chain(std::iter::once(&light.radius))
                         .any(|x| !x.is_finite())
                     {
                         return Err(format!("{}: nonfinite runtime light", entry.name));

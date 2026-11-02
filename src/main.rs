@@ -388,10 +388,9 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         return Err(format!("Some prepared tree types could not be loaded. Close Perfect World Explorer, remove this cache folder, and try again:\n{}",tree_cache.display()));
     }
     let environments = environment::Environments::load(&world_scene, &dir)?;
-    // Load the actual scene-light records for validation/research. Do not add
-    // them to the static baked BMDs: the traced client call site is a separate
-    // object-light path. Post-load receiver eligibility is now traced, but
-    // the receiving-model world draw is not yet implemented.
+    // Ordinary world-model receivers query these actual client records.
+    // Do not also add them to static baked BMDs or terrain: those surfaces
+    // use their separately traced baked-light paths.
     let scene_lights = match scene_lights::SceneLights::load(&dir.join("scenelights.dat")) {
         Ok(lights) => {
             eprintln!(
