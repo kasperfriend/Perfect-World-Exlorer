@@ -564,3 +564,30 @@ original 2-byte bounds for every preceding ordinary/underwater case and
 mode 5; only the stronger mode-4 endpoint gets 3. No production shader was
 changed to hide this discrepancy. The rerun must still pass all dimensions,
 formats and earlier regressions before this component is called validated.
+
+Special-mode rerun `1eb7aa9` passed
+[CI 41438393668](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41438393668): all 36 glow comparisons, all eight GPU binaries, full application checks/tests, seven readiness-audit tests and Windows executable. Local dependency-free core is now 44 passing tests. The full-scope readiness audit still has ten No decisions; no confirmation poll is justified yet.
+
+#### Next unresolved glow inputs (not implemented)
+
+Both `fullglow2_14` and `monofullglow_14` multiply final output by PS c3.
+`0x411340` converts the caller ARGB (`renderer+0x18`, passed at `0x4100a1`)
+and builds c3 at `0x4113be–0x41145f`: RGB is additionally multiplied by
+`1 - effect_object[+0x20]`, alpha by `1 - effect_object[+0x30]`.
+`0x411100` sets the +0x20 channel; `0x4114a0(true)` transitions its current
+value to zero over 1000ms. Constructor `0x4110c0` initializes these fade
+channels to zero. Current viewer reproduces default white/no-fade case,
+not all caller-color/fade combinations. The extra renderer flag +6 calls
+`0x410970` after glow; its exact effect/classification still needs tracing.
+These remain concrete reasons not to promote the full P1.08 gate to Yes.
+
+#### Narrower receiver-class identity evidence
+
+The CECModel type descriptor is `0x959240` (its name starts at `0x959248`).
+BCD `0x902e58` is in the base array at `0x902e88` for CECModelWrapper;
+CHD `0x902ea0`, COL `0x902eb0` resolve its vtable to `0x8dabb4`.
+`0x4a7214` calls base constructor `0x6cef80` and then assigns that wrapper
+vtable. Wrapper position setter `0x6d4210` forwards to the +0xc4 skin object.
+This resolves a derived wrapper relationship, not every scene receiver's
+runtime flags or world placement class. Do not relight baked BMD/terrain
+from this limited type evidence.
