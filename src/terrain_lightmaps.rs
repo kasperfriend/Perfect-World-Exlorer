@@ -1,5 +1,43 @@
 //! Bounded T2LM v2 DDS records and subterrain-to-mask-area placement.
 //! The offset table is indexed by mask area; payload order is not guaranteed.
+//!
+//! Availability is published to the grass shader as the low two bits of one
+//! `u32` per mask area, so the numeric values below are an interface and are
+//! pinned by tests. `0` means nothing is bound: the client's `ApplyLightMap`
+//! leaves a terrain area unlit when its day record is missing, and only a
+//! missing *night* record falls back to the day record.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Availability {
+    /// No day record, so no lightmap is bound for this area.
+    Unbound,
+    /// Authored day record only; night falls back to the day tile.
+    DayOnly,
+    /// Both authored day and night records.
+    Both,
+}
+impl Availability {
+    /// Bits the grass shader tests with `& 3u`.
+    pub const fn bits(self) -> u32 {
+        match self {
+            Self::Unbound => 0,
+            Self::DayOnly => 1,
+            Self::Both => 3,
+        }
+    }
+    pub const fn from_bits(bits: u32) -> Option<Self> {
+        match bits {
+            0 => Some(Self::Unbound),
+            1 => Some(Self::DayOnly),
+            3 => Some(Self::Both),
+            _ => None,
+        }
+    }
+    /// Grass needs both authored maps: the terrain's day copy in the night slot
+    /// is a terrain fallback, not an authored night map.
+    pub const fn grass_ready(self) -> bool {
+        matches!(self, Self::Both)
+    }
+}
 /// Day is required for terrain. Only an absent night file falls back to day;
 /// other I/O/format errors remain visible. Grass must inspect availability,
 /// not mistake the terrain fallback copy for an authored night map.
@@ -9,16 +47,30 @@ pub struct Pair {
 }
 impl Pair {
     pub fn read(day: &std::path::Path, night: &std::path::Path) -> Result<Self, String> {
-        let day_bytes = std::fs::read(day).map_err(|e| format!("{}: {e}", day.display()))?;
+        Self::read_optional(day, night)?
+            .ok_or_else(|| format!("{}: missing day lightmap", day.display()))
+    }
+    /// A missing *day* record leaves the area unbound (`Ok(None)`) instead of
+    /// failing the whole world, matching the client's per-area `ApplyLightMap`
+    /// result. Every other I/O or format error is still returned.
+    pub fn read_optional(
+        day: &std::path::Path,
+        night: &std::path::Path,
+    ) -> Result<Option<Self>, String> {
+        let day_bytes = match std::fs::read(day) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(format!("{}: {e}", day.display())),
+        };
         let night_bytes = match std::fs::read(night) {
             Ok(b) => Some(b),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(format!("{}: {e}", night.display())),
         };
-        Ok(Self {
+        Ok(Some(Self {
             day: day_bytes,
             night: night_bytes,
-        })
+        }))
     }
     pub fn bytes(&self, night: bool) -> &[u8] {
         if night {
@@ -27,11 +79,11 @@ impl Pair {
             &self.day
         }
     }
-    pub fn availability(&self) -> u32 {
+    pub fn availability(&self) -> Availability {
         if self.night.is_some() {
-            3
+            Availability::Both
         } else {
-            1
+            Availability::DayOnly
         }
     }
 }
@@ -119,11 +171,15 @@ mod tests {
         let night = root.join("night");
         std::fs::write(&day, [1, 2, 3]).unwrap();
         let pair = super::Pair::read(&day, &night).unwrap();
-        assert_eq!(pair.availability(), 1);
+        assert_eq!(pair.availability(), super::Availability::DayOnly);
+        assert_eq!(pair.availability().bits(), 1);
+        assert!(!pair.availability().grass_ready());
         assert_eq!(pair.bytes(true), pair.bytes(false));
         std::fs::write(&night, [4, 5, 6]).unwrap();
         let pair = super::Pair::read(&day, &night).unwrap();
-        assert_eq!(pair.availability(), 3);
+        assert_eq!(pair.availability(), super::Availability::Both);
+        assert_eq!(pair.availability().bits(), 3);
+        assert!(pair.availability().grass_ready());
         assert_eq!(pair.bytes(true), [4, 5, 6]);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -138,6 +194,37 @@ mod tests {
         std::fs::write(&day, [2]).unwrap();
         assert!(super::Pair::read(&day, &root).is_err()); // Directory is not a missing file.
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn missing_day_record_leaves_the_area_unbound_instead_of_failing() {
+        let root = std::env::temp_dir().join(format!("pw-lm-unbound-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let day = root.join("day");
+        let night = root.join("night");
+        std::fs::write(&night, [1]).unwrap();
+        assert!(super::Pair::read_optional(&day, &night).unwrap().is_none());
+        assert!(super::Pair::read(&day, &night).is_err());
+        // An unreadable day path is an error, not an unbound area.
+        assert!(super::Pair::read_optional(&root, &night).is_err());
+        std::fs::write(&day, [2]).unwrap();
+        let pair = super::Pair::read_optional(&day, &night).unwrap().unwrap();
+        assert_eq!(pair.availability(), super::Availability::Both);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn published_availability_bits_round_trip_and_gate_grass() {
+        for a in [
+            super::Availability::Unbound,
+            super::Availability::DayOnly,
+            super::Availability::Both,
+        ] {
+            assert_eq!(super::Availability::from_bits(a.bits()), Some(a));
+            assert_eq!(a.grass_ready(), a.bits() & 3 == 3);
+        }
+        assert_eq!(super::Availability::Unbound.bits(), 0);
+        assert_eq!(super::Availability::from_bits(2), None);
+        assert_eq!(super::Availability::from_bits(4), None);
     }
 
     use super::*;

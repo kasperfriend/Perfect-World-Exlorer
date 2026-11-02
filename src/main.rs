@@ -25,6 +25,7 @@ fn read_string(b: &[u8], pos: &mut usize) -> Result<String, String> {
 }
 mod animation;
 mod bmd;
+mod bmd_baked;
 #[cfg(windows)]
 mod client_detect;
 mod client_sun;
@@ -46,6 +47,7 @@ mod grass_mips;
 mod grass_wind;
 #[cfg(windows)]
 mod launcher_ui;
+mod light_consumers;
 mod material;
 mod model_asset;
 mod model_dds;
