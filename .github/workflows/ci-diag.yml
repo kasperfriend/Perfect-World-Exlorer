@@ -1,0 +1,79 @@
+name: CI diagnostics (temporary)
+
+# Temporary: the sandbox used for development has no Rust toolchain and cannot
+# read Actions logs. This workflow runs the same checks as pr-checks.yml and
+# posts the captured output as a pull-request comment so the failure text is
+# readable through the GitHub API. Delete once the branch is green.
+
+on:
+  push:
+    branches: [arena/bdae8dca-perfect-world-exlorer]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  diagnostics:
+    name: Collect check output
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
+      - name: Collect
+        run: |
+          set +e
+          cargo fmt --all -- --check > /tmp/fmt.log 2>&1
+          echo "fmt exit=$?" > /tmp/exit.log
+          cargo check --locked --bins > /tmp/check.log 2>&1
+          echo "check exit=$?" >> /tmp/exit.log
+          for module in gamma_curve glow_state client_region_shade client_region_stream client_regional_light gfx_color_track gfx_owner model_receiver_class model_queue; do
+            echo "== $module ==" >> /tmp/modules.log
+            rustc --edition=2021 --test "src/$module.rs" -o "/tmp/$module-tests" >> /tmp/modules.log 2>&1
+            echo "$module exit=$?" >> /tmp/modules.log
+          done
+          cargo test --locked --bin perfect-world-explorer --no-run > /tmp/testbuild.log 2>&1
+          echo "testbuild exit=$?" >> /tmp/exit.log
+          sh tools/check-phase1-core.sh > /tmp/core.log 2>&1
+          echo "core exit=$?" >> /tmp/exit.log
+      - name: Publish diagnostics
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          {
+            echo "CI diagnostics for \`$GITHUB_SHA\`."
+            echo
+            echo '```'
+            cat /tmp/exit.log
+            echo
+            echo '### fmt (first 4000 bytes)'
+            head -c 4000 /tmp/fmt.log
+            echo
+            echo '### cargo check --bins (first 24000 bytes)'
+            head -c 24000 /tmp/check.log
+            echo
+            echo '### standalone module compiles'
+            head -c 8000 /tmp/modules.log
+            echo
+            echo '### test build'
+            tail -c 8000 /tmp/testbuild.log
+            echo
+            echo '### check-phase1-core.sh'
+            tail -c 6000 /tmp/core.log
+            echo '```'
+          } > /tmp/body.md
+          gh pr comment 3 --body-file /tmp/body.md
+          # Also surface the tail as annotations so a truncated comment still
+          # points at the failing area.
+          grep -m 8 -E "^error(\[E[0-9]+\])?:" /tmp/check.log | cut -c1-400 || true
