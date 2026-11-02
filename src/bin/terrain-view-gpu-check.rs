@@ -346,6 +346,7 @@ fn main() {
     let layer_snapshot = bytemuck::cast_slice::<Layer, u8>(&layer_records()).to_vec();
 
     let mut sampled = Vec::new();
+    let mut coverage: std::collections::HashMap<&str, usize> = Default::default();
     for (name, clip_y, reflected, far_mesh) in views {
         // One per-frame snapshot is reused by every view; nothing is rebuilt.
         assert_eq!(
@@ -436,6 +437,7 @@ fn main() {
             "{name}: dominant terrain RGB={rgb:?} over {covered} covered pixels, {} distinct",
             counts.len()
         );
+        coverage.insert(name, covered);
         sampled.push((name, rgb));
     }
 
@@ -466,26 +468,31 @@ fn main() {
             std::process::exit(1);
         }
     }
-    // The clipped refraction view hides geometry below the clip plane by driving
-    // transmittance to zero, so it must resolve to the fog colour rather than to
-    // the layer composite.
-    let fog: Vec<i32> = to_linear(FOG)
-        .iter()
-        .map(|v| (v * 255.).round() as i32)
-        .collect();
+    // The clipped refraction view must shade the same layer composite; what must
+    // differ is the geometry, because vs/terrain_refract_vs projects everything
+    // below clip.x onto that plane. Prove both: same colour, fewer pixels.
     let refraction = sampled
         .iter()
         .find(|(n, _)| *n == "clipped-refraction")
         .unwrap()
         .1;
-    let fog_delta = (0..3)
-        .map(|i| (refraction[i] as i32 - fog[i]).abs())
+    let refract_delta = (0..3)
+        .map(|i| (refraction[i] as i32 - main[i] as i32).abs())
         .max()
         .unwrap_or(0);
-    if fog_delta > 4 {
+    if refract_delta > 3 {
         println!(
-            "::error::terrain-view-gpu-check: clipped-refraction rgb={refraction:?} should be the \
-             fog colour {fog:?}; all={sampled:?}"
+            "::error::terrain-view-gpu-check: clipped-refraction rgb={refraction:?} vs main \
+             {main:?}; all={sampled:?}"
+        );
+        std::process::exit(1);
+    }
+    let main_coverage = coverage["main"];
+    if refract_delta <= 3 && coverage["clipped-refraction"] >= main_coverage {
+        println!(
+            "::error::terrain-view-gpu-check: refraction compressed nothing \
+             ({} vs {main_coverage} covered pixels)",
+            coverage["clipped-refraction"]
         );
         std::process::exit(1);
     }
