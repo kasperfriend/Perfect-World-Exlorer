@@ -343,10 +343,12 @@ pub fn day_night_lightmap(day: f32, night: f32, factor: f32) -> f32 {
     (factor * night + (1.0 - factor) * day).clamp(0.0, 1.0)
 }
 
-/// Whether `t2_3layer_batch_14`'s output is the day map or the night map. The
-/// native factor is a clamped signed y, so this is a sign test, not a ramp.
-pub fn lightmap_is_night(scene_direction_y: f32) -> bool {
-    scene_direction_y.clamp(0.0, 1.0) >= 1.0
+/// Whether the night map reaches the output at all. The native factor is the
+/// clamped signed y of the light direction, so the two maps cross-fade across
+/// the horizon and the result is only the pure day map when the light points
+/// straight down (`y <= 0`).
+pub fn lightmap_uses_night(scene_direction_y: f32) -> bool {
+    scene_direction_y > 0.0
 }
 
 /// Complete `t2_3layer_batch_14` radiance:
@@ -549,10 +551,14 @@ mod tests {
         assert_eq!(day_night_lightmap(1.0, 1.0, 7.0), 1.0);
         assert_eq!(day_night_lightmap(0.0, 0.0, -7.0), 0.0);
         // The real factor is a clamped direction sign.
-        assert!(!lightmap_is_night(-1.0));
-        assert!(!lightmap_is_night(0.0));
-        assert!(lightmap_is_night(0.5));
-        assert!(lightmap_is_night(9.0));
+        assert!(!lightmap_uses_night(-1.0));
+        assert!(!lightmap_uses_night(0.0));
+        assert!(lightmap_uses_night(0.5));
+        assert!(lightmap_uses_night(9.0));
+        // The blend stays continuous: only a downward light is pure day.
+        assert_eq!(day_night_lightmap(0.8, 0.2, 0.0), 0.8);
+        assert!(day_night_lightmap(0.8, 0.2, 0.5) < 0.8);
+        assert!(day_night_lightmap(0.8, 0.2, 0.5) > 0.2);
     }
 
     #[test]

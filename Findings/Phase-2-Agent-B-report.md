@@ -13,7 +13,7 @@ not touched here.
 
 | File | Change | Production call site |
 |---|---|---|
-| `src/terrain_shading.rs` | **new** - `Variant`, `Caps`, `select`, `PassState`/`pass_state`, stage constants, `vertex_layout`, `ShaderConstants`/`shader_constants`, `day_night_lightmap`, `lightmap_is_night`, `compose`, `packed_weight`, `composite_layers`, `Atlas`, `lightmap_pair`, `native::*`; 12 tests | `TerrainGpu::new` calls `select`/`pass_state`; the lightmap arithmetic is still reference-only (section 7, gap 1) |
+| `src/terrain_shading.rs` | **new** - `Variant`, `Caps`, `select`, `PassState`/`pass_state`, stage constants, `vertex_layout`, `ShaderConstants`/`shader_constants`, `day_night_lightmap`, `lightmap_uses_night`, `compose`, `packed_weight`, `composite_layers`, `Atlas`, `lightmap_pair`, `native::*`; 12 tests | `TerrainGpu::new` calls `select`/`pass_state`; the lightmap arithmetic is still reference-only (section 7, gap 1) |
 | `src/terrain_gpu.rs` | **cross-lane edit, announced**: `TerrainGpu::new` now derives primitive, colour-target, depth and cull state from `terrain_shading::select`/`pass_state` instead of restating them | 2-A/2-C read the same pipeline; no mesh, texture, sampler or submit code touched |
 | `src/main.rs` | `#[allow(dead_code)] mod terrain_shading;` added beside the other attributed modules (the address table and the reference arithmetic are not all reachable from the viewer yet) | binary crate root |
 | `tools/check-phase1-core.sh` | `terrain_shading` added to the dependency-free module loop | CI `pr-checks` |
@@ -74,8 +74,8 @@ addressing is per area through the mask slot, from the same counter as
 `(layers + lightmap*specular)` `* 1.0` `* lightmap * 2`, saturated.
 
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P2.05 | **No** | `day_night_lightmap`, `lightmap_is_night`, `compose`, `shader_constants` exist and are tested; the WGSL `fs` still uses `mix(night,day,sun.w)*2` | `0x7c26e0` constant block, `0x7b4eb0` direction build, `0x7b4fc2` normalise, `0x7c2377` `c3.a` | `day_and_night_maps_are_fixed_stages_not_swapped`,
-`day_night_lightmap_selects_both_endpoints`, `compose_drops_the_specular_term_because_c0w_is_zero`, `shader_constants_force_lane_zero_to_one` - CI only | what feeds `UpdateSceneLight` before `0x7b4e60` (`env+0x194..+0x19c` are overwritten wholesale by a 4x4 copy there, so the pre-normalised source is still open); the WGSL still has to be changed to `lightmap_is_night`
+P2.05 | **No** | `day_night_lightmap`, `lightmap_uses_night`, `compose`, `shader_constants` exist and are tested; the WGSL `fs` still uses `mix(night,day,sun.w)*2` | `0x7c26e0` constant block, `0x7b4eb0` direction build, `0x7b4fc2` normalise, `0x7c2377` `c3.a` | `day_and_night_maps_are_fixed_stages_not_swapped`,
+`day_night_lightmap_selects_both_endpoints`, `compose_drops_the_specular_term_because_c0w_is_zero`, `shader_constants_force_lane_zero_to_one` - CI only | what feeds `UpdateSceneLight` before `0x7b4e60` (`env+0x194..+0x19c` are overwritten wholesale by a 4x4 copy there, so the pre-normalised source is still open); the WGSL still has to use the recovered factor `env+0x198` instead of `sun.w`
 
 ## 4. Layer, mask and world-to-texture survey (P2.06)
 
