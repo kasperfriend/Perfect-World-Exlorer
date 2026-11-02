@@ -40,8 +40,11 @@ jobs:
             cargo fmt --all
             git --no-pager diff
             echo "## cargo check --bins"
-            cargo check --locked --bins 2>&1 | tail -160
-            echo "check-exit=${PIPESTATUS[0]}"
+            cargo check --locked --bins > /tmp/check.txt 2>&1
+            echo "check-exit=$?"
+            grep -n "^error\|error\[" -A 10 /tmp/check.txt | head -140
+            echo "## check tail"
+            tail -30 /tmp/check.txt
             echo "## unit tests"
             cargo test --locked --bin perfect-world-explorer 2>&1 | tail -120
             echo "## dependency-free modules"

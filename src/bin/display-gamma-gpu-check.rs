@@ -207,7 +207,7 @@ fn main() {
         let render_format = present_encode::render_format(surface_format);
         assert_eq!(render_format.is_srgb(), color_chain::RENDER_TARGET_IS_SRGB);
         assert_eq!(
-            color_chain::present_encode_required(surface_format),
+            color_chain::present_encode_required(surface_format.is_srgb()),
             !surface_format.is_srgb()
         );
         if surface_format.is_srgb() {
