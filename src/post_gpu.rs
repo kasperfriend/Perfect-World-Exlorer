@@ -4,10 +4,10 @@
 //! ad-hoc conditions at the call site.
 #[path = "gamma_curve.rs"]
 mod gamma_curve;
-#[path = "post_plan.rs"]
-pub mod post_plan;
 #[path = "glow_modulation.rs"]
 pub mod glow_modulation;
+#[path = "post_plan.rs"]
+pub mod post_plan;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 #[path = "glow_state.rs"]

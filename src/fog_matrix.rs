@@ -50,12 +50,7 @@ impl Fog {
 
     /// `fog_range` uniform (start, end, enabled, reserved).
     pub fn range(&self) -> [f32; 4] {
-        [
-            self.start,
-            self.end,
-            if self.enabled { 1. } else { 0. },
-            0.,
-        ]
+        [self.start, self.end, if self.enabled { 1. } else { 0. }, 0.]
     }
 
     /// `fog_color` uniform (encoded client ARGB channels).
@@ -187,7 +182,7 @@ pub fn row(material: Material, pass: Pass) -> Row {
     use Material::{
         BakedModel, Grass, Model, Shore, Sky, Terrain, TransparentModel, Tree, WaterSurface,
     };
-    use Pass::{BelowSurface, Main, Refraction, Reflection};
+    use Pass::{BelowSurface, Main, Reflection, Refraction};
     use Quantity::{EyeRayExponential, TableFogViewZ};
     use RangeColor::{Air, Camera, WaterRefraction};
     match (material, pass) {
@@ -230,21 +225,41 @@ pub fn row(material: Material, pass: Pass) -> Row {
             "shoreline drawn only in the main pass",
         ),
         // Main and reflection passes: engine table fog for every world material.
-        (Terrain, Main) | (Terrain, Reflection) => {
-            row_of(TableFogViewZ, Camera, false, true, "terrain_gpu fogged() (0x7c4edb)")
-        }
-        (Grass, Main) | (Grass, Reflection) => {
-            row_of(TableFogViewZ, Camera, false, true, "grass fogged() table fog")
-        }
-        (BakedModel, Main) | (BakedModel, Reflection) => {
-            row_of(TableFogViewZ, Camera, false, true, "bmd fogged() (0x7a91dd main path)")
-        }
-        (Model, Main) | (Model, Reflection) => {
-            row_of(TableFogViewZ, Camera, false, true, "model_receiver table fog (fog_range.z)")
-        }
-        (TransparentModel, Main) | (TransparentModel, Reflection) => {
-            row_of(TableFogViewZ, Camera, false, true, "same shader/fog as the model row")
-        }
+        (Terrain, Main) | (Terrain, Reflection) => row_of(
+            TableFogViewZ,
+            Camera,
+            false,
+            true,
+            "terrain_gpu fogged() (0x7c4edb)",
+        ),
+        (Grass, Main) | (Grass, Reflection) => row_of(
+            TableFogViewZ,
+            Camera,
+            false,
+            true,
+            "grass fogged() table fog",
+        ),
+        (BakedModel, Main) | (BakedModel, Reflection) => row_of(
+            TableFogViewZ,
+            Camera,
+            false,
+            true,
+            "bmd fogged() (0x7a91dd main path)",
+        ),
+        (Model, Main) | (Model, Reflection) => row_of(
+            TableFogViewZ,
+            Camera,
+            false,
+            true,
+            "model_receiver table fog (fog_range.z)",
+        ),
+        (TransparentModel, Main) | (TransparentModel, Reflection) => row_of(
+            TableFogViewZ,
+            Camera,
+            false,
+            true,
+            "same shader/fog as the model row",
+        ),
         (Tree, Main) | (Tree, Reflection) => {
             row_of(TableFogViewZ, Camera, false, true, "far_trees_gpu fogged()")
         }
@@ -290,8 +305,7 @@ pub fn row(material: Material, pass: Pass) -> Row {
         | (BakedModel, BelowSurface)
         | (Model, BelowSurface)
         | (TransparentModel, BelowSurface)
-        | (Tree, BelowSurface)
-        | (Shore, BelowSurface) => row_of(
+        | (Tree, BelowSurface) => row_of(
             TableFogViewZ,
             Air,
             false,
@@ -380,11 +394,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             exponential,
-            vec![
-                Material::Terrain,
-                Material::Grass,
-                Material::BakedModel
-            ]
+            vec![Material::Terrain, Material::Grass, Material::BakedModel]
         );
         // The same materials use table fog in main/reflection: no universal
         // screen-space approximation replaced them.
@@ -445,7 +455,10 @@ mod tests {
         let clipped = refraction_fog(water(), 3., 77.);
         assert_eq!(clipped.color, water().color);
         assert_eq!(clipped.range(), [3., 77., 1., 0.]);
-        assert_eq!(clipped.color4(), [water().color[0], water().color[1], water().color[2], 1.]);
+        assert_eq!(
+            clipped.color4(),
+            [water().color[0], water().color[1], water().color[2], 1.]
+        );
         // The below-surface scene uses air fog even while the camera is under
         // water, matching 0x7cca50's explicit air-fog set before the draw.
         let restored = below_surface_fog(air());

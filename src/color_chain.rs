@@ -61,9 +61,8 @@ pub fn encoded_fog_mix(linear: [f32; 3], fog_encoded: [f32; 3], factor: f32) -> 
         0.
     };
     let encoded = encode_rgb(linear);
-    let mixed: [f32; 3] = std::array::from_fn(|i| {
-        encoded[i] + (fog_encoded[i].clamp(0., 1.) - encoded[i]) * f
-    });
+    let mixed: [f32; 3] =
+        std::array::from_fn(|i| encoded[i] + (fog_encoded[i].clamp(0., 1.) - encoded[i]) * f);
     decode_rgb(mixed)
 }
 
@@ -184,15 +183,18 @@ mod tests {
 
     #[test]
     fn output_encode_appears_exactly_once() {
+        // The composite target is always sRGB, so scene writes encode once.
         assert!(RENDER_TARGET_IS_SRGB);
+        // A UNORM swapchain additionally needs the presentation copy; an sRGB
+        // swapchain samples the encoded value directly.
         assert!(present_encode_required(false));
         assert!(!present_encode_required(true));
-        // The two routes are mutually exclusive: either the render target is
-        // sRGB (encoded on write) or presentation performs the only encode.
-        for surface_is_srgb in [false, true] {
-            let target_encodes = RENDER_TARGET_IS_SRGB;
-            let present_encodes = present_encode_required(surface_is_srgb);
-            assert_eq!(target_encodes, !present_encodes);
+        // The copy loads the sRGB intermediate (decode) and writes a UNORM
+        // target (encode), so the byte the monitor receives equals the byte the
+        // intermediate stored: one visible encode, not two.
+        for i in 0..=255 {
+            let stored = i as f32 / 255.;
+            assert!((encode(decode(stored)) - stored).abs() < 1e-6, "{i}");
         }
     }
 }

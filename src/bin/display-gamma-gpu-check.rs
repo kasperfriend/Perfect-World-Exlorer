@@ -338,7 +338,10 @@ fn main() {
     }
     // The fixture must be sensitive to a stray transfer function.
     let twice = color_chain::encode(color_chain::encode(128. / 255.)) * 255.;
-    assert!((twice - 128.).abs() > 1., "present encode fixture is insensitive");
+    assert!(
+        (twice - 128.).abs() > 1.,
+        "present encode fixture is insensitive"
+    );
     println!(
         "Present encode: {encode_cases} encoded-byte readbacks passed (UNORM RGBA/BGRA swapchains, one encode)"
     );

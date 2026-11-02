@@ -168,12 +168,7 @@ impl PresentEncode {
 
     /// Copy the encoded frame to the swapchain. Runs after the whole-frame
     /// display ramp (which writes into [`Self::view`]).
-    pub fn present(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        target: &wgpu::TextureView,
-    ) {
+    pub fn present(&self, device: &wgpu::Device, queue: &wgpu::Queue, target: &wgpu::TextureView) {
         let source = self.raw_view();
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("present encode source"),

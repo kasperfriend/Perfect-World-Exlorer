@@ -2203,7 +2203,9 @@ pub fn run(
         .ok_or("surface configuration unavailable")?;
     config.format = surface_format;
     if surface_format.is_srgb() {
-        config.view_formats.push(surface_format.remove_srgb_suffix());
+        config
+            .view_formats
+            .push(surface_format.remove_srgb_suffix());
     }
     surface.configure(&device, &config);
     let mut camera = Camera::new(&t);
@@ -2226,18 +2228,17 @@ pub fn run(
     )?;
     let mut display_gamma: Option<crate::display_gamma::DisplayGamma> = None;
     // Only allocated for UNORM-only swapchains; None is the normal sRGB route.
-    let mut present_encode: Option<crate::present_encode::PresentEncode> = if
-        crate::color_chain::present_encode_required(surface_format)
-    {
-        Some(crate::present_encode::PresentEncode::new(
-            &renderer.device,
-            surface_format,
-            config.width,
-            config.height,
-        ))
-    } else {
-        None
-    };
+    let mut present_encode: Option<crate::present_encode::PresentEncode> =
+        if crate::color_chain::present_encode_required(surface_format.is_srgb()) {
+            Some(crate::present_encode::PresentEncode::new(
+                &renderer.device,
+                surface_format,
+                config.width,
+                config.height,
+            ))
+        } else {
+            None
+        };
     let mut music = crate::music::MusicPlayer::new(&t.element);
     #[cfg(windows)]
     drop(loading);
@@ -2723,9 +2724,26 @@ pub fn run(
                                 for id in &output.textures_delta.free {egui_renderer.free_texture(id);}
                             }
                             // Exactly one ramp stage, then exactly one output encode.
-                            let ramp_target=match present_encode.as_ref() {Some(encode)=>encode.view(),None=>surface_view.clone()};
-                            if let Some(gamma)=display_gamma.as_ref() {gamma.present(&renderer.device,&renderer.queue,&ramp_target,frame_gamma_setting);}
-                            if let Some(encode)=present_encode.as_ref() {encode.present(&renderer.device,&renderer.queue,&surface_view);}
+                            if let Some(encode) = present_encode.as_ref() {
+                                // Ramp into the sRGB intermediate, then copy it once.
+                                let ramp_target = encode.view();
+                                if let Some(gamma) = display_gamma.as_ref() {
+                                    gamma.present(
+                                        &renderer.device,
+                                        &renderer.queue,
+                                        &ramp_target,
+                                        frame_gamma_setting,
+                                    );
+                                }
+                                encode.present(&renderer.device, &renderer.queue, &surface_view);
+                            } else if let Some(gamma) = display_gamma.as_ref() {
+                                gamma.present(
+                                    &renderer.device,
+                                    &renderer.queue,
+                                    &surface_view,
+                                    frame_gamma_setting,
+                                );
+                            }
                             frame.present();
                             if software_adapter { renderer.device.poll(wgpu::Maintain::Wait); }
                         }
