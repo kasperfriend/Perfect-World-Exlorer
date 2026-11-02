@@ -1,0 +1,57 @@
+# Phase 1 — actual skin/material receiver census
+
+## Scope and results (2026-11-02)
+
+The private client archive has **40,753 entries**, including **10,898 SKIs**:
+7,247 version 8 and 3,651 version 9. Its serialized mesh counts are 13,820
+skin meshes and 1,988 rigid meshes, with no morph, supple or muscle records.
+This is a data-format census, **not a renderer-support claim**.
+
+The production Rust `Skin::parse` reader was compiled into an isolated corpus
+harness and run on all extracted SKIs. **10,896 parsed; two were rejected**
+for NaN weights (`0xffc00000` in the three serialized weight components):
+
+- `models/npcs/宠物/骑宠/大龙虾/大龙虾.ski`: vertex 738.
+- `models/players/通用装备/飞剑/仙鹤/仙鹤.ski`: vertices 330, 638, 639.
+
+These are bad authored weights, not evidence for removing the finite-value
+guard. Rejected records remain failures. The successful records contain
+13,158 materials, 13,816 skin meshes and 1,988 rigid meshes; all produced
+finite material constants and zero point-diffuse alpha in the binding check.
+The isolated harness used encoding_rs 0.8.35 from its upstream tag with the
+installed rustc 1.88; this is not the locked application dependency build.
+CI separately compiles/tests the actual application dependency graph.
+
+The production `Scene::load` reader found **73 unique world placements**.
+Following their normalized ECM → SMD → BON/SKI dependencies found **14 ECMs,
+14 SMDs, 14 BONs and 14 SKIs**, with no missing dependency at these levels.
+All 14 world SKIs passed the production Rust reader and material binding:
+**41 skin meshes, zero rigid meshes and 23 materials**. None of the two bad
+archive records above is among these world receivers. This check does not
+validate all animation tracks, textures, hangers, or runtime eligibility.
+
+The Python header walker independently found that every SKI's serialized
+skin/rigid payload ends exactly at EOF. `Skin::parse` now also rejects
+unrecognized trailing payload instead of silently ignoring it. A regression
+covers this guard and another verifies distinct ambient/diffuse/emissive/
+specular fields through the parser-to-material-binding bridge.
+
+## Reproducible application diagnostics
+
+```sh
+cargo run --locked --bin skin-material-survey -- /path/to/element/models.pck
+cargo run --locked --bin ecmodel-check -- /path/to/element
+```
+
+`skin-material-survey` parses all SKIs and checks material binding for point
+on/off, reporting a failing status for any unresolved record (including the
+two known bad files in this archive). `ecmodel-check` now checks the actual
+world's referenced SKIs and material bindings, rather than only checking that
+filenames exist. Missing dependencies and parse/binding failures produce a
+nonzero exit status. Neither diagnostic draws the receivers.
+
+## Renderer gate
+
+**Still open:** the 73 placements are not yet drawn by a world skin renderer.
+The verified parser and material constants do not replace that integration.
+Baked BMD/terrain and the approved tree path remain untouched.

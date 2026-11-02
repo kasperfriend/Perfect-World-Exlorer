@@ -3,10 +3,14 @@
 mod animation;
 #[path = "../ecmodel.rs"]
 mod ecmodel;
+#[path = "../model_material.rs"]
+mod model_material;
 #[path = "../pck.rs"]
 mod pck;
 #[path = "../scene.rs"]
 mod scene;
+#[path = "../skin.rs"]
+mod skin;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::File,
@@ -68,6 +72,51 @@ fn main() -> Result<(), String> {
             }
         }
     }
+    let (mut skin_meshes, mut rigid_meshes, mut material_count) = (0, 0, 0);
+    let mut skin_versions = BTreeMap::new();
+    let mut failures = Vec::new();
+    for path in &skins {
+        let Some(entry) = entries.get(path) else {
+            continue;
+        };
+        match pck::read_entry(&mut f, entry).and_then(|b| skin::Skin::parse(&b)) {
+            Ok(s) => {
+                *skin_versions.entry(s.version).or_insert(0usize) += 1;
+                for mesh in &s.meshes {
+                    if mesh.rigid_bone.is_some() {
+                        rigid_meshes += 1
+                    } else {
+                        skin_meshes += 1
+                    }
+                }
+                material_count += s.materials.len();
+                for material in &s.materials {
+                    let c = material.light_constants(model_material::Lighting {
+                        environment_ambient: [0.2, 0.3, 0.4, 0.],
+                        additional_ambient: [0.; 4],
+                        directional_diffuse: [0.8, 0.7, 0.6, 1.],
+                        point_ambient: [0.1, 0.2, 0.3, 0.],
+                        point_diffuse: [0.4, 0.3, 0.2, 1.],
+                        transparency: 0.,
+                        point_enabled: true,
+                    });
+                    if !c
+                        .ambient
+                        .iter()
+                        .chain(c.directional_diffuse.iter())
+                        .chain(c.point_ambient.iter())
+                        .chain(c.point_diffuse.iter())
+                        .all(|v| v.is_finite())
+                        || c.point_diffuse[3] != 0.
+                    {
+                        failures.push(format!("{path}: invalid material binding"));
+                    }
+                }
+            }
+            Err(e) => failures.push(format!("{path}: {e}")),
+        }
+    }
+    println!("SKI versions {skin_versions:?}; {skin_meshes} skinned / {rigid_meshes} rigid meshes; {material_count} materials");
     println!(
         "{} placements, {} ECMs, {} SMDs, {} unique SKIs; SMD versions {:?}",
         placed.len(),
@@ -77,8 +126,22 @@ fn main() -> Result<(), String> {
         versions
     );
     println!("{} unresolved dependencies", missing.len());
-    for x in missing {
+    for x in &missing {
         println!("  {x}")
     }
+    failures.sort();
+    for x in &failures {
+        eprintln!("  {x}")
+    }
+    if !missing.is_empty() || !failures.is_empty() {
+        return Err(format!(
+            "{} unresolved dependencies; {} skin/material failures",
+            missing.len(),
+            failures.len()
+        ));
+    }
+    println!(
+        "Dependency and skin-material checks pass; world rendering is not checked by this survey."
+    );
     Ok(())
 }

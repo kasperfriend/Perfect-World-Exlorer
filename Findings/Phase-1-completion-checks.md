@@ -27,3 +27,14 @@ A requirement passes only if its entire scope is supported by implementation and
 ## Exit condition
 
 **Not met.** P1.01–P1.10 must all pass their full acceptance checks before claiming Phase 1 completion. No empty-list trick, renamed status or passing arithmetic test changes that condition.
+
+### Receiver/material follow-up
+
+- `3ed6592` recovers non-specular skin/rigid material constants and the
+  ordinary-versus-point-light alpha distinction. [CI 41432875230](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41432875230)
+  passed Linux checks (including the expanded 31-case RGBA GPU comparison)
+  and the Windows executable build.
+- [Actual model/material census](Phase-1-model-material-census.md) records
+  the full-archive and world-only checks, including two malformed archive
+  records. The world's 14 referenced skins/41 skin meshes/23 materials pass
+  the parser/material-binding check. This does not close P1.03's renderer gate.

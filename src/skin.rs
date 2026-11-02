@@ -20,6 +20,22 @@ pub struct Material {
     pub power: f32,
     pub two_sided: bool,
 }
+impl Material {
+    /// Bind parsed skin material colors, not baked BMD vertex colors.
+    pub fn light_constants(
+        &self,
+        lighting: crate::model_material::Lighting,
+    ) -> crate::model_material::Constants {
+        crate::model_material::bind(
+            crate::model_material::Material {
+                ambient: self.ambient,
+                diffuse: self.diffuse,
+                emissive: self.emissive,
+            },
+            lighting,
+        )
+    }
+}
 #[derive(Clone, Debug)]
 pub struct Mesh {
     pub name: String,
@@ -235,6 +251,9 @@ impl Skin {
                 indices,
             });
         }
+        if r.pos != r.data.len() {
+            return Err(format!("unparsed skin bytes: {}", r.data.len() - r.pos));
+        }
         Ok(Self {
             version,
             bones,
@@ -314,5 +333,46 @@ mod tests {
         let mut x = b.clone();
         x[20..24].copy_from_slice(&1u32.to_le_bytes());
         assert!(Skin::parse(&x).is_err());
+    }
+    #[test]
+    fn rejects_unrecognized_trailing_payload() {
+        let mut b = sample();
+        b.push(0);
+        assert!(Skin::parse(&b).unwrap_err().contains("unparsed skin bytes"));
+    }
+    #[test]
+    fn parsed_material_channels_feed_recovered_binding() {
+        let mut b = sample();
+        let start = b
+            .windows(b"MATERIAL: a\0".len())
+            .position(|w| w == b"MATERIAL: a\0")
+            .unwrap()
+            + b"MATERIAL: a\0".len();
+        for (i, v) in [
+            0.2f32, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.01, 0.02, 0.03, 0.04, 0.11, 0.12, 0.13,
+            0.14,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            b[start + i * 4..start + i * 4 + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        let skin = Skin::parse(&b).unwrap();
+        assert_eq!(skin.materials[0].ambient, [0.2, 0.3, 0.4, 0.5]);
+        assert_eq!(skin.materials[0].diffuse, [0.6, 0.7, 0.8, 0.9]);
+        assert_eq!(skin.materials[0].emissive, [0.01, 0.02, 0.03, 0.04]);
+        assert_eq!(skin.materials[0].specular, [0.11, 0.12, 0.13, 0.14]);
+        let c = skin.materials[0].light_constants(crate::model_material::Lighting {
+            environment_ambient: [0.5; 4],
+            additional_ambient: [0.; 4],
+            directional_diffuse: [0.5; 4],
+            point_ambient: [0.5; 4],
+            point_diffuse: [0.5; 4],
+            transparency: 0.25,
+            point_enabled: true,
+        });
+        assert!((c.ambient[0] - 0.11).abs() < 1e-6);
+        assert_eq!(c.directional_diffuse, [0.3, 0.35, 0.4, 0.75]);
+        assert_eq!(c.point_diffuse[3], 0.);
     }
 }
