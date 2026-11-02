@@ -32,7 +32,7 @@ pub struct Params {
     pub fog_range: [f32; 4],
     /// World clip plane; zero disables clipping.
     pub clip_plane: [f32; 4],
-    /// two sided, reverse front face, alpha-test enabled, alpha reference.
+    /// Two sided, reverse front face, D3DCMPFUNC (0 disables), alpha reference.
     pub raster: [f32; 4],
 }
 pub struct Mesh {
@@ -257,7 +257,19 @@ struct Output {@builtin(position) position:vec4<f32>,@location(0) uv:vec2<f32>,@
  if dot(vec4<f32>(v.world,1.),p.clip_plane)<0. {discard;}
  let t=textureSample(image,image_sampler,v.uv);
  let alpha=clamp(t.a*v.diffuse.a,0.,1.);
- if p.raster.z>0.5 && alpha<p.raster.w {discard;}
+ let reference=p.raster.w;
+ var alpha_pass=true;
+ switch u32(p.raster.z) {
+  case 1u: {alpha_pass=false;}
+  case 2u: {alpha_pass=alpha<reference;}
+  case 3u: {alpha_pass=alpha==reference;}
+  case 4u: {alpha_pass=alpha<=reference;}
+  case 5u: {alpha_pass=alpha>reference;}
+  case 6u: {alpha_pass=alpha!=reference;}
+  case 7u: {alpha_pass=alpha>=reference;}
+  default: {}
+ }
+ if !alpha_pass {discard;}
  let encoded=clamp(t.rgb*v.diffuse.rgb+v.specular,vec3<f32>(0.),vec3<f32>(1.));
  var fog=v.fog;
  if p.fog_range.z>0.5 {

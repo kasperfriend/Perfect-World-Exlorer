@@ -921,3 +921,15 @@ all have specular RGB zero, alpha 1 (powers include 0 and approximately 10).
 This does not justify disabling the specular shader variant: its diffuse-alpha
 calculation still differs. Nonzero specular materials must use the actual light
 specular, not an invented copy of directional diffuse.
+
+Alpha-state follow-up (verified instruction boundaries): ordinary receiver
+setup `41a32e–41a349` selects GREATER_EQUAL (7) and reference 0x54;
+`42b479–42b4a3` enables testing but selects GREATER (5), also reference 0x54.
+The skin queue `7a76a0` saves/restores test enable, applies model blend factors,
+and enables testing for model+2ac; this does not independently establish the
+inherited comparison function. Accordingly the raster API now takes the actual
+D3DCMPFUNC (0 disabled, 1–8 the eight comparisons), not a boolean that silently
+assumes GREATER_EQUAL. The diagnostic adds all eight comparisons against
+reference 1 with nonopaque fragment alpha: 336 intended RGBA cases total.
+This follow-up requires full CI validation; runtime pass/state wiring is still
+not complete. No readiness point has been changed to Yes on this evidence.

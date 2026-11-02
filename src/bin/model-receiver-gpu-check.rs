@@ -163,13 +163,13 @@ fn main() {
                     let mesh = Mesh::new(&device, &vertices, &[0, 1, 2, 2, 1, 3]).unwrap();
                     assert!(mesh.update(&queue, &vertices[..3]).is_err());
                     let binding = receiver.binding(&device, &view, &sampler, &params).unwrap();
-                    for reject in [0, 1, 2, 3, 4, 5] {
+                    for reject in 0..14 {
                         let mut p = params;
                         if reject == 1 {
                             p.clip_plane = [0., 0., 0., -1.];
                         }
                         if reject == 2 {
-                            p.raster[2] = 1.;
+                            p.raster[2] = 7.;
                             p.raster[3] = 1.;
                         }
                         if reject == 3 {
@@ -182,6 +182,10 @@ fn main() {
                         }
                         if reject == 5 {
                             p.fog_range = [0., 2., 1., 0.];
+                        }
+                        if reject >= 6 {
+                            p.raster[2] = (reject - 5) as f32;
+                            p.raster[3] = 1.;
                         }
                         binding.update(&queue, &p).unwrap();
                         let mut encoder = device.create_command_encoder(&Default::default());
@@ -236,7 +240,8 @@ fn main() {
                                 let f = if reject == 5 { 0.5 } else { fog };
                                 fog_color[c] * (1. - f) + encoded * f
                             };
-                            let expected = if reject != 0 && reject != 4 && reject != 5 {
+                            let rejected = matches!(reject, 1 | 2 | 3 | 6 | 8 | 10 | 12);
+                            let expected = if rejected {
                                 background[c]
                             } else {
                                 ((src * opacity + background[c] as f32 / 255. * (1. - opacity))
