@@ -2,7 +2,8 @@
 """Fail closed on Phase 1's full-scope acceptance table, independently of builds.
 
 This checks recorded acceptance decisions, not renderer parity by itself.
-A confirmation poll is appropriate only after this gate and validation pass.
+Completion approval requires this gate and validation to pass.
+A failed checkpoint must report No and continue implementation.
 """
 import json
 import re

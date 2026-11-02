@@ -621,3 +621,6 @@ previous case: neutral, opaque colored, independently faded translucent,
 and zero caller alpha (144 total). Its independent CPU reference applies
 modulation before the encoded blend, not to an already-quantized result.
 Core CPU suite passes 48 tests. Full application/GPU validation pending.
+
+Caller modulation cycle `b66e905` passed
+[CI 41440063378](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41440063378): all 144 tinted/faded glow comparisons, all eight production GPU binaries, Linux application checks/tests and Windows executable build. Readiness remains No for P1.01–P1.10; this is component validation, not Phase 1 completion.
