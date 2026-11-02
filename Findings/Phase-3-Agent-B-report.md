@@ -291,7 +291,7 @@ reproduces it.
 |---|---|---|
 | `src/bmd_baked.rs` | Draw-state table, `classify`, `alpha_test`, `cutout_reference`, `overlap_outcome`, `native` write-site constants (incl. the four pass blend/alpha-test sites), 9 unit tests | imported by `gpu.rs`, `world_objects.rs`, `bin/bmd-overlap-survey.rs`, `bin/world-preload-check.rs` |
 | `src/gpu.rs` | shader: culling bands extended to the colour kinds, colour-only `MODULATE2X` branch, baked alpha test removed; new `scenery_pipeline` (`GreaterEqual`) created in `Renderer::new` and used by `draw_opaque` | `draw_opaque()` (`set_pipeline`, `terrain_end..local_end` + `local_pages` + `world_pages`) |
-| `src/world_objects.rs` | whole-world page vertices classify through the table instead of inline `2.0/2.1` | `run()` page builder |
+| `src/world_objects.rs` | whole-world page vertices classify through the table instead of inline `2.0/2.1`; after the `main` merge the same builder keys the atlas slot on Agent A's content hash (`objects.texture_key`) | `run()` page builder |
 | `src/bin/world-preload-check.rs` | declares `mod bmd_baked` (the shared table it now needs) | diagnostic only |
 | `src/bin/bmd-overlap-survey.rs` | per-pair overlap classification and counters; `meshes=`/`unparsed=` census counters and per-model error tolerance so a partial archive still yields a result | diagnostic only, shipped as `BmdOverlapSurvey.exe` |
 | `src/bin/bmd-sided-gpu-check.rs` | six instances per case, mirrored placement, zero-alpha atlas | diagnostic only |
@@ -329,6 +329,7 @@ runs caught (a `u32` overflow and a rustfmt shape), is:
 | 41522066048 | `ddc3839` | `Viewer unit tests` ✓, `Baked scenery raster regression` ✓ (`bmd-sided-gpu-check` on lavapipe) |
 | 41523033865 | `991fe2d` | **both jobs green.** `Rust checks and tests (Linux)`: `Check formatting` ✓, `Verify recovered regional arithmetic on x87` ✓, `Test requirement status audits` ✓, `Check all binary targets` ✓, `Test GFX light dependency audit` ✓, `Run viewer unit tests` ✓, `Run Phase 1 production shader regressions` ✓ (all fourteen lavapipe binaries, including the extended `bmd-sided-gpu-check` now wired into that step). `Windows executable (x64)` ✓ |
 | 41526711344 | `8142dd0` | `Check formatting` **failed** — one new assertion in `bmd_baked.rs` was left on a single line where rustfmt's `fn_call_width` puts it in a vertical list; nothing else ran |
+| 41531096347 | `1e1088c` | **both jobs green after merging `main`** (`2b3b4d9`, Phase 3 Agent A: client-order texture resolution, bounded residency, content-keyed atlas slots). One conflict, in the `world_objects.rs` page builder: resolved as *their* content-keyed slot key plus *my* `bmd_baked::classify` kind, and `world-preload-check.rs` declares `texture_resolution` so its `#[path]` module set still closes. No report or counter changed by the merge |
 | 41527209273 | `c099c0f` | **both jobs green**, and the Windows artifact now carries `BmdOverlapSurvey.exe` plus its checksum (6,111,979 B artifact). `Rust checks and tests (Linux)`: `Check formatting` ✓, x87 reference ✓, requirement audits ✓, `Check all binary targets` ✓, GFX light audit ✓, `Run viewer unit tests` ✓ (nine `bmd_baked` tests), all fourteen lavapipe shader regressions ✓. `Windows executable (x64)` ✓ including the new survey build and stage step |
 
 The unit-test failure was real and is fixed in `ddc3839`:
@@ -340,8 +341,9 @@ viewer unit test pass, and the extended `bmd-sided-gpu-check` passes on lavapipe
 — the six-instance expectation table of §3 is therefore confirmed by raster
 output, not only by the Python oracle. The last code head `c099c0f` repeats all of
 that inside the ordinary PR gate (run 41527209273), which is also the run that
-proves the shipped survey tool builds and stages on Windows, so every number
-above is from a run of the code in this branch.
+proves the shipped survey tool builds and stages on Windows. The `main` merge
+(`1e1088c`, run 41531096347) re-runs the whole gate over the combined tree, so
+every number above is from a run of code that is in this branch.
 
 Two temporary, review-only workflows were used to get feedback into this sandbox
 (`cargo fmt` and the failure text, because Actions logs and check annotations
