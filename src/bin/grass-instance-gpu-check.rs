@@ -516,6 +516,115 @@ fn main() {
         }
         println!("clip={clip}, fog={fog}: {n} pixels match CPU-expanded grass");
     }
+    // Refraction uses the actual instanced vertex fog path, not table fog.
+    // Equal clip W makes the CPU interpolation unambiguous for this fixture.
+    let saved_uni = uni.clone();
+    for (plane, wind) in [(0.0f32, 0.0f32), (0., 0.2), (0.2, 0.)] {
+        uni[20] = plane;
+        uni[21] = -1.;
+        uni[52..56].copy_from_slice(&[-3., 2., 1., 0.]);
+        uni[57] = if wind > 0. { 1. } else { 0. };
+        uni[60..64].copy_from_slice(&[0., wind, 0., 0.]);
+        uni[380..384].copy_from_slice(&[0., 0.5, 1., 0.]);
+        uni[384..388].copy_from_slice(&[0.5, 0.25, 0.75, 1.]);
+        queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
+        let read = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 128 * 128 * 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut e = device.create_command_encoder(&Default::default());
+        {
+            let mut p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("grass refraction vertex fog"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &dv,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            grass.draw(&mut p, &bind, None);
+        }
+        e.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &read,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(512),
+                    rows_per_image: Some(128),
+                },
+            },
+            size,
+        );
+        queue.submit(Some(e.finish()));
+        let slice = read.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv().unwrap().unwrap();
+        let bytes = slice.get_mapped_range();
+        let (px, py) = (32usize, 73usize);
+        let x = (px as f32 + 0.5) / 64. - 1.;
+        let y = 1. - (py as f32 + 0.5) / 64.;
+        let u = (x + 0.8) / 0.6;
+        let v = (y + 0.3) / (0.6 + wind);
+        assert!(u > 0. && v > 0. && u + v < 1.);
+        let mut factor = 0.;
+        for (pos, displaced_y, w) in [
+            ([-0.8f32, -0.3, 0.5], -0.3, 1. - u - v),
+            ([-0.2, -0.3, 0.5], -0.3, u),
+            ([-0.8, 0.3, 0.5], 0.3 + wind, v),
+        ] {
+            let d = [-3. - pos[0], 2. - pos[1], 1. - pos[2]];
+            let distance = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            factor += (-0.075 * (plane - displaced_y) * distance / d[1]).exp2() * w;
+        }
+        factor = factor.clamp(0., 1.);
+        let pixel = &bytes[(py * 128 + px) * 4..][..3];
+        for (channel, (base, fog)) in [
+            (30.0f32 / 255., 0.5),
+            (240. / 255., 0.25),
+            (40. / 255., 0.75),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let encoded = base * factor + fog * (1. - factor);
+            let linear = if encoded <= 0.04045 {
+                encoded / 12.92
+            } else {
+                ((encoded + 0.055) / 1.055).powf(2.4)
+            };
+            let expected = (linear * 255.).round() as i32;
+            assert!((pixel[channel] as i32-expected).abs()<=2,"refraction plane={plane} wind={wind}: {pixel:?}, channel {channel} expected {expected}, factor {factor}");
+        }
+        println!(
+            "grass refraction plane={plane} wind={wind}: {pixel:?}, vertex fog factor {factor}"
+        );
+        drop(bytes);
+        read.unmap();
+    }
+    uni = saved_uni;
     uni[380..388].fill(0.);
     // The actual GPU shader: compare near, half-range and beyond-range
     // visibility with the PS alpha test, plus a toggle-off regression.

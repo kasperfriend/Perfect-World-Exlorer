@@ -398,3 +398,29 @@ on/off. CPU core suite passes 33 tests; CI 41433732886 passed the 47-case GPU co
 scales alpha with the light terms. It must not be routed through the ordinary
 skin/rigid specular helper. The actual client's SKI census contains no morph
 meshes, but that absence is not a universal format-support claim.
+
+### Grass refraction fog — production pass integration
+
+`0x651319–0x65134c` selects the refraction grass shader and uploads c91 as
+`(1, water_height, 0.075, 0)` (`0x3d99999a` is 0.075). The extracted
+`grass_wave_refract.txt` computes submerged depth using the displaced vertex
+Y, but the normalized eye ray uses original v0. `exp` / reciprocal produces
+`exp2(-0.075 * depth * length(eye-original)/(eye.y-original.y))`. This is not
+an `exp`-base-e fog, full camera distance, or the terrain table-fog interval.
+
+The instanced production grass shader now emits this per-vertex factor only
+in the below-water refraction pass (`camera.clip.y < 0`). Its fragment path
+uses that interpolated factor to blend encoded RGB with water fog color.
+Ordinary and reflected grass still use the existing table-fog function;
+terrain, baked BMD and approved trees are unchanged. Above-water vertex
+factors are not prematurely clamped: clipping/interpolation occurs before
+fragment fog saturation. The undefined horizontal/coincident ray cases have
+explicit finite safety fallbacks, not a retail-degenerate-behavior claim.
+
+Five CPU tests cover base two, submerged-versus-full distance, oblique rays,
+wind-displaced depth/original direction, translation, unclamped vertex
+factors and degenerate safety. The dependency-free suite now has 38 tests.
+The existing production grass GPU binary adds three rendered comparisons
+(two water heights and wind on/off) against independently calculated vertex
+fog/interpolation/encoded blending. GPU results are pending validation.
+This implements the grass component, not the complete per-pass fog gate.

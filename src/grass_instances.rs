@@ -1,5 +1,7 @@
 //! GPU-instanced local MOXB grass. Placement sampling remains the viewer's
 //! client-derived patch randomization; meshes are stored once per type/material.
+#[path = "refraction_fog.rs"]
+mod refraction_fog;
 use crate::gpu::Vertex;
 use std::{collections::BTreeMap, ops::Range};
 use wgpu::util::DeviceExt;
@@ -137,12 +139,12 @@ impl Gpu {
         assert!(source.contains(marker));
         source = source.replacen(
             marker,
-            "@location(5) diffuse:vec3<f32>, @location(6) grass_fade:f32, @location(7) @interpolate(flat) grass_area:vec2<f32> };",
+            "@location(5) diffuse:vec3<f32>, @location(6) grass_fade:f32, @location(7) @interpolate(flat) grass_area:vec2<f32>, @location(8) grass_refraction:f32 };",
             1,
         );
         let marker = "o.pos=camera.matrix*vec4<f32>(pos,1.);";
         assert!(source.contains(marker));
-        source = source.replacen(marker,"o.grass_area=area_center; o.grass_fade=1.; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0. && weight>=0. && weight<100. {let history_index=u32(clamp(extra.z,0.,79.)); pos+=camera.grass_history[history_index].xyz*weight*camera.grass_wind.y;} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
+        source = source.replacen(marker,"o.grass_area=area_center; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0. && weight>=0. && weight<100. {let history_index=u32(clamp(extra.z,0.,79.)); pos+=camera.grass_history[history_index].xyz*weight*camera.grass_wind.y;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
         let marker = "tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)";
         assert!(source.contains(marker));
         source = source.replacen(
@@ -177,9 +179,16 @@ fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
 "#;
             let marker = "let light=camera.light.x+camera.light.y*max";
             assert!(source.contains(marker));
-            source=source.replacen(marker, "if camera.sun.w>=0. {return vec4<f32>(fogged(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w),1.);} let light=camera.light.x+camera.light.y*max",1);
+            source=source.replacen(marker, "if camera.sun.w>=0. {return vec4<f32>(grass_pass_fog(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w,i.grass_refraction),1.);} let light=camera.light.x+camera.light.y*max",1);
             source.push_str(declarations);
         }
+        // Ordinary grass retains table fog. Only the water-plane-clipped
+        // refraction pass interpolates the recovered exponential vertex fog.
+        source = source.replace(
+            "fogged(tex.rgb*light*camera.light.zww,i.pos.w)",
+            "grass_pass_fog(tex.rgb*light*camera.light.zww,i.pos.w,i.grass_refraction)",
+        );
+        source.push_str(refraction_fog::WGSL);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("instanced client grass shader"),
             source: wgpu::ShaderSource::Wgsl(source.into()),
