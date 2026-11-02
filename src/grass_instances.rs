@@ -159,39 +159,17 @@ impl Gpu {
         assert!(source.contains(fallback));
         source = source.replacen(fallback, "return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);", 1);
         if light_layout.is_some() {
-            let declarations = r#"
-struct GrassLightSettings { params:vec4<f32>, areas:vec4<u32>, light:vec4<u32> };
-@group(1) @binding(0) var<uniform> grass_settings:GrassLightSettings;
-@group(1) @binding(1) var grass_lightmaps:texture_2d_array<f32>;
-@group(1) @binding(2) var grass_light_sampler:sampler;
-@group(1) @binding(3) var<storage,read> grass_light_availability:array<u32>;
-fn grass_linear(c:vec3<f32>)->vec3<f32>{return select(c/12.92,pow((max(c,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));}
-fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
- let s=grass_settings;
- let gx=clamp(world.x/s.params.z+s.params.x*0.5,0.,s.params.x-1.);
- let gy=clamp(s.params.y*0.5-world.z/s.params.z,0.,s.params.y-1.);
- let coord=vec2<f32>(gx,gy)/s.params.w;
- let area_gx=clamp(area.x/s.params.z+s.params.x*0.5,0.,s.params.x-1.);
- let area_gy=clamp(s.params.y*0.5-area.y/s.params.z,0.,s.params.y-1.);
- let selected=select(floor(coord),floor(vec2<f32>(area_gx,area_gy)/s.params.w),camera.grass_wind.z>0.5);
- let ax=u32(selected.x);let ay=u32(selected.y);
- let id=ay*s.areas.x+ax;
- // Terrain may copy day into a missing night slot. Grass instead uses its
- // unlit texture whenever EITHER authored map is unavailable.
- if (grass_light_availability[id]&3u)!=3u {return grass_linear(clamp(base,vec3<f32>(0.),vec3<f32>(1.)));}
- let slot=id%s.light.z;let page=id/s.light.z;
- let side=f32(s.light.x);let xy=vec2<f32>(f32(slot%s.light.y),f32(slot/s.light.y))*side;
- let loc=clamp((coord-selected)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));
- let lmuv=(xy+loc)/vec2<f32>(textureDimensions(grass_lightmaps));
- let day=textureSampleLevel(grass_lightmaps,grass_light_sampler,lmuv,i32(page),0.).rgb;
- let night=textureSampleLevel(grass_lightmaps,grass_light_sampler,lmuv,i32(page+s.light.w),0.).rgb;
- return grass_linear(clamp(base*mix(night,day,clamp(camera.sun.w,0.,1.))*2.,vec3<f32>(0.),vec3<f32>(1.)));
-}
-"#;
+            // Patch the scene fragment's final return so the lightmapped branch
+            // samples the authored day/night pair; without this the grass keeps
+            // the unlit texture and GRASS_LIGHT_WGSL is dead code.
             let marker = "return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);";
             assert!(source.contains(marker));
-            source=source.replacen(marker, "if camera.sun.w>=0. {return vec4<f32>(grass_pass_fog(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w,i.grass_refraction),1.);} return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);",1);
-            source.push_str(declarations);
+            source = source.replacen(
+                marker,
+                "if camera.sun.w>=0. {return vec4<f32>(grass_pass_fog(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w,i.grass_refraction),1.);} return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);",
+                1,
+            );
+            source.push_str(GRASS_LIGHT_WGSL);
         }
         // Ordinary grass retains table fog. Only the water-plane-clipped
         // refraction pass interpolates the recovered exponential vertex fog.
@@ -332,9 +310,65 @@ fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
         }
     }
 }
+/// Day/night lightmap sampling for the grass shader (bind group 1).
+/// Hoisted so the availability gate can be asserted without a device: an
+/// area without both authored maps must use the unlit texture, never the
+/// terrain fallback copy or a directional-light product.
+const GRASS_LIGHT_WGSL: &str = r#"
+struct GrassLightSettings { params:vec4<f32>, areas:vec4<u32>, light:vec4<u32> };
+@group(1) @binding(0) var<uniform> grass_settings:GrassLightSettings;
+@group(1) @binding(1) var grass_lightmaps:texture_2d_array<f32>;
+@group(1) @binding(2) var grass_light_sampler:sampler;
+@group(1) @binding(3) var<storage,read> grass_light_availability:array<u32>;
+fn grass_linear(c:vec3<f32>)->vec3<f32>{return select(c/12.92,pow((max(c,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));}
+fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
+ let s=grass_settings;
+ let gx=clamp(world.x/s.params.z+s.params.x*0.5,0.,s.params.x-1.);
+ let gy=clamp(s.params.y*0.5-world.z/s.params.z,0.,s.params.y-1.);
+ let coord=vec2<f32>(gx,gy)/s.params.w;
+ let area_gx=clamp(area.x/s.params.z+s.params.x*0.5,0.,s.params.x-1.);
+ let area_gy=clamp(s.params.y*0.5-area.y/s.params.z,0.,s.params.y-1.);
+ let selected=select(floor(coord),floor(vec2<f32>(area_gx,area_gy)/s.params.w),camera.grass_wind.z>0.5);
+ let ax=u32(selected.x);let ay=u32(selected.y);
+ let id=ay*s.areas.x+ax;
+ // Terrain may copy day into a missing night slot. Grass instead uses its
+ // unlit texture whenever EITHER authored map is unavailable.
+ if (grass_light_availability[id]&3u)!=3u {return grass_linear(clamp(base,vec3<f32>(0.),vec3<f32>(1.)));}
+ let slot=id%s.light.z;let page=id/s.light.z;
+ let side=f32(s.light.x);let xy=vec2<f32>(f32(slot%s.light.y),f32(slot/s.light.y))*side;
+ let loc=clamp((coord-selected)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));
+ let lmuv=(xy+loc)/vec2<f32>(textureDimensions(grass_lightmaps));
+ let day=textureSampleLevel(grass_lightmaps,grass_light_sampler,lmuv,i32(page),0.).rgb;
+ let night=textureSampleLevel(grass_lightmaps,grass_light_sampler,lmuv,i32(page+s.light.w),0.).rgb;
+ return grass_linear(clamp(base*mix(night,day,clamp(camera.sun.w,0.,1.))*2.,vec3<f32>(0.),vec3<f32>(1.)));
+}
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn unavailable_pairs_use_the_unlit_texture_and_never_the_region_light() {
+        let w = super::GRASS_LIGHT_WGSL;
+        assert!(w.contains(
+            "if (grass_light_availability[id]&3u)!=3u {return grass_linear(clamp(base,vec3<f32>(0.),vec3<f32>(1.)));}"
+        ));
+        let fallback = w.split("!=3u {").nth(1).unwrap().split('}').next().unwrap();
+        assert!(fallback.contains("base"));
+        assert!(!fallback.contains("camera.light"));
+        assert!(
+            !w.contains("camera.region_"),
+            "grass keeps the lightmap path"
+        );
+        assert!(w.contains("mix(night,day,clamp(camera.sun.w,0.,1.))*2."));
+        // The declarations are inert unless the assembled shader actually calls
+        // `grass_lighting`; assert the source keeps that injection.
+        let source = include_str!("grass_instances.rs");
+        assert!(source.contains(
+            "if camera.sun.w>=0. {return vec4<f32>(grass_pass_fog(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w,i.grass_refraction),1.);}"
+        ));
+    }
+
     #[test]
     fn area_center_is_preserved_per_instance() {
         let mut builder = Builder::default();

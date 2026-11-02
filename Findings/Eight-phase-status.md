@@ -14,10 +14,10 @@ No phase is fully complete. The [full 76-point reassessment](Eight-phase-reasses
 - [ ] P1.01 — Trace the client’s complete scene-light selection path, including the static grid, dynamic candidates, priority rules, range checks, flags and day/night scaling.
 - [ ] P1.02 — Identify every object class that receives scene lights and reproduce its light assignment, attenuation, color, ambient and diffuse calculations.
 - [ ] P1.03 — Integrate those lights into the appropriate model shaders without adding them a second time to already-baked building or terrain lighting.
-- [ ] P1.04 — Finish the client’s regional ambient, directional and sun/moon lighting calculations, including region overlap priority, transitions and time-of-day behavior.
-- [ ] P1.05 — Connect the recovered sun-direction curve only where the client actually uses it for material lighting.
-- [ ] P1.06 — Complete terrain and grass lightmap selection, coordinates, blending, sampler states and shader arithmetic.
-- [ ] P1.07 — Finish baked-model day/night color interpolation, material flags, alpha behavior and any client-specific light overrides.
+- [x] P1.04 — Finish the client’s regional ambient, directional and sun/moon lighting calculations, including region overlap priority, transitions and time-of-day behavior.
+- [x] P1.05 — Connect the recovered sun-direction curve only where the client actually uses it for material lighting.
+- [x] P1.06 — Complete terrain and grass lightmap selection, coordinates, blending, sampler states and shader arithmetic.
+- [x] P1.07 — Finish baked-model day/night color interpolation, material flags, alpha behavior and any client-specific light overrides.
 - [ ] P1.08 — Recover the remaining bloom constants, texture coordinates, render-target formats, effect transitions and pass order.
 - [ ] P1.09 — Complete the gamma chain: client settings, fullscreen versus windowed behavior, color conversions, output encoding and interaction with postprocessing.
 - [ ] P1.10 — Replace the approximate screen-space fog with the client’s applicable per-pass fog behavior, including regional transitions and underwater conditions.

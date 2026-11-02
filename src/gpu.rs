@@ -496,6 +496,19 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
             let Some((page_id, slot)) = texture_slots.get(&key).copied() else {
                 continue;
             };
+            // v5 stores the client's no-cull flag in the material; the draw
+            // state (stage, alpha test, culling, kind) comes from one place.
+            let kind = match crate::bmd_baked::classify(
+                mesh.version,
+                !mesh.texture.trim().is_empty(),
+                mesh.material.as_ref().is_some_and(|m| m.two_sided),
+            ) {
+                Ok(state) => state.kind,
+                Err(e) => {
+                    eprintln!("Skipping baked mesh {}: {e}", mesh.name);
+                    continue;
+                }
+            };
             let page = &mut pages[page_id].1;
             let base = page.vertices.len() as u32;
             let ox = slot.x as f32 / ATLAS as f32;
@@ -514,13 +527,7 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
                     normal: n.to_array(),
                     uv: [ox + vert.uv[0] * sx, oy + vert.uv[1] * sy],
                     color: [ox, oy, sx, sy],
-                    // v5 stores the client's no-cull flag in the material;
-                    // retain it in the existing flat per-mesh kind.
-                    kind: if mesh.material.as_ref().is_some_and(|m| m.two_sided) {
-                        2.1
-                    } else {
-                        2.0
-                    },
+                    kind,
                     diffuse: vert.day_diffuse,
                     night_diffuse: vert.night_diffuse,
                 });
@@ -708,6 +715,11 @@ struct Renderer {
     wind_last: Instant,
     world_glow: crate::post_gpu::WorldGlow,
     celestial_visibility: crate::client_sun::Visibility,
+    // Native SetLightParam/SetAmbient state persists when a frame selects no
+    // environment box (0x41ec65 keeps the in-flight environment). Keeping the
+    // last published regional light avoids erasing ordinary model light on an
+    // uncovered frame while baked surfaces stay independent of it.
+    retained_regional_light: Option<crate::environment::RegionalLight>,
     glow_requested_fade: Option<f32>,
     grass_wind_state: crate::grass_wind::GrassWind,
     atlas: wgpu::Texture,
@@ -1064,6 +1076,7 @@ impl Renderer {
             wind_last: Instant::now(),
             world_glow: crate::post_gpu::WorldGlow::default(),
             celestial_visibility: crate::client_sun::Visibility::default(),
+            retained_regional_light: None,
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
             atlas,
@@ -1232,14 +1245,22 @@ impl Renderer {
         // Effects outside this radius are unloaded and publish no lights. The
         // radius is in ECWLD blocks, using the scene's authored block size.
         let world_radius = self.detail.radius.max(1) as f32 * self.model_scene.block_size.max(1.);
-        if let (Some(models), Some(light)) = (&mut self.models, camera.regional_light) {
+        if let Some(light) = camera.regional_light {
+            self.retained_regional_light = Some(light);
+        }
+        let light = camera.regional_light.or(self.retained_regional_light);
+        if let Some(models) = &mut self.models {
             models.set_view_center(camera.pos.x, camera.pos.z, world_radius);
+        }
+        if let (Some(models), Some(light)) = (&mut self.models, light) {
             // Reuse the root logic tick used by regions and the glow presenter.
             // A fresh wall-time sample here both bypassed the 250ms cap and
             // included all asset-loading time on the first receiving-model draw.
             // Water passes reuse the sampled pose; never tick again per view.
             let delta = if advance { camera.logic_delta_ms } else { 0 };
-            let d = Vec3::from_array(light.toward_sun).normalize_or_zero();
+            // Authored EC-BSD direction only (light_consumers::DirectionSource
+            // ::Authored). The animated celestial curve never reaches here.
+            let d = light.material_direction().travel();
             let frame = crate::model_draw_gpu::Frame {
                 blend_enabled: false,
                 matrix: uniform.matrix,
@@ -1252,7 +1273,7 @@ impl Renderer {
                     transparency: -1.,
                     point_enabled: false,
                 },
-                direction: [-d.x, -d.y, -d.z],
+                direction: d,
                 point_position: [0.; 3],
                 attenuation: [0., 0.4, 0.],
                 eye_direction: uniform.direction[..3].try_into().unwrap(),
@@ -1499,17 +1520,23 @@ impl Renderer {
             None
         };
         let scene_target_raw = post_raw.as_ref().unwrap_or(target_raw);
+        // Disc azimuth comes from the authored region direction; elevation is
+        // the recovered sky clock. Only the celestial rows read the curve.
         let authored = camera
             .regional_light
-            .map(|l| l.toward_sun.map(|x| -x))
+            .or(self.retained_regional_light)
+            .map(|l| l.material_direction().toward_sun())
             .unwrap_or([0.6, -0.4, 0.8]);
         let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
             .unwrap_or([0., -1., 0.])
             .map(|x| -x);
+        // The same retained light that feeds the discs' azimuth also keeps the
+        // published default-area flag word stable across frames with no region.
         self.celestial_visibility.update(
             camera.logic_delta_ms,
             camera
                 .regional_light
+                .or(self.retained_regional_light)
                 .map(|l| l.celestial_flags)
                 .unwrap_or(0x18),
         );
