@@ -1495,3 +1495,41 @@ missing and zero invalid. Latest local counts: 79 core and 48 native tests;
 73 actual world placements × five clock/pose/draw preparation checkpoints.
 **Confirmation: rigid receiver, payload census and publication/multipass
 components Yes. Full audit: 10 No / 2 qualified Yes; Phase 1 not complete.**
+
+## Retail GFX light decoding, clock execution and controller 108
+
+Continuing the unresolved implementation rather than relabeling its checklist.
+Audit also caught a real viewer-routing defect: sharpen alone did not engage
+postprocessing if bloom/fog/underwater/gamma were all disabled. Fixed the
+actual activation predicate; all 32 independent-effect combinations now have
+a CPU regression. Existing patterned GPU coverage already tests sharpen alone
+inside the post chain; this fixes reaching that chain from the viewer.
+
+Recovered retail controller factory 0x6ea910: type 108 is jump-table slot 8,
+constructor 0x6eabc5, vtable 0x8ebc78, Process 0x6ec190, Load 0x6ec3a0.
+Unlike related 1.5.2, retail DOES NOT continuously interpolate packed color.
+0x6ec5dd..0x6ec73d builds 128 packed entries per segment; endpoints are exact.
+Interior samples use stored f32 reciprocal 0x3c010204 at 0x8ebdcc, exactly
+2113665/268435456, not mathematical 1/127. Process computes floor(fraction*127)
+and indexes that LUT, including the original start/end eligibility checks.
+Implemented an independent exact integer table; exhaustive all 256x256 channel
+endpoints x 126 interior entries compare against a separate binary-float/x87
+arithmetic oracle (8,257,536 comparisons). This catches the reciprocal and
+LUT quantization differences from both continuous and exact-fraction lerp.
+
+Added actual text light-element parsing and single-keypoint execution,
+including controller 108, finite/infinite/start-delayed lifetimes, visibility
+and signed priority gating AFTER clock progression, parent-matrix position,
+unscaled authored range and packed optional outer color. Fail closed on
+unsupported bindings/repeats/controllers/keypoint layouts. Parent graph state,
+scaled owner clock and resolved transform are explicit caller inputs: this
+is not yet general GFX graph/attachment/visual playback. Added the execution
+bridge to world receivers and a production GPU fixture from text decoding
+through lifetime/publication/selection to weighted and rigid pixels.
+
+Actual extracted archive corpus: 524 GFX files / all 546 light elements parse;
+4,259 active clock samples were finite. 18 combined native runtime/selection
+unit tests pass, including parser rejection, boundaries, controller lookup,
+parent scale/translation, range independence, visibility, priority and reset.
+New GPU/Windows validation pending. Full P1.01 remains No for general graph/
+scene/model-event ownership and parent/lifetime integration; no fabricated Yes.

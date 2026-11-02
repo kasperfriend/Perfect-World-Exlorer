@@ -1441,10 +1441,13 @@ impl Renderer {
             dt,
         );
         let direction = camera.direction();
-        let use_post = camera.bloom
-            || camera.underwater_depth > 0.
-            || camera.atmospheric_fog
-            || camera.client_gamma;
+        let use_post = crate::view_settings::post_required(
+            camera.bloom,
+            camera.sharpen,
+            camera.underwater_depth > 0.,
+            camera.atmospheric_fog,
+            camera.client_gamma,
+        );
         let post_view = if use_post {
             Some(self.post.scene_view())
         } else {

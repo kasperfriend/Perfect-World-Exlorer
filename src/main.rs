@@ -33,6 +33,10 @@ mod ecmodel;
 mod environment;
 mod far_trees_gpu;
 mod foliage_mips;
+#[allow(dead_code)]
+mod gfx_color_track;
+#[allow(dead_code)]
+mod gfx_light;
 mod gpu;
 mod grass;
 mod grass_instances;

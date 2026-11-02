@@ -1,4 +1,10 @@
 //! Persisted viewer controls; malformed values fall back safely.
+/// The renderer must allocate/execute the post chain for each independent
+/// effect, not only when bloom happens to be enabled.
+pub fn post_required(bloom: bool, sharpen: bool, underwater: bool, fog: bool, gamma: bool) -> bool {
+    bloom || sharpen || underwater || fog || gamma
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct DetailSettings {
     pub radius: isize,
@@ -299,5 +305,16 @@ mod tests {
         assert_eq!(invalid.bloom_tint, 0xffffffff);
         assert_eq!(invalid.bloom_brightness_fade, 0.);
         assert_eq!(invalid.bloom_opacity_fade, 1.);
+    }
+    #[test]
+    fn every_independent_post_effect_activates_the_renderer_chain() {
+        for bits in 0..32 {
+            let f = |i| bits & (1 << i) != 0;
+            assert_eq!(
+                super::post_required(f(0), f(1), f(2), f(3), f(4)),
+                bits != 0
+            );
+        }
+        assert!(super::post_required(false, true, false, false, false));
     }
 }

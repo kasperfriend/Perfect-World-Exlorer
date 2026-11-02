@@ -5,6 +5,10 @@
 mod animation;
 #[path = "../ecmodel.rs"]
 mod ecmodel;
+#[path = "../gfx_color_track.rs"]
+mod gfx_color_track;
+#[path = "../gfx_light.rs"]
+mod gfx_light;
 #[path = "../model_asset.rs"]
 mod model_asset;
 #[path = "../model_dds.rs"]
@@ -572,6 +576,55 @@ fn main() {
     );
     world.publish_dynamic_light(7, published);
     world.unregister_dynamic_light(7);
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        0,
+    );
+    check(
+        &device,
+        &queue,
+        &world,
+        [[32, 64, 96, 136], [96, 32, 64, 136]],
+    );
+    // Decoded text element -> real lifetime/visibility/priority execution ->
+    // publication -> selection -> weighted AND rigid receiver rendering.
+    let source = "MOXTVersion: 37\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 130\nRepeatCount: 1\nRepeatDelay: 0\nBindEle: \nDummyEle: \nIsDummy: 0\nMatchGrnd: 0\nLightType: 1\nPriority: 4\nRange: 2\nStartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\nTimeSpan: 1000\nPosition: 0, 0, 0.5\nColor: -1\nScale: 1\nDirection: 0, 0, 0, 1\nRad_2D: 0\nCtrlMethodCount: 0\n";
+    let mut emitter = gfx_light::Emitter::new(gfx_light::parse(source).unwrap().pop().unwrap());
+    let parent = glam::Mat4::IDENTITY.to_cols_array();
+    assert!(world
+        .tick_gfx_light(48, &mut emitter, 0, true, 4, parent, None)
+        .unwrap());
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        0,
+    );
+    // Native packed white -> point ambient .2; material ambient*(.5+.2).
+    // Specular variant clamps attenuation below 1, and diffuse RGB is zero.
+    check(
+        &device,
+        &queue,
+        &world,
+        [[45, 89, 134, 136], [134, 45, 89, 136]],
+    );
+    assert!(!world
+        .tick_gfx_light(48, &mut emitter, 200, false, 4, parent, None)
+        .unwrap());
+    assert!(!world
+        .tick_gfx_light(48, &mut emitter, 200, true, 3, parent, None)
+        .unwrap());
+    assert!(!world
+        .tick_gfx_light(48, &mut emitter, 600, true, 4, parent, None)
+        .unwrap());
     world.update(
         &device,
         &queue,

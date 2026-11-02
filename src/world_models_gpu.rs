@@ -102,6 +102,26 @@ impl World {
     pub fn publish_dynamic_light(&mut self, identity: u64, light: DynamicLight) {
         self.publications.publish(identity, light);
     }
+    /// Execute a decoded retail light element, then publish its current params.
+    /// The GFX graph owner supplies its scaled tick, resolved parent transform,
+    /// visibility/priority and optional outer color; it must unregister on death.
+    pub fn tick_gfx_light(
+        &mut self,
+        identity: u64,
+        emitter: &mut crate::gfx_light::Emitter,
+        scaled_delta_ms: u32,
+        visible: bool,
+        priority: i32,
+        parent: [f32; 16],
+        outer: Option<[f32; 4]>,
+    ) -> Result<bool, String> {
+        if let Some(light) = emitter.tick(scaled_delta_ms, visible, priority, parent, outer)? {
+            self.publish_dynamic_light(identity, light);
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
     pub fn unregister_dynamic_light(&mut self, identity: u64) {
         self.publications.unregister(identity);
     }
