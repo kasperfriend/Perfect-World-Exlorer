@@ -212,25 +212,33 @@ mod tests {
 
     #[test]
     fn screen_fog_requires_an_active_camera_fog_state() {
-        for underwater in [false, true] {
-            let without = Inputs {
-                screen_fog: true,
-                underwater,
-                fog_enabled: false,
-                srgb_target: true,
-                ..Inputs::default()
-            };
-            assert!(!plan(without).fog, "no fog state must skip the pass");
-            let with = Inputs {
-                fog_enabled: true,
-                ..without
-            };
-            assert!(plan(with).fog);
-            // The gate does not resurrect the chain for production: the
-            // production caller never requests the diagnostic pass.
-            assert!(!required(without));
-            assert!(!required(with));
-        }
+        let off = Inputs {
+            screen_fog: true,
+            fog_enabled: false,
+            srgb_target: true,
+            ..Inputs::default()
+        };
+        assert!(!plan(off).fog, "no fog state must skip the pass");
+        let on = Inputs {
+            fog_enabled: true,
+            ..off
+        };
+        assert!(plan(on).fog);
+        // Neither request resurrects the production chain.
+        assert!(!required(off));
+        assert!(!required(on));
+        // Submersion alone does not bypass the caller's diagnostic gate: the
+        // production caller still has to ask for the pass.
+        let submerged = Inputs {
+            underwater: true,
+            ..off
+        };
+        assert!(!plan(submerged).fog);
+        assert!(plan(Inputs {
+            fog_enabled: true,
+            ..submerged
+        })
+        .fog);
     }
 
     #[test]

@@ -23,6 +23,24 @@ fn main() {
     ))
     .unwrap();
     let mut cases = 0;
+    // A second layer stands in for the map/UI overlay. It must pass through the
+    // same single ramp: a gamma applied before composition would leave these
+    // pixels unramped, and a second ramp would double-transform them.
+    let overlay_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("map or UI overlay before the display ramp"),
+        source: wgpu::ShaderSource::Wgsl(
+            r#"@vertex fn vs(@builtin(vertex_index) id:u32)->@builtin(position) vec4<f32> {
+ let x=f32((id<<1u)&2u);let y=f32(id&2u);
+ return vec4<f32>(x*2.-1.,1.-y*2.,0.,1.);
+}
+@fragment fn fs(@builtin(position) p:vec4<f32>)->@location(0) vec4<f32> {
+ if p.x>=32. {discard;}
+ return vec4<f32>(200./255.,40./255.,90./255.,1.);
+}
+"#
+            .into(),
+        ),
+    });
     let fixture_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("whole-frame encoded gamma input ramp"),
         source: wgpu::ShaderSource::Wgsl(
@@ -71,6 +89,28 @@ fn main() {
             multisample: Default::default(),
             multiview: None,
         });
+        let overlay = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("overlay fixture"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &overlay_shader,
+                entry_point: "vs",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &overlay_shader,
+                entry_point: "fs",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: format.remove_srgb_suffix(),
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview: None,
+        });
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("gamma readback target"),
             size: wgpu::Extent3d {
@@ -96,13 +136,13 @@ fn main() {
             .map(|v| v as f32)
             .chain([41.9, f32::NAN, f32::INFINITY, -1., 101.])
         {
-            let raw = gamma.raw_view();
+            let ramp_input = gamma.raw_view();
             let mut encoder = device.create_command_encoder(&Default::default());
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("encoded world and overlay fixture"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &raw,
+                        view: &ramp_input,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -114,6 +154,8 @@ fn main() {
                     occlusion_query_set: None,
                 });
                 pass.set_pipeline(&fixture);
+                pass.draw(0..3, 0..1);
+                pass.set_pipeline(&overlay);
                 pass.draw(0..3, 0..1);
             }
             queue.submit(Some(encoder.finish()));
@@ -148,7 +190,12 @@ fn main() {
             rx.recv().unwrap().unwrap();
             let bytes = slice.get_mapped_range();
             for x in 0..256usize {
-                let rgb = [x as u8, (255 - x) as u8, ((73 * x + 17) % 256) as u8];
+                // Left 32 columns are the overlay layer above the world ramp.
+                let rgb = if x < 32 {
+                    [200u8, 40u8, 90u8]
+                } else {
+                    [x as u8, (255 - x) as u8, ((73 * x + 17) % 256) as u8]
+                };
                 for c in 0..3 {
                     let expected =
                         (gamma_curve::sample(rgb[c] as f32 / 255., setting) * 255.).round() as i32;
@@ -173,7 +220,7 @@ fn main() {
             read.unmap();
         }
     }
-    println!("Whole-frame gamma: {cases} RGB readbacks passed (all 101 settings/all 256 channel values, RGBA/BGRA UNORM/sRGB, resized targets)");
+    println!("Whole-frame gamma: {cases} RGB readbacks passed (all 101 settings/all 256 channel values, RGBA/BGRA UNORM/sRGB, resized targets, world+overlay composition before one ramp)");
 
     // ---------------------------------------------------------------------
     // Exactly one output encode. A swapchain with an sRGB format encodes on
