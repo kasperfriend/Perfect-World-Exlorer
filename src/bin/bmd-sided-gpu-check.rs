@@ -229,7 +229,7 @@ fn main() {
         if !opaque {
             assert!(pixels[0] && pixels[2], "baked alpha test reappeared");
         }
-        println!("projection flip {flip}, culling disabled {disable}, opaque atlas {opaque}: {pixels:?}");
+        println!("flip {flip} culled {disable} opaque {opaque}: {pixels:?}");
         drop(bytes);
         read.unmap();
     }

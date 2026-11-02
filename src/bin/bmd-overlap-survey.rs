@@ -81,8 +81,10 @@ fn main() {
                     } else {
                         reverse += 1
                     };
-                    // One model reaches the device in one indexed submission, so
-                    // the later triangle of a pair is the later primitive.
+                    // A model is submitted mesh after mesh and the viewer keeps
+                    // that order even when a page split turns one model into
+                    // several draws, so the later triangle of a pair is the
+                    // later primitive on the device as well.
                     let outcome = bmd_baked::overlap_outcome(
                         same_winding,
                         two_sided[*other],

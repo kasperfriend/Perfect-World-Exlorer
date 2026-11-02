@@ -1,0 +1,34 @@
+name: Formatting report
+
+# Review-only helper: applies rustfmt to the branch and commits the result, so a
+# sandbox without a Rust toolchain can read rustfmt's exact opinion. Deleted
+# before this branch is handed off.
+on: workflow_dispatch
+
+permissions:
+  contents: write
+
+jobs:
+  fmt:
+    name: Apply rustfmt and commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt
+        run: cargo fmt --all
+      - name: Commit when rustfmt changed anything
+        run: |
+          if git diff --quiet; then
+            echo "nothing to format"
+            exit 0
+          fi
+          git config user.name "rustfmt report"
+          git config user.email "rustfmt@example.invalid"
+          git commit -am "rustfmt: apply the formatting this branch missed"
+          git push

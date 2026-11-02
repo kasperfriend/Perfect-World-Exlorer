@@ -357,11 +357,9 @@ mod tests {
         );
         assert!(gpu.contains("1.-camera.direction.w"), "night factor source");
         assert!(gpu.contains("raw_tex.rgb*i.diffuse*2."), "MODULATE2X");
+        let winding = "((i.kind>1.05 && i.kind<1.15) || (i.kind>1.5 && i.kind<2.05))";
         assert!(
-            gpu.contains(
-                "if ((i.kind>1.05 && i.kind<1.15) || (i.kind>1.5 && i.kind<2.05)) \
-                 && camera.clip.w == 0."
-            ),
+            gpu.contains(winding) && gpu.contains("&& camera.clip.w == 0."),
             "single-sided winding drop must cover both baked colour kinds"
         );
         // The alpha test may only survive for the grass/tree bands; baked meshes

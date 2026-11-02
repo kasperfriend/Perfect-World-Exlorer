@@ -60,6 +60,7 @@ jobs:
           cargo run --locked --bin post-gpu-check
           cargo run --locked --bin bloom-gpu-check
           cargo run --locked --bin bmd-baked-gpu-check
+          cargo run --locked --bin bmd-sided-gpu-check
           cargo run --locked --bin grass-instance-gpu-check
           cargo run --locked --bin model-light-gpu-check
           cargo run --locked --bin skin-pose-gpu-check
