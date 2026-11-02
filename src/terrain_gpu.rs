@@ -30,6 +30,7 @@ struct Settings {
 }
 pub struct TerrainGpu {
     pipeline: wgpu::RenderPipeline,
+    far_pipeline: wgpu::RenderPipeline,
     bind: wgpu::BindGroup,
     reflect_bind: wgpu::BindGroup,
     vertex: wgpu::Buffer,
@@ -558,34 +559,65 @@ impl TerrainGpu {
             multisample: Default::default(),
             multiview: None,
         });
-        // The client draws terrain only inside the camera's block window, at the
-        // per-block level chosen by 0x77e360, so there is no separate
-        // whole-world distant mesh. The buffers stay allocated because the water
-        // refraction pass still binds an index range for this "far" slot; its
-        // count is zero (`edge_mesh`), so nothing is drawn from it.
-        let dummy: [FarVertex; 1] = [FarVertex {
-            pos: [0.; 3],
-            normal: [0; 4],
-        }];
-        let count = 0u32;
+        const FAR_ATTR: [wgpu::VertexAttribute; 2] =
+            wgpu::vertex_attr_array![0=>Float32x3,1=>Snorm8x4];
+        let far_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("layered terrain"),
+            layout: Some(&pl),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_far",
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<FarVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &FAR_ATTR,
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Greater,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview: None,
+        });
+        let (vertices, indices) = world_mesh(t, 4);
+        let count = indices.len() as u32;
         let vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("unused distant terrain vertex"),
-            contents: bytemuck::cast_slice(&dummy),
+            label: Some("full-world terrain LOD vertices"),
+            contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
         let index = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("unused distant terrain index"),
-            contents: bytemuck::cast_slice(&[0u32]),
+            label: Some("full-world terrain LOD indices"),
+            contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         });
         eprintln!(
-            "Uploaded terrain materials: {} textures, {} masks; terrain geometry is\
-             built per block window (recovered 0x77ecf0/0x77e360)",
+            "Uploaded world terrain: {} vertices, {} triangles, {} textures, {} masks",
+            vertices.len(),
+            indices.len() / 3,
             m.textures.len(),
             masks_count
         );
         Ok(Self {
             pipeline,
+            far_pipeline,
             bind: normal_bind,
             reflect_bind,
             vertex,
@@ -606,7 +638,7 @@ impl TerrainGpu {
         near_index: &'a wgpu::Buffer,
         near_end: u32,
     ) {
-        p.set_pipeline(&self.pipeline);
+        p.set_pipeline(&self.far_pipeline);
         p.set_bind_group(
             0,
             if reflected {
@@ -616,6 +648,10 @@ impl TerrainGpu {
             },
             &[],
         );
+        p.set_vertex_buffer(0, self.vertex.slice(..));
+        p.set_index_buffer(self.index.slice(..), wgpu::IndexFormat::Uint32);
+        p.draw_indexed(0..self.count, 0, 0..1);
+        p.set_pipeline(&self.pipeline);
         p.set_vertex_buffer(0, near_vertex.slice(..));
         p.set_index_buffer(near_index.slice(..), wgpu::IndexFormat::Uint32);
         p.draw_indexed(0..near_end, 0, 0..1);
@@ -902,6 +938,44 @@ struct FarVertex {
     pos: [f32; 3],
     normal: [i8; 4],
 }
+fn world_mesh(t: &Terrain, step: usize) -> (Vec<FarVertex>, Vec<u32>) {
+    let xs = grid_axis(t.width, step);
+    let ys = grid_axis(t.height, step);
+    let mut v = Vec::with_capacity(xs.len() * ys.len());
+    for &y in &ys {
+        for &x in &xs {
+            let at = y * t.width + x;
+            let n = t.normals[at];
+            v.push(FarVertex {
+                pos: [
+                    (x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
+                    t.heights[at],
+                    (t.height as f32 * 0.5 - y as f32) * t.grid_spacing,
+                ],
+                normal: [n[0], n[1], n[2], 0],
+            });
+        }
+    }
+    let mut indices = Vec::with_capacity((xs.len() - 1) * (ys.len() - 1) * 6);
+    for y in 0..ys.len() - 1 {
+        for x in 0..xs.len() - 1 {
+            let a = (y * xs.len() + x) as u32;
+            let b = a + 1;
+            let c = a + xs.len() as u32;
+            indices.extend_from_slice(&[a, b, c, b, c + 1, c]);
+        }
+    }
+    (v, indices)
+}
+
+fn grid_axis(size: usize, step: usize) -> Vec<usize> {
+    assert!(size > 0 && step > 0);
+    let mut values: Vec<_> = (0..size).step_by(step).collect();
+    if values.last().copied() != Some(size - 1) {
+        values.push(size - 1);
+    }
+    values
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -915,5 +989,11 @@ mod tests {
         // Every 8-byte block selects colour0 = RGB565(0.5,0.5,0.5).
         assert!(bc1.chunks(8).all(|b| b == [0x10, 0x84, 0, 0, 0, 0, 0, 0]));
         assert_eq!(super::neutral_tile(16, true).len(), 16 * 16 / 2);
+    }
+    #[test]
+    fn lod_grid_covers_exact_edges_without_duplicates() {
+        assert_eq!(grid_axis(17, 8), vec![0, 8, 16]);
+        assert_eq!(grid_axis(18, 8), vec![0, 8, 16, 17]);
+        assert_eq!(grid_axis(1, 8), vec![0]);
     }
 }

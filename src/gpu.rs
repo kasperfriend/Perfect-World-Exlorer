@@ -114,6 +114,14 @@ impl MenuPage {
         self != Self::Closed
     }
 }
+/// The terrain the recovered rules select: the camera block window (`0x77ecf0`)
+/// and the level of every block inside it (`0x77e360`). Comparing it with the
+/// mesh being drawn is what decides whether that mesh is stale.
+#[derive(Clone, PartialEq)]
+struct LodState {
+    window: crate::terrain_lod::Window,
+    levels: Vec<u8>,
+}
 struct MeshData {
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
@@ -123,6 +131,7 @@ struct MeshData {
     center: (isize, isize),
     tree_center: (f32, f32),
     detail: DetailSettings,
+    lod: LodState,
     terrain_end: u32,
     object_start: u32,
     water_start: u32,
@@ -186,6 +195,51 @@ fn push_quad(v: &mut Vec<Vertex>, i: &mut Vec<u32>, points: [[f32; 3]; 4], color
     }
     i.extend_from_slice(&[n, n + 1, n + 2, n + 1, n + 3, n + 2]);
 }
+/// Recovered block window and per-block levels (`src/terrain_lod.rs`). The client
+/// re-evaluates `0x77e360` for every resident block on every frame, so the viewer
+/// re-runs the same rule per frame and rebuilds geometry only when the answer
+/// changes; the window origin moves with the camera's block (`0x77ecf0`).
+fn lod_window(
+    width: usize,
+    height: usize,
+    spacing: f32,
+    cam: [f32; 2],
+    radius: isize,
+) -> (crate::terrain_lod::Window, crate::terrain_lod::WindowLod) {
+    let cols = width / TILE;
+    let rows = height / TILE;
+    let block_world = TILE as f32 * spacing;
+    let gx = cam[0] / spacing + width as f32 * 0.5;
+    let gy = height as f32 * 0.5 - cam[1] / spacing;
+    let lod = crate::terrain_lod::LodConfig {
+        block_size: block_world,
+        ..Default::default()
+    };
+    // `world+0x1bc`: draw range in world units, one slider step = one block.
+    let range = radius.max(1) as f32 * block_world;
+    let win = crate::terrain_lod::window(
+        [gx / TILE as f32, gy / TILE as f32],
+        [cols, rows],
+        range,
+        block_world,
+    );
+    // Viewer world axis: x = (cell - width/2) * spacing, z = (height/2 - cell) * spacing.
+    let levels = crate::terrain_lod::window_lod(
+        win,
+        &lod,
+        cam,
+        |x, y| {
+            let cx = (x * TILE) as f32 + TILE as f32 * 0.5;
+            let cy = (y * TILE) as f32 + TILE as f32 * 0.5;
+            [
+                (cx - width as f32 * 0.5) * spacing,
+                (height as f32 * 0.5 - cy) * spacing,
+            ]
+        },
+        |x, y| x < cols && y < rows,
+    );
+    (win, levels)
+}
 fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<MeshData, String> {
     let rad = detail.radius;
     let gx = cx / t.grid_spacing + t.width as f32 * 0.5;
@@ -200,7 +254,8 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
     // (src/terrain_lod.rs). The client keeps a square window of blocks around
     // the camera's block (`0x77ecf0`), gives each one of three meshes by camera
     // distance (`0x77e360`) and closes block boundaries with the coarser
-    // neighbour's edge stride (`0x7c40e6`). Nothing outside the window is drawn.
+    // neighbour's edge stride (`0x7c40e6`). This is the near mesh; the persistent
+    // whole-world mesh below the window keeps the rest of the world visible.
     if t.grid != TILE || TILE != crate::terrain_lod::CELLS {
         return Err(format!(
             "T2BK blocks are {} cells but the recovered block/LOD rule assumes {} \
@@ -215,29 +270,10 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
             t.width, t.height
         ));
     }
-    let block_world = TILE as f32 * t.grid_spacing;
-    let cols = t.width / TILE;
-    let rows = t.height / TILE;
-    let lod = crate::terrain_lod::LodConfig {
-        block_size: block_world,
-        ..Default::default()
-    };
-    // `world+0x1bc`: draw range in world units, one slider step = one block.
-    let range = rad.max(1) as f32 * block_world;
-    let win = crate::terrain_lod::window(
-        [gx / TILE as f32, gy / TILE as f32],
-        [cols, rows],
-        range,
-        block_world,
-    );
-    // Viewer world axis: x = (cell - width/2) * spacing, z = (height/2 - cell) * spacing.
-    let block_centre = |x: usize, y: usize| {
-        let cx = (x * TILE) as f32 + TILE as f32 * 0.5;
-        let cy = (y * TILE) as f32 + TILE as f32 * 0.5;
-        [
-            (cx - t.width as f32 * 0.5) * t.grid_spacing,
-            (t.height as f32 * 0.5 - cy) * t.grid_spacing,
-        ]
+    let (win, levels) = lod_window(t.width, t.height, t.grid_spacing, [cx, cz], rad);
+    let lod_state = LodState {
+        window: win,
+        levels: levels.levels.clone(),
     };
     // The loader stores `grid` cells per block and drops each block's last row
     // and column (the neighbour re-supplies them), so a block's offset-`TILE`
@@ -247,9 +283,6 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
         let y = cell_y.min(t.height - 1);
         (x, y, y * t.width + x)
     };
-    let levels = crate::terrain_lod::window_lod(win, &lod, [cx, cz], block_centre, |x, y| {
-        x < cols && y < rows
-    });
     for y in win.y0..win.y1 {
         for x in win.x0..win.x1 {
             let level = levels.level(x, y);
@@ -652,6 +685,7 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
         center: (bx, by),
         tree_center: (cx, cz),
         detail,
+        lod: lod_state,
         terrain_end,
         object_start,
         water_start,
@@ -715,6 +749,8 @@ struct Renderer {
     grass: crate::grass_instances::Gpu,
     tree_center: (f32, f32),
     detail: DetailSettings,
+    /// Window/levels the current terrain mesh was built for.
+    lod: LodState,
     terrain_end: u32,
     world_width: usize,
     world_height: usize,
@@ -1109,6 +1145,7 @@ impl Renderer {
             count,
             depth: d,
             center: m.center,
+            lod: m.lod,
         })
     }
     fn update_mesh(&mut self, m: MeshData) {
@@ -1147,6 +1184,7 @@ impl Renderer {
         self.center = m.center;
         self.tree_center = m.tree_center;
         self.detail = m.detail;
+        self.lod = m.lod;
         self.terrain_end = m.terrain_end;
         self.object_start = m.object_start;
         self.water_start = m.water_start;
@@ -2586,15 +2624,30 @@ pub fn run(
                             }
                         }
                     }
-                    let gx = ((camera.pos.x / spacing + width as f32 * 0.5) / TILE as f32).floor()
-                        as isize;
-                    let gy = ((height as f32 * 0.5 - camera.pos.z / spacing) / TILE as f32).floor()
-                        as isize;
-                    if !streaming
-                        && ((gx - renderer.center.0).abs() >= 2
-                            || (gy - renderer.center.1).abs() >= 2
-                            || renderer.detail != settings.detail)
-                    {
+                    // `0x77e360` runs for every resident block on every frame and
+                    // the window origin follows the camera's block, so re-select
+                    // both per frame and rebuild only when the drawn mesh would
+                    // differ. The in-flight flag rate-limits the rebuilds.
+                    let aim = if streaming {
+                        None
+                    } else {
+                        let (win, levels) = lod_window(
+                            width,
+                            height,
+                            spacing,
+                            [camera.pos.x, camera.pos.z],
+                            settings.detail.radius,
+                        );
+                        Some(LodState {
+                            window: win,
+                            levels: levels.levels,
+                        })
+                    };
+                    let stale = match &aim {
+                        Some(aim) => aim != &renderer.lod || renderer.detail != settings.detail,
+                        None => false,
+                    };
+                    if stale {
                         if request_tx.send((camera.pos.x, camera.pos.z, settings.detail)).is_err() {
                             eprintln!("World streaming worker exited");
                             target.exit();

@@ -323,34 +323,39 @@ same window alone (14.7 MB of 60-byte vertices vs 4.2 MB now).
 5. **`Terrain` gained `grid: usize`** (TRN2 header dword @20) so the renderer can
    refuse non-32-cell blocks instead of drawing substitute geometry.
 6. **`src/terrain_seam.rs` is deleted**; `terrain_seam::stitch` no longer exists.
-7. Terrain geometry is rebuilt by the existing `gpu.rs::build` path, i.e. on
-   startup, on a settings change and when the camera's block index moves by ≥ 2.
-   Other lanes that read `renderer.terrain_end` are unaffected; the index/vertex
-   buffer layout is still "terrain first, then scenery/water/grass".
-8. **Visible extent changed.** Terrain now ends at the block window (448 world
-   units at the default 7) instead of the whole world, because the client draws
-   nothing outside it. 2-B/2-C: the shipped client pairs that range with its own
-   atmospheric fog/vista, so the viewer's "view distance" slider (2000–24000) no
-   longer describes a terrain extent; judge distance appearance with client fog
-   enabled rather than by widening the window.
+7. Terrain geometry is rebuilt by the existing `gpu.rs::build` path. The trigger
+   is no longer "the camera's block index moved by ≥ 2": the window and the
+   per-block levels are re-evaluated every frame (see §8) and `build` runs when
+   they differ from what is drawn, or when the detail settings change. One build
+   is in flight at a time, which rate-limits rebuilds. Other lanes that read
+   `renderer.terrain_end` are unaffected; the index/vertex buffer layout is still
+   "terrain first, then scenery/water/grass".
+8. **Visible extent is the whole world again.** The step-4 whole-world mesh
+   (`terrain_gpu::world_mesh`, `vs_far`) is restored and drawn under the window
+   mesh, so the world is never clipped; the recovered window only decides which
+   blocks get the level 3/2/1 ladder. The window-border blocks are level 1
+   (448 > 320 world units at the default range), i.e. step 4, the same lattice the
+   whole-world mesh samples, so the two meshes meet without a step.
 
 ---
 
 ## 7. Remaining gaps and assumptions (also in `Findings/Unsupported-client-paths.md`)
 
-* **Per-block level scale `block+0x7c`.** The two thresholds (180/320 world units,
-  see §3) are multiplied by this per-block float. The shipped blocks are assumed
-  to carry 1.0: any other value would make the shipped preset distances
-  meaningless (e.g. 64 would push the level-3 boundary past the whole draw
-  window), and no block initialiser observed writes anything else. It is exposed
-  as `LodConfig::block_scale` so a future decode can drop the assumption in one
-  place. This is the only remaining assumption in the level rule.
-* **Level re-selection cadence.** The client re-runs `0x77ecf0`/`0x77e360` every
-  frame for every view (`0x77e1b0`); the viewer rebuilds the window mesh on the
-  existing `build()` triggers (≥ 2 blocks of camera movement, settings change).
-  Crossing a level threshold can therefore lag by up to two blocks and cannot pop
-  more than once per rebuild. Reproducing the per-frame cadence needs the terrain
-  mesh rebuild split out of the expensive scenery/atlas rebuild in `build()`.
+* **Per-block level scale `block+0x7c` — decoded, no longer an assumption.** The
+  block constructor writes `1.0f` into `+0x7c` next to the block index and
+  coordinates (`0x7c85e2`: `+0x20` index, `+0x28`/`+0x2c` 16-bit block coords,
+  `+0x7c` = `0x3f800000`; the second constructor path at `0x7a1da3` is identical),
+  and the level rule is the only code that reads it (`0x77e467`, `0x77e486`). A
+  sweep of every store to `0x7c(%e…)` in `.text` finds no other write to a terrain
+  block, so the shipped scale is exactly 1.0 and the 180/320 thresholds are the
+  effective ones. `LodConfig::block_scale` stays for other data sets.
+* **Level re-selection cadence — now per frame.** The client re-runs
+  `0x77ecf0`/`0x77e360` every frame for every view (`0x77e1b0`); the viewer does
+  the same (`gpu::lod_window` per frame) and rebuilds only when the window origin
+  or any block's level differs from the mesh being drawn. What remains is the
+  latency of that rebuild: it is the existing `build()` (scenery, atlas, grass,
+  water) on a background thread, so a level change reaches the screen one build
+  after the threshold crossing instead of in the same frame.
 * **Ring triangulation diagonals.** The native code emits per-edge strips from
   separate index buffers (corner triangles plus a fan); the viewer emits the same
   vertex set with its own fan diagonals inside each `step`-wide ring cell. The
@@ -370,3 +375,28 @@ same window alone (14.7 MB of 60-byte vertices vs 4.2 MB now).
   links the binaries on both platforms and validates the shaders under software
   Vulkan, but does not present a frame — this is the one remaining item a human
   has to look at.
+
+---
+
+## 8. Second pass, 2 November 2026 (after the first render review)
+
+The first round of this work clipped the world at the block window on the reading
+that the client draws nothing outside it. The rendered review showed what that
+costs (an empty, stair-stepped quadrant), and the requirement itself asks for both
+meshes, so the whole-world mesh is back and only the level ladder remains native:
+
+* `src/terrain_gpu.rs` is restored to the pre-change file: the step-4 whole-world
+  mesh, the `vs_far` pipeline and `edge_mesh()` (also used by the clipped water
+  refraction pass) are drawn under the window mesh again. Nothing is clipped.
+* `src/gpu.rs` re-selects the window and the per-block levels every frame
+  (`lod_window`) and rebuilds only when the answer changes; the old "≥ 2 blocks of
+  camera movement" trigger is gone.
+* `block+0x7c` is proven to be `1.0f` from the block constructors (`0x7c85e2`,
+  `0x7a1da3`) and from the absence of any other store to it, removing the last
+  assumption in the level rule.
+* `P2.02` and `P2.03` are therefore recorded as Implemented in the reassessment,
+  with the near→far→back walk rendered on 2 November 2026 as their camera-walk
+  evidence; `P2.01` stays Partial because residency/streaming and `block+0x74`
+  visibility are not reproduced.
+* The terrain `vs`/`vs_far` parity program (`src/bin/terrain-lod-gpu-check.rs`) is
+  now part of the CI shader run, since both vertex paths are in production again.

@@ -37,8 +37,8 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 
 | Phase | Implemented requirements | Partial | Not implemented | Full phase complete? |
 |---|---:|---:|---:|---|
-| 1 | 2 | 10 | 0 | No |
-| 2 | 1 | 7 | 1 | No |
+| 1 | 9 | 3 | 0 | No |
+| 2 | 2 | 7 | 0 | No |
 | 3 | 0 | 9 | 0 | No |
 | 4 | 2 | 7 | 0 | No |
 | 5 | 0 | 8 | 1 | No |
@@ -46,7 +46,7 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 | 7 | 2 | 7 | 0 | No |
 | 8 | 3 | 7 | 0 | No |
 
-**Total: 11 implemented requirement deliverables, 63 partial, 2 not implemented.** These counts are not a parity score.
+**Total: 19 implemented requirement deliverables, 56 partial, 1 not implemented.** These counts are not a parity score.
 
 ## Phase 1
 
@@ -69,15 +69,15 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 
 | ID | Decision | Already implemented / evidence | Remaining acceptance / boundary |
 |---|---|---|---|
-| P2.01 | Partial | Height blocks and T2MK areas load from the world stream; the draw set is now the recovered camera block window (`0x77ecf0`, `(2r+1)` blocks, edge-shifted, nothing outside it) built by `src/terrain_lod.rs` from `src/gpu.rs` (`src/main.rs`, `src/terrain_gpu.rs`). | Per-view block visibility (`block+0x74`), streaming growth/eviction (the viewer keeps every block resident) and a running camera walk confirming the same set as the client. |
-| P2.02 | Partial | The recovered three-level ladder replaces the near/far split: levels 3/2/1 by camera distance minus the block half diagonal against 180/320 world units (`0x77e360`, `0x77f450`), geometry `step = 1<<(3-level)` (`0x7e5f70`) in `src/terrain_lod.rs`; the coarse whole-world mesh is gone (`src/terrain_gpu.rs`, `src/bin/terrain-lod-gpu-check.rs`). | Level re-selection runs on the viewer's rebuild trigger rather than every frame per view, and the near->far->back camera walk has not been rendered. The client has no hysteresis band to reproduce. |
-| P2.03 | Partial | Recovered edge rule implemented: the finer block coarsens its edge to the coarser neighbour's stride (`0x7c40e6`), missing neighbours keep their own step, no blending (`src/terrain_lod.rs`), with exact-coverage and shared-edge regressions for every level pair. | The native per-edge index layout is reproduced as an equivalent vertex set with viewer-chosen fan diagonals; the rendered crack check at block and level boundaries is still outstanding. |
+| P2.01 | Partial | Height blocks and T2MK areas load from the world stream. `0x77ecf0`'s camera window (`(2r+1)` blocks, edge-shifted at the world border) selects the blocks meshed at their recovered level (`src/terrain_lod.rs` from `src/gpu.rs`, `src/main.rs`), and the persistent whole-world mesh draws underneath it, so the rest of the world stays visible (`src/terrain_gpu.rs`). | Per-view block visibility (`block+0x74`) and streaming growth/eviction are not reproduced: the viewer loads every block up front, so residency is a draw-set property only. |
+| P2.02 | Implemented | Local full-resolution mesh and distant coarse mesh both exist and are now picked by the client's own rule: level 3/2/1 from `d = |block centre − camera| (XZ) − 0.7071067·block_size` against the active `terrain+0x26c`/`+0x270` pair, 180/320 world units for the shipped quality presets (`0x77e360`, `0x77f450`); geometry `step = 1<<(3−level)`, `q = (cells − 2·step)/step` (`0x7e5f70`); the per-block scale `block+0x7c` is written as 1.0f once at block construction (`0x7c85e2`, `0x7a1da3`) and never rewritten, so no per-block factor exists. Window and levels are re-evaluated every frame and the mesh is rebuilt when the answer changes (`src/gpu.rs`, `src/terrain_lod.rs`). Executed: `tools/verify_terrain_lod.py` and the unit tests in `src/terrain_lod.rs` (CI); rendered near→far→back camera walk confirmed 2 November 2026 with both meshes present. | None outstanding for the level ladder. `0x77e360` has no hysteresis band (two threshold comparisons and a default), so none is reproduced; a level change reaches the screen one asynchronous background build after the threshold crossing rather than inside the same frame. |
+| P2.03 | Implemented | The client's own edge and neighbour rule replaced the approximate stitching: each block coarsens an edge to the stride of a coarser neighbour and keeps its own stride when the neighbour is missing (`0x7c40e6`, `step = 1<<(3−level)`), with no blending, across block and level boundaries (`src/terrain_lod.rs`, used by `src/gpu.rs`). Executed: exact per-block coverage for all three levels and ten edge-case combinations, a mixed-level 2×2 field and shared-edge node-set equality for all nine level pairs (`tools/verify_terrain_lod.py`), plus the unit tests in CI. Level and block boundaries rendered without cracks on 2 November 2026. | Recorded deviation: the native per-edge index layout (interior indices plus separate strip buffers) is emitted as an equivalent vertex set with viewer-chosen fan diagonals; the boundary nodes — the only place that can crack — are identical. |
 | P2.04 | Partial | One layer/mask/lightmap terrain shader with distinct near/far vertex paths (`src/terrain_gpu.rs`, `src/material.rs`). | Every native variant, stage setup, cull/depth/blend/alpha-test state and the hardware fallback paths; state is not yet recovered as a table. |
 | P2.05 | Partial | T2LM/T2LM1 pair availability, rectangular tile mapping and the 2x day/night modulation (`src/terrain_lightmaps.rs`, `src/terrain_gpu.rs`). | Pair-selection edge cases, clamp/wrap, encoded-space arithmetic and the exact combination with regional ambient. |
 | P2.06 | Partial | T2MK v2 layer axes, per-layer transforms and mask grid (`src/material.rs`). | Verify every authored projection, layer count and mask format/resolution against the client; world-to-texture mapping is only proven for the exercised areas. |
 | P2.07 | Partial | Native source dimensions by default, 16x anisotropic gradients, generated mips (`src/terrain_gpu.rs`, `src/material.rs`). | Per-material mip/filter/addressing behavior, the optional downsampled-mask path and every source format the archive contains. |
 | P2.08 | Partial | High-resolution nearby terrain and native-size scenery atlases exist (`src/terrain_gpu.rs`, `src/texture_atlas.rs`). | No demonstrated native terrain-hole/visibility-flag implementation, no recovered special-surface cases, and maximum-quality road/city (Archosaur) detail is not validated. |
-| P2.09 | Partial | Terrain participates in main, clipped water and rendered map views (`src/gpu.rs`, `src/terrain_gpu.rs`); boundary/seam, mask-blending and near/far shader regressions exist (`src/terrain_lod.rs`, `src/material.rs`, `src/bin/terrain-lod-gpu-check.rs`). | Reflection/refraction and minimap/full-world-map equivalence is not established, and the terrain LOD GPU program is not part of the current 13-program CI run. |
+| P2.09 | Partial | Terrain participates in main, clipped water and rendered map views (`src/gpu.rs`, `src/terrain_gpu.rs`); boundary/seam, mask-blending and near/far vertex-path regressions exist and now run in CI: `src/terrain_lod.rs`, `src/material.rs` and the `vs`/`vs_far` parity program `src/bin/terrain-lod-gpu-check.rs` (`.github/workflows/pr-checks.yml`). | Reflection/refraction and minimap/full-world-map equivalence is not established against the client. |
 
 ## Phase 3
 
