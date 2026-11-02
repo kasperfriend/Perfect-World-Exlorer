@@ -381,3 +381,20 @@ as completed world-model integration.
 
 The private split models ZIP was reassembled and extracted successfully:
 `models.pck` is 888,028,116 bytes. All archive/client content remains ignored.
+
+### Ordinary skin/rigid specular variant is not the non-specular variant
+
+The extracted `rigid_mesh_s_dl.txt` and `skin_mesh_m4_s_dl.txt` both contain
+`max r9.x, r9.x, c0.x` before reciprocal attenuation: their point contribution
+cannot amplify beyond one. Both preserve c8.a, add c7.a, and omit point alpha
+from diffuse output. Their directional specular term uses the normalized half
+vector `-light_direction - camera_forward`, the `lit` frontface gate and
+material power, then multiplies by c9 and upper-clamps. Added separate CPU/
+WGSL functions and 16 more GPU cases (47 total), including near lights that
+would expose incorrectly reusing `_ns_dl` attenuation, backfaces and point
+on/off. CPU core suite passes 33 tests; GPU result is pending this commit's CI.
+
+`morph_rigid_mesh_c4_m1_s_dl.txt` notably lacks that attenuation clamp and
+scales alpha with the light terms. It must not be routed through the ordinary
+skin/rigid specular helper. The actual client's SKI census contains no morph
+meshes, but that absence is not a universal format-support claim.

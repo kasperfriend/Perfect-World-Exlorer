@@ -1,5 +1,5 @@
-//! Dynamic point + directional diffuse used by retail skin_mesh_m4_ns_dl and
-//! rigid_mesh_ns_dl vertex shaders. This module is not yet wired to models.
+//! Dynamic point/directional diffuse and ordinary skin/rigid specular variants.
+//! This module is not yet wired to world model drawing.
 //! The four-input coefficients correspond to VS constants c7/c8/c10..c13.
 #[derive(Clone, Copy, Debug)]
 pub struct LightInput {
@@ -75,6 +75,40 @@ pub fn vertex_light_rgba(p: LightInput, alpha: [f32; 3]) -> [f32; 4] {
     };
     [rgb[0], rgb[1], rgb[2], a.min(1.)]
 }
+/// Ordinary skin/rigid specular variants differ from `_ns_dl`: they clamp the
+/// point attenuation denominator to at least one and preserve directional
+/// alpha, even with a point light. Specular is a separate oD1 RGB output.
+/// This is not the morph-specular shader, which has different instructions.
+pub fn specular_variant_diffuse(mut p: LightInput, alpha: [f32; 3]) -> [f32; 4] {
+    let d2 = (0..3)
+        .map(|i| (p.point_position[i] - p.world_position[i]).powi(2))
+        .sum::<f32>();
+    let denom = p.attenuation[0] + p.attenuation[1] * d2.sqrt() + p.attenuation[2] * d2;
+    if denom < 1. {
+        p.attenuation = [1., 0., 0.];
+    }
+    let rgb = vertex_light(p);
+    [rgb[0], rgb[1], rgb[2], (alpha[0] + alpha[1]).min(1.)]
+}
+/// Directional Blinn term from rigid_mesh_s / rigid_mesh_s_dl. The eye input
+/// is the camera's forward direction, not a per-vertex vector to the eye.
+pub fn directional_specular(
+    p: LightInput,
+    eye_direction: [f32; 3],
+    power: f32,
+    coefficient: [f32; 3],
+) -> [f32; 3] {
+    let dot = |a: [f32; 3], b: [f32; 3]| (0..3).map(|i| a[i] * b[i]).sum::<f32>();
+    let nl = dot(p.normal, p.normal).sqrt();
+    let h = std::array::from_fn(|i| -p.direction[i] - eye_direction[i]);
+    let hl = dot(h, h).sqrt();
+    if nl <= 1e-6 || hl <= 1e-6 || dot(p.normal, p.direction.map(|v| -v)) <= 0. {
+        return [0.; 3];
+    }
+    let nh = (dot(p.normal, h) / (nl * hl)).max(0.);
+    let spec = nh.powf(power.clamp(-128., 128.));
+    coefficient.map(|c| (c * spec).min(1.))
+}
 /// Reusable WGSL equivalent, ready for the animated skin vertex path.
 pub const WGSL: &str = r#"
 fn model_vertex_light(pos:vec3<f32>, normal:vec3<f32>, direction:vec3<f32>, light_pos:vec3<f32>, att:vec3<f32>, ambient:vec3<f32>, dir_diff:vec3<f32>, point_diff:vec3<f32>, point_ambient:vec3<f32>, enabled:f32)->vec3<f32> {
@@ -92,6 +126,19 @@ fn model_vertex_light_rgba(pos:vec3<f32>,normal:vec3<f32>,direction:vec3<f32>,li
  var a=ambient.a+dir_diff.a;
  if enabled>0.5 {a=ambient.a+lambert*dir_diff.a; if denom>0.000001 {a+=point_ambient.a/denom;}}
  return vec4<f32>(rgb,min(a,1.));
+}
+
+fn model_specular_variant_diffuse(pos:vec3<f32>,normal:vec3<f32>,direction:vec3<f32>,light_pos:vec3<f32>,att:vec3<f32>,ambient:vec4<f32>,dir_diff:vec4<f32>,point_diff:vec4<f32>,point_ambient:vec4<f32>,enabled:f32)->vec4<f32> {
+ let d=length(light_pos-pos);let denom=dot(att,vec3<f32>(1.,d,d*d));
+ let adjusted=select(att,vec3<f32>(1.,0.,0.),denom<1.);
+ let rgb=model_vertex_light(pos,normal,direction,light_pos,adjusted,ambient.rgb,dir_diff.rgb,point_diff.rgb,point_ambient.rgb,enabled);
+ return vec4<f32>(rgb,min(ambient.a+dir_diff.a,1.));
+}
+fn model_directional_specular(normal:vec3<f32>,direction:vec3<f32>,eye_direction:vec3<f32>,power:f32,coefficient:vec3<f32>)->vec3<f32> {
+ let nl=length(normal);let h=-direction-eye_direction;let hl=length(h);
+ if nl<=0.000001 || hl<=0.000001 || dot(normal,-direction)<=0. {return vec3<f32>(0.);}
+ let nh=max(dot(normal,h)/(nl*hl),0.);
+ return min(coefficient*pow(nh,clamp(power,-128.,128.)),vec3<f32>(1.));
 }
 
 "#;
@@ -181,5 +228,31 @@ mod tests {
         p.point_enabled = false;
         assert_eq!(vertex_light_rgba(p, [2., 3., 0.])[3], 1.);
         assert_eq!(vertex_light_rgba(p, [-0.5, 0.2, 0.])[3], -0.3);
+    }
+    #[test]
+    fn specular_variant_caps_point_gain_and_preserves_alpha() {
+        let mut p = input();
+        p.point_position = [0., 0.25, 0.];
+        let d = specular_variant_diffuse(p, [0.1, 0.6, 0.2]);
+        assert!((d[0] - 0.74).abs() < 1e-6);
+        assert!((d[3] - 0.7).abs() < 1e-6);
+        assert!(vertex_light(p)[0] > d[0]);
+        p.normal = [0., -1., 0.];
+        assert!((specular_variant_diffuse(p, [0.1, 0.6, 0.2])[3] - 0.7).abs() < 1e-6);
+    }
+    #[test]
+    fn directional_specular_uses_camera_forward_and_lit_frontface_gate() {
+        let mut p = input();
+        assert_eq!(
+            directional_specular(p, [0., -1., 0.], 10., [0.2, 0.3, 2.]),
+            [0.2, 0.3, 1.]
+        );
+        p.normal = [0., -1., 0.];
+        assert_eq!(
+            directional_specular(p, [0., -1., 0.], 10., [1.; 3]),
+            [0.; 3]
+        );
+        p.normal = [0., 1., 0.];
+        assert_eq!(directional_specular(p, [0., 1., 0.], 10., [1.; 3]), [0.; 3]);
     }
 }

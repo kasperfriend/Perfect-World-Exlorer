@@ -6,7 +6,7 @@ mod model_light;
 mod model_material;
 use model_light::{vertex_light, LightInput};
 
-const CASES: u32 = 31;
+const CASES: u32 = 47;
 
 fn main() {
     let instance = wgpu::Instance::default();
@@ -58,7 +58,7 @@ fn main() {
  if i==14u {att=vec3<f32>(1.,0.2,0.01);}
  let c=model_vertex_light(vec3<f32>(0.),normal,vec3<f32>(0.,-1.,0.),light,att,ambient,vec3<f32>(0.2,0.1,0.),vec3<f32>(0.4,0.2,0.1),vec3<f32>(0.04,0.08,0.12),enabled);
  result[i]=vec4<f32>(c,1.);
- if i>=15u {
+ if i>=15u && i<31u {
   let k=i-15u; let point_on=(k&1u)!=0u;
   var transparencies=array<f32,4>(0.,0.25,1.,1.2);
   let transparency=transparencies[(k/2u)%4u];
@@ -67,6 +67,15 @@ fn main() {
   let m=bind_model_material(vec4<f32>(0.5,0.25,0.8,0.2),vec4<f32>(0.8,0.6,0.4,0.7),vec4<f32>(0.02,0.03,0.04,0.01),vec4<f32>(0.2,0.3,0.4,0.5),vec4<f32>(0.01,0.02,0.03,0.04),vec4<f32>(0.3,0.4,0.5,0.6),vec4<f32>(0.1,0.2,0.3,0.4),vec4<f32>(0.4,0.3,0.2,0.9),transparency,point_on);
   result[i]=model_vertex_light_rgba(vec3<f32>(0.),norm,dir,vec3<f32>(0.,10.,0.),vec3<f32>(0.,0.4,0.),m.ambient,m.directional_diffuse,m.point_diffuse,m.point_ambient,select(0.,1.,point_on));
  }
+ if i>=31u {
+  let k=i-31u;let on=(k&1u)!=0u;
+  var normal=vec3<f32>(0.,1.,0.);if k>=8u {normal=-normal;}
+  var distances=array<f32,4>(0.25,1.,5.,10.);let light=vec3<f32>(0.,distances[(k/2u)%4u],0.);
+  let d=model_specular_variant_diffuse(vec3<f32>(0.),normal,vec3<f32>(0.,-1.,0.),light,vec3<f32>(0.,0.4,0.),vec4<f32>(0.1,0.2,0.3,0.1),vec4<f32>(0.2,0.1,0.,0.6),vec4<f32>(0.4,0.2,0.1,0.),vec4<f32>(0.04,0.08,0.12,0.2),select(0.,1.,on));
+  let spec=model_directional_specular(normal,vec3<f32>(0.,-1.,0.),vec3<f32>(0.6,-0.8,0.),10.,vec3<f32>(0.2,0.3,0.4));
+  result[i]=vec4<f32>(d.rgb+spec,d.a);
+ }
+
 }
 "#
     );
@@ -143,7 +152,7 @@ fn main() {
         }
         let rgb = vertex_light(p);
         let mut expected = [rgb[0], rgb[1], rgb[2], 1.];
-        if i >= 15 {
+        if i >= 15 && i < 31 {
             let k = i - 15;
             let c = model_material::bind(
                 model_material::Material {
@@ -171,6 +180,17 @@ fn main() {
                 p,
                 [c.ambient[3], c.directional_diffuse[3], c.point_ambient[3]],
             );
+        }
+        if i >= 31 {
+            let k = i - 31;
+            p.point_enabled = k & 1 != 0;
+            p.normal = if k >= 8 { [0., -1., 0.] } else { [0., 1., 0.] };
+            p.point_position = [0., [0.25, 1., 5., 10.][(k / 2) % 4], 0.];
+            expected = model_light::specular_variant_diffuse(p, [0.1, 0.6, 0.2]);
+            let spec = model_light::directional_specular(p, [0.6, -0.8, 0.], 10., [0.2, 0.3, 0.4]);
+            for j in 0..3 {
+                expected[j] += spec[j];
+            }
         }
         let actual = &results[i * 4..i * 4 + 4];
         for j in 0..4 {
