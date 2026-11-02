@@ -1,0 +1,49 @@
+name: CI diagnostics
+
+# Temporary: posts the exact formatting diff and compiler errors back to PR #3
+# as a comment, because Actions log/artifact downloads are unreachable from the
+# development sandbox. Deleted once the branch is green again.
+on:
+  push:
+    branches: [arena/bdae8dca-perfect-world-exlorer]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
+      - name: Collect diagnostics
+        run: |
+          set +e
+          cargo fmt --all -- --check > /tmp/fmt.txt 2>&1; echo "fmt_exit=$?" >> /tmp/status.txt
+          cargo check --locked --bins > /tmp/check.txt 2>&1; echo "check_exit=$?" >> /tmp/status.txt
+          cargo test --locked --bin perfect-world-explorer --no-run > /tmp/test.txt 2>&1; echo "test_build_exit=$?" >> /tmp/status.txt
+          {
+            echo "CI diagnostics for $GITHUB_SHA"
+            echo '```'
+            cat /tmp/status.txt
+            echo '--- cargo fmt --check ---'
+            head -c 12000 /tmp/fmt.txt
+            echo '--- cargo check (errors) ---'
+            grep -E '^error' -A 12 /tmp/check.txt | head -c 20000
+            echo '--- cargo test build (errors) ---'
+            grep -E '^error' -A 12 /tmp/test.txt | head -c 20000
+            echo '```'
+          } > /tmp/body.md
+      - name: Post diagnostics to the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment 3 --repo "${{ github.repository }}" --body-file /tmp/body.md

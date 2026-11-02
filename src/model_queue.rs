@@ -171,11 +171,20 @@ pub struct MeshQueueState {
     pub depth_write: bool,
 }
 
-/// Depth write for the retail alpha list. ASSUMPTION: the 1.4.2 skin queue
-/// saves/restores alpha testing (0x7a76a0) and applies authored blend factors,
-/// but its z-write state for the alpha list was not recovered from the supplied
-/// executable. The viewer disables z-write for blended meshes and records this
-/// as an unverified state in the unsupported-path register.
+/// Depth write for the retail alpha list.
+///
+/// Recovered state bracket, not an assumption:
+/// * `0x7844d0` — the per-node alpha pass, entered from `0x436984` inside the
+///   alpha/overlay submit `0x436720` — sets SRCBLEND 5 (`0x77a2c0`), DESTBLEND
+///   6 (`0x77a2f0`), `0x77a230(0)` = **ZWRITEENABLE off** and CULLMODE 1
+///   (`0x77a540(1)`, D3DCULL_NONE) before it submits the list at `0x78452b`.
+/// * Its tail `0x7845f0` restores, after the list is drawn, `0x77a230(1)`
+///   (`0x784678`), CULLMODE 3 (`0x784684`) and the material state block
+///   (`0x779fc0(0, 4)` at `0x78468e`).
+/// * The per-mesh record path `0x7a76a0` only overrides SRC/DEST blend from the
+///   record's `+0x2a4`/`+0x2a8` and toggles ALPHATESTENABLE, restoring 5/6 and
+///   the previous alpha test; it never touches ZWRITEENABLE, so an authored
+///   blend pair cannot re-enable depth writes for a blended mesh.
 pub const ALPHA_DEPTH_WRITE: bool = false;
 
 /// Complete queue state for one receiver mesh, or an explicit failure when the
@@ -385,6 +394,26 @@ mod tests {
         for code in [0, 11, 12, 13, u32::MAX] {
             assert!(blend_factor(code).is_err(), "{code}");
         }
+    }
+
+    #[test]
+    fn alpha_list_depth_write_matches_the_native_pass_bracket() {
+        // 0x7844d0 disables ZWRITEENABLE for the alpha list and 0x7845f0
+        // restores it afterwards, so no blended mesh writes depth.
+        assert!(!ALPHA_DEPTH_WRITE);
+        for (transparency, source, destination) in
+            [(0.5, 5, 6), (-1., 2, 6), (-1., 5, 2), (-1., 1, 1)]
+        {
+            let state =
+                mesh_state(false, transparency, source, destination, false, false).unwrap();
+            assert_eq!(state.queue, Queue::Alpha, "{source}/{destination}");
+            assert!(!state.depth_write);
+        }
+        // The plain list (transparency < 0 with the default pair and no
+        // shader/alpha texture) keeps depth writes.
+        let opaque = mesh_state(false, -1., 5, 6, false, false).unwrap();
+        assert_eq!(opaque.queue, Queue::Opaque);
+        assert!(opaque.depth_write);
     }
 
     #[test]
