@@ -15,10 +15,14 @@
 //!   pending publication when the owner is destroyed; 0x425bf8..0x425c2c
 //!   clears publication membership after the dynamic cells are built.
 //!
+//! Attached owners carry a live parent transform (`Request::attachment`), so a
+//! root bound to a skeleton hook follows the posed parent each frame
+//! (0x7b2520 resolves the hook, 0x5b3750 installs the parent node).
+//!
 //! Explicitly NOT implemented: the rest of the GFX graph (particles, sprites,
-//! trails, animated textures), hook/attachment resolution inside a skeleton and
-//! the visual effect's alpha/attenuation fade. Those remain in
-//! Findings/Unsupported-client-paths.md; they do not fake light producers.
+//! trails, animated textures) and the visual effect's alpha/attenuation fade.
+//! Those remain in Findings/Unsupported-client-paths.md; they do not fake light
+//! producers.
 
 #![allow(dead_code)]
 
@@ -46,6 +50,12 @@ pub struct Request {
     pub span_ms: Option<u32>,
     /// Optional packed outer color; alpha is the intensity factor.
     pub outer: Option<[f32; 4]>,
+    /// Live parent transform for an attached owner (0x5b3750 installs the
+    /// parent node). `None` means the placement in `transform` is world space;
+    /// `Some(parent)` composes `parent * transform` on every tick, so a root
+    /// bound to a skeleton hook follows the animated parent instead of the
+    /// placement captured at load time.
+    pub attachment: Option<[f32; 16]>,
     /// Region/time-of-day visibility. Gates publication, never progression.
     pub active: bool,
     /// Diagnostic origin, e.g. `world.ecwld (3,4) export 17`.
@@ -71,8 +81,55 @@ impl Request {
                 return Err(format!("{}: invalid owner outer color", self.origin));
             }
         }
+        if let Some(attachment) = self.attachment {
+            if attachment.iter().any(|v| !v.is_finite()) {
+                return Err(format!("{}: nonfinite owner attachment", self.origin));
+            }
+        }
         Ok(())
     }
+    /// Effective world placement for this frame: the live attachment parent
+    /// composed with the authored local placement.
+    fn world_transform(&self) -> Result<[f32; 16], String> {
+        let Some(parent) = self.attachment else {
+            return Ok(self.transform);
+        };
+        let composed = multiply(parent, self.transform);
+        if parent.iter().any(|v| !v.is_finite()) || composed.iter().any(|v| !v.is_finite()) {
+            return Err(format!("{}: nonfinite attachment parent", self.origin));
+        }
+        Ok(composed)
+    }
+}
+
+/// Column-major 4x4 product `a * b`. Kept local instead of pulling a math crate
+/// in, because this module is also compiled standalone by the dependency-free
+/// core-check harness.
+pub fn multiply(a: [f32; 16], b: [f32; 16]) -> [f32; 16] {
+    let mut out = [0.0f32; 16];
+    for column in 0..4 {
+        for row in 0..4 {
+            let mut sum = 0.0f32;
+            for k in 0..4 {
+                sum += a[k * 4 + row] * b[column * 4 + k];
+            }
+            out[column * 4 + row] = sum;
+        }
+    }
+    out
+}
+
+/// Column-major translation matrix, used by attachment regressions.
+pub fn translation(x: f32, y: f32, z: f32) -> [f32; 16] {
+    let mut m = [0.0f32; 16];
+    m[0] = 1.;
+    m[5] = 1.;
+    m[10] = 1.;
+    m[15] = 1.;
+    m[12] = x;
+    m[13] = y;
+    m[14] = z;
+    m
 }
 
 /// Column-major placement from a world placement basis, then the authored
@@ -251,6 +308,28 @@ impl Manager {
         }
     }
 
+    /// Install or replace the live parent transform of an attached owner.
+    /// Called once per frame with the resolved hook matrix; returns false when
+    /// the identity is not owned, so a stale hook can never keep publishing.
+    pub fn set_attachment(&mut self, identity: u64, parent: Option<[f32; 16]>) -> bool {
+        let Some(owner) = self
+            .owners
+            .iter_mut()
+            .find(|o| o.request.identity == identity)
+        else {
+            return false;
+        };
+        owner.request.attachment = parent;
+        true
+    }
+
+    pub fn attachment(&self, identity: u64) -> Option<Option<[f32; 16]>> {
+        self.owners
+            .iter()
+            .find(|o| o.request.identity == identity)
+            .map(|o| o.request.attachment)
+    }
+
     pub fn active(&self, identity: u64) -> Option<bool> {
         self.owners
             .iter()
@@ -422,7 +501,7 @@ fn tick_owner(
     }
     let visible = owner.request.active && owner.elapsed >= start;
     let priority = owner.request.priority;
-    let transform = owner.request.transform;
+    let transform = owner.request.world_transform()?;
     let outer = owner.request.outer;
     let serial = owner.serial;
     let State::Live(emitters) = &mut owner.state else {
@@ -469,6 +548,7 @@ mod tests {
             start_ms: 0,
             span_ms: None,
             outer: None,
+            attachment: None,
             active,
             origin: format!("test owner {identity}"),
         }
@@ -548,6 +628,65 @@ mod tests {
         assert_eq!(publications.len(), 1);
         publications.consume_into(&mut grid());
         assert_eq!(manager.status().failures, 0);
+    }
+
+    #[test]
+    fn attached_owner_follows_its_live_parent_transform() {
+        let mut manager = Manager::with_reader(root("gfx/scene/lamp.gfx", &light_file()));
+        let mut r = request(1, true);
+        // The authored placement keeps the light at (1, 2, 3) in owner space.
+        r.attachment = Some(translation(0., 0., 0.));
+        manager.insert(r).unwrap();
+        let mut publications = LightPublications::default();
+        manager.update(0, &mut publications); // lazy load
+        manager.update(0, &mut publications);
+        let mut first = grid();
+        publications.consume_into(&mut first);
+        let before = first.query([1., 2., 3.], 1.).unwrap().position;
+        // Moving the hook moves the light in the same frame, with no reload and
+        // no extra owner: the parent composes with the authored placement.
+        let moved = translation(24., 0., 0.);
+        assert!(manager.set_attachment(1, Some(moved)));
+        manager.update(0, &mut publications);
+        let mut grid = grid();
+        publications.consume_into(&mut grid);
+        let after = grid
+            .query([before[0] + 24., before[1], before[2]], 1.)
+            .unwrap()
+            .position;
+        let expected = before[0] + 24.;
+        assert!((after[0] - expected).abs() < 1e-4, "{before:?} -> {after:?}");
+        assert_eq!(after[1..], before[1..]);
+        // The old hook cell no longer holds a light: nothing is left behind.
+        assert!(grid.query([1., 2., 3.], 1.).is_none());
+        // The attachment survives region suppression and is dropped with the
+        // owner, so a destroyed parent cannot keep a light alive.
+        assert_eq!(manager.attachment(1), Some(Some(moved)));
+        assert!(manager.remove(1, &mut publications));
+        assert_eq!(manager.attachment(1), None);
+        assert!(!manager.set_attachment(1, Some(translation(0., 0., 0.))));
+        assert_eq!(publications.len(), 0);
+    }
+
+    #[test]
+    fn nonfinite_attachment_parent_fails_the_owner_explicitly() {
+        let mut manager = Manager::with_reader(root("gfx/scene/lamp.gfx", &light_file()));
+        let mut r = request(1, true);
+        let mut parent = translation(1., 0., 0.);
+        parent[12] = f32::NAN;
+        r.attachment = Some(parent);
+        assert!(manager.insert(r).is_err(), "nonfinite parent rejected at insert");
+        let mut r = request(2, true);
+        r.attachment = None;
+        manager.insert(r).unwrap();
+        let mut publications = LightPublications::default();
+        manager.update(0, &mut publications);
+        manager.update(0, &mut publications);
+        assert!(manager.set_attachment(2, Some(parent)));
+        manager.update(0, &mut publications);
+        assert_eq!(manager.status().live, 0);
+        assert_eq!(manager.status().failures, 1);
+        assert!(manager.failures()[0].contains("nonfinite attachment parent"));
     }
 
     #[test]

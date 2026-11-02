@@ -15,6 +15,8 @@ mod gfx_light;
 mod gfx_owner;
 #[path = "../model_asset.rs"]
 mod model_asset;
+#[path = "../model_attachment.rs"]
+mod model_attachment;
 #[path = "../model_dds.rs"]
 mod model_dds;
 #[path = "../model_draw.rs"]

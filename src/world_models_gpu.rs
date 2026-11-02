@@ -1,9 +1,11 @@
 //! Ordinary world receiving-model submission in main and clipped water passes.
-//! Owns the real scene/model effect light producers (ECWLD effects and hook-free
-//! ECM EventType-100 roots) and the receiving queues they publish into.
+//! Owns the real scene/model effect light producers (ECWLD effects and ECM
+//! EventType-100 roots, including hook-attached ones) and the receiving queues
+//! they publish into.
 //! Never sends baked terrain/BMD/tree vertices through receiving-model lighting.
 use crate::{
     gfx_owner,
+    model_attachment,
     model_draw_gpu::{Draw, Frame},
     model_queue,
     scene_lights::{DynamicLight, LightPublications, SceneLights, StaticGrid},
@@ -27,12 +29,33 @@ struct Producer {
     /// ECWLD effect time eligibility; `None` for model events and all-day roots.
     valid_time: Option<i32>,
     position: [f32; 3],
+    /// Skeleton hook this root is attached to (ECM `HookName`).
+    hook: Option<HookBinding>,
+}
+
+/// A root bound to a hook of one of this world's models.
+struct HookBinding {
+    /// Index into `assets.instances` of the parent model.
+    instance: usize,
+    /// `HookName` plus the authored hook-local transform.
+    record: model_attachment::Attachment,
+    /// Authored hook-local matrix, resolved once at install time.
+    local: glam::Mat4,
+}
+
+/// This frame's pose and deformed meshes for one slot. Secondary views reuse
+/// it so reflection/refraction never advance playback or re-sample a hook.
+struct SlotPose {
+    pose: crate::skeleton_pose::Pose,
+    meshes: Vec<crate::model_asset::PosedMesh>,
 }
 
 struct Slot {
     draw: Option<Draw>,
     failed: bool,
     transform: Result<glam::Mat4, String>,
+    /// Last evaluated pose, reused by every pass of the same frame.
+    posed: Option<Result<SlotPose, String>>,
 }
 
 pub struct World {
@@ -105,6 +128,7 @@ impl World {
                 draw: None,
                 failed: false,
                 transform: crate::world_models::transform(&i.placement),
+                posed: None,
             })
             .collect();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -186,6 +210,7 @@ impl World {
                     start_ms: 0,
                     span_ms: None,
                     outer: None,
+                    attachment: None,
                     active: false,
                     origin: format!(
                         "world.ecwld ({},{}) export {}",
@@ -196,15 +221,20 @@ impl World {
                     identity,
                     valid_time: Some(effect.valid_time),
                     position: effect.position,
+                    hook: None,
                 });
                 installed += 1;
             }
         }
         Ok(installed)
     }
-    /// Install ECM EventType-100 roots that need no skeleton hook. A recovered
-    /// non-empty HookName is refused explicitly instead of being attached to the
-    /// model origin: hook resolution is not implemented.
+    /// Install ECM EventType-100 roots, including hook-attached ones.
+    ///
+    /// A hooked root keeps its authored hook-local transform and receives the
+    /// parent's posed hook matrix every frame
+    /// (`gfx_owner::Request::attachment`); a hook-free root is placed by the
+    /// model transform the event inherits. An unknown hook name or a malformed
+    /// hook record is an explicit failure, never the model origin.
     pub fn install_model_events(&mut self) -> Result<usize, String> {
         let mut installed = 0;
         for (index, instance) in self.assets.instances.iter().enumerate() {
@@ -214,19 +244,16 @@ impl World {
                 let Some(path) = event.gfx_path() else {
                     continue;
                 };
-                let hook = event
-                    .fields
-                    .iter()
-                    .find(|(key, _)| key == "HookName")
-                    .map(|(_, value)| value.as_str())
-                    .unwrap_or("");
-                if !hook.is_empty() {
-                    self.reported.push(format!(
-                        "{} event {event_index}: hook {hook:?} attachment is not implemented",
-                        instance.placement.path
-                    ));
-                    continue;
-                }
+                let described = format!(
+                    "{} export {} event {event_index}",
+                    instance.placement.path, instance.placement.export_id
+                );
+                let record = model_attachment::from_fields(&event.fields)
+                    .map_err(|e| format!("{described}: {e}"))?;
+                let local = match &record {
+                    Some(record) => record.local()?,
+                    None => glam::Mat4::IDENTITY,
+                };
                 let start_ms = event_milliseconds(event, "StartTime")?.max(0.);
                 let span_ms = match event_milliseconds(event, "TimeSpan")? {
                     value if value < 0. => None,
@@ -236,22 +263,31 @@ impl World {
                 self.owners.insert(gfx_owner::Request {
                     identity,
                     path: gfx_owner::root_path(&path),
-                    transform: transform.to_cols_array(),
+                    // A hooked root's local frame is the hook record and its
+                    // parent is installed per frame; a hook-free root is placed
+                    // by the model transform the native event inherits.
+                    transform: match &record {
+                        Some(_) => local.to_cols_array(),
+                        None => transform.to_cols_array(),
+                    },
                     speed: asset.descriptor.render_settings().default_speed,
                     priority: OWNER_PRIORITY,
                     start_ms: start_ms as u32,
                     span_ms,
                     outer: None,
+                    attachment: None,
                     active: false,
-                    origin: format!(
-                        "{} export {} event {event_index}",
-                        instance.placement.path, instance.placement.export_id
-                    ),
+                    origin: described,
                 })?;
                 self.producers.push(Producer {
                     identity,
                     valid_time: None,
                     position: instance.placement.position,
+                    hook: record.map(|record| HookBinding {
+                        instance: index,
+                        record,
+                        local,
+                    }),
                 });
                 installed += 1;
             }
@@ -351,87 +387,150 @@ impl World {
         advance: bool,
     ) {
         if advance {
-            // Producers publish before the grid consumes, so a light created on
-            // this tick already lights this frame's receivers.
+            // 1. Playback advances once per frame and each model is posed once.
+            self.advance_poses(delta_ms);
+            // 2. Hook-attached producers resolve their parent from those poses
+            //    (0x7b2520), then publish before the grid consumes, so a light
+            //    created or moved on this tick already lights this frame.
+            self.resolve_attachments();
             self.apply_activation(night);
             self.owners.update(delta_ms, &mut self.publications);
             self.grid.update(lights, center);
             self.publications.consume_into(&mut self.grid);
         }
+        self.draw_models(device, queue, frame, night);
+        if advance {
+            self.rebuild_alpha_order(center);
+        }
+    }
+    /// Tick every playback clock once and evaluate each model's pose once.
+    /// 0x7b2520 resolves hooks from this pose, and every pass of the frame
+    /// (main, reflection, refraction) reuses it.
+    fn advance_poses(&mut self, delta_ms: u32) {
         for (instance, slot) in self.assets.instances.iter_mut().zip(&mut self.slots) {
             if slot.failed {
                 continue;
             }
             let asset = &self.assets.assets[instance.asset];
-            let result = (|| -> Result<(), String> {
+            let result = (|| -> Result<SlotPose, String> {
                 let transform = *slot.transform.as_ref().map_err(Clone::clone)?;
                 let clock = instance.playback.as_mut().map_err(|e| e.clone())?;
-                if advance {
+                if delta_ms != 0 {
                     clock.tick(delta_ms)?;
                 }
-                let posed = match clock.sample() {
-                    Some((action, time)) => asset.pose_action_at_time(action, time, transform)?,
-                    None => asset.pose_bind(transform)?,
+                let pose = match clock.sample() {
+                    Some((action, time)) => asset.action_pose(action, time, transform)?,
+                    None => asset.bind_pose(transform)?,
                 };
-                let mut f = frame;
-                let point = self.grid.query(instance.placement.position, night);
-                // Ordinary loaded ECMs enable the specular selector through
-                // 0x6cfa64 -> 0x7924b0/0x7924c1; the point constants depend on
-                // whether the scene query returned a candidate.
-                let assignment = crate::model_receiver_class::assign(
-                    crate::model_receiver_class::MeshKind::Weighted,
-                    true,
-                    point.is_some(),
-                )?;
-                f.specular_variant = assignment.directional_specular;
-                f.lighting.point_enabled = assignment.point_constants;
-                if let Some(point) = point {
-                    f.lighting.point_ambient = point.ambient;
-                    f.lighting.point_diffuse = point.diffuse;
-                    f.point_position = point.position;
-                    f.attenuation = point.stored_attenuation;
-                }
-                if let Some(draw) = &slot.draw {
-                    draw.update(queue, asset, &posed, f)?;
-                } else {
-                    let read = &mut self.read;
-                    let bytes = &mut self.bytes;
-                    slot.draw = Some(Draw::new(
-                        device,
-                        queue,
-                        self.format,
-                        Some((
-                            wgpu::TextureFormat::Depth32Float,
-                            wgpu::CompareFunction::Greater,
-                        )),
-                        true,
-                        &self.sampler,
-                        asset,
-                        &posed,
-                        f,
-                        |path| {
-                            if let Some(data) = bytes.get(path) {
-                                return Ok(data.clone());
-                            }
-                            let data = read(path)?;
-                            bytes.insert(path.into(), data.clone());
-                            Ok(data)
-                        },
-                    )?);
-                }
-                Ok(())
+                let meshes = asset.meshes_from_pose(&pose)?;
+                Ok(SlotPose { pose, meshes })
             })();
-            if let Err(e) = result {
-                self.reported.push(format!(
+            slot.posed = Some(result);
+        }
+    }
+    /// Resolve every hook-attached producer against its parent's posed hook.
+    /// A model that failed to pose, a model that does not own the named hook and
+    /// a destroyed parent all surface as recorded failures instead of leaving a
+    /// light attached to a stale or invented transform.
+    fn resolve_attachments(&mut self) {
+        let mut resolved: Vec<(u64, Result<Option<[f32; 16]>, String>)> = Vec::new();
+        for producer in &self.producers {
+            let Some(binding) = &producer.hook else {
+                continue;
+            };
+            let origin = format!("producer {}", producer.identity);
+            let outcome = (|| -> Result<Option<[f32; 16]>, String> {
+                let slot = self
+                    .slots
+                    .get(binding.instance)
+                    .ok_or_else(|| format!("{origin}: parent slot is gone"))?;
+                let parent = self
+                    .assets
+                    .instances
+                    .get(binding.instance)
+                    .ok_or_else(|| format!("{origin}: parent instance is gone"))?;
+                let posed = match &slot.posed {
+                    Some(Ok(posed)) => posed,
+                    Some(Err(e)) => return Err(format!("{origin}: parent pose failed: {e}")),
+                    None => return Err(format!("{origin}: parent has no pose")),
+                };
+                let asset = self
+                    .assets
+                    .assets
+                    .get(parent.asset)
+                    .ok_or_else(|| format!("{origin}: parent asset is gone"))?;
+                let hook = asset.hook_matrix(&posed.pose, &binding.record.hook)?;
+                let composed = model_attachment::world(hook, binding.local)?;
+                Ok(Some(composed.to_cols_array()))
+            })();
+            resolved.push((producer.identity, outcome));
+        }
+        let mut detached = Vec::new();
+        for (identity, outcome) in resolved {
+            match outcome {
+                Ok(parent) => {
+                    if !self.owners.set_attachment(identity, parent) {
+                        detached.push(identity);
+                    }
+                }
+                Err(e) => {
+                    self.reported.push(e);
+                    self.owners.remove(identity, &mut self.publications);
+                    detached.push(identity);
+                }
+            }
+        }
+        // A producer whose owner is gone or whose hook cannot be resolved is
+        // dropped instead of retrying against a stale parent every frame.
+        self.producers.retain(|p| !detached.contains(&p.identity));
+    }
+    /// Upload this frame's already-evaluated poses. Runs for every pass without
+    /// touching playback, producer clocks or publications.
+    fn draw_models(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        frame: Frame,
+        night: f32,
+    ) {
+        let Self {
+            assets,
+            slots,
+            read,
+            bytes,
+            sampler,
+            format,
+            grid,
+            reported,
+            ..
+        } = self;
+        for (instance, slot) in assets.instances.iter().zip(slots.iter_mut()) {
+            if slot.failed {
+                continue;
+            }
+            let asset = &assets.assets[instance.asset];
+            let outcome = draw_one(
+                device,
+                queue,
+                frame,
+                night,
+                instance.placement.position,
+                asset,
+                slot,
+                grid,
+                sampler,
+                *format,
+                read,
+                bytes,
+            );
+            if let Err(e) = outcome {
+                reported.push(format!(
                     "world model {} ({}): {e}",
                     instance.placement.export_id, instance.placement.path
                 ));
                 slot.failed = true;
                 slot.draw = None;
             }
-        }
-        if advance {
-            self.rebuild_alpha_order(center);
         }
     }
     /// Retail alpha insertion walk over this frame's alpha meshes. Ordering uses
@@ -515,6 +614,76 @@ impl World {
     pub fn alpha_order(&self) -> Vec<(usize, usize)> {
         self.alpha.iter().map(|c| (c.slot, c.mesh)).collect()
     }
+}
+
+/// Upload one slot's already-evaluated pose. Split out of `World::draw_models`
+/// so the alpha-order snapshot and the attachment parent are read from the same
+/// pose the pass draws.
+#[allow(clippy::too_many_arguments)]
+fn draw_one(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    frame: Frame,
+    night: f32,
+    position: [f32; 3],
+    asset: &crate::model_asset::ModelAsset,
+    slot: &mut Slot,
+    grid: &StaticGrid,
+    sampler: &wgpu::Sampler,
+    format: wgpu::TextureFormat,
+    read: &mut Box<dyn FnMut(&str) -> Result<Vec<u8>, String>>,
+    bytes: &mut HashMap<String, Vec<u8>>,
+) -> Result<(), String> {
+    let posed = match &slot.posed {
+        Some(Ok(posed)) => posed,
+        Some(Err(e)) => return Err(e.clone()),
+        None => return Err("model has no pose for this pass".into()),
+    };
+    let mut f = frame;
+    let point = grid.query(position, night);
+    // Ordinary loaded ECMs enable the specular selector through
+    // 0x6cfa64 -> 0x7924b0/0x7924c1; the point constants depend on whether the
+    // scene query returned a candidate.
+    let assignment = crate::model_receiver_class::assign(
+        crate::model_receiver_class::MeshKind::Weighted,
+        true,
+        point.is_some(),
+    )?;
+    f.specular_variant = assignment.directional_specular;
+    f.lighting.point_enabled = assignment.point_constants;
+    if let Some(point) = point {
+        f.lighting.point_ambient = point.ambient;
+        f.lighting.point_diffuse = point.diffuse;
+        f.point_position = point.position;
+        f.attenuation = point.stored_attenuation;
+    }
+    if let Some(draw) = &slot.draw {
+        return draw.update(queue, asset, &posed.meshes, f);
+    }
+    let created = Draw::new(
+        device,
+        queue,
+        format,
+        Some((
+            wgpu::TextureFormat::Depth32Float,
+            wgpu::CompareFunction::Greater,
+        )),
+        true,
+        sampler,
+        asset,
+        &posed.meshes,
+        f,
+        |path| {
+            if let Some(data) = bytes.get(path) {
+                return Ok(data.clone());
+            }
+            let data = read(path)?;
+            bytes.insert(path.into(), data.clone());
+            Ok(data)
+        },
+    )?;
+    slot.draw = Some(created);
+    Ok(())
 }
 
 /// Event milliseconds from an ECM event field. Missing fields are explicit

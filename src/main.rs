@@ -47,6 +47,7 @@ mod grass_wind;
 mod launcher_ui;
 mod material;
 mod model_asset;
+mod model_attachment;
 mod model_dds;
 mod model_draw;
 #[cfg(test)]

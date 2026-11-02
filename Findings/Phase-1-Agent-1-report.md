@@ -480,3 +480,62 @@ alpha z-write state) rather than on unverified code.
 No central Phase 1 gate was changed to Yes, and
 `Findings/Eight-phase-reassessment-2026-11-02.md` /
 `Findings/Phase-1-completion-checks.md` keep their recorded decisions.
+
+## 12. Hook attachment of model-event producers (added after §1.5 was written)
+
+The `HookName` gap in §1.5 is now implemented, not deferred.
+
+### 12.1 Native evidence
+
+| Address | Recovered behaviour |
+|---|---|
+| `0x6f2f8c`–`0x6f3090` | ECM event record parse order: `HookOffset: %f, %f, %f` into three floats, then `HookYaw: %f`, `HookPitch: %f`, `HookRot: %f`. Field-name pointer table at `0x97cf68`/`0x97cf6c`/`0x97cf70`/`0x97cf74` resolves to `HookOffset`/`HookYaw`/`HookPitch`/`HookRot`; the following slots are `BindParent: %d`, `FadeOut: %d`. |
+| `0x6e1370` | Builds the event's local transform: loads `+0x34` (`HookRot`), `+0x2c` (`HookYaw`), `+0x30` (`HookPitch`) and calls `0x7b6f10`, then `0x7b6ef0` → `0x7f5711` (quaternion → 3x3) and copies `+0x20/+0x24/+0x28` (`HookOffset`) into the matrix' last row (`+0x30` of the matrix at `event+0x3c`). Last-row translation = row-vector convention. |
+| `0x7b6f10` | Quaternion from `(pitch, yaw, rot)`, each angle multiplied by the constant at `0x8eff98` = **0.5** (half angles) and **no** degree conversion (no `π/180` constant anywhere in the chain), so the record is in radians. Component order out = `(x, y, z, w)` with `w = cx·cy·cz + sx·sy·sz`. |
+| `0x7b2400` | `A3DSkeletonHook::Load`: 8-byte name/index, `0x48`-byte stored record (`+0x10` bind index, `+0x14` 4x4, `+0x54` second 4x4, `+0x94` scale), `Failed to read hook data` at `0x98e3c8`. |
+| `0x7b2520`/`0x7b2543`/`0x7b25a9`/`0x7b25e6` | Per-frame hook resolution: bind index `< 0` → `model · hook`; otherwise bounds-check against the skeleton's bone count and combine the posed bone with the hook (`0x7873a0`). Missing hooks are never silently placed at the origin. |
+| `0x7b3130`/`0x7b3216` | `A3DSkeleton::Load` hook loop (`Failed to load hook %d` at `0x98e560`), i.e. hooks are a first-class asset feature of the loaded skeleton, not a stub. |
+
+### 12.2 Implementation
+
+* `src/model_attachment.rs` (new): `Attachment { hook, offset, euler }`, `from_fields`
+  (absent/blank `HookName` = not attached; a malformed `HookOffset`/angle is an
+  explicit error), `Attachment::local()` (half-angle quaternion, radians,
+  translation column) and `world(hook_world, local) = hook_world * local`.
+* `src/model_asset.rs`: `action_pose`/`bind_pose` return the evaluated pose;
+  `hook_matrix(&pose, name)` (free function + method) resolves a named hook to a
+  world matrix using `pose.absolute[bone] * hook` or `pose.model * hook` for a
+  negative bind index, with explicit errors for unknown names, missing bones and
+  non-finite records.
+* `src/gfx_owner.rs`: `Request::attachment: Option<[f32;16]>` plus
+  `Manager::set_attachment`, `Manager::attachment`; `tick_owner` now publishes at
+  `parent * transform`, validated for non-finite parents (`multiply`/`translation`
+  are local so the dependency-free core-check harness still compiles this module).
+* `src/world_models_gpu.rs`: `World::update_pass` is now
+  `advance_poses → resolve_attachments → apply_activation → owners.update →
+  grid.update → consume_into → draw_models → rebuild_alpha_order`. Each slot
+  keeps `SlotPose { pose, meshes }`, so a hook is resolved from the same pose the
+  pass draws, and reflection/refraction passes reuse the pose instead of
+  re-advancing playback. `install_model_events` installs hooked roots with the
+  authored hook-local transform; `resolve_attachments` removes an owner whose
+  parent pose failed, whose model is gone or whose hook does not exist, and the
+  producer is dropped rather than retried against a stale parent.
+
+### 12.3 Tests added (executed in CI)
+
+`src/model_attachment.rs` — 8 tests: absent/blank hook name, identity
+attachment, offset in the translation column, yaw/pitch/roll axis direction in
+radians, hook-as-parent composition, malformed record errors, non-finite
+composition. `src/model_asset.rs` — 3 tests: posed-bone hook, negative-bind
+(model) hook, unknown hook / missing bone / non-finite matrix errors.
+`src/gfx_owner.rs` — 2 tests: attachment follows the live parent in the same
+frame (position moves with the parent, nothing is left at the old position,
+attachment is dropped with the owner), non-finite parent fails the owner and is
+recorded. All of them run in `cargo test --bin perfect-world-explorer`.
+
+### 12.4 Remaining gaps after this change
+
+`ChildHook`/`RelHook`/`BindParent` target selection (multi-hook chains), static
+`ECMHook` hanger objects (`0x6f89c0`, `ID`/`Scale`/offset records), hook *scale*
+(`+0x94`), and the effect's own fade/stop/release phase are still open and are
+named in `Findings/Unsupported-client-paths.md`.
