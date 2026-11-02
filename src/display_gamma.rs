@@ -1,6 +1,9 @@
 //! Whole-frame emulation of the client's fullscreen D3D gamma ramp.
 //! Runs after world, minimap and egui are composed; never alters the desktop.
+#[path = "gamma_curve.rs"]
+mod gamma_curve;
 use bytemuck::{Pod, Zeroable};
+pub use gamma_curve::enabled;
 use wgpu::util::DeviceExt;
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -19,12 +22,7 @@ struct Params {setting:f32,srgb:f32,pad:vec2<f32>};
 }
 @fragment fn fs(@builtin(position) pos:vec4<f32>)->@location(0) vec4<f32> {
  let c=textureLoad(frame,vec2<i32>(pos.xy),0).rgb;
- let input=clamp(c,vec3<f32>(0.),vec3<f32>(1.))*255.;
- let lo=floor(input);let hi=min(lo+1.,vec3<f32>(255.));
- let exponent=100./floor(30.+1.7*floor(clamp(p.setting,0.,100.)));
- let a=select(vec3<f32>(0.),max(floor(pow(lo/255.,vec3<f32>(exponent))*65535.),vec3<f32>(1.))/65535.,lo>vec3<f32>(0.));
- let b=select(vec3<f32>(0.),max(floor(pow(hi/255.,vec3<f32>(exponent))*65535.),vec3<f32>(1.))/65535.,hi>vec3<f32>(0.));
- var out=mix(a,b,fract(input));
+ var out=client_gamma_ramp(c,p.setting);
  if p.srgb>0.5 {out=select(out/12.92,pow((out+0.055)/1.055,vec3<f32>(2.4)),out>vec3<f32>(0.04045));}
  return vec4<f32>(out,1.);
 }
@@ -97,7 +95,7 @@ impl DisplayGamma {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fullscreen gamma ramp"),
-            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(format!("{}\n{}", gamma_curve::WGSL, SHADER).into()),
         });
         let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("display gamma pipeline"),
@@ -157,7 +155,7 @@ impl DisplayGamma {
             &self.uniform,
             0,
             bytemuck::bytes_of(&Params {
-                setting,
+                setting: gamma_curve::setting(setting),
                 srgb: if self.format.is_srgb() { 1. } else { 0. },
                 _pad: [0.; 2],
             }),

@@ -1,5 +1,7 @@
 //! Fullscreen glow based on the client's fullglow1_14/fullglow2_14 shader arithmetic,
 //! plus client-region-driven underwater fog, spacewarp and optional display gamma.
+#[path = "gamma_curve.rs"]
+mod gamma_curve;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 /// Glow constants and interpolation traced through 0x410bb0 / 0x4111f0.
@@ -211,12 +213,7 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
  // Emulate the client's 256-entry 16-bit D3D8 display ramp without
  // changing the desktop display. Linear interpolation models LUT lookup.
  if p.gamma.x>0.5 {
-   let pos=clamp(out,vec3<f32>(0.),vec3<f32>(1.))*255.;
-   let lo=floor(pos);let hi=min(lo+1.,vec3<f32>(255.));
-   let exponent=100./floor(30.+1.7*floor(p.gamma.y));
-   let a=select(vec3<f32>(0.),max(floor(pow(lo/255.,vec3<f32>(exponent))*65535.),vec3<f32>(1.))/65535.,lo>vec3<f32>(0.));
-   let b=select(vec3<f32>(0.),max(floor(pow(hi/255.,vec3<f32>(exponent))*65535.),vec3<f32>(1.))/65535.,hi>vec3<f32>(0.));
-   out=mix(a,b,fract(pos));
+   out=client_gamma_ramp(out,p.gamma.y);
  }
  // Present encoded D3D-style output through an sRGB render target exactly once.
  if p.fog.w>0.5 {out=select(out/12.92,pow((max(out,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),out>vec3<f32>(0.04045));}
@@ -340,7 +337,7 @@ impl PostGpu {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("client-inspired glow and underwater"),
-            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(format!("{}\n{}", gamma_curve::WGSL, SHADER).into()),
         });
         let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("post pipeline"),
@@ -460,7 +457,7 @@ impl PostGpu {
                 fog_color: [fog.color[0], fog.color[1], fog.color[2], 1.],
                 gamma: [
                     if client_gamma { 1. } else { 0. },
-                    gamma_setting,
+                    gamma_curve::setting(gamma_setting),
                     glow_parameters[0],
                     glow_parameters[1],
                 ],

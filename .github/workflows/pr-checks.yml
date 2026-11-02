@@ -34,6 +34,18 @@ jobs:
         run: cargo check --locked --bins
       - name: Run viewer unit tests
         run: cargo test --locked --bin perfect-world-explorer
+      - name: Install software Vulkan for Phase 1 shader checks
+        run: sudo apt-get install -y mesa-vulkan-drivers
+      - name: Run Phase 1 production shader regressions
+        env:
+          WGPU_BACKEND: vulkan
+          XDG_RUNTIME_DIR: /tmp
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+        run: |
+          cargo run --locked --bin display-gamma-gpu-check
+          cargo run --locked --bin post-gpu-check
+          cargo run --locked --bin model-light-gpu-check
+          cargo run --locked --bin phase1-fog-gpu-check
 
   windows:
     name: Windows executable (x64)
