@@ -2394,7 +2394,14 @@ pub fn run(
         .environments
         .atmosphere(camera.pos.to_array(), camera.time_of_day);
     let mut settings = ViewSettings::load();
-    let m = build(&mut t, camera.pos.x, camera.pos.z, settings.detail)?;
+    let mut residency = crate::terrain_residency::Residency::default();
+    let m = build(
+        &mut t,
+        camera.pos.x,
+        camera.pos.z,
+        settings.detail,
+        &mut residency,
+    )?;
     let mut renderer = Renderer::new(
         device,
         queue,
@@ -3053,7 +3060,14 @@ pub fn preview(
     cam.underwater_fog = t
         .environments
         .underwater(cam.pos.to_array(), cam.time_of_day);
-    let mesh = build(&mut t, cam.pos.x, cam.pos.z, DetailSettings::default())?;
+    let mut residency = crate::terrain_residency::Residency::default();
+    let mesh = build(
+        &mut t,
+        cam.pos.x,
+        cam.pos.z,
+        DetailSettings::default(),
+        &mut residency,
+    )?;
     let (width, height) = (960u32, 720u32);
     let fmt = wgpu::TextureFormat::Rgba8UnormSrgb;
     let mut renderer = Renderer::new(device, queue, fmt, width, height, mesh, &mut t)?;
