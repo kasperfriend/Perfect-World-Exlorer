@@ -548,7 +548,18 @@ fn write_camera(
         .copy_from_slice(&glam::Mat4::from_translation(-glam::Vec3::from(EYE)).to_cols_array());
     // camera.clip = (plane, clip, 0, 0). clip.y >= 0 is the ordinary path; a
     // negative value selects the refraction projection of terrain_refract_vs.
-    words[20] = 1000.;
+    //
+    // fs() begins with `if camera.clip.y > 0. && i.world.y < camera.clip.x
+    // { discard; }`, so the plane is the height *below which* terrain is hidden
+    // (the viewer's underwater clip). It must sit below the sampled geometry
+    // (y = EYE[1]), otherwise every fragment is discarded and the view renders
+    // black. The refraction view keeps the plane just under the surface so the
+    // projection is small and the triangle stays on screen.
+    words[20] = if clip_y < 0. {
+        EYE[1] - 0.1
+    } else {
+        EYE[1] - 0.5
+    };
     words[21] = clip_y;
     // camera.sun = (dir.xyz, night factor). A negative w selects the unlit
     // layer-composite branch, so only the shared layer snapshot matters.
