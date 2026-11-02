@@ -60,6 +60,7 @@ jobs:
           cargo run --locked --bin post-gpu-check
           cargo run --locked --bin bloom-gpu-check
           cargo run --locked --bin bmd-baked-gpu-check
+          cargo run --locked --bin bmd-sided-gpu-check
           cargo run --locked --bin grass-instance-gpu-check
           cargo run --locked --bin model-light-gpu-check
           cargo run --locked --bin skin-pose-gpu-check
@@ -118,13 +119,18 @@ jobs:
           }
       - name: Build standalone viewer
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer
+      - name: Build the shipped survey tool
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin bmd-overlap-survey
       - name: Stage artifact and checksum
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifact | Out-Null
           Copy-Item target/x86_64-pc-windows-msvc/release/perfect-world-explorer.exe artifact/Perfect-World-Explorer.exe
+          Copy-Item target/x86_64-pc-windows-msvc/release/bmd-overlap-survey.exe artifact/BmdOverlapSurvey.exe
           $hash = (Get-FileHash artifact/Perfect-World-Explorer.exe -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  Perfect-World-Explorer.exe" | Out-File -Encoding ascii artifact/SHA256SUMS.txt
+          $survey = (Get-FileHash artifact/BmdOverlapSurvey.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$survey  BmdOverlapSurvey.exe" | Out-File -Encoding ascii -Append artifact/SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
           name: Perfect-World-Explorer-Windows-x64

@@ -64,9 +64,32 @@ fn fixed(b: &[u8], p: usize, n: usize) -> Result<String, String> {
     Ok(t.replace('\\', "/"))
 }
 impl Model {
+    /// Mirrors the retail loaders exactly:
+    /// - file magic "MOXB" (u32 0x42584f4d) is the AFileImage binary marker,
+    ///   sniffed by AFileImage::Open at 0x76da7c;
+    /// - the optional chunk tag 0x80000001 plus one flag byte is read by the
+    ///   scenery loader 0x64e200 (0x64e261/0x64e278); the byte is stored but
+    ///   never used (corpus values: 0 and 1 only);
+    /// - A3DLitModel::Load (0x7bb380) accepts model versions 0x10000001
+    ///   (0x7bb3de) and 0x10000002 (0x7bb58b) with an identical header and
+    ///   logs "A3DLitModel::Load(), Wrong version!" for anything else;
+    /// - A3DLitMesh::Load (0x7ba070) implements mesh versions 0x10000004 and
+    ///   0x10000005 here. Version 0x10000001 returns false without logging
+    ///   (0x7baa64). Versions 0x10000002/0x10000003 have fully recovered
+    ///   layouts (28-byte vertex records; v3 adds two verts*4 light arrays)
+    ///   but appear ZERO times in the whole litmodels.pck + building.pck
+    ///   census, so they stay named errors instead of untested code paths;
+    ///   any other version logs "Unknown version [%x]!" (0x7baa51).
+    /// - After the last mesh the client stops reading (A3DLitModel::Load ends
+    ///   at 0x7bb795). The remaining trailer belongs to the scenery light
+    ///   attachment system: u32 group count (0x64e307), then per group
+    ///   [u32 n][n u32 ids] (0x64dd30), then per group a light record
+    ///   [48 bytes][u32][u32 m][m x 17 bytes] (0x64e010 -> 0x72a0a0).
+    ///   Byte-exact over all 28858 corpus files; not geometry or texture
+    ///   data, so this parser does not consume it.
     pub fn parse(b: &[u8]) -> Result<Self, String> {
         if u(b, 0)? != 0x42584f4d {
-            return Err("not a binary AFile".into());
+            return Err("not a binary AFile (missing MOXB marker, client sniff 0x76da7c)".into());
         }
         let mut p = 4;
         let mut version = u(b, p)?;
@@ -74,8 +97,10 @@ impl Model {
             p += 5;
             version = u(b, p)?
         }
-        if version != 0x10000002 {
-            return Err(format!("unsupported BMD version {version:#x}"));
+        if version != 0x10000001 && version != 0x10000002 {
+            return Err(format!(
+                "A3DLitModel::Load(), Wrong version! (model version {version:#x}, client 0x7bb79e)"
+            ));
         }
         p += 4;
         let scale = v3(b, p)?;
@@ -92,8 +117,23 @@ impl Model {
         for _ in 0..count {
             let ver = u(b, p)?;
             p += 4;
-            if ver != 0x10000004 && ver != 0x10000005 {
-                return Err(format!("unsupported mesh version {ver:#x}"));
+            match ver {
+                0x10000004 | 0x10000005 => {}
+                0x10000001 => {
+                    return Err(
+                        "mesh version 0x10000001: client A3DLitMesh::Load rejects it without logging (0x7baa64)".into(),
+                    )
+                }
+                0x10000002 | 0x10000003 => {
+                    return Err(format!(
+                        "mesh version {ver:#x}: layout recovered from client (0x7ba0b8/0x7ba30d) but zero occurrences in the corpus census; not implemented to avoid untested code paths"
+                    ))
+                }
+                other => {
+                    return Err(format!(
+                        "A3DLitMesh::Load(), Unknown version [{other:x}]! (client 0x7baa51)"
+                    ))
+                }
             }
             let name = fixed(b, p, 64)?;
             let texture = fixed(b, p + 64, 256)?;
@@ -264,5 +304,61 @@ mod tests {
     #[test]
     fn rejects_nan_geometry() {
         assert!(f(&f32::NAN.to_le_bytes(), 0).is_err());
+    }
+    fn model_skeleton(model_version: u32, mesh_version: u32) -> Vec<u8> {
+        let mut b = Vec::new();
+        let put = |b: &mut Vec<u8>, v: u32| b.extend_from_slice(&v.to_le_bytes());
+        put(&mut b, 0x42584f4d);
+        put(&mut b, model_version);
+        b.extend_from_slice(&[0; 48]);
+        put(&mut b, 1);
+        put(&mut b, mesh_version);
+        b.extend_from_slice(&[0; 320]);
+        put(&mut b, 0);
+        put(&mut b, 0);
+        b.extend_from_slice(&[0; 48]);
+        b
+    }
+    fn parse_err(b: &[u8]) -> String {
+        match Model::parse(b) {
+            Ok(_) => panic!("expected a parse error"),
+            Err(e) => e,
+        }
+    }
+    #[test]
+    fn accepts_both_client_model_versions() {
+        // A3DLitModel::Load reads the identical header for 0x10000001
+        // (0x7bb3de) and 0x10000002 (0x7bb58b).
+        for mv in [0x10000001u32, 0x10000002] {
+            let m = Model::parse(&model_skeleton(mv, 0x10000004)).unwrap();
+            assert_eq!(m.meshes.len(), 1);
+        }
+        let err = parse_err(&model_skeleton(0x10000003, 0x10000004));
+        assert!(err.contains("Wrong version"), "{err}");
+    }
+    #[test]
+    fn names_every_unsupported_mesh_version() {
+        let err = parse_err(&model_skeleton(0x10000002, 0x10000001));
+        assert!(err.contains("without logging"), "{err}");
+        for v in [0x10000002u32, 0x10000003] {
+            let err = parse_err(&model_skeleton(0x10000002, v));
+            assert!(err.contains("zero occurrences"), "{err}");
+        }
+        let err = parse_err(&model_skeleton(0x10000002, 0x10000006));
+        assert!(err.contains("Unknown version [10000006]"), "{err}");
+    }
+    #[test]
+    fn accepts_chunk_wrapper_flag_bytes() {
+        // Scenery loader 0x64e200: tag 0x80000001 then one flag byte that is
+        // stored but never read; corpus histogram: {0: 7943, 1: 119}.
+        for flag in [0u8, 1] {
+            let mut b = Vec::new();
+            b.extend_from_slice(&0x42584f4du32.to_le_bytes());
+            b.extend_from_slice(&0x80000001u32.to_le_bytes());
+            b.push(flag);
+            let mut rest = model_skeleton(0x10000002, 0x10000004);
+            b.extend_from_slice(&rest.split_off(4));
+            assert_eq!(Model::parse(&b).unwrap().meshes.len(), 1);
+        }
     }
 }

@@ -66,9 +66,25 @@ impl Page {
         self
     }
 }
+/// Measured residency and resolution outcome of one whole-world preload
+/// (P3.08: measured numbers, not estimates).
+#[derive(Clone, Copy, Debug)]
+pub struct DoneStats {
+    pub residency: crate::objects::ResidencyStats,
+    pub resolver: crate::texture_resolution::ResolverStats,
+    /// Register rows recorded for references that resolved nowhere or were
+    /// rejected by name (.sdr. shader registry, decode failures, missing).
+    pub unresolved_rows: usize,
+    /// Pages emitted by this preload.
+    pub pages: usize,
+}
 pub enum Message {
     Page(Page),
-    Done { processed: usize, skipped: usize },
+    Done {
+        processed: usize,
+        skipped: usize,
+        stats: DoneStats,
+    },
     Error(String),
 }
 fn basis(a: [f32; 3]) -> Vec3 {
@@ -110,6 +126,41 @@ impl Builder {
         .finish()
     }
 }
+/// Allocates (or reuses) the atlas slot for one texture inside a page and
+/// blits native-resolution pixels. The slot key is the texture's CONTENT
+/// key (Objects::texture_key), not the reference name: distinct names with
+/// identical pixels share one slot, which measurably reduces slot count and
+/// page turns. When the page is full and already holds geometry, a fresh
+/// page replaces it in place and the finished page is returned for sending.
+fn allocate_slot(
+    page: &mut Builder,
+    key: &str,
+    tex: &crate::objects::Texture,
+) -> Result<(crate::texture_atlas::Slot, Option<Builder>), String> {
+    if let Some(&s) = page.slots.get(key) {
+        return Ok((s, None));
+    }
+    let mut slot = page.packing.allocate(tex.width, tex.height, 0, false);
+    let mut turned = None;
+    if slot.is_none() && !page.indices.is_empty() {
+        turned = Some(std::mem::replace(page, Builder::new()));
+        slot = page.packing.allocate(tex.width, tex.height, 0, false);
+    }
+    let s = slot.ok_or("scenery texture exceeds atlas capacity")?;
+    for py in 0..s.h {
+        for px in 0..s.w {
+            let sample = tex.sample_rgba(
+                (px as f32 + 0.5) / s.w as f32,
+                (py as f32 + 0.5) / s.h as f32,
+            );
+            let dst = ((s.y + py) * SIDE + s.x + px) * 4;
+            page.atlas[dst..dst + 4].copy_from_slice(&sample);
+        }
+    }
+    page.used_height = page.used_height.max(s.y + s.h);
+    page.slots.insert(key.to_string(), s);
+    Ok((s, turned))
+}
 pub fn build(
     element: PathBuf,
     ornaments: Vec<Ornament>,
@@ -146,6 +197,7 @@ fn run(
     let limit = first.saturating_add(count).min(objects.ornaments.len());
     let mut page = Builder::new();
     let mut skipped = 0usize;
+    let mut pages = 0usize;
     let fallback = crate::objects::Texture {
         width: 1,
         height: 1,
@@ -169,48 +221,48 @@ fn run(
             let y = basis(model.up);
             let x = y.cross(z).normalize_or_zero();
             for mesh in &model.meshes {
-                let mut key = mesh.texture.to_lowercase();
-                let tex = if let Some(t) = objects.texture(&key) {
+                // Stage, culling and alpha state come from the single recovered
+                // table, not from per-asset guesses.
+                let kind = match crate::bmd_baked::classify(
+                    mesh.version,
+                    !mesh.texture.trim().is_empty(),
+                    mesh.material.as_ref().is_some_and(|m| m.two_sided),
+                ) {
+                    Ok(state) => state.kind,
+                    Err(e) => {
+                        eprintln!("Skipping baked mesh {}: {e}", mesh.name);
+                        continue;
+                    }
+                };
+                // Content-keyed slot sharing (P3.08 cross-name dedup):
+                // references with identical pixels collapse onto one atlas
+                // slot regardless of how many names point at them.
+                let key = match objects.texture_key(&mesh.texture) {
+                    Some(hash) => format!("h{hash:016x}"),
+                    None => String::from("<missing-client-texture>"),
+                };
+                let tex = if let Some(t) = objects.texture(&mesh.texture) {
                     t
                 } else {
                     skipped += 1;
-                    key = String::from("<missing-client-texture>");
                     &fallback
                 };
                 if page.vertices.len() + mesh.vertices.len() > MAX_VERTICES
                     && !page.indices.is_empty()
                 {
                     let finished = std::mem::replace(&mut page, Builder::new());
+                    pages += 1;
                     if tx.send(Message::Page(finished.page(id))).is_err() {
                         return Ok(());
                     }
                 }
-                let slot = if let Some(&s) = page.slots.get(&key) {
-                    s
-                } else {
-                    let mut slot = page.packing.allocate(tex.width, tex.height, 0, false);
-                    if slot.is_none() && !page.indices.is_empty() {
-                        let finished = std::mem::replace(&mut page, Builder::new());
-                        if tx.send(Message::Page(finished.page(id))).is_err() {
-                            return Ok(());
-                        }
-                        slot = page.packing.allocate(tex.width, tex.height, 0, false);
+                let (slot, turned) = allocate_slot(&mut page, &key, tex)?;
+                if let Some(finished) = turned {
+                    pages += 1;
+                    if tx.send(Message::Page(finished.page(id))).is_err() {
+                        return Ok(());
                     }
-                    let s = slot.ok_or("scenery texture exceeds atlas capacity")?;
-                    for py in 0..s.h {
-                        for px in 0..s.w {
-                            let sample = tex.sample_rgba(
-                                (px as f32 + 0.5) / s.w as f32,
-                                (py as f32 + 0.5) / s.h as f32,
-                            );
-                            let dst = ((s.y + py) * SIDE + s.x + px) * 4;
-                            page.atlas[dst..dst + 4].copy_from_slice(&sample);
-                        }
-                    }
-                    page.used_height = page.used_height.max(s.y + s.h);
-                    page.slots.insert(key, s);
-                    s
-                };
+                }
                 let base = page.vertices.len() as u32;
                 let ox = slot.x as f32 / SIDE as f32;
                 let oy = slot.y as f32 / SIDE as f32;
@@ -228,11 +280,7 @@ fn run(
                         normal: normal.to_array(),
                         uv: [ox + v.uv[0] * sx, oy + v.uv[1] * sy],
                         color: [ox, oy, sx, sy],
-                        kind: if mesh.material.as_ref().is_some_and(|m| m.two_sided) {
-                            2.1
-                        } else {
-                            2.0
-                        },
+                        kind,
                         diffuse: v.day_diffuse,
                         night_diffuse: v.night_diffuse,
                     });
@@ -242,12 +290,21 @@ fn run(
             }
         }
     }
-    if !page.indices.is_empty() && tx.send(Message::Page(page.page(limit))).is_err() {
-        return Ok(());
+    if !page.indices.is_empty() {
+        pages += 1;
+        if tx.send(Message::Page(page.page(limit))).is_err() {
+            return Ok(());
+        }
     }
     let _ = tx.send(Message::Done {
         processed: limit,
         skipped,
+        stats: DoneStats {
+            residency: objects.residency(),
+            resolver: objects.resolver_stats(),
+            unresolved_rows: objects.unresolved().len(),
+            pages,
+        },
     });
     Ok(())
 }
@@ -376,6 +433,62 @@ impl GpuPage {
 #[cfg(test)]
 mod page_tests {
     use super::*;
+    fn solid(fill: u8, side: usize) -> crate::objects::Texture {
+        crate::objects::Texture {
+            width: side,
+            height: side,
+            rgba: vec![fill; side * side * 4],
+        }
+    }
+    #[test]
+    fn content_dedup_reduces_page_turns() {
+        // 512x512 textures occupy 16 atlas cells each; a 4096^2 page holds
+        // 1024 cells = 64 of them. Push 128 references through both keying
+        // schemes and count page turns.
+        let textures: Vec<_> = (0..64).map(|i| solid(i as u8 + 1, 512)).collect();
+        // Content-keyed: the 128 references are 64 contents twice, so every
+        // second reference reuses a slot and ONE page suffices.
+        let mut page = Builder::new();
+        page.indices.push(0);
+        let mut dedup_turns = 0;
+        for i in 0..128 {
+            let tex = &textures[i % 64];
+            let (_slot, turned) =
+                allocate_slot(&mut page, &format!("h{:016x}", i % 64), tex).unwrap();
+            if turned.is_some() {
+                dedup_turns += 1;
+            }
+        }
+        assert_eq!(dedup_turns, 0);
+        assert_eq!(page.slots.len(), 64);
+        // Name-keyed with 65 distinct contents: the 65th overflows the page
+        // and forces a turn — exactly what content dedup avoids when the
+        // extra references are aliases.
+        let mut page = Builder::new();
+        page.indices.push(0);
+        let mut unique_turns = 0;
+        let extra = solid(200, 512);
+        for i in 0..65 {
+            let tex = if i < 64 { &textures[i] } else { &extra };
+            let (_slot, turned) = allocate_slot(&mut page, &format!("name{i}"), tex).unwrap();
+            if turned.is_some() {
+                unique_turns += 1;
+            }
+        }
+        assert_eq!(unique_turns, 1);
+        assert!(dedup_turns < unique_turns);
+    }
+    #[test]
+    fn missing_references_share_one_fallback_slot() {
+        let mut page = Builder::new();
+        page.indices.push(0);
+        let fallback = solid(160, 1);
+        for name in ["<missing-client-texture>"; 3] {
+            let (_slot, turned) = allocate_slot(&mut page, name, &fallback).unwrap();
+            assert!(turned.is_none());
+        }
+        assert_eq!(page.slots.len(), 1);
+    }
     #[test]
     fn trim_scales_y_and_builds_independent_mips() {
         let vertex = Vertex {
