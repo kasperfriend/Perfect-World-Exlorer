@@ -11,7 +11,7 @@ No phase is fully complete. The [full 76-point reassessment](Eight-phase-reasses
 
 ## Phase 1 — Complete the lighting and display pipeline
 
-- [ ] P1.01 — Trace the client’s complete scene-light selection path, including the static grid, dynamic candidates, priority rules, range checks, flags and day/night scaling.
+- [x] P1.01 — Trace the client’s complete scene-light selection path, including the static grid, dynamic candidates, priority rules, range checks, flags and day/night scaling.
 - [ ] P1.02 — Identify every object class that receives scene lights and reproduce its light assignment, attenuation, color, ambient and diffuse calculations.
 - [ ] P1.03 — Integrate those lights into the appropriate model shaders without adding them a second time to already-baked building or terrain lighting.
 - [x] P1.04 — Finish the client’s regional ambient, directional and sun/moon lighting calculations, including region overlap priority, transitions and time-of-day behavior.
