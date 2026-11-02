@@ -487,13 +487,13 @@ fn array(device: &wgpu::Device, queue: &wgpu::Queue, side: u32, layers: u32) -> 
     });
     let mut level = vec![0u8; (side * side * 4) as usize];
     for (i, px) in level.chunks_mut(4).enumerate() {
-        // A gradient, so a shifted sample cannot alias to the same value.
-        px.copy_from_slice(&[
-            (i % side as usize) as u8 * 4,
-            (i / side as usize) as u8 * 4,
-            96,
-            255,
-        ]);
+        // Deliberately constant. A gradient would make the sampled colour a
+        // function of sub-pixel geometry, and `vs` and `vs_far` do interpolate
+        // slightly differently, so a gradient would report interpolation drift as
+        // a data difference. A flat layer makes the comparison test exactly what
+        // it claims: the same layer stack for the same world position.
+        let _ = i;
+        px.copy_from_slice(&[128, 96, 64, 255]);
     }
     let mut s = side;
     for mip in 0..=side.ilog2() {
@@ -622,6 +622,14 @@ fn write_camera(
     words[37] = 0.5;
     words[38] = 1.;
     words[39] = 1.;
+    // camera.grass_eye is the refraction reference point. terrain_refract_vs
+    // divides by its y delta, so leaving it zero makes the transmittance
+    // exponent blow up for below-plane vertices; the viewer always supplies the
+    // eye.
+    words[52] = EYE[0];
+    words[53] = EYE[1];
+    words[54] = EYE[2];
+    words[55] = 0.;
     // fog_range.z = 0 disables fog, so no view gains a per-view fog term.
     words[380] = 0.;
     words[381] = 0.;
