@@ -30,10 +30,45 @@ jobs:
           sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
       - name: Check formatting
         run: cargo fmt --all -- --check
+      - name: Verify recovered regional arithmetic on x87
+        run: |
+          cc -O0 tools/check-native-region-reference.c -o /tmp/native-region-reference
+          /tmp/native-region-reference
+      - name: Test requirement status audits
+        run: |
+          python3 tools/test_phase1_ready.py
+          python3 tools/test_eight_phase_status.py
+          python3 tools/check-eight-phase-status.py
       - name: Check all binary targets
         run: cargo check --locked --bins
+      - name: Test GFX light dependency audit
+        run: cargo test --locked --bin gfx-light-audit
       - name: Run viewer unit tests
         run: cargo test --locked --bin perfect-world-explorer
+      - name: Install software Vulkan for Phase 1 shader checks
+        run: sudo apt-get install -y mesa-vulkan-drivers
+      - name: Run Phase 1 production shader regressions
+        env:
+          WGPU_BACKEND: vulkan
+          XDG_RUNTIME_DIR: /tmp
+        run: |
+          # Mesa renamed this file on newer Ubuntu images. Resolve the installed
+          # lavapipe ICD rather than silently disabling Vulkan with a stale path.
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
+          test -n "$VK_ICD_FILENAMES"
+          cargo run --locked --bin display-gamma-gpu-check
+          cargo run --locked --bin post-gpu-check
+          cargo run --locked --bin bloom-gpu-check
+          cargo run --locked --bin bmd-baked-gpu-check
+          cargo run --locked --bin grass-instance-gpu-check
+          cargo run --locked --bin model-light-gpu-check
+          cargo run --locked --bin skin-pose-gpu-check
+          cargo run --locked --bin skin-palette-gpu-check
+          cargo run --locked --bin model-texture-gpu-check
+          cargo run --locked --bin model-receiver-gpu-check
+          cargo run --locked --bin model-draw-gpu-check
+          cargo run --locked --bin phase1-fog-gpu-check
+          cargo run --locked --bin terrain-refraction-gpu-check
 
   windows:
     name: Windows executable (x64)
@@ -45,6 +80,41 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
+      - name: Capture gamma words with native x86 MSVCRT exports
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "MSVC x86 tools not found" }
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars32.bat"
+          $exe = Join-Path $env:RUNNER_TEMP "native-gamma.exe"
+          $prefix = Join-Path $env:RUNNER_TEMP "native-gamma"
+          $command = "call `"$vcvars`" && cl /nologo /W4 /O2 tools\capture-native-gamma-x87.c /Fe:`"$exe`" && `"$exe`" `"$prefix`""
+          cmd /d /s /c $command
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NativeGammaX87Words
+          path: ${{ runner.temp }}/native-gamma-pc*.bin
+          if-no-files-found: error
+      - name: Compare production gamma with independent x86 MSVCRT words
+        shell: pwsh
+        run: |
+          $exe = Join-Path $env:RUNNER_TEMP "compare-gamma-words.exe"
+          rustc --edition=2021 tools/check-native-gamma-words.rs -o $exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $exe (Join-Path $env:RUNNER_TEMP "native-gamma-pc24.bin")
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify native gamma and glow CPU references on Windows
+        shell: pwsh
+        run: |
+          foreach ($module in @("gamma_curve", "glow_state", "client_region_shade", "client_region_stream", "client_regional_light", "gfx_color_track")) {
+            $exe = Join-Path $env:RUNNER_TEMP "$module-tests.exe"
+            rustc --edition=2021 --test "src/$module.rs" -o $exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Build standalone viewer
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer
       - name: Stage artifact and checksum

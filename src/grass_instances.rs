@@ -1,5 +1,7 @@
 //! GPU-instanced local MOXB grass. Placement sampling remains the viewer's
 //! client-derived patch randomization; meshes are stored once per type/material.
+#[path = "refraction_fog.rs"]
+mod refraction_fog;
 use crate::gpu::Vertex;
 use std::{collections::BTreeMap, ops::Range};
 use wgpu::util::DeviceExt;
@@ -137,12 +139,12 @@ impl Gpu {
         assert!(source.contains(marker));
         source = source.replacen(
             marker,
-            "@location(5) diffuse:vec3<f32>, @location(6) grass_fade:f32, @location(7) @interpolate(flat) grass_area:vec2<f32> };",
+            "@location(5) diffuse:vec3<f32>, @location(6) grass_fade:f32, @location(7) @interpolate(flat) grass_area:vec2<f32>, @location(8) grass_refraction:f32 };",
             1,
         );
         let marker = "o.pos=camera.matrix*vec4<f32>(pos,1.);";
         assert!(source.contains(marker));
-        source = source.replacen(marker,"o.grass_area=area_center; o.grass_fade=1.; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0. && weight>=0. && weight<100. {let history_index=u32(clamp(extra.z,0.,79.)); pos+=camera.grass_history[history_index].xyz*weight*camera.grass_wind.y;} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
+        source = source.replacen(marker,"o.grass_area=area_center; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0. && weight>=0. && weight<100. {let history_index=u32(clamp(extra.z,0.,79.)); pos+=camera.grass_history[history_index].xyz*weight*camera.grass_wind.y;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
         let marker = "tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)";
         assert!(source.contains(marker));
         source = source.replacen(
@@ -150,12 +152,19 @@ impl Gpu {
             "tex.a*i.grass_fade<=select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)",
             1,
         );
+        // Retail 0x652e84: without a complete day/night pair, stage 0
+        // SELECTARG1 keeps the texture RGB and stage 1 is disabled. It is not
+        // an invitation to add a provisional directional-light multiplier.
+        let fallback="let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.);";
+        assert!(source.contains(fallback));
+        source = source.replacen(fallback, "return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);", 1);
         if light_layout.is_some() {
             let declarations = r#"
 struct GrassLightSettings { params:vec4<f32>, areas:vec4<u32>, light:vec4<u32> };
 @group(1) @binding(0) var<uniform> grass_settings:GrassLightSettings;
 @group(1) @binding(1) var grass_lightmaps:texture_2d_array<f32>;
 @group(1) @binding(2) var grass_light_sampler:sampler;
+@group(1) @binding(3) var<storage,read> grass_light_availability:array<u32>;
 fn grass_linear(c:vec3<f32>)->vec3<f32>{return select(c/12.92,pow((max(c,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));}
 fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
  let s=grass_settings;
@@ -166,20 +175,31 @@ fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
  let area_gy=clamp(s.params.y*0.5-area.y/s.params.z,0.,s.params.y-1.);
  let selected=select(floor(coord),floor(vec2<f32>(area_gx,area_gy)/s.params.w),camera.grass_wind.z>0.5);
  let ax=u32(selected.x);let ay=u32(selected.y);
- let id=ay*s.areas.x+ax;let slot=id%s.light.z;let page=id/s.light.z;
+ let id=ay*s.areas.x+ax;
+ // Terrain may copy day into a missing night slot. Grass instead uses its
+ // unlit texture whenever EITHER authored map is unavailable.
+ if (grass_light_availability[id]&3u)!=3u {return grass_linear(clamp(base,vec3<f32>(0.),vec3<f32>(1.)));}
+ let slot=id%s.light.z;let page=id/s.light.z;
  let side=f32(s.light.x);let xy=vec2<f32>(f32(slot%s.light.y),f32(slot/s.light.y))*side;
  let loc=clamp((coord-selected)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));
- let lmuv=(xy+loc)/4096.;
+ let lmuv=(xy+loc)/vec2<f32>(textureDimensions(grass_lightmaps));
  let day=textureSampleLevel(grass_lightmaps,grass_light_sampler,lmuv,i32(page),0.).rgb;
  let night=textureSampleLevel(grass_lightmaps,grass_light_sampler,lmuv,i32(page+s.light.w),0.).rgb;
  return grass_linear(clamp(base*mix(night,day,clamp(camera.sun.w,0.,1.))*2.,vec3<f32>(0.),vec3<f32>(1.)));
 }
 "#;
-            let marker = "let light=camera.light.x+camera.light.y*max";
+            let marker = "return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);";
             assert!(source.contains(marker));
-            source=source.replacen(marker, "if camera.sun.w>=0. {return vec4<f32>(fogged(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w),1.);} let light=camera.light.x+camera.light.y*max",1);
+            source=source.replacen(marker, "if camera.sun.w>=0. {return vec4<f32>(grass_pass_fog(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w,i.grass_refraction),1.);} return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);",1);
             source.push_str(declarations);
         }
+        // Ordinary grass retains table fog. Only the water-plane-clipped
+        // refraction pass interpolates the recovered exponential vertex fog.
+        source = source.replace(
+            "fogged(tex.rgb,i.pos.w)",
+            "grass_pass_fog(tex.rgb,i.pos.w,i.grass_refraction)",
+        );
+        source.push_str(refraction_fog::WGSL);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("instanced client grass shader"),
             source: wgpu::ShaderSource::Wgsl(source.into()),

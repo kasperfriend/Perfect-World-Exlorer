@@ -194,6 +194,16 @@ fn main() {
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ],
     });
     let values: [u32; 12] = [
@@ -278,6 +288,11 @@ fn main() {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         ..Default::default()
     });
+    let availability = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("per-area authored map availability"),
+        contents: bytemuck::cast_slice(&[3u32; 4]),
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+    });
     let light_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &light_layout,
@@ -293,6 +308,10 @@ fn main() {
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: availability.as_entire_binding(),
             },
         ],
     });
@@ -516,6 +535,154 @@ fn main() {
         }
         println!("clip={clip}, fog={fog}: {n} pixels match CPU-expanded grass");
     }
+    // Refraction uses the actual instanced vertex fog path, not table fog.
+    // Equal clip W makes the CPU interpolation unambiguous for this fixture.
+    let saved_uni = uni.clone();
+    let bmd_refraction_vertices: Vec<_> = expanded
+        .iter()
+        .map(|v| {
+            let mut v = *v;
+            v.kind = 2.1;
+            v.diffuse = 0xffffffff;
+            v.night_diffuse = 0xffffffff;
+            v
+        })
+        .collect();
+    let bmd_refraction_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("BMD refraction fixture"),
+        contents: bytemuck::cast_slice(&bmd_refraction_vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    for (plane, wind, bmd) in [
+        (0.0f32, 0.0f32, false),
+        (0., 0.2, false),
+        (0.2, 0., false),
+        (0., 0., true),
+        (0.2, 0., true),
+    ] {
+        uni[20] = plane;
+        uni[21] = -1.;
+        uni[52..56].copy_from_slice(&[-3., 2., 1., 0.]);
+        uni[57] = if wind > 0. { 1. } else { 0. };
+        uni[60..64].copy_from_slice(&[0., wind, 0., 0.]);
+        uni[380..384].copy_from_slice(&[0., 0.5, 1., 0.]);
+        uni[384..388].copy_from_slice(&[0.5, 0.25, 0.75, 1.]);
+        queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
+        let read = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 128 * 128 * 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut e = device.create_command_encoder(&Default::default());
+        {
+            let mut p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("grass refraction vertex fog"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &dv,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            if bmd {
+                p.set_pipeline(&refpipe);
+                p.set_bind_group(0, &bind, &[]);
+                p.set_vertex_buffer(0, bmd_refraction_buffer.slice(..));
+                p.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                p.draw_indexed(0..expanded_ix.len() as u32, 0, 0..1);
+            } else {
+                grass.draw(&mut p, &bind, None);
+            }
+        }
+        e.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &read,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(512),
+                    rows_per_image: Some(128),
+                },
+            },
+            size,
+        );
+        queue.submit(Some(e.finish()));
+        let slice = read.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv().unwrap().unwrap();
+        let bytes = slice.get_mapped_range();
+        let (px, py) = (32usize, 73usize);
+        let x = (px as f32 + 0.5) / 64. - 1.;
+        let y = 1. - (py as f32 + 0.5) / 64.;
+        let u = (x + 0.8) / 0.6;
+        let v = (y + 0.3) / (0.6 + wind);
+        assert!(u > 0. && v > 0. && u + v < 1.);
+        let mut factor = 0.;
+        for (pos, displaced_y, w) in [
+            ([-0.8f32, -0.3, 0.5], -0.3, 1. - u - v),
+            ([-0.2, -0.3, 0.5], -0.3, u),
+            ([-0.8, 0.3, 0.5], 0.3 + wind, v),
+        ] {
+            let d = [-3. - pos[0], 2. - pos[1], 1. - pos[2]];
+            let distance = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
+            let depth = if bmd {
+                (plane - displaced_y).max(0.)
+            } else {
+                plane - displaced_y
+            };
+            factor += (-0.075 * depth * distance / d[1]).exp2() * w;
+        }
+        factor = factor.clamp(0., 1.);
+        let pixel = &bytes[(py * 128 + px) * 4..][..3];
+        for (channel, (base, fog)) in [
+            (30.0f32 / 255., 0.5),
+            (240. / 255., 0.25),
+            (40. / 255., 0.75),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let base = if bmd {
+                (base * 2. * 254. / 255.).min(1.)
+            } else {
+                base
+            };
+            let encoded = base * factor + fog * (1. - factor);
+            let linear = if encoded <= 0.04045 {
+                encoded / 12.92
+            } else {
+                ((encoded + 0.055) / 1.055).powf(2.4)
+            };
+            let expected = (linear * 255.).round() as i32;
+            assert!((pixel[channel] as i32-expected).abs()<=2,"refraction bmd={bmd} plane={plane} wind={wind}: {pixel:?}, channel {channel} expected {expected}, factor {factor}");
+        }
+        println!(
+            "grass refraction bmd={bmd} plane={plane} wind={wind}: {pixel:?}, vertex fog factor {factor}"
+        );
+        drop(bytes);
+        read.unmap();
+    }
+    uni = saved_uni;
     uni[380..388].fill(0.);
     // The actual GPU shader: compare near, half-range and beyond-range
     // visibility with the PS alpha test, plus a toggle-off regression.
@@ -638,6 +805,209 @@ fn main() {
     );
     println!("Grass cutout fade visibility at disabled/near/mid/far/disabled: {counts:?}; CPU reference mismatch {mismatch}");
     uni[55] = 0.;
+    // A grass area may cross a terrain lightmap boundary. The client chooses
+    // one map from the area's center, then clamps that map's UVs, not the world
+    // vertex's map. Use a small real atlas to expose tile-edge bleed/addressing.
+    let edge_saved = uni.clone();
+    let edge_values: [u32; 12] = [
+        8f32.to_bits(),
+        8f32.to_bits(),
+        1f32.to_bits(),
+        4f32.to_bits(),
+        2,
+        0,
+        0,
+        0,
+        2,
+        4,
+        16,
+        1,
+    ];
+    let edge_settings = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(&edge_values),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let edge_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("LM tile edge fixture"),
+        size: wgpu::Extent3d {
+            width: 8,
+            height: 8,
+            depth_or_array_layers: 2,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let mut edge_pixels = vec![0u8; 8 * 8 * 2 * 4];
+    for layer in 0..2 {
+        for y in 0..8 {
+            for x in 0..8 {
+                let value = match (layer, x) {
+                    (0, 0..=1) => 64,
+                    (0, 2) => 96,
+                    (0, 3) => 192,
+                    (1, 0..=1) => 32,
+                    (1, 2) => 48,
+                    (1, 3) => 64,
+                    _ => 255,
+                };
+                let at = ((layer * 8 + y) * 8 + x) * 4;
+                edge_pixels[at..at + 4].copy_from_slice(&[value, value, value, 255]);
+            }
+        }
+    }
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: &edge_texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &edge_pixels,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(32),
+            rows_per_image: Some(8),
+        },
+        wgpu::Extent3d {
+            width: 8,
+            height: 8,
+            depth_or_array_layers: 2,
+        },
+    );
+    let edge_view = edge_texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    let edge_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &light_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: edge_settings.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&edge_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: availability.as_entire_binding(),
+            },
+        ],
+    });
+    let mut edge_builder = grass_instances::Builder::default();
+    edge_builder.mesh((1, 0), vertices.clone(), inds.clone());
+    edge_builder.instance_for_area((1, 0), [-0.5, 0., 0.], 1., 0., 0., [2., 0., 2.]);
+    let edge_grass = grass_instances::Gpu::new(
+        &device,
+        wgpu::TextureFormat::Rgba8Unorm,
+        &layout,
+        shader,
+        edge_builder.finish(),
+        Some(&light_layout),
+    );
+    for unavailable in [false, true] {
+        queue.write_buffer(
+            &availability,
+            0,
+            bytemuck::cast_slice(&[3u32, if unavailable { 1 } else { 3 }, 3, 3]),
+        );
+        for area_mode in [false, true] {
+            for daylight in [0.0f32, 0.5, 1.] {
+                uni[21] = 0.;
+                uni[35] = daylight;
+                uni[55] = 0.;
+                uni[57] = 0.;
+                uni[58] = if area_mode { 1. } else { 0. };
+                uni[382] = 0.;
+                queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
+                let read = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: 128 * 128 * 4,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+                let mut e = device.create_command_encoder(&Default::default());
+                {
+                    let mut p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("area center LM clamp"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &dv,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0.),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    edge_grass.draw(&mut p, &bind, Some(&edge_bind));
+                }
+                e.copy_texture_to_buffer(
+                    wgpu::ImageCopyTexture {
+                        texture: &target,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::ImageCopyBuffer {
+                        buffer: &read,
+                        layout: wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(512),
+                            rows_per_image: Some(128),
+                        },
+                    },
+                    size,
+                );
+                queue.submit(Some(e.finish()));
+                let slice = read.slice(..);
+                let (tx, rx) = std::sync::mpsc::channel();
+                slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+                device.poll(wgpu::Maintain::Wait);
+                rx.recv().unwrap().unwrap();
+                let bytes = slice.get_mapped_range();
+                let green = bytes[(73 * 128 + 32) * 4 + 1];
+                let (day, night) = if area_mode { (96., 48.) } else { (64., 32.) };
+                let encoded = if unavailable && area_mode {
+                    240. / 255.
+                } else {
+                    (240. / 255. * 2. * (night * (1. - daylight) + day * daylight) / 255.).min(1.)
+                };
+                let expected = (((encoded + 0.055) / 1.055).powf(2.4) * 255.).round() as i32;
+                assert!(
+                (green as i32 - expected).abs() <= 2,
+                "area LM clamp mode={area_mode} daylight={daylight}: {green}, expected {expected}"
+            );
+                println!(
+                "area LM clamp mode={area_mode} daylight={daylight}: {green}, expected {expected}"
+            );
+                drop(bytes);
+                read.unmap();
+            }
+        }
+    }
+    queue.write_buffer(&availability, 0, bytemuck::cast_slice(&[3u32; 4]));
+    uni = edge_saved;
     let hours = [
         (0., 0.),
         (3., 0.),
@@ -655,9 +1025,25 @@ fn main() {
     for (hour, expected) in hours {
         assert!((environment::daylight(hour) - expected).abs() < 0.00001);
     }
+    let cases: Vec<_> = hours
+        .iter()
+        .map(|&(hour, _)| (hour, 3u32))
+        .chain([(-1., 3)])
+        .chain((0..3).flat_map(|flags| [0., 5., 12.].map(move |hour| (hour, flags))))
+        .collect();
     let mut greens = Vec::new();
-    for (hour, _) in hours {
-        let daylight = environment::daylight(hour);
+    let mut colors = Vec::new();
+    for &(hour, flags) in &cases {
+        queue.write_buffer(&availability, 0, bytemuck::cast_slice(&[flags; 4]));
+        let daylight = if hour < 0. {
+            -1.
+        } else {
+            environment::daylight(hour)
+        };
+        // No-map fallback must ignore unrelated scene directional lighting.
+        if hour < 0. {
+            uni[36..44].fill(0.);
+        }
         uni[21] = 0.;
         uni[35] = daylight;
         uni[19] = daylight;
@@ -719,23 +1105,39 @@ fn main() {
         let pixels = slice.get_mapped_range();
         let g = pixels.chunks_exact(4).map(|p| p[1]).max().unwrap();
         greens.push(g);
+        colors.push(
+            <[u8; 4]>::try_from(pixels.chunks_exact(4).max_by_key(|p| p[1]).unwrap()).unwrap(),
+        );
         drop(pixels);
         buf.unmap();
     }
-    for (j, (_, daylight)) in hours.into_iter().enumerate() {
-        let mix = (lm[5] as f32 * (1. - daylight) + lm[1] as f32 * daylight) / 255.;
-        let encoded = (240. / 255. * 2. * mix).clamp(0., 1.);
-        let linear = if encoded <= 0.04045 {
-            encoded / 12.92
+    for (j, &(hour, flags)) in cases.iter().enumerate() {
+        let daylight = if hour < 0. {
+            -1.
         } else {
-            ((encoded + 0.055) / 1.055).powf(2.4)
+            environment::daylight(hour)
         };
-        let expected = (linear * 255.).round() as i32;
-        assert!(
-            (greens[j] as i32 - expected).abs() <= 2,
-            "GPU {} != PS1.1 RGB reference {expected}",
-            greens[j]
-        );
+        for ch in 0..3 {
+            let mix = (lm[4 + ch] as f32 * (1. - daylight) + lm[ch] as f32 * daylight) / 255.;
+            let base = [30., 240., 40.][ch] / 255.;
+            let encoded = if daylight < 0. || flags != 3 {
+                base
+            } else {
+                (base * 2. * mix).clamp(0., 1.)
+            };
+            let linear = if encoded <= 0.04045 {
+                encoded / 12.92
+            } else {
+                ((encoded + 0.055) / 1.055).powf(2.4)
+            };
+            let expected = (linear * 255.).round() as i32;
+            assert!(
+                (colors[j][ch] as i32 - expected).abs() <= 2,
+                "grass RGB ch={ch} hour={hour} availability={flags}: {:?} expected {expected}",
+                colors[j]
+            );
+        }
+        assert_eq!(colors[j][3], 255);
     }
     println!("Grass day/night lightmap test green: {greens:?}");
     let (day_color, night_color) = if let Ok(path) = std::env::var("PW_REAL_BMD_PCK") {

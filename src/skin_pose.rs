@@ -1,8 +1,8 @@
 //! A3D skin-mesh four-matrix vertex deformation, isolated from rendering.
 //! Retail `skin_mesh_m4_ns_dl` computes weight 4 as 1-w0-w1-w2, then
 //! transforms position and normal by each palette matrix and sums them.
-//! Matrix palette generation, skeleton/animation loading, rigid binding and
-//! world model rendering are not implemented by this module.
+//! Rigid deformation uses one already selected skeleton-space matrix.
+//! Matrix generation, skeleton/animation loading and drawing live elsewhere.
 use glam::{Mat4, Vec3, Vec4};
 
 #[derive(Clone, Copy, Debug)]
@@ -44,10 +44,23 @@ pub fn deform(
         p += (*m * Vec4::from((Vec3::from_array(position), 1.))).truncate() * weights[i];
         n += (*m * Vec4::from((Vec3::from_array(normal), 0.))).truncate() * weights[i];
     }
+    if !p.is_finite() || !n.is_finite() {
+        return Err("nonfinite deformed vertex");
+    }
     Ok(PosedVertex {
         position: p.to_array(),
         normal: n.normalize_or_zero().to_array(),
     })
+}
+
+/// Retail rigid_mesh_* transforms with one skeleton-space matrix and
+/// normalizes the resulting normal. No skin-local palette or vertex weights.
+pub fn deform_rigid(
+    position: [f32; 3],
+    normal: [f32; 3],
+    matrix: Mat4,
+) -> Result<PosedVertex, &'static str> {
+    deform(position, normal, [1., 0., 0.], [0; 4], &[matrix])
 }
 
 pub const WGSL: &str = r#"
@@ -56,7 +69,7 @@ fn deform_skin(pos:vec3<f32>,normal:vec3<f32>,weights:vec3<f32>,m0:mat4x4<f32>,m
  let w=vec4<f32>(weights,1.-weights.x-weights.y-weights.z);
  let p=(m0*vec4<f32>(pos,1.)).xyz*w.x+(m1*vec4<f32>(pos,1.)).xyz*w.y+(m2*vec4<f32>(pos,1.)).xyz*w.z+(m3*vec4<f32>(pos,1.)).xyz*w.w;
  let n=(m0*vec4<f32>(normal,0.)).xyz*w.x+(m1*vec4<f32>(normal,0.)).xyz*w.y+(m2*vec4<f32>(normal,0.)).xyz*w.z+(m3*vec4<f32>(normal,0.)).xyz*w.w;
- let l=length(n);var result:SkinResult;result.position=p;result.normal=select(vec3<f32>(0.),n/max(l,0.000001),l>0.000001);return result;
+ let l=length(n);var result:SkinResult;result.position=p;result.normal=vec3<f32>(0.);if l>0. {result.normal=n/l;}return result;
 }
 "#;
 #[cfg(test)]
@@ -99,5 +112,17 @@ mod tests {
             &[Mat4::IDENTITY]
         )
         .is_err());
+    }
+}
+
+#[cfg(test)]
+mod edge_tests {
+    use super::*;
+    #[test]
+    fn tiny_nonzero_normals_are_not_erased_and_overflow_fails() {
+        let m = [Mat4::IDENTITY];
+        let v = deform([0.; 3], [0., 1e-8, 0.], [1., 0., 0.], [0; 4], &m).unwrap();
+        assert_eq!(v.normal, [0., 1., 0.]);
+        assert!(deform([1.; 3], [0., 1., 0.], [f32::MAX, f32::MAX, 0.], [0; 4], &m).is_err());
     }
 }

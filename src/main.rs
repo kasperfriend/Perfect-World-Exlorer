@@ -33,6 +33,10 @@ mod ecmodel;
 mod environment;
 mod far_trees_gpu;
 mod foliage_mips;
+#[allow(dead_code)]
+mod gfx_color_track;
+#[allow(dead_code)]
+mod gfx_light;
 mod gpu;
 mod grass;
 mod grass_instances;
@@ -41,12 +45,26 @@ mod grass_wind;
 #[cfg(windows)]
 mod launcher_ui;
 mod material;
+mod model_asset;
+mod model_dds;
+mod model_draw;
+#[cfg(test)]
+#[path = "../tools/fixtures/model_draw.rs"]
+mod model_draw_fixture;
+mod model_draw_gpu;
 mod model_light;
+mod model_material;
+mod model_playback;
+mod model_queue;
+mod model_receiver_gpu;
+mod model_texture_gpu;
 mod music;
 mod navigation;
 mod objects;
 mod pck;
 mod post_gpu;
+#[cfg(test)]
+mod post_reference;
 #[allow(dead_code)]
 mod scene;
 #[allow(dead_code)]
@@ -54,10 +72,12 @@ mod scene_lights;
 mod shore_gpu;
 mod simple_water_gpu;
 mod skeleton;
+mod skeleton_pose;
 mod skin;
 mod skin_pose;
 mod sky_gpu;
 mod terrain_gpu;
+mod terrain_lightmaps;
 mod terrain_seam;
 mod texture_atlas;
 mod tree_lod;
@@ -69,6 +89,8 @@ mod water;
 mod water_gpu;
 #[cfg(windows)]
 mod windows_setup;
+mod world_models;
+mod world_models_gpu;
 mod world_objects;
 struct Terrain {
     element: PathBuf,
@@ -83,6 +105,7 @@ struct Terrain {
     water: Vec<water::WaterArea>,
     environments: environment::Environments,
     scene_lights: std::sync::Arc<scene_lights::SceneLights>,
+    models: world_models::Assets,
     water_normals: Vec<Vec<image::RgbaImage>>,
     water_simple_frames: Vec<Vec<image::RgbaImage>>,
     trees: trees::Trees,
@@ -316,7 +339,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     );
     let count_trees: usize = world_scene.blocks.iter().map(|b| b.trees.len()).sum();
     let count_models: usize = world_scene.blocks.iter().map(|b| b.models.len()).sum();
-    eprintln!("Loaded scene placements: {count_trees} trees, {count_models} EC models; EC model rendering is not implemented");
+    eprintln!("Loaded scene placements: {count_trees} trees, {count_models} EC models");
     eprintln!("Loading world terrain textures and masks...");
     #[cfg(windows)]
     windows_setup::loading_progress("Loading terrain materials and masks...".into());
@@ -328,6 +351,19 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     let water_normals = water::load_normals(element)?;
     let water_simple_frames = water::load_simple_frames(element)?;
     let objects = objects::Objects::open(element, ornaments)?;
+    let placements: Vec<_> = world_scene
+        .blocks
+        .iter()
+        .flat_map(|b| b.models.iter().cloned())
+        .collect();
+    let models = match world_models::Assets::open(element, placements.clone()) {
+        Ok(models) => models,
+        Err(e) => world_models::Assets::load_with(placements, |_| Err(e.clone())),
+    };
+    eprintln!("Retained {} EC model assets for {} placements; {} unloaded placements (ordinary animated submission enabled unless PW_DISABLE_WORLD_MODELS is set)", models.assets.len(), models.instances.len(), models.unloaded.len());
+    for failure in &models.failures {
+        eprintln!("EC model dependency: {failure}");
+    }
     let grass = grass::Grass::load(&world_scene, &dir, element)?;
     #[cfg(windows)]
     windows_setup::loading_progress(
@@ -352,9 +388,9 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         return Err(format!("Some prepared tree types could not be loaded. Close Perfect World Explorer, remove this cache folder, and try again:\n{}",tree_cache.display()));
     }
     let environments = environment::Environments::load(&world_scene, &dir)?;
-    // Load the actual scene-light records for validation/research. Do not add
-    // them to the static baked BMDs: the traced client call site is a separate
-    // object-light path and its render integration is not yet recovered.
+    // Ordinary world-model receivers query these actual client records.
+    // Do not also add them to static baked BMDs or terrain: those surfaces
+    // use their separately traced baked-light paths.
     let scene_lights = match scene_lights::SceneLights::load(&dir.join("scenelights.dat")) {
         Ok(lights) => {
             eprintln!(
@@ -369,6 +405,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         }
     };
     Ok(Terrain {
+        models,
         environments,
         scene_lights: std::sync::Arc::new(scene_lights),
         element: element.to_path_buf(),

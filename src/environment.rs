@@ -3,7 +3,16 @@
 use crate::scene::Scene;
 #[path = "client_region_map.rs"]
 mod client_region_map;
+#[path = "client_regional_light.rs"]
+mod client_regional_light;
 use client_region_map::ActiveBoxMap;
+#[path = "client_region_stream.rs"]
+mod client_region_stream;
+use client_region_stream::{Change, Window};
+#[path = "client_region_shade.rs"]
+mod client_region_shade;
+pub use client_region_shade::frame_ms;
+use client_region_shade::{inverse_time, seconds, unpack_rgb, Channel};
 use std::{collections::BTreeMap, fs, path::Path};
 
 /// Client world day weight (1 = day, 0 = night).
@@ -11,19 +20,10 @@ use std::{collections::BTreeMap, fs, path::Path};
 /// `41ec86`, `42b4fe`, and `42bd6e` pass it to fog, BMD and terrain.
 /// Hour is the world-clock time, normalized by 24 before the client curve.
 pub fn daylight(hour: f32) -> f32 {
-    let t = hour.rem_euclid(24.) / 24.;
-    let night = if t < 0.125 {
-        1.
-    } else if t < f32::from_bits(0x3e955555) {
-        1. - (t - 0.125) * 6.
-    } else if (t as f64) < 0.75 {
-        0.
-    } else if t < 0.875 {
-        (t - 0.75) * 8.
-    } else {
-        1.
-    };
-    1. - night.clamp(0., 1.)
+    1. - night_factor(hour)
+}
+pub fn night_factor(hour: f32) -> f32 {
+    client_regional_light::night_factor(hour)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -55,19 +55,59 @@ struct FogEndpoints {
     diffuse_day: [f32; 3],
     diffuse_night: [f32; 3],
     sun_direction: [f32; 3],
+    celestial_flags: u32,
 }
 impl FogEndpoints {
-    fn blend(a: Self, b: Self, t: f32) -> Self {
+    fn values(self) -> [f32; 36] {
+        let mut v = [0.; 36];
+        for (i, f) in [
+            self.air_day,
+            self.air_night,
+            self.water_day,
+            self.water_night,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            v[i * 6..i * 6 + 6].copy_from_slice(&[
+                f.start, f.end, f.density, f.color[0], f.color[1], f.color[2],
+            ]);
+        }
+        for (i, c) in [
+            self.ambient_day,
+            self.ambient_night,
+            self.diffuse_day,
+            self.diffuse_night,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            v[24 + i * 3..27 + i * 3].copy_from_slice(&c);
+        }
+        v
+    }
+    fn from_values(v: [f32; 36], sun_direction: [f32; 3], celestial_flags: u32) -> Self {
+        let f = |i: usize| {
+            let p = i * 6;
+            Fog {
+                start: v[p],
+                end: v[p + 1],
+                density: v[p + 2],
+                color: [v[p + 3], v[p + 4], v[p + 5]],
+            }
+        };
+        let c = |p: usize| [v[p], v[p + 1], v[p + 2]];
         Self {
-            air_day: Fog::blend(a.air_day, b.air_day, t),
-            air_night: Fog::blend(a.air_night, b.air_night, t),
-            water_day: Fog::blend(a.water_day, b.water_day, t),
-            water_night: Fog::blend(a.water_night, b.water_night, t),
-            ambient_day: mix3(a.ambient_day, b.ambient_day, t),
-            ambient_night: mix3(a.ambient_night, b.ambient_night, t),
-            diffuse_day: mix3(a.diffuse_day, b.diffuse_day, t),
-            diffuse_night: mix3(a.diffuse_night, b.diffuse_night, t),
-            sun_direction: b.sun_direction,
+            air_day: f(0),
+            air_night: f(1),
+            water_day: f(2),
+            water_night: f(3),
+            ambient_day: c(24),
+            ambient_night: c(27),
+            diffuse_day: c(30),
+            diffuse_night: c(33),
+            sun_direction,
+            celestial_flags,
         }
     }
     fn at_hour(self, hour: f32) -> (Fog, Fog) {
@@ -78,56 +118,61 @@ impl FogEndpoints {
         )
     }
 }
-fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
-    std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t)
-}
+
 #[derive(Clone, Copy, Debug)]
 pub struct RegionalLight {
     pub ambient: [f32; 3],
     pub diffuse: [f32; 3],
+    pub specular: [f32; 3],
     pub toward_sun: [f32; 3],
+    pub celestial_flags: u32,
 }
-/// Client-like linear transitions between authored region endpoints. Each new
+/// Stored-step transitions between authored region endpoints. Each new
 /// box starts from the current in-flight values, with duration in EC-BSD.
 #[derive(Clone, Debug)]
 pub struct FogTransition {
     key: Option<usize>,
-    from: FogEndpoints,
-    target: FogEndpoints,
-    elapsed: f32,
-    duration: f32,
+    channels: [Channel; 36],
+    sun_direction: [f32; 3],
+    celestial_flags: u32,
 }
 impl FogTransition {
-    pub fn new(env: &Environments, p: [f32; 3]) -> Self {
-        let (key, target, duration) = env.endpoints(p);
+    fn initial((key, target, _): (Option<usize>, FogEndpoints, u32)) -> Self {
         Self {
             key,
-            from: target,
-            target,
-            elapsed: duration,
-            duration,
+            channels: target.values().map(Channel::new),
+            sun_direction: target.sun_direction,
+            celestial_flags: target.celestial_flags,
         }
     }
+    pub fn new(env: &Environments, p: [f32; 3]) -> Self {
+        Self::initial(env.endpoints(p))
+    }
     fn current(&self) -> FogEndpoints {
-        let t = if self.duration <= 0. {
-            1.
-        } else {
-            (self.elapsed / self.duration).clamp(0., 1.)
-        };
-        FogEndpoints::blend(self.from, self.target, t)
+        FogEndpoints::from_values(
+            self.channels.map(|c| c.value),
+            self.sun_direction,
+            self.celestial_flags,
+        )
     }
     pub fn lighting(&self, hour: f32) -> Option<RegionalLight> {
         self.key?;
         let e = self.current();
-        let d = daylight(hour);
+        let nf = night_factor(hour);
+        let colors = client_regional_light::evaluate(hour, e.diffuse_day, e.diffuse_night);
         Some(RegionalLight {
-            ambient: mix3(e.ambient_night, e.ambient_day, d),
-            diffuse: mix3(e.diffuse_night, e.diffuse_day, d),
+            ambient: client_regional_light::ambient(e.ambient_day, e.ambient_night, nf),
+            diffuse: colors.diffuse,
+            specular: colors.specular,
             toward_sun: e.sun_direction.map(|x| -x),
+            celestial_flags: e.celestial_flags,
         })
     }
     pub fn update(&mut self, env: &Environments, p: [f32; 3], hour: f32, dt: f32) -> (Fog, Fog) {
-        self.update_endpoints(env.endpoints(p), hour, dt)
+        self.update_ms(env, p, hour, Self::milliseconds(dt))
+    }
+    pub fn update_ms(&mut self, env: &Environments, p: [f32; 3], hour: f32, ms: u32) -> (Fog, Fog) {
+        self.update_endpoints(env.endpoints(p), hour, ms)
     }
     pub fn update_streamed(
         &mut self,
@@ -137,39 +182,56 @@ impl FogTransition {
         hour: f32,
         dt: f32,
     ) -> (Fog, Fog) {
-        self.update_endpoints(active.endpoints(env, p), hour, dt)
+        self.update_streamed_ms(env, active, p, hour, Self::milliseconds(dt))
     }
-    pub fn new_streamed(env: &Environments, active: &mut RegionStreaming, p: [f32; 3]) -> Self {
-        let (key, target, duration) = active.endpoints(env, p);
-        Self {
-            key,
-            from: target,
-            target,
-            elapsed: duration,
-            duration,
+    pub fn update_streamed_ms(
+        &mut self,
+        env: &Environments,
+        active: &mut RegionStreaming,
+        p: [f32; 3],
+        hour: f32,
+        ms: u32,
+    ) -> (Fog, Fog) {
+        self.update_endpoints(active.endpoints(env, p), hour, ms)
+    }
+    fn milliseconds(dt: f32) -> u32 {
+        if dt.is_finite() {
+            (dt.max(0.) as f64 * 1000.).min(u32::MAX as f64) as u32
+        } else {
+            0
         }
     }
-
+    pub fn new_streamed(env: &Environments, active: &mut RegionStreaming, p: [f32; 3]) -> Self {
+        Self::initial(active.endpoints(env, p))
+    }
     fn update_endpoints(
         &mut self,
-        (key, target, duration): (Option<usize>, FogEndpoints, f32),
+        (key, target, duration_ms): (Option<usize>, FogEndpoints, u32),
         hour: f32,
-        dt: f32,
+        ms: u32,
     ) -> (Fog, Fog) {
-        // The original region update returns without selecting a fallback if
-        // the camera is outside every active box (0x41ec65). Do not snap to a
-        // synthetic region when flying across a gap.
+        // 0x41ec65: no active region leaves the in-flight environment unchanged.
         if key.is_none() && self.key.is_some() {
             return self.current().at_hour(hour);
         }
+        // 0x420992 reads the independent default every render, not only on
+        // local-region changes. These bits hide sky objects, NOT material light.
+        self.celestial_flags = target.celestial_flags;
         if key != self.key {
-            self.from = self.current();
-            self.target = target;
             self.key = key;
-            self.elapsed = 0.;
-            self.duration = duration;
+            self.sun_direction = target.sun_direction;
+            let inv = inverse_time(duration_ms);
+            for (channel, value) in self.channels.iter_mut().zip(target.values()) {
+                channel.target(value, inv);
+            }
+            // 0x41fdbe jumps over shading. A changed-area frame only installs
+            // targets; its dt must NOT also advance the new transition.
+        } else {
+            let dt = seconds(ms);
+            for channel in &mut self.channels {
+                channel.shade(dt);
+            }
         }
-        self.elapsed = (self.elapsed + dt.max(0.)).min(self.duration.max(0.));
         self.current().at_hour(hour)
     }
 }
@@ -199,6 +261,7 @@ struct BoxArea {
     diffuse_day: [f32; 3],
     diffuse_night: [f32; 3],
     sun_direction: [f32; 3],
+    celestial_flags: u32,
 }
 #[derive(Clone, Default)]
 pub struct Environments {
@@ -219,32 +282,45 @@ struct RegionLayout {
 pub struct RegionStreaming {
     layout: RegionLayout,
     map: ActiveBoxMap,
-    active: Vec<bool>,
-    rect: Option<(usize, usize, usize, usize)>,
+    window: Window,
 }
 impl RegionStreaming {
     fn new(layout: RegionLayout) -> Self {
-        let active = vec![false; layout.boxes.len()];
+        let window =
+            Window::new(layout.rows, layout.cols, 1).expect("validated scene block dimensions");
         Self {
             layout,
-            active,
+            window,
             map: ActiveBoxMap::default(),
-            rect: None,
         }
     }
-    fn endpoints(&mut self, env: &Environments, p: [f32; 3]) -> (Option<usize>, FogEndpoints, f32) {
+    fn endpoints(&mut self, env: &Environments, p: [f32; 3]) -> (Option<usize>, FogEndpoints, u32) {
         self.update(p);
-        let index = self
-            .map
-            .select(|id| {
-                env.id_to_index.get(&id).and_then(|&i| {
-                    let area = &env.areas[i];
-                    area.contains(p).then_some(area.global)
-                })
+        let (local, default) = self.map.select_pair(|id| {
+            env.id_to_index.get(&id).and_then(|&i| {
+                let area = &env.areas[i];
+                area.contains(p).then_some(area.global)
             })
+        });
+        let index = local
+            .or(default)
             .and_then(|id| env.id_to_index.get(&id).copied());
-        env.endpoints_for(index)
+        let (key, mut target, duration) = env.endpoints_for(index);
+        // 0x41ebe2 retains the default independently of the local (ebp).
+        // 0x41f244 / 0x41fd58 read its +c4 direction on init / key change.
+        // Missing default is invalid native world data; use the viewer's safe
+        // vertical fallback, never the local area's unrelated direction.
+        target.celestial_flags = default
+            .and_then(|id| env.id_to_index.get(&id))
+            .map(|&i| env.areas[i].celestial_flags)
+            .unwrap_or(0x18);
+        target.sun_direction = default
+            .and_then(|id| env.id_to_index.get(&id))
+            .map(|&i| env.areas[i].sun_direction)
+            .unwrap_or([0., -1., 0.]);
+        (key, target, duration)
     }
+
     fn update(&mut self, p: [f32; 3]) {
         let l = &self.layout;
         if !p.iter().all(|x| x.is_finite()) || l.block_size <= 0. {
@@ -263,31 +339,21 @@ impl RegionStreaming {
         }
         let (x0, x1) = bounds(col, span, l.cols);
         let (y0, y1) = bounds(row, span, l.rows);
-        let rect = (x0, x1, y0, y1);
-        if self.rect == Some(rect) {
-            return;
-        }
-        self.rect = Some(rect);
-        // Retain overlapping blocks and release departing references. The
-        // asynchronous client's exact completion order remains unknown.
-        for idx in 0..self.active.len() {
-            let row = idx / l.cols;
-            let col = idx % l.cols;
-            if self.active[idx] && !(row >= y0 && row < y1 && col >= x0 && col < x1) {
-                for &id in &l.boxes[idx] {
-                    self.map.unload(id);
-                }
-                self.active[idx] = false;
-            }
-        }
-        for row in y0..y1 {
-            for col in x0..x1 {
-                let idx = row * l.cols + col;
-                if !self.active[idx] {
-                    for &id in &l.boxes[idx] {
+        let changes = self
+            .window
+            .update((x0, x1, y0, y1))
+            .expect("clamped scene block rectangle");
+        for change in changes {
+            match change {
+                Change::Load(index) => {
+                    for &id in &l.boxes[index] {
                         self.map.load(id);
                     }
-                    self.active[idx] = true;
+                }
+                Change::Unload(index) => {
+                    for &id in &l.boxes[index] {
+                        self.map.unload(id);
+                    }
                 }
             }
         }
@@ -312,28 +378,18 @@ fn vec3(b: &[u8], p: usize) -> Result<[f32; 3], String> {
     Ok([float(b, p)?, float(b, p + 4)?, float(b, p + 8)?])
 }
 fn rgb(b: &[u8], p: usize) -> Result<[f32; 3], String> {
-    let c = word(b, p)?;
-    Ok([
-        ((c >> 16) & 255) as f32 / 255.,
-        ((c >> 8) & 255) as f32 / 255.,
-        (c & 255) as f32 / 255.,
-    ])
+    Ok(unpack_rgb(word(b, p)?))
 }
 fn scaled_rgb(b: &[u8], p: usize, scale: usize) -> Result<[f32; 3], String> {
     let k = float(b, scale)?;
     Ok(rgb(b, p)?.map(|x| x * k))
 }
 fn fog(b: &[u8], p: usize) -> Result<Fog, String> {
-    let c = word(b, p + 12)?;
     Ok(Fog {
         start: float(b, p)?,
         end: float(b, p + 4)?,
         density: float(b, p + 8)?,
-        color: [
-            ((c >> 16) & 255) as f32 / 255.,
-            ((c >> 8) & 255) as f32 / 255.,
-            (c & 255) as f32 / 255.,
-        ],
+        color: unpack_rgb(word(b, p + 12)?),
     })
 }
 impl BoxArea {
@@ -345,6 +401,7 @@ impl BoxArea {
         let area = Self {
             global,
             transition_ms: word(bytes, 0x9c)?,
+            celestial_flags: word(bytes, 4)?,
             center: vec3(bytes, 8)?,
             extents: if global {
                 [1000.; 3]
@@ -429,7 +486,7 @@ impl Environments {
     pub fn atmosphere(&self, p: [f32; 3], hour: f32) -> Fog {
         self.sample(p, hour, false)
     }
-    fn endpoints(&self, p: [f32; 3]) -> (Option<usize>, FogEndpoints, f32) {
+    fn endpoints(&self, p: [f32; 3]) -> (Option<usize>, FogEndpoints, u32) {
         // Selection order is still a heuristic pending the streaming-order trace.
         let a = self
             .areas
@@ -443,7 +500,7 @@ impl Environments {
             });
         self.endpoints_for(a.map(|(i, _)| i))
     }
-    fn endpoints_for(&self, index: Option<usize>) -> (Option<usize>, FogEndpoints, f32) {
+    fn endpoints_for(&self, index: Option<usize>) -> (Option<usize>, FogEndpoints, u32) {
         if let Some(i) = index {
             let a = &self.areas[i];
             return (
@@ -458,8 +515,9 @@ impl Environments {
                     diffuse_day: a.diffuse_day,
                     diffuse_night: a.diffuse_night,
                     sun_direction: a.sun_direction,
+                    celestial_flags: a.celestial_flags,
                 },
-                a.transition_ms as f32 / 1000.,
+                a.transition_ms,
             );
         }
         let air = Fog {
@@ -481,8 +539,9 @@ impl Environments {
                 diffuse_day: [0.; 3],
                 diffuse_night: [0.; 3],
                 sun_direction: [0., -1., 0.],
+                celestial_flags: 0x18,
             },
-            0.,
+            0,
         )
     }
     fn sample(&self, p: [f32; 3], hour: f32, water: bool) -> Fog {
@@ -500,6 +559,7 @@ mod tests {
     #[test]
     fn client_v12_box_fog_and_priority() {
         let mut b = vec![0u8; 224];
+        b[4..8].copy_from_slice(&8u32.to_le_bytes());
         fn put(b: &mut [u8], p: usize, v: f32) {
             b[p..p + 4].copy_from_slice(&v.to_le_bytes())
         }
@@ -532,6 +592,7 @@ mod tests {
         put(&mut b, 0x78, -0.619779);
         put(&mut b, 0x7c, 0.76983047);
         let a = BoxArea::parse(&b, 0).unwrap();
+        assert_eq!(a.celestial_flags, 8);
         assert!((a.ambient_day[0] - 89. / 255.).abs() < 1e-6);
         assert!((a.diffuse_night[1] - 0.5 * 61. / 255.).abs() < 1e-6);
         assert!((a.sun_direction[1] + 0.619779).abs() < 1e-6);
@@ -573,18 +634,22 @@ mod tests {
         };
         let mut transition = FogTransition::new(&env, [0.; 3]);
         let light = transition.lighting(5.).unwrap();
-        assert!((light.ambient[0] - (89. + 108.) / 510.).abs() < 1e-6);
+        assert_eq!(light.ambient[0], 98. * f32::from_bits(0x3b808081));
         assert!((light.toward_sun[1] - 0.619779).abs() < 1e-6);
+        let (_, unchanged) = transition.update(&env, [200., 0., 0.], 12., 2.5);
+        assert_eq!(unchanged.start, 7.);
         let (_, w) = transition.update(&env, [200., 0., 0.], 12., 2.5);
         assert!((w.start - 17.).abs() < 1e-5);
         let mid = transition.lighting(12.).unwrap();
-        assert!((mid.ambient[0] - (89. / 255. + 1.) * 0.5).abs() < 1e-6);
-        assert!((mid.diffuse[0] - (75. / 255. + 0.4) * 0.5).abs() < 1e-6);
+        assert_eq!(mid.ambient[0], 172. * f32::from_bits(0x3b808081));
+        assert_eq!(mid.diffuse[0], 88. * f32::from_bits(0x3b808081));
         let (_, outside) = transition.update(&env, [500., 0., 0.], 12., 10.);
         assert!((outside.start - 17.).abs() < 1e-5);
         let (_, night) = transition.update(&env, [200., 0., 0.], 0., 0.);
         assert!((night.start - 28.5).abs() < 1e-5);
         env.areas[0].transition_ms = 5000;
+        let (_, unchanged) = transition.update(&env, [0., 0., 0.], 12., 2.5);
+        assert!((unchanged.start - 17.).abs() < 1e-5);
         let (_, reversing) = transition.update(&env, [0., 0., 0.], 12., 2.5);
         assert!((reversing.start - 12.).abs() < 1e-5);
         let (_, done) = transition.update(&env, [0., 0., 0.], 12., 2.5);
@@ -612,12 +677,17 @@ mod tests {
             diffuse_day: [1.; 3],
             diffuse_night: [0.; 3],
             sun_direction: [0., -1., 0.],
+            celestial_flags: 0x18,
         };
         let mut global = area.clone();
         global.global = true;
         global.day.start = 90.;
+        global.sun_direction = [1., 0., 0.];
+        global.celestial_flags = 8;
         let mut local = area.clone();
         local.day.start = 10.;
+        local.sun_direction = [0., 0., 1.];
+        local.celestial_flags = 16;
         let mut second = area;
         second.day.start = 30.;
         let mut ids = BTreeMap::new();
@@ -641,7 +711,7 @@ mod tests {
                 vec![1],
             ],
         };
-        let env = Environments {
+        let mut env = Environments {
             areas: vec![global, local, second],
             id_to_index: ids,
             streaming: Some(layout),
@@ -649,6 +719,16 @@ mod tests {
         let mut active = env.streaming().unwrap();
         let p = [-1700., 0., 0.];
         let mut transition = FogTransition::new_streamed(&env, &mut active, p);
+        assert_eq!(transition.lighting(12.).unwrap().toward_sun, [-1., 0., 0.]);
+        let before = transition.lighting(12.).unwrap();
+        assert_eq!(before.celestial_flags, 8); // default, NOT local's 16
+        env.areas[0].celestial_flags = 16;
+        transition.update_streamed_ms(&env, &mut active, p, 12., 0);
+        let after = transition.lighting(12.).unwrap();
+        assert_eq!(after.celestial_flags, 16); // immediate, same local key
+        assert_eq!(before.diffuse, after.diffuse); // display only
+        assert_eq!(before.specular, after.specular);
+
         assert_eq!(
             transition
                 .update_streamed(&env, &mut active, p, 12., 0.)
@@ -658,6 +738,11 @@ mod tests {
         );
         // Retained block refs prevent unloading an area when one block leaves.
         let mid = [-100., 0., 0.];
+        let changed = transition
+            .update_streamed(&env, &mut active, mid, 12., 2.5)
+            .1;
+        assert_eq!(changed.start, 10.);
+        assert_eq!(transition.lighting(12.).unwrap().toward_sun, [-1., 0., 0.]);
         let water = transition
             .update_streamed(&env, &mut active, mid, 12., 2.5)
             .1;
@@ -667,10 +752,30 @@ mod tests {
             .1;
         assert_eq!(water.start, 30.);
         let end = [1900., 0., 0.];
+        let changed = transition
+            .update_streamed(&env, &mut active, end, 12., 5.)
+            .1;
+        assert_eq!(changed.start, 30.);
         let water = transition
             .update_streamed(&env, &mut active, end, 12., 5.)
             .1;
         assert_eq!(water.start, 90.);
+
+        // A region referenced only by the SECOND newly exposed block must
+        // not become selectable immediately on movement. Queue draining must
+        // continue even when the next frame has identical coordinates.
+        let mut delayed_layout = env.streaming.clone().unwrap();
+        delayed_layout.boxes[3] = vec![1];
+        delayed_layout.boxes[4] = vec![1, 2];
+        let delayed_env = Environments {
+            areas: env.areas.clone(),
+            id_to_index: env.id_to_index.clone(),
+            streaming: Some(delayed_layout),
+        };
+        let mut delayed = delayed_env.streaming().unwrap();
+        assert_eq!(delayed.endpoints(&delayed_env, p).0, Some(1));
+        assert_eq!(delayed.endpoints(&delayed_env, mid).0, Some(1));
+        assert_eq!(delayed.endpoints(&delayed_env, mid).0, Some(2));
     }
     #[test]
     fn client_clock_fog_and_baked_lighting_weight() {

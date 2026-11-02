@@ -1,6 +1,6 @@
 //! Client-like active-box hash iteration (elementclient 0x41b23b, 0x41da70,
-//! 0x413170, 0x41eb7c). This is research infrastructure: block streaming and
-//! its asynchronous insertion order have not yet been recovered completely.
+//! 0x413170, 0x41eb7c). Scene window admission order is implemented by
+//! client_region_stream; this module preserves insertion/refcount/hash order.
 use std::collections::HashMap;
 const PRIMES: [usize; 12] = [
     53, 97, 193, 389, 769, 1543, 3079, 6151, 12289, 24593, 49157, 98317,
@@ -60,7 +60,15 @@ impl ActiveBoxMap {
     }
     /// Buckets ascend, chain walks head to tail. Client retains the last
     /// containing local box; if none, it retains the last containing global.
-    pub fn select(&self, mut classify: impl FnMut(u32) -> Option<bool>) -> Option<u32> {
+    pub fn select(&self, classify: impl FnMut(u32) -> Option<bool>) -> Option<u32> {
+        let (local, global) = self.select_pair(classify);
+        local.or(global)
+    }
+    /// Keep the default separately: local fog/colors do not override its light direction.
+    pub fn select_pair(
+        &self,
+        mut classify: impl FnMut(u32) -> Option<bool>,
+    ) -> (Option<u32>, Option<u32>) {
         let mut local = None;
         let mut global = None;
         for &id in self.buckets.iter().flatten() {
@@ -70,7 +78,7 @@ impl ActiveBoxMap {
                 None => {}
             }
         }
-        local.or(global)
+        (local, global)
     }
 }
 #[cfg(test)]
@@ -83,6 +91,7 @@ mod tests {
         m.load(54);
         m.load(6); // bucket 1: 54 then 1; bucket 6: 6
         assert_eq!(m.select(|id| Some(id == 6)), Some(1));
+        assert_eq!(m.select_pair(|id| Some(id == 6)), (Some(1), Some(6)));
         assert_eq!(
             m.select(|id| if id == 6 { Some(true) } else { None }),
             Some(6)

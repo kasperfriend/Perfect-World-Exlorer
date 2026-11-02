@@ -4,6 +4,87 @@
 pub struct EcModel {
     pub version: u32,
     pub skin_model_path: String,
+    /// Optional in older descriptors; absence is not an invented render default.
+    pub original_color: Option<u32>,
+    pub source_blend: Option<u32>,
+    pub destination_blend: Option<u32>,
+    pub default_speed: Option<f32>,
+    pub actions: Vec<CombinedAction>,
+    pub events: Vec<EcmEvent>,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RenderSettings {
+    pub original_color: u32,
+    pub source_blend: u32,
+    pub destination_blend: u32,
+    pub default_speed: f32,
+}
+impl EcModel {
+    /// ECWLD scene load: 0x5b3a4f–0x5b3aca first queries the combined
+    /// action map, then falls back to the literal 休闲 (0x95a750). A matching
+    /// SMD/base name alone is not a scene action. None means playback failed,
+    /// not permission to pick the first action or reinterpret the namespace.
+    pub fn scene_action(&self, requested: &str) -> Option<usize> {
+        self.actions
+            .iter()
+            .position(|a| a.name == requested)
+            .or_else(|| self.actions.iter().position(|a| a.name == "休闲"))
+    }
+    /// Static-data constructor: 0x6d453f/0x6d4547 set white and speed 1;
+    /// 0x6d46b5/0x6d46bc set SRCALPHA/INVSRCALPHA. Raw optional fields
+    /// stay intact so absence and explicit values can still be audited.
+    pub fn render_settings(&self) -> RenderSettings {
+        RenderSettings {
+            original_color: self.original_color.unwrap_or(u32::MAX),
+            source_blend: self.source_blend.unwrap_or(5),
+            destination_blend: self.destination_blend.unwrap_or(6),
+            default_speed: self.default_speed.unwrap_or(1.),
+        }
+    }
+}
+#[derive(Debug, Default)]
+pub struct CombinedAction {
+    pub name: String,
+    pub loops: Option<i32>,
+    pub speed: Option<f32>,
+    pub bases: Vec<BaseAction>,
+}
+impl CombinedAction {
+    /// Retail 0x6f2061–0x6f2079 forces a sole base to loop forever
+    /// when its containing combined action loops forever. The loader
+    /// initializes both base bounds to one (0x6f2004–0x6f2012).
+    /// This is loop-policy normalization, not a playback scheduler.
+    pub fn base_loop_bounds(&self, index: usize) -> Option<(i32, i32)> {
+        let base = self.bases.get(index)?;
+        if self.loops == Some(-1) && self.bases.len() == 1 {
+            Some((-1, -1))
+        } else {
+            Some((base.loop_min.unwrap_or(1), base.loop_max.unwrap_or(1)))
+        }
+    }
+}
+#[derive(Debug, Default)]
+pub struct BaseAction {
+    pub name: String,
+    pub start_ms: Option<i32>,
+    pub loop_min: Option<i32>,
+    pub loop_max: Option<i32>,
+}
+/// Preserve event fields without claiming to implement their playback semantics.
+#[derive(Debug)]
+pub struct EcmEvent {
+    pub kind: i32,
+    pub action: Option<String>,
+    pub fields: Vec<(String, String)>,
+}
+impl EcmEvent {
+    pub fn gfx_path(&self) -> Option<String> {
+        (self.kind == 100)
+            .then(|| self.fields.iter().find(|x| x.0 == "FxFilePath"))
+            .flatten()
+            .map(|x| normalize(&x.1))
+            .filter(|x| !x.is_empty())
+    }
 }
 #[derive(Debug)]
 pub struct SkinModel {
@@ -16,7 +97,7 @@ pub struct SkinModel {
     pub hangers: Vec<Hanger>,
     pub properties: Vec<(String, String)>,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Action {
     pub name: String,
     pub start: f32,
@@ -25,7 +106,7 @@ pub struct Action {
     pub track_file: String,
     pub joints: Vec<JointAction>,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct JointAction {
     pub joint: i32,
     pub start: f32,
@@ -41,6 +122,21 @@ pub struct Hanger {
     pub on_bone: bool,
     pub file: String,
     pub child_hook: String,
+}
+impl SkinModel {
+    /// External STCK paths are relative to the SMD's own directory, then its
+    /// track-directory field; they are not relative to models.pck's root.
+    pub fn action_track_path(&self, descriptor_path: &str, action: &Action) -> Option<String> {
+        if action.track_file.is_empty() {
+            return None;
+        }
+        let descriptor = normalize(descriptor_path);
+        let parent = descriptor.rsplit_once('/').map_or("", |x| x.0);
+        Some(normalize(&format!(
+            "{parent}/{}/{}",
+            self.track_directory, action.track_file
+        )))
+    }
 }
 fn gbk(bytes: &[u8]) -> Result<String, String> {
     let (s, _, bad) = encoding_rs::GBK.decode(bytes);
@@ -63,12 +159,152 @@ pub fn parse_ecm(bytes: &[u8]) -> Result<EcModel, String> {
     let text = gbk(bytes)?;
     let mut version = None;
     let mut path = None;
+    let mut original_color = None;
+    let mut source_blend = None;
+    let mut destination_blend = None;
+    let mut default_speed = None;
+    let mut declared_actions = None;
+    let mut actions = Vec::<CombinedAction>::new();
+    let mut base_counts = Vec::<Option<usize>>::new();
+    let mut events = Vec::<EcmEvent>::new();
+    let mut header = true;
+    let mut in_bases = false;
+    let mut in_event = false;
+    fn integer<T: std::str::FromStr>(key: &str, value: &str) -> Result<T, String> {
+        value
+            .parse()
+            .map_err(|_| format!("invalid ECM {key}: {value}"))
+    }
+    fn speed(key: &str, value: &str) -> Result<f32, String> {
+        let v: f32 = integer(key, value)?;
+        if !v.is_finite() {
+            return Err(format!("invalid ECM {key}: {value}"));
+        }
+        Ok(v)
+    }
     for line in text.lines() {
-        if let Some(x) = line.strip_prefix("MOXTVersion:") {
-            version = x.trim().parse().ok()
+        let Some((key, value)) = line.split_once(':') else {
+            continue;
         };
-        if let Some(x) = line.strip_prefix("SkinModelPath:") {
-            path = Some(normalize(x));
+        let key = key.trim();
+        let value = value.trim();
+        match key {
+            "MOXTVersion" => version = Some(integer(key, value)?),
+            "SkinModelPath" => path = Some(normalize(value)),
+            "OrgColor" if header => {
+                original_color =
+                    Some(u32::from_str_radix(value, 16).map_err(|_| "invalid ECM OrgColor")?)
+            }
+            "SrcBlend" if header => source_blend = Some(integer(key, value)?),
+            "DestBlend" if header => destination_blend = Some(integer(key, value)?),
+            "DefSpeed" if header => default_speed = Some(speed(key, value)?),
+            "ComActCount" => declared_actions = Some(integer::<usize>(key, value)?),
+            "CombineActName" => {
+                if value.is_empty() {
+                    return Err("empty ECM combined-action name".into());
+                }
+                header = false;
+                in_bases = false;
+                in_event = false;
+                actions.push(CombinedAction {
+                    name: value.into(),
+                    ..Default::default()
+                });
+                base_counts.push(None);
+            }
+            "EventType" => {
+                header = false;
+                in_bases = false;
+                in_event = true;
+                events.push(EcmEvent {
+                    kind: integer(key, value)?,
+                    action: actions.last().map(|a| a.name.clone()),
+                    fields: Vec::new(),
+                });
+            }
+            _ if in_event
+                && !matches!(
+                    key,
+                    "AddiSkinCount" | "ChildCount" | "PhysFileName" | "ECMHookCount"
+                ) =>
+            {
+                events
+                    .last_mut()
+                    .unwrap()
+                    .fields
+                    .push((key.into(), value.into()));
+            }
+            "BaseActCount" => {
+                let count = integer::<usize>(key, value)?;
+                *base_counts
+                    .last_mut()
+                    .ok_or("ECM base count without combined action")? = Some(count);
+                in_bases = true;
+            }
+            "BaseActName" => {
+                if !in_bases || value.is_empty() {
+                    return Err("ECM base action outside base list or empty name".into());
+                }
+                actions
+                    .last_mut()
+                    .ok_or("ECM base action without combined action")?
+                    .bases
+                    .push(BaseAction {
+                        name: value.into(),
+                        ..Default::default()
+                    });
+            }
+            "LoopCount" => {
+                let loops = integer(key, value)?;
+                if let Some(action) = actions.last_mut() {
+                    if in_bases {
+                        let base = action
+                            .bases
+                            .last_mut()
+                            .ok_or("ECM loop count before base action")?;
+                        base.loop_min = Some(loops);
+                        base.loop_max = Some(loops);
+                    } else {
+                        action.loops = Some(loops);
+                    }
+                }
+            }
+            "PlaySpeed" => {
+                if let Some(action) = actions.last_mut() {
+                    action.speed = Some(speed(key, value)?);
+                }
+            }
+            "ActStartTime" | "LoopMinNum" | "LoopMaxNum" if in_bases => {
+                let base = actions
+                    .last_mut()
+                    .and_then(|a| a.bases.last_mut())
+                    .ok_or("ECM base timing without base action")?;
+                let v = Some(integer(key, value)?);
+                match key {
+                    "ActStartTime" => base.start_ms = v,
+                    "LoopMinNum" => base.loop_min = v,
+                    _ => base.loop_max = v,
+                }
+            }
+            "EventCount" => {
+                in_bases = false;
+            }
+            _ => {}
+        }
+    }
+    if declared_actions.is_some_and(|n| n != actions.len()) {
+        return Err("ECM combined-action count mismatch".into());
+    }
+    for (action, count) in actions.iter().zip(base_counts) {
+        if count.is_some_and(|n| n != action.bases.len()) {
+            return Err(format!("ECM base-action count mismatch: {}", action.name));
+        }
+        for base in &action.bases {
+            if let (Some(min), Some(max)) = (base.loop_min, base.loop_max) {
+                if min >= 0 && max >= 0 && min > max {
+                    return Err(format!("ECM inverted loop bounds: {}", base.name));
+                }
+            }
         }
     }
     Ok(EcModel {
@@ -76,6 +312,12 @@ pub fn parse_ecm(bytes: &[u8]) -> Result<EcModel, String> {
         skin_model_path: path
             .filter(|x| !x.is_empty())
             .ok_or("missing ECM skin model")?,
+        original_color,
+        source_blend,
+        destination_blend,
+        default_speed,
+        actions,
+        events,
     })
 }
 /// Parse A3D skin-model descriptors (v1–v9), including animation and attachments.
@@ -262,6 +504,14 @@ mod tests {
         assert_eq!(m.track_directory, "tracks");
         assert_eq!(m.actions[0].track_file, "idle.stck");
         assert_eq!(m.actions[0].end, 30.);
+        assert_eq!(
+            m.action_track_path("Models\\Scene\\Rig.SMD", &m.actions[0])
+                .as_deref(),
+            Some("models/scene/tracks/idle.stck")
+        );
+        let mut embedded = m.actions[0].clone();
+        embedded.track_file.clear();
+        assert!(m.action_track_path("models/rig.smd", &embedded).is_none());
         assert!(m.hangers[0].on_bone);
         assert_eq!(m.hangers[0].child_hook, "root");
         assert_eq!(m.properties[0], ("mode".into(), "visible".into()));
@@ -274,5 +524,107 @@ mod tests {
         let x = parse_ecm(b"MOXTVersion: 19\r\nSkinModelPath: Models\\Foo.SMD\r\n").unwrap();
         assert_eq!(x.version, 19);
         assert_eq!(x.skin_model_path, "models/foo.smd");
+    }
+}
+
+#[cfg(test)]
+mod ecm_schedule_tests {
+    use super::*;
+    fn parse(body: &str) -> Result<EcModel, String> {
+        parse_ecm(format!("MOXTVersion: 47\nSkinModelPath: Models\\test.smd\n{body}").as_bytes())
+    }
+    #[test]
+    fn scene_load_uses_combined_map_then_idle_not_direct_base_names() {
+        let m=parse("ComActCount: 2\nCombineActName: visible\nLoopCount: 1\nBaseActCount: 1\nBaseActName: direct-only\nActStartTime: 0\nLoopCount: 1\nEventCount: 0\nCombineActName: idle\nLoopCount: 1\nBaseActCount: 0\nEventCount: 0\n").unwrap();
+        let mut m = m;
+        m.actions[1].name = "休闲".into();
+        assert_eq!(m.scene_action("visible"), Some(0));
+        assert_eq!(m.scene_action("direct-only"), Some(1));
+        assert_eq!(m.scene_action("missing"), Some(1));
+        let mut m = m;
+        m.actions.pop();
+        assert_eq!(m.scene_action("direct-only"), None);
+    }
+    #[test]
+    fn maps_combined_name_and_keeps_random_loop_schedule() {
+        let m=parse("OrgColor: ff804020\nSrcBlend: 5\nDestBlend: 6\nDefSpeed: 1.25\nComActCount: 1\nCombineActName: visible\nLoopCount: -1\nPlaySpeed: 0.5\nBaseActCount: 2\nBaseActName: local-a\nActStartTime: 0\nLoopMinNum: 3\nLoopMaxNum: 10\nBaseActName: local-b\nActStartTime: 3350\nLoopMinNum: 1\nLoopMaxNum: 1\nEventCount: 0\n").unwrap();
+        assert_eq!(m.original_color, Some(0xff804020));
+        assert_eq!(m.source_blend, Some(5));
+        assert_eq!(m.destination_blend, Some(6));
+        assert_eq!(m.default_speed, Some(1.25));
+        let a = &m.actions[0];
+        assert_eq!(a.name, "visible");
+        assert_eq!(a.loops, Some(-1));
+        assert_eq!(a.speed, Some(0.5));
+        assert_eq!(a.bases[0].name, "local-a");
+        assert_eq!(a.bases[0].loop_min, Some(3));
+        assert_eq!(a.bases[0].loop_max, Some(10));
+        assert_eq!(a.bases[1].start_ms, Some(3350));
+    }
+    #[test]
+    fn legacy_loops_and_event_scope_are_distinct() {
+        let m=parse("ComActCount: 1\nEventType: 100\nStartTime: 0\nTimeSpan: -1\nFxFilePath: scene\\attached.gfx\nHookName: hook\nCombineActName: visible\nLoopCount: 1\nBaseActCount: 1\nBaseActName: underlying\nActStartTime: 0\nLoopCount: -1\nEventCount: 1\nEventType: 999\nLoopCount: 12\nFxFilePath: other.gfx\n").unwrap();
+        assert!(m.original_color.is_none());
+        assert!(m.default_speed.is_none());
+        assert_eq!(m.actions[0].loops, Some(1));
+        assert_eq!(m.actions[0].bases[0].loop_max, Some(-1));
+        assert_eq!(m.events.len(), 2);
+        assert!(m.events[0].action.is_none());
+        assert_eq!(
+            m.events[0].gfx_path().as_deref(),
+            Some("scene/attached.gfx")
+        );
+        assert_eq!(m.events[1].action.as_deref(), Some("visible"));
+        assert!(m.events[1].gfx_path().is_none());
+    }
+    #[test]
+    fn source_backed_legacy_render_defaults_do_not_replace_explicit_fields() {
+        let m = parse("").unwrap();
+        assert!(m.original_color.is_none());
+        assert_eq!(
+            m.render_settings(),
+            RenderSettings {
+                original_color: u32::MAX,
+                source_blend: 5,
+                destination_blend: 6,
+                default_speed: 1.
+            }
+        );
+        let m = parse("OrgColor: 80402010\nSrcBlend: 2\nDestBlend: 1\nDefSpeed: 0").unwrap();
+        assert_eq!(
+            m.render_settings(),
+            RenderSettings {
+                original_color: 0x80402010,
+                source_blend: 2,
+                destination_blend: 1,
+                default_speed: 0.
+            }
+        );
+    }
+    #[test]
+    fn retail_single_base_infinite_override_and_default_bounds() {
+        let m=parse("ComActCount: 2\nCombineActName: a\nLoopCount: -1\nBaseActCount: 1\nBaseActName: b\nLoopMinNum: 3\nLoopMaxNum: 8\nEventCount: 0\nCombineActName: c\nLoopCount: 1\nBaseActCount: 1\nBaseActName: d\nEventCount: 0").unwrap();
+        assert_eq!(m.actions[0].base_loop_bounds(0), Some((-1, -1)));
+        assert_eq!(m.actions[1].base_loop_bounds(0), Some((1, 1)));
+        assert_eq!(m.actions[0].base_loop_bounds(1), None);
+        // Metadata decoding is not a playback policy: preserve zero/reverse
+        // speeds instead of inventing a positive-only client constraint.
+        let m =
+            parse("DefSpeed: 0\nComActCount: 1\nCombineActName: a\nPlaySpeed: -1\nBaseActCount: 0")
+                .unwrap();
+        assert_eq!(m.default_speed, Some(0.));
+        assert_eq!(m.actions[0].speed, Some(-1.));
+    }
+    #[test]
+    fn rejects_bad_counts_timing_and_nonfinite_speed() {
+        for body in [
+            "ComActCount: 1",
+            "DefSpeed: NaN",
+            "CombineActName: a\nBaseActCount: 1",
+            "CombineActName: a\nBaseActCount: 1\nBaseActName: b\nLoopMinNum: 9\nLoopMaxNum: 2",
+            "CombineActName: a\nBaseActCount: 1\nBaseActName: b\nActStartTime: bad",
+        ] {
+            assert!(parse(body).is_err(), "accepted {body}");
+        }
     }
 }

@@ -265,6 +265,12 @@ impl TrackSet {
                 rotation,
             });
         }
+        if r.p != bytes.len() {
+            return Err(format!(
+                "unsupported STCK trailing data: {} bytes",
+                bytes.len() - r.p
+            ));
+        }
         Ok(Self {
             version,
             start,
@@ -272,6 +278,16 @@ impl TrackSet {
             fps,
             tracks,
         })
+    }
+    pub fn validate_joint_count(&self, count: usize) -> Result<(), String> {
+        if self
+            .tracks
+            .iter()
+            .any(|t| t.id < 0 || t.id as usize >= count)
+        {
+            return Err("animation track references an invalid skeleton joint".into());
+        }
+        Ok(())
     }
 }
 
@@ -309,6 +325,14 @@ mod tests {
             word(&mut b, v)
         }
         let t = TrackSet::parse(&b).unwrap();
+        assert!(t.validate_joint_count(1).is_ok());
+        assert!(t.validate_joint_count(0).is_err());
+        let mut negative = t.clone();
+        negative.tracks[0].id = -1;
+        assert!(negative.validate_joint_count(1).is_err());
+        let mut trailing = b.clone();
+        trailing.push(0);
+        assert!(TrackSet::parse(&trailing).is_err());
         let position = t.tracks[0].position.sample(0.05).unwrap();
         assert!((position[0] - 5.).abs() < 1e-5);
         let rot = t.tracks[0].rotation.sample(0.05).unwrap();

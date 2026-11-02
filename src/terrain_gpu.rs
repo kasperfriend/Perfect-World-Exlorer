@@ -57,9 +57,22 @@ struct Layer { tex:u32,axis:u32,mask:u32,pad:u32,uv:vec2<f32>,pad2:vec2<f32> };
 @group(0) @binding(7) var<storage,read> layers:array<Layer>;
 struct In {@location(0) pos:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) uv:vec2<f32>,@location(3) color:vec4<f32>,@location(4) kind:f32};
 struct FarIn {@location(0) pos:vec3<f32>, @location(1) normal:vec4<f32>};
-struct Out {@builtin(position) pos:vec4<f32>,@location(0) world:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) @interpolate(flat) distant:f32};
-@vertex fn vs(i:In)->Out {var o:Out;o.pos=camera.matrix*vec4<f32>(i.pos,1.);o.world=i.pos;o.normal=i.normal;o.distant=i.kind;return o;}
-@vertex fn vs_far(i:FarIn)->Out {var o:Out;o.pos=camera.matrix*vec4<f32>(i.pos,1.);o.world=i.pos;o.normal=i.normal.xyz;o.distant=1.;return o;}
+struct Out {@builtin(position) pos:vec4<f32>,@location(0) world:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) @interpolate(flat) distant:f32,@location(3) refraction:vec2<f32>};
+// terrain_refract_vs: project above-plane vertices down, but use the original
+// vertex for UV generation and eye direction. oD0 is independent depth darkness.
+fn terrain_vertex(world:vec3<f32>,normal:vec3<f32>,distant:f32)->Out {
+ var o:Out;var projected=world;o.refraction=vec2<f32>(1.);
+ if camera.clip.y<0. {
+  projected.y=min(world.y,camera.clip.x);let depth=camera.clip.x-projected.y;
+  let delta=camera.grass_eye.xyz-world;
+  var f=select(1.,0.,depth>0.);
+  if abs(delta.y)>0.000001 {f=exp2(-0.075*depth*length(delta)/delta.y);}
+  o.refraction=vec2<f32>(f,exp2(-0.15*depth));
+ }
+ o.pos=camera.matrix*vec4<f32>(projected,1.);o.world=world;o.normal=normal;o.distant=distant;return o;
+}
+@vertex fn vs(i:In)->Out {return terrain_vertex(i.pos,i.normal,i.kind);}
+@vertex fn vs_far(i:FarIn)->Out {return terrain_vertex(i.pos,i.normal.xyz,1.);}
 // Approximate the original fixed-function/PS 1.1 arithmetic in encoded RGB.
 // D3D8 filters authored texture bytes in encoded space. The texture arrays
 // use UNORM views; return linear RGB to the viewer's sRGB render target.
@@ -73,8 +86,13 @@ fn fogged(linear:vec3<f32>, reciprocal_w:f32)->vec3<f32> {
  let v=mix(encoded,camera.fog_color.rgb,f);
  return select(v/12.92,pow((max(v,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),v>vec3<f32>(0.04045));
 }
+fn terrain_pass_fog(linear:vec3<f32>,reciprocal_w:f32,transmittance:f32)->vec3<f32> {
+ if camera.clip.y>=0. || camera.fog_range.z<0.5 {return fogged(linear,reciprocal_w);}
+ let c=max(linear,vec3<f32>(0.));let encoded=select(c*12.92,1.055*pow(c,vec3<f32>(1./2.4))-0.055,c>vec3<f32>(0.0031308));
+ let v=mix(camera.fog_color.rgb,encoded,clamp(transmittance,0.,1.));return to_linear(v);
+}
 @fragment fn fs(i:Out)->@location(0) vec4<f32> {
- if camera.clip.y!=0. && (i.world.y-camera.clip.x)*camera.clip.y<0. {discard;}
+ if camera.clip.y>0. && i.world.y<camera.clip.x {discard;}
  if i.distant>0.5 && i.world.x>=camera.bounds.x && i.world.x<camera.bounds.y && i.world.z>=camera.bounds.z && i.world.z<camera.bounds.w {discard;}
  let gx=clamp(i.world.x/settings.params.z+settings.params.x*0.5,0.,settings.params.x-1.);
  let gy=clamp(settings.params.y*0.5-i.world.z/settings.params.z,0.,settings.params.y-1.);
@@ -83,7 +101,7 @@ fn fogged(linear:vec3<f32>, reciprocal_w:f32)->vec3<f32> {
  let ax=u32(floor(coord.x));let ay=u32(floor(coord.y));let a=area_data[ay*settings.areas.x+ax];
  var color=vec3<f32>(0.);
  var baked=vec3<f32>(1.);
- if camera.sun.w>=0. {let id=ay*settings.areas.x+ax;let slot=id%settings.light.z;let page=id/settings.light.z;let side=f32(settings.light.x);let xy=vec2<f32>(f32(slot%settings.light.y),f32(slot/settings.light.y))*side;let loc=clamp(fract(coord)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));let lmuv=(xy+loc)/4096.;let day=textureSampleLevel(lightmaps,mask_sampler,lmuv,i32(page),0.).rgb;let night=textureSampleLevel(lightmaps,mask_sampler,lmuv,i32(page+settings.light.w),0.).rgb;baked=mix(night,day,clamp(camera.sun.w,0.,1.))*2.;}
+ if camera.sun.w>=0. {let id=ay*settings.areas.x+ax;let slot=id%settings.light.z;let page=id/settings.light.z;let side=f32(settings.light.x);let xy=vec2<f32>(f32(slot%settings.light.y),f32(slot/settings.light.y))*side;let loc=clamp(fract(coord)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));let lmuv=(xy+loc)/vec2<f32>(textureDimensions(lightmaps));let day=textureSampleLevel(lightmaps,mask_sampler,lmuv,i32(page),0.).rgb;let night=textureSampleLevel(lightmaps,mask_sampler,lmuv,i32(page+settings.light.w),0.).rgb;baked=mix(night,day,clamp(camera.sun.w,0.,1.))*2.;}
  for(var k=0u;k<a.count;k=k+1u){let l=layers[a.start+k];var v=vec2<f32>(i.world.x,-i.world.z);if l.axis==0u {v=vec2<f32>(i.world.z,-i.world.y);}else if l.axis==2u {v=vec2<f32>(i.world.x,-i.world.y);}
  var dx=vec2<f32>(wx.x,-wx.z);var dy=vec2<f32>(wy.x,-wy.z);
  if l.axis==0u {dx=vec2<f32>(wx.z,-wx.y);dy=vec2<f32>(wy.z,-wy.y);}else if l.axis==2u {dx=vec2<f32>(wx.x,-wx.y);dy=vec2<f32>(wy.x,-wy.y);}
@@ -94,9 +112,9 @@ fn fogged(linear:vec3<f32>, reciprocal_w:f32)->vec3<f32> {
  var alpha=1.;if k>0u {let slot=l.mask%settings.areas.w;let page=l.mask/settings.areas.w;let side=f32(settings.areas.y);let xy=vec2<f32>(f32(slot%settings.areas.z),f32(slot/settings.areas.z))*side;let local=clamp(fract(coord)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));alpha=textureSampleLevel(masks,mask_sampler,(xy+local)/4096.,i32(page),0.).r;}
  if camera.sun.w<0. {tex=to_linear(tex);}
  color=mix(color,tex,alpha);}
- if camera.sun.w>=0. {return vec4<f32>(fogged(to_linear(clamp(color*baked,vec3<f32>(0.),vec3<f32>(1.))),i.pos.w),1.);}
+ if camera.sun.w>=0. {return vec4<f32>(terrain_pass_fog(to_linear(clamp(color*baked*i.refraction.y,vec3<f32>(0.),vec3<f32>(1.))),i.pos.w,i.refraction.x),1.);}
  let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);
- return vec4<f32>(fogged(color*light*camera.light.zww,i.pos.w),1.);
+ return vec4<f32>(terrain_pass_fog(color*light*camera.light.zww,i.pos.w,i.refraction.x),1.);
 }
 "#;
 impl TerrainGpu {
@@ -337,7 +355,7 @@ impl TerrainGpu {
         upload_page(&page, page_id);
         queue.submit(std::iter::empty());
         device.poll(wgpu::Maintain::Wait);
-        let (lighttex, light_side, light_per_row, light_per_page, light_pages) =
+        let (lighttex, light_side, light_per_row, light_per_page, light_pages, availability) =
             load_lightmaps(device, queue, t, mask_side)?;
         let settings = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("terrain world settings"),
@@ -421,8 +439,18 @@ impl TerrainGpu {
                     ),
                     texture(1),
                     sam(2),
+                    buf(
+                        3,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::BufferBindingType::Storage { read_only: true },
+                    ),
                 ],
             });
+        let availability = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("authored terrain lightmap availability for grass"),
+            contents: bytemuck::cast_slice(&availability),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
         let grass_light_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("grass terrain day/night lightmaps"),
             layout: &grass_light_layout,
@@ -430,6 +458,7 @@ impl TerrainGpu {
                 entry(0, settings.as_entire_binding()),
                 entry(1, wgpu::BindingResource::TextureView(&light_view)),
                 entry(2, wgpu::BindingResource::Sampler(&mask_sampler)),
+                entry(3, availability.as_entire_binding()),
             ],
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -668,13 +697,13 @@ fn entry(binding: u32, resource: wgpu::BindingResource<'_>) -> wgpu::BindGroupEn
     wgpu::BindGroupEntry { binding, resource }
 }
 // T2LM v2: 16 independent DDS lightmaps per 512-grid subterrain.
-// t2lm/t2lm1 are day/night color maps; exact original transition is unverified.
+// t2lm/t2lm1 are day/night color maps with independently indexed DDS records.
 fn load_lightmaps(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     t: &Terrain,
     side: usize,
-) -> Result<(wgpu::Texture, usize, usize, usize, usize), String> {
+) -> Result<(wgpu::Texture, usize, usize, usize, usize, Vec<u32>), String> {
     let m = &t.materials;
     if std::env::var_os("PW_TEST_NO_LIGHTMAPS").is_some() {
         let per_row = 16usize;
@@ -694,7 +723,14 @@ fn load_lightmaps(
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        return Ok((texture, 256, per_row, per_page, pages));
+        return Ok((
+            texture,
+            256,
+            per_row,
+            per_page,
+            pages,
+            vec![0; m.areas.len().max(1)],
+        ));
     }
     let bc = device
         .features()
@@ -731,40 +767,23 @@ fn load_lightmaps(
     // CPU copy of all atlas pages duplicates hundreds of MiB during startup.
     // Queue uploads are flushed in bounded groups below; the GPU atlas layout
     // and shader sampling remain exactly the same.
-    let subs_x = m.areas_x / 4;
+    let layout =
+        crate::terrain_lightmaps::Layout::new(m.areas_x, m.areas.len(), t.subterrain_names.len())?;
+    let mut availability = vec![0u32; m.areas.len()];
     for (si, name) in t.subterrain_names.iter().enumerate() {
+        let base = t.element.join("maps/world");
+        let pair = crate::terrain_lightmaps::Pair::read(
+            &base.join(format!("{name}.t2lm")),
+            &base.join(format!("{name}.t2lm1")),
+        )?;
         for (which, ext) in ["t2lm", "t2lm1"].iter().enumerate() {
             let path = t.element.join("maps/world").join(format!("{name}.{ext}"));
-            let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            let u = |pos: usize| -> Result<usize, String> {
-                Ok(u32::from_le_bytes(
-                    bytes
-                        .get(pos..pos + 4)
-                        .ok_or("truncated lightmap header")?
-                        .try_into()
-                        .unwrap(),
-                ) as usize)
-            };
-            if u(0)? != 0x54324c4d || u(4)? != 2 || u(8)? != 16 || u(12)? != 256 {
-                return Err(format!("Unsupported T2LM header: {}", path.display()));
-            }
-            for j in 0..16 {
-                let offset = u(24 + j * 4)?;
-                let end = if j == 15 {
-                    bytes.len()
-                } else {
-                    u(24 + (j + 1) * 4)?
-                };
-                if end <= offset || end > bytes.len() {
-                    return Err(format!("Invalid T2LM DDS offset in {}", path.display()));
-                }
-                let raw = bytes.get(offset..end).ok_or("invalid lightmap range")?;
-                let ax = (si % subs_x) * 4 + j % 4;
-                let ay = (si / subs_x) * 4 + j / 4;
-                let id = ay * m.areas_x + ax;
-                if id >= m.areas.len() {
-                    return Err("lightmap mapping out of bounds".into());
-                }
+            let tiles = crate::terrain_lightmaps::Tiles::parse(pair.bytes(which == 1))
+                .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
+            for j in 0..crate::terrain_lightmaps::TILES {
+                let raw = tiles.tile(j).unwrap();
+                let id = layout.area(si, j).unwrap();
+                availability[id] = pair.availability();
                 let slot = id % per_page;
                 let page = id / per_page + which * pages;
                 let x = (slot % per_row) * side;
@@ -794,16 +813,18 @@ fn load_lightmaps(
                         },
                     );
                 };
+                let dds = crate::model_dds::Dds::parse(raw)
+                    .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
+                if dds.format != crate::model_dds::Format::Dxt1
+                    || dds.mips.len() != 1
+                    || dds.mips[0].width != 256
+                    || dds.mips[0].height != 256
+                {
+                    return Err(format!("Unsupported lightmap DDS in {}", path.display()));
+                }
+                // Both upload backends must accept exactly the same records.
                 if bc {
-                    if raw.len() < 128 + 32768 || &raw[..4] != b"DDS " || &raw[84..88] != b"DXT1" {
-                        return Err(format!("Unsupported lightmap DDS in {}", path.display()));
-                    }
-                    // DXT1 consists of 4x4 blocks, 8 bytes each.
-                    write_tile(
-                        &raw[128..128 + 32768],
-                        (side / 4 * 8) as u32,
-                        (side / 4) as u32,
-                    );
+                    write_tile(dds.mips[0].bytes, (side / 4 * 8) as u32, (side / 4) as u32);
                 } else {
                     let img = image::load_from_memory_with_format(raw, image::ImageFormat::Dds)
                         .map_err(|e| format!("lightmap {}: {e}", path.display()))?
@@ -833,12 +854,14 @@ fn load_lightmaps(
         }
     }
     eprintln!(
-        "Loaded {} day/night terrain lightmap pairs at {}px ({})",
+        "Loaded {} terrain lightmap areas ({} with authored night maps, {} day-only) at {}px ({})",
         m.areas.len(),
+        availability.iter().filter(|&&a| a == 3).count(),
+        availability.iter().filter(|&&a| a == 1).count(),
         side,
         if bc { "native BC1" } else { "RGBA" }
     );
-    Ok((texture, side, per_row, per_page, pages))
+    Ok((texture, side, per_row, per_page, pages, availability))
 }
 
 #[repr(C)]

@@ -36,8 +36,8 @@ fn main() -> Result<(), String> {
     for (id, m) in &models {
         let mut grid = scene_lights::StaticGrid::default();
         grid.update(&lights, m.position);
-        let day = grid.query(&lights, m.position, 0.);
-        let night = grid.query(&lights, m.position, 1.);
+        let day = grid.query(m.position, 0.);
+        let night = grid.query(m.position, 1.);
         assert_eq!(day.is_some(), night.is_some());
         if let (Some(d), Some(n)) = (day, night) {
             day_count += 1;

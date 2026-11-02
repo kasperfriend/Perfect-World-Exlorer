@@ -11,3 +11,11 @@
 Thumbs.db
 .env
 .env.*
+# Local toolchains and validation scratch data
+/.cache/
+# Private client files staged by the Drive connector
+/google_drive/
+
+# Python validation helpers
+__pycache__/
+*.pyc

@@ -1,4 +1,10 @@
 //! Persisted viewer controls; malformed values fall back safely.
+/// The renderer must allocate/execute the post chain for each independent
+/// effect, not only when bloom happens to be enabled.
+pub fn post_required(bloom: bool, sharpen: bool, underwater: bool, fog: bool, gamma: bool) -> bool {
+    bloom || sharpen || underwater || fog || gamma
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct DetailSettings {
     pub radius: isize,
@@ -24,7 +30,12 @@ pub struct ViewSettings {
     pub water_reflections: bool,
     pub atmospheric_fog: bool,
     pub bloom: bool,
+    pub sharpen: bool,
     pub bloom_strength: f32,
+    pub bloom_mode: u8,
+    pub bloom_tint: u32,
+    pub bloom_brightness_fade: f32,
+    pub bloom_opacity_fade: f32,
     pub client_gamma: bool,
     pub gamma_setting: f32,
     pub terrain_lightmaps: bool,
@@ -56,7 +67,12 @@ impl Default for ViewSettings {
             water_reflections: true,
             atmospheric_fog: false,
             bloom: false,
+            sharpen: false,
             bloom_strength: 1.,
+            bloom_mode: 0,
+            bloom_tint: 0xffffffff,
+            bloom_brightness_fade: 0.,
+            bloom_opacity_fade: 0.,
             client_gamma: false,
             gamma_setting: 41.,
             terrain_lightmaps: true,
@@ -72,7 +88,7 @@ impl Default for ViewSettings {
             regional_tree_lighting: false,
             streamed_regions: false,
             grass_distance_fade: true,
-            area_grass_lightmaps: false,
+            area_grass_lightmaps: true,
             celestial_discs: false,
         }
     }
@@ -104,6 +120,7 @@ impl ViewSettings {
                 };
             }
             match k {
+                "sharpen" => flag!(s.sharpen),
                 "radius" => {
                     if let Ok(x) = v.parse::<isize>() {
                         s.detail.radius = x.clamp(2, 12)
@@ -118,6 +135,21 @@ impl ViewSettings {
                 "grass_wind_strength" => number!(s.grass_wind_strength, 0., 1.),
                 "tree_wind_strength" => number!(s.tree_wind_strength, 0., 1.),
                 "bloom_strength" => number!(s.bloom_strength, 0., 4.),
+                "bloom_tint" => {
+                    if let Ok(color) = v
+                        .strip_prefix("0x")
+                        .map_or_else(|| v.parse::<u32>(), |hex| u32::from_str_radix(hex, 16))
+                    {
+                        s.bloom_tint = color;
+                    }
+                }
+                "bloom_brightness_fade" => number!(s.bloom_brightness_fade, 0., 1.),
+                "bloom_opacity_fade" => number!(s.bloom_opacity_fade, 0., 1.),
+                "bloom_mode" => {
+                    if let Ok(mode) = v.parse::<u8>() {
+                        s.bloom_mode = if matches!(mode, 4 | 5) { mode } else { 0 };
+                    }
+                }
                 "client_gamma" => flag!(s.client_gamma),
                 "gamma_setting" => number!(s.gamma_setting, 0., 100.),
                 "music_volume" => number!(s.music_volume, 0., 1.),
@@ -145,13 +177,13 @@ impl ViewSettings {
     fn encode(&self) -> String {
         format!(concat!("# Perfect World Explorer settings, version 1\n",
             "radius={}\ntree_lod_scale={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
-            "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nclient_gamma={}\ngamma_setting={}\n",
+            "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
-            self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.client_gamma,self.gamma_setting,
+            self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs)
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen)
     }
     fn file() -> Option<std::path::PathBuf> {
         #[cfg(windows)]
@@ -202,6 +234,14 @@ impl ViewSettings {
 mod tests {
     use super::*;
     #[test]
+    fn authored_sharpen_toggle_round_trips_without_changing_defaults() {
+        assert!(!ViewSettings::default().sharpen);
+        let s = ViewSettings::decode("sharpen=true");
+        assert!(s.sharpen);
+        assert_eq!(s, ViewSettings::decode(&s.encode()));
+        assert!(!ViewSettings::decode("sharpen=invalid").sharpen);
+    }
+    #[test]
     fn round_trip_all_settings() {
         let mut s = ViewSettings::default();
         s.detail.radius = 11;
@@ -226,5 +266,55 @@ mod tests {
         assert_eq!(s.boost, 1.);
         assert_eq!(s.sensitivity, 0.0025);
         assert!(!s.bloom);
+    }
+    #[test]
+    fn area_center_lightmaps_default_on_but_explicit_legacy_setting_is_preserved() {
+        assert!(ViewSettings::default().area_grass_lightmaps);
+        assert!(ViewSettings::decode("unknown=ignored").area_grass_lightmaps);
+        let s = ViewSettings::decode("area_grass_lightmaps=false");
+        assert!(!s.area_grass_lightmaps);
+        assert!(!ViewSettings::decode(&s.encode()).area_grass_lightmaps);
+    }
+    #[test]
+    fn special_glow_preview_is_explicit_persisted_and_bounded() {
+        assert_eq!(ViewSettings::default().bloom_mode, 0);
+        for mode in [4, 5] {
+            let s = ViewSettings::decode(&format!("bloom_mode={mode}"));
+            assert_eq!(s.bloom_mode, mode);
+            assert_eq!(ViewSettings::decode(&s.encode()).bloom_mode, mode);
+        }
+        for invalid in ["3", "255", "-1", "bad"] {
+            assert_eq!(
+                ViewSettings::decode(&format!("bloom_mode={invalid}")).bloom_mode,
+                0
+            );
+        }
+    }
+    #[test]
+    fn glow_caller_color_and_independent_fades_round_trip_safely() {
+        let s = ViewSettings::decode(
+            "bloom_tint=0x8040a0e0\nbloom_brightness_fade=0.25\nbloom_opacity_fade=0.5",
+        );
+        assert_eq!(s.bloom_tint, 0x8040a0e0);
+        assert_eq!(s.bloom_brightness_fade, 0.25);
+        assert_eq!(s.bloom_opacity_fade, 0.5);
+        assert_eq!(s, ViewSettings::decode(&s.encode()));
+        let invalid = ViewSettings::decode(
+            "bloom_tint=bogus\nbloom_brightness_fade=NaN\nbloom_opacity_fade=2",
+        );
+        assert_eq!(invalid.bloom_tint, 0xffffffff);
+        assert_eq!(invalid.bloom_brightness_fade, 0.);
+        assert_eq!(invalid.bloom_opacity_fade, 1.);
+    }
+    #[test]
+    fn every_independent_post_effect_activates_the_renderer_chain() {
+        for bits in 0..32 {
+            let f = |i| bits & (1 << i) != 0;
+            assert_eq!(
+                super::post_required(f(0), f(1), f(2), f(3), f(4)),
+                bits != 0
+            );
+        }
+        assert!(super::post_required(false, true, false, false, false));
     }
 }

@@ -40,8 +40,45 @@ pub struct SceneModel {
 #[derive(Clone, Debug)]
 pub struct Effect {
     pub export_id: u32,
+    pub scale: f32,
     pub position: [f32; 3],
+    pub direction: [f32; 3],
+    pub up: [f32; 3],
+    pub speed: f32,
+    pub valid_time: i32,
+    pub alpha: f32,
+    pub attenuation: bool,
     pub path: String,
+}
+impl Effect {
+    /// Native 142 LoadEffect 0x5b33f3 reads 60 bytes, then the path.
+    /// Keep placement/owner inputs instead of discarding them before playback.
+    fn read(data: &[u8], p: &mut usize) -> Result<Self, String> {
+        let start = *p;
+        let bytes = data
+            .get(start..start.checked_add(60).ok_or("effect offset overflow")?)
+            .ok_or("short scene effect record")?;
+        *p += 60;
+        Ok(Self {
+            export_id: u32at(bytes, 0)?,
+            scale: f32at(bytes, 4)?,
+            position: vec3(bytes, 8)?,
+            direction: vec3(bytes, 20)?,
+            up: vec3(bytes, 32)?,
+            speed: f32at(bytes, 44)?,
+            valid_time: u32at(bytes, 48)? as i32,
+            alpha: f32at(bytes, 52)?,
+            attenuation: bytes[56] != 0,
+            path: string(data, p)?,
+        })
+    }
+    /// 0x5b18a1..0x5b18d4: both day-only and night-only effects are
+    /// invalid at exactly 0.5. The first x87 C0 test treats unordered as day.
+    pub fn valid_at(&self, night_factor: f32) -> bool {
+        self.valid_time == 2
+            || (self.valid_time == 0 && (night_factor < 0.5 || night_factor.is_nan()))
+            || (self.valid_time == 1 && night_factor > 0.5)
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Sound {
@@ -236,15 +273,7 @@ impl Scene {
             let grass = refs(data, &mut p, n[2])?;
             let mut effects = Vec::with_capacity(n[5]);
             for _ in 0..n[5] {
-                let export_id = u32at(data, p)?;
-                let position = vec3(data, p + 8)?;
-                p += 60;
-                let path = string(data, &mut p)?;
-                effects.push(Effect {
-                    export_id,
-                    position,
-                    path,
-                })
+                effects.push(Effect::read(data, &mut p)?);
             }
             let mut models = Vec::with_capacity(n[6]);
             for _ in 0..n[6] {
@@ -370,6 +399,68 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn effect_bytes() -> Vec<u8> {
+        let mut b = vec![0; 60];
+        b[..4].copy_from_slice(&17u32.to_le_bytes());
+        for (o, v) in [
+            (4, 2.5f32),
+            (8, 11.),
+            (12, 12.),
+            (16, 13.),
+            (20, 0.),
+            (24, 0.),
+            (28, -1.),
+            (32, 0.),
+            (36, 1.),
+            (40, 0.),
+            (44, 0.75),
+            (52, 0.25),
+        ] {
+            b[o..o + 4].copy_from_slice(&v.to_le_bytes());
+        }
+        b[48..52].copy_from_slice(&2i32.to_le_bytes());
+        b[56] = 1;
+        // Padding is not another flag or part of the path length.
+        b[57..60].fill(0xff);
+        b.extend_from_slice(&5u32.to_le_bytes());
+        b.extend_from_slice(b"a.gfx");
+        b
+    }
+    #[test]
+    fn preserves_complete_scene_effect_owner_record() {
+        let b = effect_bytes();
+        let mut p = 0;
+        let e = Effect::read(&b, &mut p).unwrap();
+        assert_eq!(p, b.len());
+        assert_eq!(e.export_id, 17);
+        assert_eq!(e.scale, 2.5);
+        assert_eq!(e.position, [11., 12., 13.]);
+        assert_eq!(e.direction, [0., 0., -1.]);
+        assert_eq!(e.up, [0., 1., 0.]);
+        assert_eq!(e.speed, 0.75);
+        assert_eq!(e.valid_time, 2);
+        assert_eq!(e.alpha, 0.25);
+        assert!(e.attenuation);
+        assert_eq!(e.path, "a.gfx");
+        for n in 0..b.len() {
+            assert!(Effect::read(&b[..n], &mut 0).is_err(), "length {n}");
+        }
+    }
+    #[test]
+    fn effect_validity_retains_native_strict_half_day_boundary() {
+        let mut e = Effect::read(&effect_bytes(), &mut 0).unwrap();
+        for (mode, expected) in [
+            (0, [true, false, false, true]),
+            (1, [false, false, true, false]),
+            (2, [true, true, true, true]),
+            (-1, [false, false, false, false]),
+        ] {
+            e.valid_time = mode;
+            for (factor, expected) in [0., 0.5, 1., f32::NAN].into_iter().zip(expected) {
+                assert_eq!(e.valid_at(factor), expected);
+            }
+        }
+    }
     #[test]
     fn rejects_bad_header() {
         assert!(Scene::parse(&[0; 116]).is_err());

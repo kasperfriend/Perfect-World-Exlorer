@@ -1,119 +1,14 @@
 //! Fullscreen glow based on the client's fullglow1_14/fullglow2_14 shader arithmetic,
 //! plus client-region-driven underwater fog, spacewarp and optional display gamma.
+#[path = "gamma_curve.rs"]
+mod gamma_curve;
+#[path = "glow_modulation.rs"]
+pub mod glow_modulation;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
-/// Glow constants and interpolation traced through 0x410bb0 / 0x4111f0.
-/// Special mode 3 is selected when the camera is underwater (0x41eb69,
-/// 0x4214ad); modes 4/5 depend on player states not represented by the viewer.
-#[derive(Default, Debug)]
-pub struct WorldGlow {
-    mode: u8,
-    values: [f32; 2],
-    from: [f32; 2],
-    target: [f32; 2],
-    elapsed: f32,
-    duration: f32,
-    mono: f32,
-    mono_from: f32,
-    mono_target: f32,
-    mono_elapsed: f32,
-    mono_duration: f32,
-    mono_color: [f32; 3],
-}
-impl WorldGlow {
-    pub fn update(&mut self, enabled: bool, daylight: f32, underwater: bool, dt: f32) -> [f32; 6] {
-        if !enabled {
-            *self = Self::default();
-            return [0.; 6];
-        }
-        let mode = if underwater {
-            3
-        } else if 1. - daylight < 0.5 {
-            1
-        } else {
-            2
-        };
-        if self.mode != mode {
-            self.mode = mode;
-            self.from = self.values;
-            self.elapsed = 0.;
-            self.mono_elapsed = 0.;
-            match mode {
-                1 => {
-                    self.target = [0.25, 0.25];
-                    self.duration = 5.;
-                    self.mono_from = self.mono;
-                    self.mono_target = 0.;
-                    self.mono_duration = 5.;
-                }
-                2 => {
-                    self.target = [0.35, 0.35];
-                    self.duration = 5.;
-                    self.mono_from = self.mono;
-                    self.mono_target = 0.;
-                    self.mono_duration = 5.;
-                }
-                _ => {
-                    self.target = [0.5, 0.6];
-                    self.duration = 2.;
-                    self.mono = 0.;
-                    self.mono_from = 0.;
-                    self.mono_target = 0.5;
-                    self.mono_duration = 1.5;
-                    self.mono_color = [187. / 255., 234. / 255., 187. / 255.];
-                }
-            }
-        }
-        let dt = if dt.is_finite() { dt.max(0.) } else { 0. };
-        self.elapsed = (self.elapsed + dt).min(self.duration);
-        let t = self.elapsed / self.duration;
-        for i in 0..2 {
-            self.values[i] = self.from[i] + (self.target[i] - self.from[i]) * t;
-        }
-        self.mono_elapsed = (self.mono_elapsed + dt).min(self.mono_duration);
-        self.mono = self.mono_from
-            + (self.mono_target - self.mono_from) * (self.mono_elapsed / self.mono_duration);
-        [
-            self.values[0],
-            self.values[1],
-            self.mono_color[0],
-            self.mono_color[1],
-            self.mono_color[2],
-            self.mono,
-        ]
-    }
-}
-#[cfg(test)]
-mod glow_tests {
-    use super::WorldGlow;
-    #[test]
-    fn normal_modes_transition_from_current_level() {
-        let mut g = WorldGlow::default();
-        assert_eq!(&g.update(true, 1., false, 0.)[..2], &[0., 0.]);
-        assert_eq!(&g.update(true, 1., false, 5.)[..2], &[0.25, 0.25]);
-        assert_eq!(&g.update(true, 0., false, 2.5)[..2], &[0.30, 0.30]);
-        assert!((g.update(true, 0., false, 2.5)[0] - 0.35).abs() < 1e-6);
-        assert_eq!(g.update(false, 0., false, 1.), [0.; 6]);
-    }
-    #[test]
-    fn underwater_mode_uses_independent_transitions_and_fades_on_exit() {
-        let mut g = WorldGlow::default();
-        g.update(true, 1., false, 5.);
-        let a = g.update(true, 1., true, 1.);
-        assert!((a[0] - 0.375).abs() < 1e-6);
-        assert!((a[1] - 0.425).abs() < 1e-6);
-        assert!((a[5] - 1. / 3.).abs() < 1e-6);
-        assert_eq!(&a[2..5], &[187. / 255., 234. / 255., 187. / 255.]);
-        let b = g.update(true, 1., true, 1.);
-        assert_eq!(&b[..2], &[0.5, 0.6]);
-        assert_eq!(b[5], 0.5);
-        let c = g.update(true, 1., false, 2.5);
-        assert!((c[0] - 0.375).abs() < 1e-6);
-        assert!((c[1] - 0.425).abs() < 1e-6);
-        assert_eq!(c[5], 0.25);
-        assert_eq!(g.update(true, 1., false, 2.5)[5], 0.);
-    }
-}
+#[path = "glow_state.rs"]
+pub mod glow_state;
+pub use glow_state::WorldGlow;
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Params {
@@ -123,9 +18,11 @@ struct Params {
     fog_color: [f32; 4],
     gamma: [f32; 4],
     mono: [f32; 4],
+    modulation: [f32; 4],
+    ramp: [[f32; 4]; 64],
 }
 const SHADER: &str = r#"
-struct Params {screen:vec4<f32>,effect:vec4<f32>,fog:vec4<f32>,fog_color:vec4<f32>,gamma:vec4<f32>,mono:vec4<f32>};
+struct Params {screen:vec4<f32>,effect:vec4<f32>,fog:vec4<f32>,fog_color:vec4<f32>,gamma:vec4<f32>,mono:vec4<f32>,modulation:vec4<f32>,ramp:array<vec4<f32>,64>};
 @group(0) @binding(0) var scene:texture_2d<f32>;
 @group(0) @binding(1) var blur:texture_2d<f32>;
 @group(0) @binding(2) var smp:sampler;
@@ -141,7 +38,9 @@ struct Out {@builtin(position) pos:vec4<f32>, @location(0) uv:vec2<f32>};
 @fragment fn downsample(i:Out)->@location(0) vec4<f32> {return vec4<f32>(textureSample(scene,smp,i.uv).rgb,1.);}
 // fullglow1_14: center*c1.r + two inner*c1.a + two outer*c0.a.
 @fragment fn glow_h(i:Out)->@location(0) vec4<f32> {
- let dx=vec2<f32>(1.0/f32(textureDimensions(blur).x),0.);
+ // 0x40edd0 uses 4/full_width, not 1/floor(full_width/4).
+ // These differ for window sizes that are not divisible by four.
+ let dx=vec2<f32>(4.0/p.screen.x,0.);
  let c=textureSample(blur,smp,i.uv).rgb*0.310;
  let a=(textureSample(blur,smp,i.uv-dx).rgb+textureSample(blur,smp,i.uv+dx).rgb)*0.238;
  let b=(textureSample(blur,smp,i.uv-dx*2.).rgb+textureSample(blur,smp,i.uv+dx*2.).rgb)*0.107;
@@ -176,22 +75,21 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
  let b=mix(bump_texel(base+vec2<f32>(0.,1.)),bump_texel(base+vec2<f32>(1.,1.)),f.x);
  return mix(a,b,f.y)*2.0-vec2<f32>(1.0);
 }
-@fragment fn finish(i:Out)->@location(0) vec4<f32> {
- var uv=i.uv;
- let underwater=p.effect.x>0.;
- if underwater {
-   // CECFullGlowRender::LoadResource creates a 256² bump map procedurally:
-   // R=128+32*cos(4*pi*(x/256+y/256-1)), G=128+32*sin(...).
-   // spacewarp_tl applies r0_bx2 times (-0.005,+0.005); the client
-   // uses three repeats across screen width and scrolls at 0.5 cycles/sec.
-   let bump_uv=vec2<f32>(uv.x*3.,uv.y*3.*p.screen.y/p.screen.x+p.screen.z*0.5);
-   let normal=bump_bilinear(bump_uv);
-   uv=clamp(uv+normal*vec2<f32>(-0.005,0.005),vec2<f32>(0.001),vec2<f32>(0.999));
- }
+// 0x40fd33 executes spacewarp, copies its result back, then 0x40fd64
+// starts glow. Blur must therefore consume the quantized warped scene.
+@fragment fn warp_scene(i:Out)->@location(0) vec4<f32> {
+ let uv=i.uv;
+ let bump_uv=vec2<f32>(uv.x*3.,uv.y*3.*p.screen.y/p.screen.x+p.screen.z*0.5);
+ let normal=bump_bilinear(bump_uv);
+ // Texture stage 1 is CLAMP at 0x41029b–0x4102a4, not a 0.001 UV inset.
+ return vec4<f32>(textureSample(scene,smp,uv+normal*vec2<f32>(-0.005,0.005)).rgb,1.);
+}
+fn composite(uv:vec2<f32>)->vec3<f32> {
  let original=textureSample(scene,smp,uv).rgb;
  var out=original;
  if p.effect.y>0.5 {
-   let dy=vec2<f32>(0.,1.0/f32(textureDimensions(blur).y));
+   // Matching vertical vertex coordinates at 0x40f04b–0x40f053.
+   let dy=vec2<f32>(0.,4.0/p.screen.y);
    let c=textureSample(blur,smp,uv).rgb*0.310;
    let a=(textureSample(blur,smp,uv-dy).rgb+textureSample(blur,smp,uv+dy).rgb)*0.238;
    let b=(textureSample(blur,smp,uv-dy*2.).rgb+textureSample(blur,smp,uv+dy*2.).rgb)*0.107;
@@ -208,19 +106,36 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
      out=mix(original,glow,clamp(p.gamma.z*strength,0.,1.))+p.gamma.w*strength*glow*glow;
    }
  }
+ // PS c3 and D3DBLEND_SRCALPHA / INVSRCALPHA (0x41007b–0x410089).
+ // Blend in encoded RGB before display gamma / sRGB presentation.
+ if p.effect.y>0.5 {
+   let source=clamp(out*p.modulation.rgb,vec3<f32>(0.),vec3<f32>(1.));
+   out=mix(original,source,p.modulation.a);
+ }
+ return out;
+}
+fn display_color(encoded:vec3<f32>)->vec4<f32> {
+ var out=encoded;
  // Emulate the client's 256-entry 16-bit D3D8 display ramp without
  // changing the desktop display. Linear interpolation models LUT lookup.
  if p.gamma.x>0.5 {
-   let pos=clamp(out,vec3<f32>(0.),vec3<f32>(1.))*255.;
-   let lo=floor(pos);let hi=min(lo+1.,vec3<f32>(255.));
-   let exponent=100./floor(30.+1.7*floor(p.gamma.y));
-   let a=select(vec3<f32>(0.),max(floor(pow(lo/255.,vec3<f32>(exponent))*65535.),vec3<f32>(1.))/65535.,lo>vec3<f32>(0.));
-   let b=select(vec3<f32>(0.),max(floor(pow(hi/255.,vec3<f32>(exponent))*65535.),vec3<f32>(1.))/65535.,hi>vec3<f32>(0.));
-   out=mix(a,b,fract(pos));
+   out=client_gamma_ramp(out);
  }
  // Present encoded D3D-style output through an sRGB render target exactly once.
  if p.fog.w>0.5 {out=select(out/12.92,pow((max(out,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),out>vec3<f32>(0.04045));}
  return vec4<f32>(out,1.);
+}
+@fragment fn finish(i:Out)->@location(0) vec4<f32> {return display_color(composite(i.uv));}
+@fragment fn finish_encoded(i:Out)->@location(0) vec4<f32> {return vec4<f32>(composite(i.uv),1.);}
+@fragment fn sharpen_finish(i:Out)->@location(0) vec4<f32> {
+ let size=vec2<i32>(textureDimensions(scene));
+ let pixel=clamp(vec2<i32>(i.pos.xy),vec2<i32>(0),size-vec2<i32>(1));
+ let center=textureLoad(scene,pixel,0).rgb;
+ let below=textureLoad(scene,min(pixel+vec2<i32>(0,1),size-vec2<i32>(1)),0).rgb;
+ // Actual fullsharpen_14 overwrites r0 in EACH mad using the original r5.
+ // Earlier left/right/up results do NOT accumulate. Preserve that authored
+ // behavior, not an invented symmetric five-tap unsharp mask.
+ return display_color(clamp(2.*center-below,vec3<f32>(0.),vec3<f32>(1.)));
 }
 "#;
 fn texture(
@@ -247,15 +162,22 @@ fn texture(
     })
 }
 pub struct PostGpu {
+    modulation: [f32; 4],
+    sharpen: bool,
+    composite_target: wgpu::Texture,
+    encoded_finish: wgpu::RenderPipeline,
+    sharpen_finish: wgpu::RenderPipeline,
     format: wgpu::TextureFormat,
     scene: wgpu::Texture,
     fogged: wgpu::Texture,
+    warped: wgpu::Texture,
     downsample: wgpu::Texture,
     blur: wgpu::Texture,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     uniform: wgpu::Buffer,
     fog_pipeline: wgpu::RenderPipeline,
+    warp_pipeline: wgpu::RenderPipeline,
     downsample_pipeline: wgpu::RenderPipeline,
     horizontal: wgpu::RenderPipeline,
     finish: wgpu::RenderPipeline,
@@ -264,6 +186,13 @@ impl PostGpu {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, w: u32, h: u32) -> Self {
         let scene = texture(device, format, w, h, "post scene");
         let fogged = texture(device, format.remove_srgb_suffix(), w, h, "fogged scene");
+        let warped = texture(
+            device,
+            format.remove_srgb_suffix(),
+            w,
+            h,
+            "underwater warped scene",
+        );
         let downsample = texture(
             device,
             format.remove_srgb_suffix(),
@@ -287,6 +216,8 @@ impl PostGpu {
                 fog_color: [0.; 4],
                 gamma: [0.; 4],
                 mono: [0.; 4],
+                modulation: [1.; 4],
+                ramp: gamma_curve::table(41.),
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -340,7 +271,7 @@ impl PostGpu {
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("client-inspired glow and underwater"),
-            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(format!("{}\n{}", gamma_curve::WGSL, SHADER).into()),
         });
         let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("post pipeline"),
@@ -372,28 +303,63 @@ impl PostGpu {
             })
         };
         Self {
+            modulation: [1.; 4],
+            sharpen: false,
+            composite_target: texture(
+                device,
+                format.remove_srgb_suffix(),
+                w,
+                h,
+                "encoded glow before sharpen",
+            ),
+            encoded_finish: make("finish_encoded", format.remove_srgb_suffix()),
+            sharpen_finish: make("sharpen_finish", format),
             format,
             scene,
             fogged,
+            warped,
             downsample,
             blur,
             layout,
             sampler,
             uniform,
             fog_pipeline: make("fog_scene", format.remove_srgb_suffix()),
+            warp_pipeline: make("warp_scene", format.remove_srgb_suffix()),
             downsample_pipeline: make("downsample", format.remove_srgb_suffix()),
             horizontal: make("glow_h", format.remove_srgb_suffix()),
             finish: make("finish", format),
         }
     }
+    /// Bind the caller tint and the effect object's independent fade channels.
+    pub fn set_glow_color(&mut self, argb: u32, brightness_fade: f32, opacity_fade: f32) {
+        self.modulation = glow_modulation::constant(argb, brightness_fade, opacity_fade);
+    }
+    /// Native renderer flag +6, 0x40fd69 -> 0x410970. Independent of bloom.
+    pub fn set_sharpen(&mut self, enabled: bool) {
+        self.sharpen = enabled;
+    }
     pub fn resize(&mut self, device: &wgpu::Device, w: u32, h: u32) {
         self.scene = texture(device, self.format, w, h, "post scene");
+        self.composite_target = texture(
+            device,
+            self.format.remove_srgb_suffix(),
+            w,
+            h,
+            "encoded glow before sharpen",
+        );
         self.fogged = texture(
             device,
             self.format.remove_srgb_suffix(),
             w,
             h,
             "fogged scene",
+        );
+        self.warped = texture(
+            device,
+            self.format.remove_srgb_suffix(),
+            w,
+            h,
+            "underwater warped scene",
         );
         self.downsample = texture(
             device,
@@ -460,7 +426,7 @@ impl PostGpu {
                 fog_color: [fog.color[0], fog.color[1], fog.color[2], 1.],
                 gamma: [
                     if client_gamma { 1. } else { 0. },
-                    gamma_setting,
+                    gamma_curve::setting(gamma_setting),
                     glow_parameters[0],
                     glow_parameters[1],
                 ],
@@ -470,6 +436,8 @@ impl PostGpu {
                     glow_parameters[4],
                     glow_parameters[5],
                 ],
+                modulation: self.modulation,
+                ramp: gamma_curve::table(gamma_setting),
             }),
         );
         let scene = self.scene.create_view(&wgpu::TextureViewDescriptor {
@@ -477,6 +445,7 @@ impl PostGpu {
             ..Default::default()
         });
         let fogged = self.fogged.create_view(&Default::default());
+        let warped = self.warped.create_view(&Default::default());
         let downsample = self.downsample.create_view(&Default::default());
         let blur = self.blur.create_view(&Default::default());
         // Separate horizontal and composite bind groups avoid binding the blur texture
@@ -531,7 +500,32 @@ impl PostGpu {
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);
         }
-        let input = if apply_fog { &fogged } else { &scene };
+        let before_warp = if apply_fog { &fogged } else { &scene };
+        if underwater > 0. {
+            let group = bind(before_warp, before_warp);
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("underwater distortion before glow"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &warped,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.warp_pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        let input = if underwater > 0. {
+            &warped
+        } else {
+            before_warp
+        };
         if bloom {
             {
                 let group = bind(input, input);
@@ -572,10 +566,39 @@ impl PostGpu {
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);
         }
+        let composite_target = self.composite_target.create_view(&Default::default());
         {
             let group = bind(input, &blur);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("underwater and glow"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: if self.sharpen {
+                        &composite_target
+                    } else {
+                        target
+                    },
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(if self.sharpen {
+                &self.encoded_finish
+            } else {
+                &self.finish
+            });
+            pass.set_bind_group(0, &group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        if self.sharpen {
+            let group = bind(&composite_target, &blur);
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("client fullscreen sharpen after encoded glow"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: target,
                     resolve_target: None,
@@ -588,7 +611,7 @@ impl PostGpu {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            pass.set_pipeline(&self.finish);
+            pass.set_pipeline(&self.sharpen_finish);
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);
         }

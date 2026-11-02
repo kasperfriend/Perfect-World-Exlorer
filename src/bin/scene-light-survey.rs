@@ -27,10 +27,8 @@ fn main() {
     let mut grid = scene_lights::StaticGrid::default();
     let p = lights.lights[0].position;
     grid.update(&lights, p);
-    let day = grid
-        .query(&lights, p, 0.)
-        .expect("first light is in its own cell");
-    let night = grid.query(&lights, p, 1.).unwrap();
+    let day = grid.query(p, 0.).expect("first light is in its own cell");
+    let night = grid.query(p, 1.).unwrap();
     println!(
         "At first real light: selected {:?}, flags {:#x}, day {:?}, night {:?}",
         day.position, day.flags, day.diffuse, night.diffuse
