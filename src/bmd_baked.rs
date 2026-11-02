@@ -25,8 +25,10 @@
 //! `movl $0xff,0x2cc(%esi)`) and no BMD reader writes it, so in 1.4.2 the alpha
 //! test stays disabled for every file-authored mesh; the enabled branch
 //! (`0x7a98f8..0x7a9924`) computes `80 * alpha / 255 + 1` as `ALPHAREF`.
-//! No write of `ALPHABLENDENABLE` exists in the baked path either: the queue
-//! outside the mesh loop owns transparency, so a baked mesh is opaque here.
+//! Blending is *not* part of the mesh loop: no `ALPHABLENDENABLE` write exists
+//! between `0x7a9808` and the draws it gates. The calling pass owns it, and the
+//! image has both blended and unblended scenery passes (see [`Blend`]), so this
+//! table records blending as queue-owned rather than opaque.
 //!
 //! Depth: the world pass leaves `ZFUNC` at the D3D8 default (`LESSEQUAL`) and
 //! never writes `ZBIAS` (`0x77a250` is called only from the effect path at
@@ -72,12 +74,19 @@ pub enum Cull {
     TwoSided,
 }
 
-/// Blend state of the baked mesh draw itself.
+/// Blend state of the baked mesh draw.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Blend {
-    /// No `ALPHABLENDENABLE` write exists between `0x7a9808` and the draw
-    /// calls it gates, so the mesh writes opaque fragments.
-    Opaque,
+    /// Blending belongs to the *queue* that calls the submitter, not to the
+    /// mesh loop: `0x7a9808..0x7a99bc` never writes `ALPHABLENDENABLE`. The
+    /// image contains both a blended scenery pass (`ALPHABLENDENABLE(1)` at
+    /// `0x42c650`, reached when the drawn object's byte `+0x95` equals 2 at
+    /// `0x42c5f3`, `ALPHATEST(0)` at `0x42c660`, blend factors set through
+    /// `0x42c66c` -> `0x42c000`, `0x7a9730` at `0x42c683`) and unblended ones
+    /// (`0x42b474`, `0x42b4df`, `0x42c32e`, `0x42c509`). Which retail
+    /// ornaments take the blended pass is not established, so this table
+    /// records the state as queue-owned instead of claiming either answer.
+    QueueOwned,
 }
 
 /// Draw state for one baked mesh, including the flat `kind` float the shared
@@ -158,28 +167,28 @@ pub fn classify(mesh_version: u32, textured: bool, two_sided: bool) -> Result<Dr
             stage: Stage::ColorOnly,
             alpha,
             cull: Cull::BackFace,
-            blend: Blend::Opaque,
+            blend: Blend::QueueOwned,
             kind: 1.1,
         },
         (false, true) => DrawState {
             stage: Stage::ColorOnly,
             alpha,
             cull: Cull::TwoSided,
-            blend: Blend::Opaque,
+            blend: Blend::QueueOwned,
             kind: 1.2,
         },
         (true, false) => DrawState {
             stage: Stage::Modulate2x,
             alpha,
             cull: Cull::BackFace,
-            blend: Blend::Opaque,
+            blend: Blend::QueueOwned,
             kind: 2.0,
         },
         (true, true) => DrawState {
             stage: Stage::Modulate2x,
             alpha,
             cull: Cull::TwoSided,
-            blend: Blend::Opaque,
+            blend: Blend::QueueOwned,
             kind: 2.1,
         },
     })
@@ -280,12 +289,12 @@ mod tests {
     }
 
     #[test]
-    fn every_classified_mesh_is_opaque_and_untested_for_alpha() {
+    fn every_classified_mesh_has_no_alpha_test_and_owns_no_blend() {
         for textured in [false, true] {
             for two_sided in [false, true] {
                 let s = classify(0x1000_0005, textured, two_sided).unwrap();
                 assert_eq!(s.alpha, AlphaTest::Disabled);
-                assert_eq!(s.blend, Blend::Opaque);
+                assert_eq!(s.blend, Blend::QueueOwned);
                 assert_eq!(s.cull == Cull::BackFace, !two_sided);
             }
         }

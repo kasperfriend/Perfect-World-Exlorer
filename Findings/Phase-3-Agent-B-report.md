@@ -8,10 +8,14 @@ texture-stage state, culling/sidedness, depth bias and draw order. File parsing,
 texture residency and view/pass selection stay with their owners; §8 lists every
 interface this report changes for them.
 
-Two of the three sub-tasks are **Yes** (P3.02, P3.04). P3.05 is **No**: the
-recovered rules are implemented and the classification instrument now exists,
-but the retail-archive census that the acceptance criterion requires could not be
-run in this environment, so the survey's overlaps are not yet all attributed.
+One of the three sub-tasks is **Yes** (P3.04). P3.02 is **No**: stage, alpha
+test, culling and the material-colour question are recovered and implemented,
+but the last row — blending — turned out to be owned by the calling pass rather
+than by the mesh, and which ornaments select the blended pass is not established
+(§2, §7). P3.05 is **No** as well: the recovered depth rules are implemented and
+the classification instrument exists, but the retail-archive census the
+acceptance criterion requires could not be run in this environment, so the
+survey's overlaps are not yet all attributed.
 
 ## 0. Verification basis and limits
 
@@ -60,7 +64,7 @@ row except the stage-0 alpha argument.
 | `CULLMODE` | saved, then 1 `NONE` when `mesh+0x26c` ≠ 0 | save `0x168(%ecx)` → `0x14(%esp)` at `0x7a98bb`; `0x77a540(1)` at `0x7a98cf`; restore `0x77a540(saved)` at `0x7a9a26`/`0x7a9a49` | Two-sided meshes keep both windings; every other mesh keeps the pass cull mode. |
 | `ALPHATEST` | 0 | `cmp $0xff,0x2cc(%edi)` at `0x7a98f1`; `0x77a320(0)` at `0x7a992b` | No cutout for baked meshes. |
 | `ALPHATEST(1)` + `ALPHAREF` | only when `mesh+0x2cc` ≠ 0xff | `0x77a320(1)` at `0x7a98f8`; `80*alpha/255+1` at `0x7a990a..0x7a9920` (`imul 0x80808081`, `shl 4`/`lea` = ×80, `sar 7` = ÷255, `+1`), `0x77a380` at `0x7a9924` | Unreachable from files; the reader refuses such a value. |
-| `ALPHABLENDENABLE` | not written in the baked path | — (no `0x77a290` call site between `0x7a9808` and the draws it gates) | Baked meshes are opaque. |
+| `ALPHABLENDENABLE` | **owned by the calling pass**, never by the mesh loop | no `0x77a290` write exists between `0x7a9808` and the draws it gates; the passes write it: `1` at `0x42c650` (only when `[obj+0x95] == 2`, `0x42c5f3`) and `0` at `0x42b474`, `0x42b4df`, `0x42c32e`, `0x42c509` | Not decided by this table. The viewer draws every page in the unblended pass. |
 | `ZBIAS` (id 0x2f) | not written | the only call sites are `0x77a250(2)` at `0x417453` and the `0x77a250(0)` restore at `0x417471`, both in the effect path | Bias 0. |
 | `ZFUNC` (id 0x17) | not written | only `0x796753` and `0x796cd2` (water/effect paths) | D3D8 default `LESSEQUAL`. |
 | Draw order | mesh array order, one indexed submission per mesh | loop head `0x7a9808`, per-mesh submit `0x7b9ca0` at `0x7a98e3` | Unchanged from the client: insertion order, later primitives last. |
@@ -75,7 +79,8 @@ row except the stage-0 alpha argument.
 
 A baked static mesh has exactly one material row: one enabled stage combining
 the texture with the baked vertex colour, doubled; lighting off; specular off;
-no blending; no alpha test; culling from `mesh+0x26c`. The v5 material block the
+no alpha test; culling from `mesh+0x26c`. Blending is *not* part of this row —
+the queue owns it (§ "Not finished" below). The v5 material block the
 reader parses (`Ambient`/`Diffuse`/`Emissive`/`Specular`/`Power`/`2Sided` at
 `0x7b67b0`, copied by `0x7b66d0`) contributes only `2Sided` to the draw, because
 `LIGHTING(0)` at `0x7a9759` removes the fixed-function material from the
@@ -105,14 +110,31 @@ assumption that a non-default material colour would modulate the surface.
   `0xff` is refused by `alpha_test()` with the reference the client would have
   computed, and a v4 mesh carrying a two-sided flag keeps failing.
 
+### Not finished: blending
+
+The first version of this table claimed baked meshes are opaque because the mesh
+loop never writes `ALPHABLENDENABLE`. That claim does not survive inspection of
+the callers: `0x7a9730` has four call sites and one of them, the block entered
+when the drawn object's byte `+0x95` equals 2 (`0x42c5f3`), sets
+`ALPHABLENDENABLE(1)` at `0x42c650`, `ALPHATEST(0)` at `0x42c660`, blend factors
+through `0x42c66c` -> `0x42c000`, and only then draws at `0x42c683`. Other call
+sites (`0x42b474`, `0x42b4df`, `0x42c32e`, `0x42c509`) disable it. Blending is
+therefore a *queue* property, `+0x95` is the byte that selects the blended queue,
+and its meaning (and the value retail ornaments carry) is outside what this
+session established. `DrawState.blend` records the state as
+`Blend::QueueOwned`; the viewer still draws every page unblended, which is now a
+declared gap instead of an assumption.
+
 ### Acceptance
 
-`bmd-sided-gpu-check` now proves the two remaining material axes in one raster
+`bmd-sided-gpu-check` proves the two material axes the mesh owns in one raster
 pass: opaque shading (`kind` 2.0), two-sided shading (`kind` 2.1) and a
 zero-alpha atlas that must still shade (the cutout state cannot be entered).
-"Blended" cannot be authored by the client — the absence is pinned by
-`production_wgsl_implements_the_classified_states`, which asserts the doubled
-band condition is gone, and by the table row `Blend::Opaque`.
+"Blended" is not covered because it is not a mesh property: `blend` is
+`QueueOwned` and the regression that pins it is
+`every_classified_mesh_has_no_alpha_test_and_owns_no_blend` plus the shader
+assertion that the doubled alpha-test band is gone. Per-object blending stays an
+open gap.
 
 ## 3. Task P3.04 — culling, winding, sidedness
 
@@ -265,6 +287,10 @@ product code; the formatting they produced is kept.
   water and scenery; the discard is equivalent for coverage but does not save
   raster work, and it depends on `front_facing` being derived from the same
   winding convention in every pass. Recorded, not hidden.
+* **Blended scenery is not reproduced.** The blended pass exists in the client
+  (`0x42c650..0x42c683`, gated by `[obj+0x95] == 2`); the viewer draws every
+  page in the unblended pass, and the meaning of `+0x95` is unestablished, so no
+  ornament is classified into the blended queue yet.
 * **The alpha-test branch is unimplemented by construction.** A `mesh+0x2cc`
   other than `0xff` raises an error (`bmd_baked::alpha_test`). If a future
   archive ever carries one, the mesh is skipped with a message rather than
@@ -308,10 +334,12 @@ product code; the formatting they produced is kept.
 ## 9. Per-point acceptance lines
 
 P3.02 material and texture-stage state — one table drives both static-model
-draws, the material-colour question is answered by `LIGHTING(0)`, and the
-cutout/blended rows are pinned as unenterable rather than assumed.
+draws, the material-colour question is answered by `LIGHTING(0)`, the cutout row
+is pinned as unenterable rather than assumed, and the blending row was moved to
+its real owner (the calling queue) with the blended pass located but not yet
+selected per ornament.
 
-`Task P3.02 | Finished Yes | Production integration gpu.rs build()+draw_opaque, world_objects.rs run() via bmd_baked::classify | Native evidence 0x7a9759 LIGHTING(0), 0x7a9762 SPECULAR(0), 0x7a976d COLOROP 5, 0x7a977a/0x7a9792 args, 0x7a979e stage 1 off, 0x7a98f1/0x7a992b ALPHATEST off, 0x7b9408 mesh+0x2cc=0xff, no 0x77a290 write in the baked path | Tests executed and results bmd_baked unit tests (8) in CI run 41520738614, bmd-sided-gpu-check opaque/two-sided/zero-alpha cases | Remaining gaps alpha-test branch refused, untextured branch not seen in the corpus`
+`Task P3.02 | Finished No | Production integration gpu.rs build()+draw_opaque, world_objects.rs run() via bmd_baked::classify | Native evidence 0x7a9759 LIGHTING(0), 0x7a9762 SPECULAR(0), 0x7a976d COLOROP 5, 0x7a977a/0x7a9792 args, 0x7a979e stage 1 off, 0x7a98f1/0x7a992b ALPHATEST off, 0x7b9408 mesh+0x2cc=0xff, no 0x77a290 write inside the mesh loop | Tests executed and results bmd_baked unit tests (8) in CI run 41522066048, bmd-sided-gpu-check opaque/two-sided/zero-alpha cases | Remaining gaps blending is queue-owned: the blended pass at 0x42c650 is gated by an unestablished per-object byte +0x95, so no ornament is classified into it; alpha-test branch refused; untextured branch not seen in the corpus`
 
 P3.04 culling, winding, sidedness.
 
