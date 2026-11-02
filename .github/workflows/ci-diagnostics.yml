@@ -33,7 +33,8 @@ jobs:
             echo "### check"
             cargo check --locked --bins --message-format short 2>&1 | grep -E "^(src|error|warning)" | head -80
             echo "### tests"
-            cargo test --locked --bin perfect-world-explorer 2>&1 | grep -E "^(test |error|failures:|---- )|panicked" | head -120
+            cargo test --locked --bin perfect-world-explorer 2>&1 | grep -E "^test " | grep -c "ok$" | sed 's/^/passing: /'
+            cargo test --locked --bin perfect-world-explorer 2>&1 | sed -n '/^failures:$/,$p' | head -140
           } > /tmp/diag.txt 2>&1
           tail -c 20000 /tmp/diag.txt
       - name: Publish comment

@@ -925,6 +925,23 @@ mod tests {
     /// reference a second LOCAL box only, so a position there has no selected
     /// default box at all: the direction/flag retention path.
     fn streamed() -> Streamed {
+        streamed_with(vec![
+            vec![1, 54],
+            vec![1, 54],
+            vec![1, 54],
+            vec![1, 54],
+            vec![2],
+            vec![2],
+            vec![2],
+            vec![2],
+        ])
+    }
+    /// The same authored areas, but no block references the default box, so no
+    /// frame selects one and nothing may read its +0xc4/+0x80 fields.
+    fn streamed_locals_only() -> Streamed {
+        streamed_with(vec![vec![54]; 4].into_iter().chain(vec![vec![2]; 4]).collect())
+    }
+    fn streamed_with(boxes: Vec<Vec<u32>>) -> Streamed {
         let global = area(true, [0.; 3], 8, [1., 0., 0.], 90., [0.5; 3]);
         let local = area(false, [0.; 3], 16, [0., 0., 1.], 10., [0.25; 3]);
         let second = area(false, [5000.; 3], 32, [0., 1., 0.], 30., [0.75; 3]);
@@ -938,16 +955,7 @@ mod tests {
             block_size: 500.,
             rows: 1,
             cols: 8,
-            boxes: vec![
-                vec![1, 54],
-                vec![1, 54],
-                vec![1, 54],
-                vec![1, 54],
-                vec![2],
-                vec![2],
-                vec![2],
-                vec![2],
-            ],
+            boxes,
         };
         let env = Environments {
             areas: vec![global, local, second],
@@ -958,39 +966,60 @@ mod tests {
         Streamed { env, active }
     }
     #[test]
-    fn default_box_owns_direction_and_flags_even_without_a_local_region() {
+    fn default_box_owns_flags_and_direction_even_for_a_local_region() {
         let mut s = streamed();
         let inside_local = [-1700., 0., 0.];
         let sel = s.active.endpoints(&s.env, inside_local);
+        // Colour/fog come from the local box (54); flags/direction come from
+        // the independently selected default box, not from the local one.
         assert_eq!(sel.key, Some(1));
         assert!(sel.default_present);
-        assert_eq!(sel.target.celestial_flags, 8); // default, not local's 16
+        assert_eq!(sel.target.celestial_flags, 8);
         assert_eq!(sel.target.sun_direction, [1., 0., 0.]);
-        let light = {
-            let mut transition = FogTransition::new_streamed(&s.env, &mut s.active, inside_local);
-            transition.lighting(12.).unwrap()
-        };
-        assert_eq!(light.celestial_flags, 8);
-        assert_eq!(light.material_direction().travel(), [1., 0., 0.]);
-
-        // A frame where the default box is no longer referenced: nothing may be
-        // read at +0xc4/+0x80, so the previous direction/flags are retained.
-        s.active.map.unload(1);
-        let sel = s.active.endpoints(&s.env, inside_local);
-        assert_eq!(sel.key, Some(1));
-        assert!(!sel.default_present);
         let mut transition = FogTransition::new_streamed(&s.env, &mut s.active, inside_local);
+        let source = transition.lighting(12.).unwrap();
+        assert_eq!(source.celestial_flags, 8);
+        assert_eq!(source.material_direction().travel(), [1., 0., 0.]);
+
+        // A frame that selects a local box but no default box has nothing to
+        // read, so the last ratified direction/flags are retained: the second
+        // local box's own +0x74/+0x04 values must never be substituted.
+        let without_default = [1900., 0., 0.];
+        assert_eq!(s.active.endpoints(&s.env, without_default).key, Some(2));
+        assert!(!s
+            .active
+            .endpoints(&s.env, without_default)
+            .default_present);
+        transition.update_streamed_ms(&s.env, &mut s.active, without_default, 12., 0);
+        let retained = transition.lighting(12.).unwrap();
+        assert_eq!(retained.celestial_flags, 8);
+        assert_eq!(retained.material_direction().travel(), [1., 0., 0.]);
+    }
+    #[test]
+    fn missing_default_box_never_invents_flags_or_direction() {
+        let mut s = streamed_locals_only();
+        let mut transition = FogTransition::new_streamed(&s.env, &mut s.active, [-1700., 0., 0.]);
         assert!(!transition.default_present());
+        // Constructor default 0x4b2d0c, not the local box's 16.
         assert_eq!(transition.lighting(12.).unwrap().celestial_flags, 0x18);
         assert_eq!(
-            transition.lighting(12.).unwrap().material_direction().travel(),
+            transition
+                .lighting(12.)
+                .unwrap()
+                .material_direction()
+                .travel(),
             [0., -1., 0.]
         );
-        // A later key change must not substitute the local box's vector.
-        let _ = transition.update_streamed_ms(&s.env, &mut s.active, [1900., 0., 0.], 12., 0);
+        // A key change without a default box keeps the retained values, even
+        // though the new local box authors 32 and [0, 1, 0].
+        transition.update_streamed_ms(&s.env, &mut s.active, [1900., 0., 0.], 12., 0);
         assert_eq!(transition.lighting(12.).unwrap().celestial_flags, 0x18);
         assert_eq!(
-            transition.lighting(12.).unwrap().material_direction().travel(),
+            transition
+                .lighting(12.)
+                .unwrap()
+                .material_direction()
+                .travel(),
             [0., -1., 0.]
         );
     }
@@ -1022,34 +1051,48 @@ mod tests {
     #[test]
     fn teleport_reinitializes_and_interruption_retargets_in_flight_values() {
         let mut s = streamed();
-        let start = [-1700., 0., 0.];
-        let teleport = [1900., 0., 0.];
+        let start = [-1700., 0., 0.]; // local 54, default present, fog start 10
+        let teleport = [1900., 0., 0.]; // local 2 only, fog start 30
         let mut transition = FogTransition::new_streamed(&s.env, &mut s.active, start);
-        // A fresh transition (native teleport/re-login path) begins at the new
-        // destination instead of carrying the source's in-flight values.
+        let (source, _) = transition.update_streamed(&s.env, &mut s.active, start, 12., 0.);
+        assert!((source.start - 10.).abs() < 1e-4, "{}", source.start);
+
+        // A fresh transition (native teleport/re-login path) starts at the
+        // destination's own endpoints instead of carrying the source's values.
         let mut fresh = FogTransition::new_streamed(&s.env, &mut s.active, teleport);
-        assert_eq!(fresh.lighting(12.).unwrap().diffuse, {
-            let mut t = FogTransition::new(&s.env, [1900., 0., 0.]);
-            t.lighting(12.).unwrap().diffuse
-        });
+        let (destination, _) = fresh.update_streamed(&s.env, &mut s.active, teleport, 12., 0.);
+        assert!((destination.start - 30.).abs() < 1e-4, "{}", destination.start);
+        let mut settled = FogTransition::new_streamed(&s.env, &mut s.active, teleport);
+        settled.update_streamed(&s.env, &mut s.active, teleport, 12., 60.);
         assert_eq!(
-            fresh.update_streamed(&s.env, &mut s.active, teleport, 12., 0.).1.start,
-            30.
+            fresh.lighting(12.).unwrap().diffuse,
+            settled.lighting(12.).unwrap().diffuse
         );
-        // The pre-teleport transition is retargeted: a changed-key frame only
-        // installs targets, then stored steps advance toward the new area.
-        let (_, installed) = transition.update_streamed(&s.env, &mut s.active, teleport, 12., 0.);
-        assert_eq!(installed.start, 10.);
-        let (_, half) = transition.update_streamed(&s.env, &mut s.active, teleport, 12., 2.5);
-        assert!((half.start - 50.).abs() < 1e-4, "{}", half.start);
-        // Interrupt with a third area before the second completed: the new
+
+        // The pre-teleport transition is retargeted: the changed-key frame only
+        // installs the new targets (native 0x41fdbe skips shading), then the
+        // stored steps advance from the in-flight value.
+        let (installed, _) =
+            transition.update_streamed(&s.env, &mut s.active, teleport, 12., 0.);
+        assert!((installed.start - source.start).abs() < 1e-4);
+        let (half, _) =
+            transition.update_streamed(&s.env, &mut s.active, teleport, 12., 2.5);
+        assert!(
+            half.start > installed.start && half.start < destination.start,
+            "{}",
+            half.start
+        );
+        // Interrupt with the source before the destination completed: the new
         // step is computed from the in-flight value, not from the origin.
-        let (_, interrupted) =
-            transition.update_streamed(&s.env, &mut s.active, start, 12., 2.5);
+        let (interrupted, _) =
+            transition.update_streamed(&s.env, &mut s.active, start, 12., 0.);
         assert_eq!(interrupted.start, half.start);
-        let (_, reversed) = transition.update_streamed(&s.env, &mut s.active, start, 12., 2.5);
-        assert!(reversed.start < half.start && reversed.start > 10.);
-        let _ = fresh;
+        let (reversed, _) = transition.update_streamed(&s.env, &mut s.active, start, 12., 1.);
+        assert!(
+            reversed.start < interrupted.start && reversed.start > source.start,
+            "{}",
+            reversed.start
+        );
     }
     #[test]
     fn time_boundaries_stay_finite_periodic_and_asymmetric() {

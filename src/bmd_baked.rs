@@ -134,10 +134,11 @@ mod tests {
     #[test]
     fn integer_blend_matches_the_recovered_arithmetic() {
         // Endpoints are exact, intermediate values keep the client's >>8.
-        assert_eq!(blend([10, 20, 30], [200, 210, 220], 0), [10, 20, 30]);
-        assert_eq!(blend([10, 20, 30], [200, 210, 220], 255), [9, 19, 29]);
+        // Note the >>8: even a full-day blend is one 255th dark, and a
+        // full-night blend returns night * 255 >> 8.
+        assert_eq!(blend([10, 20, 30], [200, 210, 220], 0), [9, 19, 29]);
+        assert_eq!(blend([10, 20, 30], [200, 210, 220], 255), [199, 209, 219]);
         assert_eq!(blend([0, 0, 0], [255, 255, 255], 128), [127u8, 127, 127]);
-        // Full-day is not the identity for a 255 value: 255*255>>8 == 254.
         assert_eq!(blend([255, 255, 255], [0, 0, 0], 0), [254, 254, 254]);
     }
 
@@ -162,9 +163,12 @@ mod tests {
             gpu.contains("i.kind>1.5 && i.kind<2.05 && camera.clip.w == 0."),
             "single-sided winding drop"
         );
-        // The draw-state kinds must be the ones the world builder emits.
-        assert!(gpu.contains("2.1"), "two-sided baked kind");
-        assert!(gpu.contains("2.0"), "single-sided baked kind");
+        // The classified kinds must land on the intended side of the shader's
+        // single-sided winding threshold.
+        let single = classify(0x1000_0005, true, false).unwrap();
+        let two = classify(0x1000_0005, true, true).unwrap();
+        assert!(single.kind > 1.5 && single.kind < 2.05, "{single:?}");
+        assert!(!(two.kind < 2.05), "{two:?}");
         // Baked meshes must not consume the ordinary receiving light.
         let baked = gpu
             .split("fn bmd_baked_rgb")
