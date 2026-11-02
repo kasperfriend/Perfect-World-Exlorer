@@ -86,6 +86,8 @@ mod skin_pose;
 mod sky_gpu;
 mod terrain_gpu;
 mod terrain_lightmaps;
+#[allow(dead_code)]
+mod terrain_shading;
 mod terrain_seam;
 mod texture_atlas;
 mod tree_lod;
