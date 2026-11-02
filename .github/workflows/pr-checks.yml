@@ -30,6 +30,10 @@ jobs:
           sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
       - name: Check formatting
         run: cargo fmt --all -- --check
+      - name: Verify recovered regional arithmetic on x87
+        run: |
+          cc -O0 tools/check-native-region-reference.c -o /tmp/native-region-reference
+          /tmp/native-region-reference
       - name: Test Phase 1 readiness audit
         run: python3 tools/test_phase1_ready.py
       - name: Check all binary targets
@@ -73,6 +77,23 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
+      - name: Capture gamma words with native x86 MSVCRT exports
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { throw "MSVC x86 tools not found" }
+          $vcvars = Join-Path $vs "VC\Auxiliary\Build\vcvars32.bat"
+          $exe = Join-Path $env:RUNNER_TEMP "native-gamma.exe"
+          $prefix = Join-Path $env:RUNNER_TEMP "native-gamma"
+          $command = "call `"$vcvars`" && cl /nologo /W4 /O2 tools\capture-native-gamma-x87.c /Fe:`"$exe`" && `"$exe`" `"$prefix`""
+          cmd /d /s /c $command
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NativeGammaX87Words
+          path: ${{ runner.temp }}/native-gamma-pc*.bin
+          if-no-files-found: error
       - name: Verify native gamma and glow CPU references on Windows
         shell: pwsh
         run: |
