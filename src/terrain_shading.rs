@@ -279,17 +279,12 @@ pub fn shader_constants(
     scene_direction: [f32; 3],
 ) -> ShaderConstants {
     ShaderConstants {
-        c0: [
-            1.0,
-            if lightmap_scene { 1.0 } else { 0.0 },
-            global_density,
-            specular,
-        ],
+        c0: [1.0, if lightmap_scene { 1.0 } else { 0.0 }, global_density, specular],
         // 0x7c232b loops three stages: bound -> 1.0, absent -> 0.0.
         c2: [
-            if layers[0] { 1.0 } else { 0.0 },
-            if layers[1] { 1.0 } else { 0.0 },
-            if layers[2] { 1.0 } else { 0.0 },
+            layers[0] as u8 as f32,
+            layers[1] as u8 as f32,
+            layers[2] as u8 as f32,
             0.0,
         ],
         c3: [scene_direction[1]; 4],
@@ -450,10 +445,7 @@ mod tests {
 
     #[test]
     fn unreachable_hardware_lightmap_path_is_an_error_not_a_branch() {
-        assert_eq!(
-            select(caps(true, false, true)),
-            Err(VariantError::HardwareLightmapUnreachable)
-        );
+        assert_eq!(select(caps(true, false, true)), Err(VariantError::HardwareLightmapUnreachable));
     }
 
     #[test]
