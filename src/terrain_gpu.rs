@@ -531,10 +531,11 @@ impl TerrainGpu {
             .map_err(|e| format!("terrain variant {e:?} is unreachable in the client"))?;
         debug_assert_eq!(variant, crate::terrain_shading::Variant::Batch3Layer);
         let state = crate::terrain_shading::pass_state(variant);
+        // 0x7cd789 pushes D3DCULL_NONE (1); the state type keeps the restored
+        // value explicit so the mapping cannot drift silently.
+        debug_assert!(matches!(state.cull, crate::terrain_shading::Cull::None));
         let primitive = wgpu::PrimitiveState {
-            cull_mode: match state.cull {
-                crate::terrain_shading::Cull::None => None,
-            },
+            cull_mode: None,
             ..Default::default()
         };
         let targets = [Some(wgpu::ColorTargetState {

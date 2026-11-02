@@ -109,14 +109,18 @@ pub enum VariantError {
 /// short-circuits everything, then `env+0x1b5`, then `env+0x1b6`.
 pub fn select(caps: Caps) -> Result<Variant, VariantError> {
     if !caps.pixel_pipeline {
+        // 0x7c145a -> 0x7c14a0 -> 0x7c1e00, before either GDebugKey is read.
         return Ok(Variant::NoPixelShader);
     }
     if caps.per_mask_lightmap {
+        // 0x7c1467 -> 0x7c1491 -> 0x7c1a20.
         return Ok(Variant::PerMaskLightmap);
     }
     if caps.hardware_lightmap {
+        // 0x7c1473 -> 0x7c2100; unreachable because 0x77d0ea always stores zero.
         return Err(VariantError::HardwareLightmapUnreachable);
     }
+    // 0x7c1482 -> 0x7c14b0.
     Ok(Variant::Batch3Layer)
 }
 
@@ -234,8 +238,10 @@ pub const TEXCOORD_MASK: u32 = 5;
 /// which is exactly why the per-mask path needs no normal: it is vertex-lit.
 pub const fn vertex_layout(per_mask_lightmap: bool) -> (u32, u32) {
     if per_mask_lightmap {
+        // Diffuse and specular replace the normal, so the stride drops by 4.
         (0x4c2, 0x34)
     } else {
+        // The layout the stock 3-layer batch uploads.
         (0x412, 0x38)
     }
 }
@@ -403,10 +409,11 @@ impl Atlas {
     /// Tile origin of packed slot `index`; pages advance every `per_page` slots.
     pub fn origin(&self, index: u32) -> (u32, u32) {
         let slot = index % self.per_page().max(1);
-        (
-            (slot % self.per_row.max(1)) * self.side,
-            (slot / self.per_row.max(1)) * self.side,
-        )
+        let per_row = self.per_row.max(1);
+        // Columns advance along a row, rows advance down the page.
+        let x = (slot % per_row) * self.side;
+        let y = (slot / per_row) * self.side;
+        (x, y)
     }
     /// `uv` at the tile origin plus the clamped local coordinate.
     pub fn tile_uv(&self, index: u32, local: (f32, f32)) -> (f32, f32) {
