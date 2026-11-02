@@ -369,7 +369,7 @@ unsupported-path register; it is not claimed resolved.
   [0, 1]`, opaque submission skips them, unsupported pair `11` → `Err`), the
   opaque-ECM case, and the scene-owner pixel case. The whole
   `pr-checks.yml` GPU step (13 binaries) → **success**; Windows x64 build →
-  **success**. Two defects were found by these runs and fixed (section 11).
+  **success**. Two defects were found by these runs and fixed (section 10).
 - **Remaining gaps:** alpha z-write state (documented assumption), per-mesh
   transparency, unexecuted validation, and full multi-view alpha parity.
 
