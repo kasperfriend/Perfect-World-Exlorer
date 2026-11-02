@@ -26,7 +26,7 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
+          sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev mesa-vulkan-drivers
       - name: Collect diagnostics
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -47,6 +47,17 @@ jobs:
             tail -30 /tmp/check.txt
             echo "## unit tests"
             cargo test --locked --bin perfect-world-explorer 2>&1 | tail -120
+            echo "## gpu checks"
+            export WGPU_BACKEND=vulkan XDG_RUNTIME_DIR=/tmp
+            VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
+            export VK_ICD_FILENAMES
+            echo "icd=$VK_ICD_FILENAMES"
+            for target in display-gamma-gpu-check post-gpu-check bloom-gpu-check bmd-baked-gpu-check grass-instance-gpu-check model-light-gpu-check skin-pose-gpu-check skin-palette-gpu-check model-texture-gpu-check model-receiver-gpu-check model-draw-gpu-check phase1-fog-gpu-check terrain-refraction-gpu-check; do
+              echo "--- $target"
+              timeout 300 cargo run --quiet --locked --bin "$target" > "/tmp/$target.log" 2>&1
+              echo "$target exit=$?"
+              tail -12 "/tmp/$target.log"
+            done
             echo "## dependency-free modules"
             for module in post_plan color_chain fog_matrix glow_state view_settings; do
               echo "--- $module"
