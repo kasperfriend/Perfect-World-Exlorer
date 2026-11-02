@@ -323,14 +323,29 @@ mod tests {
     #[test]
     fn coincident_pairs_resolve_to_a_cull_or_a_proved_order() {
         // Opposite winding, single-sided: the two surfaces cannot both survive.
-        assert_eq!(overlap_outcome(false, false, false, true), OverlapOutcome::Culled);
+        assert_eq!(
+            overlap_outcome(false, false, false, true),
+            OverlapOutcome::Culled
+        );
         // Same winding: both rasterise and the later submission wins the tie.
-        assert_eq!(overlap_outcome(true, false, false, true), OverlapOutcome::LaterSubmissionWins);
+        assert_eq!(
+            overlap_outcome(true, false, false, true),
+            OverlapOutcome::LaterSubmissionWins
+        );
         // Two-sided pairs are drawn twice whatever the winding.
-        assert_eq!(overlap_outcome(false, true, true, true), OverlapOutcome::LaterSubmissionWins);
+        assert_eq!(
+            overlap_outcome(false, true, true, true),
+            OverlapOutcome::LaterSubmissionWins
+        );
         // Split submissions are reported instead of being ordered by assumption.
-        assert_eq!(overlap_outcome(true, false, false, false), OverlapOutcome::Unresolved);
-        assert_eq!(overlap_outcome(false, true, true, false), OverlapOutcome::Unresolved);
+        assert_eq!(
+            overlap_outcome(true, false, false, false),
+            OverlapOutcome::Unresolved
+        );
+        assert_eq!(
+            overlap_outcome(false, true, true, false),
+            OverlapOutcome::Unresolved
+        );
     }
 
     #[test]
@@ -376,9 +391,15 @@ mod tests {
         let two = classify(0x1000_0005, true, true).unwrap();
         let two_flat = classify(0x1000_0005, false, true).unwrap();
         assert!(single.kind > 1.5 && single.kind < 2.05, "{single:?}");
-        assert!(single_flat.kind > 1.05 && single_flat.kind < 1.15, "{single_flat:?}");
+        assert!(
+            single_flat.kind > 1.05 && single_flat.kind < 1.15,
+            "{single_flat:?}"
+        );
         assert!(!(two.kind > 1.5 && two.kind < 2.05), "{two:?}");
-        assert!(!(two_flat.kind > 1.05 && two_flat.kind < 1.15), "{two_flat:?}");
+        assert!(
+            !(two_flat.kind > 1.05 && two_flat.kind < 1.15),
+            "{two_flat:?}"
+        );
         // Scenery must compare equal depth as a pass so duplicates keep the
         // later submission, as the client's LESSEQUAL test does.
         assert!(
