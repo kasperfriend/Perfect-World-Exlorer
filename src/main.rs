@@ -90,7 +90,6 @@ mod terrain_lightmaps;
 mod terrain_lod;
 mod terrain_residency;
 mod terrain_sampling;
-mod terrain_seam;
 mod texture_atlas;
 mod texture_resolution;
 mod tree_lod;
