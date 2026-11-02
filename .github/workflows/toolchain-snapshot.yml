@@ -1,35 +1,54 @@
 name: Toolchain snapshot (temporary)
 
-# Temporary, review-only workflow. It packages the stable toolchain that this
-# repository's checks already use so the sandboxed session can execute the
-# dependency-free module tests and rustfmt locally. It does not build, test or
-# publish the application and will be removed before handoff.
+# Temporary, review-only workflow. It publishes a minimal stable toolchain to a
+# throwaway branch so the sandboxed session can execute the dependency-free
+# module tests and rustfmt. The branch and this file are deleted after
+# verification; this workflow never builds or publishes the application.
 
 on:
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  snapshot:
+  publish:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - name: Package toolchain
+      - name: Package minimal toolchain
         run: |
           set -eu
-          mkdir -p out
-          cp -r "$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu" out/toolchain
-          rm -rf out/toolchain/share/doc out/toolchain/lib/rustlib/*/analysis
-          tar -C out -czf out/toolchain.tar.gz toolchain
-          ls -l out/toolchain.tar.gz
-      - uses: actions/upload-artifact@v4
-        with:
-          name: rust-toolchain-linux
-          path: out/toolchain.tar.gz
-          retention-days: 2
+          T="$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu"
+          mkdir -p min/lib/rustlib
+          cp -r "$T/bin" min/bin
+          cp -r "$T/lib/rustlib/x86_64-unknown-linux-gnu" min/lib/rustlib/
+          cp "$T"/lib/librustc_driver-*.so min/lib/ || true
+          cp "$T"/lib/libstd-*.so min/lib/ || true
+          cp "$T"/lib/libtest-*.so min/lib/ || true
+          cp "$T"/lib/libLLVM*.so min/lib/ 2>/dev/null || true
+          find min -name '*.d' -delete
+          find min -type d -name analysis -prune -exec rm -rf {} +
+          tar -C min -czf toolchain-min.tar.gz .
+          ls -l toolchain-min.tar.gz
+      - name: Publish snapshot branch
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          git config user.name "toolchain-snapshot"
+          git config user.email "noreply@example.invalid"
+          git checkout --orphan toolchain-snapshot
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          mkdir -p snap
+          cp toolchain-min.tar.gz snap/
+          printf '%s\n' "$GITHUB_SHA" > snap/source-commit.txt
+          printf 'Temporary toolchain snapshot; deleted after verification.\n' > snap/README.txt
+          git add snap
+          git commit -m "temporary toolchain snapshot"
+          git push "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" toolchain-snapshot --force

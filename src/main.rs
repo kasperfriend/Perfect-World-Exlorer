@@ -44,6 +44,7 @@ mod grass_mips;
 mod grass_wind;
 #[cfg(windows)]
 mod launcher_ui;
+mod light_consumers;
 mod material;
 mod model_asset;
 mod model_dds;

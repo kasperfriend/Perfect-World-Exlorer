@@ -119,6 +119,19 @@ impl FogEndpoints {
     }
 }
 
+/// Authored material light direction. The native value is the EC-BSD region
+/// vector installed through `0x41fd58..0x41fdb1` / `0x79b390`; it is NOT the
+/// animated sky-object elevation from `0x4b60b0/0x4b60e0`. Keeping it in a
+/// named type makes the consumer boundary explicit: only rows in
+/// `light_consumers::MATRIX` with `DirectionSource::Authored` may read it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MaterialDirection([f32; 3]);
+impl MaterialDirection {
+    /// Direction the light travels (the D3DLIGHT8 `direction` argument).
+    pub fn travel(self) -> [f32; 3] {
+        self.0
+    }
+}
 #[derive(Clone, Copy, Debug)]
 pub struct RegionalLight {
     pub ambient: [f32; 3],
@@ -126,6 +139,32 @@ pub struct RegionalLight {
     pub specular: [f32; 3],
     pub toward_sun: [f32; 3],
     pub celestial_flags: u32,
+}
+impl RegionalLight {
+    /// Authored region direction, normalized exactly like the previous inline
+    /// renderer code (glam `normalize_or_zero`, i.e. reciprocal multiply).
+    /// Hidden celestial flags never alter this value: they hide discs
+    /// (`0x4b2d0c`/`0x4b3b80`), not directional material light.
+    pub fn material_direction(&self) -> MaterialDirection {
+        let v = self.toward_sun;
+        let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+        let rcp = 1. / len;
+        MaterialDirection(if rcp.is_finite() && rcp > 0. {
+            [-v[0] * rcp, -v[1] * rcp, -v[2] * rcp]
+        } else {
+            [0.; 3]
+        })
+    }
+}
+/// One frame's environment selection. `default_present` records whether the
+/// independently selected default area was actually found; the SUN/MOON flag
+/// word and the material direction come from that area, not from the local box
+/// that supplies fog/colour (`0x41ebaf..0x41ec65`, `0x41f244`, `0x41fd58`).
+struct Selection {
+    key: Option<usize>,
+    target: FogEndpoints,
+    duration_ms: u32,
+    default_present: bool,
 }
 /// Stored-step transitions between authored region endpoints. Each new
 /// box starts from the current in-flight values, with duration in EC-BSD.
@@ -135,18 +174,41 @@ pub struct FogTransition {
     channels: [Channel; 36],
     sun_direction: [f32; 3],
     celestial_flags: u32,
+    /// Diagnostic: false means the world had no selected default box, so the
+    /// retained direction/flags were kept instead of inventing new ones.
+    default_present: bool,
 }
 impl FogTransition {
-    fn initial((key, target, _): (Option<usize>, FogEndpoints, u32)) -> Self {
+    fn initial(sel: Selection) -> Self {
         Self {
-            key,
-            channels: target.values().map(Channel::new),
-            sun_direction: target.sun_direction,
-            celestial_flags: target.celestial_flags,
+            key: sel.key,
+            channels: sel.target.values().map(Channel::new),
+            // No selected default box leaves nothing to read at +0xc4/+0x80.
+            // Use the explicit viewer direction fallback and the recovered
+            // constructor 0x4b2d0c flag default rather than the local box's
+            // unrelated direction/flags; the streamed path never routes a
+            // local vector or a local flag word into these fields.
+            sun_direction: if sel.default_present {
+                sel.target.sun_direction
+            } else {
+                [0., -1., 0.]
+            },
+            celestial_flags: if sel.default_present {
+                sel.target.celestial_flags
+            } else {
+                0x18
+            },
+            default_present: sel.default_present,
         }
     }
     pub fn new(env: &Environments, p: [f32; 3]) -> Self {
         Self::initial(env.endpoints(p))
+    }
+    /// Whether the last frame found an independently selected default area.
+    /// The renderer reports this instead of silently presenting the vertical
+    /// fallback as recovered data.
+    pub fn default_present(&self) -> bool {
+        self.default_present
     }
     fn current(&self) -> FogEndpoints {
         FogEndpoints::from_values(
@@ -204,24 +266,31 @@ impl FogTransition {
     pub fn new_streamed(env: &Environments, active: &mut RegionStreaming, p: [f32; 3]) -> Self {
         Self::initial(active.endpoints(env, p))
     }
-    fn update_endpoints(
-        &mut self,
-        (key, target, duration_ms): (Option<usize>, FogEndpoints, u32),
-        hour: f32,
-        ms: u32,
-    ) -> (Fog, Fog) {
-        // 0x41ec65: no active region leaves the in-flight environment unchanged.
-        if key.is_none() && self.key.is_some() {
+    fn update_endpoints(&mut self, sel: Selection, hour: f32, ms: u32) -> (Fog, Fog) {
+        // 0x420992 extracts the SUN/MOON bits from the independently selected
+        // default area on EVERY render, including frames where no local region
+        // supplies colour/fog. When the enumeration found no default box there
+        // is nothing to read, so the previous default's flag word is retained
+        // instead of inventing visibility (the initial value is the recovered
+        // constructor 0x4b2d0c default). Flags are never a material switch.
+        if sel.default_present {
+            self.celestial_flags = sel.target.celestial_flags;
+        }
+        self.default_present = sel.default_present;
+        // 0x41ec65: no active region leaves the in-flight colour/fog unchanged.
+        if sel.key.is_none() && self.key.is_some() {
             return self.current().at_hour(hour);
         }
-        // 0x420992 reads the independent default every render, not only on
-        // local-region changes. These bits hide sky objects, NOT material light.
-        self.celestial_flags = target.celestial_flags;
-        if key != self.key {
-            self.key = key;
-            self.sun_direction = target.sun_direction;
-            let inv = inverse_time(duration_ms);
-            for (channel, value) in self.channels.iter_mut().zip(target.values()) {
+        if sel.key != self.key {
+            self.key = sel.key;
+            // 0x41fd58/0x41fdb1 read the DEFAULT box direction on a key change.
+            // A missing default box must not substitute the local box's
+            // unrelated vector, so keep the previously published direction.
+            if sel.default_present {
+                self.sun_direction = sel.target.sun_direction;
+            }
+            let inv = inverse_time(sel.duration_ms);
+            for (channel, value) in self.channels.iter_mut().zip(sel.target.values()) {
                 channel.target(value, inv);
             }
             // 0x41fdbe jumps over shading. A changed-area frame only installs
@@ -294,7 +363,7 @@ impl RegionStreaming {
             map: ActiveBoxMap::default(),
         }
     }
-    fn endpoints(&mut self, env: &Environments, p: [f32; 3]) -> (Option<usize>, FogEndpoints, u32) {
+    fn endpoints(&mut self, env: &Environments, p: [f32; 3]) -> Selection {
         self.update(p);
         let (local, default) = self.map.select_pair(|id| {
             env.id_to_index.get(&id).and_then(|&i| {
@@ -305,20 +374,25 @@ impl RegionStreaming {
         let index = local
             .or(default)
             .and_then(|id| env.id_to_index.get(&id).copied());
-        let (key, mut target, duration) = env.endpoints_for(index);
+        let (key, mut target, duration_ms) = env.endpoints_for(index);
         // 0x41ebe2 retains the default independently of the local (ebp).
-        // 0x41f244 / 0x41fd58 read its +c4 direction on init / key change.
-        // Missing default is invalid native world data; use the viewer's safe
-        // vertical fallback, never the local area's unrelated direction.
-        target.celestial_flags = default
+        // 0x41f244 / 0x41fd58 read its +c4 direction on init / key change, and
+        // 0x420992 reads its +80 flag word every render. Report whether that
+        // box was actually found: a missing default must retain the previous
+        // values rather than substitute the local box's unrelated vector.
+        let default_area = default
             .and_then(|id| env.id_to_index.get(&id))
-            .map(|&i| env.areas[i].celestial_flags)
-            .unwrap_or(0x18);
-        target.sun_direction = default
-            .and_then(|id| env.id_to_index.get(&id))
-            .map(|&i| env.areas[i].sun_direction)
-            .unwrap_or([0., -1., 0.]);
-        (key, target, duration)
+            .map(|&i| &env.areas[i]);
+        if let Some(area) = default_area {
+            target.celestial_flags = area.celestial_flags;
+            target.sun_direction = area.sun_direction;
+        }
+        Selection {
+            key,
+            target,
+            duration_ms,
+            default_present: default_area.is_some(),
+        }
     }
 
     fn update(&mut self, p: [f32; 3]) {
@@ -486,7 +560,7 @@ impl Environments {
     pub fn atmosphere(&self, p: [f32; 3], hour: f32) -> Fog {
         self.sample(p, hour, false)
     }
-    fn endpoints(&self, p: [f32; 3]) -> (Option<usize>, FogEndpoints, u32) {
+    fn endpoints(&self, p: [f32; 3]) -> Selection {
         // Selection order is still a heuristic pending the streaming-order trace.
         let a = self
             .areas
@@ -498,7 +572,15 @@ impl Environments {
                     .cmp(&b.global)
                     .then_with(|| a.distance2(p).total_cmp(&b.distance2(p)))
             });
-        self.endpoints_for(a.map(|(i, _)| i))
+        let (key, target, duration_ms) = self.endpoints_for(a.map(|(i, _)| i));
+        // The non-streamed path has one box per position, so it supplies both
+        // the local colours and the direction/flag word.
+        Selection {
+            key,
+            target,
+            duration_ms,
+            default_present: key.is_some(),
+        }
     }
     fn endpoints_for(&self, index: Option<usize>) -> (Option<usize>, FogEndpoints, u32) {
         if let Some(i) = index {
@@ -545,7 +627,7 @@ impl Environments {
         )
     }
     fn sample(&self, p: [f32; 3], hour: f32, water: bool) -> Fog {
-        let (air, water_fog) = self.endpoints(p).1.at_hour(hour);
+        let (air, water_fog) = self.endpoints(p).target.at_hour(hour);
         if water {
             water_fog
         } else {
@@ -773,9 +855,9 @@ mod tests {
             streaming: Some(delayed_layout),
         };
         let mut delayed = delayed_env.streaming().unwrap();
-        assert_eq!(delayed.endpoints(&delayed_env, p).0, Some(1));
-        assert_eq!(delayed.endpoints(&delayed_env, mid).0, Some(1));
-        assert_eq!(delayed.endpoints(&delayed_env, mid).0, Some(2));
+        assert_eq!(delayed.endpoints(&delayed_env, p).key, Some(1));
+        assert_eq!(delayed.endpoints(&delayed_env, mid).key, Some(1));
+        assert_eq!(delayed.endpoints(&delayed_env, mid).key, Some(2));
     }
     #[test]
     fn client_clock_fog_and_baked_lighting_weight() {
@@ -805,8 +887,229 @@ mod tests {
             assert!((daylight(h - 0.0001) - daylight(h + 0.0001)).abs() < 0.0001);
         }
     }
+    fn area(
+        global: bool,
+        center: [f32; 3],
+        flags: u32,
+        direction: [f32; 3],
+        fog_start: f32,
+        ambient: [f32; 3],
+    ) -> BoxArea {
+        let fog = Fog {
+            start: fog_start,
+            ..Fog::default()
+        };
+        BoxArea {
+            global,
+            transition_ms: 5000,
+            center,
+            extents: [10000.; 3],
+            axes: [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+            day: fog,
+            night: fog,
+            air_day: fog,
+            air_night: fog,
+            ambient_day: ambient,
+            ambient_night: [0.; 3],
+            diffuse_day: [0.8; 3],
+            diffuse_night: [0.2; 3],
+            sun_direction: direction,
+            celestial_flags: flags,
+        }
+    }
+    struct Streamed {
+        env: Environments,
+        active: RegionStreaming,
+    }
+    /// Blocks 0..4 reference a default box plus a local box. Blocks 4..8
+    /// reference a second LOCAL box only, so a position there has no selected
+    /// default box at all: the direction/flag retention path.
+    fn streamed() -> Streamed {
+        let global = area(true, [0.; 3], 8, [1., 0., 0.], 90., [0.5; 3]);
+        let local = area(false, [0.; 3], 16, [0., 0., 1.], 10., [0.25; 3]);
+        let second = area(false, [5000.; 3], 32, [0., 1., 0.], 30., [0.75; 3]);
+        let mut ids = BTreeMap::new();
+        ids.insert(1, 0);
+        ids.insert(54, 1);
+        ids.insert(2, 2);
+        let layout = RegionLayout {
+            width: 4000.,
+            length: 500.,
+            block_size: 500.,
+            rows: 1,
+            cols: 8,
+            boxes: vec![
+                vec![1, 54],
+                vec![1, 54],
+                vec![1, 54],
+                vec![1, 54],
+                vec![2],
+                vec![2],
+                vec![2],
+                vec![2],
+            ],
+        };
+        let env = Environments {
+            areas: vec![global, local, second],
+            id_to_index: ids,
+            streaming: Some(layout),
+        };
+        let active = env.streaming().unwrap();
+        Streamed { env, active }
+    }
+    #[test]
+    fn default_box_owns_direction_and_flags_even_without_a_local_region() {
+        let mut s = streamed();
+        let inside_local = [-1700., 0., 0.];
+        let sel = s.active.endpoints(&s.env, inside_local);
+        assert_eq!(sel.key, Some(1));
+        assert!(sel.default_present);
+        assert_eq!(sel.target.celestial_flags, 8); // default, not local's 16
+        assert_eq!(sel.target.sun_direction, [1., 0., 0.]);
+        let light = {
+            let mut transition = FogTransition::new_streamed(&s.env, &mut s.active, inside_local);
+            transition.lighting(12.).unwrap()
+        };
+        assert_eq!(light.celestial_flags, 8);
+        assert_eq!(light.material_direction().travel(), [1., 0., 0.]);
+
+        // A frame where the default box is no longer referenced: nothing may be
+        // read at +0xc4/+0x80, so the previous direction/flags are retained.
+        s.active.map.unload(1);
+        let sel = s.active.endpoints(&s.env, inside_local);
+        assert_eq!(sel.key, Some(1));
+        assert!(!sel.default_present);
+        let mut transition = FogTransition::new_streamed(&s.env, &mut s.active, inside_local);
+        assert!(!transition.default_present());
+        assert_eq!(transition.lighting(12.).unwrap().celestial_flags, 0x18);
+        assert_eq!(
+            transition.lighting(12.).unwrap().material_direction().travel(),
+            [0., -1., 0.]
+        );
+        // A later key change must not substitute the local box's vector.
+        let _ = transition.update_streamed_ms(&s.env, &mut s.active, [1900., 0., 0.], 12., 0);
+        assert_eq!(transition.lighting(12.).unwrap().celestial_flags, 0x18);
+        assert_eq!(
+            transition.lighting(12.).unwrap().material_direction().travel(),
+            [0., -1., 0.]
+        );
+    }
+    #[test]
+    fn default_visibility_flags_update_independently_of_material_light() {
+        let mut s = streamed();
+        let p = [-1700., 0., 0.];
+        let mut transition = FogTransition::new_streamed(&s.env, &mut s.active, p);
+        let before = transition.lighting(12.).unwrap();
+        assert_eq!(before.celestial_flags, 8);
+        // Same local key, authored default flag word changes (both hidden).
+        s.env.areas[0].celestial_flags = 0;
+        transition.update_streamed_ms(&s.env, &mut s.active, p, 12., 0);
+        let hidden = transition.lighting(12.).unwrap();
+        assert_eq!(hidden.celestial_flags, 0);
+        // Hiding both discs changes nothing about material light or direction.
+        assert_eq!(before.diffuse, hidden.diffuse);
+        assert_eq!(before.specular, hidden.specular);
+        assert_eq!(before.ambient, hidden.ambient);
+        assert_eq!(
+            before.material_direction().travel(),
+            hidden.material_direction().travel()
+        );
+        // The flag word is published on that same frame, not faded.
+        s.env.areas[0].celestial_flags = 8;
+        transition.update_streamed_ms(&s.env, &mut s.active, p, 12., 0);
+        assert_eq!(transition.lighting(12.).unwrap().celestial_flags, 8);
+    }
+    #[test]
+    fn teleport_reinitializes_and_interruption_retargets_in_flight_values() {
+        let mut s = streamed();
+        let start = [-1700., 0., 0.];
+        let teleport = [1900., 0., 0.];
+        let mut transition = FogTransition::new_streamed(&s.env, &mut s.active, start);
+        // A fresh transition (native teleport/re-login path) begins at the new
+        // destination instead of carrying the source's in-flight values.
+        let mut fresh = FogTransition::new_streamed(&s.env, &mut s.active, teleport);
+        assert_eq!(fresh.lighting(12.).unwrap().diffuse, {
+            let mut t = FogTransition::new(&s.env, [1900., 0., 0.]);
+            t.lighting(12.).unwrap().diffuse
+        });
+        assert_eq!(
+            fresh.update_streamed(&s.env, &mut s.active, teleport, 12., 0.).1.start,
+            30.
+        );
+        // The pre-teleport transition is retargeted: a changed-key frame only
+        // installs targets, then stored steps advance toward the new area.
+        let (_, installed) = transition.update_streamed(&s.env, &mut s.active, teleport, 12., 0.);
+        assert_eq!(installed.start, 10.);
+        let (_, half) = transition.update_streamed(&s.env, &mut s.active, teleport, 12., 2.5);
+        assert!((half.start - 50.).abs() < 1e-4, "{}", half.start);
+        // Interrupt with a third area before the second completed: the new
+        // step is computed from the in-flight value, not from the origin.
+        let (_, interrupted) =
+            transition.update_streamed(&s.env, &mut s.active, start, 12., 2.5);
+        assert_eq!(interrupted.start, half.start);
+        let (_, reversed) = transition.update_streamed(&s.env, &mut s.active, start, 12., 2.5);
+        assert!(reversed.start < half.start && reversed.start > 10.);
+        let _ = fresh;
+    }
+    #[test]
+    fn time_boundaries_stay_finite_periodic_and_asymmetric() {
+        let day = [0.5, 0.4, 0.3];
+        let night = [0.1, 0.2, 0.3];
+        for hour in [
+            -48., -24., -0.001, 0., 3., 3.5, 7., 12., 18., 18.75, 20.25, 21., 23.999, 24., 48.,
+        ] {
+            let c = client_regional_light::evaluate(hour, day, night);
+            assert!(c.diffuse.iter().chain(&c.specular).all(|v| v.is_finite()));
+            for i in 0..3 {
+                assert!(c.specular[i] <= c.diffuse[i] + 1e-6, "hour {hour}");
+            }
+        }
+        // Sun pitch > 0 selects sun time even when the night factor is zero at
+        // both endpoints; the asymmetric sunrise is preserved elsewhere.
+        assert!(client_regional_light::evaluate(12., [1.; 3], [0.; 3]).diffuse[0] > 0.);
+        assert_eq!(
+            client_regional_light::evaluate(0., [1.; 3], [0.; 3]).diffuse,
+            [0.; 3]
+        );
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let c = client_regional_light::evaluate(bad, day, night);
+            assert!(c.diffuse.iter().chain(&c.specular).all(|v| v.is_finite()));
+            assert_eq!(
+                c.diffuse,
+                client_regional_light::evaluate(0., day, night).diffuse
+            );
+        }
+        // Ambient quantization is independent of the directional branch.
+        let nf = night_factor(5.);
+        let channel = (0.5 * 255.) as u8 as f32 * f32::from_bits(0x3b808081);
+        assert_eq!(
+            client_regional_light::ambient([1.; 3], [0.; 3], nf),
+            [channel; 3]
+        );
+    }
     #[test]
     fn truncated_rejected() {
         assert!(BoxArea::parse(&[0; 30], 0).is_err())
+    }
+    #[test]
+    fn material_direction_matches_the_previous_renderer_normalization() {
+        let l = RegionalLight {
+            ambient: [0.; 3],
+            diffuse: [0.; 3],
+            specular: [0.; 3],
+            toward_sun: [0., 3., 4.],
+            celestial_flags: 0,
+        };
+        assert_eq!(l.material_direction().travel(), [0., -0.6, -0.8]);
+        let zero = RegionalLight {
+            toward_sun: [0.; 3],
+            ..l
+        };
+        assert_eq!(zero.material_direction().travel(), [0.; 3]);
+        let huge = RegionalLight {
+            toward_sun: [f32::MAX; 3],
+            ..l
+        };
+        assert_eq!(huge.material_direction().travel(), [0.; 3]);
     }
 }

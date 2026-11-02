@@ -707,6 +707,11 @@ struct Renderer {
     wind_last: Instant,
     world_glow: crate::post_gpu::WorldGlow,
     celestial_visibility: crate::client_sun::Visibility,
+    // Native SetLightParam/SetAmbient state persists when a frame selects no
+    // environment box (0x41ec65 keeps the in-flight environment). Keeping the
+    // last published regional light avoids erasing ordinary model light on an
+    // uncovered frame while baked surfaces stay independent of it.
+    retained_regional_light: Option<crate::environment::RegionalLight>,
     glow_requested_fade: Option<f32>,
     grass_wind_state: crate::grass_wind::GrassWind,
     atlas: wgpu::Texture,
@@ -1042,6 +1047,7 @@ impl Renderer {
             wind_last: Instant::now(),
             world_glow: crate::post_gpu::WorldGlow::default(),
             celestial_visibility: crate::client_sun::Visibility::default(),
+            retained_regional_light: None,
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
             atlas,
@@ -1207,13 +1213,19 @@ impl Renderer {
         camera: &Camera,
         advance: bool,
     ) {
-        if let (Some(models), Some(light)) = (&mut self.models, camera.regional_light) {
+        if let Some(light) = camera.regional_light {
+            self.retained_regional_light = Some(light);
+        }
+        let light = camera.regional_light.or(self.retained_regional_light);
+        if let (Some(models), Some(light)) = (&mut self.models, light) {
             // Reuse the root logic tick used by regions and the glow presenter.
             // A fresh wall-time sample here both bypassed the 250ms cap and
             // included all asset-loading time on the first receiving-model draw.
             // Water passes reuse the sampled pose; never tick again per view.
             let delta = if advance { camera.logic_delta_ms } else { 0 };
-            let d = Vec3::from_array(light.toward_sun).normalize_or_zero();
+            // Authored EC-BSD direction only (light_consumers::DirectionSource
+            // ::Authored). The animated celestial curve never reaches here.
+            let d = light.material_direction().travel();
             let frame = crate::model_draw_gpu::Frame {
                 blend_enabled: false,
                 matrix: uniform.matrix,
@@ -1226,7 +1238,7 @@ impl Renderer {
                     transparency: -1.,
                     point_enabled: false,
                 },
-                direction: [-d.x, -d.y, -d.z],
+                direction: d,
                 point_position: [0.; 3],
                 attenuation: [0., 0.4, 0.],
                 eye_direction: uniform.direction[..3].try_into().unwrap(),
@@ -1472,9 +1484,12 @@ impl Renderer {
             None
         };
         let scene_target_raw = post_raw.as_ref().unwrap_or(target_raw);
+        // Disc azimuth comes from the authored region direction; elevation is
+        // the recovered sky clock. Only the celestial rows read the curve.
         let authored = camera
             .regional_light
-            .map(|l| l.toward_sun.map(|x| -x))
+            .or(self.retained_regional_light)
+            .map(|l| l.material_direction().travel())
             .unwrap_or([0.6, -0.4, 0.8]);
         let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
             .unwrap_or([0., -1., 0.])
