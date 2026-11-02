@@ -1292,3 +1292,26 @@ eight transformed ORIGINAL mesh AABB corners, capped by float bits
 `alpha_corner_distance` and three CPU tests for inside-box behavior,
 rotation/nonuniform scale/translation, sentinel saturation and invalid inputs.
 Core now 71 passing. Alpha scene submission and its water split remain No.
+
+### Per-area grass availability and terrain-only missing-night fallback
+
+Implemented the verified `7c2678–7c2683` missing-night terrain policy in the
+production atlas loader: copy the day records into the night slots only when
+the night file is absent. Missing day and other I/O/invalid-payload errors
+remain explicit failures (no guessed dayless terrain binding). Two CPU file
+pair tests cover these distinctions. The upload format/BC1/RGBA and bounded
+staging paths are unchanged.
+
+Added a separate per-area authored availability buffer to grass. The area
+selected by its center (or the explicit diagnostic legacy selection) must
+have BOTH original maps. Terrain's fallback copy does not mark night ready;
+grass instead uses the unlit texture RGB, preserving alpha/fade/fog.
+Production binds the actual loader metadata, rather than a global flag.
+GPU regressions now include a missing-night area adjacent to an available
+area (both selection modes / night-middle-day), plus all four availability
+combinations and RGB/alpha oracle checks with unrelated directional lighting
+black. Local core: 73 passing. GPU/new build validation pending.
+
+Confirmation: file pair policy/per-area production metadata implemented;
+GPU verification pending. Full P1.06 No: full-world payload census and
+dynamic loading/unloading lifecycle are not completed by startup metadata.

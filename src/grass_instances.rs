@@ -164,6 +164,7 @@ struct GrassLightSettings { params:vec4<f32>, areas:vec4<u32>, light:vec4<u32> }
 @group(1) @binding(0) var<uniform> grass_settings:GrassLightSettings;
 @group(1) @binding(1) var grass_lightmaps:texture_2d_array<f32>;
 @group(1) @binding(2) var grass_light_sampler:sampler;
+@group(1) @binding(3) var<storage,read> grass_light_availability:array<u32>;
 fn grass_linear(c:vec3<f32>)->vec3<f32>{return select(c/12.92,pow((max(c,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));}
 fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
  let s=grass_settings;
@@ -174,7 +175,11 @@ fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
  let area_gy=clamp(s.params.y*0.5-area.y/s.params.z,0.,s.params.y-1.);
  let selected=select(floor(coord),floor(vec2<f32>(area_gx,area_gy)/s.params.w),camera.grass_wind.z>0.5);
  let ax=u32(selected.x);let ay=u32(selected.y);
- let id=ay*s.areas.x+ax;let slot=id%s.light.z;let page=id/s.light.z;
+ let id=ay*s.areas.x+ax;
+ // Terrain may copy day into a missing night slot. Grass instead uses its
+ // unlit texture whenever EITHER authored map is unavailable.
+ if (grass_light_availability[id]&3u)!=3u {return grass_linear(clamp(base,vec3<f32>(0.),vec3<f32>(1.)));}
+ let slot=id%s.light.z;let page=id/s.light.z;
  let side=f32(s.light.x);let xy=vec2<f32>(f32(slot%s.light.y),f32(slot/s.light.y))*side;
  let loc=clamp((coord-selected)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));
  let lmuv=(xy+loc)/vec2<f32>(textureDimensions(grass_lightmaps));

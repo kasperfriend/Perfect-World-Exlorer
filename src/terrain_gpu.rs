@@ -355,7 +355,7 @@ impl TerrainGpu {
         upload_page(&page, page_id);
         queue.submit(std::iter::empty());
         device.poll(wgpu::Maintain::Wait);
-        let (lighttex, light_side, light_per_row, light_per_page, light_pages) =
+        let (lighttex, light_side, light_per_row, light_per_page, light_pages, availability) =
             load_lightmaps(device, queue, t, mask_side)?;
         let settings = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("terrain world settings"),
@@ -439,8 +439,18 @@ impl TerrainGpu {
                     ),
                     texture(1),
                     sam(2),
+                    buf(
+                        3,
+                        wgpu::ShaderStages::FRAGMENT,
+                        wgpu::BufferBindingType::Storage { read_only: true },
+                    ),
                 ],
             });
+        let availability = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("authored terrain lightmap availability for grass"),
+            contents: bytemuck::cast_slice(&availability),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
         let grass_light_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("grass terrain day/night lightmaps"),
             layout: &grass_light_layout,
@@ -448,6 +458,7 @@ impl TerrainGpu {
                 entry(0, settings.as_entire_binding()),
                 entry(1, wgpu::BindingResource::TextureView(&light_view)),
                 entry(2, wgpu::BindingResource::Sampler(&mask_sampler)),
+                entry(3, availability.as_entire_binding()),
             ],
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -692,7 +703,7 @@ fn load_lightmaps(
     queue: &wgpu::Queue,
     t: &Terrain,
     side: usize,
-) -> Result<(wgpu::Texture, usize, usize, usize, usize), String> {
+) -> Result<(wgpu::Texture, usize, usize, usize, usize, Vec<u32>), String> {
     let m = &t.materials;
     if std::env::var_os("PW_TEST_NO_LIGHTMAPS").is_some() {
         let per_row = 16usize;
@@ -712,7 +723,14 @@ fn load_lightmaps(
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        return Ok((texture, 256, per_row, per_page, pages));
+        return Ok((
+            texture,
+            256,
+            per_row,
+            per_page,
+            pages,
+            vec![0; m.areas.len().max(1)],
+        ));
     }
     let bc = device
         .features()
@@ -751,15 +769,21 @@ fn load_lightmaps(
     // and shader sampling remain exactly the same.
     let layout =
         crate::terrain_lightmaps::Layout::new(m.areas_x, m.areas.len(), t.subterrain_names.len())?;
+    let mut availability = vec![0u32; m.areas.len()];
     for (si, name) in t.subterrain_names.iter().enumerate() {
+        let base = t.element.join("maps/world");
+        let pair = crate::terrain_lightmaps::Pair::read(
+            &base.join(format!("{name}.t2lm")),
+            &base.join(format!("{name}.t2lm1")),
+        )?;
         for (which, ext) in ["t2lm", "t2lm1"].iter().enumerate() {
             let path = t.element.join("maps/world").join(format!("{name}.{ext}"));
-            let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            let tiles = crate::terrain_lightmaps::Tiles::parse(&bytes)
+            let tiles = crate::terrain_lightmaps::Tiles::parse(pair.bytes(which == 1))
                 .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
             for j in 0..crate::terrain_lightmaps::TILES {
                 let raw = tiles.tile(j).unwrap();
                 let id = layout.area(si, j).unwrap();
+                availability[id] = pair.availability();
                 let slot = id % per_page;
                 let page = id / per_page + which * pages;
                 let x = (slot % per_row) * side;
@@ -830,12 +854,14 @@ fn load_lightmaps(
         }
     }
     eprintln!(
-        "Loaded {} day/night terrain lightmap pairs at {}px ({})",
+        "Loaded {} terrain lightmap areas ({} with authored night maps, {} day-only) at {}px ({})",
         m.areas.len(),
+        availability.iter().filter(|&&a| a == 3).count(),
+        availability.iter().filter(|&&a| a == 1).count(),
         side,
         if bc { "native BC1" } else { "RGBA" }
     );
-    Ok((texture, side, per_row, per_page, pages))
+    Ok((texture, side, per_row, per_page, pages, availability))
 }
 
 #[repr(C)]

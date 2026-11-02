@@ -1,5 +1,40 @@
 //! Bounded T2LM v2 DDS records and subterrain-to-mask-area placement.
 //! The offset table is indexed by mask area; payload order is not guaranteed.
+/// Day is required for terrain. Only an absent night file falls back to day;
+/// other I/O/format errors remain visible. Grass must inspect availability,
+/// not mistake the terrain fallback copy for an authored night map.
+pub struct Pair {
+    day: Vec<u8>,
+    night: Option<Vec<u8>>,
+}
+impl Pair {
+    pub fn read(day: &std::path::Path, night: &std::path::Path) -> Result<Self, String> {
+        let day_bytes = std::fs::read(day).map_err(|e| format!("{}: {e}", day.display()))?;
+        let night_bytes = match std::fs::read(night) {
+            Ok(b) => Some(b),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(format!("{}: {e}", night.display())),
+        };
+        Ok(Self {
+            day: day_bytes,
+            night: night_bytes,
+        })
+    }
+    pub fn bytes(&self, night: bool) -> &[u8] {
+        if night {
+            self.night.as_deref().unwrap_or(&self.day)
+        } else {
+            &self.day
+        }
+    }
+    pub fn availability(&self) -> u32 {
+        if self.night.is_some() {
+            3
+        } else {
+            1
+        }
+    }
+}
 pub const TILES: usize = 16;
 pub struct Tiles<'a> {
     bytes: &'a [u8],
@@ -76,6 +111,35 @@ impl Layout {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn missing_night_falls_back_for_terrain_without_marking_grass_ready() {
+        let root = std::env::temp_dir().join(format!("pw-lm-night-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let day = root.join("day");
+        let night = root.join("night");
+        std::fs::write(&day, [1, 2, 3]).unwrap();
+        let pair = super::Pair::read(&day, &night).unwrap();
+        assert_eq!(pair.availability(), 1);
+        assert_eq!(pair.bytes(true), pair.bytes(false));
+        std::fs::write(&night, [4, 5, 6]).unwrap();
+        let pair = super::Pair::read(&day, &night).unwrap();
+        assert_eq!(pair.availability(), 3);
+        assert_eq!(pair.bytes(true), [4, 5, 6]);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn missing_day_and_non_missing_night_errors_are_not_hidden() {
+        let root = std::env::temp_dir().join(format!("pw-lm-errors-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let day = root.join("day");
+        let night = root.join("night");
+        std::fs::write(&night, [1]).unwrap();
+        assert!(super::Pair::read(&day, &night).is_err());
+        std::fs::write(&day, [2]).unwrap();
+        assert!(super::Pair::read(&day, &root).is_err()); // Directory is not a missing file.
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     use super::*;
     fn fixture() -> Vec<u8> {
         let mut b = vec![0; 88 + TILES * 4];

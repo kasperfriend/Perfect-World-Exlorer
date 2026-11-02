@@ -194,6 +194,16 @@ fn main() {
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
         ],
     });
     let values: [u32; 12] = [
@@ -278,6 +288,11 @@ fn main() {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         ..Default::default()
     });
+    let availability = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("per-area authored map availability"),
+        contents: bytemuck::cast_slice(&[3u32; 4]),
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+    });
     let light_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &light_layout,
@@ -293,6 +308,10 @@ fn main() {
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: availability.as_entire_binding(),
             },
         ],
     });
@@ -880,6 +899,10 @@ fn main() {
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(&sampler),
             },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: availability.as_entire_binding(),
+            },
         ],
     });
     let mut edge_builder = grass_instances::Builder::default();
@@ -893,86 +916,97 @@ fn main() {
         edge_builder.finish(),
         Some(&light_layout),
     );
-    for area_mode in [false, true] {
-        for daylight in [0.0f32, 0.5, 1.] {
-            uni[21] = 0.;
-            uni[35] = daylight;
-            uni[55] = 0.;
-            uni[57] = 0.;
-            uni[58] = if area_mode { 1. } else { 0. };
-            uni[382] = 0.;
-            queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
-            let read = device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: 128 * 128 * 4,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            let mut e = device.create_command_encoder(&Default::default());
-            {
-                let mut p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("area center LM clamp"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &dv,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(0.),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
+    for unavailable in [false, true] {
+        queue.write_buffer(
+            &availability,
+            0,
+            bytemuck::cast_slice(&[3u32, if unavailable { 1 } else { 3 }, 3, 3]),
+        );
+        for area_mode in [false, true] {
+            for daylight in [0.0f32, 0.5, 1.] {
+                uni[21] = 0.;
+                uni[35] = daylight;
+                uni[55] = 0.;
+                uni[57] = 0.;
+                uni[58] = if area_mode { 1. } else { 0. };
+                uni[382] = 0.;
+                queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
+                let read = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: 128 * 128 * 4,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
                 });
-                edge_grass.draw(&mut p, &bind, Some(&edge_bind));
-            }
-            e.copy_texture_to_buffer(
-                wgpu::ImageCopyTexture {
-                    texture: &target,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::ImageCopyBuffer {
-                    buffer: &read,
-                    layout: wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(512),
-                        rows_per_image: Some(128),
+                let mut e = device.create_command_encoder(&Default::default());
+                {
+                    let mut p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("area center LM clamp"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &dv,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0.),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    edge_grass.draw(&mut p, &bind, Some(&edge_bind));
+                }
+                e.copy_texture_to_buffer(
+                    wgpu::ImageCopyTexture {
+                        texture: &target,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
                     },
-                },
-                size,
-            );
-            queue.submit(Some(e.finish()));
-            let slice = read.slice(..);
-            let (tx, rx) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
-            device.poll(wgpu::Maintain::Wait);
-            rx.recv().unwrap().unwrap();
-            let bytes = slice.get_mapped_range();
-            let green = bytes[(73 * 128 + 32) * 4 + 1];
-            let (day, night) = if area_mode { (96., 48.) } else { (64., 32.) };
-            let encoded =
-                (240. / 255. * 2. * (night * (1. - daylight) + day * daylight) / 255.).min(1.);
-            let expected = (((encoded + 0.055) / 1.055).powf(2.4) * 255.).round() as i32;
-            assert!(
+                    wgpu::ImageCopyBuffer {
+                        buffer: &read,
+                        layout: wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(512),
+                            rows_per_image: Some(128),
+                        },
+                    },
+                    size,
+                );
+                queue.submit(Some(e.finish()));
+                let slice = read.slice(..);
+                let (tx, rx) = std::sync::mpsc::channel();
+                slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+                device.poll(wgpu::Maintain::Wait);
+                rx.recv().unwrap().unwrap();
+                let bytes = slice.get_mapped_range();
+                let green = bytes[(73 * 128 + 32) * 4 + 1];
+                let (day, night) = if area_mode { (96., 48.) } else { (64., 32.) };
+                let encoded = if unavailable && area_mode {
+                    240. / 255.
+                } else {
+                    (240. / 255. * 2. * (night * (1. - daylight) + day * daylight) / 255.).min(1.)
+                };
+                let expected = (((encoded + 0.055) / 1.055).powf(2.4) * 255.).round() as i32;
+                assert!(
                 (green as i32 - expected).abs() <= 2,
                 "area LM clamp mode={area_mode} daylight={daylight}: {green}, expected {expected}"
             );
-            println!(
+                println!(
                 "area LM clamp mode={area_mode} daylight={daylight}: {green}, expected {expected}"
             );
-            drop(bytes);
-            read.unmap();
+                drop(bytes);
+                read.unmap();
+            }
         }
     }
+    queue.write_buffer(&availability, 0, bytemuck::cast_slice(&[3u32; 4]));
     uni = edge_saved;
     let hours = [
         (0., 0.),
@@ -991,8 +1025,16 @@ fn main() {
     for (hour, expected) in hours {
         assert!((environment::daylight(hour) - expected).abs() < 0.00001);
     }
+    let cases: Vec<_> = hours
+        .iter()
+        .map(|&(hour, _)| (hour, 3u32))
+        .chain([(-1., 3)])
+        .chain((0..3).flat_map(|flags| [0., 5., 12.].map(move |hour| (hour, flags))))
+        .collect();
     let mut greens = Vec::new();
-    for (hour, _) in hours.into_iter().chain([(-1., -1.)]) {
+    let mut colors = Vec::new();
+    for &(hour, flags) in &cases {
+        queue.write_buffer(&availability, 0, bytemuck::cast_slice(&[flags; 4]));
         let daylight = if hour < 0. {
             -1.
         } else {
@@ -1063,27 +1105,39 @@ fn main() {
         let pixels = slice.get_mapped_range();
         let g = pixels.chunks_exact(4).map(|p| p[1]).max().unwrap();
         greens.push(g);
+        colors.push(
+            <[u8; 4]>::try_from(pixels.chunks_exact(4).max_by_key(|p| p[1]).unwrap()).unwrap(),
+        );
         drop(pixels);
         buf.unmap();
     }
-    for (j, (_, daylight)) in hours.into_iter().chain([(-1., -1.)]).enumerate() {
-        let mix = (lm[5] as f32 * (1. - daylight) + lm[1] as f32 * daylight) / 255.;
-        let encoded = if daylight < 0. {
-            240. / 255.
+    for (j, &(hour, flags)) in cases.iter().enumerate() {
+        let daylight = if hour < 0. {
+            -1.
         } else {
-            (240. / 255. * 2. * mix).clamp(0., 1.)
+            environment::daylight(hour)
         };
-        let linear = if encoded <= 0.04045 {
-            encoded / 12.92
-        } else {
-            ((encoded + 0.055) / 1.055).powf(2.4)
-        };
-        let expected = (linear * 255.).round() as i32;
-        assert!(
-            (greens[j] as i32 - expected).abs() <= 2,
-            "GPU {} != PS1.1 RGB reference {expected}",
-            greens[j]
-        );
+        for ch in 0..3 {
+            let mix = (lm[4 + ch] as f32 * (1. - daylight) + lm[ch] as f32 * daylight) / 255.;
+            let base = [30., 240., 40.][ch] / 255.;
+            let encoded = if daylight < 0. || flags != 3 {
+                base
+            } else {
+                (base * 2. * mix).clamp(0., 1.)
+            };
+            let linear = if encoded <= 0.04045 {
+                encoded / 12.92
+            } else {
+                ((encoded + 0.055) / 1.055).powf(2.4)
+            };
+            let expected = (linear * 255.).round() as i32;
+            assert!(
+                (colors[j][ch] as i32 - expected).abs() <= 2,
+                "grass RGB ch={ch} hour={hour} availability={flags}: {:?} expected {expected}",
+                colors[j]
+            );
+        }
+        assert_eq!(colors[j][3], 255);
     }
     println!("Grass day/night lightmap test green: {greens:?}");
     let (day_color, night_color) = if let Ok(path) = std::env::var("PW_REAL_BMD_PCK") {
