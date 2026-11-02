@@ -24,6 +24,19 @@ pub fn bmd_transmittance(world: [f32; 3], eye: [f32; 3], water_height: f32) -> f
     let clamped = [world[0], world[1].min(water_height), world[2]];
     grass_transmittance(world, clamped, eye, water_height)
 }
+/// Terrain refraction uses the BMD depth clamp for fog, additionally emits
+/// depth-only darkness in diffuse, and flattens geometry to the water plane.
+pub fn terrain_vertex(world: [f32; 3], eye: [f32; 3], water_height: f32) -> ([f32; 3], [f32; 2]) {
+    let projected = [world[0], world[1].min(water_height), world[2]];
+    let depth = water_height - projected[1];
+    (
+        projected,
+        [
+            bmd_transmittance(world, eye, water_height),
+            (-2. * DENSITY * depth).exp2(),
+        ],
+    )
+}
 pub const WGSL: &str = r#"
 fn grass_refraction_transmittance(original:vec3<f32>,displaced:vec3<f32>,eye:vec3<f32>,water_height:f32)->f32 {
  let delta=eye-original;let depth=water_height-displaced.y;
@@ -81,5 +94,18 @@ mod tests {
             bmd_transmittance(p, eye, 0.),
             grass_transmittance(p, p, eye, 0.)
         );
+    }
+    #[test]
+    fn terrain_projects_geometry_and_darkness_is_separate_from_ray_fog() {
+        let (p, f) = terrain_vertex([2., 3., 4.], [0., 10., 0.], 1.);
+        assert_eq!(p, [2., 1., 4.]);
+        assert_eq!(f, [1., 1.]);
+        let world = [2., -9., 4.];
+        let (p, f) = terrain_vertex(world, [0., 10., 0.], 1.);
+        assert_eq!(p, world);
+        assert!((f[1] - (-1.5f32).exp2()).abs() < 1e-6);
+        let (_, g) = terrain_vertex(world, [10., 10., 0.], 1.);
+        assert_eq!(f[1], g[1]);
+        assert_ne!(f[0], g[0]);
     }
 }

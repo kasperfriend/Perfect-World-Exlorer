@@ -57,9 +57,22 @@ struct Layer { tex:u32,axis:u32,mask:u32,pad:u32,uv:vec2<f32>,pad2:vec2<f32> };
 @group(0) @binding(7) var<storage,read> layers:array<Layer>;
 struct In {@location(0) pos:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) uv:vec2<f32>,@location(3) color:vec4<f32>,@location(4) kind:f32};
 struct FarIn {@location(0) pos:vec3<f32>, @location(1) normal:vec4<f32>};
-struct Out {@builtin(position) pos:vec4<f32>,@location(0) world:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) @interpolate(flat) distant:f32};
-@vertex fn vs(i:In)->Out {var o:Out;o.pos=camera.matrix*vec4<f32>(i.pos,1.);o.world=i.pos;o.normal=i.normal;o.distant=i.kind;return o;}
-@vertex fn vs_far(i:FarIn)->Out {var o:Out;o.pos=camera.matrix*vec4<f32>(i.pos,1.);o.world=i.pos;o.normal=i.normal.xyz;o.distant=1.;return o;}
+struct Out {@builtin(position) pos:vec4<f32>,@location(0) world:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) @interpolate(flat) distant:f32,@location(3) refraction:vec2<f32>};
+// terrain_refract_vs: project above-plane vertices down, but use the original
+// vertex for UV generation and eye direction. oD0 is independent depth darkness.
+fn terrain_vertex(world:vec3<f32>,normal:vec3<f32>,distant:f32)->Out {
+ var o:Out;var projected=world;o.refraction=vec2<f32>(1.);
+ if camera.clip.y<0. {
+  projected.y=min(world.y,camera.clip.x);let depth=camera.clip.x-projected.y;
+  let delta=camera.grass_eye.xyz-world;
+  var f=select(1.,0.,depth>0.);
+  if abs(delta.y)>0.000001 {f=exp2(-0.075*depth*length(delta)/delta.y);}
+  o.refraction=vec2<f32>(f,exp2(-0.15*depth));
+ }
+ o.pos=camera.matrix*vec4<f32>(projected,1.);o.world=world;o.normal=normal;o.distant=distant;return o;
+}
+@vertex fn vs(i:In)->Out {return terrain_vertex(i.pos,i.normal,i.kind);}
+@vertex fn vs_far(i:FarIn)->Out {return terrain_vertex(i.pos,i.normal.xyz,1.);}
 // Approximate the original fixed-function/PS 1.1 arithmetic in encoded RGB.
 // D3D8 filters authored texture bytes in encoded space. The texture arrays
 // use UNORM views; return linear RGB to the viewer's sRGB render target.
@@ -73,8 +86,13 @@ fn fogged(linear:vec3<f32>, reciprocal_w:f32)->vec3<f32> {
  let v=mix(encoded,camera.fog_color.rgb,f);
  return select(v/12.92,pow((max(v,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),v>vec3<f32>(0.04045));
 }
+fn terrain_pass_fog(linear:vec3<f32>,reciprocal_w:f32,transmittance:f32)->vec3<f32> {
+ if camera.clip.y>=0. || camera.fog_range.z<0.5 {return fogged(linear,reciprocal_w);}
+ let c=max(linear,vec3<f32>(0.));let encoded=select(c*12.92,1.055*pow(c,vec3<f32>(1./2.4))-0.055,c>vec3<f32>(0.0031308));
+ let v=mix(camera.fog_color.rgb,encoded,clamp(transmittance,0.,1.));return to_linear(v);
+}
 @fragment fn fs(i:Out)->@location(0) vec4<f32> {
- if camera.clip.y!=0. && (i.world.y-camera.clip.x)*camera.clip.y<0. {discard;}
+ if camera.clip.y>0. && i.world.y<camera.clip.x {discard;}
  if i.distant>0.5 && i.world.x>=camera.bounds.x && i.world.x<camera.bounds.y && i.world.z>=camera.bounds.z && i.world.z<camera.bounds.w {discard;}
  let gx=clamp(i.world.x/settings.params.z+settings.params.x*0.5,0.,settings.params.x-1.);
  let gy=clamp(settings.params.y*0.5-i.world.z/settings.params.z,0.,settings.params.y-1.);
@@ -94,9 +112,9 @@ fn fogged(linear:vec3<f32>, reciprocal_w:f32)->vec3<f32> {
  var alpha=1.;if k>0u {let slot=l.mask%settings.areas.w;let page=l.mask/settings.areas.w;let side=f32(settings.areas.y);let xy=vec2<f32>(f32(slot%settings.areas.z),f32(slot/settings.areas.z))*side;let local=clamp(fract(coord)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));alpha=textureSampleLevel(masks,mask_sampler,(xy+local)/4096.,i32(page),0.).r;}
  if camera.sun.w<0. {tex=to_linear(tex);}
  color=mix(color,tex,alpha);}
- if camera.sun.w>=0. {return vec4<f32>(fogged(to_linear(clamp(color*baked,vec3<f32>(0.),vec3<f32>(1.))),i.pos.w),1.);}
+ if camera.sun.w>=0. {return vec4<f32>(terrain_pass_fog(to_linear(clamp(color*baked*i.refraction.y,vec3<f32>(0.),vec3<f32>(1.))),i.pos.w,i.refraction.x),1.);}
  let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);
- return vec4<f32>(fogged(color*light*camera.light.zww,i.pos.w),1.);
+ return vec4<f32>(terrain_pass_fog(color*light*camera.light.zww,i.pos.w,i.refraction.x),1.);
 }
 "#;
 impl TerrainGpu {

@@ -439,3 +439,29 @@ point light is added to baked vertex colors. GPU regressions add two BMD
 water-height cases alongside the three grass cases. CPU core: 39 tests pass.
 
 Grass commit `1375f2a` passed [CI 41434813651](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41434813651): Linux production GPU regressions and Windows build. The BMD extension is separately pending its own validation.
+
+### Terrain refraction geometry, darkness and fog
+
+Followed environment shader `+0x30` from `0x7c4edb` and renderer selection
+`0x7c1714` to `terrain_refract_vs.txt`. `0x7c26e0–0x7c287a` uploads c0;
+the density global `0x98f368` starts at 0.075 and the offset is BSS zero
+(the executable also contains developer-key adjustments, not enabled here).
+The VS projects above-water Y onto the water plane, retains original
+position for UV generation and eye ray, emits depth-only darkness
+`exp2(-2*density*depth)` and separately emits eye-ray transmittance.
+`t2_3layer_batch_14.txt` multiplies encoded material RGB by vertex diffuse
+before the ×2 day/night lightmap operation. Thus darkness is not a second
+point/directional lighting term and must be applied before color saturation.
+
+Near and far terrain vertex entries now share this production refraction
+constructor; above-plane terrain is projected, not discarded before the
+projection. The lightmapped material path uses interpolated darkness before
+saturation and interpolated exponential fog afterward in encoded RGB.
+Ordinary and reflection paths retain their existing geometry/table fog.
+Added `terrain-refraction-gpu-check` to CI: three water planes plus main,
+reflection and disabled-fog controls exercise these production functions
+with an independent interpolation/color oracle. This fixture isolates the
+vertex/fog path; it does not validate every terrain texture/layer variant.
+CPU core now passes 40 tests; terrain GPU validation is pending.
+
+BMD extension `6a903ad` passed [CI 41435206213](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41435206213), including the two BMD and three grass rendered refraction cases and the Windows executable build.
