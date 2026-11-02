@@ -25,6 +25,7 @@ pub struct ViewSettings {
     pub atmospheric_fog: bool,
     pub bloom: bool,
     pub bloom_strength: f32,
+    pub bloom_mode: u8,
     pub client_gamma: bool,
     pub gamma_setting: f32,
     pub terrain_lightmaps: bool,
@@ -57,6 +58,7 @@ impl Default for ViewSettings {
             atmospheric_fog: false,
             bloom: false,
             bloom_strength: 1.,
+            bloom_mode: 0,
             client_gamma: false,
             gamma_setting: 41.,
             terrain_lightmaps: true,
@@ -118,6 +120,11 @@ impl ViewSettings {
                 "grass_wind_strength" => number!(s.grass_wind_strength, 0., 1.),
                 "tree_wind_strength" => number!(s.tree_wind_strength, 0., 1.),
                 "bloom_strength" => number!(s.bloom_strength, 0., 4.),
+                "bloom_mode" => {
+                    if let Ok(mode) = v.parse::<u8>() {
+                        s.bloom_mode = if matches!(mode, 4 | 5) { mode } else { 0 };
+                    }
+                }
                 "client_gamma" => flag!(s.client_gamma),
                 "gamma_setting" => number!(s.gamma_setting, 0., 100.),
                 "music_volume" => number!(s.music_volume, 0., 1.),
@@ -145,11 +152,11 @@ impl ViewSettings {
     fn encode(&self) -> String {
         format!(concat!("# Perfect World Explorer settings, version 1\n",
             "radius={}\ntree_lod_scale={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
-            "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nclient_gamma={}\ngamma_setting={}\n",
+            "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
             "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
-            self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.client_gamma,self.gamma_setting,
+            self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs)
     }
@@ -234,5 +241,20 @@ mod tests {
         let s = ViewSettings::decode("area_grass_lightmaps=false");
         assert!(!s.area_grass_lightmaps);
         assert!(!ViewSettings::decode(&s.encode()).area_grass_lightmaps);
+    }
+    #[test]
+    fn special_glow_preview_is_explicit_persisted_and_bounded() {
+        assert_eq!(ViewSettings::default().bloom_mode, 0);
+        for mode in [4, 5] {
+            let s = ViewSettings::decode(&format!("bloom_mode={mode}"));
+            assert_eq!(s.bloom_mode, mode);
+            assert_eq!(ViewSettings::decode(&s.encode()).bloom_mode, mode);
+        }
+        for invalid in ["3", "255", "-1", "bad"] {
+            assert_eq!(
+                ViewSettings::decode(&format!("bloom_mode={invalid}")).bloom_mode,
+                0
+            );
+        }
     }
 }

@@ -6,7 +6,7 @@ use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 /// Glow constants and interpolation traced through 0x410bb0 / 0x4111f0.
 /// Special mode 3 is selected when the camera is underwater (0x41eb69,
-/// 0x4214ad); modes 4/5 depend on player states not represented by the viewer.
+/// 0x4214ad). Modes 4/5 can be previewed without adding player/gameplay state.
 #[derive(Default, Debug)]
 pub struct WorldGlow {
     mode: u8,
@@ -24,11 +24,25 @@ pub struct WorldGlow {
 }
 impl WorldGlow {
     pub fn update(&mut self, enabled: bool, daylight: f32, underwater: bool, dt: f32) -> [f32; 6] {
+        self.update_with_mode(enabled, daylight, underwater, 0, dt)
+    }
+    /// Zero selects world/day/night/underwater automatically. Four and five
+    /// preview the client special-mode parameters without gameplay triggers.
+    pub fn update_with_mode(
+        &mut self,
+        enabled: bool,
+        daylight: f32,
+        underwater: bool,
+        override_mode: u8,
+        dt: f32,
+    ) -> [f32; 6] {
         if !enabled {
             *self = Self::default();
             return [0.; 6];
         }
-        let mode = if underwater {
+        let mode = if matches!(override_mode, 4 | 5) {
+            override_mode
+        } else if underwater {
             3
         } else if 1. - daylight < 0.5 {
             1
@@ -55,7 +69,7 @@ impl WorldGlow {
                     self.mono_target = 0.;
                     self.mono_duration = 5.;
                 }
-                _ => {
+                3 => {
                     self.target = [0.5, 0.6];
                     self.duration = 2.;
                     self.mono = 0.;
@@ -64,6 +78,25 @@ impl WorldGlow {
                     self.mono_duration = 1.5;
                     self.mono_color = [187. / 255., 234. / 255., 187. / 255.];
                 }
+                4 => {
+                    // 0x410cdb: level 1, power .7, mono 0->1 in 2s.
+                    self.target = [1., 0.7];
+                    self.duration = 2.;
+                    self.mono = 0.;
+                    self.mono_from = 0.;
+                    self.mono_target = 1.;
+                    self.mono_duration = 2.;
+                    self.mono_color = [226. / 255., 1., 1.];
+                }
+                5 => {
+                    // 0x410d28: level .1, power .25 in 1s; mono fades 5s.
+                    self.target = [0.1, 0.25];
+                    self.duration = 1.;
+                    self.mono_from = self.mono;
+                    self.mono_target = 0.;
+                    self.mono_duration = 5.;
+                }
+                _ => unreachable!(),
             }
         }
         let dt = if dt.is_finite() { dt.max(0.) } else { 0. };
@@ -88,6 +121,25 @@ impl WorldGlow {
 #[cfg(test)]
 mod glow_tests {
     use super::WorldGlow;
+    #[test]
+    fn special_modes_use_distinct_targets_tints_and_transition_durations() {
+        let mut g = WorldGlow::default();
+        let a = g.update_with_mode(true, 1., false, 4, 1.);
+        assert_eq!(&a[..2], &[0.5, 0.35]);
+        assert_eq!(&a[2..5], &[226. / 255., 1., 1.]);
+        assert_eq!(a[5], 0.5);
+        let b = g.update_with_mode(true, 1., false, 4, 1.);
+        assert_eq!(&b[..2], &[1., 0.7]);
+        assert_eq!(b[5], 1.);
+        let c = g.update_with_mode(true, 1., false, 5, 0.5);
+        assert!((c[0] - 0.55).abs() < 1e-6 && (c[1] - 0.475).abs() < 1e-6);
+        assert!((c[5] - 0.9).abs() < 1e-6);
+        let d = g.update_with_mode(true, 1., false, 5, 0.5);
+        assert!(
+            (d[0] - 0.1).abs() < 1e-6 && (d[1] - 0.25).abs() < 1e-6 && (d[5] - 0.8).abs() < 1e-6
+        );
+        assert_eq!(g.update_with_mode(false, 1., false, 4, 1.), [0.; 6]);
+    }
     #[test]
     fn normal_modes_transition_from_current_level() {
         let mut g = WorldGlow::default();

@@ -1329,10 +1329,11 @@ impl Renderer {
         let dt = now.duration_since(self.wind_last).as_secs_f32();
         self.grass_wind_state.update(dt);
         self.wind_last = now;
-        let glow_parameters = self.world_glow.update(
+        let glow_parameters = self.world_glow.update_with_mode(
             camera.bloom,
             crate::environment::daylight(camera.time_of_day),
             camera.underwater_depth > 0.,
+            camera.bloom_mode,
             dt,
         );
         let direction = camera.direction();
@@ -1864,6 +1865,7 @@ struct Camera {
     celestial_discs: bool,
     bloom: bool,
     bloom_strength: f32,
+    bloom_mode: u8,
     client_gamma: bool,
     gamma_setting: f32,
     underwater_depth: f32,
@@ -1893,6 +1895,7 @@ impl Camera {
             celestial_discs: false,
             bloom: false,
             bloom_strength: 1.,
+            bloom_mode: 0,
             client_gamma: false,
             gamma_setting: 41.,
             underwater_depth: 0.,
@@ -2374,6 +2377,7 @@ pub fn run(
                     camera.celestial_discs=settings.celestial_discs;
                     camera.bloom=settings.bloom;
                     camera.bloom_strength=settings.bloom_strength;
+                    camera.bloom_mode=settings.bloom_mode;
                     let whole_frame_gamma=crate::display_gamma::enabled(settings.client_gamma, settings.fullscreen);
                     let frame_gamma_setting=settings.gamma_setting;
                     if whole_frame_gamma && display_gamma.is_none() {display_gamma=Some(crate::display_gamma::DisplayGamma::new(&renderer.device,format,config.width,config.height));}
@@ -2470,7 +2474,7 @@ pub fn run(
                                                 let defaults=ViewSettings::default();
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
-                                                    0=>{ui.heading("Graphics");ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
+                                                    0=>{ui.heading("Graphics");ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
                                                     1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Detailed terrain radius (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());ui.label("Music follows the client zone playlists; ambient sounds are not yet implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
@@ -2580,6 +2584,7 @@ pub fn preview(
             celestial_discs: false,
             bloom: false,
             bloom_strength: 1.,
+            bloom_mode: 0,
             client_gamma: false,
             gamma_setting: 41.,
             underwater_depth: 0.,
@@ -2602,6 +2607,11 @@ pub fn preview(
         cam.terrain_lightmaps = false;
     }
     cam.bloom = std::env::var_os("PW_PREVIEW_BLOOM").is_some();
+    cam.bloom_mode = std::env::var("PW_PREVIEW_BLOOM_MODE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .filter(|m| matches!(m, 4 | 5))
+        .unwrap_or(0);
     cam.bloom_strength = std::env::var("PW_PREVIEW_BLOOM_STRENGTH")
         .ok()
         .and_then(|x| x.parse::<f32>().ok())

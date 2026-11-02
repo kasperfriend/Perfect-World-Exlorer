@@ -529,3 +529,25 @@ than the two-byte GPU tolerance. The GPU fixture now compares normal/mono
 with/without warp on all three sizes and both output formats (24 cases).
 42 core CPU tests pass locally; GPU/build validation pending. This fixes the
 traced ordinary/underwater ordering, not every special effect/interaction.
+
+### Preview the two other traced glow modes without gameplay systems
+
+The `0x410bb0` switch targets mode 4 at `0x410cdb` and mode 5 at
+`0x410d28`. Mode 4 transitions level/power to 1.0/0.7 in 2s and resets
+mono from 0 to 1 in 2s with ARGB `0xffe2ffff`. Mode 5 transitions level/power
+to 0.1/0.25 in 1s and uses the ordinary current-to-zero 5s mono fade
+(`0x4114e0`). These parameters are now available as explicit Graphics bloom
+previews, with persisted bounded settings and `PW_PREVIEW_BLOOM_MODE=4|5`
+for offscreen checks. Default remains Automatic; no player-state/gameplay
+system or approved tree-material replacement was added.
+
+Native transition tests cover targets, tint, different mono/glow durations,
+mode-4-to-5 transition and disabling. Settings tests cover saved modes,
+legacy defaults and malformed values. Added both endpoint modes to the
+production patterned glow GPU fixture (now 36 cases). 43 core CPU tests and
+three isolated production WorldGlow transition tests pass locally; new GPU
+cases/application integration pending CI. Additional effect/fade interactions
+remain outside this proof; the full P1.08 acceptance decision stays No.
+
+The preceding distortion-order change `d7774c4` passed
+[CI 41436969265](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41436969265), including all 24 normal/mono × ordinary/underwater patterned comparisons, all binary checks and the Windows executable build. This also validates compilation of the external-track census changes.
