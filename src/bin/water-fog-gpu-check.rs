@@ -26,6 +26,22 @@ mod gpu {
         pub diffuse: u32,
         pub night_diffuse: u32,
     }
+    pub fn depth(device: &wgpu::Device, w: u32, h: u32) -> wgpu::Texture {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        })
+    }
 }
 const WIDTH: u32 = 512;
 const HEIGHT: u32 = 8;
