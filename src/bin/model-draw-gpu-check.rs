@@ -359,6 +359,7 @@ fn main() {
         },
     )
     .unwrap();
+    assert_eq!(world.status(), (0, 0, 1));
     world.update(
         &device,
         &queue,
@@ -495,6 +496,29 @@ fn main() {
         &world,
         [[64, 128, 191, 136], [191, 64, 128, 136]],
     );
+    assert_eq!(world.status(), (1, 0, 1));
+    let mut unsupported = opaque_dim;
+    unsupported.blend_enabled = true;
+    world.update(
+        &device,
+        &queue,
+        unsupported,
+        [0.; 3],
+        &Default::default(),
+        0.,
+        0,
+    );
+    assert_eq!(world.status(), (0, 1, 1));
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [0.; 3],
+        &Default::default(),
+        0.,
+        0,
+    );
+    assert_eq!(world.status(), (0, 1, 1)); // rejected instances are not retried as stand-ins
     println!("::notice::world instance pipeline passed: source placement basis, no-action bind pose, authored texture/material, reversed-depth attachment, and updated regional lighting");
     println!("::notice::retained model draw passed: two material meshes, shared authored DDS with decode-failure retry, frame update, rejected-update atomicity, and posed geometry movement");
 }

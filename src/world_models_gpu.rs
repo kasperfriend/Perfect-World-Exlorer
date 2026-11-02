@@ -1,5 +1,5 @@
-//! Main-pass world model submission harness. Kept opt-in while source alpha
-//! queue ordering, effect-material overrides and clipped passes are unfinished.
+//! Ordinary world receiving-model submission in main and clipped water passes.
+//! Unsupported alpha/effect overrides and runtime FX lights remain explicit gaps.
 //! Never sends baked terrain/BMD/tree vertices through receiving-model lighting.
 use crate::{
     model_draw_gpu::{Draw, Frame},
@@ -126,8 +126,7 @@ impl World {
                     ) != crate::model_queue::Queue::Opaque
                 {
                     return Err(
-                        "world main-pass harness only accepts verified ordinary opaque queue state"
-                            .into(),
+                        "world receiver only accepts verified ordinary opaque queue state".into(),
                     );
                 }
                 if asset
@@ -193,6 +192,12 @@ impl World {
                 slot.draw = None;
             }
         }
+    }
+    /// Include dependency failures in the UI; never count a skipped asset ready.
+    pub fn status(&self) -> (usize, usize, usize) {
+        let ready = self.slots.iter().filter(|s| s.draw.is_some()).count();
+        let failed = self.slots.iter().filter(|s| s.failed).count() + self.assets.unloaded.len();
+        (ready, failed, self.slots.len() + self.assets.unloaded.len())
     }
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         for slot in &self.slots {

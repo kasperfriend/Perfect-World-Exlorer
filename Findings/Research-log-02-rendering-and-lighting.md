@@ -1172,3 +1172,26 @@ is the original texture color. The current strict terrain loader still
 requires files, so per-area missing/unloaded metadata and lifecycle remain
 open, as does the full-world payload census. No claim that a global no-map
 shader switch implements per-area unloading. GPU validation pending.
+
+CI `41453221464` (`7908c06`) passed Linux/Windows and all GPU regressions,
+including deliberately dark scene lighting with the no-map grass fallback.
+Confirmation: no-map shader RGB policy Yes; per-area availability lifecycle
+and full P1.06 still No. Continue.
+
+### Enable the verified ordinary world receiver by default
+
+The ordinary model renderer no longer requires `PW_WORLD_MODELS_TEST`.
+It now initializes when retained instances exist, unless the explicit
+`PW_DISABLE_WORLD_MODELS` diagnostic opt-out is set. Empty/failed dependency
+sets do not require reopening models.pck just to construct an empty renderer.
+Main/reflection/underwater-camera refraction retain the validated state and
+shader paths. The approved tree and baked receiving exclusions are unchanged.
+The World UI reports ready/total and rejected instance counts, including
+retained dependency failures. GPU regression now verifies status transitions
+from pending to drawn to explicit rejection; a rejected instance cannot later
+be counted ready by silently retrying with a stand-in.
+
+This removes the opt-in/default integration gap, not the remaining alpha and
+effect-material variants or runtime FX light production. The ten full-scope
+No gates are retained. Local core 60 passing; native world suite previously
+45 passing; full CI for the new default/UI/status checks pending.
