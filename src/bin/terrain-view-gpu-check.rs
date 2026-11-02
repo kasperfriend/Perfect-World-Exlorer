@@ -517,12 +517,18 @@ fn array(device: &wgpu::Device, queue: &wgpu::Queue, side: u32, layers: u32) -> 
     texture
 }
 
+/// The shader indexes `area_data[ay*settings.areas.x+ax]`, so every grid cell
+/// needs a record. All 64 point at the same two-layer area, which is what makes
+/// the five views comparable.
 fn area_records() -> Vec<Area> {
-    vec![Area {
-        start: 0,
-        count: 2,
-        _pad: [0; 2],
-    }]
+    vec![
+        Area {
+            start: 0,
+            count: 2,
+            _pad: [0; 2],
+        };
+        64
+    ]
 }
 
 fn layer_records() -> Vec<Layer> {
@@ -682,8 +688,10 @@ fn read_target(device: &wgpu::Device, target: &Target) -> Vec<u8> {
 /// A screen-covering triangle in world space, inside the origin cell.
 fn near_vertex(device: &wgpu::Device) -> wgpu::Buffer {
     let mut data = Vec::new();
-    for (x, z) in [(-1.5f32, -1.5f32), (1.5, -1.5), (0., 1.5)] {
-        let pos = [EYE[0] + x, EYE[1], EYE[2] + z];
+    // Vertices vary in x and y at constant z: a triangle flat in the y = eye
+    // plane is edge-on to this camera and covers no pixels.
+    for (x, y) in [(-1.5f32, -1.5f32), (1.5, -1.5), (0., 1.5)] {
+        let pos = [EYE[0] + x, EYE[1] + y, EYE[2]];
         data.extend_from_slice(bytemuck::cast_slice(&pos));
         data.extend_from_slice(bytemuck::cast_slice(&[0f32, 1., 0.]));
         data.extend_from_slice(bytemuck::cast_slice(&[0f32, 0.]));
@@ -704,8 +712,8 @@ fn near_vertex(device: &wgpu::Device) -> wgpu::Buffer {
 
 fn far_vertex(device: &wgpu::Device) -> wgpu::Buffer {
     let mut data = Vec::new();
-    for (x, z) in [(-1.5f32, -1.5f32), (1.5, -1.5), (0., 1.5)] {
-        let pos = [EYE[0] + x, EYE[1], EYE[2] + z];
+    for (x, y) in [(-1.5f32, -1.5f32), (1.5, -1.5), (0., 1.5)] {
+        let pos = [EYE[0] + x, EYE[1] + y, EYE[2]];
         data.extend_from_slice(bytemuck::cast_slice(&pos));
         // Location 1 is Snorm8x4, not a f32 vec4: the production far layout is
         // 12 bytes of position plus 4 bytes of packed normal, stride 16.
