@@ -159,6 +159,41 @@ fn decode(fields: &[(&str, &str)]) -> Result<Definition, String> {
         track,
     })
 }
+/// A skipped element that still declares light fields is a light path this
+/// reader cannot execute (the `Segs`/`LightNum`/`WaveLen` family printed by the
+/// element at `0x707b55`, whose keys are `Segs: %d`, `LightNum: %d`,
+/// `WaveLen: %f`, `Interval: %d`, `Width: %f`, `Alpha: %f`, `Amplitude: %f`,
+/// `Pos1Enable`/`Pos2Enable`, `UseNormal`, `Normal`, `Filter`). Dropping it
+/// silently would under-report an authored light, so it is an explicit failure.
+/// Non-light elements (particles, sprites, trails) are skipped exactly as before.
+const LIGHT_FIELDS: [&str; 8] = [
+    "LightType",
+    "LightNum",
+    "WaveLen",
+    "Segs",
+    "Interval",
+    "Amplitude",
+    "Pos1Enable",
+    "Filter",
+];
+fn finish_element(
+    current: Option<u32>,
+    fields: &[(&str, &str)],
+    definitions: &mut Vec<Definition>,
+) -> Result<(), String> {
+    match current {
+        Some(130) => definitions.push(decode(fields)?),
+        Some(id) => {
+            if let Some((key, _)) = fields.iter().find(|(k, _)| LIGHT_FIELDS.contains(k)) {
+                return Err(format!(
+                    "unsupported GFX light element {id} ({key}); only element 130 point lights are executed"
+                ));
+            }
+        }
+        None => {}
+    }
+    Ok(())
+}
 /// Decode light elements only; callers still have to execute the surrounding
 /// GFX graph and resolve active parent transforms. Unknown light paths fail.
 pub fn parse(text: &str) -> Result<Vec<Definition>, String> {
@@ -195,18 +230,14 @@ pub fn parse(text: &str) -> Result<Vec<Definition>, String> {
             expected = Some(n);
         } else if key == "GFXELEMENTID" {
             elements += 1;
-            if current == Some(130) {
-                definitions.push(decode(&fields)?);
-            }
+            finish_element(current, &fields, &mut definitions)?;
             fields.clear();
             current = Some(number::<u32>(value)?);
-        } else if current == Some(130) {
+        } else {
             fields.push((key, value));
         }
     }
-    if current == Some(130) {
-        definitions.push(decode(&fields)?);
-    }
+    finish_element(current, &fields, &mut definitions)?;
     if expected != Some(elements) {
         return Err("GFX element count mismatch".into());
     }
@@ -356,6 +387,27 @@ mod tests {
             assert!(parse(&file().replace(a, b)).is_err(), "{a}");
         }
     }
+    #[test]
+    fn a_skipped_element_that_declares_lights_is_an_explicit_error() {
+        // The Segs/LightNum family (keys printed by the element at 0x707b55) is
+        // a light path this reader cannot execute. Dropping it silently would
+        // under-report an authored light, so the whole root fails.
+        let source = file().replace(
+            "GFXELEMENTCOUNT: 1",
+            "GFXELEMENTCOUNT: 2",
+        ) + "GFXELEMENTID: 106\nSegs: 3\nLightNum: 4\nWaveLen: 2.5\n";
+        let error = parse(&source).unwrap_err();
+        assert!(
+            error.contains("unsupported GFX light element 106"),
+            "{error}"
+        );
+        // A non-light element is skipped, so a root that also carries particles
+        // still yields its point lights.
+        let source = file().replace("GFXELEMENTCOUNT: 1", "GFXELEMENTCOUNT: 2")
+            + "GFXELEMENTID: 200\nParticleCount: 12\nEmitSpeed: 3\n";
+        assert_eq!(parse(&source).unwrap().len(), 1);
+    }
+
     #[test]
     fn controller_108_is_applied_before_packed_outer_color() {
         let source=file().replace("StartTime: 100","StartTime: 0").replace("TimeSpan: 1000","TimeSpan: -1").replace("CtrlMethodCount: 0", "CtrlMethodCount: 1\nCtrlType: 108\nStartTime: 0\nEndTime: -1\nColor: 0\nCount: 1\nColor: 2139062143\nTimeSpan: 1000");

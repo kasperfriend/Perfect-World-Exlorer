@@ -674,3 +674,14 @@ limit record is not decoded, the priority gate can suppress less than the
 client does; that is a missing input, not a missing gate, and it is stated in
 `Findings/Unsupported-client-paths.md` rather than papered over with a guessed
 threshold.
+
+### 13.6 Skipped light elements are now explicit failures
+
+`gfx_light::parse` collects fields for every element instead of only element 130
+and classifies each one through `finish_element`. A skipped element that still
+declares a light field (`LightType`, `LightNum`, `WaveLen`, `Segs`, `Interval`,
+`Amplitude`, `Pos1Enable`, `Filter` - the family printed by `0x707b55`) fails the
+root with `unsupported GFX light element <id> (<key>)`; elements without light
+fields keep being skipped, so particle/sprite/trail elements do not reject a root
+that also carries point lights. Regression:
+`a_skipped_element_that_declares_lights_is_an_explicit_error` (both directions).
