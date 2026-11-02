@@ -181,15 +181,41 @@ fn main() {
     // The check fragment returns vec4(normal*0.4+0.5, distant), so RGB carries
     // the interpolated normal and ALPHA carries the LOD flag: `vs` reports the
     // authored per-vertex kind (0 here) and `vs_far` reports distant = 1. The
-    // two frames are therefore meant to agree in RGB and differ in alpha;
-    // comparing whole frames made this check unsatisfiable on real hardware,
-    // which went unnoticed because the program was never in the GPU set.
-    for (a, b) in frames[0].chunks_exact(4).zip(frames[1].chunks_exact(4)) {
-        assert_eq!(&a[..3], &b[..3], "near/far normals must match");
-        if a[0] > 0 || b[0] > 0 {
-            assert_eq!(a[3], 0, "near mesh must report kind = 0");
-            assert_eq!(b[3], 255, "far mesh must report distant = 1");
+    // two frames must agree in RGB and differ in alpha. Comparing whole frames
+    // made this check unsatisfiable on real hardware, which went unnoticed
+    // because the program was never in the GPU set.
+    //
+    // Failures are reported as a GitHub `::error::` annotation with the exact
+    // counters, because CI job logs are not always retrievable and an annotation
+    // is.
+    let empty = [0u8; 4];
+    let mut rgb_mismatch = 0usize;
+    let mut first_rgb = None;
+    let mut alpha_bad = 0usize;
+    let first_alpha = None::<([u8; 4], [u8; 4], usize)>;
+    let mut first_alpha = first_alpha;
+    for (i, (a, b)) in frames[0]
+        .chunks_exact(4)
+        .zip(frames[1].chunks_exact(4))
+        .enumerate()
+    {
+        let (a, b) = (a.try_into().unwrap_or(empty), b.try_into().unwrap_or(empty));
+        if a[..3] != b[..3] {
+            rgb_mismatch += 1;
+            first_rgb.get_or_insert((a, b, i));
         }
+        if (a[0] > 0 || b[0] > 0) && (a[3] != 0 || b[3] != 255) {
+            alpha_bad += 1;
+            first_alpha.get_or_insert((a, b, i));
+        }
+    }
+    if rgb_mismatch > 0 || alpha_bad > 0 {
+        println!(
+            "::error::terrain-lod-gpu-check: rgb_mismatch={rgb_mismatch} \
+             alpha_bad={alpha_bad} covered_pixels={count} \
+             first_rgb={first_rgb:?} first_alpha={first_alpha:?}"
+        );
+        std::process::exit(1);
     }
     println!("terrain actual near/far vertex shaders match for {count} pixels; packed far vertex 16 bytes versus 60 bytes");
 }
