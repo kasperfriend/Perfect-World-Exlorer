@@ -686,7 +686,7 @@ fn entry(binding: u32, resource: wgpu::BindingResource<'_>) -> wgpu::BindGroupEn
     wgpu::BindGroupEntry { binding, resource }
 }
 // T2LM v2: 16 independent DDS lightmaps per 512-grid subterrain.
-// t2lm/t2lm1 are day/night color maps; exact original transition is unverified.
+// t2lm/t2lm1 are day/night color maps with independently indexed DDS records.
 fn load_lightmaps(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -749,40 +749,17 @@ fn load_lightmaps(
     // CPU copy of all atlas pages duplicates hundreds of MiB during startup.
     // Queue uploads are flushed in bounded groups below; the GPU atlas layout
     // and shader sampling remain exactly the same.
-    let subs_x = m.areas_x / 4;
+    let layout =
+        crate::terrain_lightmaps::Layout::new(m.areas_x, m.areas.len(), t.subterrain_names.len())?;
     for (si, name) in t.subterrain_names.iter().enumerate() {
         for (which, ext) in ["t2lm", "t2lm1"].iter().enumerate() {
             let path = t.element.join("maps/world").join(format!("{name}.{ext}"));
             let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            let u = |pos: usize| -> Result<usize, String> {
-                Ok(u32::from_le_bytes(
-                    bytes
-                        .get(pos..pos + 4)
-                        .ok_or("truncated lightmap header")?
-                        .try_into()
-                        .unwrap(),
-                ) as usize)
-            };
-            if u(0)? != 0x54324c4d || u(4)? != 2 || u(8)? != 16 || u(12)? != 256 {
-                return Err(format!("Unsupported T2LM header: {}", path.display()));
-            }
-            for j in 0..16 {
-                let offset = u(24 + j * 4)?;
-                let end = if j == 15 {
-                    bytes.len()
-                } else {
-                    u(24 + (j + 1) * 4)?
-                };
-                if end <= offset || end > bytes.len() {
-                    return Err(format!("Invalid T2LM DDS offset in {}", path.display()));
-                }
-                let raw = bytes.get(offset..end).ok_or("invalid lightmap range")?;
-                let ax = (si % subs_x) * 4 + j % 4;
-                let ay = (si / subs_x) * 4 + j / 4;
-                let id = ay * m.areas_x + ax;
-                if id >= m.areas.len() {
-                    return Err("lightmap mapping out of bounds".into());
-                }
+            let tiles = crate::terrain_lightmaps::Tiles::parse(&bytes)
+                .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
+            for j in 0..crate::terrain_lightmaps::TILES {
+                let raw = tiles.tile(j).unwrap();
+                let id = layout.area(si, j).unwrap();
                 let slot = id % per_page;
                 let page = id / per_page + which * pages;
                 let x = (slot % per_row) * side;
@@ -812,18 +789,17 @@ fn load_lightmaps(
                         },
                     );
                 };
+                let dds = crate::model_dds::Dds::parse(raw)
+                    .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
+                if dds.format != crate::model_dds::Format::Dxt1
+                    || dds.mips.len() != 1
+                    || dds.mips[0].width != 256
+                    || dds.mips[0].height != 256
+                {
+                    return Err(format!("Unsupported lightmap DDS in {}", path.display()));
+                }
+                // Both upload backends must accept exactly the same records.
                 if bc {
-                    let dds = crate::model_dds::Dds::parse(raw)
-                        .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
-                    if dds.format != crate::model_dds::Format::Dxt1
-                        || dds.mips.len() != 1
-                        || dds.mips[0].width != 256
-                        || dds.mips[0].height != 256
-                    {
-                        return Err(format!("Unsupported lightmap DDS in {}", path.display()));
-                    }
-                    // Validate the authored dimensions and complete payload,
-                    // not merely a FourCC and a sufficiently long byte slice.
                     write_tile(dds.mips[0].bytes, (side / 4 * 8) as u32, (side / 4) as u32);
                 } else {
                     let img = image::load_from_memory_with_format(raw, image::ImageFormat::Dds)

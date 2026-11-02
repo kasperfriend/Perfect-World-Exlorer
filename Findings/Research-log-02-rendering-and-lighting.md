@@ -1118,3 +1118,35 @@ Native suite: 45 passing; core CPU suite: 56 passing. Harness remains opt-in.
 Default enablement, all queue/material variants, and runtime FX light lifecycle
 remain open. Confirmation: pass implementation present; full P1.03 and P1.10
 No pending complete coverage and new CI evidence; continue.
+
+CI `41452346626`, head `f003127`, passed Linux/Windows and all 13 GPU
+binaries, including one-sided main/reflection winding, world clipping and
+fog regressions. Confirmation: these harness pass checks Yes; full P1.03 No.
+
+### T2LM independent record lengths and checked atlas layout
+
+Found a separate production loader bug: it inferred tile length from the
+next mask area's offset. T2LM's offset table is indexed by mask area, not
+payload storage order. The v2 header gives an explicit common record length.
+Related `A3DTerrain2File.h` explicitly warns not to assume index storage
+order; actual 1.4.2 `7a3268–7a3286` seeks the indexed offset then reads
+`subloader+888` bytes, and `7a32da–7a32f5` passes that same byte count to DDS
+loading. Both actual selected files have flags=1 and record size=32896.
+
+Added a dependency-free production parser that uses the declared record
+size, validates DDS flags/header/ranges/nonoverlap and accepts unordered
+records. Both native BC1 and decoded RGBA paths now perform identical DDS
+format/mip/dimension validation. Added checked rectangular atlas mapping,
+rejecting inconsistent area/subterrain counts instead of dividing by zero or
+leaving unnamed slots. Four new CPU tests cover reversed record order,
+truncation, overlap, unsupported headers and bijective rectangular layouts.
+Core suite: 60 passing. Renderer/GPU validation for this change pending.
+
+`tools/validate-terrain-lightmaps.rs` is an asset-free, dependency-free
+reproducible census tool. Actual TRN2: 32x44 mask areas, 88 subterrain pairs,
+1408 destinations per day/night set. Available downloaded pair validates
+32 DDS records; 174 files are not local. The tool exits 1 and explicitly
+reports incomplete census rather than calling that a full-world success.
+Drive metadata lists all 176 corresponding 526424-byte lightmap files;
+metadata is not payload validation. Full corpus and unloaded-pair material
+fallback remain open, so P1.06 remains No. Continue.

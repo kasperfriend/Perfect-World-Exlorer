@@ -73,6 +73,7 @@ mod skin;
 mod skin_pose;
 mod sky_gpu;
 mod terrain_gpu;
+mod terrain_lightmaps;
 mod terrain_seam;
 mod texture_atlas;
 mod tree_lod;
@@ -355,7 +356,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         Ok(models) => models,
         Err(e) => world_models::Assets::load_with(placements, |_| Err(e.clone())),
     };
-    eprintln!("Retained {} EC model assets for {} placements; {} unloaded placements (animation scheduling/submission not yet enabled)", models.assets.len(), models.instances.len(), models.unloaded.len());
+    eprintln!("Retained {} EC model assets for {} placements; {} unloaded placements (ordinary animated submission available via PW_WORLD_MODELS_TEST)", models.assets.len(), models.instances.len(), models.unloaded.len());
     for failure in &models.failures {
         eprintln!("EC model dependency: {failure}");
     }
