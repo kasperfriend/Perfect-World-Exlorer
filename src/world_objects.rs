@@ -221,6 +221,19 @@ fn run(
             let y = basis(model.up);
             let x = y.cross(z).normalize_or_zero();
             for mesh in &model.meshes {
+                // Stage, culling and alpha state come from the single recovered
+                // table, not from per-asset guesses.
+                let kind = match crate::bmd_baked::classify(
+                    mesh.version,
+                    !mesh.texture.trim().is_empty(),
+                    mesh.material.as_ref().is_some_and(|m| m.two_sided),
+                ) {
+                    Ok(state) => state.kind,
+                    Err(e) => {
+                        eprintln!("Skipping baked mesh {}: {e}", mesh.name);
+                        continue;
+                    }
+                };
                 // Content-keyed slot sharing (P3.08 cross-name dedup):
                 // references with identical pixels collapse onto one atlas
                 // slot regardless of how many names point at them.
@@ -267,11 +280,7 @@ fn run(
                         normal: normal.to_array(),
                         uv: [ox + v.uv[0] * sx, oy + v.uv[1] * sy],
                         color: [ox, oy, sx, sy],
-                        kind: if mesh.material.as_ref().is_some_and(|m| m.two_sided) {
-                            2.1
-                        } else {
-                            2.0
-                        },
+                        kind,
                         diffuse: v.day_diffuse,
                         night_diffuse: v.night_diffuse,
                     });
