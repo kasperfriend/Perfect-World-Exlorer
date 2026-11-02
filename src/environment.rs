@@ -4,6 +4,9 @@ use crate::scene::Scene;
 #[path = "client_region_map.rs"]
 mod client_region_map;
 use client_region_map::ActiveBoxMap;
+#[path = "client_region_stream.rs"]
+mod client_region_stream;
+use client_region_stream::{Change, Window};
 use std::{collections::BTreeMap, fs, path::Path};
 
 /// Client world day weight (1 = day, 0 = night).
@@ -219,17 +222,16 @@ struct RegionLayout {
 pub struct RegionStreaming {
     layout: RegionLayout,
     map: ActiveBoxMap,
-    active: Vec<bool>,
-    rect: Option<(usize, usize, usize, usize)>,
+    window: Window,
 }
 impl RegionStreaming {
     fn new(layout: RegionLayout) -> Self {
-        let active = vec![false; layout.boxes.len()];
+        let window =
+            Window::new(layout.rows, layout.cols, 1).expect("validated scene block dimensions");
         Self {
             layout,
-            active,
+            window,
             map: ActiveBoxMap::default(),
-            rect: None,
         }
     }
     fn endpoints(&mut self, env: &Environments, p: [f32; 3]) -> (Option<usize>, FogEndpoints, f32) {
@@ -263,31 +265,21 @@ impl RegionStreaming {
         }
         let (x0, x1) = bounds(col, span, l.cols);
         let (y0, y1) = bounds(row, span, l.rows);
-        let rect = (x0, x1, y0, y1);
-        if self.rect == Some(rect) {
-            return;
-        }
-        self.rect = Some(rect);
-        // Retain overlapping blocks and release departing references. The
-        // asynchronous client's exact completion order remains unknown.
-        for idx in 0..self.active.len() {
-            let row = idx / l.cols;
-            let col = idx % l.cols;
-            if self.active[idx] && !(row >= y0 && row < y1 && col >= x0 && col < x1) {
-                for &id in &l.boxes[idx] {
-                    self.map.unload(id);
-                }
-                self.active[idx] = false;
-            }
-        }
-        for row in y0..y1 {
-            for col in x0..x1 {
-                let idx = row * l.cols + col;
-                if !self.active[idx] {
-                    for &id in &l.boxes[idx] {
+        let changes = self
+            .window
+            .update((x0, x1, y0, y1))
+            .expect("clamped scene block rectangle");
+        for change in changes {
+            match change {
+                Change::Load(index) => {
+                    for &id in &l.boxes[index] {
                         self.map.load(id);
                     }
-                    self.active[idx] = true;
+                }
+                Change::Unload(index) => {
+                    for &id in &l.boxes[index] {
+                        self.map.unload(id);
+                    }
                 }
             }
         }
@@ -671,6 +663,22 @@ mod tests {
             .update_streamed(&env, &mut active, end, 12., 5.)
             .1;
         assert_eq!(water.start, 90.);
+
+        // A region referenced only by the SECOND newly exposed block must
+        // not become selectable immediately on movement. Queue draining must
+        // continue even when the next frame has identical coordinates.
+        let mut delayed_layout = env.streaming.clone().unwrap();
+        delayed_layout.boxes[3] = vec![1];
+        delayed_layout.boxes[4] = vec![1, 2];
+        let delayed_env = Environments {
+            areas: env.areas.clone(),
+            id_to_index: env.id_to_index.clone(),
+            streaming: Some(delayed_layout),
+        };
+        let mut delayed = delayed_env.streaming().unwrap();
+        assert_eq!(delayed.endpoints(&delayed_env, p).0, Some(1));
+        assert_eq!(delayed.endpoints(&delayed_env, mid).0, Some(1));
+        assert_eq!(delayed.endpoints(&delayed_env, mid).0, Some(2));
     }
     #[test]
     fn client_clock_fog_and_baked_lighting_weight() {

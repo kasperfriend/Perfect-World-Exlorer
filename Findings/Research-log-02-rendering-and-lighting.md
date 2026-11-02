@@ -1668,3 +1668,35 @@ in RGBA/BGRA UNORM/sRGB targets. Added independent Windows rustc runs of gamma
 and glow-state tests before executable build to check the platform math too.
 New GPU/Windows CI pending. **Confirmation: Is P1.09 finished? No — continue
 validation; upstream material conversions and final presentation audit remain.**
+
+### Regional window admission: native persistent FIFO, not guessed async order
+
+CI `41468496702` / `d3c4102` completed SUCCESS: Linux all binaries/unit/
+production GPU checks, Windows native gamma/glow CPU references, and Windows
+executable. Full No verification still reports unfinished Phase1 points.
+
+Re-traced `0x41c5b0..0x41c8fb` (active window), `0x41c900` (initial full
+load), `0x41cb20..0x41cc22` (candidate FIFO), and constructor store
+`0x41b495` (+0x534=1). The related pinned152 source aided identification;
+142 assembly independently confirms the queue. Corrected the previous
+"asynchronous completion order" description for this scene-block path:
+initial/disjoint windows load all blocks row-major, overlapping moves retain
+loaded AND null overlapping slots, append new blocks row-major, unload old
+blocks, then consume min(queue count, load-speed) FIFO attempts. Stale and
+already-loaded candidates consume budget; old candidates survive teleports.
+This is not a time-raced worker completion order.
+
+Production `RegionStreaming` now uses shared `client_region_stream::Window`
+instead of immediately loading every exposed region block and returning
+early while stationary. Four standalone scheduler tests pass; a real
+Environment integration regression confirms a local region referenced only
+by the second candidate appears on the next stationary frame, not immediately.
+Combined scene/environment tests: 15; dependency-free core: 98. The regional
+path remains opt-in while full transition arithmetic/material consumers are
+unverified; approved tree defaults remain unchanged.
+
+**Confirmation: Is P1.04 finished? No — continue.** In particular, related
+source shows environment direction comes from the selected default box,
+not necessarily the local box supplying ambient/fog, and transition target
+setup has a different frame branch from ongoing shading. These require 142
+consumer/arithmetic verification, not a speculative checklist promotion.

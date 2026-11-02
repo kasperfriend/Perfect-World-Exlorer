@@ -1,6 +1,6 @@
 //! Client-like active-box hash iteration (elementclient 0x41b23b, 0x41da70,
-//! 0x413170, 0x41eb7c). This is research infrastructure: block streaming and
-//! its asynchronous insertion order have not yet been recovered completely.
+//! 0x413170, 0x41eb7c). Scene window admission order is implemented by
+//! client_region_stream; this module preserves insertion/refcount/hash order.
 use std::collections::HashMap;
 const PRIMES: [usize; 12] = [
     53, 97, 193, 389, 769, 1543, 3079, 6151, 12289, 24593, 49157, 98317,
