@@ -138,7 +138,8 @@ fn main() {
     // edge_mode (4) = 48 floats, then fog (4) and fog_color (4).
     let mut uniform = [0f32; 56];
     for (name, bound, fog_on, column) in cases {
-        let (fog, color) = water_gpu::surface_fog_uniform(bound);
+        let fog = bound.range();
+        let color = bound.color4();
         uniform[48..52].copy_from_slice(&fog);
         uniform[52..56].copy_from_slice(&color);
         if !fog_on {

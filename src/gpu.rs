@@ -1621,8 +1621,8 @@ impl Renderer {
                 edge_mode: [if camera.water_reflections { 1. } else { 0. }, 0., 0., 0.],
                 // Water-surface fog: the client binds the region's own triple
                 // (white 100..400 above water, blue 10..60 below).
-                fog: crate::water_gpu::surface_fog_uniform(camera.active_fog()).0,
-                fog_color: crate::water_gpu::surface_fog_uniform(camera.active_fog()).1,
+                fog: camera.active_fog().range(),
+                fog_color: camera.active_fog().color4(),
             },
         );
         self.simple_water

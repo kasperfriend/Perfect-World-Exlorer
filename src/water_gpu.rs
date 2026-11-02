@@ -22,12 +22,6 @@ pub struct WaterUniform {
     pub fog_color: [f32; 4],
 }
 
-/// The fog the client binds for the water-surface draw is the camera's active
-/// regional fog, refreshed into the surface object every update and rebound
-/// right before the draw. See `crate::fog_matrix::water_fog`.
-pub fn surface_fog_uniform(fog: crate::fog_matrix::Fog) -> ([f32; 4], [f32; 4]) {
-    (fog.range(), fog.color4())
-}
 /// Retail increments the normal index every 33 milliseconds. Fractional
 /// position is retained for the viewer's smooth frame interpolation.
 pub fn normal_phase(elapsed_seconds: f64) -> f32 {
