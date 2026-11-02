@@ -118,6 +118,15 @@ mod tests {
     use super::*;
     use crate::model_draw_fixture::fixture;
     #[test]
+    fn no_active_action_uses_authored_bind_pose_and_world_transform() {
+        let (asset, _) = fixture();
+        let poses = asset
+            .pose_bind(glam::Mat4::from_translation(glam::Vec3::new(10., 4., -2.)))
+            .unwrap();
+        let prepared = prepare(&asset, &poses).unwrap();
+        assert_eq!(prepared[0].vertices[2].position, [12., 4., -2.]);
+    }
+    #[test]
     fn joins_posed_geometry_to_authored_uv_material_and_texture() {
         let (asset, poses) = fixture();
         let p = prepare(&asset, &poses).unwrap();

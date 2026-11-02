@@ -979,3 +979,41 @@ The extracted-dependency I/O test retains all 14 assets and 73 placements with
 zero failures. Its combined native suite passes 37 tests. The PCK-backed viewer
 integration requires the next full CI run; animation scheduling/submission is
 explicitly not enabled by this load step.
+
+World-retention checkpoint: `62260fb`, CI `41449426963`, passed Linux checks,
+all thirteen GPU regression binaries and Windows. Retaining the actual model
+assets is now application code, not only a separate corpus diagnostic.
+Confirmation: dependency retention Yes; automatic pass submission No; the
+full-scope audit still has ten No. Continue.
+
+### Scene playback dispatch: corrected namespace assumption
+
+Public related-client source was found at
+`https://github.com/coussiraty/PWClient-152`, pinned commit
+`f321e68953a5502ff5673d6099dab8c193c597a0`. This is a **1.5.2 reference**, not
+proof of 1.4.2 parity. Its `ElementCore/ElementClient/EC_ManOrnament.cpp`
+(LoadECModel / DeliverLoadedECModels), `Common/GfxCommon2/EC_Model.cpp`
+(PlayActionByName), and `A3DCombActDynData.cpp` supplied names for targeted
+cross-checks. Do not transplant later-version branches or assume identical
+layouts. No reference implementation was copied into the repository.
+
+The actual 1.4.2 executable confirms the important scene dispatch:
+- `5b3a4f–5b3a9a` queries the ECM combined-action map for the scene name.
+- `5b3a9c–5b3aca` selects that name when present; otherwise it passes the
+  literal at `95a750`, decoded directly from the executable as **休闲**.
+- `6d1df0–6d1e98` looks up the combined map and returns false if missing;
+  there is no direct-SMD fallback in that path.
+- `5b3acf–5b3ae0` applies the initial `rand() % 1000` tick.
+
+The production `EcModel::scene_action` and retained instance records now use
+this source-backed decision. On the actual 73 placements: **66 combined
+selections, seven failed idle fallbacks**. The earlier diagnostic's seven
+“direct SMD candidates” must NOT become direct playback in the viewer. It was
+only a candidate census, not dispatch evidence. Named-base coincidence is not
+permission to animate a model the client leaves without an active action.
+
+The retained model API now also exposes authored bind-pose evaluation, without
+choosing any animation. All 14 real assets' bind poses pass production draw
+preparation. A regression checks model/root transformation in this path. The
+combined native suite passes 39 tests. Full CI of this dispatch/bind-pose change
+is pending. Random/tick/transition playback still needs its own integration.

@@ -6,6 +6,9 @@ use std::{collections::HashMap, fs::File, path::Path};
 pub struct Instance {
     pub placement: SceneModel,
     pub asset: usize,
+    /// Effective combined action after the source idle fallback; None is
+    /// a non-playing model, not a direct-SMD-name dispatch.
+    pub action: Option<usize>,
 }
 pub struct Assets {
     pub assets: Vec<ModelAsset>,
@@ -47,7 +50,14 @@ impl Assets {
                 index
             };
             if let Some(asset) = asset {
-                result.instances.push(Instance { placement, asset });
+                let action = result.assets[asset]
+                    .descriptor
+                    .scene_action(&placement.action);
+                result.instances.push(Instance {
+                    placement,
+                    asset,
+                    action,
+                });
             } else {
                 result.unloaded.push(placement);
             }

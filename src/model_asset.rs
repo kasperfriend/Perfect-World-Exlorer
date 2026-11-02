@@ -137,9 +137,18 @@ impl ModelAsset {
             None => return Err("action has neither external nor embedded bone tracks".into()),
         };
         let pose = skeleton_pose::evaluate(&self.skeleton, tracks, seconds, world)?;
+        self.meshes_from_pose(&pose)
+    }
+    /// No active action: use authored local bone transforms, not the first
+    /// named animation. This is also useful for inspecting scene-play failures.
+    pub fn pose_bind(&self, world: Mat4) -> Result<Vec<PosedMesh>, String> {
+        let pose = skeleton_pose::evaluate(&self.skeleton, &[], 0., world)?;
+        self.meshes_from_pose(&pose)
+    }
+    fn meshes_from_pose(&self, pose: &skeleton_pose::Pose) -> Result<Vec<PosedMesh>, String> {
         let mut meshes = Vec::new();
         for (skin, asset) in self.skins.iter().enumerate() {
-            let palette = skeleton_pose::palette(&asset.data, &self.skeleton, &pose)?;
+            let palette = skeleton_pose::palette(&asset.data, &self.skeleton, pose)?;
             for (mesh, data) in asset.data.meshes.iter().enumerate() {
                 // Rigid vertices have different binding-space semantics. Do not
                 // pretend a weighted bind-palette transform implements them.

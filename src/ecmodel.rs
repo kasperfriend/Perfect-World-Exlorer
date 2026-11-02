@@ -20,6 +20,16 @@ pub struct RenderSettings {
     pub default_speed: f32,
 }
 impl EcModel {
+    /// ECWLD scene load: 0x5b3a4f–0x5b3aca first queries the combined
+    /// action map, then falls back to the literal 休闲 (0x95a750). A matching
+    /// SMD/base name alone is not a scene action. None means playback failed,
+    /// not permission to pick the first action or reinterpret the namespace.
+    pub fn scene_action(&self, requested: &str) -> Option<usize> {
+        self.actions
+            .iter()
+            .position(|a| a.name == requested)
+            .or_else(|| self.actions.iter().position(|a| a.name == "休闲"))
+    }
     /// Static-data constructor: 0x6d453f/0x6d4547 set white and speed 1;
     /// 0x6d46b5/0x6d46bc set SRCALPHA/INVSRCALPHA. Raw optional fields
     /// stay intact so absence and explicit values can still be audited.
@@ -522,6 +532,18 @@ mod ecm_schedule_tests {
     use super::*;
     fn parse(body: &str) -> Result<EcModel, String> {
         parse_ecm(format!("MOXTVersion: 47\nSkinModelPath: Models\\test.smd\n{body}").as_bytes())
+    }
+    #[test]
+    fn scene_load_uses_combined_map_then_idle_not_direct_base_names() {
+        let m=parse("ComActCount: 2\nCombineActName: visible\nLoopCount: 1\nBaseActCount: 1\nBaseActName: direct-only\nActStartTime: 0\nLoopCount: 1\nEventCount: 0\nCombineActName: idle\nLoopCount: 1\nBaseActCount: 0\nEventCount: 0\n").unwrap();
+        let mut m = m;
+        m.actions[1].name = "休闲".into();
+        assert_eq!(m.scene_action("visible"), Some(0));
+        assert_eq!(m.scene_action("direct-only"), Some(1));
+        assert_eq!(m.scene_action("missing"), Some(1));
+        let mut m = m;
+        m.actions.pop();
+        assert_eq!(m.scene_action("direct-only"), None);
     }
     #[test]
     fn maps_combined_name_and_keeps_random_loop_schedule() {
