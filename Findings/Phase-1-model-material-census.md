@@ -85,3 +85,14 @@ Important distinction: the zero **SMD** hanger count does not imply zero
 Combined ECM actions are not always the corresponding SMD action names.
 These are still required by the renderer/effect integration, not silently
 covered by the earlier skeleton/material census.
+
+### Authored texture payload follow-up
+
+Source-backed lookup tries `Tex_<skin-stem>` then `Textures` beneath the
+**SKI** directory, including a generic retry if preferred decoding fails.
+All 41 texture references resolve: 16 skin-specific and 25 generic, representing
+39 distinct DDS files. The production bounded DDS reader retains/validates
+383 referenced authored mip levels without regenerating them. All base images
+also decode independently with Pillow: 29 opaque and 10 graded-alpha images.
+This does not close material sampler, alpha, shader/effect or world draw
+integration. Unsupported DDS format/shape paths remain explicit errors.

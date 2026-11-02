@@ -5,6 +5,8 @@ mod animation;
 mod ecmodel;
 #[path = "../model_asset.rs"]
 mod model_asset;
+#[path = "../model_dds.rs"]
+mod model_dds;
 #[path = "../model_material.rs"]
 mod model_material;
 #[path = "../pck.rs"]
@@ -41,6 +43,9 @@ fn main() -> Result<(), String> {
     let mut track_owners: BTreeMap<String, HashSet<String>> = BTreeMap::new();
     let mut versions = BTreeMap::new();
     let mut failures = Vec::new();
+    let mut texture_references = 0usize;
+    let mut texture_mips = 0usize;
+    let mut texture_formats = BTreeMap::new();
     let mut asset_pose_cases = 0usize;
     let mut asset_posed_vertices = 0usize;
     let mut combined_actions = 0usize;
@@ -67,6 +72,25 @@ fn main() -> Result<(), String> {
             pck::read_entry(&mut f, entry)
         })?;
         let ec = &asset.descriptor;
+        for skin in &asset.skins {
+            for i in 0..skin.data.textures.len() {
+                match skin.load_texture_with(i, |path| {
+                    let entry = entries
+                        .get(path)
+                        .ok_or_else(|| format!("missing texture {path}"))?;
+                    let bytes = pck::read_entry(&mut f, entry)?;
+                    let d = model_dds::Dds::parse(&bytes)?;
+                    Ok((format!("{:?}", d.format), d.mips.len()))
+                }) {
+                    Ok((format, count)) => {
+                        texture_references += 1;
+                        texture_mips += count;
+                        *texture_formats.entry(format).or_insert(0usize) += 1;
+                    }
+                    Err(e) => failures.push(e),
+                }
+            }
+        }
         let mut checked_embedded = false;
         for (i, set) in asset.tracks.iter().enumerate() {
             let (start, end, fps) = match set {
@@ -174,6 +198,7 @@ fn main() -> Result<(), String> {
     }
     let (mut skin_meshes, mut rigid_meshes, mut material_count) = (0, 0, 0);
     let mut skin_versions = BTreeMap::new();
+    println!("Model DDS: {texture_references} resolved references, {texture_mips} authored mip levels, formats {texture_formats:?}; payload validation, not pixel/shader validation");
     println!("Retained assets: {asset_pose_cases} sampled poses, {asset_posed_vertices} deformed vertices; not a world draw");
     println!("ECM metadata: {combined_actions} combined actions, {base_actions} base references; scene name candidates {action_candidates:?} (combined/direct); {gfx_references} external GFX references, event types {event_types:?}");
     println!("GFX archive data and ECM schedule/event playback are NOT validated by this models.pck diagnostic");

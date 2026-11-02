@@ -42,6 +42,7 @@ mod grass_wind;
 mod launcher_ui;
 mod material;
 mod model_asset;
+mod model_dds;
 mod model_light;
 mod model_material;
 mod music;

@@ -753,3 +753,35 @@ speed values are now retained instead of being declared invalid. The loader
 uses a raw `%f` store (`0x6f1f96–0x6f1fa8`); a positive-only decoding
 constraint was unproved. Nonfinite speed is still rejected. Playback policy
 for these values is a separate responsibility, not a guessed parser default.
+
+#### Source-backed model texture lookup and authored mip payloads
+
+Retained model asset head `97d976e` passed full CI **41443151784**.
+Continued toward the material/draw consumer. Skin texture lookup is now
+traced, rather than inferred from nearby files: `0x79491b` obtains the skin
+parent and `0x794928` the filename; `0x794934` removes the last extension
+(`0x764540` imports `strrchr`). `0x794952–0x794991` construct
+`<skin-parent>/Tex_<skin-stem>/`; `0x7949bb–0x7949ca` construct the generic
+`<skin-parent>/Textures/`. The first texture-manager load is at `0x794a63`;
+failure/null texture data triggers release and the generic retry at
+`0x794add`. The new retained skin API uses that exact ordered retry, including
+fallback after decoder failure, and retains both dependency errors if neither
+load succeeds. No guessed same-directory fallback.
+
+Actual world: **41** texture references resolve (**16** skin-specific windmill
+references, **25** generic); **39** distinct DDS payloads total **3,676,184**
+bytes. Production DDS parsing validates **383** referenced authored mip levels
+(363 distinct levels), retaining raw DXT1/DXT3/DXT5 blocks and exact level
+boundaries rather than replacing the client's mips with generated averages.
+All 39 actual files are DXT1 or DXT3 with exact full payload lengths. Separately,
+Pillow 13 decoded all 39 base images: **3,653,632** pixels, **29** opaque and
+**10** graded-alpha images. This is pixel-decoder feasibility, not proof of
+renderer alpha semantics or sampler state. DDS cube/volume/DX10/uncompressed
+formats fail explicitly until supported.
+
+Native retained load/texture/palette/mesh test: **14 passed/0 failed, 69 poses,
+26,643 finite deformations, 41 DDS references/383 mips**. Combined native
+reader/material/asset suite: **31 passed**. Dependency-free core now includes
+DDS truncation/format/mip tests: **51 passed**. CI validation of this texture
+lookup/payload follow-up is pending. The actual receiving-model draw is still
+absent; readiness has not been relabeled.

@@ -8,6 +8,40 @@ pub struct SkinAsset {
     pub path: String,
     pub data: skin::Skin,
 }
+impl SkinAsset {
+    /// Retail 0x794952–0x794add tries <ski-dir>/Tex_<ski-stem>/
+    /// first, then <ski-dir>/Textures/. It retries on texture-load failure,
+    /// not only when the preferred file is absent.
+    pub fn texture_paths(&self, index: usize) -> Result<[String; 2], String> {
+        let texture = self
+            .data
+            .textures
+            .get(index)
+            .ok_or("skin texture index out of range")?;
+        let path = ecmodel::normalize(&self.path);
+        let (parent, file) = path.rsplit_once('/').unwrap_or(("", &path));
+        let stem = file.rsplit_once('.').map_or(file, |x| x.0);
+        Ok([
+            ecmodel::normalize(&format!("{parent}/tex_{stem}/{texture}")),
+            ecmodel::normalize(&format!("{parent}/textures/{texture}")),
+        ])
+    }
+    pub fn load_texture_with<T>(
+        &self,
+        index: usize,
+        mut load: impl FnMut(&str) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let paths = self.texture_paths(index)?;
+        let mut failures = Vec::new();
+        for path in paths {
+            match load(&path) {
+                Ok(t) => return Ok(t),
+                Err(e) => failures.push(format!("{path}: {e}")),
+            }
+        }
+        Err(failures.join("; "))
+    }
+}
 pub struct ModelAsset {
     pub descriptor: ecmodel::EcModel,
     pub model: ecmodel::SkinModel,
@@ -136,6 +170,61 @@ impl ModelAsset {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn skin() -> SkinAsset {
+        SkinAsset {
+            path: "Models/A/test.extra.ski".into(),
+            data: skin::Skin {
+                version: 9,
+                bones: Vec::new(),
+                textures: vec!["IMAGE.DDS".into()],
+                materials: Vec::new(),
+                meshes: Vec::new(),
+            },
+        }
+    }
+    #[test]
+    fn texture_order_matches_skin_specific_then_generic_directory() {
+        let s = skin();
+        assert_eq!(
+            s.texture_paths(0).unwrap(),
+            [
+                "models/a/tex_test.extra/image.dds",
+                "models/a/textures/image.dds"
+            ]
+        );
+        let mut visits = Vec::new();
+        let result = s
+            .load_texture_with(0, |p| {
+                visits.push(p.to_owned());
+                Ok(7)
+            })
+            .unwrap();
+        assert_eq!(result, 7);
+        assert_eq!(visits.len(), 1);
+        assert!(s.texture_paths(1).is_err());
+    }
+    #[test]
+    fn texture_decoder_failure_retries_fallback_and_keeps_both_errors() {
+        let s = skin();
+        let mut visits = Vec::new();
+        let result = s
+            .load_texture_with(0, |p| {
+                visits.push(p.to_owned());
+                if p.contains("/textures/") {
+                    Ok(9)
+                } else {
+                    Err("bad DDS".into())
+                }
+            })
+            .unwrap();
+        assert_eq!(result, 9);
+        assert_eq!(visits.len(), 2);
+        let error = s
+            .load_texture_with::<()>(0, |_| Err("bad image".into()))
+            .unwrap_err();
+        assert!(error.contains("tex_test.extra/image.dds: bad image"));
+        assert!(error.contains("textures/image.dds: bad image"));
+    }
     #[test]
     fn package_references_keep_rooted_paths_and_resolve_local_names() {
         assert_eq!(
