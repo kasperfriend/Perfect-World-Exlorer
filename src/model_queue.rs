@@ -567,7 +567,10 @@ mod tests {
     #[test]
     fn model_level_fields_and_mesh_texture_flags_stay_separate() {
         let opaque = ModelState::new(false, -1., 5, 6).unwrap();
-        assert_eq!(opaque.mesh_state(false, false).unwrap().queue, Queue::Opaque);
+        assert_eq!(
+            opaque.mesh_state(false, false).unwrap().queue,
+            Queue::Opaque
+        );
         // The texture flag pair only alpha-routes when BOTH bytes are set.
         assert_eq!(opaque.mesh_state(false, true).unwrap().queue, Queue::Opaque);
         assert_eq!(opaque.mesh_state(true, true).unwrap().queue, Queue::Alpha);
@@ -578,10 +581,16 @@ mod tests {
         let gone = ModelState::new(false, 1., 5, 6).unwrap();
         assert_eq!(gone.mesh_state(true, true).unwrap().queue, Queue::Hidden);
         let hidden = ModelState::new(true, -1., 5, 6).unwrap();
-        assert_eq!(hidden.mesh_state(false, false).unwrap().queue, Queue::Hidden);
+        assert_eq!(
+            hidden.mesh_state(false, false).unwrap().queue,
+            Queue::Hidden
+        );
         // The authored blend pair is a model field, so it moves all meshes.
         let authored = ModelState::new(false, -1., 2, 6).unwrap();
-        assert_eq!(authored.mesh_state(false, false).unwrap().queue, Queue::Alpha);
+        assert_eq!(
+            authored.mesh_state(false, false).unwrap().queue,
+            Queue::Alpha
+        );
     }
     #[test]
     fn nonfinite_model_transparency_is_rejected_not_silently_opaque() {
@@ -590,6 +599,9 @@ mod tests {
         }
         assert!(ModelState::new(false, 0., 5, 6).is_ok());
         // Unsupported authored blend codes still fail when state is requested.
-        assert!(ModelState::new(false, -1., 11, 6).unwrap().mesh_state(false, false).is_err());
+        assert!(ModelState::new(false, -1., 11, 6)
+            .unwrap()
+            .mesh_state(false, false)
+            .is_err());
     }
 }

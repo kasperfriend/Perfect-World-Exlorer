@@ -429,7 +429,10 @@ mod tests {
         assert_eq!(SPECIAL_STATE_BLOCK.alpha_ref, 0x54);
         assert!(!SPECIAL_STATE_BLOCK.receiving_model_submitter);
         // No receiving model is left without an ordinary/alpha assignment.
-        for row in MATRIX.iter().filter(|r| r.recipient == Recipient::OrdinaryModel) {
+        for row in MATRIX
+            .iter()
+            .filter(|r| r.recipient == Recipient::OrdinaryModel)
+        {
             assert!(row.variant.is_some(), "{row:?}");
             assert!(!row.exclusion.is_empty(), "{row:?}");
         }
