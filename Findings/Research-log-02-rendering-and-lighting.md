@@ -1546,3 +1546,36 @@ produces 4,259 finite active samples. Added reproducible production archive
 survey CLI (`gfx-light-runtime-survey`); it states its element-only scope and
 does not pretend to validate surrounding owner graphs or visual effects.
 Full P1.01 remains No. Continue with unresolved owner/parent/event integration.
+
+### Scene-effect owner inputs retained (native 142 verified)
+
+The ECWLD loader previously discarded effect orientation, scale, speed,
+time eligibility, alpha and attenuation. It now preserves all 60-byte v12
+record fields. Verified native `CECOrnamentMan::LoadEffect` at
+`0x5b33f3..0x5b34b0`: reads 0x3c bytes and copies position/direction/up,
+scale/speed, valid-time, alpha and attenuation into the GFX node. The matching
+pinned-152 `ECWDFILEEFFECT12` header was used as a research aid, not copied.
+Native `0x5b3700..0x5b37b9` builds the normalized placement matrix via
+`0x788960`, applies authored scale and play speed, then installs the parent.
+
+`0x5b18a1..0x5b18d4` uses strict `<0.5` daytime / `>0.5` nighttime checks;
+exactly 0.5 rejects both time-limited modes. The raw first x87 C0 test also
+accepts unordered as daytime; regression records that behavior rather than
+substituting a guessed inclusive comparison. The scene parser now preserves
+all owner fields and exposes this actual validity predicate. Tests cover
+record truncation at every byte, padding, full layout and the native boundary.
+All 50 combined native world/model/scene tests pass. Real `world.ecwld`:
+2,275 records, all numeric owner values finite; day/night/all counts
+154/676/1445, 2,027 attenuation enabled, 266 non-default authored alphas.
+
+**Confirmation: Is P1.01 finished? No — continue implementation.** Record
+retention does not install scene GFX owners into the renderer. The native
+manager ticks before checking time eligibility, lazily loads only one new
+root per frame, and returns immediately after that load (`0x5b1a00` onward).
+It also fades/stops/releases roots; a blanket independent tick over emitters
+would not reproduce that ordered owner lifecycle. Full graph traversal and
+model-event attachment ownership still require implementation and tests.
+
+CI `41464185202` for `e59268e` completed SUCCESS (all Linux/unit/GPU and
+Windows checks); it includes the infinite-light wrap fix and archive survey
+binary. The owner-record changes above are subsequent and require their own CI.
