@@ -88,6 +88,7 @@ mod terrain_gpu;
 mod terrain_lightmaps;
 #[allow(dead_code)]
 mod terrain_lod;
+mod terrain_residency;
 mod texture_atlas;
 mod tree_lod;
 #[cfg(windows)]

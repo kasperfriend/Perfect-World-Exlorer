@@ -132,6 +132,8 @@ struct MeshData {
     tree_center: (f32, f32),
     detail: DetailSettings,
     lod: LodState,
+    /// Resident terrain blocks and the index range each occupies.
+    spans: Vec<crate::terrain_residency::Span>,
     terrain_end: u32,
     object_start: u32,
     water_start: u32,
@@ -240,7 +242,13 @@ fn lod_window(
     );
     (win, levels)
 }
-fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<MeshData, String> {
+fn build(
+    t: &mut Terrain,
+    cx: f32,
+    cz: f32,
+    detail: DetailSettings,
+    residency: &mut crate::terrain_residency::Residency,
+) -> Result<MeshData, String> {
     let rad = detail.radius;
     let gx = cx / t.grid_spacing + t.width as f32 * 0.5;
     let gy = t.height as f32 * 0.5 - cz / t.grid_spacing;
@@ -283,36 +291,65 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
         let y = cell_y.min(t.height - 1);
         (x, y, y * t.width + x)
     };
-    for y in win.y0..win.y1 {
-        for x in win.x0..win.x1 {
-            let level = levels.level(x, y);
-            if level == 0 {
-                continue;
-            }
-            let cases = levels.cases[(y - win.y0) * (win.x1 - win.x0) + (x - win.x0)];
-            let surface = crate::terrain_lod::block_surface(level, cases);
-            let base = vertices.len() as u32;
-            for g in &surface.grid {
-                let (cell_x, cell_y, at) =
-                    sample(x * TILE + g[0] as usize, y * TILE + g[1] as usize);
-                let n = t.normals[at];
-                vertices.push(Vertex {
-                    pos: [
+    // `0x77e250`: the resident set follows the window. Blocks that enter are
+    // meshed at the level `0x77e360` picked, blocks whose level changed are
+    // re-meshed, and blocks the window leaves release their geometry.
+    let census =
+        residency.update(
+            &win,
+            |x, y| levels.level(x, y),
+            |x, y, level| {
+                let cases = levels.cases[(y - win.y0) * (win.x1 - win.x0) + (x - win.x0)];
+                let surface = crate::terrain_lod::block_surface(level, cases);
+                let mut block_vertices = Vec::with_capacity(surface.grid.len());
+                let mut low = [f32::INFINITY; 3];
+                let mut high = [f32::NEG_INFINITY; 3];
+                for g in &surface.grid {
+                    let (cell_x, cell_y, at) =
+                        sample(x * TILE + g[0] as usize, y * TILE + g[1] as usize);
+                    let n = t.normals.get(at).copied().ok_or_else(|| {
+                        format!("cell {at} outside {}x{} terrain", t.width, t.height)
+                    })?;
+                    let height = *t.heights.get(at).ok_or_else(|| {
+                        format!("cell {at} outside {}x{} terrain", t.width, t.height)
+                    })?;
+                    let pos = [
                         (cell_x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
-                        t.heights[at],
+                        height,
                         (t.height as f32 * 0.5 - cell_y as f32) * t.grid_spacing,
-                    ],
-                    normal: [n[0] as f32 / 127., n[1] as f32 / 127., n[2] as f32 / 127.],
-                    uv: [0.; 2],
-                    color: [1.; 4],
-                    kind: 0.,
-                    diffuse: 0xffff_ffff,
-                    night_diffuse: 0xffff_ffff,
-                });
-            }
-            indices.extend(surface.indices.iter().map(|i| base + *i));
-        }
-    }
+                    ];
+                    for axis in 0..3 {
+                        low[axis] = low[axis].min(pos[axis]);
+                        high[axis] = high[axis].max(pos[axis]);
+                    }
+                    block_vertices.push(Vertex {
+                        pos,
+                        normal: [n[0] as f32 / 127., n[1] as f32 / 127., n[2] as f32 / 127.],
+                        uv: [0.; 2],
+                        color: [1.; 4],
+                        kind: 0.,
+                        diffuse: 0xffff_ffff,
+                        night_diffuse: 0xffff_ffff,
+                    });
+                }
+                Ok((
+                    block_vertices,
+                    surface.indices,
+                    [low[0], low[1], low[2], high[0], high[1], high[2]],
+                ))
+            },
+        )?;
+    let spans = residency.append(&win, &mut vertices, &mut indices);
+    eprintln!(
+        "Terrain residency: {} blocks resident ({} entered, {} evicted, {} re-meshed), \
+         {} triangles; {} blocks submitted",
+        census.resident,
+        census.loaded,
+        census.evicted,
+        census.remeshed,
+        census.triangles,
+        spans.len()
+    );
     let terrain_end = indices.len() as u32;
     // Trees are now entirely GPU-instanced at three runtime-generated LODs.
     let mut atlas_allocator = crate::texture_atlas::Atlas::new();
@@ -686,6 +723,7 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
         tree_center: (cx, cz),
         detail,
         lod: lod_state,
+        spans,
         terrain_end,
         object_start,
         water_start,
@@ -751,6 +789,9 @@ struct Renderer {
     detail: DetailSettings,
     /// Window/levels the current terrain mesh was built for.
     lod: LodState,
+    /// Resident terrain blocks (`0x77e250`) and the runs submitted last frame.
+    spans: Vec<crate::terrain_residency::Span>,
+    terrain_runs: Vec<(u32, u32)>,
     terrain_end: u32,
     world_width: usize,
     world_height: usize,
@@ -1146,6 +1187,8 @@ impl Renderer {
             depth: d,
             center: m.center,
             lod: m.lod,
+            spans: m.spans,
+            terrain_runs: Vec::new(),
         })
     }
     fn update_mesh(&mut self, m: MeshData) {
@@ -1185,6 +1228,7 @@ impl Renderer {
         self.tree_center = m.tree_center;
         self.detail = m.detail;
         self.lod = m.lod;
+        self.spans = m.spans;
         self.terrain_end = m.terrain_end;
         self.object_start = m.object_start;
         self.water_start = m.water_start;
@@ -1232,12 +1276,21 @@ impl Renderer {
         if clear_color.is_none() {
             self.sky.draw(&mut p, sky_reflected);
         }
+        // The main view submits only the blocks its frustum keeps
+        // (`block+0x74`); the other passes reuse the full terrain because they
+        // look through different matrices and must not lose blocks.
+        let runs = if reflected {
+            None
+        } else {
+            Some(self.terrain_runs.as_slice())
+        };
         self.terrain_gpu.draw(
             &mut p,
             reflected,
             &self.vertex,
             &self.index,
             self.terrain_end,
+            runs,
         );
         drop(p);
         if let Some(source) = terrain_depth_source {
@@ -1530,6 +1583,9 @@ impl Renderer {
         w: u32,
         h: u32,
     ) {
+        // Per-frame, per-view visibility of the resident terrain (`0x77e250`):
+        // the same block walk the client runs before the level rule.
+        self.terrain_runs = crate::terrain_residency::visible_runs(&self.spans, matrix);
         let now = Instant::now();
         let dt = now.duration_since(self.wind_last).as_secs_f32();
         self.grass_wind_state.update(dt);
@@ -2399,9 +2455,10 @@ pub fn run(
     std::thread::Builder::new()
         .name("world-streaming".into())
         .spawn(move || {
+            let mut residency = crate::terrain_residency::Residency::default();
             while let Ok((x, z, detail)) = request_rx.recv() {
                 let started = Instant::now();
-                let result = build(&mut t, x, z, detail);
+                let result = build(&mut t, x, z, detail, &mut residency);
                 eprintln!(
                     "Background terrain build at ({x:.1},{z:.1}) took {:.2}s",
                     started.elapsed().as_secs_f32()

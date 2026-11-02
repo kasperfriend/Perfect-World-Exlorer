@@ -360,13 +360,20 @@ same window alone (14.7 MB of 60-byte vertices vs 4.2 MB now).
   separate index buffers (corner triangles plus a fan); the viewer emits the same
   vertex set with its own fan diagonals inside each `step`-wide ring cell. The
   boundary node sets — the only thing that can crack — are identical.
-* **Block visibility / hole flags.** `block+0x74` (visibility, level 0) and the
-  terrain hole flags (`P2.07`) are not decoded; the viewer treats every resident
-  block as visible and emits no holes.
-* **Asynchronous block residency.** The client's block array is filled by its
-  loader and `0x77e360` skips unloaded blocks; the viewer loads every T2BK up
-  front, so "residency" is a draw-set property only. No eviction logic exists in
-  either path at draw time.
+* **Block visibility is decoded; hole flags are not.** `0x77e250` walks the
+  window every frame, skips blocks without data (`block+0x18`), asks the view
+  whether the block's bounds (`block+0x54`, `block+0x60`) are visible, stores the
+  answer in `block+0x74`, builds the level-3 mesh on entry (`0x7c1140`) and counts
+  the visible blocks in `terrain+0x324`; `0x77e360` then skips `+0x74 == 0` and
+  `+0x18 == 0`. The viewer reproduces that lifecycle (`src/terrain_residency.rs`)
+  with a conservative bounds test in place of the client's virtual call. Terrain
+  hole flags (the other half of `P2.08`) are still not decoded.
+* **Block residency: geometry streamed, bytes preloaded.** The client's block
+  array is filled by its loader and `0x77e360` skips unloaded blocks. The viewer
+  decodes the retail archive up front, so the unit that enters and leaves with
+  the window is the block's geometry: entering blocks are meshed, level changes
+  re-mesh one block, evicted blocks release their vertices, and the census is
+  reported per build. Paging the block *bytes* from disk remains a difference.
 * **Unrecovered allocation.** `0x7e6ba0` allocates `24*bg²` per block for a
   per-cell map I did not identify; it does not affect the emitted geometry above.
 * **No GPU run.** Nothing here was rendered: the sandbox has no GPU surface, so
@@ -394,11 +401,6 @@ meshes, so the whole-world mesh is back and only the level ladder remains native
 * `block+0x7c` is proven to be `1.0f` from the block constructors (`0x7c85e2`,
   `0x7a1da3`) and from the absence of any other store to it, removing the last
   assumption in the level rule.
-* `P2.01` is recorded as Implemented on the reviewer's decision (2 November 2026):
-  the draw set, the explicit malformed-data failures and the whole-world extent are
-  in place, and the two remaining differences — everything resident up front
-  (no streaming eviction) and no `block+0x74` per-view visibility — are written
-  into the decision row as accepted deviations rather than dropped.
 * `P2.02` and `P2.03` are therefore recorded as Implemented in the reassessment,
   with the near→far→back walk rendered on 2 November 2026 as their camera-walk
   evidence; `P2.01` stays Partial because residency/streaming and `block+0x74`
@@ -409,3 +411,42 @@ meshes, so the whole-world mesh is back and only the level ladder remains native
   restored the step, so the program itself fails under the software Vulkan ICD.
   The job log is not readable from this sandbox, so it stays out of the gate and
   is documented instead of being claimed as coverage.
+
+---
+
+## 9. Block residency and per-view visibility (P2.01), 2 November 2026
+
+Decoding `0x77e250` completed the draw-selection half of P2.01:
+
+```
+0x77e1b0  per-frame entry: window = 0x77ecf0(terrain, terrain+0x1bc)
+0x77e250  for each window slot:
+            block = terrain->grid[y][x];          skip if null or block+0x18 == 0
+            visible = view->isVisible(block+0x54, block+0x60)     (virtual, +0x10)
+            block+0x74 = visible
+            if visible: block+0x70 = 3; build full-res mesh (0x7c1140);
+                        terrain+0x324 += 1            visible-block census
+0x77e360  level rule: skip block+0x18 == 0 or block+0x74 == 0, then 3/2/1 by
+          distance against terrain+0x26c/+0x270 scaled by block+0x7c == 1.0
+```
+
+`src/terrain_residency.rs` implements that lifecycle for the viewer:
+
+* `Residency::update` applies one window: blocks outside it are evicted and their
+  geometry released, entering blocks are meshed once at their level, blocks whose
+  level changed are re-meshed, `level == 0` blocks are skipped.
+* `Residency::append` assembles the resident blocks in window order and records
+  each block's index range and world bounds.
+* `visible_runs` filters those blocks through the bounds test every frame and
+  merges neighbours into contiguous ranges, so the main view submits exactly the
+  blocks it keeps (`block+0x74`) with a handful of draw calls; the mirrored and
+  refraction passes still submit the whole set, since they look through different
+  matrices.
+* A block that cannot be built returns its coordinates, level and reason, e.g.
+  `terrain block (12,7) level 3: cell 8123 outside 1024x1408 terrain`.
+
+Executed in CI by `cargo test --bin perfect-world-explorer` (six tests in the new
+module: enter/evict with the window, re-mesh only on level change, level-0 skip,
+named build failure, frustum keep/drop, run merging), and reported per build as
+`Terrain residency: N blocks resident (X entered, Y evicted, Z re-meshed), T
+triangles; M blocks submitted`.
