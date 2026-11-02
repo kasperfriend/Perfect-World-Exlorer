@@ -720,3 +720,36 @@ total); this is an arithmetic consistency correction, not a claim of retail
 image parity. CPU deformation now explicitly rejects overflowed intermediate
 position/normal values instead of returning an Ok with nonfinite geometry.
 The combined native suite passes 23 tests; new GPU validation pending.
+
+#### Retained model assets and single-base loop policy
+
+Normalization fix `b5d7d4d` passed full CI **41442531115** (including all 12
+palette-input GPU cases and the Windows executable). The full readiness gate
+still reports P1.01–P1.10 No with no audit-format errors; work continues.
+
+Added a retained `ModelAsset` load/evaluation path: normalized ECM→SMD→BON,
+all referenced skins and per-action external/embedded tracks, reference
+validation, ordinary palette and deformed mesh batches with stable skin/mesh
+identities. It uses caller-owned archive reads and preserves dependency error
+context; no missing-asset placeholders or fallback-to-another-action tracks.
+`ecmodel-check` now exercises this shared asset path, rather than only
+independent reader probes. Native actual-world validation again passed all
+14 assets/69 poses/26,643 deformations through that retained API. The combined
+native suite now passes 26 tests. This API is not yet a rendered world draw;
+texture/material binding, instance submission and verified scheduling remain
+required. It explicitly rejects rigid pose binding rather than applying the
+weighted inverse-bind palette in an unproved coordinate space.
+
+A further loader trace proves a subtle loop policy: `0x6f2061–0x6f2079`
+forces both sole-base bounds to -1 when the combined loop count is -1.
+`0x6f2004–0x6f2012` initializes base bounds to 1; `0x6f2a93–0x6f2b38`
+reads legacy single counts below version 36 and min/max ranges from version
+36 onward. The production descriptor helper now exposes that effective
+single-base policy and tests the override/default/bad-index cases. It does
+not pretend to implement elapsed-time/random/event scheduling.
+
+Correction to the earlier defensive metadata guard: raw finite zero/reverse
+speed values are now retained instead of being declared invalid. The loader
+uses a raw `%f` store (`0x6f1f96–0x6f1fa8`); a positive-only decoding
+constraint was unproved. Nonfinite speed is still rejected. Playback policy
+for these values is a separate responsibility, not a guessed parser default.

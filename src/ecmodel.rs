@@ -19,6 +19,20 @@ pub struct CombinedAction {
     pub speed: Option<f32>,
     pub bases: Vec<BaseAction>,
 }
+impl CombinedAction {
+    /// Retail 0x6f2061–0x6f2079 forces a sole base to loop forever
+    /// when its containing combined action loops forever. The loader
+    /// initializes both base bounds to one (0x6f2004–0x6f2012).
+    /// This is loop-policy normalization, not a playback scheduler.
+    pub fn base_loop_bounds(&self, index: usize) -> Option<(i32, i32)> {
+        let base = self.bases.get(index)?;
+        if self.loops == Some(-1) && self.bases.len() == 1 {
+            Some((-1, -1))
+        } else {
+            Some((base.loop_min.unwrap_or(1), base.loop_max.unwrap_or(1)))
+        }
+    }
+}
 #[derive(Debug, Default)]
 pub struct BaseAction {
     pub name: String,
@@ -133,7 +147,7 @@ pub fn parse_ecm(bytes: &[u8]) -> Result<EcModel, String> {
     }
     fn speed(key: &str, value: &str) -> Result<f32, String> {
         let v: f32 = integer(key, value)?;
-        if !v.is_finite() || v <= 0. {
+        if !v.is_finite() {
             return Err(format!("invalid ECM {key}: {value}"));
         }
         Ok(v)
@@ -522,11 +536,24 @@ mod ecm_schedule_tests {
         assert!(m.events[1].gfx_path().is_none());
     }
     #[test]
+    fn retail_single_base_infinite_override_and_default_bounds() {
+        let m=parse("ComActCount: 2\nCombineActName: a\nLoopCount: -1\nBaseActCount: 1\nBaseActName: b\nLoopMinNum: 3\nLoopMaxNum: 8\nEventCount: 0\nCombineActName: c\nLoopCount: 1\nBaseActCount: 1\nBaseActName: d\nEventCount: 0").unwrap();
+        assert_eq!(m.actions[0].base_loop_bounds(0), Some((-1, -1)));
+        assert_eq!(m.actions[1].base_loop_bounds(0), Some((1, 1)));
+        assert_eq!(m.actions[0].base_loop_bounds(1), None);
+        // Metadata decoding is not a playback policy: preserve zero/reverse
+        // speeds instead of inventing a positive-only client constraint.
+        let m =
+            parse("DefSpeed: 0\nComActCount: 1\nCombineActName: a\nPlaySpeed: -1\nBaseActCount: 0")
+                .unwrap();
+        assert_eq!(m.default_speed, Some(0.));
+        assert_eq!(m.actions[0].speed, Some(-1.));
+    }
+    #[test]
     fn rejects_bad_counts_timing_and_nonfinite_speed() {
         for body in [
             "ComActCount: 1",
             "DefSpeed: NaN",
-            "DefSpeed: 0",
             "CombineActName: a\nBaseActCount: 1",
             "CombineActName: a\nBaseActCount: 1\nBaseActName: b\nLoopMinNum: 9\nLoopMaxNum: 2",
             "CombineActName: a\nBaseActCount: 1\nBaseActName: b\nActStartTime: bad",

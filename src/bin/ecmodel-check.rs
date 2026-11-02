@@ -3,6 +3,8 @@
 mod animation;
 #[path = "../ecmodel.rs"]
 mod ecmodel;
+#[path = "../model_asset.rs"]
+mod model_asset;
 #[path = "../model_material.rs"]
 mod model_material;
 #[path = "../pck.rs"]
@@ -39,6 +41,8 @@ fn main() -> Result<(), String> {
     let mut track_owners: BTreeMap<String, HashSet<String>> = BTreeMap::new();
     let mut versions = BTreeMap::new();
     let mut failures = Vec::new();
+    let mut asset_pose_cases = 0usize;
+    let mut asset_posed_vertices = 0usize;
     let mut combined_actions = 0usize;
     let mut base_actions = 0usize;
     let mut gfx_references = 0usize;
@@ -52,14 +56,48 @@ fn main() -> Result<(), String> {
         if !ecms.insert(key.clone()) {
             continue;
         }
-        let entry = match entries.get(&key) {
-            Some(e) => e,
-            None => {
-                missing.push(key);
-                continue;
+        if !entries.contains_key(&key) {
+            missing.push(key);
+            continue;
+        }
+        let asset = model_asset::ModelAsset::load_with(&key, |path| {
+            let entry = entries
+                .get(path)
+                .ok_or_else(|| format!("missing dependency {path}"))?;
+            pck::read_entry(&mut f, entry)
+        })?;
+        let ec = &asset.descriptor;
+        let mut checked_embedded = false;
+        for (i, set) in asset.tracks.iter().enumerate() {
+            let (start, end, fps) = match set {
+                Some(t) => (t.start, t.end, t.fps),
+                None if !checked_embedded => {
+                    checked_embedded = true;
+                    (asset.skeleton.start, asset.skeleton.end, asset.skeleton.fps)
+                }
+                None => continue,
+            };
+            for frame in [start as f32, (start as f32 + end as f32) * 0.5, end as f32] {
+                let world = glam::Mat4::from_rotation_translation(
+                    glam::Quat::from_rotation_y(0.37),
+                    glam::Vec3::new(10., 4., -12.),
+                );
+                match asset.pose_action_at_time(i, frame / fps as f32, world) {
+                    Ok(meshes) => {
+                        for mesh in meshes {
+                            let source = &asset.skins[mesh.skin].data.meshes[mesh.mesh];
+                            if mesh.vertices.len() != source.vertices.len() {
+                                failures
+                                    .push(format!("{key}: retained mesh vertex count mismatch"));
+                            }
+                            asset_posed_vertices += mesh.vertices.len();
+                        }
+                        asset_pose_cases += 1;
+                    }
+                    Err(e) => failures.push(format!("{key}: retained asset pose: {e}")),
+                }
             }
-        };
-        let ec = ecmodel::parse_ecm(&pck::read_entry(&mut f, entry)?)?;
+        }
         combined_actions += ec.actions.len();
         base_actions += ec.actions.iter().map(|a| a.bases.len()).sum::<usize>();
         for event in &ec.events {
@@ -72,14 +110,7 @@ fn main() -> Result<(), String> {
         if !smds.insert(path.clone()) {
             continue;
         }
-        let ent = match entries.get(&path) {
-            Some(e) => e,
-            None => {
-                missing.push(path);
-                continue;
-            }
-        };
-        let smd = ecmodel::parse_smd(&pck::read_entry(&mut f, ent)?)?;
+        let smd = &asset.model;
         *versions.entry(smd.version).or_insert(0usize) += 1;
         for action in &ec.actions {
             for base in &action.bases {
@@ -121,7 +152,7 @@ fn main() -> Result<(), String> {
                     .insert(skeleton_path.clone());
             }
         }
-        for refname in std::iter::once(smd.skeleton).chain(smd.skins) {
+        for refname in std::iter::once(&smd.skeleton).chain(&smd.skins) {
             if refname.is_empty() {
                 continue;
             }
@@ -143,6 +174,7 @@ fn main() -> Result<(), String> {
     }
     let (mut skin_meshes, mut rigid_meshes, mut material_count) = (0, 0, 0);
     let mut skin_versions = BTreeMap::new();
+    println!("Retained assets: {asset_pose_cases} sampled poses, {asset_posed_vertices} deformed vertices; not a world draw");
     println!("ECM metadata: {combined_actions} combined actions, {base_actions} base references; scene name candidates {action_candidates:?} (combined/direct); {gfx_references} external GFX references, event types {event_types:?}");
     println!("GFX archive data and ECM schedule/event playback are NOT validated by this models.pck diagnostic");
     let mut skeleton_versions = BTreeMap::new();

@@ -41,6 +41,7 @@ mod grass_wind;
 #[cfg(windows)]
 mod launcher_ui;
 mod material;
+mod model_asset;
 mod model_light;
 mod model_material;
 mod music;
@@ -358,7 +359,8 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     let environments = environment::Environments::load(&world_scene, &dir)?;
     // Load the actual scene-light records for validation/research. Do not add
     // them to the static baked BMDs: the traced client call site is a separate
-    // object-light path and its render integration is not yet recovered.
+    // object-light path. Post-load receiver eligibility is now traced, but
+    // the receiving-model world draw is not yet implemented.
     let scene_lights = match scene_lights::SceneLights::load(&dir.join("scenelights.dat")) {
         Ok(lights) => {
             eprintln!(
