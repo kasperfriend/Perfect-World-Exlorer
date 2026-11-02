@@ -1485,3 +1485,13 @@ start delay, treats duration -1 as infinite and advances finite intervals at
 `span >= duration`. The light tick `0x70ba00` invokes that base tick before
 visibility/priority checks. Inherited keypoint resolution and parent/GFX
 lifetime still must be implemented/verified; this census does not close them.
+
+
+CI `41461016032` / `7e37614` completed SUCCESS (Linux, all 13 GPU
+binaries, Windows executable). The reflected/clipped same-frame publication
+fixture passed, with next-frame expiration and destruction checks unchanged.
+Full-world lightmap census was rerun: 176 files / 2,816 DDS tiles, zero
+missing and zero invalid. Latest local counts: 79 core and 48 native tests;
+73 actual world placements × five clock/pose/draw preparation checkpoints.
+**Confirmation: rigid receiver, payload census and publication/multipass
+components Yes. Full audit: 10 No / 2 qualified Yes; Phase 1 not complete.**
