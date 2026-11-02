@@ -54,7 +54,7 @@ static unsigned short captured[101*256];
 static void emit_pc24_words(void) {
     const unsigned char *data=(const unsigned char*)captured;
     const char *alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    const size_t size=sizeof captured, chunk=12288;
+    const size_t size=sizeof captured, chunk=3000;
     for (size_t offset=0; offset<size; offset+=chunk) {
         size_t end=offset+chunk<size?offset+chunk:size;
         printf("::notice::PC24-DATA-%u:",(unsigned)(offset/chunk+1));
