@@ -115,10 +115,27 @@ impl World {
         night: f32,
         delta_ms: u32,
     ) {
-        self.grid.update(lights, center);
-        // Consume once per lighting update. No publication means no dynamic
-        // candidates; a live but ineligible/unticked FX must not leak a light.
-        self.publications.consume_into(&mut self.grid);
+        self.update_pass(device, queue, frame, center, lights, night, delta_ms, true);
+    }
+    /// The first/main pass advances the frame and consumes publications.
+    /// Reflection/refraction only update pass-dependent matrices/fog/clip;
+    /// they must reuse the same lighting snapshot and playback time.
+    pub fn update_pass(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        frame: Frame,
+        center: [f32; 3],
+        lights: &SceneLights,
+        night: f32,
+        delta_ms: u32,
+        advance: bool,
+    ) {
+        if advance {
+            self.grid.update(lights, center);
+            // Consume once, not again when drawing a clipped water pass.
+            self.publications.consume_into(&mut self.grid);
+        }
         for (instance, slot) in self.assets.instances.iter_mut().zip(&mut self.slots) {
             if slot.failed {
                 continue;
@@ -150,13 +167,15 @@ impl World {
                 }
                 let transform = *slot.transform.as_ref().map_err(Clone::clone)?;
                 let clock = instance.playback.as_mut().map_err(|e| e.clone())?;
-                clock.tick(delta_ms)?;
+                if advance {
+                    clock.tick(delta_ms)?;
+                }
                 let posed = match clock.sample() {
                     Some((action, time)) => asset.pose_action_at_time(action, time, transform)?,
                     None => asset.pose_bind(transform)?,
                 };
                 let mut f = frame;
-                let point = self.grid.query(lights, instance.placement.position, night);
+                let point = self.grid.query(instance.placement.position, night);
                 f.lighting.point_enabled = point.is_some();
                 if let Some(point) = point {
                     f.lighting.point_ambient = point.ambient;

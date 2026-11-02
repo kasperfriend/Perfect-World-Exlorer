@@ -1456,3 +1456,32 @@ for populated -> empty -> populated -> same-size relocated light, all at
 one camera position. 79 core tests pass. This is a viewer cache-safety fix,
 not a claim of recovered client asynchronous streaming order. GPU rerun
 pending; prior rigid/sharpen successful runs remain valid.
+
+
+CI `41460362278` / `0ba3c51` completed SUCCESS, Linux including the
+publication GPU oracles and Windows. **Confirmation: publication bridge
+and static-corpus invalidation Yes; full P1.01 No.**
+
+Follow-up review found the viewer updates model uniforms separately for
+main/reflection/refraction. Consuming publications again in the latter
+passes would incorrectly drop dynamic lights mid-frame. Split the frame-
+advancing and pass-only updates: only the first/main update consumes and
+ticks; clipped passes retain the lighting snapshot and playback time. The
+actual renderer now propagates its existing advance flag. StaticGrid queries
+read their own captured static records rather than accepting potentially
+changed external record IDs. Added a reflected/clipped same-frame dynamic
+light GPU check (nonadvancing call even receives a nonzero delta); the next
+advancing update still clears unpublished lights. 79 core / 48 native CPU
+checks pass. New multipass GPU validation pending.
+
+Additional full archive shape census (not controller implementation): all
+546 light elements have one keypoint and interpolation mode 0; 542 have
+zero controllers and four have one controller, type 108 (color transition).
+All 546 have empty BindEle/DummyEle, IsDummy=0, MatchGrnd=0,
+RepeatCount=1 and RepeatDelay=0. The four controlled assets are white-tiger
+invulnerability ground, shield, freeze and demon-state effects. Native
+`0x6edd80` advances keypoint time, stops on completed repeat count, applies
+start delay, treats duration -1 as infinite and advances finite intervals at
+`span >= duration`. The light tick `0x70ba00` invokes that base tick before
+visibility/priority checks. Inherited keypoint resolution and parent/GFX
+lifetime still must be implemented/verified; this census does not close them.

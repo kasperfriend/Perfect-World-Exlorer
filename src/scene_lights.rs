@@ -240,7 +240,7 @@ impl StaticGrid {
     /// Returns none outside the client's grid bounds (including y < 0 or > 800).
     /// The 0x4250c0 path scales flag-1 colors by the current night factor,
     /// forces attenuation to (0,.4,0) and color alpha to 1.
-    pub fn query(&self, lights: &SceneLights, point: [f32; 3], night: f32) -> Option<SceneLight> {
+    pub fn query(&self, point: [f32; 3], night: f32) -> Option<SceneLight> {
         if !self.initialized || point.iter().any(|x| !x.is_finite()) {
             return None;
         }
@@ -262,7 +262,7 @@ impl StaticGrid {
         let mut best = None;
         let mut best_d = 99999.8984375_f32;
         for &id in &self.cells[z * 10 + x] {
-            let l = &lights.lights[id];
+            let l = &self.static_records[id];
             let d = ((l.position[0] - point[0]).powi(2)
                 + (l.position[1] - point[1]).powi(2)
                 + (l.position[2] - point[2]).powi(2))
@@ -352,17 +352,19 @@ mod tests {
         };
         let mut grid = StaticGrid::default();
         grid.update(&lights, [0.; 3]);
-        assert!(grid.query(&lights, [0.; 3], 1.).is_some());
+        assert!(grid.query([0.; 3], 1.).is_some());
         lights.lights.clear();
+        // Queries own the captured corpus, never caller-mutated record IDs.
+        assert!(grid.query([0.; 3], 1.).is_some());
         grid.update(&lights, [0.; 3]);
-        assert!(grid.query(&lights, [0.; 3], 1.).is_none());
+        assert!(grid.query([0.; 3], 1.).is_none());
         lights.lights.push(fixture([0.; 3], 10.));
         grid.update(&lights, [0.; 3]);
-        assert!(grid.query(&lights, [0.; 3], 1.).is_some());
+        assert!(grid.query([0.; 3], 1.).is_some());
         // Same-size replacement must also rebuild bounds, not reuse ID 0's cell.
         lights.lights[0] = fixture([1000.; 3], 10.);
         grid.update(&lights, [0.; 3]);
-        assert!(grid.query(&lights, [0.; 3], 1.).is_none());
+        assert!(grid.query([0.; 3], 1.).is_none());
     }
     #[test]
     fn publications_overwrite_in_first_order_and_clear_after_consumption() {
@@ -444,7 +446,7 @@ mod tests {
         grid.update(&lights, [0., 100., 0.]);
         // The chosen cell's AABBs overlap the query even though range does not.
         for night in [0., 0.5, 1.] {
-            let chosen = grid.query(&lights, [45., 100., 0.], night).unwrap();
+            let chosen = grid.query([45., 100., 0.], night).unwrap();
             assert_eq!(chosen.range, 1.);
             assert_eq!(
                 chosen.flags, 1,
@@ -474,7 +476,7 @@ mod tests {
                 radius: 20.,
                 color: [0.25, 0.5, 1., 0.5],
             }]);
-            let chosen = grid.query(&lights, [0., 100., 0.], 1.).unwrap();
+            let chosen = grid.query([0., 100., 0.], 1.).unwrap();
             assert_eq!(chosen.position[0], expected);
             if x == 7. {
                 assert_eq!(chosen.diffuse, [0.25, 0.5, 1., 1.]);
@@ -498,7 +500,7 @@ mod tests {
         for x in [-60., 60.] {
             for z in [-60., 60.] {
                 for y in [0., 800.] {
-                    assert!(grid.query(&lights, [x, y, z], 1.).is_some());
+                    assert!(grid.query([x, y, z], 1.).is_some());
                 }
             }
         }
@@ -512,7 +514,7 @@ mod tests {
             [f32::NAN, 100., 0.],
             [0., f32::INFINITY, 0.],
         ] {
-            assert!(grid.query(&lights, p, 1.).is_none());
+            assert!(grid.query(p, 1.).is_none());
         }
     }
 
@@ -534,7 +536,7 @@ mod tests {
         bad_color.color[3] = f32::INFINITY;
         grid.update_dynamic(&[bad_radius, bad_position, bad_color, valid]);
         assert_eq!(
-            grid.query(&lights, valid.position, 1.).unwrap().position,
+            grid.query(valid.position, 1.).unwrap().position,
             valid.position
         );
     }
@@ -560,15 +562,15 @@ mod tests {
         };
         let mut grid = StaticGrid::default();
         grid.update(&lights, [0., 100., 0.]);
-        let l = grid.query(&lights, [0., 100., 0.], 0.5).unwrap();
+        let l = grid.query([0., 100., 0.], 0.5).unwrap();
         assert_eq!(l.diffuse, [0.5, 0.25, 0.125, 1.]);
         assert_eq!(l.stored_attenuation, [0., 0.4, 0.]);
-        let l = grid.query(&lights, [30., 100., 0.], 0.).unwrap();
+        let l = grid.query([30., 100., 0.], 0.).unwrap();
         assert_eq!(l.diffuse, [1., 0.5, 0.25, 1.]);
-        assert!(grid.query(&lights, [0., 801., 0.], 1.).is_none());
-        assert!(grid.query(&lights, [59., 100., 59.], 1.).is_none());
+        assert!(grid.query([0., 801., 0.], 1.).is_none());
+        assert!(grid.query([59., 100., 59.], 1.).is_none());
         grid.update(&lights, [100., 100., 0.]);
-        assert!(grid.query(&lights, [0., 100., 0.], 1.).is_none());
+        assert!(grid.query([0., 100., 0.], 1.).is_none());
     }
     #[test]
     fn dynamic_candidates_replace_nearer_static_and_are_capped_at_three() {
@@ -584,14 +586,14 @@ mod tests {
             });
         }
         grid.update_dynamic(&dynamic);
-        let chosen = grid.query(&lights, [0., 100., 0.], 0.).unwrap();
+        let chosen = grid.query([0., 100., 0.], 0.).unwrap();
         assert_eq!(chosen.position, [6., 100., 0.]);
         assert_eq!(chosen.diffuse, [0.5, 0.25, 0.125, 1.]);
         assert_eq!(chosen.ambient, [0.05, 0.025, 0.0125, 1.]);
         assert_eq!(chosen.range, 10.);
         assert_eq!(chosen.stored_attenuation, [0., 0.4, 0.]);
         grid.update_dynamic(&[]);
-        assert!(grid.query(&lights, [0., 100., 0.], 0.).is_none());
+        assert!(grid.query([0., 100., 0.], 0.).is_none());
     }
     #[test]
     fn camera_cell_rebuilds_at_exact_boundary_and_dynamic_tie_keeps_static() {
@@ -619,10 +621,7 @@ mod tests {
             radius: 10.,
             color: [1., 1., 1., 1.],
         }]);
-        assert_eq!(
-            grid.query(&lights, [0., 100., 0.], 0.).unwrap().diffuse[0],
-            0.75
-        );
+        assert_eq!(grid.query([0., 100., 0.], 0.).unwrap().diffuse[0], 0.75);
         grid.update(&lights, [11.999, 100., 0.]);
         assert_eq!(grid.center[0], 0.);
         grid.update(&lights, [12., 100., 0.]);

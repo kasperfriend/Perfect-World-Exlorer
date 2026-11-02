@@ -538,6 +538,22 @@ fn main() {
         &world,
         [[64, 128, 191, 136], [191, 64, 128, 136]],
     );
+    // A reflected/clipped pass in the SAME frame retains the captured light.
+    let mut published_reflection = opaque_dim;
+    published_reflection.matrix =
+        glam::Mat4::from_scale(glam::Vec3::new(-1., -1., 1.)).to_cols_array_2d();
+    published_reflection.clip_plane = [1., 0., 0., 0.];
+    world.update_pass(
+        &device,
+        &queue,
+        published_reflection,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        999,
+        false,
+    );
+    check(&device, &queue, &world, [[191, 64, 128, 136], [0; 4]]);
     // Consumed membership is reset, not a persistent-active-light list.
     world.update(
         &device,

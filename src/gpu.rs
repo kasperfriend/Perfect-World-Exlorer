@@ -1242,7 +1242,7 @@ impl Renderer {
                 alpha_compare: 5,
                 alpha_reference: 84. / 255.,
             };
-            models.update(
+            models.update_pass(
                 &self.device,
                 &self.queue,
                 frame,
@@ -1250,6 +1250,7 @@ impl Renderer {
                 &self.model_lights,
                 1. - crate::environment::daylight(camera.time_of_day),
                 delta,
+                advance,
             );
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("world receiving-model pass"),
