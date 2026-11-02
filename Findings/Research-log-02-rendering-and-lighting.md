@@ -666,3 +666,42 @@ action names also differ from underlying SMD actions (e.g. 海马右 `飘动` ma
 to `飘动右`, 浑天仪 `旋转` maps to `转`), and the plant has four base actions.
 Do not enable a guessed first-SMD-action renderer or claim the dependency
 survey proves these action/effect semantics.
+
+#### Follow-up: post-load eligibility, action candidates and descriptor metadata
+
+The previously missing `+0x2f4` enabling write is at **0x6cf930**: after
+loading the skin model through `0x41a3e0` and storing it at `+0xc4`, the
+initializer assigns `+0x2f4 = (+0xc4 != nullptr)` (`0x6cf91f–0x6cf930`).
+This is not constructor default behavior: unsuccessful/no-skin loads remain
+ineligible. Together with constructor `+0x34d=1`, it supplies the ordinary
+successful-load eligibility predicate for `0x6d1558–0x6d1578`.
+`0x6d28a0` disables independent lighting after the child skin-model sharing
+call `0x793610`; detach restores `+0x2f4=1` only when `+0xc4` exists
+(`0x6d2ad8–0x6d2ae2`). Do not apply a blanket always-lit rule to shared child
+models or a failed load. This is source evidence for the runtime consumer,
+not evidence that the consumer is already wired into our world renderer.
+
+The ECM reader now retains combined/base action names, start times, old
+LoopCount and newer loop ranges, optional speed/render header fields, and
+scoped event fields. Missing legacy color/blend/speed fields stay absent,
+not guessed defaults. Counts, malformed timing, inverted nonnegative loop
+ranges and nonfinite/nonpositive speed are rejected. EventType-100 GFX
+paths are separate from SMD hangers and unknown event kinds are retained.
+
+**Correction to any combined-only assumption:** seven plant placements use
+SMD base names `站立1`/`站立3`, not their ECM's combined name. The native check
+initially rejected those seven; it now reports candidate namespaces rather
+than imposing an unproved combined-only playback rule. All **73** placements
+have a combined-name (66) or direct-base-name (7) candidate, all **27** base
+references exist in their SMDs, and all **36** GFX references are retained.
+All **14** dependency chains again pass, including **69** poses/**26,643**
+finite vertex deformations. This does NOT establish namespace priority,
+random-loop scheduling, GFX playback or visual parity. The combined native
+suite passes **22** tests. `ecmodel-check` exposes these dependencies and
+name-candidate checks explicitly; it does not validate gfx.pck.
+
+The preceding palette implementation **c544392** passed full CI
+**41441677811**, including application/test builds, Linux GPU checks
+(the two newly executed skin GPU binaries included) and Windows release.
+Descriptor metadata changes described in this subsection still require
+full CI validation. Phase1 readiness remains open.

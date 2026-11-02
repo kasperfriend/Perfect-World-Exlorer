@@ -38,6 +38,12 @@ fn main() -> Result<(), String> {
     let mut skin_owners: BTreeMap<String, HashSet<String>> = BTreeMap::new();
     let mut track_owners: BTreeMap<String, HashSet<String>> = BTreeMap::new();
     let mut versions = BTreeMap::new();
+    let mut failures = Vec::new();
+    let mut combined_actions = 0usize;
+    let mut base_actions = 0usize;
+    let mut gfx_references = 0usize;
+    let mut event_types = HashSet::new();
+    let mut action_candidates = [0usize; 2];
     for m in s.blocks.iter().flat_map(|b| &b.models) {
         if !placed.insert(m.export_id) {
             continue;
@@ -54,7 +60,15 @@ fn main() -> Result<(), String> {
             }
         };
         let ec = ecmodel::parse_ecm(&pck::read_entry(&mut f, entry)?)?;
-        let path = ec.skin_model_path;
+        combined_actions += ec.actions.len();
+        base_actions += ec.actions.iter().map(|a| a.bases.len()).sum::<usize>();
+        for event in &ec.events {
+            event_types.insert(event.kind);
+            if event.gfx_path().is_some() {
+                gfx_references += 1;
+            }
+        }
+        let path = ec.skin_model_path.clone();
         if !smds.insert(path.clone()) {
             continue;
         }
@@ -67,6 +81,36 @@ fn main() -> Result<(), String> {
         };
         let smd = ecmodel::parse_smd(&pck::read_entry(&mut f, ent)?)?;
         *versions.entry(smd.version).or_insert(0usize) += 1;
+        for action in &ec.actions {
+            for base in &action.bases {
+                if !smd.actions.iter().any(|a| a.name == base.name) {
+                    failures.push(format!(
+                        "{key}: {} -> missing SMD action {}",
+                        action.name, base.name
+                    ));
+                }
+            }
+        }
+        // The plant's placements use direct base names, whereas e.g. the
+        // armillary sphere and right seahorse use different combined names.
+        // Count name resolution candidates, not verified playback semantics.
+        for placement in s
+            .blocks
+            .iter()
+            .flat_map(|b| &b.models)
+            .filter(|m| ecmodel::normalize(&m.path) == key)
+        {
+            if ec.actions.iter().any(|a| a.name == placement.action) {
+                action_candidates[0] += 1;
+            } else if smd.actions.iter().any(|a| a.name == placement.action) {
+                action_candidates[1] += 1;
+            } else {
+                failures.push(format!(
+                    "{key}: no combined/base candidate for scene action {:?}",
+                    placement.action
+                ));
+            }
+        }
         let parent = path.rsplit_once('/').map(|x| x.0).unwrap_or("");
         let skeleton_path = ecmodel::normalize(&format!("{parent}/{}", smd.skeleton));
         for action in &smd.actions {
@@ -99,7 +143,8 @@ fn main() -> Result<(), String> {
     }
     let (mut skin_meshes, mut rigid_meshes, mut material_count) = (0, 0, 0);
     let mut skin_versions = BTreeMap::new();
-    let mut failures = Vec::new();
+    println!("ECM metadata: {combined_actions} combined actions, {base_actions} base references; scene name candidates {action_candidates:?} (combined/direct); {gfx_references} external GFX references, event types {event_types:?}");
+    println!("GFX archive data and ECM schedule/event playback are NOT validated by this models.pck diagnostic");
     let mut skeleton_versions = BTreeMap::new();
     let mut joint_counts = HashMap::new();
     let mut skeleton_data = HashMap::new();
