@@ -362,6 +362,40 @@ mod tests {
     }
 
     #[test]
+    fn hook_world_follows_a_moving_bone_or_model_across_frames() {
+        let s = hook_file();
+        // Bone-bound hook: 0x7b25e6 composes bone * hook, so a bone that moves
+        // by d moves the attached root by exactly d on the next evaluated pose.
+        let mut pose = hook_pose();
+        let first = hook_matrix(&s, &pose, "weapon")
+            .unwrap()
+            .transform_point3(glam::Vec3::ZERO);
+        pose.absolute[0] = Mat4::from_translation(glam::Vec3::new(3., 2., 0.));
+        let second = hook_matrix(&s, &pose, "weapon")
+            .unwrap()
+            .transform_point3(glam::Vec3::ZERO);
+        assert!(
+            (second - first - glam::Vec3::new(3., 0., 0.)).length() < 1e-6,
+            "{first} -> {second}"
+        );
+        // Model-bound hook (negative bind index): 0x7b2543 composes
+        // model * hook and applies the model matrix once, not per frame.
+        let mut pose = hook_pose();
+        let first = hook_matrix(&s, &pose, "root")
+            .unwrap()
+            .transform_point3(glam::Vec3::ZERO);
+        pose.model = Mat4::from_translation(glam::Vec3::new(9., 0., 0.));
+        let second = hook_matrix(&s, &pose, "root")
+            .unwrap()
+            .transform_point3(glam::Vec3::ZERO);
+        assert!(
+            (second - first - glam::Vec3::new(4., 0., 0.)).length() < 1e-6,
+            "{first} -> {second}"
+        );
+        assert!((second - glam::Vec3::new(11., 0., 0.)).length() < 1e-6);
+    }
+
+    #[test]
     fn unknown_hook_and_missing_bone_are_explicit_errors() {
         let s = hook_file();
         let pose = hook_pose();

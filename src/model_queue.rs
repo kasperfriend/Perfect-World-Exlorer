@@ -178,6 +178,10 @@ pub struct MeshQueueState {
 ///   alpha/overlay submit `0x436720` — sets SRCBLEND 5 (`0x77a2c0`), DESTBLEND
 ///   6 (`0x77a2f0`), `0x77a230(0)` = **ZWRITEENABLE off** and CULLMODE 1
 ///   (`0x77a540(1)`, D3DCULL_NONE) before it submits the list at `0x78452b`.
+///   ZENABLE is *not* written, so the depth test stays on and only the write is
+///   dropped. The same prologue disables fixed-function lighting
+///   (`0x77a3c0` -> `0x77bd00(0x89, 0)`), which the shader receiving path does
+///   not consult.
 /// * Its tail `0x7845f0` restores, after the list is drawn, `0x77a230(1)`
 ///   (`0x784678`), CULLMODE 3 (`0x784684`) and the material state block
 ///   (`0x779fc0(0, 4)` at `0x78468e`).

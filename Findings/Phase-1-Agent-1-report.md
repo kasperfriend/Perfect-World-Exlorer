@@ -539,3 +539,132 @@ recorded. All of them run in `cargo test --bin perfect-world-explorer`.
 `ECMHook` hanger objects (`0x6f89c0`, `ID`/`Scale`/offset records), hook *scale*
 (`+0x94`), and the effect's own fade/stop/release phase are still open and are
 named in `Findings/Unsupported-client-paths.md`.
+
+## 13. Second pass: construction-precision closure, alpha bracket, priority limit
+
+This section supersedes anything in §12 that it contradicts and records the
+evidence behind the code changes in this pass.
+
+### 13.1 Controller-108 construction precision is now decided (PC24)
+
+The open item after §11 was "which FPU context builds the 128-entry table".
+Three independent facts settle it for the supplied 1.4.2 executable:
+
+1. **The executable creates no thread.** Parsing the import directory and then
+   scanning `.text` for every reference to the thread-creation entries finds no
+   call site at all: `_beginthreadex` (`IAT 0x4d54ec`) and `_beginthread`
+   (`0x4d54f0`) are imported but never referenced by address or through an
+   indirect slot, and `CreateThread`/`CreateThreadpool` are not imported.
+   Loading is instead frame-budgeted on the update thread (`0x5b1a00` returns
+   after one pending root), which is exactly the owner model implemented here.
+   So table construction and table sampling run in the *same* context; the two
+   contexts cannot have different precision.
+2. **The application never changes the control word.** `_controlfp`
+   (`IAT 0x4d5564`) has no call site, and the only `fldcw`/`fnstcw`/`fstcw`
+   instructions in the image are inside static CRT math helpers
+   (`0x7fdcb7`, `0x7fe1af`, `0x8001e5`, `0x80c878`, `0x863350`, …), which save
+   and restore the caller's word around `pow`/`sqrt`-class functions.
+3. **The build loop is x87.** `0x6ec5dd` computes `a*(1-f) + b*f` with `fmul`,
+   `fsub`, `fadd` only, so under the device's word every intermediate rounds to
+   a 24-bit mantissa - which is exactly f32 arithmetic.
+
+The device word is PC24 (the premise the gamma path already had to adopt from
+`0x7b9bc0`). Production therefore builds the PC24 table:
+`gfx_color_track::CONSTRUCTION = Precision::Pc24`. This is a behaviour change,
+not a rename: `f32(1*2113665/2^28)*127` rounds to exactly 1, so an authored
+`0 -> 0x7f7f7f7f` track now has byte 1 at interior index 1 (the extended table
+has 0), and index 64 holds 64 where a 53-bit pipeline truncates to 63.
+
+Residual exposure, recorded rather than hidden: a GFX root loaded *before* the
+D3D8 device exists would be built with the startup word. `construction_divergences`
+still reports how many interior entries that could change (17,790 / 16,332 of
+8,257,536 measured by `tools/analyze-color-track-construction.py`), and the
+survey prints it for the real corpus.
+
+Tests: `retail_lookup_is_not_continuous_or_exact_fraction_lerp` (now PC24
+literals), `double_precision_construction_is_not_the_native_table` (f64 oracle
+disagrees; index 64 measured in both modes),
+`construction_precision_is_material_and_native` (`CONSTRUCTION == Pc24`),
+`controller_108_is_applied_before_packed_outer_color` (63/255, then the authored
+127/255 endpoint).
+
+### 13.2 The alpha-list state bracket, corrected
+
+`0x7844d0` (entered from `0x436984` inside the alpha/overlay submit `0x436720`)
+sets, in order:
+
+| call | D3D8 state | value |
+|---|---|---|
+| `0x77a2c0` | `D3DRS_SRCBLEND` (19) | 5 `SRCALPHA` |
+| `0x77a2f0` | `D3DRS_DESTBLEND` (20) | 6 `INVSRCALPHA` |
+| `0x77a230` | `D3DRS_ZWRITEENABLE` (14) | 0 |
+| `0x77a540` | `D3DRS_CULLMODE` (22) | 1 `NONE` |
+| `0x77a3c0` | `D3DRS_LIGHTING` (137) | 0 |
+
+then submits the list (`0x779ca0(mesh, 1)` at `0x78452b`). The tail
+(`0x7845f0`-`0x784690`) restores `LIGHTING` 1 (`0x78466e`), `ZWRITEENABLE` 1
+(`0x784678`), `CULLMODE` 3 (`0x784684`) and the material block
+(`0x779fc0(0,4)`).
+
+Two corrections to the earlier record: `0x77a3c0` is `D3DRS_LIGHTING`, **not**
+`ZENABLE`, so the alpha list keeps the depth *test* and only drops the write;
+and `0x77a230` is `ZWRITEENABLE`, not `SRCBLEND`. The wrapper map verified from
+the immediates pushed to `0x77bd00(id, value)` is: `0x77a210`→7 `ZENABLE`,
+`0x77a230`→14 `ZWRITEENABLE`, `0x77a250`→47 `ZBIAS`, `0x77a270`→23 `ZFUNC`,
+`0x77a290`→27 `ALPHABLENDENABLE`, `0x77a2c0`→19 `SRCBLEND`,
+`0x77a2f0`→20 `DESTBLEND`, `0x77a320`→15 `ALPHATESTENABLE` (getter `0x77a340`),
+`0x77a360`→25 `ALPHAFUNC`, `0x77a380`→24 `ALPHAREF` (getter `0x77a3a0`),
+`0x77a3c0`→137 `LIGHTING`, `0x77a540`→22 `CULLMODE`.
+
+The port already matched the corrected reading (depth test on, write off), so no
+queue-state change was needed; `model_queue`'s doc comment and the regression
+`alpha_list_depth_write_matches_the_native_pass_bracket` now cite the bracket.
+
+### 13.3 Manager priority limit and publication registry
+
+* **Gate.** `0x70ba00` (the element update) checks visibility (`+0x12e`), then
+  `[element+0xdc] > [manager+0x134]` (`0x70ba3c..0x70ba44`) and jumps to the
+  "no publication" tail, which still returns 1 - a suppressed element keeps
+  progressing and is not destroyed.
+* **Limit source.** `0x40dc8e..0x40dc97` and `0x40e38a..0x40e394` store an
+  authored byte into `[[0x9b3eec]+0x28]+0x134` (`0x9b3eec` is the client
+  singleton, `0x41a3c0` returns its `+0x28` subobject). The byte comes from
+  `+0xce` of the environment record, which the copy constructor fills from the
+  authored `+0xca` byte (`0x59af52..0x59af76`). That record is not decoded by
+  this reader, so `OWNER_PRIORITY` stays at "no suppression" and the constant's
+  comment now names the exact path instead of calling the source unknown.
+* **Registry.** `0x70bd20` appends the element to the manager list
+  (`+0x18c` begin, `+0x190` end, `+0x194` capacity, `+0x198` size) inside a
+  critical section (`+0x200`), skipping the insert when the element's
+  `+0x1a8` flag is already set - the native duplicate guard. Growth is
+  `max(5, (n+1) + n/2 + 2)`. Unregister (`0x425bd2`-`0x425c2c`) clears
+  `+0x1a8` on every element, erases the range and leaves the section, so no
+  stale element can be published after destruction.
+
+The port's owner list (`gfx_owner::Manager`) plus the drained
+`LightPublications` queue already enforce the same three properties: one live
+record per owner, no duplicate publication for an identity, and membership
+removed on destroy/unload (regressions `hidden_owner_keeps_progressing_and_priority_only_gates_publication`,
+`attached_owner_follows_its_live_parent_transform`, and the destroy cases).
+
+### 13.4 Tests added or changed in this pass
+
+| Test | File | Covers |
+|---|---|---|
+| `hook_world_follows_a_moving_bone_or_model_across_frames` | `src/model_asset.rs` | bone-bound hook moves by the bone delta; model-bound hook moves by the model delta once (no double application) |
+| `retail_lookup_is_not_continuous_or_exact_fraction_lerp` | `src/gfx_color_track.rs` | PC24 interior entries 1/64/126 and the authored endpoint |
+| `double_precision_construction_is_not_the_native_table` | `src/gfx_color_track.rs` | f64 and PC24 tables disagree; index 64 witness |
+| `construction_precision_is_material_and_native` | `src/gfx_color_track.rs` | shipped mode is PC24, divergence counter still reports |
+| `controller_108_is_applied_before_packed_outer_color` | `src/gfx_light.rs` | PC24 index 63 -> 63/255 |
+| `alpha_list_depth_write_matches_the_native_pass_bracket` | `src/model_queue.rs` | ZWRITE off for every blended pair, on for opaque |
+
+### 13.5 What is still not closed
+
+`ChildHook`/`RelHook`/`BindParent` hook chains, static `ECMHook` hanger records
+(`0x6f89c0`), hook scale (`+0x94`), the owner's authored fade/stop phase, the
+region environment record that carries the light-priority byte, and the general
+GFX visual graph (particles/sprites/trails) remain open. Because the region
+limit record is not decoded, the priority gate can suppress less than the
+client does; that is a missing input, not a missing gate, and it is stated in
+`Findings/Unsupported-client-paths.md` rather than papered over with a guessed
+threshold.

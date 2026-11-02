@@ -12,11 +12,18 @@ use crate::{
 };
 use std::{collections::HashMap, fs::File, path::Path};
 
-/// Manager priority handed to scene/model effect lights. The native manager
-/// priority source for these owners was not recovered from the supplied
-/// executable, so production does not suppress any element: an invented
-/// threshold would silently drop authored lights. The gate itself is real and
-/// covered by the owner regressions.
+/// Manager priority handed to scene/model effect lights.
+///
+/// The native gate is `[element+0xdc] > [manager+0x134]` at `0x70ba3c..0x70ba44`,
+/// which suppresses only the publication (the element keeps progressing and
+/// returns alive). The limit itself is not a constant: `0x40dc8e..0x40dc97` and
+/// `0x40e38a..0x40e394` store an authored region byte into the manager
+/// (`[[0x9b3eec]+0x28]+0x134`), taken from the environment record whose
+/// `+0xc8..+0xca` bytes are copied to `+0xcc..+0xce` by the copy constructor at
+/// `0x59af52..0x59af76`. This reader does not decode that region record yet, so
+/// the limit stays at "no suppression"; inventing a number here would silently
+/// drop authored lights. The gate path itself is exercised by the owner
+/// regressions.
 pub const OWNER_PRIORITY: i32 = i32::MAX;
 
 /// Identity space for ECM model-event owners, kept disjoint from scene effects.

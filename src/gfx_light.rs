@@ -360,9 +360,10 @@ mod tests {
     fn controller_108_is_applied_before_packed_outer_color() {
         let source=file().replace("StartTime: 100","StartTime: 0").replace("TimeSpan: 1000","TimeSpan: -1").replace("CtrlMethodCount: 0", "CtrlMethodCount: 1\nCtrlType: 108\nStartTime: 0\nEndTime: -1\nColor: 0\nCount: 1\nColor: 2139062143\nTimeSpan: 1000");
         let mut e = Emitter::new(parse(&source).unwrap().pop().unwrap());
+        // PC24 table index 63 holds byte 63, not the extended-precision 62.
         assert_eq!(
             e.tick(500, true, 4, IDENTITY, None).unwrap().unwrap().color,
-            [62. / 255.; 4]
+            [63. / 255.; 4]
         );
         assert_eq!(
             e.tick(500, true, 4, IDENTITY, None).unwrap().unwrap().color,
