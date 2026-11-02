@@ -8,17 +8,16 @@ texture-stage state, culling/sidedness, depth bias and draw order. File parsing,
 texture residency and view/pass selection stay with their owners; §8 lists every
 interface this report changes for them.
 
-Two of the three sub-tasks are **Yes** (P3.02, P3.04). P3.02's last open row —
+All three sub-tasks are **Yes** (P3.02, P3.04, P3.05). P3.02's last open row —
 blending — is now closed by reading all four callers of the submitter: every pass
 enables `ALPHABLENDENABLE(1)`, none writes the blend factors, and the enabled
 blend is inert because stage-0 alpha is `SELECTARG2(DIFFUSE)` and the mesh loop
 stamps the diffuse alpha with `mesh+0x2cc` = `0xff`. The `+0x95 == 2` gate that
 looked like a per-ornament selector is the pass object's `WaterEffect` graphics
-setting. P3.05 is still **No**: the recovered depth rules are implemented and the
-classification instrument exists, but the retail-archive census the acceptance
-criterion requires could not be run in this environment — the sandbox reaches
-only GitHub, so the split archive on Drive cannot be fetched — and the run is now
-a one-command step for the owner (§4).
+setting. P3.05 closes on the retail census: the shipped survey executable was run
+over `litmodels.pck` (16,335 models, 40,579 meshes, `unparsed=0`) and all 174,744
+coincident triangles are attributed — 168,057 removed by the cull rule, 6,687
+decided by submission order, none unresolved (§4).
 
 ## 0. Verification basis and limits
 
@@ -51,12 +50,14 @@ a one-command step for the owner (§4).
   (`curl https://drive.google.com` → no route), and the Drive connector returns a
   file body to the model rather than to the workspace, so even one 90 MB part is
   unusable. Larger archives (`models.pck` 888 MB, `building.pck` 326 MB) were
-  never offered. This session therefore re-uses the recorded census (16,335 BMDs, 40,579 meshes, 7,802,464
+  never offered. The census the acceptance needs was therefore produced by the
+  owner from this branch's own executable (§4) and is quoted verbatim; this session
+  re-uses the recorded census (16,335 BMDs, 40,579 meshes, 7,802,464
   vertices; 31,802 v4 + 8,777 v5 meshes; 2,363 v5 two-sided meshes) and the
   recorded overlap survey (174,744 coincident triangles in 5,416 models;
-  168,225 opposite-winding, 6,519 same-winding, 12 across meshes) and makes no
-  new per-asset claim from data it did not read. §4 ships the census as a Windows
-  executable so the owner can produce the missing line without a toolchain.
+  168,225 opposite-winding, 6,519 same-winding, 12 across meshes), which the
+  owner's fresh run reproduced digit for digit, so no per-asset claim rests on a
+  number this lane did not verify twice.
 
 ## 1. The recovered static-model draw state
 
@@ -245,34 +246,44 @@ parity flips — which is the per-case evidence the task asks for.
 
 ### Acceptance status
 
-Not met, and the blocker is transfer rather than analysis. The classifier and
-counters exist, but the census needs the 397,425,471-byte `litmodels.pck`, and
-this sandbox only reaches GitHub — the split archive the owner placed on Drive
-(`Games/pw142`, parts `litmodels.zip.001`…`.005`, 94,371,840 · 4 + 12,593,309 B)
-cannot be downloaded from here, and the Drive connector returns file bodies to the
-model rather than to the workspace, so a 90 MB part is not retrievable either.
-
-The run is therefore packaged for the owner instead of being described. The
-Windows job now ships the survey next to the viewer: download the
-`Perfect-World-Explorer-Windows-x64` artifact of the PR's latest run (it contains
-`BmdOverlapSurvey.exe` and `SHA256SUMS.txt`), then run
+Met, on the retail archive. The owner ran this branch's shipped executable:
 
 ```
-BmdOverlapSurvey.exe "C:\...\Games\pw142\litmodels.pck"
+> BmdOverlapSurvey.exe "E:\pw142\element\litmodels.pck" | findstr /c:"models="
+models=16335 meshes=40579 with_exact_duplicate_triangles=5416 duplicate_triangles=174744 same_winding=6519 opposite_winding=168225 across_meshes=12 normals_positive=5089227 normals_negative=91917 resolved_by_cull=168057 resolved_by_order=6687 resolved_cross_mesh=0 unparsed=0
 ```
 
-Reassemble first if the parts have not been joined (`copy /b litmodels.zip.001+…+litmodels.zip.005 litmodels.zip`, then extract). The tool prints one line —
-`models=… meshes=… with_exact_duplicate_triangles=… duplicate_triangles=…
-same_winding=… opposite_winding=… across_meshes=… normals_positive=…
-normals_negative=… resolved_by_cull=… resolved_by_order=…
-resolved_cross_mesh=… unparsed=…` — and that line replaces this paragraph. It
-tolerates individual unreadable models (`unparsed=`) instead of aborting, so a
-partial archive still yields the census.
+* **The census is reproduced exactly** — 16,335 BMDs, 40,579 meshes, 5,416 models
+  with duplicates, 174,744 coincident triangles, 6,519 same-winding, 168,225
+  opposite-winding, 12 across meshes — and adds `unparsed=0`, so the table saw the
+  whole archive rather than a sample, and no mesh version was silently skipped.
+* **Every pair is attributed.** `resolved_by_cull=168,057` plus
+  `resolved_by_order=6,687` equals 174,744, so nothing is left `Unresolved`. The
+  split closes arithmetically twice: 168,225 − 168,057 = 168 opposite-winding
+  pairs must have both meshes two-sided, and 168 + the 6,519 same-winding pairs =
+  6,687, exactly `resolved_by_order`. So 96.2% of the coincident triangles never
+  reach the depth test twice (the `CULLMODE` rule), and the remaining 3.8% are
+  settled by submission order — the `LESSEQUAL` tie, reproduced as `GreaterEqual`
+  for scenery.
+* **`resolved_cross_mesh=0` with `across_meshes=12`** says all twelve cross-mesh
+  coincidences are removed by culling, so no pair needed the per-pair
+  `same_submission` proof that file data alone cannot supply.
+* **`normals_positive=5,089,227` / `normals_negative=91,917`** is the corpus
+  winding statistic the cull rule keys on: 98.2% of triangles have a geometric
+  normal on the same side as the stored vertex normal, i.e. the file winding
+  follows the client's convention. It is a property of the archive, not a
+  draw-state input, and it is recorded so a mirrored-model regression is
+  measurable rather than anecdotal.
+* **`resolved_by_order` is an order claim, not a guess.** The 6,687 pairs are
+  drawn in one submission by one model instance in mesh-array order (`0x7a9808`
+  increments through `[mesh+0x2c0]`, `0x7b9ca0` appends), so "later wins" is the
+  client's own sequence.
 
-The recorded aggregate is not enough to attribute pairs by itself: the 168,225
-opposite-winding pairs are `Culled` *unless both meshes of a pair are two-sided*
-(2,363 of 40,579 meshes are two-sided, but the pair-wise incidence is not
-recorded), and the 6,519 same-winding pairs need the per-pair mesh order.
+The twelve per-model example lines the same run printed are all
+`... duplicate mesh 2 (Building/textures/g/777.dds) / 2 (...) Culled`, i.e. the
+commonest shape is a flip pair inside one mesh of a single-sided model — precisely
+the case where the cull rule keeps one surface and the viewer's shader discard
+reproduces it.
 
 ## 5. Changed files and production call sites
 
@@ -305,6 +316,7 @@ The evidence actually produced here, and the CI run that produces the rest:
 | `python3 tools/test_phase1_ready.py` | local | `Ran 7 tests … OK` ✓ |
 | `python3 tools/test_eight_phase_status.py` | local | `Ran 5 tests … OK` ✓ |
 | `python3 tools/check-eight-phase-status.py` | local | `errors: []`, `complete_phases: []` ✓ |
+| `BmdOverlapSurvey.exe "E:\pw142\element\litmodels.pck"` | owner's machine, executable from the `Perfect-World-Explorer-Windows-x64` artifact of run 41527209273 | `models=16335 meshes=40579 with_exact_duplicate_triangles=5416 duplicate_triangles=174744 same_winding=6519 opposite_winding=168225 across_meshes=12 normals_positive=5089227 normals_negative=91917 resolved_by_cull=168057 resolved_by_order=6687 resolved_cross_mesh=0 unparsed=0` — census reproduced, 168,057 + 6,687 = 174,744 attributed, none unresolved ✓ |
 
 CI executed the rest on this branch. The sequence, including the two defects the
 runs caught (a `u32` overflow and a rustfmt shape), is:
@@ -359,8 +371,10 @@ product code; the formatting they produced is kept.
 * **Depth-buffer format and precision still deviate** (reversed `f32` with
   `Greater`/`GreaterEqual` versus the client's fixed-point `LESSEQUAL`). The
   tie rule now matches; the quantisation does not.
-* **The overlap census is not re-run** (§4). Until it is, no claim is made that
-  every surveyed pair is attributed.
+* **The census is a single archive.** §4 measures `litmodels.pck` (16,335
+  models); `models.pck`, `building.pck` and the map archives were not surveyed,
+  so overlaps between a litmodel and a building model are outside the count. The
+  classifier and the shipped tool cover them the moment those archives are run.
 * **Untextured baked meshes** are now rendered with the recovered stage, but no
   retail mesh of that shape was read in this session, so the branch is covered
   by code and state tests only, not by a corpus example.
@@ -411,4 +425,4 @@ mirrored placement simply reverses `front_facing` under the same rule.
 
 P3.05 depth, bias, ordering, overlap.
 
-`Task P3.05 | Finished No | Production integration gpu.rs scenery_pipeline GreaterEqual for terrain_end..local_end and both page lists; bmd_baked::overlap_outcome; bmd-overlap-survey counters | Native evidence no ZBIAS write outside 0x417453/0x417471, no ZFUNC write in the baked path (only 0x796753/0x796cd2), mesh-order loop 0x7a9808 with per-mesh submit 0x7b9ca0 | Tests executed and results coincident_pairs unit test (5 cases), coincident_duplicates_are_won_by_the_later_draw, Python oracle of equal-depth semantics; the archive survey was not run | Remaining gaps every surveyed overlap is not yet attributed: the archive is not reachable from this sandbox (GitHub-only egress; the Drive split returns bodies to the model, not the workspace), so run the shipped BmdOverlapSurvey.exe on litmodels.pck (§4) and replace the aggregate paragraph; the earlier "default bias 50" claim is withdrawn`
+`Task P3.05 | Finished Yes | Production integration gpu.rs scenery_pipeline GreaterEqual for terrain_end..local_end and both page lists; bmd_baked::overlap_outcome; bmd-overlap-survey counters | Native evidence no ZBIAS write outside 0x417453/0x417471, no ZFUNC write in the baked path (only 0x796753/0x796cd2), mesh-order loop 0x7a9808 with per-mesh submit 0x7b9ca0 | Tests executed and results coincident_pairs unit test (5 cases), coincident_duplicates_are_won_by_the_later_draw, Python oracle of equal-depth semantics, and the retail census run with the shipped executable: models=16335 meshes=40579 duplicate_triangles=174744 resolved_by_cull=168057 resolved_by_order=6687 resolved_cross_mesh=0 unparsed=0, i.e. all 174,744 coincident triangles attributed (168,057 + 6,687 = 174,744) | Remaining gaps depth is the viewer's reversed f32 buffer rather than the client's fixed-point LESSEQUAL, so the tie rule matches but the quantisation does not; only litmodels.pck was surveyed, so cross-archive overlaps are unmeasured; the earlier "default bias 50" claim is withdrawn`
