@@ -22,7 +22,7 @@ fn main() {
     ];
     let mut data = Vec::<f32>::new();
     let mut expected = Vec::new();
-    for normal in [[0., 2., 1.], [0.; 3]] {
+    for normal in [[0., 2., 1.], [0.; 3], [0., 2e-8, 1e-8]] {
         for weights in [[1., 0., 0.], [0.25, 0.5, 0.], [0.; 3], [1.25, -0.5, 0.125]] {
             let position = [1., -2., 3.];
             let mut row = [0.; 76];

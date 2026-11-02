@@ -705,3 +705,18 @@ The preceding palette implementation **c544392** passed full CI
 (the two newly executed skin GPU binaries included) and Windows release.
 Descriptor metadata changes described in this subsection still require
 full CI validation. Phase1 readiness remains open.
+
+#### Palette normalization edge regression
+
+ECM metadata head `bb6ec74` passed full Linux/application/unit/ten-GPU-binary
+and Windows release CI **41442128584**. Continued the readiness audit rather
+than treating that pass as completion.
+
+The broader palette-input fixture identified a CPU/WGSL mismatch for tiny
+nonzero normals: the WGSL helper erased lengths below 1e-6, whereas the CPU
+normalizes them. Removed the arbitrary epsilon cutoff, retaining an explicit
+zero-length guard. Added four tiny-normal GPU cases (12 palette-input cases
+total); this is an arithmetic consistency correction, not a claim of retail
+image parity. CPU deformation now explicitly rejects overflowed intermediate
+position/normal values instead of returning an Ok with nonfinite geometry.
+The combined native suite passes 23 tests; new GPU validation pending.
