@@ -37,6 +37,23 @@ jobs:
             cargo test --locked --bin perfect-world-explorer 2>&1 | sed -n '/^failures:$/,$p' | head -140
           } > /tmp/diag.txt 2>&1
           tail -c 20000 /tmp/diag.txt
+      - name: Install software Vulkan
+        run: sudo apt-get install -y mesa-vulkan-drivers
+      - name: GPU regressions
+        env:
+          WGPU_BACKEND: vulkan
+          XDG_RUNTIME_DIR: /tmp
+        run: |
+          set +e
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
+          {
+            echo "### gpu"
+            for b in display-gamma-gpu-check post-gpu-check bloom-gpu-check bmd-baked-gpu-check grass-instance-gpu-check model-light-gpu-check skin-pose-gpu-check skin-palette-gpu-check model-texture-gpu-check model-receiver-gpu-check model-draw-gpu-check phase1-fog-gpu-check terrain-refraction-gpu-check; do
+              out=$(cargo run --locked --bin "$b" 2>&1)
+              if [ $? -eq 0 ]; then echo "$b: ok"; else echo "$b: FAILED"; echo "$out" | tail -25; fi
+            done
+          } >> /tmp/diag.txt 2>&1
+          tail -60 /tmp/diag.txt
       - name: Apply rustfmt
         run: |
           set +e
