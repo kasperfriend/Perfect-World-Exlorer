@@ -52,8 +52,9 @@ re-reads `env+0x1b6` inside `0x7c26e0`. Neither is an independent flag.
 | hardware lightmap | **never** | gate `env+0x1b6` cannot be set; the path also clears both shader slots (`0x7c21ac` -> `0x77baf0`/`0x77bad0`) and then uploads `c0..` pixel constants at `0x7c22c2` |
 
 `select()` returns `Err(VariantError::HardwareLightmapUnreachable)` instead of
-silently falling back, and `Findings/Unsupported-client-paths.md` carries the
-row.
+silently falling back. The matching row for the shared
+`Findings/Unsupported-client-paths.md` register is proposed (not applied) in
+[the report](Phase-2-Agent-B-report.md), section 7.
 
 ## 2. Shader modules
 
