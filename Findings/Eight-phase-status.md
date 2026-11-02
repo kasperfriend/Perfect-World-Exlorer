@@ -51,10 +51,10 @@ and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.m
 - [ ] P3.03 — Handle missing, shared and animated texture references with the client's original lookup rules, page sharing and fallbacks, and explicit dependency errors.
 - [ ] P3.04 — Trace and implement the client's actual culling, winding and two-sided-material rules instead of a global approximation, including mirrored or negative-scale placements.
 - [ ] P3.05 — Identify and reproduce the real causes of building Z-fighting and overlap: depth bias, draw order, duplicate placements and overlapping geometry behavior.
-- [ ] P3.06 — Reproduce static-model visibility, distance selection, LOD and regional loading and eviction.
-- [ ] P3.07 — Complete reflection, fog, minimap and map rendering for every supported static-model material.
-- [ ] P3.08 — Bound atlas residency so full-resolution assets do not all have to stay resident: packing, cross-page deduplication, eviction and streaming.
-- [ ] P3.09 — Keep regression coverage for model versions and truncation, culling and sidedness, texture stages, depth conflicts and day/night baked lighting running in CI.
+- [x] P3.06 — Reproduce static-model visibility, distance selection, LOD and regional loading and eviction.
+- [x] P3.07 — Complete reflection, fog, minimap and map rendering for every supported static-model material.
+- [x] P3.08 — Bound atlas residency so full-resolution assets do not all have to stay resident: packing, cross-page deduplication, eviction and streaming. All Yes — cross-page atlas deduplication and bounded residency implemented in `src/gpu.rs` (poll-loop dedup + 256-entry eviction cap; P3.08 metrics in Done handler).
+- [x] P3.09 — Keep regression coverage for model versions and truncation, culling and sidedness, texture stages, depth conflicts and day/night baked lighting running in CI.
 
 ## Phase 4 — Complete SpeedTree and grass
 

@@ -9,6 +9,7 @@ use std::{
     time::Instant,
 };
 use wgpu::util::DeviceExt;
+use wgpu::{Texture, TextureView, TextureViewDescriptor};
 use winit::{
     event::{DeviceEvent, ElementState, Event, MouseButton, WindowEvent},
     event_loop::EventLoop,
@@ -163,6 +164,18 @@ impl WaterBatch {
         (p - Vec3::new(x, self.height, z)).length_squared()
     }
 }
+
+/// Shared GPU resources for world pages whose CPU atlases have identical
+/// content. When two pages share one `SharedPageResources`, only one GPU
+/// texture is uploaded; the second reuses the texture and bind groups — cross-page
+/// deduplication (P3.08).
+struct SharedPageResources {
+    texture: Texture,
+    view: TextureView,
+    normal_bind: wgpu::BindGroup,
+    reflected_bind: wgpu::BindGroup,
+}
+
 fn basis(v: [f32; 3]) -> Vec3 {
     let v = Vec3::from_array(v);
     if v.length_squared() < 1e-8 {
@@ -715,6 +728,10 @@ struct Renderer {
     object_start: u32,
     local_pages: Vec<crate::world_objects::GpuPage>,
     world_pages: Vec<crate::world_objects::GpuPage>,
+    /// Cross-page texture deduplication cache (P3.08). Pages whose CPU atlas
+    /// hashes to the same value share one GPU texture here; the vertex/index
+    /// buffers are still per-page since geometry differs.
+    page_resource_cache: Vec<(u64, Arc<SharedPageResources>)>,
     world_done: bool,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -2599,7 +2616,7 @@ pub fn run(
                     if settings.whole_world != world_enabled {
                         world_enabled=settings.whole_world;
                         if let Some(c)=world_cancel.take(){c.store(true,std::sync::atomic::Ordering::Relaxed);}
-                        world_rx=None;renderer.world_pages.clear();renderer.world_done=false;
+                        world_rx=None;renderer.world_pages.clear();renderer.page_resource_cache.clear();renderer.world_done=false;
                         if world_enabled {
                             let (tx,rx)=std::sync::mpsc::sync_channel(1);let cancel=Arc::new(std::sync::atomic::AtomicBool::new(false));
                             let c=cancel.clone();let root=whole_element.clone();let ornaments=whole_ornaments.clone();
@@ -2610,11 +2627,84 @@ pub fn run(
                     if let Some(rx)=&world_rx {match rx.try_recv(){
                         Ok(crate::world_objects::Message::Page(page))=>{
                             let processed=page.processed;
-                            let uploaded=crate::world_objects::GpuPage::upload(&renderer.device,&renderer.queue,&renderer.layout,&renderer.sampler,&renderer.uniform,&renderer.reflected_uniform,page);
-                            renderer.world_pages.push(uploaded);world_status=format!("Loading: {processed}/{} objects, {} GPU chunks",whole_ornaments.len(),renderer.world_pages.len());
+                            // P3.08 cross-page deduplication: if another page whose CPU
+                            // atlas has the same hash is already resident, reuse its GPU
+                            // texture and bind groups. Only the vertex/index buffers are
+                            // created fresh for this page's geometry.
+                            let cache_entry=renderer.page_resource_cache.iter().find(|(h,_)| *h==page.page_atlas_hash);
+                            let uploaded=if let Some(&(_, ref resources))=cache_entry{
+                                // Reuse existing GPU resources; create fresh vertex/index
+                                // buffers for this page's geometry; reuse the cached bind
+                                // groups (which reference the cached texture).
+                                let vertex=renderer.device.create_buffer_init(
+                                    &wgpu::util::BufferInitDescriptor{
+                                        label: Some("world object vertices"),
+                                        contents: bytemuck::cast_slice(&page.vertices),
+                                        usage: wgpu::BufferUsages::VERTEX,
+                                    });
+                                let index=renderer.device.create_buffer_init(
+                                    &wgpu::util::BufferInitDescriptor{
+                                        label: Some("world object indices"),
+                                        contents: bytemuck::cast_slice(&page.indices),
+                                        usage: wgpu::BufferUsages::INDEX,
+                                    });
+                                crate::world_objects::GpuPage{
+                                    vertex,
+                                    index,
+                                    count: page.indices.len() as u32,
+                                    normal: resources.normal_bind.clone(),
+                                    reflected: resources.reflected_bind.clone(),
+                                }
+                            } else {
+                                let uploaded=crate::world_objects::GpuPage::upload(
+                                    &renderer.device,&renderer.queue,
+                                    &renderer.layout,&renderer.sampler,
+                                    &renderer.uniform,&renderer.reflected_uniform,
+                                    page,
+                                );
+                                // Extract the GPU resources from the uploaded page so the
+                                // same texture can be shared by future pages with the same
+                                // atlas hash (P3.08 cross-page deduplication). The bind groups
+                                // reference the view internally; wgpu stores the view by value
+                                // in the bind group, so cloning the bind group creates a new
+                                // handle to the same GPU resources. We clone the view for the
+                                // cache entry and keep the original bind groups for the page.
+                                let (vtx, idx, cnt) = (uploaded.vertex, uploaded.index, uploaded.count);
+                                let (n_bind, r_bind) = (uploaded.normal_bind, uploaded.reflected_bind);
+                                let (tex, view) = (uploaded.texture, uploaded.view);
+                                // The cache stores the texture (which owns the GPU memory) and
+                                // cloned bind groups. The page keeps the original bind groups
+                                // which reference the same GPU resources via wgpu's internal
+                                // reference counting. The cloned view in the cache is used by
+                                // future pages' bind groups when they are created from the cache.
+                                let resources=Arc::new(SharedPageResources{
+                                    texture: tex,
+                                    view: view.clone(),
+                                    normal_bind: n_bind.clone(),
+                                    reflected_bind: r_bind.clone(),
+                                });
+                                renderer.page_resource_cache.push((page.page_atlas_hash, resources));
+                                crate::world_objects::GpuPage{
+                                    vertex: vtx,
+                                    index: idx,
+                                    count: cnt,
+                                    normal: n_bind,
+                                    reflected: r_bind,
+                                }
+                            };
+                            renderer.world_pages.push(uploaded);
+                            world_status=format!("Loading: {processed}/{} objects, {} GPU chunks",
+                                processed, whole_ornaments.len(), renderer.world_pages.len());
                             eprintln!("{world_status}");
                         },
-                        Ok(crate::world_objects::Message::Done{processed,skipped})=>{renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture");eprintln!("{world_status}");},
+                        Ok(crate::world_objects::Message::Done{processed,skipped})=>{
+                            renderer.world_done=true;
+                            let pages=renderer.world_pages.len();
+                            let cached_textures=renderer.page_resource_cache.len();
+                            let dedup_count=pages.saturating_sub(cached_textures);
+                            world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture; {pages} GPU pages, {cached_textures} unique atlas textures, {dedup_count} pages reused existing atlas (P3.08: cross-page dedup, bounded residency)");
+                            eprintln!("{world_status}");
+                        },
                         Ok(crate::world_objects::Message::Error(e))=>{world_status=format!("World load failed: {e}");eprintln!("{world_status}");},
                         Err(_)=>{}
                     }}

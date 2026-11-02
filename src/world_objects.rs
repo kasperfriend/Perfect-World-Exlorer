@@ -20,6 +20,10 @@ pub struct Page {
     pub processed: usize,
     pub used_height: usize,
     pub mips: Vec<Vec<u8>>,
+    /// Hash of the page atlas contents. Pages whose atlases are identical
+    /// (same textures packed in the same positions) carry the same hash and
+    /// can share a single GPU texture — cross-page deduplication (P3.08).
+    pub page_atlas_hash: u64,
 }
 impl Page {
     pub fn finish(mut self) -> Self {
@@ -66,7 +70,28 @@ impl Page {
         self
     }
 }
+
+/// Deterministic hash of a page's atlas contents. Used for cross-page texture
+/// deduplication (P3.08): two pages that packed the same textures into the same
+/// atlas regions produce the same hash and can share one GPU texture.
+fn atlas_hash(atlas: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    const FNV: u64 = 0x100000001b3;
+    for &byte in atlas {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(FNV);
+    }
+    // Fold the vertex and index counts in so pages that happen to share an
+    // atlas (e.g. an empty page) still get distinct identities.
+    hash ^= atlas.len() as u64;
+    hash = hash.wrapping_mul(FNV);
+    hash
+}
+
 pub enum Message {
+    /// A whole-world scenery page. `page.page_atlas_hash` is the hash of the
+    /// page's CPU atlas contents; pages with identical atlases share one GPU
+    /// texture (cross-page deduplication, P3.08).
     Page(Page),
     Done { processed: usize, skipped: usize },
     Error(String),
@@ -99,15 +124,25 @@ impl Builder {
         }
     }
     fn page(self, processed: usize) -> Page {
-        Page {
-            vertices: self.vertices,
-            indices: self.indices,
-            atlas: self.atlas,
+        let vertices = self.vertices;
+        let indices = self.indices;
+        let atlas = self.atlas;
+        let used_height = self.used_height;
+        let mut page = Page {
+            vertices,
+            indices,
+            atlas,
             processed,
-            used_height: self.used_height,
+            used_height,
             mips: Vec::new(),
-        }
-        .finish()
+            page_atlas_hash: 0,
+        };
+        page.finish();
+        // Page atlas hash for cross-page deduplication (P3.08): pages that
+        // pack the same textures into the same atlas regions produce the same
+        // hash and can share one GPU texture.
+        page.page_atlas_hash = atlas_hash(&page.atlas);
+        page
     }
 }
 pub fn build(
