@@ -49,6 +49,32 @@ pub fn vertex_light(p: LightInput) -> [f32; 3] {
             .min(1.)
     })
 }
+/// Preserve the distinct alpha instructions in the non-specular shaders.
+/// `alpha` contains c7.a, c8.a and c12.a; c11.a is forced to zero by binding.
+/// Without a point light c8.a bypasses Lambert entirely. With a point light
+/// the `_dl` variant multiplies all c8 channels by the directional Lambert.
+pub fn vertex_light_rgba(p: LightInput, alpha: [f32; 3]) -> [f32; 4] {
+    let rgb = vertex_light(p);
+    let nl = p.normal.iter().map(|v| v * v).sum::<f32>().sqrt();
+    let lambert = if nl > 1e-6 {
+        -(0..3)
+            .map(|i| p.normal[i] / nl * p.direction[i])
+            .sum::<f32>()
+    } else {
+        0.
+    }
+    .max(0.);
+    let d2 = (0..3)
+        .map(|i| (p.point_position[i] - p.world_position[i]).powi(2))
+        .sum::<f32>();
+    let denom = p.attenuation[0] + p.attenuation[1] * d2.sqrt() + p.attenuation[2] * d2;
+    let a = if p.point_enabled {
+        alpha[0] + lambert * alpha[1] + if denom > 1e-6 { alpha[2] / denom } else { 0. }
+    } else {
+        alpha[0] + alpha[1]
+    };
+    [rgb[0], rgb[1], rgb[2], a.min(1.)]
+}
 /// Reusable WGSL equivalent, ready for the animated skin vertex path.
 pub const WGSL: &str = r#"
 fn model_vertex_light(pos:vec3<f32>, normal:vec3<f32>, direction:vec3<f32>, light_pos:vec3<f32>, att:vec3<f32>, ambient:vec3<f32>, dir_diff:vec3<f32>, point_diff:vec3<f32>, point_ambient:vec3<f32>, enabled:f32)->vec3<f32> {
@@ -58,6 +84,16 @@ fn model_vertex_light(pos:vec3<f32>, normal:vec3<f32>, direction:vec3<f32>, ligh
  let denom=dot(att,vec3<f32>(1.,d,d*d));let factor=select(0.,1./max(denom,0.000001),enabled>0.5 && denom>0.000001);
  return min(ambient+dir_diff*diffuse+(point_ambient+point_diff*point)*factor,vec3<f32>(1.));
 }
+fn model_vertex_light_rgba(pos:vec3<f32>,normal:vec3<f32>,direction:vec3<f32>,light_pos:vec3<f32>,att:vec3<f32>,ambient:vec4<f32>,dir_diff:vec4<f32>,point_diff:vec4<f32>,point_ambient:vec4<f32>,enabled:f32)->vec4<f32> {
+ let rgb=model_vertex_light(pos,normal,direction,light_pos,att,ambient.rgb,dir_diff.rgb,point_diff.rgb,point_ambient.rgb,enabled);
+ let nl=length(normal);let n=select(vec3<f32>(0.),normal/max(nl,0.000001),nl>0.000001);
+ let lambert=max(dot(n,-direction),0.);let d=length(light_pos-pos);
+ let denom=dot(att,vec3<f32>(1.,d,d*d));
+ var a=ambient.a+dir_diff.a;
+ if enabled>0.5 {a=ambient.a+lambert*dir_diff.a; if denom>0.000001 {a+=point_ambient.a/denom;}}
+ return vec4<f32>(rgb,min(a,1.));
+}
+
 "#;
 #[cfg(test)]
 mod tests {
@@ -129,5 +165,21 @@ mod tests {
         for x in vertex_light(p) {
             assert!(x.is_finite());
         }
+    }
+    #[test]
+    fn alpha_lambert_differs_between_point_and_nonpoint_variants() {
+        let mut p = input();
+        p.normal = [0., -1., 0.];
+        p.point_enabled = false;
+        assert!((vertex_light_rgba(p, [0.1, 0.6, 0.2])[3] - 0.7).abs() < 1e-6);
+        p.point_enabled = true;
+        assert!((vertex_light_rgba(p, [0.1, 0.6, 0.2])[3] - 0.15).abs() < 1e-6);
+    }
+    #[test]
+    fn alpha_has_upper_clamp_but_no_invented_lower_clamp() {
+        let mut p = input();
+        p.point_enabled = false;
+        assert_eq!(vertex_light_rgba(p, [2., 3., 0.])[3], 1.);
+        assert_eq!(vertex_light_rgba(p, [-0.5, 0.2, 0.])[3], -0.3);
     }
 }

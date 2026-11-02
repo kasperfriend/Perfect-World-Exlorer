@@ -355,3 +355,29 @@ This is not completion of other BMD material/alpha/texture-stage behavior.
 
 See [Phase 1 completion checks](Phase-1-completion-checks.md) for the explicit
 requirement-by-requirement acceptance results. Unfinished items remain open.
+
+### Skin/rigid material constants and alpha (2026-11-02)
+
+Followed `0x7a6eff` → `0x7929c0` (receiver direction, point position,
+attenuation constants) and `0x7a6f07` → `0x7a6110` (material constants).
+The latter produces c7 = material ambient × model environment ambient +
+material emissive + model additional ambient; c8 = material diffuse ×
+directional diffuse. Mesh transparency strictly greater than zero replaces
+c8.a with `1 - transparency`, rather than multiplying it. Point-enabled
+binding produces c12 = material ambient × point ambient and c11.rgb =
+material diffuse × point diffuse, **forcing c11.a to zero** at `0x7a63af`.
+`src/model_material.rs` now expresses these CPU/WGSL binding rules separately
+from baked BMDs and terrain. This covers the ordinary material coefficients,
+not the untraced replacement-material modes or specular path.
+
+The extracted `vs/rigid_mesh_ns.txt` explicitly copies c8.a without Lambert;
+`vs/rigid_mesh_ns_dl.txt` multiplies all c8 channels by Lambert. Both add c7
+and clamp only above one. Added RGBA shader/reference handling for this
+variant difference and extended `model-light-gpu-check` to 31 cases, including
+front/back normals, point on/off and transparency endpoints/overrides.
+The dependency-free CPU suite now passes 31 tests. GPU results must be read
+from CI, not inferred from these CPU results. Neither helper is represented
+as completed world-model integration.
+
+The private split models ZIP was reassembled and extracted successfully:
+`models.pck` is 888,028,116 bytes. All archive/client content remains ignored.

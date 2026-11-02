@@ -2,9 +2,11 @@
 //! This does not imply that animated model rendering is implemented.
 #[path = "../model_light.rs"]
 mod model_light;
+#[path = "../model_material.rs"]
+mod model_material;
 use model_light::{vertex_light, LightInput};
 
-const CASES: u32 = 15;
+const CASES: u32 = 31;
 
 fn main() {
     let instance = wgpu::Instance::default();
@@ -32,7 +34,7 @@ fn main() {
     });
     let shader = format!(
         "{}\n{}",
-        model_light::WGSL,
+        format!("{}\n{}", model_light::WGSL, model_material::WGSL),
         r#"
 @group(0) @binding(0) var<storage,read_write> result:array<vec4<f32>>;
 @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id:vec3<u32>) {
@@ -56,6 +58,15 @@ fn main() {
  if i==14u {att=vec3<f32>(1.,0.2,0.01);}
  let c=model_vertex_light(vec3<f32>(0.),normal,vec3<f32>(0.,-1.,0.),light,att,ambient,vec3<f32>(0.2,0.1,0.),vec3<f32>(0.4,0.2,0.1),vec3<f32>(0.04,0.08,0.12),enabled);
  result[i]=vec4<f32>(c,1.);
+ if i>=15u {
+  let k=i-15u; let point_on=(k&1u)!=0u;
+  var transparencies=array<f32,4>(0.,0.25,1.,1.2);
+  let transparency=transparencies[(k/2u)%4u];
+  let dir=vec3<f32>(0.,-1.,0.);var norm=vec3<f32>(0.,1.,0.);
+  if k>=8u {norm=-norm;}
+  let m=bind_model_material(vec4<f32>(0.5,0.25,0.8,0.2),vec4<f32>(0.8,0.6,0.4,0.7),vec4<f32>(0.02,0.03,0.04,0.01),vec4<f32>(0.2,0.3,0.4,0.5),vec4<f32>(0.01,0.02,0.03,0.04),vec4<f32>(0.3,0.4,0.5,0.6),vec4<f32>(0.1,0.2,0.3,0.4),vec4<f32>(0.4,0.3,0.2,0.9),transparency,point_on);
+  result[i]=model_vertex_light_rgba(vec3<f32>(0.),norm,dir,vec3<f32>(0.,10.,0.),vec3<f32>(0.,0.4,0.),m.ambient,m.directional_diffuse,m.point_diffuse,m.point_ambient,select(0.,1.,point_on));
+ }
 }
 "#
     );
@@ -130,9 +141,39 @@ fn main() {
             14 => p.attenuation = [1., 0.2, 0.01],
             _ => {}
         }
-        let expected = vertex_light(p);
-        let actual = &results[i * 4..i * 4 + 3];
-        for j in 0..3 {
+        let rgb = vertex_light(p);
+        let mut expected = [rgb[0], rgb[1], rgb[2], 1.];
+        if i >= 15 {
+            let k = i - 15;
+            let c = model_material::bind(
+                model_material::Material {
+                    ambient: [0.5, 0.25, 0.8, 0.2],
+                    diffuse: [0.8, 0.6, 0.4, 0.7],
+                    emissive: [0.02, 0.03, 0.04, 0.01],
+                },
+                model_material::Lighting {
+                    environment_ambient: [0.2, 0.3, 0.4, 0.5],
+                    additional_ambient: [0.01, 0.02, 0.03, 0.04],
+                    directional_diffuse: [0.3, 0.4, 0.5, 0.6],
+                    point_ambient: [0.1, 0.2, 0.3, 0.4],
+                    point_diffuse: [0.4, 0.3, 0.2, 0.9],
+                    transparency: [0., 0.25, 1., 1.2][(k / 2) % 4],
+                    point_enabled: k & 1 != 0,
+                },
+            );
+            p.normal = if k >= 8 { [0., -1., 0.] } else { [0., 1., 0.] };
+            p.point_enabled = k & 1 != 0;
+            p.other_ambient = c.ambient[..3].try_into().unwrap();
+            p.directional_diffuse = c.directional_diffuse[..3].try_into().unwrap();
+            p.point_diffuse = c.point_diffuse[..3].try_into().unwrap();
+            p.point_ambient = c.point_ambient[..3].try_into().unwrap();
+            expected = model_light::vertex_light_rgba(
+                p,
+                [c.ambient[3], c.directional_diffuse[3], c.point_ambient[3]],
+            );
+        }
+        let actual = &results[i * 4..i * 4 + 4];
+        for j in 0..4 {
             assert!(
                 (expected[j] - actual[j]).abs() < 1e-5,
                 "case {i}: CPU {expected:?} GPU {actual:?}"
