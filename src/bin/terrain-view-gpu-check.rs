@@ -702,7 +702,9 @@ fn far_vertex(device: &wgpu::Device) -> wgpu::Buffer {
     for (x, z) in [(-1.5f32, -1.5f32), (1.5, -1.5), (0., 1.5)] {
         let pos = [EYE[0] + x, EYE[1], EYE[2] + z];
         data.extend_from_slice(bytemuck::cast_slice(&pos));
-        data.extend_from_slice(bytemuck::cast_slice(&[0f32, 1., 0., 0.]));
+        // Location 1 is Snorm8x4, not a f32 vec4: the production far layout is
+        // 12 bytes of position plus 4 bytes of packed normal, stride 16.
+        data.extend_from_slice(&[0, 127, 0, 0]);
     }
     assert_eq!(data.len(), 3 * 16);
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
