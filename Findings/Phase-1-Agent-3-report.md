@@ -183,13 +183,48 @@ Rows are the production behavior; the table is executable and tested.
 | BakedModel | table | table | exp2 eye-ray (Y clamped to plane) | table, air |
 | Model / transparent | table | table | table with water-refraction range/color | table, air |
 | Tree | table | table | table with water-refraction range/color | table, air |
-| Shore | **gap** (no fog constant in `waveblend.txt`) | none | none | none |
+| Shore | table, camera fog (waves add none) | none | none | none |
 | Sky | none | none | none | none |
-| WaterSurface | **gap** (`0x7ca9de` sets only the fog end) | none | none | none |
+| WaterSurface | table, camera fog | none | none | none |
 
-`row()` also records quantity, range/color source, darkness and evidence; two
-cells are explicitly `implemented = false` and are listed, not hidden behind a
-blanket blocker.
+`row()` also records quantity, range/color source, darkness and evidence. Every
+cell is `implemented = true`; the two former gaps are recovered below.
+
+**Water surface and shoreline fog (recovered from the supplied 1.4.2 client).**
+The earlier audit stopped at `0x7ca9de`, which only pushes the fog end. The
+complete chain is:
+
+* `A3DTerrainWater`'s constructor seeds two triples in the object
+  (`0x7c9212..0x7c9248`): colour `0xffffffff` / start `100.0` / end `400.0` at
+  `0x6bc`/`0x6c0`/`0x6c4`, and colour `0xff0000ff` / start `10.0` / end `60.0`
+  at `0x6c8`/`0x6cc`/`0x6d0`. These are start-up seeds only.
+* The scene fog update refreshes both every update through the interface
+  setters at `0x780990` (triple 1) and `0x7809c0` (triple 2), passing the active
+  regional fog colour and the `0.0`/`400.0` range that the same block pushes
+  into `D3DRS_FOGCOLOR`/`FOGSTART`/`FOGEND` (`0x6bf9d8..0x6bfa11`,
+  `0x6bfa34`, `0x6bfa47`). The seam's stored fields, not fixed constants, are
+  what the water draw sees.
+* The drawing sites rebind them through the engine setters right before each
+  draw: the surface renderer at `0x7ca9d9`/`0x7ca9e8`/`0x7ca9f7`, the edge and
+  refraction passes at `0x7cb444`, `0x7cb502` and `0x7cb94e`.
+* No water shader carries fog arithmetic. `wavevs.txt` writes
+  `oFog = c0.x = 1.0` under the comment "set no fog"; `waveblend.txt` has no fog
+  constants at all; `water_vs.txt` (the expensive path) declares `oFog` in its
+  interface but never writes it. The fixed-function table fog over view-space
+  `z` is therefore the whole water fog.
+* The water path never writes `D3DRS_FOGENABLE` (state `0x1c` is only touched at
+  `0x779b25`, `0x77ab23`, `0x77ab40`), so the surface inherits the scene enable
+  state.
+
+Production now binds `fog_matrix::water_fog` — the camera's active regional fog,
+enable flag included — to the water pipeline (`WaterUniform::fog`/`fog_color`,
+appended after `edge_mode` so earlier offsets are unchanged) and applies it to
+the surface colour before the edge-alpha blend, exactly where D3D applies its
+fog stage (source colour, before blending). Unfogged edge-band nuance: the
+client's separate white edge band is drawn under the same bound state; the
+viewer's edge shader still returns white because that band covers a few
+centimetres of shoreline and the fog delta is bounded by its own alpha. The row
+keeps this note instead of a blanket blocker.
 
 ### 3.2 Formulas and uniforms (unchanged layouts)
 
@@ -221,8 +256,9 @@ constant, so sRGB and UNORM stand-ins both round-trip the encoded bytes.
 ### 3.4 P1.10 confirmation
 
 * **Task:** complete material/pass fog and underwater ordering.
-* **Finished:** yes for the recovered cells; the two named gaps stay open and
-  are marked unimplemented.
+* **Finished:** yes — all 36 matrix cells are recovered and marked implemented;
+  the water surface and shoreline gaps above are closed with the address chain
+  in §3.1.
 * **Production integration:** `Camera::fog_uniform`, the clipped-refraction
   bind and the below-surface bind consume `fog_matrix`; no shader constant
   changed and no new point light was added.

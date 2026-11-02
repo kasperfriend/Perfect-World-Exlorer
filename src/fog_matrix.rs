@@ -516,8 +516,14 @@ mod tests {
             color: [0.1, 0.2, 0.4],
             enabled: true,
         };
-        assert_eq!(water_fog(false, true, air, water), camera_fog(false, true, air, water));
-        assert_eq!(water_fog(true, false, air, water), camera_fog(true, false, air, water));
+        assert_eq!(
+            water_fog(false, true, air, water),
+            camera_fog(false, true, air, water)
+        );
+        assert_eq!(
+            water_fog(true, false, air, water),
+            camera_fog(true, false, air, water)
+        );
         // The surface never invents a fixed triple: with the atmosphere off and
         // the camera above water it stays disabled, exactly like the scene.
         let off = water_fog(false, false, air, water);
