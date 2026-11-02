@@ -33,7 +33,7 @@ fn main() -> Result<(), String> {
     let scene = scene::Scene::load(&dir.join("world.ecwld"))?;
     let o = scene.load_ornaments(&dir.join("world.ecbsd"))?;
     let mut objects = objects::Objects::open(&root, o)?;
-    let ids = objects.update(x, z, radius)?;
+    let (ids, _, _) = objects.update(x, z, radius)?;
     let mut seen = HashSet::new();
     let mut dims = HashMap::new();
     let mut files = Vec::new();

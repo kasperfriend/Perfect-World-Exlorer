@@ -353,7 +353,7 @@ fn render(
 ) -> Result<(), String> {
     let wx = (cam.x - t.width as f32 * 0.5) * t.grid_spacing;
     let wz = (t.height as f32 * 0.5 - cam.y) * t.grid_spacing;
-    let nearby = t.objects.update(wx, wz, 800.)?;
+    let (nearby, _, _) = t.objects.update(wx, wz, 800.)?;
     draw(t, cam, frame, depth);
     for id in nearby {
         let Some(model) = t.objects.get(id) else {

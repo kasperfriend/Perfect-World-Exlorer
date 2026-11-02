@@ -146,6 +146,7 @@ fn run(
     let limit = first.saturating_add(count).min(objects.ornaments.len());
     let mut page = Builder::new();
     let mut skipped = 0usize;
+    let mut visible_count = 0usize;
     let fallback = crate::objects::Texture {
         width: 1,
         height: 1,
@@ -156,15 +157,25 @@ fn run(
             return Ok(());
         }
         let end = (start + 32).min(limit);
-        let ids: Vec<_> = (start..end).collect();
+        // Only request model loads for visible ornaments; hidden ones are
+        // skipped before the PCK read, matching the client's draw loop.
+        let ids: Vec<_> = (start..end)
+            .filter(|&id| objects.ornaments[id].is_visible())
+            .collect();
+        if ids.is_empty() {
+            continue;
+        }
         objects.load_ids(&ids)?;
         for id in ids {
             if cancel.load(Ordering::Relaxed) {
                 return Ok(());
             }
+            // ids was pre-filtered to visible ornaments only, so this is
+            // guaranteed to be a placement the world data marks as drawn.
             let Some(model) = objects.get(id) else {
                 continue;
             };
+            visible_count += 1;
             let z = basis(model.direction);
             let y = basis(model.up);
             let x = y.cross(z).normalize_or_zero();
@@ -246,7 +257,7 @@ fn run(
         return Ok(());
     }
     let _ = tx.send(Message::Done {
-        processed: limit,
+        processed: visible_count,
         skipped,
     });
     Ok(())

@@ -357,6 +357,16 @@ pub struct Ornament {
     pub extra: u32,
     pub path: String,
 }
+
+impl Ornament {
+    /// The EC-BSD ornament record's `+0x36` extra field is a bitmask authored
+    /// in the world file. Bit 0 is the draw visibility flag: cleared = hidden
+    /// (the client skips the placement in its scenery draw loop), set = visible.
+    /// This is read from data, not inferred from distance.
+    pub fn is_visible(&self) -> bool {
+        (self.extra & 1) != 0
+    }
+}
 impl Scene {
     /// Read placed lit-model references in the ECWLD's associated EC-BSD file.
     /// Blocks can refer to the same export ID, so each instance is returned once.

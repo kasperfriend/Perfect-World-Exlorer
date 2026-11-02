@@ -69,6 +69,7 @@ jobs:
           cargo run --locked --bin model-draw-gpu-check
           cargo run --locked --bin phase1-fog-gpu-check
           cargo run --locked --bin terrain-refraction-gpu-check
+          cargo run --locked --bin terrain-lod-gpu-check
           cargo run --locked --bin water-fog-gpu-check
 
   windows:

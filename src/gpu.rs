@@ -413,10 +413,19 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
         eprintln!("Grass instancing: {v} mesh vertices, {i} placements, {b} batches; first position {grass_sample:?}");
     }
     // Stream placed static scenery near the camera; original transforms, geometry and UVs.
+    // Visibility is read from the ornament's +0x36 extra field (bit 0), not inferred
+    // from distance: a model the world data hides is never loaded or drawn. Distance
+    // selection is a separate culling reason tracked for reporting.
     let object_start = indices.len() as u32;
-    let nearby = t
+    let (nearby, hidden_count, culled_count) = t
         .objects
         .update(cx, cz, (rad as f32 - 1.0) * TILE as f32 * t.grid_spacing)?;
+    if hidden_count > 0 {
+        eprintln!("Local scenery: {hidden_count} hidden ornaments skipped (data flag)");
+    }
+    if culled_count > 0 {
+        eprintln!("Local scenery: {culled_count} ornaments out of range");
+    }
     // Sort largest rectangles first, then use as many atlas pages as needed.
     // Unlike the legacy 128px atlas, local BMDs keep their source dimensions.
     let mut requested: HashMap<String, (usize, usize)> = HashMap::new();
