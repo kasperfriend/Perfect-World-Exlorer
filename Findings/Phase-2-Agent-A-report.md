@@ -394,6 +394,11 @@ meshes, so the whole-world mesh is back and only the level ladder remains native
 * `block+0x7c` is proven to be `1.0f` from the block constructors (`0x7c85e2`,
   `0x7a1da3`) and from the absence of any other store to it, removing the last
   assumption in the level rule.
+* `P2.01` is recorded as Implemented on the reviewer's decision (2 November 2026):
+  the draw set, the explicit malformed-data failures and the whole-world extent are
+  in place, and the two remaining differences — everything resident up front
+  (no streaming eviction) and no `block+0x74` per-view visibility — are written
+  into the decision row as accepted deviations rather than dropped.
 * `P2.02` and `P2.03` are therefore recorded as Implemented in the reassessment,
   with the near→far→back walk rendered on 2 November 2026 as their camera-walk
   evidence; `P2.01` stays Partial because residency/streaming and `block+0x74`

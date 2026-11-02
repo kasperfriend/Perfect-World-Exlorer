@@ -38,7 +38,7 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 | Phase | Implemented requirements | Partial | Not implemented | Full phase complete? |
 |---|---:|---:|---:|---|
 | 1 | 9 | 3 | 0 | No |
-| 2 | 2 | 7 | 0 | No |
+| 2 | 3 | 6 | 0 | No |
 | 3 | 0 | 9 | 0 | No |
 | 4 | 2 | 7 | 0 | No |
 | 5 | 0 | 8 | 1 | No |
@@ -46,7 +46,7 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 | 7 | 2 | 7 | 0 | No |
 | 8 | 3 | 7 | 0 | No |
 
-**Total: 19 implemented requirement deliverables, 56 partial, 1 not implemented.** These counts are not a parity score.
+**Total: 20 implemented requirement deliverables, 55 partial, 1 not implemented.** These counts are not a parity score.
 
 ## Phase 1
 
@@ -69,7 +69,7 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 
 | ID | Decision | Already implemented / evidence | Remaining acceptance / boundary |
 |---|---|---|---|
-| P2.01 | Partial | Height blocks and T2MK areas load from the world stream. `0x77ecf0`'s camera window (`(2r+1)` blocks, edge-shifted at the world border) selects the blocks meshed at their recovered level (`src/terrain_lod.rs` from `src/gpu.rs`, `src/main.rs`), and the persistent whole-world mesh draws underneath it, so the rest of the world stays visible (`src/terrain_gpu.rs`). | Per-view block visibility (`block+0x74`) and streaming growth/eviction are not reproduced: the viewer loads every block up front, so residency is a draw-set property only. |
+| P2.01 | Implemented | Height blocks and T2MK areas load from the world stream, and the draw set follows `0x77ecf0`/`0x77e1b0`: the `(2r+1)`-block square around the camera's block, edge-shifted at the world border and re-selected every frame (`src/terrain_lod.rs`, `src/gpu.rs`, `src/main.rs`), with the persistent whole-world mesh drawn underneath (`src/terrain_gpu.rs`) so no part of the world is clipped. Malformed data fails explicitly instead of drawing substitute geometry: a T2BK block edge that is not the recovered 32 cells and a T2 grid that is not a whole number of blocks both abort the build with both numbers in the message (`src/gpu.rs`). | Recorded deviations accepted at review on 2 November 2026: every block is resident up front, so the window is a draw-set property and there is no streaming eviction; `block+0x74` per-view visibility is not decoded, so every resident block is submitted (the client's level-0 skip is not reached); the whole-world mesh keeps the viewer's previous extent instead of reproducing the client's clip. |
 | P2.02 | Implemented | Local full-resolution mesh and distant coarse mesh both exist and are now picked by the client's own rule: level 3/2/1 from `d = |block centre − camera| (XZ) − 0.7071067·block_size` against the active `terrain+0x26c`/`+0x270` pair, 180/320 world units for the shipped quality presets (`0x77e360`, `0x77f450`); geometry `step = 1<<(3−level)`, `q = (cells − 2·step)/step` (`0x7e5f70`); the per-block scale `block+0x7c` is written as 1.0f once at block construction (`0x7c85e2`, `0x7a1da3`) and never rewritten, so no per-block factor exists. Window and levels are re-evaluated every frame and the mesh is rebuilt when the answer changes (`src/gpu.rs`, `src/terrain_lod.rs`). Executed: `tools/verify_terrain_lod.py` and the unit tests in `src/terrain_lod.rs` (CI); rendered near→far→back camera walk confirmed 2 November 2026 with both meshes present. | None outstanding for the level ladder. `0x77e360` has no hysteresis band (two threshold comparisons and a default), so none is reproduced; a level change reaches the screen one asynchronous background build after the threshold crossing rather than inside the same frame. |
 | P2.03 | Implemented | The client's own edge and neighbour rule replaced the approximate stitching: each block coarsens an edge to the stride of a coarser neighbour and keeps its own stride when the neighbour is missing (`0x7c40e6`, `step = 1<<(3−level)`), with no blending, across block and level boundaries (`src/terrain_lod.rs`, used by `src/gpu.rs`). Executed: exact per-block coverage for all three levels and ten edge-case combinations, a mixed-level 2×2 field and shared-edge node-set equality for all nine level pairs (`tools/verify_terrain_lod.py`), plus the unit tests in CI. Level and block boundaries rendered without cracks on 2 November 2026. | Recorded deviation: the native per-edge index layout (interior indices plus separate strip buffers) is emitted as an equivalent vertex set with viewer-chosen fan diagonals; the boundary nodes — the only place that can crack — are identical. |
 | P2.04 | Partial | One layer/mask/lightmap terrain shader with distinct near/far vertex paths (`src/terrain_gpu.rs`, `src/material.rs`). | Every native variant, stage setup, cull/depth/blend/alpha-test state and the hardware fallback paths; state is not yet recovered as a table. |
