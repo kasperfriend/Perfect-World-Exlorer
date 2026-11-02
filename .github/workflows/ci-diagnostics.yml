@@ -1,0 +1,52 @@
+name: CI diagnostics (temporary, remove before merge)
+
+on:
+  push:
+    branches: [arena/f61c0c9b-perfect-world-exlorer]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  diagnose:
+    name: Diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
+      - name: Collect diagnostics
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          {
+            echo "## cargo fmt --check"
+            cargo fmt --all -- --check
+            echo "fmt-exit=$?"
+            echo "## rustfmt diff (applied in the runner only)"
+            cargo fmt --all
+            git --no-pager diff
+            echo "## cargo check --bins"
+            cargo check --locked --bins 2>&1 | grep -E "^(error|warning: unused|thread)" -A 6 | head -220
+            echo "## unit tests"
+            cargo test --locked --bin perfect-world-explorer 2>&1 | tail -120
+            echo "## dependency-free modules"
+            for module in post_plan color_chain fog_matrix glow_state view_settings; do
+              echo "--- $module"
+              rustc --edition=2021 --test "src/$module.rs" -o "/tmp/$module" 2>&1 | head -40
+              "/tmp/$module" 2>&1 | grep -E "FAILED|failures:|panicked|test result|assert" -A 4 | head -40
+            done
+          } > /tmp/diag.txt 2>&1
+          head -c 60000 /tmp/diag.txt > /tmp/diag_trim.txt
+          gh pr comment 4 --body-file /tmp/diag_trim.txt
