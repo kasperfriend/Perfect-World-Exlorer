@@ -40,6 +40,25 @@ impl Image {
             pixels,
         }
     }
+    /// Interpret the authored register overwrites, not the shader's name.
+    pub fn sharpen(&self) -> Self {
+        let pixels = (0..self.height)
+            .flat_map(|y| {
+                (0..self.width).map(move |x| {
+                    let center = self.pixels[y * self.width + x];
+                    let below = self.pixels[(y + 1).min(self.height - 1) * self.width + x];
+                    std::array::from_fn(|c| {
+                        (2 * center[c] as i32 - below[c] as i32).clamp(0, 255) as u8
+                    })
+                })
+            })
+            .collect();
+        Self {
+            width: self.width,
+            height: self.height,
+            pixels,
+        }
+    }
     fn sample(&self, u: f32, v: f32) -> [f32; 3] {
         let x = u * self.width as f32 - 0.5;
         let y = v * self.height as f32 - 0.5;
@@ -186,6 +205,21 @@ impl Image {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sharpen_preserves_authored_overwrites_and_bottom_clamp() {
+        let image = super::Image {
+            width: 2,
+            height: 2,
+            pixels: vec![[100, 200, 10], [120, 80, 230], [20, 250, 100], [250, 10, 0]],
+        };
+        assert_eq!(
+            image.sharpen().pixels,
+            vec![[180, 150, 0], [0, 150, 255], [20, 250, 100], [250, 10, 0]]
+        );
+        let row = super::Image::pattern(7, 1);
+        assert_eq!(row.sharpen().pixels, row.pixels);
+    }
+
     use super::*;
     #[test]
     fn constant_image_preserved_by_copy_and_blur() {

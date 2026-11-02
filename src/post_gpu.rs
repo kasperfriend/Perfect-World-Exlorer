@@ -244,8 +244,7 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
  // Texture stage 1 is CLAMP at 0x41029b–0x4102a4, not a 0.001 UV inset.
  return vec4<f32>(textureSample(scene,smp,uv+normal*vec2<f32>(-0.005,0.005)).rgb,1.);
 }
-@fragment fn finish(i:Out)->@location(0) vec4<f32> {
- let uv=i.uv;
+fn composite(uv:vec2<f32>)->vec3<f32> {
  let original=textureSample(scene,smp,uv).rgb;
  var out=original;
  if p.effect.y>0.5 {
@@ -273,6 +272,10 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
    let source=clamp(out*p.modulation.rgb,vec3<f32>(0.),vec3<f32>(1.));
    out=mix(original,source,p.modulation.a);
  }
+ return out;
+}
+fn display_color(encoded:vec3<f32>)->vec4<f32> {
+ var out=encoded;
  // Emulate the client's 256-entry 16-bit D3D8 display ramp without
  // changing the desktop display. Linear interpolation models LUT lookup.
  if p.gamma.x>0.5 {
@@ -281,6 +284,18 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
  // Present encoded D3D-style output through an sRGB render target exactly once.
  if p.fog.w>0.5 {out=select(out/12.92,pow((max(out,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),out>vec3<f32>(0.04045));}
  return vec4<f32>(out,1.);
+}
+@fragment fn finish(i:Out)->@location(0) vec4<f32> {return display_color(composite(i.uv));}
+@fragment fn finish_encoded(i:Out)->@location(0) vec4<f32> {return vec4<f32>(composite(i.uv),1.);}
+@fragment fn sharpen_finish(i:Out)->@location(0) vec4<f32> {
+ let size=vec2<i32>(textureDimensions(scene));
+ let pixel=clamp(vec2<i32>(i.pos.xy),vec2<i32>(0),size-vec2<i32>(1));
+ let center=textureLoad(scene,pixel,0).rgb;
+ let below=textureLoad(scene,min(pixel+vec2<i32>(0,1),size-vec2<i32>(1)),0).rgb;
+ // Actual fullsharpen_14 overwrites r0 in EACH mad using the original r5.
+ // Earlier left/right/up results do NOT accumulate. Preserve that authored
+ // behavior, not an invented symmetric five-tap unsharp mask.
+ return display_color(clamp(2.*center-below,vec3<f32>(0.),vec3<f32>(1.)));
 }
 "#;
 fn texture(
@@ -308,6 +323,10 @@ fn texture(
 }
 pub struct PostGpu {
     modulation: [f32; 4],
+    sharpen: bool,
+    composite_target: wgpu::Texture,
+    encoded_finish: wgpu::RenderPipeline,
+    sharpen_finish: wgpu::RenderPipeline,
     format: wgpu::TextureFormat,
     scene: wgpu::Texture,
     fogged: wgpu::Texture,
@@ -444,6 +463,16 @@ impl PostGpu {
         };
         Self {
             modulation: [1.; 4],
+            sharpen: false,
+            composite_target: texture(
+                device,
+                format.remove_srgb_suffix(),
+                w,
+                h,
+                "encoded glow before sharpen",
+            ),
+            encoded_finish: make("finish_encoded", format.remove_srgb_suffix()),
+            sharpen_finish: make("sharpen_finish", format),
             format,
             scene,
             fogged,
@@ -464,8 +493,19 @@ impl PostGpu {
     pub fn set_glow_color(&mut self, argb: u32, brightness_fade: f32, opacity_fade: f32) {
         self.modulation = glow_modulation::constant(argb, brightness_fade, opacity_fade);
     }
+    /// Native renderer flag +6, 0x40fd69 -> 0x410970. Independent of bloom.
+    pub fn set_sharpen(&mut self, enabled: bool) {
+        self.sharpen = enabled;
+    }
     pub fn resize(&mut self, device: &wgpu::Device, w: u32, h: u32) {
         self.scene = texture(device, self.format, w, h, "post scene");
+        self.composite_target = texture(
+            device,
+            self.format.remove_srgb_suffix(),
+            w,
+            h,
+            "encoded glow before sharpen",
+        );
         self.fogged = texture(
             device,
             self.format.remove_srgb_suffix(),
@@ -684,10 +724,39 @@ impl PostGpu {
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);
         }
+        let composite_target = self.composite_target.create_view(&Default::default());
         {
             let group = bind(input, &blur);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("underwater and glow"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: if self.sharpen {
+                        &composite_target
+                    } else {
+                        target
+                    },
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(if self.sharpen {
+                &self.encoded_finish
+            } else {
+                &self.finish
+            });
+            pass.set_bind_group(0, &group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        if self.sharpen {
+            let group = bind(&composite_target, &blur);
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("client fullscreen sharpen after encoded glow"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: target,
                     resolve_target: None,
@@ -700,7 +769,7 @@ impl PostGpu {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            pass.set_pipeline(&self.finish);
+            pass.set_pipeline(&self.sharpen_finish);
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);
         }

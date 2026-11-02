@@ -24,6 +24,7 @@ pub struct ViewSettings {
     pub water_reflections: bool,
     pub atmospheric_fog: bool,
     pub bloom: bool,
+    pub sharpen: bool,
     pub bloom_strength: f32,
     pub bloom_mode: u8,
     pub bloom_tint: u32,
@@ -60,6 +61,7 @@ impl Default for ViewSettings {
             water_reflections: true,
             atmospheric_fog: false,
             bloom: false,
+            sharpen: false,
             bloom_strength: 1.,
             bloom_mode: 0,
             bloom_tint: 0xffffffff,
@@ -112,6 +114,7 @@ impl ViewSettings {
                 };
             }
             match k {
+                "sharpen" => flag!(s.sharpen),
                 "radius" => {
                     if let Ok(x) = v.parse::<isize>() {
                         s.detail.radius = x.clamp(2, 12)
@@ -170,11 +173,11 @@ impl ViewSettings {
             "radius={}\ntree_lod_scale={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs)
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen)
     }
     fn file() -> Option<std::path::PathBuf> {
         #[cfg(windows)]
@@ -224,6 +227,14 @@ impl ViewSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn authored_sharpen_toggle_round_trips_without_changing_defaults() {
+        assert!(!ViewSettings::default().sharpen);
+        let s = ViewSettings::decode("sharpen=true");
+        assert!(s.sharpen);
+        assert_eq!(s, ViewSettings::decode(&s.encode()));
+        assert!(!ViewSettings::decode("sharpen=invalid").sharpen);
+    }
     #[test]
     fn round_trip_all_settings() {
         let mut s = ViewSettings::default();

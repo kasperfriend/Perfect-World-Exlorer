@@ -1315,3 +1315,40 @@ black. Local core: 73 passing. GPU/new build validation pending.
 Confirmation: file pair policy/per-area production metadata implemented;
 GPU verification pending. Full P1.06 No: full-world payload census and
 dynamic loading/unloading lifecycle are not completed by startup metadata.
+
+CI `41456144458` (`9de9c53`) passed Linux/Windows/all GPU checks for the
+corner-distance follow-up. CI `41456559295` (`de89d91`) passed Linux/Windows
+and all 13 GPU binaries, including the adjacent-area availability regression,
+all four grass availability combinations and RGB/alpha oracles. Native
+retained-world suite remains 46 passing. Confirmation: terrain-only missing
+night fallback and startup per-area grass metadata Yes; complete P1.06 No.
+
+### Resolve renderer +6: authored fullscreen sharpen, not another glow mode
+
+Native `40f5e4–40f5fe` loads `Shaders\\ps\\fullsharpen_14.txt` into +2d0;
+`410aae–410ad5` binds its stream/shader and draws with ONE/ZERO blending.
+`40fd64–40fd9c` runs it after glow and a backbuffer copy when flag +6 is set.
+This matches the related source's DoSharpen, but the actual client's shader
+is authoritative (SHA256
+`d9d5863bd6e83d29db666e618517e9beed88bc97a81b0cd57b755184cdb06d03`).
+
+Important authored behavior: each of four MADs writes r0 from the ORIGINAL
+r5, overwriting the preceding result, not accumulating it. After the final
+ADD, RGB is clamp(2*center - below,0,1), alpha 1. Replacing this with a
+standard symmetric five-tap sharpen would not reproduce this client.
+
+Implemented an encoded UNORM composite target followed by the authored
+sharpen pass, then display gamma / sRGB presentation. No read/write attachment
+aliasing or sharpening in linear display space. Resize recreates the target;
+sharpen is independent of bloom. Added persisted Graphics toggle (off by
+default, preserving approved/default appearance). The normal non-sharpen
+path retains its existing pass and bounds.
+
+Added an independent integer reference with overwrite/bottom-edge/one-row
+fixtures and settings roundtrip test (75 core tests pass). Patterned production
+GPU fixture now covers sharpen on/off, bloom on/off, ordinary/underwater/mono,
+caller RGBA/fades, odd dimensions, both attachment formats and resize.
+Sharpen propagates prior input error E by at most 3E for 2*C-N; existing
+non-sharpen bounds are not relaxed. New build/GPU validation pending.
+Full P1.08 remains No: this resolves the +6 classification/pass, not automatic
+fade-event lifecycle. Continue implementation after validation.
