@@ -15,7 +15,13 @@ pub struct WaterUniform {
     pub animation: [f32; 4],
     /// x: original-style rasterized edge alpha is available in refraction.
     pub edge_mode: [f32; 4],
+    /// x: water-surface fog start; y: fog end; z: 1 when fog applies;
+    /// w: unused. Appended after `edge_mode`, so earlier offsets are unchanged.
+    pub fog: [f32; 4],
+    /// The water-surface fog colour bound right before the water draw.
+    pub fog_color: [f32; 4],
 }
+
 /// Retail increments the normal index every 33 milliseconds. Fractional
 /// position is retained for the viewer's smooth frame interpolation.
 pub fn normal_phase(elapsed_seconds: f64) -> f32 {
@@ -50,7 +56,7 @@ pub fn cell_base_uv() -> [[f32; 2]; 4] {
     [[0., 0.], [1., 0.], [0., 1.], [1., 1.]]
 }
 const WATER_SHADER: &str = r#"
-struct W {matrix:mat4x4<f32>,inverse_matrix:mat4x4<f32>,eye_time:vec4<f32>,size:vec4<f32>,animation:vec4<f32>,edge_mode:vec4<f32>};
+struct W {matrix:mat4x4<f32>,inverse_matrix:mat4x4<f32>,eye_time:vec4<f32>,size:vec4<f32>,animation:vec4<f32>,edge_mode:vec4<f32>,fog:vec4<f32>,fog_color:vec4<f32>};
 @group(0) @binding(0) var<uniform> w:W;
 @group(0) @binding(1) var reflection:texture_2d<f32>;
 @group(0) @binding(2) var refraction:texture_2d<f32>;
@@ -67,6 +73,16 @@ fn present_encoded(c:vec3<f32>)->vec3<f32>{
  if w.animation.z<0.5 {return c;}
  let v=max(c,vec3<f32>(0.));
  return select(v/12.92,pow((v+0.055)/1.055,vec3<f32>(2.4)),v>vec3<f32>(0.04045));
+}
+// The client binds its water-surface fog triple with D3DRS_FOGSTART/END/COLOR
+// right before the water draw (0x7cb444, 0x7cb502, 0x7cb94e) and D3D applies
+// the fixed-function fog stage to the source colour. The water shaders carry
+// no fog arithmetic of their own, so this is that stage, not a shader mix.
+fn surface_fog(c:vec3<f32>, depth:f32)->vec3<f32>{
+ if w.fog.z<0.5 {return c;}
+ let span=max(w.fog.y-w.fog.x,0.000001);
+ let f=clamp((w.fog.y-depth)/span,0.0,1.0);
+ return mix(w.fog_color.rgb,c,f);
 }
 @fragment fn water_fs(i:Out)->@location(0) vec4<f32> {
  // Default client texture layer 1: 2x base-cell UV with a rotating
@@ -92,7 +108,7 @@ fn present_encoded(c:vec3<f32>)->vec3<f32>{
    let facing=clamp(dot(w.eye_time.xyz-i.world,-n),0.0,1.0);
    let fresnel=pow(1.0-facing,5.0);
    let tint=mix(vec3<f32>(1.0),vec3<f32>(0.0,0.3,0.3),fresnel);
-   return vec4<f32>(present_encoded(refr*0.85*tint),1.0);
+   return vec4<f32>(present_encoded(surface_fog(refr*0.85*tint,i.pos.w)),1.0);
  }
  let z=textureLoad(terrain_depth,vec2<i32>(i.pos.xy),0);
  // The client edge pass uses saturate((waterY - terrainY)/0.66).
@@ -129,7 +145,9 @@ fn present_encoded(c:vec3<f32>)->vec3<f32>{
  // The paired water_vs shader writes a zero secondary diffuse/specular color.
  let color=mix(refract_color*0.95,reflect_color,fresnel);
  let background=textureSample(scene_color,screen_sampler,screen).rgb;
- return vec4<f32>(present_encoded(mix(background,color,edge)),1.0);
+ // Fog is the draw's own state and covers the whole surface, including the
+ // edge-alpha blend with the already-fogged scene behind it.
+ return vec4<f32>(present_encoded(surface_fog(mix(background,color,edge),i.pos.w)),1.0);
 }
 struct FSOut { @builtin(position) pos:vec4<f32>, @location(0) uv:vec2<f32> };
 @vertex fn blit_vs(@builtin(vertex_index) id:u32)->FSOut { var o:FSOut;let x=f32((id<<1u)&2u);let y=f32(id&2u);o.uv=vec2<f32>(x,y);o.pos=vec4<f32>(x*2.0-1.0,1.0-y*2.0,0.0,1.0);return o;}
@@ -222,6 +240,8 @@ impl WaterGpu {
                 size: [w as f32, h as f32, 0., 0.],
                 animation: [0.; 4],
                 edge_mode: [0.; 4],
+                fog: [0., 1., 0., 0.],
+                fog_color: [1., 1., 1., 1.],
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
