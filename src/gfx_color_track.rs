@@ -231,14 +231,9 @@ mod tests {
             assert_eq!(table[0], 0x12345678);
             assert_eq!(table[127], 0x9abcdef0);
         }
-        let track = ColorTrack::new_with_precision(
-            0.,
-            -1.,
-            0,
-            &[(0x7f7f7f7f, 1000.)],
-            Precision::Pc24,
-        )
-        .unwrap();
+        let track =
+            ColorTrack::new_with_precision(0., -1., 0, &[(0x7f7f7f7f, 1000.)], Precision::Pc24)
+                .unwrap();
         assert_eq!(track.segments[0].1[1], 0x01010101);
         // The divergence counter reports per-channel interior entries, so a
         // single differing packed entry contributes once per channel byte.
@@ -249,8 +244,13 @@ mod tests {
     }
     #[test]
     fn segment_chain_reports_one_end_pair_per_destination() {
-        let t = ColorTrack::new(0., -1., 0xff000000, &[(0xffffffff, 400.), (0x00ff00ff, 300.)])
-            .unwrap();
+        let t = ColorTrack::new(
+            0.,
+            -1.,
+            0xff000000,
+            &[(0xffffffff, 400.), (0x00ff00ff, 300.)],
+        )
+        .unwrap();
         assert_eq!(t.ends, [(0xff000000, 0xffffffff), (0xffffffff, 0x00ff00ff)]);
         assert_eq!(t.sample(0.4), Some(0xffffffff));
     }

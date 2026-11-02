@@ -392,11 +392,17 @@ mod tests {
         let opaque = mesh_state(false, -1., 5, 6, false, false).unwrap();
         assert_eq!(opaque.queue, Queue::Opaque);
         assert!(opaque.depth_write);
-        assert_eq!((opaque.source, opaque.destination), (Factor::SrcAlpha, Factor::InvSrcAlpha));
+        assert_eq!(
+            (opaque.source, opaque.destination),
+            (Factor::SrcAlpha, Factor::InvSrcAlpha)
+        );
         let alpha = mesh_state(false, -1., 2, 6, false, false).unwrap();
         assert_eq!(alpha.queue, Queue::Alpha);
         assert!(!alpha.depth_write);
-        assert_eq!((alpha.source, alpha.destination), (Factor::One, Factor::InvSrcAlpha));
+        assert_eq!(
+            (alpha.source, alpha.destination),
+            (Factor::One, Factor::InvSrcAlpha)
+        );
         let hidden = mesh_state(true, -1., 5, 6, false, false).unwrap();
         assert_eq!(hidden.queue, Queue::Hidden);
         // An unsupported authored factor fails the whole mesh, not just its queue.

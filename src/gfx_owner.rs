@@ -223,10 +223,7 @@ impl Manager {
             .iter()
             .any(|owner| owner.request.identity == request.identity)
         {
-            return Err(format!(
-                "duplicate GFX owner identity {}",
-                request.identity
-            ));
+            return Err(format!("duplicate GFX owner identity {}", request.identity));
         }
         let serial = self.next_serial;
         self.next_serial = self.next_serial.wrapping_add(1);
@@ -241,7 +238,11 @@ impl Manager {
 
     /// Region/time visibility. Returns false when the identity is not owned.
     pub fn set_active(&mut self, identity: u64, active: bool) -> bool {
-        match self.owners.iter_mut().find(|o| o.request.identity == identity) {
+        match self
+            .owners
+            .iter_mut()
+            .find(|o| o.request.identity == identity)
+        {
             Some(owner) => {
                 owner.request.active = active;
                 true
@@ -394,7 +395,10 @@ impl Manager {
 
     /// Owner origins in insertion order, for diagnostics.
     pub fn origins(&self) -> Vec<&str> {
-        self.owners.iter().map(|o| o.request.origin.as_str()).collect()
+        self.owners
+            .iter()
+            .map(|o| o.request.origin.as_str())
+            .collect()
     }
 }
 

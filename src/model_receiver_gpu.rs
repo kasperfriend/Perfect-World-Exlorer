@@ -160,7 +160,15 @@ impl Receiver {
         source: wgpu::BlendFactor,
         destination: wgpu::BlendFactor,
     ) -> Result<Self, String> {
-        Self::with_blending(device, format, depth, depth_write, true, source, destination)
+        Self::with_blending(
+            device,
+            format,
+            depth,
+            depth_write,
+            true,
+            source,
+            destination,
+        )
     }
     fn with_blending(
         device: &wgpu::Device,

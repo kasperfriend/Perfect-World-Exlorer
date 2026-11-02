@@ -136,8 +136,7 @@ impl World {
     /// Root text is GBK-decoded here; the owner manager never guesses an
     /// encoding and refuses binary containers explicitly.
     pub fn attach_gfx_archive(&mut self, element: &Path) -> Result<(), String> {
-        let mut pack = File::open(element.join("gfx.pck"))
-            .map_err(|e| format!("gfx.pck: {e}"))?;
+        let mut pack = File::open(element.join("gfx.pck")).map_err(|e| format!("gfx.pck: {e}"))?;
         let entries: HashMap<String, crate::pck::Entry> = crate::pck::directory(&mut pack)?
             .into_iter()
             .map(|e| (crate::ecmodel::normalize(&e.name), e))
@@ -210,10 +209,7 @@ impl World {
         let mut installed = 0;
         for (index, instance) in self.assets.instances.iter().enumerate() {
             let asset = &self.assets.assets[instance.asset];
-            let transform = *self.slots[index]
-                .transform
-                .as_ref()
-                .map_err(Clone::clone)?;
+            let transform = *self.slots[index].transform.as_ref().map_err(Clone::clone)?;
             for (event_index, event) in asset.descriptor.events.iter().enumerate() {
                 let Some(path) = event.gfx_path() else {
                     continue;

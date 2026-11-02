@@ -1001,9 +1001,8 @@ impl Renderer {
             && !t.models.instances.is_empty()
         {
             let assets = std::mem::take(&mut t.models);
-            let mut world = crate::world_models_gpu::World::new(
-                &device, format, assets, &t.element,
-            )?;
+            let mut world =
+                crate::world_models_gpu::World::new(&device, format, assets, &t.element)?;
             // Actual world effect owners: the ECWLD placements and the hook-free
             // ECM EventType-100 roots publish into the same scene-light grid the
             // receiving models query. A missing archive is a reported failure,
@@ -1020,9 +1019,7 @@ impl Renderer {
                 Ok(count) => count,
                 Err(e) => return Err(format!("ECM event light owners: {e}")),
             };
-            eprintln!(
-                "Installed {effects} scene effect and {events} model-event light producers"
-            );
+            eprintln!("Installed {effects} scene effect and {events} model-event light producers");
             for failure in world.gfx_failures() {
                 eprintln!("FX light: {failure}");
             }

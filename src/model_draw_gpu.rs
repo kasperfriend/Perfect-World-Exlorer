@@ -335,7 +335,10 @@ impl Draw {
         &self.alpha_meshes
     }
     pub fn mesh_bounds(&self, index: usize) -> Option<([f32; 3], [f32; 3])> {
-        self.meshes.get(index).and_then(|m| m.as_ref()).map(|m| m.bounds)
+        self.meshes
+            .get(index)
+            .and_then(|m| m.as_ref())
+            .map(|m| m.bounds)
     }
     pub fn alpha_texture(&self, mesh: usize) -> Option<bool> {
         self.meshes
