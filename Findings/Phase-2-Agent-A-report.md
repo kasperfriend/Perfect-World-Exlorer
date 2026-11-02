@@ -400,7 +400,7 @@ meshes, so the whole-world mesh is back and only the level ladder remains native
   visibility are not reproduced.
 * Both terrain vertex paths are in production again, so the `vs`/`vs_far` parity
   program (`src/bin/terrain-lod-gpu-check.rs`) was added to the CI shader step and
-  that step went red (run 41525780828 on `e3d5f0b`); removing only the new program
+  that step went red (run 41525780828 on `e3f6e33`); removing only the new program
   restored the step, so the program itself fails under the software Vulkan ICD.
   The job log is not readable from this sandbox, so it stays out of the gate and
   is documented instead of being claimed as coverage.
