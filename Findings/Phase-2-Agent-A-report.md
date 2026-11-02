@@ -221,8 +221,18 @@ cells, so two neighbours sample the same cells and never crack.
 
 ## 5. Tests executed and exact results
 
-**Toolchain limitation (stated explicitly):** this checkout's sandbox has no Rust
-toolchain (`cargo`/`rustc` are absent), so `cargo test` was **not** run here.
+**Toolchain limitation and how it was closed (stated explicitly):** this
+checkout's sandbox has no Rust toolchain (`cargo`/`rustc` are absent), so nothing
+here was compiled locally. The same commit is compiled by the repository CI
+workflow on every push; run 41522560935 on commit c9e6627 reports **both jobs
+green** — Linux (formatting, x87 regional arithmetic, requirement-status audits,
+all binary targets, GFX light audit, viewer unit tests, software-Vulkan shader
+regressions) and Windows (native gamma words, standalone viewer build, staged
+artifact). The previously failing steps were `Check formatting` (rustfmt clean-up
+of the new terrain code) and the requirement-status audits (this table still cited
+the deleted seam module); both are fixed. What CI verifies is that the crate
+builds, every binary target links, all unit tests pass and the shaders validate —
+it does not render the scene, so the rendered camera walk stays open below.
 `src/terrain_lod.rs` carries the same checks as `#[cfg(test)]` unit tests
 (`window_is_the_recovered_2r_plus_1_square`,
 `levels_use_the_two_recovered_thresholds_and_no_hysteresis`,
@@ -354,6 +364,9 @@ same window alone (14.7 MB of 60-byte vertices vs 4.2 MB now).
   either path at draw time.
 * **Unrecovered allocation.** `0x7e6ba0` allocates `24*bg²` per block for a
   per-cell map I did not identify; it does not affect the emitted geometry above.
-* **No GPU run.** Nothing here was rendered: the sandbox has no Rust toolchain and
-  no GPU surface, so the camera near→far→back walk and the "no popping inside the
-  band" acceptance are argued from the (executed) geometry tests, not observed.
+* **No GPU run.** Nothing here was rendered: the sandbox has no GPU surface, so
+  the camera near→far→back walk and the "no popping inside the band" acceptance
+  are argued from the (executed) geometry tests, not observed. CI compiles and
+  links the binaries on both platforms and validates the shaders under software
+  Vulkan, but does not present a frame — this is the one remaining item a human
+  has to look at.
