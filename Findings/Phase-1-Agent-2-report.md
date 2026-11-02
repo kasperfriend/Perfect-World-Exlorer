@@ -32,8 +32,9 @@ material lighting from the sky-object curve.
     `model-light`, `skin-pose`, `skin-palette`, `model-texture`,
     `model-receiver`, `model-draw`, `phase1-fog`, `terrain-refraction`.
   * Two temporary, review-only workflows were used to obtain CI feedback in this
-    sandbox (job logs are not reachable from it). They are deleted before
-    handoff and contribute no product code.
+    sandbox (job logs are not reachable from it). Both are deleted before
+    handoff and contribute no product code. The final tree (`7dde4df`, docs and
+    workflow deletion only) re-ran green as **run 41492158460**.
 
 ## 1. Task 1 — P1.04 / P1.05: regional lighting and sun-direction consumers
 
