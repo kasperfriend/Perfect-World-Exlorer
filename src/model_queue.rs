@@ -404,8 +404,7 @@ mod tests {
         for (transparency, source, destination) in
             [(0.5, 5, 6), (-1., 2, 6), (-1., 5, 2), (-1., 1, 1)]
         {
-            let state =
-                mesh_state(false, transparency, source, destination, false, false).unwrap();
+            let state = mesh_state(false, transparency, source, destination, false, false).unwrap();
             assert_eq!(state.queue, Queue::Alpha, "{source}/{destination}");
             assert!(!state.depth_write);
         }

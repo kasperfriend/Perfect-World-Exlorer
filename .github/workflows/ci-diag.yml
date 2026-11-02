@@ -37,10 +37,10 @@ jobs:
             cat /tmp/status.txt
             echo '--- cargo fmt --check ---'
             head -c 12000 /tmp/fmt.txt
-            echo '--- cargo check (errors) ---'
-            grep -E '^error' -A 12 /tmp/check.txt | head -c 20000
-            echo '--- cargo test build (errors) ---'
-            grep -E '^error' -A 12 /tmp/test.txt | head -c 20000
+            echo '--- cargo check (raw, tail) ---'
+            tail -c 24000 /tmp/check.txt
+            echo '--- cargo test build (raw, tail) ---'
+            tail -c 24000 /tmp/test.txt
             echo '```'
           } > /tmp/body.md
       - name: Post diagnostics to the pull request

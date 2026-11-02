@@ -655,7 +655,10 @@ mod tests {
             .unwrap()
             .position;
         let expected = before[0] + 24.;
-        assert!((after[0] - expected).abs() < 1e-4, "{before:?} -> {after:?}");
+        assert!(
+            (after[0] - expected).abs() < 1e-4,
+            "{before:?} -> {after:?}"
+        );
         assert_eq!(after[1..], before[1..]);
         // The old hook cell no longer holds a light: nothing is left behind.
         assert!(grid.query([1., 2., 3.], 1.).is_none());
@@ -675,7 +678,10 @@ mod tests {
         let mut parent = translation(1., 0., 0.);
         parent[12] = f32::NAN;
         r.attachment = Some(parent);
-        assert!(manager.insert(r).is_err(), "nonfinite parent rejected at insert");
+        assert!(
+            manager.insert(r).is_err(),
+            "nonfinite parent rejected at insert"
+        );
         let mut r = request(2, true);
         r.attachment = None;
         manager.insert(r).unwrap();

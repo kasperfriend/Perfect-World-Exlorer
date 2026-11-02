@@ -4,8 +4,7 @@
 //! they publish into.
 //! Never sends baked terrain/BMD/tree vertices through receiving-model lighting.
 use crate::{
-    gfx_owner,
-    model_attachment,
+    gfx_owner, model_attachment,
     model_draw_gpu::{Draw, Frame},
     model_queue,
     scene_lights::{DynamicLight, LightPublications, SceneLights, StaticGrid},

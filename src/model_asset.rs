@@ -192,11 +192,7 @@ impl ModelAsset {
     /// its `hook * bone` product is `bone * hook` in this column-vector reader.
     /// A hook name the model does not own is an explicit error, never the model
     /// origin.
-    pub fn hook_matrix(
-        &self,
-        pose: &skeleton_pose::Pose,
-        name: &str,
-    ) -> Result<Mat4, String> {
+    pub fn hook_matrix(&self, pose: &skeleton_pose::Pose, name: &str) -> Result<Mat4, String> {
         hook_matrix(&self.skeleton, pose, name)
     }
     pub fn meshes_from_pose(&self, pose: &skeleton_pose::Pose) -> Result<Vec<PosedMesh>, String> {
@@ -347,7 +343,10 @@ mod tests {
         let pose = hook_pose();
         let world = hook_matrix(&s, &pose, "weapon").unwrap();
         let point = world.transform_point3(glam::Vec3::ZERO);
-        assert!((point - glam::Vec3::new(1., 2., 0.)).length() < 1e-6, "{point}");
+        assert!(
+            (point - glam::Vec3::new(1., 2., 0.)).length() < 1e-6,
+            "{point}"
+        );
     }
 
     #[test]
@@ -356,7 +355,10 @@ mod tests {
         let pose = hook_pose();
         let world = hook_matrix(&s, &pose, "root").unwrap();
         let point = world.transform_point3(glam::Vec3::ZERO);
-        assert!((point - glam::Vec3::new(7., 0., 0.)).length() < 1e-6, "{point}");
+        assert!(
+            (point - glam::Vec3::new(7., 0., 0.)).length() < 1e-6,
+            "{point}"
+        );
     }
 
     #[test]

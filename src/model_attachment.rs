@@ -205,7 +205,10 @@ mod tests {
         let local = attachment.local().unwrap();
         // Column-vector rotation: +X maps to -Z for a positive yaw.
         let rotated = local.transform_point3(Vec3::X);
-        assert!((rotated - Vec3::new(0., 0., -1.)).length() < 1e-6, "{rotated}");
+        assert!(
+            (rotated - Vec3::new(0., 0., -1.)).length() < 1e-6,
+            "{rotated}"
+        );
         assert!(local.determinant() > 0.);
     }
 
