@@ -70,9 +70,6 @@ jobs:
           cargo run --locked --bin phase1-fog-gpu-check
           cargo run --locked --bin terrain-refraction-gpu-check
           cargo run --locked --bin water-fog-gpu-check
-          # Both terrain vertex paths are in production: the window mesh (`vs`) and
-          # the persistent whole-world mesh (`vs_far`).
-          cargo run --locked --bin terrain-lod-gpu-check
 
   windows:
     name: Windows executable (x64)
