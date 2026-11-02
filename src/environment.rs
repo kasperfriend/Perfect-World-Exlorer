@@ -55,6 +55,7 @@ struct FogEndpoints {
     diffuse_day: [f32; 3],
     diffuse_night: [f32; 3],
     sun_direction: [f32; 3],
+    celestial_flags: u32,
 }
 impl FogEndpoints {
     fn values(self) -> [f32; 36] {
@@ -85,7 +86,7 @@ impl FogEndpoints {
         }
         v
     }
-    fn from_values(v: [f32; 36], sun_direction: [f32; 3]) -> Self {
+    fn from_values(v: [f32; 36], sun_direction: [f32; 3], celestial_flags: u32) -> Self {
         let f = |i: usize| {
             let p = i * 6;
             Fog {
@@ -106,6 +107,7 @@ impl FogEndpoints {
             diffuse_day: c(30),
             diffuse_night: c(33),
             sun_direction,
+            celestial_flags,
         }
     }
     fn at_hour(self, hour: f32) -> (Fog, Fog) {
@@ -123,6 +125,7 @@ pub struct RegionalLight {
     pub diffuse: [f32; 3],
     pub specular: [f32; 3],
     pub toward_sun: [f32; 3],
+    pub celestial_flags: u32,
 }
 /// Stored-step transitions between authored region endpoints. Each new
 /// box starts from the current in-flight values, with duration in EC-BSD.
@@ -131,6 +134,7 @@ pub struct FogTransition {
     key: Option<usize>,
     channels: [Channel; 36],
     sun_direction: [f32; 3],
+    celestial_flags: u32,
 }
 impl FogTransition {
     fn initial((key, target, _): (Option<usize>, FogEndpoints, u32)) -> Self {
@@ -138,13 +142,18 @@ impl FogTransition {
             key,
             channels: target.values().map(Channel::new),
             sun_direction: target.sun_direction,
+            celestial_flags: target.celestial_flags,
         }
     }
     pub fn new(env: &Environments, p: [f32; 3]) -> Self {
         Self::initial(env.endpoints(p))
     }
     fn current(&self) -> FogEndpoints {
-        FogEndpoints::from_values(self.channels.map(|c| c.value), self.sun_direction)
+        FogEndpoints::from_values(
+            self.channels.map(|c| c.value),
+            self.sun_direction,
+            self.celestial_flags,
+        )
     }
     pub fn lighting(&self, hour: f32) -> Option<RegionalLight> {
         self.key?;
@@ -156,6 +165,7 @@ impl FogTransition {
             diffuse: colors.diffuse,
             specular: colors.specular,
             toward_sun: e.sun_direction.map(|x| -x),
+            celestial_flags: e.celestial_flags,
         })
     }
     pub fn update(&mut self, env: &Environments, p: [f32; 3], hour: f32, dt: f32) -> (Fog, Fog) {
@@ -204,6 +214,9 @@ impl FogTransition {
         if key.is_none() && self.key.is_some() {
             return self.current().at_hour(hour);
         }
+        // 0x420992 reads the independent default every render, not only on
+        // local-region changes. These bits hide sky objects, NOT material light.
+        self.celestial_flags = target.celestial_flags;
         if key != self.key {
             self.key = key;
             self.sun_direction = target.sun_direction;
@@ -248,6 +261,7 @@ struct BoxArea {
     diffuse_day: [f32; 3],
     diffuse_night: [f32; 3],
     sun_direction: [f32; 3],
+    celestial_flags: u32,
 }
 #[derive(Clone, Default)]
 pub struct Environments {
@@ -296,6 +310,10 @@ impl RegionStreaming {
         // 0x41f244 / 0x41fd58 read its +c4 direction on init / key change.
         // Missing default is invalid native world data; use the viewer's safe
         // vertical fallback, never the local area's unrelated direction.
+        target.celestial_flags = default
+            .and_then(|id| env.id_to_index.get(&id))
+            .map(|&i| env.areas[i].celestial_flags)
+            .unwrap_or(0x18);
         target.sun_direction = default
             .and_then(|id| env.id_to_index.get(&id))
             .map(|&i| env.areas[i].sun_direction)
@@ -383,6 +401,7 @@ impl BoxArea {
         let area = Self {
             global,
             transition_ms: word(bytes, 0x9c)?,
+            celestial_flags: word(bytes, 4)?,
             center: vec3(bytes, 8)?,
             extents: if global {
                 [1000.; 3]
@@ -496,6 +515,7 @@ impl Environments {
                     diffuse_day: a.diffuse_day,
                     diffuse_night: a.diffuse_night,
                     sun_direction: a.sun_direction,
+                    celestial_flags: a.celestial_flags,
                 },
                 a.transition_ms,
             );
@@ -519,6 +539,7 @@ impl Environments {
                 diffuse_day: [0.; 3],
                 diffuse_night: [0.; 3],
                 sun_direction: [0., -1., 0.],
+                celestial_flags: 0x18,
             },
             0,
         )
@@ -538,6 +559,7 @@ mod tests {
     #[test]
     fn client_v12_box_fog_and_priority() {
         let mut b = vec![0u8; 224];
+        b[4..8].copy_from_slice(&8u32.to_le_bytes());
         fn put(b: &mut [u8], p: usize, v: f32) {
             b[p..p + 4].copy_from_slice(&v.to_le_bytes())
         }
@@ -570,6 +592,7 @@ mod tests {
         put(&mut b, 0x78, -0.619779);
         put(&mut b, 0x7c, 0.76983047);
         let a = BoxArea::parse(&b, 0).unwrap();
+        assert_eq!(a.celestial_flags, 8);
         assert!((a.ambient_day[0] - 89. / 255.).abs() < 1e-6);
         assert!((a.diffuse_night[1] - 0.5 * 61. / 255.).abs() < 1e-6);
         assert!((a.sun_direction[1] + 0.619779).abs() < 1e-6);
@@ -654,14 +677,17 @@ mod tests {
             diffuse_day: [1.; 3],
             diffuse_night: [0.; 3],
             sun_direction: [0., -1., 0.],
+            celestial_flags: 0x18,
         };
         let mut global = area.clone();
         global.global = true;
         global.day.start = 90.;
         global.sun_direction = [1., 0., 0.];
+        global.celestial_flags = 8;
         let mut local = area.clone();
         local.day.start = 10.;
         local.sun_direction = [0., 0., 1.];
+        local.celestial_flags = 16;
         let mut second = area;
         second.day.start = 30.;
         let mut ids = BTreeMap::new();
@@ -685,7 +711,7 @@ mod tests {
                 vec![1],
             ],
         };
-        let env = Environments {
+        let mut env = Environments {
             areas: vec![global, local, second],
             id_to_index: ids,
             streaming: Some(layout),
@@ -694,6 +720,15 @@ mod tests {
         let p = [-1700., 0., 0.];
         let mut transition = FogTransition::new_streamed(&env, &mut active, p);
         assert_eq!(transition.lighting(12.).unwrap().toward_sun, [-1., 0., 0.]);
+        let before = transition.lighting(12.).unwrap();
+        assert_eq!(before.celestial_flags, 8); // default, NOT local's 16
+        env.areas[0].celestial_flags = 16;
+        transition.update_streamed_ms(&env, &mut active, p, 12., 0);
+        let after = transition.lighting(12.).unwrap();
+        assert_eq!(after.celestial_flags, 16); // immediate, same local key
+        assert_eq!(before.diffuse, after.diffuse); // display only
+        assert_eq!(before.specular, after.specular);
+
         assert_eq!(
             transition
                 .update_streamed(&env, &mut active, p, 12., 0.)

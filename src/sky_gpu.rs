@@ -17,7 +17,7 @@ pub struct SkyGpu {
     normal_buf: wgpu::Buffer,
     reflected_buf: wgpu::Buffer,
 }
-const SHADER: &str = r#"
+pub(crate) const SHADER: &str = r#"
 struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>};
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
@@ -47,7 +47,7 @@ fn sky(dir:vec3<f32>, layer:i32)->vec3<f32>{
  // Experimental sky-only celestial disc using client textures. Direction
  // follows the recovered sky clock and authored regional azimuth. Sizes and
  // exposure are provisional; material lighting and foliage are untouched.
- if p.celestial.w>0.5 {
+ if p.celestial.w>0. {
   let c=normalize(p.celestial.xyz);
   let x=normalize(cross(vec3<f32>(0.,1.,0.),c)+vec3<f32>(0.00001,0.,0.));
   let y=cross(c,x);
@@ -58,7 +58,7 @@ fn sky(dir:vec3<f32>, layer:i32)->vec3<f32>{
    let uv=vec2<f32>(dot(d,x),-dot(d,y))/(2.*size*z)+vec2<f32>(0.5);
    if all(uv>=vec2<f32>(0.)) && all(uv<=vec2<f32>(1.)) {
     let disc=textureSampleLevel(skies,smp,uv,select(10,9,is_day),0.);
-    let visibility=smoothstep(0.0,0.04,c.y);
+    let visibility=smoothstep(0.0,0.04,c.y)*p.celestial.w;
     if is_day {color=clamp(color+disc.rgb*visibility,vec3<f32>(0.),vec3<f32>(1.));}
     else {color=mix(color,disc.rgb,disc.a*visibility);}
    }
@@ -287,7 +287,7 @@ impl SkyGpu {
         h: u32,
         hour: f32,
         celestial_direction: [f32; 3],
-        celestial_enabled: bool,
+        celestial_alpha: f32,
         reflected: bool,
     ) {
         let view = Mat4::look_to_rh(Vec3::ZERO, direction, Vec3::Y);
@@ -303,7 +303,7 @@ impl SkyGpu {
                 celestial_direction[0],
                 celestial_direction[1],
                 celestial_direction[2],
-                if celestial_enabled { 1. } else { 0. },
+                celestial_alpha,
             ],
         };
         queue.write_buffer(

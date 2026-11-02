@@ -47,6 +47,8 @@ mod skeleton_pose;
 mod skin;
 #[path = "../skin_pose.rs"]
 mod skin_pose;
+#[path = "../sky_gpu.rs"]
+mod sky_gpu;
 #[path = "../world_models.rs"]
 mod world_models;
 #[path = "../world_models_gpu.rs"]
@@ -199,6 +201,13 @@ fn main() {
         None,
     ))
     .unwrap();
+    // Validate the actual experimental sky shader after changing its visibility
+    // uniform from a boolean to quantized alpha. This is compilation coverage,
+    // not a native celestial material/image parity assertion.
+    device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("production sky visibility shader validation"),
+        source: wgpu::ShaderSource::Wgsl(sky_gpu::SHADER.into()),
+    });
     let (mut asset, _) = model_draw_fixture::fixture();
     let mut material = asset.skins[0].data.materials[0].clone();
     material.two_sided = false;

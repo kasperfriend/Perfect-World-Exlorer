@@ -706,6 +706,7 @@ struct Renderer {
     started: Instant,
     wind_last: Instant,
     world_glow: crate::post_gpu::WorldGlow,
+    celestial_visibility: crate::client_sun::Visibility,
     glow_requested_fade: Option<f32>,
     grass_wind_state: crate::grass_wind::GrassWind,
     atlas: wgpu::Texture,
@@ -1040,6 +1041,7 @@ impl Renderer {
             started: Instant::now(),
             wind_last: Instant::now(),
             world_glow: crate::post_gpu::WorldGlow::default(),
+            celestial_visibility: crate::client_sun::Visibility::default(),
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
             atlas,
@@ -1477,6 +1479,18 @@ impl Renderer {
         let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
             .unwrap_or([0., -1., 0.])
             .map(|x| -x);
+        self.celestial_visibility.update(
+            camera.logic_delta_ms,
+            camera
+                .regional_light
+                .map(|l| l.celestial_flags)
+                .unwrap_or(0x18),
+        );
+        let celestial_alpha = if camera.celestial_discs {
+            self.celestial_visibility.alpha(camera.time_of_day)
+        } else {
+            0.
+        };
         self.sky.update(
             &self.queue,
             direction,
@@ -1484,7 +1498,7 @@ impl Renderer {
             h,
             camera.time_of_day,
             celestial,
-            camera.celestial_discs,
+            celestial_alpha,
             false,
         );
         self.sky.update(
@@ -1494,7 +1508,7 @@ impl Renderer {
             h,
             camera.time_of_day,
             celestial,
-            camera.celestial_discs,
+            celestial_alpha,
             true,
         );
         self.far_trees.update_lods(

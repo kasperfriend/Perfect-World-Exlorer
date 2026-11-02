@@ -69,6 +69,9 @@ int main(void) {
     uint32_t pc24 = bits(delta), up_word = bits(up), down_word = bits(down);
     uint32_t fade = bits(glow_step(1.f, glow_delta(1.f, 0.f, 1000), 500));
     uint32_t index = bits(controller_index(1.f/127.f,1000.f));
+    float visibility = 1.f;
+    for (int i=0;i<100;++i) visibility=glow_step(visibility,-.0003f,16);
+    uint32_t visibility_word=bits(visibility);
     uint64_t colors=UINT64_C(0xcbf29ce484222325);
     for (int byte=0;byte<256;++byte) {
         uint32_t u=bits(color_byte(byte));
@@ -83,6 +86,7 @@ int main(void) {
     printf("x87 256 normalized color words FNV=%016llx\n", (unsigned long long)colors);
     printf("x87 PC24 half-time StopFade word=%08x\n", fade);
     printf("x87 PC24 controller sample index word=%08x\n", index);
-    return !(index == 0x3f800000 && fade == 0x3f000000 && colors == UINT64_C(0xaf1301c35b66c4a5) && pc24 == 0x3b1a33cf && pc53 == 0x3b1a33ce &&
+    printf("x87 PC24 visibility word=%08x\n", visibility_word);
+    return !(visibility_word == 0x3f051e94 && index == 0x3f800000 && fade == 0x3f000000 && colors == UINT64_C(0xaf1301c35b66c4a5) && pc24 == 0x3b1a33cf && pc53 == 0x3b1a33ce &&
         up_word == 0x3f6612a9 && down_word == 0x3dcf6ab4);
 }

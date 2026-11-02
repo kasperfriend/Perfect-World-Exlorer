@@ -1876,3 +1876,34 @@ updates and independent fixture inputs must NOT be capped a second time.
 Core cap tests and existing multipass GPU snapshots protect those separate
 contracts. This corrects viewer integration, not FX owner playback completeness.
 Confirmation P1.03: No — continue material/FX lifecycle implementation.
+
+### Default-area sun/moon visibility is not a material light switch
+
+Verified 1.4.2 load `48a983..48a98e` maps EC-BSD record +4 to area +80;
+`420992..4209bf` extracts SUN bit 3 / MOON bit 4 from the independently
+selected DEFAULT area, even while a local region owns color/fog. Flags are
+published every render, not blended on region transitions. The directional
+color branch immediately after them tests sun pitch instead, NOT these flags.
+
+Verified constructor `4b2d0c..4b2d25` sets both flags true and both visibility
+floats to 1. `4b5f63..4b6021` advances each visibility independently with
+PC24 `ms * stored(0.0003)` and add/subtract, clamping 0..1. Render
+`4b3b80..4b3b9e` truncates visibility*255 to BYTE alpha. World nature tick
+`429370..42938e` runs before AdjustEnvironment/render; the new visibility
+state consumes the last published flags before latching the current ones.
+Zero-tick login-world behavior is separately visible in that native caller;
+this viewer's world-map playback uses the root logic tick, not login mode.
+
+Implemented flag parsing, independent default-region publication (including
+same-local-key changes), per-frame visibility state and quantized sky alpha.
+Reflections reuse the same state, with no second visibility tick. The opt-in
+experimental sky remains opt-in; disc size/halo/blending are NOT declared
+native-complete. Flags never suppress model diffuse/specular/ambient.
+
+Actual x87 PC24 instruction witness after 100 hidden 16ms ticks:
+**3f051e94**. Core is now **109 passed**; real scene/environment suite remains
+**23 passed**, with assertions for flag bytes, default-versus-local ownership,
+same-key changes and unchanged directional/specular values. The production sky
+WGSL is additionally compiled by the GPU integration binary; pixel/material
+parity is not inferred from that shader-compilation check. New CI pending.
+**Confirmation P1.04/P1.05: No — continue** full material/celestial consumers.
