@@ -40,8 +40,11 @@ jobs:
         env:
           WGPU_BACKEND: vulkan
           XDG_RUNTIME_DIR: /tmp
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
         run: |
+          # Mesa renamed this file on newer Ubuntu images. Resolve the installed
+          # lavapipe ICD rather than silently disabling Vulkan with a stale path.
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
+          test -n "$VK_ICD_FILENAMES"
           cargo run --locked --bin display-gamma-gpu-check
           cargo run --locked --bin post-gpu-check
           cargo run --locked --bin model-light-gpu-check
