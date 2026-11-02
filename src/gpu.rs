@@ -1194,6 +1194,85 @@ impl Renderer {
             }
         }
     }
+    fn draw_models(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        depth: &wgpu::TextureView,
+        uniform: &Uniform,
+        camera: &Camera,
+        advance: bool,
+    ) {
+        if let (Some(models), Some(light)) = (&mut self.models, camera.regional_light) {
+            let tick = self.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+            let delta = if advance {
+                tick.saturating_sub(self.model_tick_ms).min(u32::MAX as u64) as u32
+            } else {
+                0
+            };
+            if advance {
+                self.model_tick_ms = tick;
+            }
+            let d = Vec3::from_array(light.toward_sun).normalize_or_zero();
+            let frame = crate::model_draw_gpu::Frame {
+                blend_enabled: false,
+                matrix: uniform.matrix,
+                lighting: crate::model_material::Lighting {
+                    environment_ambient: [light.ambient[0], light.ambient[1], light.ambient[2], 1.],
+                    additional_ambient: [0.; 4],
+                    directional_diffuse: [light.diffuse[0], light.diffuse[1], light.diffuse[2], 1.],
+                    point_ambient: [0.; 4],
+                    point_diffuse: [0.; 4],
+                    transparency: -1.,
+                    point_enabled: false,
+                },
+                direction: [-d.x, -d.y, -d.z],
+                point_position: [0.; 3],
+                attenuation: [0., 0.4, 0.],
+                eye_direction: uniform.direction[..3].try_into().unwrap(),
+                directional_specular: [0., 0., 0., 1.],
+                specular_variant: true,
+                vertex_fog: 1.,
+                fog_color: uniform.fog_color,
+                fog_range: uniform.fog_range,
+                clip_plane: [0., uniform.clip[1], 0., -uniform.clip[0] * uniform.clip[1]],
+                reverse_front: uniform.clip[2] != 0.,
+                alpha_compare: 5,
+                alpha_reference: 84. / 255.,
+            };
+            models.update(
+                &self.device,
+                &self.queue,
+                frame,
+                camera.pos.to_array(),
+                &self.model_lights,
+                1. - crate::environment::daylight(camera.time_of_day),
+                delta,
+            );
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("world receiving-model pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            models.draw(&mut pass);
+        }
+    }
     /// Render the actual loaded terrain and scenery from a north-up orthographic camera.
     /// Water is drawn as its real client grid with a flat color in this map pass.
     fn render_minimap(
@@ -1529,70 +1608,8 @@ impl Renderer {
             Some(&self.depth),
             None,
         );
-        if let (Some(models), Some(light)) = (&mut self.models, camera.regional_light) {
-            let tick = self.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-            let delta = tick.saturating_sub(self.model_tick_ms).min(u32::MAX as u64) as u32;
-            self.model_tick_ms = tick;
-            let d = Vec3::from_array(light.toward_sun).normalize_or_zero();
-            let frame = crate::model_draw_gpu::Frame {
-                blend_enabled: false,
-                matrix: matrix.to_cols_array_2d(),
-                lighting: crate::model_material::Lighting {
-                    environment_ambient: [light.ambient[0], light.ambient[1], light.ambient[2], 1.],
-                    additional_ambient: [0.; 4],
-                    directional_diffuse: [light.diffuse[0], light.diffuse[1], light.diffuse[2], 1.],
-                    point_ambient: [0.; 4],
-                    point_diffuse: [0.; 4],
-                    transparency: -1.,
-                    point_enabled: false,
-                },
-                direction: [-d.x, -d.y, -d.z],
-                point_position: [0.; 3],
-                attenuation: [0., 0.4, 0.],
-                eye_direction: direction.to_array(),
-                directional_specular: [0., 0., 0., 1.],
-                specular_variant: true,
-                vertex_fog: 1.,
-                fog_color: camera.fog_uniform().1,
-                fog_range: camera.fog_uniform().0,
-                clip_plane: [0.; 4],
-                reverse_front: false,
-                alpha_compare: 5,
-                alpha_reference: 84. / 255.,
-            };
-            models.update(
-                &self.device,
-                &self.queue,
-                frame,
-                camera.pos.to_array(),
-                &self.model_lights,
-                1. - daylight,
-                delta,
-            );
-            let raw = self.water.scene_raw();
-            let mut pass = e.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("world receiving-model main-pass harness"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &raw,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &scene_depth,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            models.draw(&mut pass);
-        }
+        let model_target = self.water.scene_raw();
+        self.draw_models(&mut e, &model_target, &scene_depth, &normal, camera, true);
         self.water.copy_scene_to_refraction(&mut e);
         self.water.copy_depth(&mut e, &self.depth);
         self.water.blit(&mut e, scene_target);
@@ -1629,10 +1646,11 @@ impl Renderer {
 
         // The reflection texture is reused only after its previous water draw is
         // submitted. Each distinct height gets its own mirror and clip plane.
-        let mut visible: Vec<&WaterBatch> = self
+        let mut visible: Vec<WaterBatch> = self
             .water_batches
             .iter()
             .filter(|b| b.visible(matrix))
+            .cloned()
             .collect();
         visible.sort_by(|a, b| {
             b.distance_squared(camera.pos)
@@ -1815,6 +1833,11 @@ impl Renderer {
                     None,
                     None,
                 );
+                // Ornamental EC models enter refraction only from underwater.
+                if camera.underwater_depth > 0. {
+                    let raw = self.water.refraction_raw();
+                    self.draw_models(&mut re, &raw, &reflect_depth, &above, camera, false);
+                }
                 self.water.draw_water(
                     &mut re,
                     scene_target,
@@ -1881,6 +1904,8 @@ impl Renderer {
                 None,
                 None,
             );
+            let raw = self.water.reflection_raw();
+            self.draw_models(&mut e, &raw, &reflect_depth, &reflected, camera, false);
             self.water.draw_water(
                 &mut e,
                 scene_target,

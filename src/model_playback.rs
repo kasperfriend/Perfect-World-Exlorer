@@ -131,9 +131,35 @@ impl Playback {
         self.action.is_none() || self.remaining == 0
     }
 }
+/// The scene loader imports MSVCRT.dll!rand at IAT 0x8d5478 and applies
+/// `% 1000` before its first model tick. Own a reproducible viewer seed; do not
+/// claim to reproduce the client's unrelated process-wide RNG consumption.
+pub struct SceneRandom {
+    state: u32,
+}
+impl SceneRandom {
+    pub fn new(seed: u32) -> Self {
+        Self { state: seed }
+    }
+    pub fn initial_tick(&mut self) -> u32 {
+        self.state = self.state.wrapping_mul(214013).wrapping_add(2531011);
+        ((self.state >> 16) & 0x7fff) % 1000
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scene_initial_tick_matches_msvcrt_sequence_and_range() {
+        let mut random = SceneRandom::new(1);
+        assert_eq!(
+            (0..5).map(|_| random.initial_tick()).collect::<Vec<_>>(),
+            [41, 467, 334, 500, 169]
+        );
+        for _ in 0..10000 {
+            assert!(random.initial_tick() < 1000);
+        }
+    }
     fn asset() -> ModelAsset {
         let (mut asset, _) = crate::model_draw_fixture::fixture();
         asset.model.actions.push(crate::ecmodel::Action {

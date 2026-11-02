@@ -43,7 +43,7 @@ impl World {
     pub fn with_reader(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
-        assets: Assets,
+        mut assets: Assets,
         read: impl FnMut(&str) -> Result<Vec<u8>, String> + 'static,
     ) -> Result<Self, String> {
         if assets
@@ -52,6 +52,19 @@ impl World {
             .any(|i| i.asset >= assets.assets.len())
         {
             return Err("world model instance asset index out of range".into());
+        }
+        let seed = match std::env::var("PW_MODEL_RANDOM_SEED") {
+            Ok(value) => value
+                .parse::<u32>()
+                .map_err(|_| "invalid PW_MODEL_RANDOM_SEED")?,
+            Err(_) => 1,
+        };
+        let mut random = crate::model_playback::SceneRandom::new(seed);
+        for instance in &mut assets.instances {
+            let initial = random.initial_tick();
+            if let Ok(clock) = &mut instance.playback {
+                clock.tick(initial)?;
+            }
         }
         let slots = assets
             .instances

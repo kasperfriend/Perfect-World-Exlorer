@@ -212,6 +212,7 @@ fn main() {
     .unwrap();
     let (mut asset, _) = model_draw_fixture::fixture();
     let mut material = asset.skins[0].data.materials[0].clone();
+    material.two_sided = false;
     material.ambient = [0.25, 0.5, 0.75, 0.];
     material.diffuse = [0., 0., 0., 1.];
     asset.skins[0].data.materials[0] = material.clone();
@@ -387,6 +388,84 @@ fn main() {
         &queue,
         &world,
         [[32, 64, 96, 136], [96, 32, 64, 136]],
+    );
+    // Main projection mirrors X. Correct front interpretation is mandatory for
+    // one-sided authored materials, not just the synthetic identity camera.
+    let mut mirrored = opaque_dim;
+    mirrored.matrix = glam::Mat4::from_scale(glam::Vec3::new(-1., 1., 1.)).to_cols_array_2d();
+    mirrored.reverse_front = true;
+    world.update(
+        &device,
+        &queue,
+        mirrored,
+        [0.; 3],
+        &Default::default(),
+        0.,
+        0,
+    );
+    check(
+        &device,
+        &queue,
+        &world,
+        [[96, 32, 64, 136], [32, 64, 96, 136]],
+    );
+    mirrored.reverse_front = false;
+    world.update(
+        &device,
+        &queue,
+        mirrored,
+        [0.; 3],
+        &Default::default(),
+        0.,
+        0,
+    );
+    check(&device, &queue, &world, [[0; 4]; 2]);
+    // Reflection also mirrors Y: the two flips restore the original winding.
+    mirrored.matrix = glam::Mat4::from_scale(glam::Vec3::new(-1., -1., 1.)).to_cols_array_2d();
+    world.update(
+        &device,
+        &queue,
+        mirrored,
+        [0.; 3],
+        &Default::default(),
+        0.,
+        0,
+    );
+    check(
+        &device,
+        &queue,
+        &world,
+        [[96, 32, 64, 136], [32, 64, 96, 136]],
+    );
+    // Clip in original world space, even when the camera is mirrored.
+    mirrored.clip_plane = [1., 0., 0., 0.];
+    world.update(
+        &device,
+        &queue,
+        mirrored,
+        [0.; 3],
+        &Default::default(),
+        0.,
+        0,
+    );
+    check(&device, &queue, &world, [[96, 32, 64, 136], [0; 4]]);
+    mirrored.clip_plane = [0.; 4];
+    mirrored.fog_range = [0., 2., 1., 0.];
+    mirrored.fog_color = [0.; 4];
+    world.update(
+        &device,
+        &queue,
+        mirrored,
+        [0.; 3],
+        &Default::default(),
+        0.,
+        0,
+    );
+    check(
+        &device,
+        &queue,
+        &world,
+        [[48, 16, 32, 136], [16, 32, 48, 136]],
     );
     let lights = scene_lights::SceneLights {
         lights: vec![scene_lights::SceneLight {

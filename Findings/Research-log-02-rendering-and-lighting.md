@@ -1078,3 +1078,43 @@ separate. The raster/draw API now supports a blend-disabled pipeline, rather
 than forcing SRCALPHA on the ordinary queue. The world GPU regression is
 extended to a graded-alpha DXT3 (136 alpha): source RGB must remain unattenuated
 when blending is off. New GPU validation pending. Core CPU suite: 56 passing.
+
+CI `41451770107` (commit `93b41c9`) passed Linux/Windows and all GPU
+regressions, including graded DXT3 alpha 136 through the blend-disabled
+ordinary world queue. Confirmation: queue correction Yes; full P1.03 No.
+
+### Ordinary model initialization, winding, and clipped water passes
+
+The client calls MSVCRT `rand` through IAT `8d5478` before the initial
+`Tick(rand()%1000)` in scene model loading (`5b3a32–5b3ae0`). Added the
+MSVCRT wrapping LCG with a deterministic per-world seed (default 1;
+`PW_MODEL_RANDOM_SEED` accepts u32) and one initial tick per instance.
+Native regression verifies first phases 41,467,334,500,169. This preserves
+the initialization distribution/clock operation, NOT the client's global RNG
+sequence or asynchronous loading order; no byte-exact initial-phase claim.
+
+The viewer projection mirrors X. The opt-in model harness formerly used
+unmirrored front interpretation, unlike the existing BMD caller. Actual SKI
+cross(edge1,edge2) dot normal census is predominantly positive across all
+14 world assets (e.g. horse 1897/6 positive/negative; windmill 901/0).
+The shared model-pass caller now derives winding from the existing pass
+uniform: main/refraction reverse front; reflected Y plus projected X restores
+the original winding. Added one-sided GPU checks for correct main winding,
+explicit rejection with wrong winding, reflection double-flip, world-space
+clipping and table fog. These new GPU cases await CI.
+
+Related 1.5.2 `CECOrnamentMan::RenderForReflect/RenderForRefract` was checked
+against actual 1.4.2 calls at `5b2092` and `5b23ae`. In particular
+`5b2336–5b2354` gates model refraction on a nonempty model table, underwater
+camera flag, and water effect level 2. Models must NOT be blindly drawn into
+the above-water camera's underwater-terrain refraction pass. The opt-in
+harness now submits ordinary models to reflection and underwater-camera
+above-plane refraction, using each pass's matrix, clip plane and air fog.
+Encoded UNORM views avoid a second sRGB conversion. Main advances playback;
+extra passes tick zero. Queue writes occur after preceding pass submissions,
+so reusing a model uniform buffer cannot overwrite an earlier queued draw.
+
+Native suite: 45 passing; core CPU suite: 56 passing. Harness remains opt-in.
+Default enablement, all queue/material variants, and runtime FX light lifecycle
+remain open. Confirmation: pass implementation present; full P1.03 and P1.10
+No pending complete coverage and new CI evidence; continue.
