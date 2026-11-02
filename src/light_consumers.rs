@@ -320,11 +320,15 @@ mod tests {
                 "baked BMD arithmetic must not add {forbidden}"
             );
         }
+        // The terrain shader shares the renderer's camera uniform, so the
+        // region fields are *declared* there. What matters is that the terrain
+        // passes never read them; the lightmapped branch in `terrain_gpu.rs`
+        // uses only `camera.sun.w` as the day/night weight.
         let terrain = include_str!("terrain_gpu.rs");
         for forbidden in [
-            "region_direction",
-            "region_diffuse",
-            "region_ambient",
+            "camera.region_direction",
+            "camera.region_diffuse",
+            "camera.region_ambient",
             "sky_object_direction",
         ] {
             assert!(
@@ -334,8 +338,9 @@ mod tests {
         }
         let grass = include_str!("grass_instances.rs");
         for forbidden in [
-            "region_direction",
-            "region_diffuse",
+            "camera.region_direction",
+            "camera.region_diffuse",
+            "camera.region_ambient",
             "sky_object_direction",
         ] {
             assert!(
