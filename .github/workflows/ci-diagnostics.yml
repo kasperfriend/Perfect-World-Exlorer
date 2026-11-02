@@ -9,8 +9,8 @@ permissions:
   pull-requests: write
 
 jobs:
-  check:
-    name: cargo check output
+  water:
+    name: water fog check output
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -20,14 +20,18 @@ jobs:
       - name: Install Linux build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
-      - name: Check all binary targets
+          sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev mesa-vulkan-drivers
+      - name: Run the water fog check
+        env:
+          WGPU_BACKEND: vulkan
+          XDG_RUNTIME_DIR: /tmp
         run: |
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
           set +e
-          cargo check --locked --bins > /tmp/check.txt 2>&1
-          echo "exit=$?" >> /tmp/check.txt
-          { echo 'cargo check output:'; echo '```'; head -c 50000 /tmp/check.txt; echo '```'; } > /tmp/report.md
-          tail -c 2000 /tmp/check.txt
+          cargo run --locked --bin water-fog-gpu-check > /tmp/water.txt 2>&1
+          echo "exit=$?" >> /tmp/water.txt
+          { echo 'water-fog-gpu-check output:'; echo '```'; tail -c 40000 /tmp/water.txt; echo '```'; } > /tmp/report.md
+          tail -c 2000 /tmp/water.txt
       - name: Post the output as a PR comment
         if: always()
         run: gh pr comment 4 --body-file /tmp/report.md
