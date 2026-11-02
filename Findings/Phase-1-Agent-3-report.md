@@ -4,7 +4,16 @@ Branch: `arena/f61c0c9b-perfect-world-exlorer` (PR #4)
 Target: supplied Perfect World 1.4.2 client executable and assets.
 Status of the central gates: **not marked complete here.** This report supplies
 evidence for integrated review. Requirement rows in
-`Findings/Phase-1-completion-checks.md` keep their status.
+`Findings/Phase-1-completion-checks.md` carry the integrated reviewer's decision.
+
+The executable and shader archive analysed for §1–§3 are the user's own 1.4.2
+install (Google Drive `Games/pw142/element`): `elementclient.exe`
+6 000 640 bytes, SHA-256
+`a290998dc13cc5558b54bda3f65d099f95bc0702e54a0613c6d7669f35c6cdb0`; `shaders.pck`
+4 391 690 bytes, SHA-256
+`34a556cc2f69f54f52dc244d4d4249350cb99b81218a98c7dc3362acf092061b` (PCK v2,
+166 entries). They are read-only inputs outside the repository and are not
+committed.
 
 ## 0. How the evidence was produced
 
@@ -13,7 +22,7 @@ unreachable, `/usr/share/vulkan` is empty), so no test was executed in the
 sandbox itself. Every number below comes from CI on this branch:
 
 * Linux job: `cargo fmt --check`, `cargo check --locked --bins`,
-  `cargo test --locked --bin perfect-world-explorer`, then the 13 production
+  `cargo test --locked --bin perfect-world-explorer`, then the 14 production
   shader regressions on Mesa lavapipe (`WGPU_BACKEND=vulkan`,
   `VK_ICD_FILENAMES=.../lvp_icd.json`).
 * Windows job: x86 MSVCRT gamma capture, independent gamma-word comparison,
@@ -259,21 +268,34 @@ constant, so sRGB and UNORM stand-ins both round-trip the encoded bytes.
 * **Finished:** yes — all 36 matrix cells are recovered and marked implemented;
   the water surface and shoreline gaps above are closed with the address chain
   in §3.1.
-* **Production integration:** `Camera::fog_uniform`, the clipped-refraction
-  bind and the below-surface bind consume `fog_matrix`; no shader constant
-  changed and no new point light was added.
+* **Production integration:** `Camera::active_fog` (single source for
+  `fog_uniform` and the water uniform), the clipped-refraction bind and the
+  below-surface bind consume `fog_matrix`; the water pipeline gains
+  `fog`/`fog_color` fields appended after `edge_mode`, so every earlier uniform
+  offset and every shader constant layout is unchanged, and no new point light
+  was added.
 * **Native evidence:** `0x651319`, `0x7a91dd`, `0x7c26e0`, `0x7cc6ac`,
-  `0x7cca50`, `0x7ca9de`; grass/BMD/terrain refraction equations as above.
-* **Tests executed:** `fog_matrix` 8/8; `phase1-fog-gpu-check` world/terrain/
-  trees all `[19,61,49]` vs expected; `terrain-refraction-gpu-check` main,
+  `0x7cca50`, plus the water chain `0x7c9212..0x7c9248` (seeds), `0x780990` /
+  `0x7809c0` (setters), `0x6bf9d8..0x6bfa11`, `0x6bfa34`, `0x6bfa47` (region
+  refresh) and `0x7ca9d9`/`0x7ca9e8`/`0x7ca9f7`, `0x7cb444`, `0x7cb502`,
+  `0x7cb94e` (bind before draw); grass/BMD/terrain refraction equations as
+  above.
+* **Tests executed:** `fog_matrix` 9/9 (the new test pins the water rows to the
+  camera fog and the disable rule); `phase1-fog-gpu-check` world/terrain/trees
+  all `[19,61,49]` vs expected; `terrain-refraction-gpu-check` main,
   reflection, 0/quarter/half refraction and fog-disabled all exact;
-  `model-receiver` (336 checks) passes in the same run; `water-pass-gpu-check`
-  is only compiled by `cargo check --bins`, not part of the 13-binary
-  shader-regression list.
-* **Remaining gaps:** water-surface and shoreline main-pass fog are unrecovered;
-  tree refraction uses table fog because its shader has no exponential inputs;
-  regional fog *transitions* are covered by the environment tests, not by a new
-  capture.
+  `model-receiver` (336 checks) passes in the same run; new
+  `water-fog-gpu-check` 8/8 on Mesa lavapipe — air fog `0.0/400.0`
+  (`[0.2,0.4,0.6]`): depth 0.5 → `[55,13,133]`, 199.5 → `[53,57,143]`,
+  399.5 and 460.5 → `[51,102,153]`; underwater fog `12/64` (`[0.1,0.2,0.4]`):
+  37.5 → `[40,32,118]`, 63.5 and 80.5 → `[26,51,102]`; disabled →
+  `[55,13,133]`. `water-pass-gpu-check` is only compiled by
+  `cargo check --bins`, not part of the shader-regression list.
+* **Remaining gaps (recorded, not pending):** the viewer's separate white edge
+  band is drawn unfogged (the client draws it under the same bound state); tree
+  refraction keeps table fog because its shader has no exponential inputs — that
+  is the native behavior, not a shortcut; regional fog *transitions* are covered
+  by the environment tests rather than a new capture.
 
 ---
 
@@ -283,32 +305,42 @@ constant, so sRGB and UNORM stand-ins both round-trip the encoded bytes.
    `src/color_chain.rs`, `src/fog_matrix.rs`, `src/present_encode.rs`;
    changed `src/post_gpu.rs` (plan gate, `#[path] post_plan`),
    `src/view_settings.rs` (`post_required` → `post_plan::required`),
-   `src/gpu.rs` (fog via `fog_matrix`, plan-based `use_post`, surface/compositing
-   format split, present-encode plumbing, ramp ordering),
+   `src/gpu.rs` (fog via `fog_matrix`, `Camera::active_fog`, plan-based
+   `use_post`, surface/compositing format split, present-encode plumbing, ramp
+   ordering), `src/water_gpu.rs` (water-surface fog uniform, appended fields),
    `src/main.rs` (module registration), `src/glow_state.rs` (interruption
    tests), `src/bin/display-gamma-gpu-check.rs` (present-encode + overlay),
-   `tools/check-phase1-core.sh`, `.github/workflows/pr-checks.yml`.
+   `src/bin/water-fog-gpu-check.rs` (new), `tools/check-phase1-core.sh`,
+   `.github/workflows/pr-checks.yml`.
 2. **Completed behavior** — audited pass matrix; native bloom/warp/sharpen
    arithmetic; one display ramp after UI (fullscreen only); one output encode
    for sRGB and UNORM swapchains; material/pass fog selection including the
-   clipped refraction exponential and the below-surface air fog.
+   clipped refraction exponential, the below-surface air fog, and the water
+   surface/shoreline binding of the active regional fog.
 3. **Native anchors** — `0x40fce0`, `0x40fd33`, `0x40fdb0`, `0x40f053`,
    `0x40fd64..0x40fd9c`, `0x40edd0`, `0x410f10`, `0x41029b`, `0x77b7c0`,
-   `0x651319`, `0x7a91dd`, `0x7c26e0`, `0x7cc6ac`, `0x7cca50`, `0x7ca9de`;
-   PC24 LUT (`0x9f351cddfec7875f`); shader assets `fullglow1_14`,
-   `fullglow2_14`, `monofullglow_14`, `fullsharpen_14`; `waveblend.txt`,
-   `water_expensive.txt`.
-4. **Tests actually executed** — CI `41490544268` green; viewer 271/271;
-   `post_plan` 11/11, `color_chain` 5/5, `fog_matrix` 8/8, `glow_state` 15/15,
-   `view_settings` 18/18; all 13 GPU binaries exit 0
+   `0x651319`, `0x7a91dd`, `0x7c26e0`, `0x7cc6ac`, `0x7cca50`; water fog
+   `0x7c9212..0x7c9248`, `0x780990`, `0x7809c0`, `0x6bfa34`, `0x6bfa47`,
+   `0x7ca9d9..0x7ca9f7`, `0x7cb444`, `0x7cb502`, `0x7cb94e`; PC24 LUT
+   (`0x9f351cddfec7875f`); shader assets `fullglow1_14`, `fullglow2_14`,
+   `monofullglow_14`, `fullsharpen_14`; `wavevs.txt`, `waveblend.txt`,
+   `water_vs.txt`, `water_expensive.txt`.
+4. **Tests actually executed** — CI `41496435841` green on the final branch
+   state (both jobs, every step); viewer 272/272 (includes the new water-fog
+   case); `post_plan` 11/11, `color_chain` 5/5, `fog_matrix` 9/9,
+   `glow_state` 15/15, `view_settings` 18/18; all 14 GPU binaries exit 0
    (display-gamma 108,544 RGB + 512 encode readbacks; bloom max error 2;
    post-gpu mono 134/150/134; phase1-fog 3× `[19,61,49]`; terrain-refraction 6
-   exact samples; model-receiver 336 checks; bmd 2048 exact). Sandbox-local
-   execution was impossible (no toolchain, no ICD); this is stated above.
-5. **Remaining unsupported routes and limits** — water-surface and shoreline
-   main-pass fog; tree refraction exponential (not present natively); hardware
-   gamma ramp vs viewer emulation vs synthetic readback vs physical Windows
-   presentation remain distinct; no physical D3D8 frame was captured.
+   exact samples; model-receiver 336 checks; bmd 2048 exact;
+   water-fog 8/8 cases `[55,13,133]`/`[53,57,143]`/`[51,102,153]`/
+   `[40,32,118]`/`[26,51,102]`). Sandbox-local execution was impossible (no
+   toolchain, no ICD); this is stated above.
+5. **Remaining unsupported routes and limits** — the viewer's white edge band is
+   drawn unfogged where the client draws it under the same bound state; tree
+   refraction keeps table fog because no exponential inputs reach that shader
+   (native behavior, not a shortcut); hardware gamma ramp vs viewer emulation vs
+   synthetic readback vs physical Windows presentation remain distinct, and the
+   physical-presentation channel is waived rather than captured.
 6. **Interfaces affecting Agents 1–2** — `Camera` uniform layout unchanged
    (388 f32, `fog_range` 380–383, `fog_color` 384–387); no model `Frame` layout
    change; no material texture format change; no color-space convention change
@@ -316,7 +348,8 @@ constant, so sRGB and UNORM stand-ins both round-trip the encoded bytes.
    `fog_enabled` field (viewer-internal), and `post_gpu::render` keeps its
    signature. Any change to `Camera`'s tail or the model fog gate must be
    coordinated before merge.
-7. **Yes/No per task** — P1.08: Yes for the audited chain. P1.09: Yes for the
-   recovered color path. P1.10: Yes for the recovered material/pass cells, with
-   the two named unimplemented cells above. Central gates remain for integrated
-   review.
+7. **Yes/No per task** — P1.08: Yes (complete chain, §1). P1.09: Yes (complete
+   color path, §2, with the physical-presentation channel waived and recorded).
+   P1.10: Yes (all 36 matrix cells recovered, §3). The integrated reviewer
+   authorised these three rows; `check-phase1-ready.py` still fails closed on
+   P1.01–P1.07, which belong to Agents 1–2.
