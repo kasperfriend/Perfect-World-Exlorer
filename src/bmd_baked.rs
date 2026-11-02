@@ -331,7 +331,10 @@ mod tests {
         // 0xff that is 1.0, which turns SRCALPHA/INVSRCALPHA into a replace.
         let diffuse = 0x0012_3456u32 | (CLIENT_MAX_MESH_ALPHA << 24);
         assert_eq!(diffuse >> 24, u32::from(u8::MAX));
-        assert_eq!(alpha_test(CLIENT_MAX_MESH_ALPHA).unwrap(), AlphaTest::Disabled);
+        assert_eq!(
+            alpha_test(CLIENT_MAX_MESH_ALPHA).unwrap(),
+            AlphaTest::Disabled
+        );
         // A partial alpha would need a writer for `mesh+0x2cc`; there is none,
         // so the classifier refuses it instead of blending it silently.
         assert!(alpha_test(u32::from(u8::MAX) - 1).is_err());
