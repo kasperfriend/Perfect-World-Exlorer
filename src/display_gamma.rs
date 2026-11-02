@@ -11,9 +11,10 @@ struct Params {
     setting: f32,
     srgb: f32,
     _pad: [f32; 2],
+    ramp: [[f32; 4]; 64],
 }
 const SHADER: &str = r#"
-struct Params {setting:f32,srgb:f32,pad:vec2<f32>};
+struct Params {setting:f32,srgb:f32,pad:vec2<f32>,ramp:array<vec4<f32>,64>};
 @group(0) @binding(0) var frame:texture_2d<f32>;
 @group(0) @binding(1) var<uniform> p:Params;
 @vertex fn vs(@builtin(vertex_index) id:u32)->@builtin(position) vec4<f32> {
@@ -22,7 +23,7 @@ struct Params {setting:f32,srgb:f32,pad:vec2<f32>};
 }
 @fragment fn fs(@builtin(position) pos:vec4<f32>)->@location(0) vec4<f32> {
  let c=textureLoad(frame,vec2<i32>(pos.xy),0).rgb;
- var out=client_gamma_ramp(c,p.setting);
+ var out=client_gamma_ramp(c);
  if p.srgb>0.5 {out=select(out/12.92,pow((out+0.055)/1.055,vec3<f32>(2.4)),out>vec3<f32>(0.04045));}
  return vec4<f32>(out,1.);
 }
@@ -65,6 +66,7 @@ impl DisplayGamma {
                 setting: 41.,
                 srgb: if format.is_srgb() { 1. } else { 0. },
                 _pad: [0.; 2],
+                ramp: gamma_curve::table(41.),
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -158,6 +160,7 @@ impl DisplayGamma {
                 setting: gamma_curve::setting(setting),
                 srgb: if self.format.is_srgb() { 1. } else { 0. },
                 _pad: [0.; 2],
+                ramp: gamma_curve::table(setting),
             }),
         );
         let raw = self.frame.create_view(&wgpu::TextureViewDescriptor {

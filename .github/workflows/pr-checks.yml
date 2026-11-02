@@ -73,6 +73,16 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2
+      - name: Verify native gamma and glow CPU references on Windows
+        shell: pwsh
+        run: |
+          foreach ($module in @("gamma_curve", "glow_state")) {
+            $exe = Join-Path $env:RUNNER_TEMP "$module-tests.exe"
+            rustc --edition=2021 --test "src/$module.rs" -o $exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
       - name: Build standalone viewer
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer
       - name: Stage artifact and checksum

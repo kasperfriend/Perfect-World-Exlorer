@@ -17,10 +17,13 @@ pub fn entry(index: u8, value: f32) -> u16 {
     if index == 0 {
         return 0;
     }
-    let exponent = 100. / (30. + 1.7 * setting(value)).floor();
-    (65535. * (index as f32 / 255.).powf(exponent))
-        .floor()
-        .max(1.) as u16
+    // 0x430226: fild(config), fmul(stored 1.7f), fadd(30f), ftol.
+    let device_gamma = (setting(value) as f64 * f32::from_bits(0x3fd9999a) as f64 + 30.).trunc();
+    // 0x77b7ed..0x77b826: integer * stored .01f, reciprocal, fstp(float).
+    let exponent = (1. / (device_gamma * f32::from_bits(0x3c23d70a) as f64)) as f32;
+    // No f32 store between fild(index)/fmul(stored 1/255f) and _CIpow.
+    let base = index as f64 * f32::from_bits(0x3b808081) as f64;
+    (65535. * base.powf(exponent as f64)).trunc().max(1.) as u16
 }
 
 pub fn sample(encoded: f32, value: f32) -> f32 {
@@ -42,13 +45,22 @@ pub fn decode_srgb(encoded: f32) -> f32 {
 
 // Shared by the whole-frame display pass and the standalone post diagnostic.
 // Settings are sanitized on the CPU before upload.
+/// Uniform-safe packing: 64 aligned vec4s hold the actual 256-entry ramp.
+/// Uploading CPU-built entries avoids GPU pow/float-intermediate differences.
+pub fn table(value: f32) -> [[f32; 4]; 64] {
+    std::array::from_fn(|i| {
+        std::array::from_fn(|c| entry((i * 4 + c) as u8, value) as f32 / 65535.)
+    })
+}
 pub const WGSL: &str = r#"
-fn client_gamma_ramp(encoded:vec3<f32>, setting:f32)->vec3<f32> {
+fn client_gamma_entry(index:u32)->f32 {
+ return p.ramp[index/4u][index%4u];
+}
+fn client_gamma_ramp(encoded:vec3<f32>)->vec3<f32> {
  let input=clamp(encoded,vec3<f32>(0.),vec3<f32>(1.))*255.;
- let lo=floor(input);let hi=min(lo+1.,vec3<f32>(255.));
- let exponent=100./floor(30.+1.7*floor(clamp(setting,0.,100.)));
- let a=select(vec3<f32>(0.),max(floor(pow(lo/255.,vec3<f32>(exponent))*65535.),vec3<f32>(1.))/65535.,lo>vec3<f32>(0.));
- let b=select(vec3<f32>(0.),max(floor(pow(hi/255.,vec3<f32>(exponent))*65535.),vec3<f32>(1.))/65535.,hi>vec3<f32>(0.));
+ let lo=vec3<u32>(floor(input));let hi=min(lo+vec3<u32>(1u),vec3<u32>(255u));
+ let a=vec3<f32>(client_gamma_entry(lo.x),client_gamma_entry(lo.y),client_gamma_entry(lo.z));
+ let b=vec3<f32>(client_gamma_entry(hi.x),client_gamma_entry(hi.y),client_gamma_entry(hi.z));
  return mix(a,b,fract(input));
 }
 "#;
@@ -56,6 +68,35 @@ fn client_gamma_ramp(encoded:vec3<f32>, setting:f32)->vec3<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn native_16bit_words_match_independent_80_digit_decimal_oracle() {
+        // Reproduce with tools/check-native-gamma-reference.py (Fraction
+        // nearest-even exponent store and Decimal power, not platform powf).
+        let mut hash = 0xcbf29ce484222325u64;
+        for setting in 0..=100 {
+            for i in 0..=255 {
+                for byte in entry(i, setting as f32).to_le_bytes() {
+                    hash = (hash ^ byte as u64).wrapping_mul(0x100000001b3);
+                }
+            }
+        }
+        assert_eq!(hash, 0x1988df3e411fa151);
+        // Former shader-f32 formula produced 51165 and 11390 respectively.
+        assert_eq!(entry(235, 2.), 51166);
+        assert_eq!(entry(64, 29.), 11389);
+    }
+    #[test]
+    fn uniform_table_contains_every_recovered_word_in_index_order() {
+        for setting in 0..=100 {
+            let lut = table(setting as f32);
+            for i in 0..=255usize {
+                assert_eq!(
+                    lut[i / 4][i % 4],
+                    entry(i as u8, setting as f32) as f32 / 65535.
+                );
+            }
+        }
+    }
     #[test]
     fn windowed_never_applies_display_ramp() {
         assert!(!enabled(false, false));

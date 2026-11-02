@@ -19,9 +19,10 @@ struct Params {
     gamma: [f32; 4],
     mono: [f32; 4],
     modulation: [f32; 4],
+    ramp: [[f32; 4]; 64],
 }
 const SHADER: &str = r#"
-struct Params {screen:vec4<f32>,effect:vec4<f32>,fog:vec4<f32>,fog_color:vec4<f32>,gamma:vec4<f32>,mono:vec4<f32>,modulation:vec4<f32>};
+struct Params {screen:vec4<f32>,effect:vec4<f32>,fog:vec4<f32>,fog_color:vec4<f32>,gamma:vec4<f32>,mono:vec4<f32>,modulation:vec4<f32>,ramp:array<vec4<f32>,64>};
 @group(0) @binding(0) var scene:texture_2d<f32>;
 @group(0) @binding(1) var blur:texture_2d<f32>;
 @group(0) @binding(2) var smp:sampler;
@@ -118,7 +119,7 @@ fn display_color(encoded:vec3<f32>)->vec4<f32> {
  // Emulate the client's 256-entry 16-bit D3D8 display ramp without
  // changing the desktop display. Linear interpolation models LUT lookup.
  if p.gamma.x>0.5 {
-   out=client_gamma_ramp(out,p.gamma.y);
+   out=client_gamma_ramp(out);
  }
  // Present encoded D3D-style output through an sRGB render target exactly once.
  if p.fog.w>0.5 {out=select(out/12.92,pow((max(out,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),out>vec3<f32>(0.04045));}
@@ -216,6 +217,7 @@ impl PostGpu {
                 gamma: [0.; 4],
                 mono: [0.; 4],
                 modulation: [1.; 4],
+                ramp: gamma_curve::table(41.),
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -435,6 +437,7 @@ impl PostGpu {
                     glow_parameters[5],
                 ],
                 modulation: self.modulation,
+                ramp: gamma_curve::table(gamma_setting),
             }),
         );
         let scene = self.scene.create_view(&wgpu::TextureViewDescriptor {

@@ -1634,3 +1634,37 @@ memory channel order; reference comparison still checks RGB semantics.
 
 **Confirmation: Is P1.08 finished? No — continue validation and final pass
 coverage audit.** CPU success alone cannot sign off GPU or the full criterion.
+
+### Quantized display gamma: native constants and uploaded table
+
+CI `41467358187` / `ff684ab` completed SUCCESS (Linux all unit/binary/
+production shader checks, including new RGBA/BGRA presenter fixtures, and
+Windows executable). Confirmation still finds full-scope No points, so work
+continues rather than treating that CI as Phase1 acceptance.
+
+Re-traced gamma `0x430226..0x430241`, `0x77b7c0..0x77b88c` and the
+`MSVCRT.dll!_CIpow` import at `0x8d5488`. The former CPU/GPU formula was
+not the native 16-bit ramp: native multiplies configuration by stored f32 1.7
+then truncates; it computes reciprocal of (integer gamma * stored f32 .01),
+stores the exponent to f32, and multiplies integer index by stored f32 1/255
+without an intervening f32 store before _CIpow. Native then multiplies by
+65535 in extended/double arithmetic and truncates. Replaced the approximate
+float formula with these operations. 39 of 25,856 words differ from the old
+CPU float formula by one word, e.g. setting 2/index235=51166 (not51165),
+setting29/index64=11389 (not11390).
+
+Both production postprocessing and whole-frame display now upload the same
+CPU-built 256-entry ramp in uniform-safe 64-vec4 packing, rather than
+independently approximating it with shader pow. GPU retains explicit LUT
+interpolation and output encoding. Independent standard-library Fraction /
+80-digit Decimal oracle `tools/check-native-gamma-reference.py` recomputes
+all 101x256 words without platform pow/powf; FNV-1a over little-endian u16
+words is `1988df3e411fa151`, matching Rust. New CPU tests cover that complete
+fingerprint and every packed uniform entry. Core now 94 tests.
+
+Expanded whole-frame GPU regression from selected single-color/settings to
+all 101 settings and every channel input byte, plus fractional/invalid bounds,
+in RGBA/BGRA UNORM/sRGB targets. Added independent Windows rustc runs of gamma
+and glow-state tests before executable build to check the platform math too.
+New GPU/Windows CI pending. **Confirmation: Is P1.09 finished? No — continue
+validation; upstream material conversions and final presentation audit remain.**
