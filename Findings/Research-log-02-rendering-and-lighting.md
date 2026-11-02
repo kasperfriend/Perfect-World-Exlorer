@@ -424,3 +424,18 @@ The existing production grass GPU binary adds three rendered comparisons
 (two water heights and wind on/off) against independently calculated vertex
 fog/interpolation/encoded blending. GPU results are pending validation.
 This implements the grass component, not the complete per-pass fog gate.
+
+### Opaque baked-model refraction fog
+
+`0x7a91dd–0x7a9208` binds the lit-model refraction c0 with water height,
+fixed density 0.075 and offset zero; `lm_refract_vs.txt` computes the same
+base-two eye-ray fog but **clamps above-plane vertex depth to zero** before
+exponentiation. This differs from grass and must be preserved across
+triangles crossing the water plane. The production opaque BMD vertex path
+now outputs that separate factor; its existing baked texture/color path
+uses interpolated refraction fog only for the below-water clipped pass.
+Ordinary/reflected BMD fog and baked-color lighting remain unchanged; no
+point light is added to baked vertex colors. GPU regressions add two BMD
+water-height cases alongside the three grass cases. CPU core: 39 tests pass.
+
+Grass commit `1375f2a` passed [CI 41434813651](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41434813651): Linux production GPU regressions and Windows build. The BMD extension is separately pending its own validation.

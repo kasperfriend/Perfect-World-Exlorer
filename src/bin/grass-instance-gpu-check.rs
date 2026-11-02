@@ -519,7 +519,28 @@ fn main() {
     // Refraction uses the actual instanced vertex fog path, not table fog.
     // Equal clip W makes the CPU interpolation unambiguous for this fixture.
     let saved_uni = uni.clone();
-    for (plane, wind) in [(0.0f32, 0.0f32), (0., 0.2), (0.2, 0.)] {
+    let bmd_refraction_vertices: Vec<_> = expanded
+        .iter()
+        .map(|v| {
+            let mut v = *v;
+            v.kind = 2.1;
+            v.diffuse = 0xffffffff;
+            v.night_diffuse = 0xffffffff;
+            v
+        })
+        .collect();
+    let bmd_refraction_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("BMD refraction fixture"),
+        contents: bytemuck::cast_slice(&bmd_refraction_vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    for (plane, wind, bmd) in [
+        (0.0f32, 0.0f32, false),
+        (0., 0.2, false),
+        (0.2, 0., false),
+        (0., 0., true),
+        (0.2, 0., true),
+    ] {
         uni[20] = plane;
         uni[21] = -1.;
         uni[52..56].copy_from_slice(&[-3., 2., 1., 0.]);
@@ -557,7 +578,15 @@ fn main() {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            grass.draw(&mut p, &bind, None);
+            if bmd {
+                p.set_pipeline(&refpipe);
+                p.set_bind_group(0, &bind, &[]);
+                p.set_vertex_buffer(0, bmd_refraction_buffer.slice(..));
+                p.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                p.draw_indexed(0..expanded_ix.len() as u32, 0, 0..1);
+            } else {
+                grass.draw(&mut p, &bind, None);
+            }
         }
         e.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
@@ -597,7 +626,12 @@ fn main() {
         ] {
             let d = [-3. - pos[0], 2. - pos[1], 1. - pos[2]];
             let distance = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-            factor += (-0.075 * (plane - displaced_y) * distance / d[1]).exp2() * w;
+            let depth = if bmd {
+                (plane - displaced_y).max(0.)
+            } else {
+                plane - displaced_y
+            };
+            factor += (-0.075 * depth * distance / d[1]).exp2() * w;
         }
         factor = factor.clamp(0., 1.);
         let pixel = &bytes[(py * 128 + px) * 4..][..3];
@@ -609,6 +643,11 @@ fn main() {
         .into_iter()
         .enumerate()
         {
+            let base = if bmd {
+                (base * 2. * 254. / 255.).min(1.)
+            } else {
+                base
+            };
             let encoded = base * factor + fog * (1. - factor);
             let linear = if encoded <= 0.04045 {
                 encoded / 12.92
@@ -616,10 +655,10 @@ fn main() {
                 ((encoded + 0.055) / 1.055).powf(2.4)
             };
             let expected = (linear * 255.).round() as i32;
-            assert!((pixel[channel] as i32-expected).abs()<=2,"refraction plane={plane} wind={wind}: {pixel:?}, channel {channel} expected {expected}, factor {factor}");
+            assert!((pixel[channel] as i32-expected).abs()<=2,"refraction bmd={bmd} plane={plane} wind={wind}: {pixel:?}, channel {channel} expected {expected}, factor {factor}");
         }
         println!(
-            "grass refraction plane={plane} wind={wind}: {pixel:?}, vertex fog factor {factor}"
+            "grass refraction bmd={bmd} plane={plane} wind={wind}: {pixel:?}, vertex fog factor {factor}"
         );
         drop(bytes);
         read.unmap();

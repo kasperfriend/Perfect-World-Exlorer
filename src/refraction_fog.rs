@@ -18,6 +18,12 @@ pub fn grass_transmittance(
     let distance = delta.iter().map(|v| v * v).sum::<f32>().sqrt();
     (-DENSITY * depth * distance / delta[1]).exp2()
 }
+/// Lit-model refraction clamps above-plane vertex depth before exponentiation,
+/// unlike the grass shader. The returned factor is still vertex-interpolated.
+pub fn bmd_transmittance(world: [f32; 3], eye: [f32; 3], water_height: f32) -> f32 {
+    let clamped = [world[0], world[1].min(water_height), world[2]];
+    grass_transmittance(world, clamped, eye, water_height)
+}
 pub const WGSL: &str = r#"
 fn grass_refraction_transmittance(original:vec3<f32>,displaced:vec3<f32>,eye:vec3<f32>,water_height:f32)->f32 {
  let delta=eye-original;let depth=water_height-displaced.y;
@@ -63,5 +69,17 @@ mod tests {
     fn undefined_horizontal_and_coincident_rays_have_finite_limits() {
         assert_eq!(grass_transmittance([0.; 3], [0., -1., 0.], [0.; 3], 0.), 0.);
         assert_eq!(grass_transmittance([0.; 3], [0.; 3], [1., 0., 0.], 0.), 1.);
+    }
+    #[test]
+    fn bmd_clamps_above_plane_depth_before_interpolation() {
+        let p = [0., 1., 0.];
+        let eye = [0., 10., 0.];
+        assert_eq!(bmd_transmittance(p, eye, 0.), 1.);
+        assert!(grass_transmittance(p, p, eye, 0.) > 1.);
+        let p = [0., -2., 0.];
+        assert_eq!(
+            bmd_transmittance(p, eye, 0.),
+            grass_transmittance(p, p, eye, 0.)
+        );
     }
 }
