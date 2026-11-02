@@ -635,16 +635,13 @@ mod tests {
         manager.update(0, &mut publications);
         assert_eq!(publications.len(), 1, "infinite key is still live at 7s");
         publications.consume_into(&mut grid());
-        // A lower manager limit suppresses the same live key.
-        assert_eq!(
-            manager.priority_limit(),
-            i32::MAX,
-            "default: no suppression"
-        );
+        // A manager-wide limit below the authored priority suppresses the same
+        // live key without destroying it; raising it publishes again.
+        assert_eq!(manager.priority_limit(), i32::MAX);
         manager.set_priority_limit(3);
-        let r = request(2, true);
-        manager.insert(r).unwrap();
         manager.update(0, &mut publications);
+        assert_eq!(publications.len(), 0, "limit below authored priority");
+        manager.set_priority_limit(4);
         manager.update(0, &mut publications);
         assert_eq!(publications.len(), 1);
         publications.consume_into(&mut grid());
