@@ -82,6 +82,7 @@ mod water;
 mod water_gpu;
 #[cfg(windows)]
 mod windows_setup;
+mod world_models;
 mod world_objects;
 struct Terrain {
     element: PathBuf,
@@ -96,6 +97,7 @@ struct Terrain {
     water: Vec<water::WaterArea>,
     environments: environment::Environments,
     scene_lights: std::sync::Arc<scene_lights::SceneLights>,
+    models: world_models::Assets,
     water_normals: Vec<Vec<image::RgbaImage>>,
     water_simple_frames: Vec<Vec<image::RgbaImage>>,
     trees: trees::Trees,
@@ -329,7 +331,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     );
     let count_trees: usize = world_scene.blocks.iter().map(|b| b.trees.len()).sum();
     let count_models: usize = world_scene.blocks.iter().map(|b| b.models.len()).sum();
-    eprintln!("Loaded scene placements: {count_trees} trees, {count_models} EC models; EC model rendering is not implemented");
+    eprintln!("Loaded scene placements: {count_trees} trees, {count_models} EC models");
     eprintln!("Loading world terrain textures and masks...");
     #[cfg(windows)]
     windows_setup::loading_progress("Loading terrain materials and masks...".into());
@@ -341,6 +343,19 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     let water_normals = water::load_normals(element)?;
     let water_simple_frames = water::load_simple_frames(element)?;
     let objects = objects::Objects::open(element, ornaments)?;
+    let placements: Vec<_> = world_scene
+        .blocks
+        .iter()
+        .flat_map(|b| b.models.iter().cloned())
+        .collect();
+    let models = match world_models::Assets::open(element, placements.clone()) {
+        Ok(models) => models,
+        Err(e) => world_models::Assets::load_with(placements, |_| Err(e.clone())),
+    };
+    eprintln!("Retained {} EC model assets for {} placements; {} unloaded placements (animation scheduling/submission not yet enabled)", models.assets.len(), models.instances.len(), models.unloaded.len());
+    for failure in &models.failures {
+        eprintln!("EC model dependency: {failure}");
+    }
     let grass = grass::Grass::load(&world_scene, &dir, element)?;
     #[cfg(windows)]
     windows_setup::loading_progress(
@@ -383,6 +398,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         }
     };
     Ok(Terrain {
+        models,
         environments,
         scene_lights: std::sync::Arc::new(scene_lights),
         element: element.to_path_buf(),

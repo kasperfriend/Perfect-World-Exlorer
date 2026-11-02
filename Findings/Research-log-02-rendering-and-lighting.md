@@ -953,3 +953,29 @@ new production contract for all 14 assets / 69 poses / 26,643 posed vertices.
 This closes the asset-to-draw-data subtask, not scene submission or scheduling.
 Confirmation: P1.03 remains No; all ten full-scope No gates remain. Continue to
 GPU draw ownership/update and actual scene submission.
+
+### Retained GPU draw ownership confirmation
+
+Commit `7a282c9`, CI `41448989595`: Linux and Windows passed. The thirteenth
+production GPU binary exercises `model_draw_gpu::Draw`, not hand-built raster
+bindings: two authored material meshes, shared DDS upload, preferred-path
+decode failure followed by fallback, material/light frame updates, rejected
+last-mesh update atomicity, and movement of actual posed GPU vertices. One draw
+owns its pass uniforms; distinct reflection/refraction passes cannot overwrite
+an earlier encoded pass via a shared mutable uniform. Full-set CPU validation
+precedes queue writes. Unsupported texture/topology replacement is rejected.
+Confirmation: this closes retained GPU ownership/update, but P1.03 is still No
+until world frame/pass submission and verified action scheduling are connected.
+The full-scope readiness check still reports ten No; continue implementation.
+
+### Retained ECWLD placements and shared dependencies
+
+The viewer now retains the parsed ECWLD models, rather than dropping their
+placements after printing an unsupported count. The production world asset
+loader shares each normalized ECM chain across instances, preserves failures
+and unloaded placements by name, and uses the production PCK reader for client
+I/O. Missing chains do not become placeholder meshes or erase baked scenery.
+The extracted-dependency I/O test retains all 14 assets and 73 placements with
+zero failures. Its combined native suite passes 37 tests. The PCK-backed viewer
+integration requires the next full CI run; animation scheduling/submission is
+explicitly not enabled by this load step.
