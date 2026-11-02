@@ -1,0 +1,27 @@
+name: ci-diagnostics
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  fmt:
+    name: rustfmt diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Apply rustfmt and capture the diff
+        run: |
+          cargo fmt --all
+          { echo 'rustfmt desired diff:'; echo '```diff'; git --no-pager diff -- '*.rs'; echo '```'; } > /tmp/fmt.md
+          wc -c /tmp/fmt.md
+      - name: Post the diff as a PR comment
+        run: gh pr comment 4 --body-file /tmp/fmt.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
