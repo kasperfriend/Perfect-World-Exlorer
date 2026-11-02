@@ -47,6 +47,8 @@ mod navigation;
 mod objects;
 mod pck;
 mod post_gpu;
+#[cfg(test)]
+mod post_reference;
 #[allow(dead_code)]
 mod scene;
 #[allow(dead_code)]

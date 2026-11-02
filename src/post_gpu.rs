@@ -143,7 +143,9 @@ struct Out {@builtin(position) pos:vec4<f32>, @location(0) uv:vec2<f32>};
 @fragment fn downsample(i:Out)->@location(0) vec4<f32> {return vec4<f32>(textureSample(scene,smp,i.uv).rgb,1.);}
 // fullglow1_14: center*c1.r + two inner*c1.a + two outer*c0.a.
 @fragment fn glow_h(i:Out)->@location(0) vec4<f32> {
- let dx=vec2<f32>(1.0/f32(textureDimensions(blur).x),0.);
+ // 0x40edd0 uses 4/full_width, not 1/floor(full_width/4).
+ // These differ for window sizes that are not divisible by four.
+ let dx=vec2<f32>(4.0/p.screen.x,0.);
  let c=textureSample(blur,smp,i.uv).rgb*0.310;
  let a=(textureSample(blur,smp,i.uv-dx).rgb+textureSample(blur,smp,i.uv+dx).rgb)*0.238;
  let b=(textureSample(blur,smp,i.uv-dx*2.).rgb+textureSample(blur,smp,i.uv+dx*2.).rgb)*0.107;
@@ -193,7 +195,8 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
  let original=textureSample(scene,smp,uv).rgb;
  var out=original;
  if p.effect.y>0.5 {
-   let dy=vec2<f32>(0.,1.0/f32(textureDimensions(blur).y));
+   // Matching vertical vertex coordinates at 0x40f04b–0x40f053.
+   let dy=vec2<f32>(0.,4.0/p.screen.y);
    let c=textureSample(blur,smp,uv).rgb*0.310;
    let a=(textureSample(blur,smp,uv-dy).rgb+textureSample(blur,smp,uv+dy).rgb)*0.238;
    let b=(textureSample(blur,smp,uv-dy*2.).rgb+textureSample(blur,smp,uv+dy*2.).rgb)*0.107;

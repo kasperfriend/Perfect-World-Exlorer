@@ -47,6 +47,7 @@ jobs:
           test -n "$VK_ICD_FILENAMES"
           cargo run --locked --bin display-gamma-gpu-check
           cargo run --locked --bin post-gpu-check
+          cargo run --locked --bin bloom-gpu-check
           cargo run --locked --bin model-light-gpu-check
           cargo run --locked --bin phase1-fog-gpu-check
 

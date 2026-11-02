@@ -1,0 +1,209 @@
+//! Production glow passes against an independent CPU reference on patterned,
+//! non-quarter-divisible images (constant-color checks cannot test blur UVs).
+#![allow(dead_code)]
+mod environment {
+    #[derive(Clone, Copy)]
+    pub struct Fog {
+        pub start: f32,
+        pub end: f32,
+        pub density: f32,
+        pub color: [f32; 3],
+    }
+}
+#[path = "../post_gpu.rs"]
+mod post_gpu;
+#[path = "../post_reference.rs"]
+mod post_reference;
+
+fn main() {
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let (device, queue) = pollster::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            label: None,
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults(),
+        },
+        None,
+    ))
+    .unwrap();
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("encoded patterned glow fixture"),
+        source: wgpu::ShaderSource::Wgsl(
+            r#"
+@vertex fn vs(@builtin(vertex_index) id:u32)->@builtin(position) vec4<f32> {
+ let x=f32((id<<1u)&2u); let y=f32(id&2u);
+ return vec4<f32>(x*2.-1.,1.-y*2.,0.,1.);
+}
+@fragment fn fs(@builtin(position) p:vec4<f32>)->@location(0) vec4<f32> {
+ let x=u32(p.x);let y=u32(p.y);
+ let rgb=vec3<u32>((17u*x+29u*y)%256u,(71u*x+13u*y+31u)%256u,(3u*x+113u*y+67u)%256u);
+ return vec4<f32>(vec3<f32>(rgb)/255.,1.);
+}
+"#
+            .into(),
+        ),
+    });
+    for format in [
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    ] {
+        let fixture_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: None,
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs",
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: format.remove_srgb_suffix(),
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: Default::default(),
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview: None,
+        });
+        for (w, h) in [(64u32, 64u32), (23, 19), (67, 61)] {
+            let size = wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            };
+            let post = post_gpu::PostGpu::new(&device, format, w, h);
+            let source = post.scene_raw_view();
+            let target = device.create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            });
+            let depth = device.create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let target_view = target.create_view(&Default::default());
+            let depth_view = depth.create_view(&Default::default());
+            let mut encoder = device.create_command_encoder(&Default::default());
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &source,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                pass.set_pipeline(&fixture_pipeline);
+                pass.draw(0..3, 0..1);
+            }
+            queue.submit(Some(encoder.finish()));
+            let image = post_reference::Image::pattern(w as usize, h as usize);
+            for (level, power, mono) in [
+                (0.25, 0.25, [0.; 4]),
+                (0.5, 0.6, [187. / 255., 234. / 255., 187. / 255., 0.5]),
+            ] {
+                post.render(
+                    &device,
+                    &queue,
+                    &target_view,
+                    &depth_view,
+                    w,
+                    h,
+                    0.,
+                    100.,
+                    0.,
+                    environment::Fog {
+                        start: 0.,
+                        end: 100.,
+                        density: 0.,
+                        color: [0.; 3],
+                    },
+                    false,
+                    false,
+                    true,
+                    1.,
+                    [level, power, mono[0], mono[1], mono[2], mono[3]],
+                    false,
+                    41.,
+                );
+                let row = (w * 4 + 255) / 256 * 256;
+                let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: row as u64 * h as u64,
+                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                let mut encoder = device.create_command_encoder(&Default::default());
+                encoder.copy_texture_to_buffer(
+                    wgpu::ImageCopyTexture {
+                        texture: &target,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::ImageCopyBuffer {
+                        buffer: &buffer,
+                        layout: wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(row),
+                            rows_per_image: Some(h),
+                        },
+                    },
+                    size,
+                );
+                queue.submit(Some(encoder.finish()));
+                let slice = buffer.slice(..);
+                let (tx, rx) = std::sync::mpsc::channel();
+                slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+                device.poll(wgpu::Maintain::Wait);
+                rx.recv().unwrap().unwrap();
+                let pixels = slice.get_mapped_range();
+                let reference = image.bloom(level, power, mono);
+                let mut worst = 0;
+                for y in 0..h as usize {
+                    for x in 0..w as usize {
+                        for c in 0..3 {
+                            let actual = pixels[y * row as usize + x * 4 + c];
+                            let expected = reference.pixels[y * w as usize + x][c];
+                            worst = worst.max((actual as i32 - expected as i32).abs());
+                        }
+                    }
+                }
+                assert!(
+                    worst <= 2,
+                    "{format:?} {w}x{h}, mono {}: max byte error {worst}",
+                    mono[3]
+                );
+                println!(
+                    "Glow UV/reference check: {format:?} {w}x{h}, mono {}, max byte error {worst}",
+                    mono[3]
+                );
+                drop(pixels);
+                buffer.unmap();
+            }
+        }
+    }
+}
