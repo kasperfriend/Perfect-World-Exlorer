@@ -15,7 +15,7 @@ not touched here.
 |---|---|---|
 | `src/terrain_shading.rs` | **new** - `Variant`, `Caps`, `select`, `PassState`/`pass_state`, stage constants, `vertex_layout`, `ShaderConstants`/`shader_constants`, `day_night_lightmap`, `lightmap_is_night`, `compose`, `packed_weight`, `composite_layers`, `Atlas`, `lightmap_pair`, `native::*`; 12 tests | `TerrainGpu::new` calls `select`/`pass_state`; the lightmap arithmetic is still reference-only (section 7, gap 1) |
 | `src/terrain_gpu.rs` | **cross-lane edit, announced**: `TerrainGpu::new` now derives primitive, colour-target, depth and cull state from `terrain_shading::select`/`pass_state` instead of restating them | 2-A/2-C read the same pipeline; no mesh, texture, sampler or submit code touched |
-| `src/main.rs` | `#[allow(dead_code)] mod terrain_shading;` added after `mod terrain_lightmaps;` (the address table and the reference arithmetic are not all reachable from the viewer yet) | binary crate root |
+| `src/main.rs` | `#[allow(dead_code)] mod terrain_shading;` added beside the other attributed modules (the address table and the reference arithmetic are not all reachable from the viewer yet) | binary crate root |
 | `tools/check-phase1-core.sh` | `terrain_shading` added to the dependency-free module loop | CI `pr-checks` |
 | `tools/terrain-layer-survey.py` | **new** - T2MK/T2LM survey with explicit `Unsupported` errors | manual / CI survey |
 | `Findings/Phase-2-terrain-variant-state-table.md` | new - P2.04 table | - |
@@ -196,3 +196,16 @@ Task | Finished Yes/No | Production integration | Native evidence | Tests execut
 P2.04 variant/state table | No | `select`/`pass_state` drive the main terrain pipeline's cull, depth-write and opaque target in `TerrainGpu::new`; the far pipeline and the per-mask layout are not yet table-driven | `0x7c1450` switch, four path bodies `0x7c14b0`/`0x7c1a20`/`0x7c1e00`/`0x7c2100`, `0x7cd760` state bracket, `0x7c0d99` FVF/stride, `0x7c4d90` module load, `0x77d0ea` proving `env+0x1b6` is never set | 4 of the 12 module tests cover the table; all 12 are CI-only, none ran in this sandbox | far-pipeline state, runtime per-mask layout selection, `t2_3layer_vertlit_14`/`t2_tm_lm` binding sites
 P2.05 lightmap arithmetic | No | reference functions only; WGSL still uses `mix(night, day, sun.w)*2` and a regional `light` term | `0x7c26e0` constant block (`c0 = 1.0, env+0x1a0, 0x98f368, 0x9d30f8`), `0x7c2377` `c3.a` from `env+0x198`, `0x7b4eb0`/`0x7b4f22`/`0x7b4fc2` direction build and normalise, `t2_3layer_batch_14` source | 4 tests (`lightmap_pair`, both endpoints, `compose`, `shader_constants`); CI-only | WGSL replacement; the pre-normalisation source of `env+0x194..+0x19c`; whether `UpdateSceneLight`'s inputs are the scene sun or a blended light set
 P2.06 layer/mask/world-to-texture | No | `tools/terrain-layer-survey.py` standalone, `src/material.rs` untouched | T2MK reader `0x7a1599-0x7a18b7` (magic, version <= 2, 100-layer cap, 28-byte record, v2 grid byte `env+0x891`), T2LM reader `0x7a18c0` | survey of `world_35.t2mk` executed: 16 areas, 11 layer records, 90 area-layer entries, stacks 4/5/6/7 = 2/3/10/1, masks 0 or 256x256, 74/74 zlib; 90-row CSV written | 175 of 176 `.t2mk` files unsurveyed; the `terrain_gpu.rs` axis mapping contradicts the surveyed axial list; mask sizes other than 256 untested
+
+## 9. Merge note
+
+`main` removed `src/terrain_seam.rs` while this branch was open. The first merge
+resolution kept `mod terrain_seam;`, which left an unresolved module: `cargo
+build` and `cargo fmt --check` both fail on a missing module file, so the Windows
+build and the formatting gate failed together even though the module itself
+compiled in every earlier run (runs 41529404268, 41529782652, 41530630883 and
+41531020549 all report `Windows executable (x64): success`). The merged branch
+drops the stale `mod terrain_seam;` line. No terrain code changed for this.
+
+Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
+Merge repair | Yes | `src/main.rs` no longer names the deleted module; `terrain_gpu.rs` wiring restored | n/a - build-level fix | Windows build passed on all four pre-merge runs; Linux formatting now matches the wasm rustfmt oracle for all 63 formattable modules | CI re-run on the repair commit is the confirmation
