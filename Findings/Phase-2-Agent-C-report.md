@@ -23,7 +23,7 @@ where a rule could not be checked against the archive the gap is listed.
 | `src/world_models_gpu.rs` | New `AlphaStatus` + `World::alpha_status()` so an empty alpha queue can be told apart from a broken one | `src/gpu.rs` World panel |
 | `src/gpu.rs` | Settings line rewritten to show truthful counters; the loader-queue explanation moved into hover text | World panel |
 | `src/bin/terrain-view-gpu-check.rs` (new) | Per-view terrain submission check (P2.09) | `pr-checks.yml` |
-| `.github/workflows/pr-checks.yml` | Adds `terrain-lod-gpu-check` (previously outside the GPU program set) and the new `terrain-view-gpu-check` | Phase 1 production shader regressions |
+| `.github/workflows/pr-checks.yml` | Adds the new `terrain-view-gpu-check` as its own labelled step | Phase 1 production shader regressions |
 | `tools/check-phase1-core.sh` | Adds `terrain_sampling` to the dependency-free module list | local/CI core checks |
 | `Findings/Unsupported-client-paths.md` | Corrected the false "second light family" entry; added terrain sampling, terrain formats and the T2MK `+12` byte registration | — |
 
@@ -219,6 +219,31 @@ also unavailable; the hand-written style follows the surrounding one-liner UI co
 
 ---
 
+## 3a. Why `terrain-lod-gpu-check` is still outside the CI gate
+
+P2.09 asked for the program to be wired in. I added it and the step went red. Reading
+the program instead of the log explained why, and the explanation is a property of the
+check, not of the renderer:
+
+* `terrain-lod-gpu-check` renders the same quad through `vs` and `vs_far` and then
+  asserted `frames[0] == frames[1]`. Its own fragment shader returns
+  `vec4(normal*0.4+0.5, distant)`, `vs` reports the authored per-vertex `kind`, and
+  `vs_far` reports `distant = 1`, so the two frames are *supposed* to differ. The
+  assertion could never hold on any GPU, which is why it never held under lavapipe.
+* Correcting it to compare RGB and assert the alpha flag still failed, because the
+  program's far input is `@location(1) normal: vec4<f32>` with `Snorm8x4` vertices
+  while `vs_far` in `src/terrain_gpu.rs` declares `normal: vec4<f32>` — the normals
+  themselves differ between the two paths, so RGB equality is not the right invariant
+  either. A meaningful parity check needs the normal comparison defined first, which is
+  mesh/vertex-lane work (Agent 2-A), not mine.
+* Agent A reached the same conclusion independently at `037bc21` and left the program
+  out of the gate. Returning it to the gate without fixing it would make CI red for
+  everyone, so the program stays out and this analysis is recorded here instead.
+  It remains runnable by hand.
+
+The per-view check I own (`terrain-view-gpu-check`) runs as its own labelled CI step so
+a failure names the program rather than the batch.
+
 ## 4. Confirmation blocks
 
 **P2.07 — texture sourcing, mips, samplers.**
@@ -263,17 +288,21 @@ Task: keep terrain consistent across main, reflection, clipped refraction, minim
 and full-world map with one per-frame snapshot; keep boundary/variant/
 layer-selection/near-far LOD-continuity regressions in CI; wire
 `terrain-lod-gpu-check` into the GPU program set.
-Finished **Yes** for the per-view submission check and the CI wiring.
-Production integration **Partly** — the check drives the production shader and
-storage layout; the viewer's own view submission was not changed.
-Native evidence **Yes** — `0x7c14b0`/`0x7c1a20` shared stage setup for the main and
-reflection passes, `0x7cb642`/`0x7cb8ef` for clipped refraction,
-`vs/terrain_refract_vs` from `shaders.pck`.
-Tests executed and results: `terrain-view-gpu-check` added and verified to compile
-past name resolution; not executed here (no `cargo`/GPU). Core suite green.
-Remaining gaps: the new check has not been run on lavapipe in this session; the
-minimap and full-world-map views are exercised through the far mesh and the shared
-storage rather than through their real GUI entry points.
+Finished **No** (per-view submission check done and in CI; the LOD program cannot be
+gated until its own invariant is fixed).
+Production integration **Partly** — the check drives the production WGSL and storage
+layout; the viewer's view submission was not changed.
+Native evidence **Yes** — `0x7c14b0`/`0x7c1a20` shared stage setup for main and
+reflection, `0x7cb642`/`0x7cb8ef` for clipped refraction, `vs/terrain_refract_vs` from
+`shaders.pck`.
+Tests executed and results: `terrain-view-gpu-check` added as a labelled CI step. Core
+suite green locally (27 suites). CI run history on this branch: `cargo fmt` failed (fixed
+by installing rustfmt 1.8.0 and formatting), then `cargo check`/audits/unit tests
+passed, then the shader step failed on `terrain-lod-gpu-check` — see §3a.
+Remaining gaps: `terrain-lod-gpu-check` still cannot pass and is therefore still
+outside the gate; `terrain-view-gpu-check` has not yet been observed green because the
+job stops at the earlier step. The minimap and full-world-map views are exercised
+through the far mesh and the shared storage rather than their real GUI entry points.
 
 ---
 

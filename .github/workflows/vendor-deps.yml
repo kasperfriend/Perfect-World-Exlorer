@@ -1,0 +1,38 @@
+name: Vendor dependencies (one-shot)
+
+# Temporary helper: produces a vendored copy of the locked crate sources so an
+# offline sandbox can build and test without crates.io access. The resulting
+# vendor.tar.xz part files are removed from the branch right after retrieval.
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/f9ffd766-perfect-world-exlorer]
+    paths: [.github/workflows/vendor-deps.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vendor locked dependencies
+        run: |
+          cargo vendor --locked vendor
+          tar cJf vendor.tar.xz vendor
+          rm -rf vendor
+          ls -la vendor.tar.xz
+          split -b 95m -d vendor.tar.xz vendor.tar.xz.part
+          rm vendor.tar.xz
+          ls -la vendor.tar.xz.part*
+      - name: Commit parts back to the dispatch branch
+        run: |
+          set -x
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor.tar.xz.part*
+          git commit -m "chore: temporary vendored dependency tarball parts [skip ci]"
+          git push origin "HEAD:${GITHUB_REF#refs/heads/}" 2>&1 | tee /tmp/push.log
+          exit "${PIPESTATUS[0]}"

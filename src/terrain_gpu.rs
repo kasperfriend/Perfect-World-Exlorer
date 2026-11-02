@@ -648,6 +648,8 @@ impl TerrainGpu {
     pub fn edge_mesh(&self) -> (&wgpu::Buffer, &wgpu::Buffer, u32) {
         (&self.vertex, &self.index, self.count)
     }
+    /// `runs` is the per-view visibility result (`block+0x74`): `None` draws the
+    /// whole window mesh, `Some` submits only the ranges the view kept.
     pub fn draw<'a>(
         &'a self,
         p: &mut wgpu::RenderPass<'a>,
@@ -655,6 +657,7 @@ impl TerrainGpu {
         near_vertex: &'a wgpu::Buffer,
         near_index: &'a wgpu::Buffer,
         near_end: u32,
+        runs: Option<&[(u32, u32)]>,
     ) {
         p.set_pipeline(&self.far_pipeline);
         p.set_bind_group(
@@ -672,7 +675,14 @@ impl TerrainGpu {
         p.set_pipeline(&self.pipeline);
         p.set_vertex_buffer(0, near_vertex.slice(..));
         p.set_index_buffer(near_index.slice(..), wgpu::IndexFormat::Uint32);
-        p.draw_indexed(0..near_end, 0, 0..1);
+        match runs {
+            Some(runs) => {
+                for &(start, count) in runs {
+                    p.draw_indexed(start..start + count, 0, 0..1);
+                }
+            }
+            None => p.draw_indexed(0..near_end, 0, 0..1),
+        }
     }
 }
 fn buf(

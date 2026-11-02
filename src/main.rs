@@ -86,9 +86,13 @@ mod skin_pose;
 mod sky_gpu;
 mod terrain_gpu;
 mod terrain_lightmaps;
+#[allow(dead_code)]
+mod terrain_lod;
+mod terrain_residency;
 mod terrain_sampling;
 mod terrain_seam;
 mod texture_atlas;
+mod texture_resolution;
 mod tree_lod;
 #[cfg(windows)]
 mod tree_source;
@@ -103,6 +107,8 @@ mod world_models_gpu;
 mod world_objects;
 struct Terrain {
     element: PathBuf,
+    /// Cells per T2BK block edge (`world.trn2` header dword @20).
+    grid: usize,
     width: usize,
     height: usize,
     heights: std::sync::Arc<[f32]>,
@@ -429,6 +435,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         objects,
         materials,
         subterrain_names: names,
+        grid,
         width: w,
         height: h,
         heights: heights.into(),
