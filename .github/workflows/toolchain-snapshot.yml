@@ -1,0 +1,35 @@
+name: Toolchain snapshot (temporary)
+
+# Temporary, review-only workflow. It packages the stable toolchain that this
+# repository's checks already use so the sandboxed session can execute the
+# dependency-free module tests and rustfmt locally. It does not build, test or
+# publish the application and will be removed before handoff.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Package toolchain
+        run: |
+          set -eu
+          mkdir -p out
+          cp -r "$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu" out/toolchain
+          rm -rf out/toolchain/share/doc out/toolchain/lib/rustlib/*/analysis
+          tar -C out -czf out/toolchain.tar.gz toolchain
+          ls -l out/toolchain.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-toolchain-linux
+          path: out/toolchain.tar.gz
+          retention-days: 2
