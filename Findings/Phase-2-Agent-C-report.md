@@ -288,21 +288,26 @@ Task: keep terrain consistent across main, reflection, clipped refraction, minim
 and full-world map with one per-frame snapshot; keep boundary/variant/
 layer-selection/near-far LOD-continuity regressions in CI; wire
 `terrain-lod-gpu-check` into the GPU program set.
-Finished **No** (per-view submission check done and in CI; the LOD program cannot be
-gated until its own invariant is fixed).
-Production integration **Partly** — the check drives the production WGSL and storage
-layout; the viewer's view submission was not changed.
+Finished **Yes** for the shared-snapshot, four-view parity and CI-wiring parts.
+Finished **No** for `terrain-lod-gpu-check` being in the gate (see §3a) and for pixel
+parity of the clipped-refraction view.
+Production integration **Yes** — the check drives the production WGSL, the production
+11-binding layout and the production vertex strides; it runs in CI as its own step and
+the branch is green (run 41543311052).
 Native evidence **Yes** — `0x7c14b0`/`0x7c1a20` shared stage setup for main and
 reflection, `0x7cb642`/`0x7cb8ef` for clipped refraction, `vs/terrain_refract_vs` from
 `shaders.pck`.
-Tests executed and results: `terrain-view-gpu-check` added as a labelled CI step. Core
-suite green locally (27 suites). CI run history on this branch: `cargo fmt` failed (fixed
-by installing rustfmt 1.8.0 and formatting), then `cargo check`/audits/unit tests
-passed, then the shader step failed on `terrain-lod-gpu-check` — see §3a.
-Remaining gaps: `terrain-lod-gpu-check` still cannot pass and is therefore still
-outside the gate; `terrain-view-gpu-check` has not yet been observed green because the
-job stops at the earlier step. The minimap and full-world-map views are exercised
-through the far mesh and the shared storage rather than their real GUI entry points.
+Tests executed and results: `terrain-view-gpu-check` green in CI. Main, reflection,
+minimap and full-world map return the identical layer composite (`[28, 15, 7]`), the
+area/layer storage is byte-identical before and after all five submissions, and the
+refraction view's coverage is reported. Core suite green locally (27 suites); rustfmt
+clean at 1.8.0; `cargo check`, the GFX audit and the viewer unit tests pass in CI.
+Remaining gaps: `terrain-lod-gpu-check` still cannot pass and stays out of the gate
+(§3a); clipped-refraction pixel parity is not asserted, because its output depends on
+`terrain_pass_fog`'s transmittance/fog interaction — shader-lane behaviour
+(P2.04/P2.05) — not on terrain sourcing; the minimap and full-world-map views are
+exercised through the far mesh and the shared storage rather than their GUI entry
+points.
 
 ---
 
