@@ -1,6 +1,12 @@
 //! Validate both real terrain vertex entry points using identical geometry.
 use wgpu::util::DeviceExt;
 fn main() {
+    // Panics abort with status 101 and their message only reaches the job log,
+    // which is not always retrievable. Mirror the panic into a GitHub annotation
+    // so a CI failure stays diagnosable.
+    std::panic::set_hook(Box::new(|info| {
+        println!("::error::terrain-lod-gpu-check panicked: {info}");
+    }));
     let inst = wgpu::Instance::default();
     let adapter = pollster::block_on(inst.request_adapter(&Default::default())).unwrap();
     let (device, queue) = pollster::block_on(adapter.request_device(
@@ -55,6 +61,7 @@ fn main() {
             multiview: None,
         })
     };
+    println!("terrain-lod: vertex module and pipelines created");
     let pipes = [pipeline(false), pipeline(true)];
     let points = [
         [-0.8f32, -0.8, 0.5],
@@ -176,6 +183,7 @@ fn main() {
         frames.push(sl.get_mapped_range().to_vec());
         buf.unmap();
     }
+    println!("terrain-lod: both frames read back");
     let count = frames[0].chunks_exact(4).filter(|p| p[0] > 0).count();
     assert!(count > 2000);
     // The check fragment returns vec4(normal*0.4+0.5, distant), so RGB carries
