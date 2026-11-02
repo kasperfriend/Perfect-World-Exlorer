@@ -285,7 +285,12 @@ pub fn shader_constants(
     scene_direction: [f32; 3],
 ) -> ShaderConstants {
     ShaderConstants {
-        c0: [1.0, if lightmap_scene { 1.0 } else { 0.0 }, global_density, specular],
+        c0: [
+            1.0,
+            if lightmap_scene { 1.0 } else { 0.0 },
+            global_density,
+            specular,
+        ],
         // 0x7c232b loops three stages: bound -> 1.0, absent -> 0.0.
         c2: [
             layers[0] as u8 as f32,
@@ -441,10 +446,16 @@ mod tests {
     #[test]
     fn native_switch_selects_one_variant_per_state() {
         // 0x7c145a: the device byte wins over both GDebugKey flags.
-        assert_eq!(select(caps(false, false, false)), Ok(Variant::NoPixelShader));
+        assert_eq!(
+            select(caps(false, false, false)),
+            Ok(Variant::NoPixelShader)
+        );
         assert_eq!(select(caps(false, true, true)), Ok(Variant::NoPixelShader));
         // 0x7c1467: env+0x1b5 beats env+0x1b6.
-        assert_eq!(select(caps(true, true, false)), Ok(Variant::PerMaskLightmap));
+        assert_eq!(
+            select(caps(true, true, false)),
+            Ok(Variant::PerMaskLightmap)
+        );
         assert_eq!(select(caps(true, true, true)), Ok(Variant::PerMaskLightmap));
         // 0x7c1471: what a stock client runs.
         assert_eq!(select(caps(true, false, false)), Ok(Variant::Batch3Layer));
@@ -452,7 +463,10 @@ mod tests {
 
     #[test]
     fn unreachable_hardware_lightmap_path_is_an_error_not_a_branch() {
-        assert_eq!(select(caps(true, false, true)), Err(VariantError::HardwareLightmapUnreachable));
+        assert_eq!(
+            select(caps(true, false, true)),
+            Err(VariantError::HardwareLightmapUnreachable)
+        );
     }
 
     #[test]
@@ -571,9 +585,10 @@ mod tests {
     fn packed_mask_weights_use_blue_green_red() {
         let mask = [0.25, 0.5, 0.75, 1.0];
         let one = [1.0; 4];
-        assert_eq!(packed_weight(mask, one, 0), 0.75); // layer 1 <- blue
-        assert_eq!(packed_weight(mask, one, 1), 0.5); // layer 2 <- green
-        assert_eq!(packed_weight(mask, one, 2), 0.25); // layer 3 <- red
+        // Layer 1 takes the blue channel, layer 2 green, layer 3 red.
+        assert_eq!(packed_weight(mask, one, 0), 0.75);
+        assert_eq!(packed_weight(mask, one, 1), 0.5);
+        assert_eq!(packed_weight(mask, one, 2), 0.25);
         // c2 = 0 removes a layer entirely.
         assert_eq!(packed_weight(mask, [0.0; 4], 0), 0.0);
         assert_eq!(packed_weight(mask, [0.0; 4], 1), 0.0);
@@ -595,7 +610,8 @@ mod tests {
         assert_eq!(atlas.origin(0), (0, 0));
         assert_eq!(atlas.origin(1), (256, 0));
         assert_eq!(atlas.origin(16), (0, 256));
-        assert_eq!(atlas.origin(256), (0, 0)); // wraps onto the next page
+        // Slot 256 wraps onto the next page.
+        assert_eq!(atlas.origin(256), (0, 0));
         // Local coordinates are clamped half a texel inside the tile.
         let (u, v) = atlas.tile_uv(1, (0.0, 1.0));
         assert!((u - (256.0 + 0.5) / 4096.0).abs() < 1e-6);
