@@ -18,9 +18,10 @@ sandbox itself. Every number below comes from CI on this branch:
   `VK_ICD_FILENAMES=.../lvp_icd.json`).
 * Windows job: x86 MSVCRT gamma capture, independent gamma-word comparison,
   the dependency-free module suites under MSVC, and the release viewer build.
-* Latest green run: `41490544268` (PR checks) and the temporary diagnostics
-  run `41490531357` used to read exact counts. The diagnostics workflow was
-  removed from the branch before merge.
+* Green runs: `41490544268` (first full pass) and `41491199657` (final branch
+  state, after the temporary diagnostics workflow was removed). Exact counts
+  below were read from diagnostics run `41490531357`, which executed the same
+  code plus that temporary workflow.
 
 Consequences for interpretation: these are CPU-model and GPU-emulation
 readbacks. They are **not** evidence about a physical Windows D3D8 presentation,
