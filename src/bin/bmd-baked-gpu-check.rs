@@ -102,7 +102,7 @@ fn main() {
     ];
     for (pattern, &(day, night)) in colors.iter().enumerate() {
         for w in 0..256u32 {
-            let channel = |shift| {
+            let channel = |shift: u32| -> u32 {
                 ((((day >> shift) & 255) * (255 - w) + ((night >> shift) & 255) * w) >> 8) << shift
             };
             let expected = 0xff000000 | channel(16) | channel(8) | channel(0);
