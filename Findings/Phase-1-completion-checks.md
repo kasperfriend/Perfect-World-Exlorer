@@ -1,0 +1,29 @@
+# Phase 1 — completion checks
+
+A requirement passes only if its entire scope is supported by implementation and evidence. “Is it finished?” below is an acceptance check, not a confidence estimate. Passing Cargo/CI is not a substitute for an unfinished renderer path.
+
+| Task | Is it finished? | Check and result / next required work |
+|---|---|---|
+| P1.01 Complete scene-light selection | No | Grid/candidate/tie/range/flags arithmetic has eight passing CPU regressions and executable traces. Full runtime candidate production/lifecycle is still not integrated. |
+| P1.02 Every receiving class and its calculations | No | Skin/rigid light arithmetic has a 15-case GPU comparison. This is not a census of every receiving class or material binding path. |
+| P1.03 Model shader integration without double lighting | No | Baked BMD and terrain remain unmodified by point lights. The eligible animated-world model renderer is absent; a standalone lighting helper is not integration. |
+| P1.04 Regional environment lighting | No | Authored endpoints, clock curve and transitions exist. Full asynchronous region ordering and all material consumers remain unverified. |
+| P1.05 Sun curve at proven material consumers only | No | Sky uses the recovered curve without relighting baked surfaces. Material-consumer tracing is not complete. |
+| P1.06 Terrain/grass lightmaps | No | Existing day/night arithmetic and area-center selection remain. Exact atlas mapping, edge addressing and unloaded texture behavior are not fully established. |
+| P1.07 Baked-model lighting/material/alpha overrides | No | Existing integer endpoint blend was rechecked against `0x7b9bc0`; now its GPU implementation stays integer until normalization, with a new exhaustive byte-weight regression. Complete material stages/alpha/overrides remain open. |
+| P1.08 Bloom | No | Corrected tap spacing to `4/full_resolution` from `0x40edd0` and `0x40f053`. Patterned-image GPU tests passed on UNORM/sRGB and odd dimensions; the CPU fixture also rejects the old offsets. Full special modes/pass ordering are not complete. |
+| P1.09 Gamma and color chain | No | Windowed gating and final fullscreen ramp are corrected and tested; encoded UNORM/sRGB output tests pass. This is not verification of every upstream material color conversion and Windows compositor path. |
+| P1.10 Per-pass and underwater fog | No | Main per-material fog exists. Executable tracing distinguishes ordinary table fog from refraction vertex fog. The refraction exponential fog and complete pass integration are still absent. |
+| P1.11 Preserve approved trees while tracing separately | Yes, preservation requirement | Tree shader, geometry and default lighting were not changed. Existing fallback remains; the incomplete replacement has not been enabled or represented as parity. This does not mean the full tree material path is recovered. |
+| P1.12 Automated tests in requested categories | Yes, category coverage | CPU tests cover selection, transitions and color arithmetic; CI exercises production gamma, postprocess, fog and model-light shaders. New bloom UV and BMD byte-blend checks extend coverage. These tests do not close the implementation gaps in P1.01–P1.10. |
+
+## New verified work
+
+- PR title: **Phase 1 — Lighting and display pipeline**. No “in progress” label in the title or description heading; the remaining gates are still stated explicitly.
+- Commit `909df63`: arbitrary-size bloom offset correction and independent patterned-image reference. [CI run 41431460966](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41431460966) passed Linux compilation/unit/GPU checks and the Windows executable build.
+- Follow-up: production BMD blend uses integer channel extraction/products/shifts rather than unpack-normalize-multiply-floor round trips. `bmd-baked-gpu-check` compares 2,048 cases (eight endpoint pairs × every 8-bit night weight), without a tolerance. CI also now executes the existing grass/BMD rendered-image regression. Results are tracked on the PR; do not infer a pass before the run finishes.
+- Dependency-free core script includes four CPU bloom reference tests, including an explicit rejection of the old tap-spacing formula.
+
+## Exit condition
+
+**Not met.** P1.01–P1.10 must all pass their full acceptance checks before claiming Phase 1 completion. No empty-list trick, renamed status or passing arithmetic test changes that condition.

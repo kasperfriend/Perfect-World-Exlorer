@@ -1,7 +1,8 @@
 # Eight-phase implementation status
 
 Updated 2 November 2026. The original requested requirements are retained below.
-Unchecked means **not signed off as complete**, not necessarily absent. Existing partial
+Unchecked means **not signed off as complete**, not necessarily absent.
+Requirement-level acceptance checks: [Phase 1 completion checks](Phase-1-completion-checks.md). Existing partial
 implementations are documented in the research logs; no phase is complete by inference.
 
 Execution gate: **Phase 1 open**. See [Phase 1 audit](Phase-1-audit-2026-11-02.md).
@@ -20,8 +21,8 @@ No later phase is claimed complete by this run.
 - [ ] P1.08 — Recover the remaining bloom constants, texture coordinates, render-target formats, effect transitions and pass order.
 - [ ] P1.09 — Complete the gamma chain: client settings, fullscreen versus windowed behavior, color conversions, output encoding and interaction with postprocessing.
 - [ ] P1.10 — Replace the approximate screen-space fog with the client’s applicable per-pass fog behavior, including regional transitions and underwater conditions.
-- [ ] P1.11 — Keep the approved tree appearance intact while tracing its actual lighting separately; replace the fallback only when the complete tree material path is available.
-- [ ] P1.12 — Add automated tests for light selection, transitions, shader arithmetic, color-space conversions and postprocess passes.
+- [x] P1.11 — Keep the approved tree appearance intact while tracing its actual lighting separately; replace the fallback only when the complete tree material path is available.
+- [x] P1.12 — Add automated tests for light selection, transitions, shader arithmetic, color-space conversions and postprocess passes.
 
 ## Phase 2 — Complete terrain and ground materials
 

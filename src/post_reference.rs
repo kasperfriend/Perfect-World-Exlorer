@@ -80,13 +80,22 @@ impl Image {
         })
     }
     pub fn bloom(&self, level: f32, power: f32, mono: [f32; 4]) -> Self {
+        self.bloom_with_steps(
+            level,
+            power,
+            mono,
+            4. / self.width as f32,
+            4. / self.height as f32,
+        )
+    }
+    fn bloom_with_steps(&self, level: f32, power: f32, mono: [f32; 4], dx: f32, dy: f32) -> Self {
         let w = (self.width / 4).max(1);
         let h = (self.height / 4).max(1);
         let copy = Self::render(w, h, |u, v| self.sample(u, v));
-        let horizontal = Self::render(w, h, |u, v| copy.kernel(u, v, 4. / self.width as f32, 0.));
+        let horizontal = Self::render(w, h, |u, v| copy.kernel(u, v, dx, 0.));
         Self::render(self.width, self.height, |u, v| {
             let original = self.sample(u, v);
-            let glow = horizontal.kernel(u, v, 0., 4. / self.height as f32);
+            let glow = horizontal.kernel(u, v, 0., dy);
             let base: [f32; 3] = std::array::from_fn(|k| {
                 let add = if mono[3] > 0. { original[k] } else { glow[k] };
                 original[k] + (glow[k] - original[k]) * level + power * glow[k] * add
@@ -117,6 +126,23 @@ mod tests {
     fn zero_strength_is_identity_even_for_odd_dimensions() {
         let image = Image::pattern(23, 19);
         assert_eq!(image.bloom(0., 0., [0.; 4]).pixels, image.pixels);
+    }
+    #[test]
+    fn odd_size_fixture_rejects_the_old_inverse_quarter_dimensions() {
+        let image = Image::pattern(23, 19);
+        let recovered = image.bloom(0.25, 0.25, [0.; 4]);
+        let legacy = image.bloom_with_steps(0.25, 0.25, [0.; 4], 1. / 5., 1. / 4.);
+        let worst = recovered
+            .pixels
+            .iter()
+            .zip(&legacy.pixels)
+            .flat_map(|(a, b)| a.iter().zip(b).map(|(x, y)| (*x as i32 - *y as i32).abs()))
+            .max()
+            .unwrap();
+        assert!(
+            worst > 2,
+            "fixture must reject legacy offsets beyond GPU tolerance, got {worst}"
+        );
     }
     #[test]
     fn mono_uses_blur_times_original_not_blur_squared() {

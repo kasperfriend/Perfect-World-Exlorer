@@ -331,3 +331,27 @@ refraction mode requests vertex fog and uploads c91; the ordinary shader's
 constant oFog alone is not evidence that ordinary grass should be fog-free.
 Do not remove main-view grass fog or change approved trees on that inference.
 The separate exponential refraction fog path remains unfinished.
+
+### Bloom coordinates and exact BMD byte arithmetic
+
+Further direct inspection recovered the blur quad tap step at `0x40edd0`
+(horizontal) and `0x40f04b–0x40f053` (vertical): the float at `0x94ed00`
+is **4.0**, divided by full width/height. This is not exactly the reciprocal
+of the integer quarter-target dimension when the window size is not divisible
+by four. Corrected both shader axes. New patterned-image GPU checks compare
+all pixels against an independent bilinear-clamp/UNORM8 CPU reference at
+64×64, 23×19 and 67×61, with ordinary and monochrome glow and UNORM/sRGB outputs.
+The CPU fixture explicitly rejects the old reciprocal-quarter formula beyond
+the two-byte GPU tolerance. CI at `909df63` passed these checks and Windows build.
+
+Rechecked `0x7b9bc0`: it truncates night×255, forms integer channel products
+with complementary weight 255−w, divides by 256 via a shift and forces alpha
+255. The existing shader attempted that blend via unpacked UNORM floats;
+it now extracts and combines packed channels as integers before final
+normalization, avoiding potential floor-boundary errors from floating-point
+round trips. The new compute regression calls the actual production helper
+for eight endpoint pairs and all 256 weights (2,048 exact packed-color checks).
+This is not completion of other BMD material/alpha/texture-stage behavior.
+
+See [Phase 1 completion checks](Phase-1-completion-checks.md) for the explicit
+requirement-by-requirement acceptance results. Unfinished items remain open.
