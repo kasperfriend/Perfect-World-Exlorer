@@ -1501,10 +1501,13 @@ impl Renderer {
         let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
             .unwrap_or([0., -1., 0.])
             .map(|x| -x);
+        // The same retained light that feeds the discs' azimuth also keeps the
+        // published default-area flag word stable across frames with no region.
         self.celestial_visibility.update(
             camera.logic_delta_ms,
             camera
                 .regional_light
+                .or(self.retained_regional_light)
                 .map(|l| l.celestial_flags)
                 .unwrap_or(0x18),
         );
