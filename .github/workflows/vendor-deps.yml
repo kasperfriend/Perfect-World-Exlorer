@@ -5,6 +5,9 @@ name: Vendor dependencies (one-shot)
 # vendor.tar.gz commit is removed from the branch immediately after retrieval.
 on:
   workflow_dispatch:
+  push:
+    branches: [arena/f9ffd766-perfect-world-exlorer]
+    paths: [.github/workflows/vendor-deps.yml]
 
 permissions:
   contents: write
