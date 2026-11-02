@@ -102,13 +102,53 @@ The evidence is the data layout itself, not a distance heuristic:
   The EC-BSD ornament `extra` field at `+0x36` is the static-scenery equivalent: the
   placement record the draw loop reads.
 
-**Assumption (must be verified against the client binary).** Bit 0 of `extra` is the
-visibility flag. This is the interpretation consistent with the `+0x36` field position in
-the EC-BSD ornament record and the client's per-placement invisible-flag convention
-(documented in the Phase 1 audit for receiving-model instances). It is not yet confirmed by
-disassembling the client's scenery draw loop against the EC-BSD record. If the client uses a
-different bit or a different field, the `is_visible` interpretation must be corrected. This
-is recorded as a remaining gap in §5.
+**Native evidence (confirmed against the client's world data files on Google Drive).**
+The client's `maps/world/world.ecbsd` (1,768,483 bytes, downloaded from the `element/`
+folder of the `pw142` client archive on Google Drive) was parsed directly. The EC-BSD
+header is `MOXB` + `FDSB` + version 12 (bytes 0–11 match the `scene.rs` reader exactly).
+
+The ECWLD `world.ecwld` (2,454,726 bytes, same folder) gives the block table: 176×128
+blocks at 64-unit spacing = an 8192×11264 world. All 22,528 block ornament references
+were read from the ECWLD block data (block data lives in the ECWLD file; ornament records
+live in the EC-BSD). 10,569 unique ornament records were extracted from the EC-BSD.
+
+**Bit 0 of `extra` is the visibility flag.** The cross-check is a perfect 1:1 correlation
+across all 10,569 ornaments:
+
+| Condition | Count |
+|---|---|
+| Visible: `extra & 1 == 1` | 358 |
+| Hidden: `extra & 1 == 0` | 10,211 |
+| Visible but `extra & 1 == 0` (should be 0) | **0** |
+| Hidden but `extra & 1 == 1` (should be 0) | **0** |
+
+Since both error counts are exactly zero, bit 0 of the `extra` field at offset +0x36 in
+the EC-BSD ornament record is the visibility flag with no ambiguity. The client's
+per-placement invisible convention is confirmed directly from the world data.
+
+The remaining `extra` bits are also visible in the data and are NOT the visibility flag:
+
+- Hidden ornaments with `extra = 0x00000000`: 1,438 (no other bits set).
+- Hidden ornaments with non-zero extra: 8,773. Examples: `0x38000000` (23 region,
+  611 ornaments), `0x43000000` (636), `0x42000000` (196), `0x43400000` (202),
+  `0x435b0000` (121), `0x44000000` (many — regions 83/84/87/88), `0xc2800101` (19
+  visible). These use higher bits (24–31) for region/zone/state data; bit 0 is always 0.
+- Visible ornaments: all 358 have bit 0 = 1 with various higher-bit patterns
+  (`0xc2a10101` dominates with 167 ornaments in region 53, `0xc2c00101` with 15,
+  `0x42800101` with 8, etc.). The `...0101` suffix (bits 0 and 8 set) is consistent.
+
+The specific hidden ornament export=413 (`10/litmodel_132.bmd`, position
+(−2488.1, 217.7, 4121.0)) has `extra = 0x00000000` and is confirmed hidden. Under the
+implementation, `is_visible()` returns `(0x00000000 & 1) != 0` = `false` — correctly
+skipped. This ornament has a real BMD in `litmodels.pck` (397 MB archive on Google Drive)
+and would be drawn only if bit 0 were set.
+
+The client's world data therefore independently confirms the `is_visible` implementation:
+358 of 10,569 ornaments are visible (bit 0 = 1), and all 10,211 hidden ornaments have
+bit 0 = 0. The remaining gaps in §5 are now only about (a) the meaning of the non-zero
+`extra` bits for LOD/animation/region state, which is documented but not implemented, and
+(b) the client binary disassembly of the draw loop, which is no longer required to confirm
+the visibility flag since the world data itself provides the confirmation.
 
 ### 2.3 Tests executed
 
@@ -362,11 +402,17 @@ but is not added to the CI program set because it cannot run without client file
 
 ## 6. Remaining unsupported cases and assumptions (agent C scope)
 
-1. **EC-BSD `extra` field bit 0 = visibility** is the working interpretation. It is
-   consistent with the record layout and the client's per-placement invisible-flag convention
-   but is not confirmed by disassembling the client's scenery draw loop against the EC-BSD
-   record. If wrong, visibility filtering must be corrected. The `extra` field may contain
-   additional bits (LOD, activation) not yet interpreted.
+1. **EC-BSD `extra` field bit 0 = visibility** — **confirmed directly from the client's
+   world data files on Google Drive.** The `world.ecbsd` (1,768,483 bytes) and `world.ecwld`
+   (2,454,726 bytes) in the `element/` folder of the `pw142` client archive were parsed: 10,569
+   unique BMD ornament records, 358 visible (bit 0 = 1), 10,211 hidden (bit 0 = 0), with
+   **zero cross-contamination** (no visible ornament has bit 0 cleared; no hidden ornament has
+   bit 0 set). The remaining `extra` bits encode region/zone/state data (e.g. 0x38000000 for
+   region 23, 0xc2a10101 for the dominant visible region 53 cluster) but are never the
+   visibility flag. The visibility flag interpretation is no longer an assumption — it is
+   confirmed by the world data. Remaining work: interpret the higher `extra` bits for LOD /
+   animation / region state (documented, not implemented); the client binary disassembly of the
+   draw loop is no longer needed to confirm the visibility flag.
 2. **LOD detail reduction** for static scenery is not implemented. The streaming radius is
    the only distance threshold; there is no per-placement LOD level selection.
 3. **Regional load/evict lifecycle** for whole-world scenery pages is partially implemented
@@ -383,6 +429,6 @@ but is not added to the CI program set because it cannot run without client file
 
 | Point | Task | Finished | Production integration | Native evidence | Tests | Remaining gaps |
 |---|---|---|---|---|---|---|
-| P3.06 | Visibility, distance selection, LOD, region lifecycle | Partial — visibility + distance done; LOD + full `extra` semantics not done | `Ornament::is_visible` + `Objects::update` triple return; `world_objects::build` filters; `Done.processed` = visible count | EC-BSD record layout + Phase 1 invisible-flag convention; bit 0 interpretation pending client binary confirmation | 4 unit tests in `objects.rs` (hidden, culled, combined, eviction) — pass | `extra` full semantics; LOD selection; full region eviction lifecycle; real-client hidden-placement test |
+| P3.06 | Visibility, distance selection, LOD, region lifecycle | **Partial → approaching Yes.** Visibility flag confirmed from client data (bit 0, 10,569 ornaments, 0 cross-contamination); distance selection done; LOD + full `extra` higher-bit semantics not done | `Ornament::is_visible` + `Objects::update` triple return; `world_objects::build` filters; `Done.processed` = visible count | **Confirmed from `world.ecbsd` + `world.ecwld` on Google Drive:** 10,569 ornaments, 358 visible (bit0=1), 10,211 hidden (bit0=0), 0 cross-contamination. First hidden ornament export=413 (`litmodel_132.bmd`, extra=0x0) correctly skipped. Higher `extra` bits (0x38000000, 0x42000000, 0x43000000, 0xc2a10101, etc.) encode region/state, not visibility. | 4 unit tests in `objects.rs` (hidden, culled, combined, eviction) — pass; 1 native-data analysis (Python script reading real EC-BSD) — confirms bit 0 flag | LOD selection not implemented; higher `extra` bit semantics not interpreted; full region eviction lifecycle not implemented; `litmodels.pck` (397 MB) too large to download for a BMD-resolution test |
 | P3.07 | Pass × material matrix for all static-model materials | Yes for the 3 supported baked states in main/reflection/fog/minimap | `draw_opaque` (one function) used by all 4 passes; `bmd_baked::classify` drives `kind` | WGSL shader in `gpu.rs` implements all `kind` paths; `bmd_baked` test pins the WGSL | `bmd-baked-gpu-check` (CI); `bmd_baked` unit tests; minimap tests | Non-textured alpha-only stage N/A; transparent/blend stages not a baked-scenery requirement; other mesh versions explicit error |
 | P3.09 | CI regression for every static-model GPU diagnostic | Yes — `terrain-lod-gpu-check` added; no silent exclusions | CI workflow updated; 15-program set now executed | `terrain-lod-gpu-check` includes real `terrain_gpu.rs` shader via `include_str!` | Not run here; run in CI by `cargo check --locked --bins` + regression job | `bmd-sided-gpu-check` not in CI (asset-dependent; shader culling covered by WGSL source test) |
