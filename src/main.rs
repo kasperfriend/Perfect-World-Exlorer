@@ -45,6 +45,7 @@ mod model_asset;
 mod model_dds;
 mod model_light;
 mod model_material;
+mod model_receiver_gpu;
 mod model_texture_gpu;
 mod music;
 mod navigation;

@@ -879,3 +879,22 @@ A no-player/no-tracked-object world viewer therefore has an actual client
 camera-position fallback to implement; it need not invent a simulated player.
 Dynamic effect-light production/lifetime and the runtime receiver submission
 still remain open.
+
+### Receiving-model raster integration (next confirmation cycle)
+
+Continued directly after the user's instruction, without asking for another
+continuation decision. Added an actual ordinary receiving-model raster stage,
+not just compute-helper tests: pre-posed mesh buffers, material/light uniforms,
+texture sampling, specular/non-specular vertex variants, supplied vertex fog,
+clipping, sidedness, alpha test and encoded-space SRCALPHA blending. It only
+accepts encoded UNORM targets; it rejects sRGB attachments rather than blending
+model alpha in linear space. Both color and alpha use the source blend factors,
+not wgpu's convenience source-over alpha equation. Depth comparison/write policy
+and sampler are explicit caller inputs (the viewer uses reversed depth).
+
+A new render-to-texture regression exercises the production raster stage with
+120 RGBA comparisons covering light/material variants, fog endpoints/midpoint,
+clip rejection, alpha rejection and reversed/ordinary face decisions. This is
+not yet scene submission or complete shader/material variant coverage. Full
+CI validation is pending, so P1.03 remains No. Next: validate the raster stage
+and connect retained world instances to it without relighting baked objects.
