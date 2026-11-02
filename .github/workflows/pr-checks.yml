@@ -45,6 +45,12 @@ jobs:
         run: cargo test --locked --bin gfx-light-audit
       - name: Run viewer unit tests
         run: cargo test --locked --bin perfect-world-explorer
+      - name: Report compile diagnostics as annotations
+        if: always()
+        run: |
+          # Temporary: the sandbox that authors these changes cannot read job
+          # logs, so surface compiler errors as check-run annotations.
+          cargo check --locked --bins 2>&1 | head -120 | sed 's/^/::error::/'
       - name: Install software Vulkan for Phase 1 shader checks
         run: sudo apt-get install -y mesa-vulkan-drivers
       - name: Run Phase 1 production shader regressions
