@@ -715,7 +715,12 @@ in the alpha/overlay bracket), and the alpha-list weight/group details.
 states, runtime FX publications into production receivers, main/reflection/
 refraction consistency with one lighting/playback snapshot and explicit failures
 are all implemented and green in CI. Still missing: the client's *special* model
-queue (`0x41a2f0`, `0x42b469`) and complete material coverage.
+queue and complete material coverage. Its setup block is now located:
+`0x41a2f0` uses the device wrapper at `[[0x9b3eec]+0x8]` and sets ZENABLE 1,
+ZWRITEENABLE 1, ALPHATESTENABLE 1, ALPHABLENDENABLE 0, ALPHAFUNC 7, ALPHAREF
+`0x54`, then calls `0x792fc0(arg, 3, 0)`; it has no literal caller, so a vtable
+reaches it, and whether any receiving model uses it is the open question that
+blocks the row.
 
 Verification for all of the above: `cargo fmt --check` clean,
 `cargo test --bin perfect-world-explorer` (250 + the new regressions) passed,
