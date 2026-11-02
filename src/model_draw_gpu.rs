@@ -320,7 +320,17 @@ impl Draw {
     /// Non-alpha queue only. `World` submits the alpha list afterwards so the
     /// retail insertion order spans models, not just one model's meshes.
     pub fn draw_opaque<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        for mesh in self.meshes.iter().flatten() {
+        for (index, mesh) in self.meshes.iter().enumerate() {
+            let Some(mesh) = mesh else {
+                continue;
+            };
+            // Alpha-list meshes were bound against the blended receiver, whose
+            // pipeline owns a different implicit bind-group layout. Submitting
+            // them here would be a layout mismatch, so `draw_alpha_mesh` owns
+            // them instead.
+            if self.alpha_meshes.contains(&index) {
+                continue;
+            }
             self.receiver.draw(pass, &mesh.mesh, &mesh.binding);
         }
     }
