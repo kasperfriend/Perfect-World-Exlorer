@@ -20,17 +20,20 @@ material lighting from the sky-object curve.
   unreachable and Actions artifact storage is blocked), so compilation and test
   execution happened in CI on the PR branch. Results are the CI results for the
   commit named in each check, not a local run.
-* CI used: **run 41488370647** (commit `4aed2ac`; subsequent commits only add the
-  grass availability test and a rustfmt line). Both jobs green:
+* CI used: **run 41491443997** (commit `8c13497`). Both jobs green:
   * `Rust checks and tests (Linux)`: `Check formatting`, `Verify recovered
     regional arithmetic on x87`, `Test requirement status audits`, `Check all
     binary targets`, `Test GFX light dependency audit`, `Run viewer unit tests`
-    (**250 passing**), `Run Phase 1 production shader regressions` — all success.
+    (**251 passing**), `Run Phase 1 production shader regressions` — all success.
   * `Windows executable (x64)`: MSVC gamma-word capture/compare, standalone
     rustc module tests, release build, artifact + checksum — all success.
-  * The GPU shader-regression step (`lvp_icd`) passed; I did **not** inspect its
-    per-harness output, so it is cited as "ran and passed", not as new evidence
-    for the specific rows below.
+  * All thirteen GPU binaries ran green on lavapipe in that job:
+    `display-gamma`, `post`, `bloom`, `bmd-baked`, `grass-instance`,
+    `model-light`, `skin-pose`, `skin-palette`, `model-texture`,
+    `model-receiver`, `model-draw`, `phase1-fog`, `terrain-refraction`.
+  * Two temporary, review-only workflows were used to obtain CI feedback in this
+    sandbox (job logs are not reachable from it). They are deleted before
+    handoff and contribute no product code.
 
 ## 1. Task 1 — P1.04 / P1.05: regional lighting and sun-direction consumers
 
@@ -129,7 +132,7 @@ explicit:
 | Finished | **No** — availability, missing-day handling, coordinates and sampling arithmetic are covered; dynamic page residency is not implemented |
 | Production integration | Yes: `terrain_gpu::load_lightmaps` → `Availability::bits()` buffer → grass bind group 3; `terrain_gpu` lightmapped branch mixes `night,day` by `camera.sun.w` |
 | Native evidence | `ApplyLightMap 0x7c2650` (missing night→day, missing day→unbound); T2LM `0x7a3268..0x7a3286`; grass needs both maps `0x652db4..0x652dc1`; CLAMP `0x651287..0x65129c`; area centre `0x652d99..0x652da0`; terrain night factor `0x42bd6e`; grass `0x42c10d`/`0x651510` |
-| Tests executed | `terrain_lightmaps`: `missing_night_falls_back_for_terrain_without_marking_grass_ready`, `missing_day_and_non_missing_night_errors_are_not_hidden`, `missing_day_record_leaves_the_area_unbound_instead_of_failing`, `published_availability_bits_round_trip_and_gate_grass`, `independent_offsets_preserve_mask_indices`, `rejects_invalid_headers_ranges_and_overlap`, `rectangular_world_layout_is_bijective`, `rejects_inconsistent_layout`; `terrain_gpu::tests::neutral_tiles_match_the_atlas_block_layout`, `lod_grid_covers_exact_edges_without_duplicates`; `grass_instances::tests::unavailable_pairs_use_the_unlit_texture_and_never_the_region_light` |
+| Tests executed | `terrain_lightmaps`: `missing_night_falls_back_for_terrain_without_marking_grass_ready`, `missing_day_and_non_missing_night_errors_are_not_hidden`, `missing_day_record_leaves_the_area_unbound_instead_of_failing`, `published_availability_bits_round_trip_and_gate_grass`, `independent_offsets_preserve_mask_indices`, `rejects_invalid_headers_ranges_and_overlap`, `rectangular_world_layout_is_bijective`, `rejects_inconsistent_layout`; `terrain_gpu::tests::neutral_tiles_match_the_atlas_block_layout`, `lod_grid_covers_exact_edges_without_duplicates`; `grass_instances::tests::unavailable_pairs_use_the_unlit_texture_and_never_the_region_light` (also asserts the assembled-shader injection that makes the declarations live) |
 | Remaining gaps | the viewer still builds **one eager 4096² atlas** (`2·ceil(areas/256)` layers) for the whole world: there is no per-page load/unload, no runtime residency policy and no eviction test. The client's "missing day keeps the previously bound stage" behaviour is emulated with a neutral tile, not reproduced as a retained D3D texture. No fresh real-asset lightmap run was performed in this change. |
 
 ## 3. Task 3 — P1.07: baked BMD materials, alpha and draw state
@@ -180,12 +183,15 @@ explicit:
 3. **Native addresses/assets.** See the tables above; all recorded in
    `Research-log-02-rendering-and-lighting.md`, none re-derived here. No new
    asset payloads were downloaded or committed.
-4. **Tests and exact results.** CI run **41488370647**: `cargo test --locked
-   --bin perfect-world-explorer` = **250 passed, 0 failed**; `cargo check
-   --locked --bins` clean (warnings only); `cargo fmt --all -- --check` clean;
-   Windows release build and MSVCRT gamma cross-check green. The follow-up
-   commit adds one further unit test (`grass_instances`, availability gate) and
-   a one-line rustfmt fix.
+4. **Tests and exact results.** CI run **41491443997** at `8c13497`:
+   `cargo test --locked --bin perfect-world-explorer` = **251 passed, 0
+   failed**; `cargo check --locked --bins` clean (warnings only); `cargo fmt
+   --all -- --check` clean; all thirteen GPU regression binaries green on
+   lavapipe; Windows release build and MSVCRT gamma cross-check green. One
+   intermediate commit briefly dropped the grass shader's lightmap-injection
+   patch while hoisting the WGSL constant; `grass-instance-gpu-check` caught it
+   (`area LM clamp mode=false daylight=0: 222, expected 12`) and the injection is
+   now restored and asserted by a test.
 5. **Unsupported paths and assumptions.** (a) Terrain/grass/BMD dynamic
    residency is unimplemented — the atlas is eager. (b) Missing-day areas are
    emulated with a neutral tile, not a retained D3D texture. (c) `default_present`
