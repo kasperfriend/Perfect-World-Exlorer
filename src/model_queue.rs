@@ -220,6 +220,63 @@ pub fn mesh_state(
     })
 }
 
+/// Per-mesh inputs of the 1.4.2 classify call `0x7a5830`, split by the object
+/// they come from. The call reads three fields from the *model instance* and
+/// two flags from the *mesh record*'s texture:
+/// * model instance: `invisible` (`+0x9`), `transparency` (`+0xc`, compared
+///   against 1.0 at `0x7a583d` and against 0.0 at `0x7a588c`) and the authored
+///   blend pair (`+0x2a4`/`+0x2a8`, compared at `0x7a58a6`/`0x7a58b3`);
+/// * mesh record: the texture vtable call `*0x1c(%eax)` at `0x7a5871` returns
+///   a texture record whose `+0x36` (shader texture) and `+0x35` (alpha
+///   texture) bytes set the local shader/alpha flag at `0x7a5878-0x7a5886`.
+/// The SKI reader recovers only an alpha flag, so the shader flag is passed
+/// through by the caller instead of being invented here.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ModelState {
+    pub invisible: bool,
+    pub transparency: f32,
+    pub source_blend: u32,
+    pub destination_blend: u32,
+}
+impl ModelState {
+    /// `transparency` must be finite. The client compares it with `fcomps`
+    /// against 1.0 and 0.0; an unordered compare clears the flags it tests, so
+    /// a NaN or -inf model would take the *alpha* branch there while Rust's
+    /// `>=` comparisons would fall through to the blend-pair test. Rejecting
+    /// the value keeps this reader from picking a queue the client never takes.
+    pub fn new(
+        invisible: bool,
+        transparency: f32,
+        source_blend: u32,
+        destination_blend: u32,
+    ) -> Result<Self, String> {
+        if !transparency.is_finite() {
+            return Err("non-finite model transparency".into());
+        }
+        Ok(Self {
+            invisible,
+            transparency,
+            source_blend,
+            destination_blend,
+        })
+    }
+    /// Classify one mesh of this model from its two texture flags.
+    pub fn mesh_state(
+        self,
+        shader_texture: bool,
+        alpha_texture: bool,
+    ) -> Result<MeshQueueState, String> {
+        mesh_state(
+            self.invisible,
+            self.transparency,
+            self.source_blend,
+            self.destination_blend,
+            shader_texture,
+            alpha_texture,
+        )
+    }
+}
+
 /// One candidate mesh for the retail alpha insertion walk.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AlphaCandidate {
@@ -505,5 +562,34 @@ mod tests {
         same_b.node.max[1] = 0.5;
         let order = alpha_order(&[same_a, same_b]).unwrap();
         assert_eq!(order.iter().map(|c| c.mesh).collect::<Vec<_>>(), [1, 0]);
+    }
+
+    #[test]
+    fn model_level_fields_and_mesh_texture_flags_stay_separate() {
+        let opaque = ModelState::new(false, -1., 5, 6).unwrap();
+        assert_eq!(opaque.mesh_state(false, false).unwrap().queue, Queue::Opaque);
+        // The texture flag pair only alpha-routes when BOTH bytes are set.
+        assert_eq!(opaque.mesh_state(false, true).unwrap().queue, Queue::Opaque);
+        assert_eq!(opaque.mesh_state(true, true).unwrap().queue, Queue::Alpha);
+        // Model transparency 0 routes every mesh to alpha before the flags.
+        let clear = ModelState::new(false, 0., 5, 6).unwrap();
+        assert_eq!(clear.mesh_state(false, false).unwrap().queue, Queue::Alpha);
+        // A fully transparent or invisible model hides every mesh.
+        let gone = ModelState::new(false, 1., 5, 6).unwrap();
+        assert_eq!(gone.mesh_state(true, true).unwrap().queue, Queue::Hidden);
+        let hidden = ModelState::new(true, -1., 5, 6).unwrap();
+        assert_eq!(hidden.mesh_state(false, false).unwrap().queue, Queue::Hidden);
+        // The authored blend pair is a model field, so it moves all meshes.
+        let authored = ModelState::new(false, -1., 2, 6).unwrap();
+        assert_eq!(authored.mesh_state(false, false).unwrap().queue, Queue::Alpha);
+    }
+    #[test]
+    fn nonfinite_model_transparency_is_rejected_not_silently_opaque() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert!(ModelState::new(false, bad, 5, 6).is_err(), "{bad}");
+        }
+        assert!(ModelState::new(false, 0., 5, 6).is_ok());
+        // Unsupported authored blend codes still fail when state is requested.
+        assert!(ModelState::new(false, -1., 11, 6).unwrap().mesh_state(false, false).is_err());
     }
 }

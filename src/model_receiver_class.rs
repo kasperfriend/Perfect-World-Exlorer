@@ -269,6 +269,67 @@ pub const MATRIX: &[MatrixRow] = &[
     },
 ];
 
+/// Recovered 1.4.2 state block at `0x41a2f0`. It is the only state block in
+/// the executable that could be mistaken for a third model queue, and it is
+/// not one: the block reaches the device only as the state callback argument
+/// of the dynamic-geometry submitter `0x416ab0` (`push $0x41a2f0` at
+/// `0x41a5b5`), and the only code that makes that call is `0x41a5a0`, whose
+/// sole caller is `0x6d17ad` in the effect-record draw path (locals at
+/// `+0x2bc..+0x2e0`). No CECModel mesh submitter (`0x7a85d0`, `0x7a9120`,
+/// `0x7a9730`, or a `0x42b3xx-0x42c7xx` pass function) passes it, so the block
+/// draws alpha-tested, unblended effect sprites only. Receiving models are
+/// therefore classified into the opaque and alpha queues and nothing else.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SpecialState {
+    /// Native entry point that issues the state writes.
+    pub address: u32,
+    pub zenable: bool,
+    pub zwrite: bool,
+    pub alpha_test: bool,
+    pub blend: bool,
+    /// `D3DRS_ALPHAFUNC` value exactly as written by `0x77a360`.
+    pub alpha_func: u32,
+    /// `D3DRS_ALPHAREF` value written by `0x77a380`.
+    pub alpha_ref: u32,
+    /// Whether any receiving-model submitter passes this block. Recovered
+    /// false; a `true` here would mean the matrix is missing a third queue.
+    pub receiving_model_submitter: bool,
+}
+
+/// The block's recovered field values in write order: ZENABLE 1, ZWRITEENABLE
+/// 1, ALPHATESTENABLE 1, ALPHABLENDENABLE 0, ALPHAFUNC 7, ALPHAREF `0x54`,
+/// then `0x792fc0(arg, 3, 0)`.
+pub const SPECIAL_STATE_BLOCK: SpecialState = SpecialState {
+    address: 0x41a2f0,
+    zenable: true,
+    zwrite: true,
+    alpha_test: true,
+    blend: false,
+    alpha_func: 7,
+    alpha_ref: 0x54,
+    receiving_model_submitter: false,
+};
+
+/// Receiving models never use fixed-function lighting. Every mesh submitter
+/// turns `D3DRS_LIGHTING` off (`0x77a3c0(0)` at `0x7a914b` and `0x7a9759`)
+/// before its draw and restores `1` in its tail (`0x7a96a3`, `0x7a99f9`);
+/// none of the model pass functions in `0x42b3xx-0x42c7xx` calls `0x77a3c0`
+/// with `1`. There is consequently no fixed-function receiver variant to
+/// implement, and the `D3DRS_LIGHTING` writes in the alpha/overlay brackets
+/// (`0x7844d0`, `0x7845f0`) only surround the vertex-shader draw.
+pub const RECEIVERS_USE_FIXED_FUNCTION_LIGHTING: bool = false;
+
+impl MeshKind {
+    /// Whether the inspected retail corpus ships this mesh kind at all. The
+    /// census of the private 1.4.2 archive counts 13,820 skin and 1,988 rigid
+    /// meshes and **zero** morph, supple or muscle meshes, so the explicit
+    /// rejection in `assign` is a fail-closed guard for non-retail data rather
+    /// than a behaviour the shipped client exercises.
+    pub fn retail_present(self) -> bool {
+        matches!(self, MeshKind::Weighted | MeshKind::Rigid)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -357,5 +418,31 @@ mod tests {
         assert!(attenuation_denominator([f32::NAN, 0., 0.], 1.).is_none());
         assert!(Variant::SpecularPoint.attenuation_floor_one());
         assert!(!Variant::NonSpecularPoint.attenuation_floor_one());
+    }
+    #[test]
+    fn special_state_block_belongs_to_effect_sprites_not_models() {
+        assert_eq!(SPECIAL_STATE_BLOCK.address, 0x41a2f0);
+        assert!(SPECIAL_STATE_BLOCK.zenable && SPECIAL_STATE_BLOCK.zwrite);
+        assert!(SPECIAL_STATE_BLOCK.alpha_test);
+        assert!(!SPECIAL_STATE_BLOCK.blend);
+        assert_eq!(SPECIAL_STATE_BLOCK.alpha_func, 7);
+        assert_eq!(SPECIAL_STATE_BLOCK.alpha_ref, 0x54);
+        assert!(!SPECIAL_STATE_BLOCK.receiving_model_submitter);
+        // No receiving model is left without an ordinary/alpha assignment.
+        for row in MATRIX.iter().filter(|r| r.recipient == Recipient::OrdinaryModel) {
+            assert!(row.variant.is_some(), "{row:?}");
+            assert!(!row.exclusion.is_empty(), "{row:?}");
+        }
+        assert!(!RECEIVERS_USE_FIXED_FUNCTION_LIGHTING);
+    }
+
+    #[test]
+    fn morph_and_supple_are_named_but_absent_from_the_retail_corpus() {
+        assert!(MeshKind::Weighted.retail_present());
+        assert!(MeshKind::Rigid.retail_present());
+        for kind in [MeshKind::Morph, MeshKind::Supple] {
+            assert!(!kind.retail_present(), "{kind:?}");
+            assert!(assign(kind, true, true).is_err(), "{kind:?}");
+        }
     }
 }

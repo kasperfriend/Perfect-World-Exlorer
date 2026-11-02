@@ -728,3 +728,93 @@ all 13 GPU regressions passed, Windows x64 build succeeded, and the requirement
 audits (`tools/test_phase1_ready.py`, `tools/test_eight_phase_status.py`,
 `tools/check-eight-phase-status.py`) report `errors: []` with the P1.01
 decision and checkbox in agreement.
+
+## 14. Third pass: closing P1.02/P1.03 (supersedes §13.7)
+
+§13.7 recorded P1.02 and P1.03 as open. The three questions left there are answered
+below from the executable, and the code now carries the answers as tested data.
+
+### 14.1 Receiving-model inputs are model-level, not mesh-level
+
+`0x7a5830` is called once per mesh group (`0x7a5be5`, `0x7a5c28`, `0x7a5c68`,
+`0x7a5ca3`, `0x7a5cd8`) but reads its scalar inputs from the **model instance**
+passed down as the first argument (`ebp = 0x5c(%esp)`):
+
+* `invisible` — byte `+0x9` (`0x7a5857`);
+* `transparency` — float `+0xc`, compared with 1.0 at `0x7a583d` and 0.0 at
+  `0x7a588c`;
+* authored blend pair — `+0x2a4`/`+0x2a8` (`0x7a58a6`/`0x7a58b3`), read from the
+  same object (`edi = 0x5c(%esp)`).
+
+Only the shader/alpha texture flags are per mesh: the texture vtable call
+`*0x1c(%eax)` at `0x7a5871` returns a record whose `+0x36` (shader texture) and
+`+0x35` (alpha texture) bytes set the local flag at `0x7a5878-0x7a5886`, and both
+must be set for the alpha-shader rule. There is therefore **no per-mesh
+transparency source to recover** in 1.4.2; the earlier "mesh-level transparency"
+gap was a search for a field that does not exist.
+
+Implemented: `model_queue::ModelState` holds the model-level fields and
+`ModelState::mesh_state(shader_texture, alpha_texture)` classifies one mesh.
+`ModelState::new` rejects non-finite transparency instead of classifying it: the
+client's `fcomps` leaves an unordered compare with the flags it tests cleared, so a
+NaN model takes its alpha branch while Rust's `>=` would fall through to the blend
+pair. `model_draw_gpu` now builds the state from the model and per-mesh texture
+flags explicitly (`model_level_fields_and_mesh_texture_flags_stay_separate`,
+`nonfinite_model_transparency_is_rejected_not_silently_opaque`).
+
+### 14.2 Morph/supple are fail-closed guards, not missing retail behaviour
+
+`src/model_receiver_class.rs::assign` rejects `MeshKind::Morph` and
+`MeshKind::Supple`. The census in `Findings/Phase-1-model-material-census.md`
+counts 13,820 skin and 1,988 rigid meshes and **zero** morph, supple or muscle
+records across the full archive, so no retail asset can reach that rejection.
+`MeshKind::retail_present()` states this next to the type, and
+`morph_and_supple_are_named_but_absent_from_the_retail_corpus` pins it.
+
+### 14.3 No receiving model uses the fixed-function pipeline
+
+Every mesh submitter turns `D3DRS_LIGHTING` off (`0x77a3c0(0)`) before it draws —
+`0x7a914b` in the `0x7a9120` submitter and `0x7a9759` in the `0x7a9730` submitter —
+and restores `1` in its tail (`0x7a96a3`, `0x7a99f9`). None of the model pass
+functions in `0x42b3xx-0x42c7xx` calls `0x77a3c0` with 1, and the alpha/overlay
+bracket's writes (`0x784510`, restore `0x78466e`) surround the vertex-shader draw.
+`RECEIVERS_USE_FIXED_FUNCTION_LIGHTING` records the conclusion; there is no
+alternative pipeline to implement for receivers.
+
+### 14.4 The special state block is an effect-sprite block
+
+`0x41a2f0` is not vtable-only. Its address is pushed as the state callback of the
+dynamic-geometry submitter `0x416ab0` at `0x41a5b5`, and the only code that reaches
+`0x41a5a0` is `0x6d17ad`, inside the effect-record draw path (locals
+`+0x2bc..+0x2e0`, before the effect transform and the `0x792e00`/`0x792fc0`
+submits). No CECModel mesh submitter (`0x7a85d0`, `0x7a9120`, `0x7a9730`, or a
+`0x42b3xx-0x42c7xx` pass function) passes it. The block therefore draws
+alpha-tested, unblended effect sprites with ZENABLE/ZWRITE on; receiving models have
+exactly two queues. `SPECIAL_STATE_BLOCK` and
+`special_state_block_belongs_to_effect_sprites_not_models` pin the values (ZENABLE
+1, ZWRITE 1, ALPHATEST 1, ALPHABLEND 0, ALPHAFUNC 7, ALPHAREF `0x54`) and the
+exclusion. The effect-sprite draw itself is visual-effect-graph work (P7), not model
+submission.
+
+### 14.5 Final verdicts
+
+* **P1.01 — Yes** (unchanged from §13.7).
+* **P1.02 — Yes.** Every receiving class the inspected client draws is implemented
+  and tested: ordinary weighted/rigid meshes, four shader variants, per-variant
+  constants, attenuation floor, c8.a rules, alpha routing, explicit exclusions for
+  baked BMD/terrain/grass/tree, and fail-closed rejection for morph/supple (absent
+  from retail data). The remaining "per-mesh transparency" item was resolved as
+  non-existent; the "fixed-function alternative" item was resolved as unused.
+* **P1.03 — Yes.** Ordinary and alpha queues, required blend/alpha-test/depth/order
+  states, runtime FX publications into production receivers, and one
+  lighting/playback snapshot shared by main/reflection/refraction. The "special
+  queue" item was resolved as an effect-sprite block that never draws a receiving
+  model.
+
+Verification for this pass: `python3 tools/check-eight-phase-status.py`
+(`consistent: true`, `errors: []`, Implemented 18 / Partial 56 / Not implemented 2),
+`tools/test_eight_phase_status.py` (5 tests OK), `tools/test_phase1_ready.py`
+(7 tests OK), `tools/check-phase1-ready.py` (`ready: true`, `unfinished: []`,
+`errors: []`), and the CI run for this commit for
+`cargo fmt --check`, `cargo test --bin perfect-world-explorer`, the GPU binaries and
+the Windows build.

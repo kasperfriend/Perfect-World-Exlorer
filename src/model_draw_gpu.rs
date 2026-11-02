@@ -196,19 +196,22 @@ impl Draw {
             };
             loaded.push((texture, alpha_texture));
         }
-        // Queue classification uses the recovered 1.4.2 rule. Mesh-level
-        // transparency is not parsed by the current SKI reader, so the caller's
-        // frame value is the only transparency input.
+        // Queue classification uses the recovered 1.4.2 rule. `0x7a5830`
+        // reads `invisible`, `transparency` and the authored blend pair from
+        // the model instance and the shader/alpha texture flags from the mesh's
+        // texture record; the model instance carries a single alpha, so there
+        // is no separate per-mesh transparency input to look for. The SKI
+        // reader recovers only the alpha flag, so the shader flag stays false
+        // instead of being inferred from the alpha channel.
+        let model = model_queue::ModelState::new(
+            false,
+            frame.lighting.transparency,
+            settings.source_blend,
+            settings.destination_blend,
+        )?;
         let mut states = Vec::with_capacity(prepared.len());
         for (_, alpha_texture) in &loaded {
-            states.push(model_queue::mesh_state(
-                false,
-                frame.lighting.transparency,
-                settings.source_blend,
-                settings.destination_blend,
-                false,
-                *alpha_texture,
-            )?);
+            states.push(model.mesh_state(false, *alpha_texture)?);
         }
         let receiver = if frame.blend_enabled {
             raster::Receiver::new(device, format, depth, depth_write)
