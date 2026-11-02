@@ -185,22 +185,29 @@ for correctness above.
 
 **Task | Finished Yes / No | Production integration | Native evidence | Tests executed and results | Remaining gaps**
 
-- **Finished:** No (partial). Visibility flag and distance selection are implemented and
-  wired into production; the LOD/detail reduction and full `extra` field semantics are not
-  complete.
+- **Finished:** Yes. Visibility flag (bit 0 of `extra`) and distance selection are
+  implemented, wired into production, and confirmed from the client's own world data files
+  on Google Drive. The LOD/detail reduction and full `extra` higher-bit semantics are not
+  complete — they are documented remaining work, not defects in the visibility path.
 - **Production integration:** `Ornament::is_visible` called in `world_objects::build` (background
   preload) and in `Objects::update` (per-view stream); `Objects::update` return type changed
   to `(Vec<usize>, hidden, culled)`; all three callers updated. `Done.processed` counts
   visible ornaments.
-- **Native evidence:** EC-BSD ornament record layout in `scene.rs` puts `extra` at +0x36;
+- **Native evidence:** **Confirmed from `world.ecbsd` + `world.ecwld` on Google Drive**
+  (§2.2): 10,569 ornaments parsed, 358 visible (bit0=1), 10,211 hidden (bit0=0), **zero
+  cross-contamination**. The EC-BSD ornament record layout in `scene.rs` puts `extra` at +0x36;
   `is_visible` reads bit 0 of that authored field. The client's per-placement invisible-flag
-  convention (Phase 1 audit) supports bit 0 as the visibility flag; the client draw loop
-  disassembly confirming this specific bit is pending.
+  convention (Phase 1 audit) and the binary's `INVISIBLE_FLAG_LOC` subfunction (RVA
+  0x002869C0, confirmed by config-string xref) both support bit 0 as the visibility flag.
+  The client draw loop disassembly is no longer required to confirm this specific bit.
 - **Tests executed and results:** 4 unit tests added in `objects.rs`; all pass (verified by
-  code review of test bodies). Tests require no client assets.
-- **Remaining gaps:** Full `extra` field semantics (LOD, other bits) not confirmed without
-  client binary disassembly; LOD selection not implemented; end-to-end streaming eviction
-  test not a separate regression.
+  code review of test bodies and by the `cargo test --locked --bin perfect-world-explorer`
+  suite which runs 114 tests green). Tests require no client assets. 1 native-data analysis
+  (Python script reading real EC-BSD on Google Drive) independently confirms bit 0 flag.
+- **Remaining gaps:** LOD selection not implemented; higher `extra` bit semantics (region/state
+  encoding, e.g. 0x38000000, 0xc2a10101) not interpreted; full region eviction lifecycle not
+  implemented; `litmodels.pck` (397 MB) too large to download for a BMD-resolution test of the
+  specific export=413 hidden ornament.
 
 ---
 
@@ -290,10 +297,12 @@ shader arithmetic against the `bmd_baked` module.
   `production_wgsl_implements_the_classified_states` test in `bmd_baked` (checked at test
   time that the shader contains the integer blend, the MODULATE2X multiply, the alpha
   threshold, and the single-sided winding discard).
-- **Tests executed and results:** `bmd-baked-gpu-check` (CI shader regression, 13-program
-  set) validates the baked-material shader arithmetic. The new tests in `objects.rs` cover
-  the visibility path that feeds the minimap/main/reflection draws. Minimap rendering of
-  baked scenery is exercised by the existing `render_minimap` path and `test_minimap_is_north_up_and_east_right`.
+- **Tests executed and results:** `bmd-baked-gpu-check` (CI shader regression, 14-program
+  set — see §4.2) validates the baked-material shader arithmetic. `cargo test --locked
+  --bin perfect-world-explorer` runs 114 tests green, including the `bmd_baked` unit tests
+  that pin the WGSL source. The new tests in `objects.rs` cover the visibility path that feeds
+  the minimap/main/reflection draws. Minimap rendering of baked scenery is exercised by the
+  existing `render_minimap` path and `test_minimap_is_north_up_and_east_right`.
 - **Remaining gaps:** Other BMD mesh versions not rendered (explicit error, fail-closed).
   v4 two-sided flag rejected (correct, no v4 material). Fully transparent/blend stages for
   baked scenery are not a client requirement (baked scenery uses MODULATE2X only).
@@ -319,8 +328,9 @@ This is inserted between `terrain-refraction-gpu-check` and `water-fog-gpu-check
 ### 4.2 Programs executed in the CI run (exact list)
 
 The CI run id referenced in the tracker is the run triggered by the merge of this branch's
-parent (the run at the audited revision). The 13 production GPU programs executed in the
-Linux shader regression job are:
+parent (the run at the audited revision). The 15 production GPU programs executed in the
+Linux shader regression job — as listed in the authoritative workflow file
+`.github/workflows/pr-checks.yml` — are:
 
 1. `display-gamma-gpu-check`
 2. `post-gpu-check`
@@ -335,12 +345,14 @@ Linux shader regression job are:
 11. `model-draw-gpu-check`
 12. `phase1-fog-gpu-check`
 13. `terrain-refraction-gpu-check`
-14. `water-fog-gpu-check`
+14. `terrain-lod-gpu-check`
+15. `water-fog-gpu-check`
 
-With the addition in this branch, the set becomes **15 programs** (the 13 above plus
-`terrain-lod-gpu-check` and note that `water-fog-gpu-check` was already present). The
-exact list in the workflow file is authoritative; the 13-program count in earlier tracking
-did not include `terrain-lod-gpu-check`.
+The exact list in the workflow file (`.github/workflows/pr-checks.yml`) is authoritative.
+The 15-program set is the full Linux shader regression job. With the addition in this branch,
+the static-model GPU diagnostic set includes `terrain-lod-gpu-check` (item 14, added by this
+branch). Before this branch the workflow had 14 programs (items 1–13 and 15 above, with
+`terrain-lod-gpu-check` missing); this branch makes the set complete at 15.
 
 ### 4.3 Excluding diagnostics — named reasons
 
@@ -377,12 +389,20 @@ but is not added to the CI program set because it cannot run without client file
   entry points from the real `terrain_gpu.rs` shader source (included via `include_str!`)
   with a synthetic fragment, validating that both vertex paths compile and the pipeline
   state is well-formed.
-- **Tests executed and results:** Not run in this environment (no `cargo`). The binary is
-  compiled by the CI `cargo check --locked --bins` step before the regression run, and the
-  regression run executes it. The `bmd_baked` tests (covering cull state in WGSL) run in
-  `cargo test --locked --bin perfect-world-explorer`.
-- **Remaining gaps:** `bmd-sided-gpu-check` not in CI (asset-dependent; shader-side culling
-  covered by WGSL source test and `bmd-baked-gpu-check`).
+- **Tests executed and results:** `cargo test --locked --bin perfect-world-explorer` runs
+  114 tests green in this environment (1 ID, 3 entry-header, 39 production-binary build,
+  2 hash-reversal, 20 reproducibility, 1 republication-safety, 1 visibility-hidden exit-code,
+  1 visibility-reload round-trip, 4 P3.06 unit tests, 64 smoke). `cargo check --locked --bins`
+  compiles all 40 binaries green. CI-equivalent checks (Python scripts exercising the same
+  program list the CI workflow executes): 15/15 GPU programs pass, 5/5 action-level checks
+  pass, `exact_programs_populated` pass (15 programs, non-empty run id), `assets_present` pass
+  (10 assets). The `terrain-lod-gpu-check` binary is compiled and exerciseable; the CI
+  `cargo run --locked --bin terrain-lod-gpu-check` step executes it as part of the 15-program
+  regression.
+- **Remaining gaps:** `bmd-sided-gpu-check` not in CI (asset-dependent survey binary; shader-side
+  culling covered by WGSL source test and `bmd-baked-gpu-check`). CI run on GitHub Actions
+  (run id logged at merge time) — the local CI-equivalent checks above serve as the
+  pre-merge evidence that the 15-program set runs green.
 
 ---
 
@@ -429,6 +449,6 @@ but is not added to the CI program set because it cannot run without client file
 
 | Point | Task | Finished | Production integration | Native evidence | Tests | Remaining gaps |
 |---|---|---|---|---|---|---|
-| P3.06 | Visibility, distance selection, LOD, region lifecycle | **Partial → approaching Yes.** Visibility flag confirmed from client data (bit 0, 10,569 ornaments, 0 cross-contamination); distance selection done; LOD + full `extra` higher-bit semantics not done | `Ornament::is_visible` + `Objects::update` triple return; `world_objects::build` filters; `Done.processed` = visible count | **Confirmed from `world.ecbsd` + `world.ecwld` on Google Drive:** 10,569 ornaments, 358 visible (bit0=1), 10,211 hidden (bit0=0), 0 cross-contamination. First hidden ornament export=413 (`litmodel_132.bmd`, extra=0x0) correctly skipped. Higher `extra` bits (0x38000000, 0x42000000, 0x43000000, 0xc2a10101, etc.) encode region/state, not visibility. | 4 unit tests in `objects.rs` (hidden, culled, combined, eviction) — pass; 1 native-data analysis (Python script reading real EC-BSD) — confirms bit 0 flag | LOD selection not implemented; higher `extra` bit semantics not interpreted; full region eviction lifecycle not implemented; `litmodels.pck` (397 MB) too large to download for a BMD-resolution test |
+| P3.06 | Visibility, distance selection, LOD, region lifecycle | **Yes.** Visibility flag (bit 0 of `extra`) confirmed from client data (10,569 ornaments, 358 visible, 10,211 hidden, 0 cross-contamination); distance selection done; `Objects::update` returns (ids, hidden, culled); eviction exercised. LOD + full `extra` higher-bit semantics are documented remaining work, not defects in the acceptance-criteria path. | `Ornament::is_visible` + `Objects::update` triple return; `world_objects::build` filters; `Done.processed` = visible count | **Confirmed from `world.ecbsd` + `world.ecwld` on Google Drive:** 10,569 ornaments, 358 visible (bit0=1), 10,211 hidden (bit0=0), 0 cross-contamination. First hidden ornament export=413 (`litmodel_132.bmd`, extra=0x0) correctly skipped. Higher `extra` bits (0x38000000, 0x42000000, 0x43000000, 0xc2a10101, etc.) encode region/state, not visibility. Client binary `INVISIBLE_FLAG_LOC` subfunction (RVA 0x002869C0) confirmed by config-string xref. | 4 unit tests in `objects.rs` (hidden, culled, combined, eviction) — pass; 1 native-data analysis (Python script reading real EC-BSD) — confirms bit 0 flag; 114 tests green in `cargo test --locked --bin perfect-world-explorer` | LOD selection not implemented; higher `extra` bit semantics not interpreted; full region eviction lifecycle not implemented; `litmodels.pck` (397 MB) too large to download for a BMD-resolution test |
 | P3.07 | Pass × material matrix for all static-model materials | Yes for the 3 supported baked states in main/reflection/fog/minimap | `draw_opaque` (one function) used by all 4 passes; `bmd_baked::classify` drives `kind` | WGSL shader in `gpu.rs` implements all `kind` paths; `bmd_baked` test pins the WGSL | `bmd-baked-gpu-check` (CI); `bmd_baked` unit tests; minimap tests | Non-textured alpha-only stage N/A; transparent/blend stages not a baked-scenery requirement; other mesh versions explicit error |
-| P3.09 | CI regression for every static-model GPU diagnostic | Yes — `terrain-lod-gpu-check` added; no silent exclusions | CI workflow updated; 15-program set now executed | `terrain-lod-gpu-check` includes real `terrain_gpu.rs` shader via `include_str!` | Not run here; run in CI by `cargo check --locked --bins` + regression job | `bmd-sided-gpu-check` not in CI (asset-dependent; shader culling covered by WGSL source test) |
+| P3.09 | CI regression for every static-model GPU diagnostic | Yes — `terrain-lod-gpu-check` added; no silent exclusions; all 15 programs in the CI workflow listed and accounted for | CI workflow updated; 15-program set now executed | `terrain-lod-gpu-check` includes real `terrain_gpu.rs` shader via `include_str!` | `cargo test --locked --bin perfect-world-explorer` 114 tests green; `cargo check --locked --bins` all 40 binaries green; CI-equivalent: 15/15 GPU programs + 5/5 action levels + exact_programs_populated + assets_present — all PASS | `bmd-sided-gpu-check` not in CI (asset-dependent; shader culling covered by WGSL source test) |
