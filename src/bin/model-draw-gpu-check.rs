@@ -507,6 +507,70 @@ fn main() {
         &world,
         [[64, 128, 191, 136], [191, 64, 128, 136]],
     );
+    // Publication -> scene query -> weighted/rigid receiver GPU draw. Match
+    // the independently specified static .5 ambient case above: .2*2.5=.5;
+    // material diffuse RGB is zero, so the dynamic diffuse is irrelevant.
+    let published = scene_lights::DynamicLight {
+        position: [0., 0., 0.5],
+        radius: 2.,
+        color: [2.5, 2.5, 2.5, 1.],
+    };
+    world.publish_dynamic_light(
+        7,
+        scene_lights::DynamicLight {
+            color: [0.; 4],
+            ..published
+        },
+    );
+    world.publish_dynamic_light(7, published);
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        0,
+    );
+    check(
+        &device,
+        &queue,
+        &world,
+        [[64, 128, 191, 136], [191, 64, 128, 136]],
+    );
+    // Consumed membership is reset, not a persistent-active-light list.
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        0,
+    );
+    check(
+        &device,
+        &queue,
+        &world,
+        [[32, 64, 96, 136], [96, 32, 64, 136]],
+    );
+    world.publish_dynamic_light(7, published);
+    world.unregister_dynamic_light(7);
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        0,
+    );
+    check(
+        &device,
+        &queue,
+        &world,
+        [[32, 64, 96, 136], [96, 32, 64, 136]],
+    );
     assert_eq!(world.status(), (1, 0, 1));
     let mut unsupported = opaque_dim;
     unsupported.blend_enabled = true;

@@ -1410,3 +1410,37 @@ bytes, normalized normals, virtual slot, >255 skeleton indices and invalid
 inputs. New GPU/Windows validation pending; do not treat it as passed yet.
 **Confirmation: rigid pose CPU implementation Yes; full P1.02/P1.03 No**
 until GPU validation and the remaining receiving/material/lifecycle paths.
+
+
+CI `41459370262` / `b452e05` completed SUCCESS (Linux including the
+expanded actual-pose rigid/weighted production GPU fixture; Windows build).
+48 native tests passed; all 73 world placements still pass five clock/pose/
+draw checkpoints. **Confirmation: supported ordinary rigid receiver path Yes**;
+full P1.02/P1.03 still No for remaining classes/materials/runtime producers.
+
+## Native FX publication consumption/reset (not persistent-active membership)
+
+Verified retail `0x425bf8..0x425c2c`: after dynamic-cell construction,
+iterate the manager publications, clear each object's +0x1a8 insertion flag,
+then erase the complete ordered vector. This agrees with the related
+1.5.2 SceneLights.cpp's explicit ClearLightParamList call after consumption.
+A live object must publish again at a later eligible tick. Destruction
+before consumption removes its pending entry (`0x70b130`); duplicate
+publications update params without moving the first insertion position
+(`0x70bd20`). Do not confuse live FX lifetime with queue membership.
+
+Implemented the ordered publication bridge and connected its consume step
+to ordinary World::update, replacing unconditional update_dynamic(&[]).
+Public producer-facing publish/unregister methods preserve identity/order;
+no publications produce an empty dynamic grid on the next update. This is
+not a GFX controller player and does not manufacture lights for unsupported
+FX. Added two core lifecycle regressions (78 core tests now pass), including
+next-update expiration, re-publication, duplicate latest params, destruction,
+ordered removal and the three-candidate-per-cell cap. Added GPU bridge
+fixtures for duplicate params, actual weighted+rigid scene queries, next-
+update disappearance and destruction before consumption. The .5 ambient
+oracle matches the independently authored static-light fixture, with dynamic
+ambient .2*2.5 and zero material diffuse RGB; no tolerance relaxation.
+New bridge GPU validation pending. **Confirmation: publication lifecycle CPU
+Yes; full P1.01 No** until real GFX controller/producer integration and its
+lifetime/visibility/parent transform verification. Continue implementation.

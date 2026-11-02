@@ -3,7 +3,7 @@
 //! Never sends baked terrain/BMD/tree vertices through receiving-model lighting.
 use crate::{
     model_draw_gpu::{Draw, Frame},
-    scene_lights::{SceneLights, StaticGrid},
+    scene_lights::{DynamicLight, LightPublications, SceneLights, StaticGrid},
     world_models::Assets,
 };
 use std::{collections::HashMap, fs::File, path::Path};
@@ -20,6 +20,7 @@ pub struct World {
     sampler: wgpu::Sampler,
     format: wgpu::TextureFormat,
     grid: StaticGrid,
+    publications: LightPublications,
 }
 impl World {
     pub fn new(
@@ -92,7 +93,17 @@ impl World {
             sampler,
             format: format.remove_srgb_suffix(),
             grid: StaticGrid::default(),
+            publications: LightPublications::default(),
         })
+    }
+    /// Publish after an eligible FX tick, before this world's lighting update.
+    /// The producer owns stable identities and must unregister on destruction.
+    /// This bridge does not itself execute GFX controllers or invent lights.
+    pub fn publish_dynamic_light(&mut self, identity: u64, light: DynamicLight) {
+        self.publications.publish(identity, light);
+    }
+    pub fn unregister_dynamic_light(&mut self, identity: u64) {
+        self.publications.unregister(identity);
     }
     pub fn update(
         &mut self,
@@ -105,9 +116,9 @@ impl World {
         delta_ms: u32,
     ) {
         self.grid.update(lights, center);
-        // No invented runtime effect lights. Their production/lifetime is an
-        // open gate; this world harness currently supplies the static list only.
-        self.grid.update_dynamic(&[]);
+        // Consume once per lighting update. No publication means no dynamic
+        // candidates; a live but ineligible/unticked FX must not leak a light.
+        self.publications.consume_into(&mut self.grid);
         for (instance, slot) in self.assets.instances.iter_mut().zip(&mut self.slots) {
             if slot.failed {
                 continue;

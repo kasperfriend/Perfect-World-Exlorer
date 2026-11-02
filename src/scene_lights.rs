@@ -1,7 +1,7 @@
 //! Retail CECSceneLights version 0x80000001 file records.
 //! Client scene-light grid and candidate selection in 0x425470 / 0x4250c0.
-//! Runtime effect lights can be supplied to the query; the affected animated
-//! model/effect rendering paths are not yet connected.
+//! Published runtime lights feed ordinary world-model queries. GFX controller
+//! playback/production is a separate, still unfinished integration path.
 use std::{fs, path::Path};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,6 +93,33 @@ pub struct DynamicLight {
     pub radius: f32,
     /// RGBA vector at runtime-light offset +4; alpha is an intensity factor.
     pub color: [f32; 4],
+}
+
+/// Per-consumption GFX publication queue, not the set of live FX objects.
+/// Retail AddLightParam suppresses duplicate insertion by object identity;
+/// params may change while the first insertion position is retained. The
+/// consumer clears publication membership after building dynamic cells
+/// (0x425bf8..0x425c2c), so live objects must publish again next update.
+#[derive(Default, Debug)]
+pub struct LightPublications {
+    entries: Vec<(u64, DynamicLight)>,
+}
+impl LightPublications {
+    pub fn publish(&mut self, identity: u64, light: DynamicLight) {
+        if let Some((_, current)) = self.entries.iter_mut().find(|(id, _)| *id == identity) {
+            *current = light;
+        } else {
+            self.entries.push((identity, light));
+        }
+    }
+    /// Destroy/unregister before consumption, preserving other insertion order.
+    pub fn unregister(&mut self, identity: u64) {
+        self.entries.retain(|(id, _)| *id != identity);
+    }
+    pub fn consume_into(&mut self, grid: &mut StaticGrid) {
+        let lights: Vec<_> = self.entries.drain(..).map(|(_, light)| light).collect();
+        grid.update_dynamic(&lights);
+    }
 }
 
 /// Static file-light grid. The client rebuilds a 10x10 grid of 12-unit
@@ -312,6 +339,73 @@ mod tests {
         }
     }
 
+    #[test]
+    fn publications_overwrite_in_first_order_and_clear_after_consumption() {
+        let light = |x| DynamicLight {
+            position: [x, 0., 0.],
+            radius: 20.,
+            color: [1.; 4],
+        };
+        let mut q = LightPublications::default();
+        let mut grid = StaticGrid::default();
+        grid.update(&SceneLights::default(), [0.; 3]);
+        q.publish(7, light(1.));
+        q.publish(8, light(2.));
+        q.publish(7, light(3.));
+        q.consume_into(&mut grid);
+        assert_eq!(
+            grid.dynamic
+                .iter()
+                .map(|l| l.position[0])
+                .collect::<Vec<_>>(),
+            [3., 2.]
+        );
+        assert!(q.entries.is_empty());
+        // Still-live object is eligible for a fresh insertion after consume.
+        q.publish(7, light(4.));
+        q.consume_into(&mut grid);
+        assert_eq!(grid.dynamic.len(), 1);
+        assert_eq!(grid.dynamic[0].position[0], 4.);
+        q.consume_into(&mut grid);
+        assert!(grid.dynamic.is_empty());
+        assert!(grid.dynamic_cells.iter().all(Vec::is_empty));
+    }
+    #[test]
+    fn publication_destruction_and_cell_cap_preserve_source_order() {
+        let mut q = LightPublications::default();
+        let mut grid = StaticGrid::default();
+        grid.update(&SceneLights::default(), [0.; 3]);
+        for id in 0..5 {
+            q.publish(
+                id,
+                DynamicLight {
+                    position: [id as f32, 0., 0.],
+                    radius: 100.,
+                    color: [1.; 4],
+                },
+            );
+        }
+        q.unregister(1);
+        q.unregister(999);
+        q.publish(
+            1,
+            DynamicLight {
+                position: [9., 0., 0.],
+                radius: 100.,
+                color: [1.; 4],
+            },
+        );
+        q.consume_into(&mut grid);
+        assert_eq!(
+            grid.dynamic
+                .iter()
+                .map(|l| l.position[0])
+                .collect::<Vec<_>>(),
+            [0., 2., 3., 4., 9.]
+        );
+        assert!(grid.dynamic_cells.iter().all(|c| c == &[0, 1, 2]));
+        assert!(q.entries.is_empty());
+    }
     #[test]
     fn candidate_range_is_not_a_query_cutoff_and_night_does_not_change_priority() {
         let first = fixture([0., 100., 0.], 1.);
