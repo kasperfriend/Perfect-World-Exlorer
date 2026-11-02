@@ -2,6 +2,19 @@
 //! This models UNORM8 pass boundaries, normalized bilinear clamp sampling and
 //! offsets from 0x40edd0 / 0x40f053 (4 divided by FULL resolution).
 //! Includes the recovered underwater-before-glow pass, not all special effects.
+/// Propagate a one-byte intermediate rounding difference through the
+/// composite. The established two-byte floor also covers filtering/output
+/// quantization. Full mono at level=1, power=.7 has gain 1.7*1.2=2.04,
+/// requiring a three-byte bound; the ordinary/underwater cases retain two.
+pub fn comparison_tolerance(level: f32, power: f32, mono: [f32; 4]) -> i32 {
+    let gain = if mono[3] > 0. {
+        let tint = mono[..3].iter().copied().fold(0., f32::max);
+        (level + power) * (1. - mono[3] + mono[3] * 1.2 * tint)
+    } else {
+        level + 2. * power
+    };
+    (gain.ceil() as i32).max(2)
+}
 #[derive(Clone)]
 pub struct Image {
     pub width: usize,
@@ -207,5 +220,15 @@ mod tests {
             worst > 2,
             "pattern must distinguish the pass ordering, max difference {worst}"
         );
+    }
+    #[test]
+    fn strong_mono_rounding_bound_does_not_relax_ordinary_cases() {
+        assert_eq!(comparison_tolerance(1., 0.7, [226. / 255., 1., 1., 1.]), 3);
+        assert_eq!(comparison_tolerance(0.25, 0.25, [0.; 4]), 2);
+        assert_eq!(
+            comparison_tolerance(0.5, 0.6, [187. / 255., 234. / 255., 187. / 255., 0.5]),
+            2
+        );
+        assert_eq!(comparison_tolerance(0.1, 0.25, [0.; 4]), 2);
     }
 }

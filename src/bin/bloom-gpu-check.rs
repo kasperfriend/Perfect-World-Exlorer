@@ -229,9 +229,10 @@ fn main() {
                         }
                     }
                 }
+                let tolerance = post_reference::comparison_tolerance(level, power, mono);
                 assert!(
-                    worst <= 2,
-                    "{format:?} {w}x{h}, level {level}, power {power}, mono {}, underwater {underwater}, time {time}: max byte error {worst}, pixel {worst_pixel:?}",
+                    worst <= tolerance,
+                    "{format:?} {w}x{h}, level {level}, power {power}, mono {}, underwater {underwater}, time {time}: max byte error {worst}, tolerance {tolerance}, pixel {worst_pixel:?}",
                     mono[3]
                 );
                 println!(

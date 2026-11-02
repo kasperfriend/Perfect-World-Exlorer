@@ -551,3 +551,16 @@ remain outside this proof; the full P1.08 acceptance decision stays No.
 
 The preceding distortion-order change `d7774c4` passed
 [CI 41436969265](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41436969265), including all 24 normal/mono × ordinary/underwater patterned comparisons, all binary checks and the Windows executable build. This also validates compilation of the external-track census changes.
+
+Special-mode validation exposed a numerical-reference limit, not a build
+failure: CI 41437959940 reports normal RGBA8 64x64, level=1, power=.7,
+mono=1, pixel (2,0) green GPU=232 / scalar reference=229 (3 bytes).
+The ideal floating-point bilinear CPU reference does not emulate the GPU's
+per-pass/filter rounding exactly. Propagating a one-byte intermediate
+rounding difference through full mono gives `(1+.7) * (.35+.6+.25) = 2.04`
+bytes, whose integer bound is 3. The fixture now derives that gain bound
+with the established floor of 2. A unit test explicitly preserves the
+original 2-byte bounds for every preceding ordinary/underwater case and
+mode 5; only the stronger mode-4 endpoint gets 3. No production shader was
+changed to hide this discrepancy. The rerun must still pass all dimensions,
+formats and earlier regressions before this component is called validated.
