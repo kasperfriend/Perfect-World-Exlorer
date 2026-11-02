@@ -411,10 +411,31 @@ fn main() {
         );
         queue.submit(Some(encoder.finish()));
         let px = read_target(&device, &target);
-        let center = (target.size as usize / 2) * target.size as usize * PADDED_ROW as usize
-            + (target.size as usize / 2) * 4;
-        let rgb = [px[center], px[center + 1], px[center + 2]];
-        println!("{name}: terrain RGB={rgb:?}");
+        // The refraction view compresses geometry toward the clip plane, so a
+        // single centre pixel is not comparable between views. Use the dominant
+        // non-black colour: every view shades the same layer stack over the same
+        // surface, so the most common shaded colour must match.
+        let mut counts: std::collections::HashMap<[u8; 3], usize> = Default::default();
+        for row in 0..target.size as usize {
+            let base = row * PADDED_ROW as usize;
+            for col in 0..target.size as usize {
+                let i = base + col * 4;
+                let rgb = [px[i], px[i + 1], px[i + 2]];
+                if rgb != [0, 0, 0] {
+                    *counts.entry(rgb).or_default() += 1;
+                }
+            }
+        }
+        let rgb = counts
+            .iter()
+            .max_by_key(|(_, n)| **n)
+            .map(|(c, _)| *c)
+            .unwrap_or([0, 0, 0]);
+        let covered: usize = counts.values().sum();
+        println!(
+            "{name}: dominant terrain RGB={rgb:?} over {covered} covered pixels, {} distinct",
+            counts.len()
+        );
         sampled.push((name, rgb));
     }
 
@@ -592,10 +613,13 @@ fn write_camera(
     words[33] = 0.;
     words[34] = 0.;
     words[35] = -1.;
-    // camera.light = (ambient, diffuse, specular, 1). The reflected view uses
-    // the dimmer mirrored set.
-    words[36] = if reflected { 0.25 } else { 0.5 };
-    words[37] = if reflected { 0.25 } else { 0.5 };
+    // camera.light = (ambient, diffuse, specular, 1). Held identical across all
+    // views on purpose: the claim under test is that a view does not change what
+    // the terrain looks like for a given world position, so the comparison must
+    // not inject a per-view lighting difference of its own.
+    let _ = reflected;
+    words[36] = 0.5;
+    words[37] = 0.5;
     words[38] = 1.;
     words[39] = 1.;
     // fog_range.z = 0 disables fog, so no view gains a per-view fog term.
