@@ -273,6 +273,23 @@ Also re-verified during this work (data, not code): `world.trn2` parses as
 units, 88 subterrains of 16×16 blocks — consistent with `0x1c4 = 64` and
 `0x1c8 = 64 × 0.7071`.
 
+### Cost of the recovered rule (measured, not estimated)
+
+For the shipped world (128 × 176 blocks of 64 units), camera at block
+`(75.4, 90.2)`, default window 7 (15 × 15 = 225 blocks), using the same
+functions the renderer calls (`window`, `level_at`, `block_surface`):
+
+| Level | Blocks | Triangles |
+|---|---|---|
+| 3 (step 1) | 39 | 79 424 |
+| 2 (step 2) | 63 | 31 888 |
+| 1 (step 4) | 123 | 15 744 |
+| total | 225 | **127 056**, 69 825 vertices |
+
+The previous viewer approximation emitted every block at full resolution
+plus a step-4 whole-world mesh: 460 800 triangles and 245 025 vertices for the
+same window alone (14.7 MB of 60-byte vertices vs 4.2 MB now).
+
 ---
 
 ## 6. Interface changes other agents must know
