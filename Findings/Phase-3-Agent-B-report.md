@@ -234,13 +234,29 @@ The evidence actually produced here, and the CI run that produces the rest:
 | `python3 tools/test_eight_phase_status.py` | local | `Ran 5 tests … OK` ✓ |
 | `python3 tools/check-eight-phase-status.py` | local | `errors: []`, `complete_phases: []` ✓ |
 
-CI (run **41520738614**, PR #6) executes the rest: `cargo fmt --all -- --check`,
-`cargo check --locked --bins`, `cargo test --locked --bin perfect-world-explorer`
-(which is where the eight `bmd_baked` tests run) and the lavapipe shader
-regressions including the extended `bmd-sided-gpu-check`. Results are recorded
-in the PR conversation for the final commit; the repository's house rule is to
-report the CI numbers, not a local run, and that is what §0 asks the reader to
-do.
+CI executed the rest on this branch. The sequence, including one real defect the
+run caught, is:
+
+| Run | Head | Result |
+|---|---|---|
+| 41520738614 | first commit | `Check formatting` **failed** — `bmd_baked.rs` test asserts were not in rustfmt's shape |
+| (formatting helper, deleted) | `131c642` | `cargo fmt --all` applied; only `src/bmd_baked.rs` changed |
+| 41521409838 | `249ec9e` | `Check formatting` ✓, `Verify recovered regional arithmetic on x87` ✓, `Test requirement status audits` ✓, `Check all binary targets` ✓ (`cargo check --locked --bins`), `Test GFX light dependency audit` ✓, `Run viewer unit tests` **failed** |
+| 41522066048 | `ddc3839` | `Viewer unit tests` ✓, `Baked scenery raster regression` ✓ (`bmd-sided-gpu-check` on lavapipe) |
+
+The unit-test failure was real and is fixed in `ddc3839`:
+`cutout_reference(u32::MAX)` multiplied in 32 bits and panicked on overflow in a
+debug build ("attempt to multiply with overflow"); the client's `imul` at
+`0x7a9910` is 32x32→64, so the function now widens to `u64` before the
+multiply. After the fix, the eight `bmd_baked` tests and every pre-existing
+viewer unit test pass, and the extended `bmd-sided-gpu-check` passes on lavapipe
+— the six-instance expectation table of §3 is therefore confirmed by raster
+output, not only by the Python oracle.
+
+Two temporary, review-only workflows were used to get feedback into this sandbox
+(`cargo fmt` and the failure text, because Actions logs and check annotations
+are not reachable from it). Both are deleted before handoff and contribute no
+product code; the formatting they produced is kept.
 
 ## 7. Remaining unsupported cases and assumptions
 
