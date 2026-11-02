@@ -11,9 +11,9 @@ No phase is fully complete. The [full 76-point reassessment](Eight-phase-reasses
 
 ## Phase 1 — Complete the lighting and display pipeline
 
-- [ ] P1.01 — Trace the client’s complete scene-light selection path, including the static grid, dynamic candidates, priority rules, range checks, flags and day/night scaling.
-- [ ] P1.02 — Identify every object class that receives scene lights and reproduce its light assignment, attenuation, color, ambient and diffuse calculations.
-- [ ] P1.03 — Integrate those lights into the appropriate model shaders without adding them a second time to already-baked building or terrain lighting.
+- [x] P1.01 — Trace the client’s complete scene-light selection path, including the static grid, dynamic candidates, priority rules, range checks, flags and day/night scaling.
+- [x] P1.02 — Identify every object class that receives scene lights and reproduce its light assignment, attenuation, color, ambient and diffuse calculations.
+- [x] P1.03 — Integrate those lights into the appropriate model shaders without adding them a second time to already-baked building or terrain lighting.
 - [x] P1.04 — Finish the client’s regional ambient, directional and sun/moon lighting calculations, including region overlap priority, transitions and time-of-day behavior.
 - [x] P1.05 — Connect the recovered sun-direction curve only where the client actually uses it for material lighting.
 - [x] P1.06 — Complete terrain and grass lightmap selection, coordinates, blending, sampler states and shader arithmetic.
@@ -26,27 +26,35 @@ No phase is fully complete. The [full 76-point reassessment](Eight-phase-reasses
 
 ## Phase 2 — Complete terrain and ground materials
 
-- [ ] P2.01 — Reproduce the client’s terrain block selection, full-resolution geometry, distance LOD and transitions.
-- [ ] P2.02 — Replace approximate terrain seam stitching with the original edge and neighbor rules.
-- [ ] P2.03 — Complete every terrain shader variant, including layer blending, masks, lightmaps, specular inputs and hardware fallback paths.
-- [ ] P2.04 — Match source texture dimensions, mip chains, addressing, anisotropic filtering and material-specific sampler settings.
-- [ ] P2.05 — Verify and implement all terrain layer axes, transforms, mask formats and world-to-texture mappings.
-- [ ] P2.06 — Preserve road and city detail at maximum quality, including Archosaur’s high-resolution surfaces.
-- [ ] P2.07 — Implement terrain holes, visibility flags and special surface cases found in client data.
-- [ ] P2.08 — Ensure terrain works consistently in the main view, reflections, minimap and full-world map.
-- [x] P2.09 — Add tests for tile boundaries, shader variants, layer selection and near/far LOD continuity.
+Nine work points (re-cut 2 November 2026; the Phase 2 scope is unchanged, only its
+boundaries are now non-overlapping and independently verifiable). Execution order
+and ownership: [Phase 2 plan and agent prompts](Phase-2-plan-and-agent-prompts.md).
+
+- [ ] P2.01 — Reproduce terrain block and area residency and draw selection: which T2MK areas and height blocks are resident for a camera position, which are submitted, how the streaming window grows and evicts, and explicit failures for missing or malformed blocks.
+- [ ] P2.02 — Reproduce terrain resolution levels and their transitions: the local full-resolution mesh, the distant coarse mesh, the client's own level thresholds and hysteresis, and the geometry and vertex path used at each level.
+- [ ] P2.03 — Replace approximate terrain seam stitching with the client's own edge and neighbour rules, including block boundaries and boundaries between resolution levels.
+- [ ] P2.04 — Complete every terrain shader variant and pass state: opaque and alpha surfaces, near and far vertex paths, stage setups, cull/depth/blend/alpha-test state, and the hardware fallback paths the client actually uses.
+- [ ] P2.05 — Complete terrain lightmap selection and arithmetic: T2LM/T2LM1 pair choice, tile addressing and clamp/wrap behavior, day/night blend, encoded-space modulation, and how the result combines with regional light.
+- [ ] P2.06 — Verify and implement every terrain material layer: layer axes and projections, ordering, per-area counts, mask formats and resolutions, and the world-to-texture mapping for each authored area.
+- [ ] P2.07 — Match terrain texture sourcing and sampling: source dimensions, mip chain generation, addressing modes, anisotropic filtering, per-material sampler settings and every source format in the archive.
+- [ ] P2.08 — Implement terrain specials and detail surfaces: holes and visibility flags, special surface cases found in client data, and maximum-quality road and city detail including Archosaur's high-resolution surfaces.
+- [ ] P2.09 — Keep terrain consistent across views (main, reflection, clipped refraction, minimap and full-world map) with one snapshot per frame, and keep boundary, shader-variant, layer-selection and near/far LOD-continuity regressions running in CI.
 
 ## Phase 3 — Complete buildings, rocks and other static models
 
-- [ ] P3.01 — Finish the BMD format and renderer: all versions, material fields, texture references, transforms and per-mesh flags.
-- [ ] P3.02 — Trace and implement the client’s actual culling and two-sided-material rules rather than using a global approximation.
-- [ ] P3.03 — Identify the real causes of building Z-fighting and reproduce the client’s depth, bias, ordering and overlapping-geometry behavior.
-- [ ] P3.04 — Implement all static-model texture stages, alpha tests, transparency, material colors and baked-light combinations.
-- [ ] P3.05 — Handle missing, shared and animated texture references using the client’s original lookup rules.
-- [ ] P3.06 — Reproduce client model visibility, distance selection, LOD and regional loading.
+Nine work points (re-cut 2 November 2026; the Phase 3 scope is unchanged, only its
+boundaries are now non-overlapping and independently verifiable). Execution order
+and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.md).
+
+- [ ] P3.01 — Finish BMD container and format coverage: every model and mesh version, chunk layout, transforms, texture references, baked arrays, per-mesh and per-material flags, with explicit errors for unsupported versions and truncation.
+- [ ] P3.02 — Reproduce every static-model material and texture-stage state: stage setups, alpha test, blending, transparency, material colors, two-sided flags and the baked-light combination, as a recovered table rather than per-asset special cases.
+- [ ] P3.03 — Handle missing, shared and animated texture references with the client's original lookup rules, page sharing and fallbacks, and explicit dependency errors.
+- [ ] P3.04 — Trace and implement the client's actual culling, winding and two-sided-material rules instead of a global approximation, including mirrored or negative-scale placements.
+- [ ] P3.05 — Identify and reproduce the real causes of building Z-fighting and overlap: depth bias, draw order, duplicate placements and overlapping geometry behavior.
+- [ ] P3.06 — Reproduce static-model visibility, distance selection, LOD and regional loading and eviction.
 - [ ] P3.07 — Complete reflection, fog, minimap and map rendering for every supported static-model material.
-- [ ] P3.08 — Improve atlas allocation and streaming so full-resolution assets do not require all world textures to remain resident simultaneously.
-- [ ] P3.09 — Add regression tests for model versions, culling, texture stages, depth conflicts and day/night baked lighting.
+- [ ] P3.08 — Bound atlas residency so full-resolution assets do not all have to stay resident: packing, cross-page deduplication, eviction and streaming.
+- [ ] P3.09 — Keep regression coverage for model versions and truncation, culling and sidedness, texture stages, depth conflicts and day/night baked lighting running in CI.
 
 ## Phase 4 — Complete SpeedTree and grass
 

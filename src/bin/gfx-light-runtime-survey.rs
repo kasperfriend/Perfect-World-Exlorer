@@ -18,6 +18,7 @@ fn run(path: &Path) -> Result<(), String> {
     let mut files = 0;
     let mut elements = 0;
     let mut active_samples = 0;
+    let mut divergences = 0;
     let identity = [
         1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
     ];
@@ -45,6 +46,7 @@ fn run(path: &Path) -> Result<(), String> {
         files += 1;
         elements += definitions.len();
         for definition in definitions {
+            divergences += definition.construction_divergences();
             let mut emitter = gfx_light::Emitter::new(definition);
             for dt in [0, 1, 17, 83, 299, 600, 1000, 2000, 5000, 60000] {
                 if let Some(light) = emitter.tick(dt, true, 4, identity, None)? {
@@ -63,6 +65,7 @@ fn run(path: &Path) -> Result<(), String> {
         }
     }
     println!("Scanned {texts} text GFX files; decoded {files} light-bearing files / {elements} elements; {active_samples} active source-clock samples finite.");
+    println!("Controller-108 LUT: {divergences} interior entries differ between extended-precision and PC24 table construction; the production mode is Extended and the loading-thread FPU mode remains unproven.");
     println!("Scope: point-light definitions/controllers only. Owner graph, attachments, placement/clock resolution and visual playback are not validated by this survey.");
     Ok(())
 }

@@ -11,8 +11,12 @@ mod ecmodel;
 mod gfx_color_track;
 #[path = "../gfx_light.rs"]
 mod gfx_light;
+#[path = "../gfx_owner.rs"]
+mod gfx_owner;
 #[path = "../model_asset.rs"]
 mod model_asset;
+#[path = "../model_attachment.rs"]
+mod model_attachment;
 #[path = "../model_dds.rs"]
 mod model_dds;
 #[path = "../model_draw.rs"]
@@ -29,6 +33,8 @@ mod model_material;
 mod model_playback;
 #[path = "../model_queue.rs"]
 mod model_queue;
+#[path = "../model_receiver_class.rs"]
+mod model_receiver_class;
 #[path = "../model_receiver_gpu.rs"]
 mod model_receiver_gpu;
 #[path = "../model_texture_gpu.rs"]
@@ -344,6 +350,50 @@ fn main() {
     draw.update(&queue, &asset, &poses(&asset), dim).unwrap();
     check(&device, &queue, &draw, [[16, 16, 12, 255], [48, 8, 8, 255]]);
     asset.descriptor.original_color = None;
+    // Queue routing: a non-default authored blend pair reaches the retail alpha
+    // list instead of failing the instance, and the alpha receiver is built from
+    // the authored factors with the initial-AABB bounds the sort needs.
+    asset.descriptor.destination_blend = Some(2);
+    let alpha_frame = model_draw_gpu::Frame {
+        blend_enabled: false,
+        lighting: model_material::Lighting {
+            transparency: -1.,
+            ..frame.lighting
+        },
+        ..frame
+    };
+    let alpha_draw = model_draw_gpu::Draw::new(
+        &device,
+        &queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+        None,
+        false,
+        &sampler,
+        &asset,
+        &poses(&asset),
+        alpha_frame,
+        |_| Ok(white_dds()),
+    )
+    .unwrap();
+    assert_eq!(alpha_draw.alpha_meshes(), &[0, 1]);
+    assert_eq!(alpha_draw.mesh_count(), 2);
+    assert!(alpha_draw.mesh_bounds(0).is_some());
+    // An unsupported authored factor stays an explicit error, not a substitute.
+    asset.descriptor.destination_blend = Some(11);
+    assert!(model_draw_gpu::Draw::new(
+        &device,
+        &queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+        None,
+        false,
+        &sampler,
+        &asset,
+        &poses(&asset),
+        alpha_frame,
+        |_| Ok(white_dds()),
+    )
+    .is_err());
+    asset.descriptor.destination_blend = None;
     // World materials with authored specular are no longer rejected now
     // that actual regional directional specular reaches the frame binding.
     for material in &mut asset.skins[0].data.materials {
@@ -402,6 +452,8 @@ fn main() {
         0.,
         0,
     );
+    // The ordinary opaque ECM must not put anything in the retail alpha list.
+    assert!(world.alpha_order().is_empty());
     check(
         &device,
         &queue,
@@ -685,6 +737,100 @@ fn main() {
         &world,
         [[32, 64, 96, 136], [96, 32, 64, 136]],
     );
+    // Production producer path: actual ECWLD scene effect -> owner lifecycle ->
+    // lazy GFX root load -> publication -> scene query -> receiving pixels.
+    let owner_source = "MOXTVersion: 37\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 130\nRepeatCount: 1\nRepeatDelay: 0\nBindEle: \nDummyEle: \nIsDummy: 0\nMatchGrnd: 0\nLightType: 1\nPriority: 4\nRange: 2\nStartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\nTimeSpan: -1\nPosition: 0, 0, 0.5\nColor: -1\nScale: 1\nDirection: 0, 0, 0, 1\nRad_2D: 0\nCtrlMethodCount: 0\n";
+    world.attach_gfx_reader(move |path: &str| {
+        assert_eq!(path, "gfx/scene/lamp.gfx");
+        Ok(owner_source.to_string())
+    });
+    let scene_fixture = scene::Scene {
+        width: 64.,
+        length: 64.,
+        block_size: 32.,
+        rows: 1,
+        cols: 1,
+        tree_types: vec![],
+        grass_types: vec![],
+        blocks: vec![scene::Block {
+            row: 0,
+            col: 0,
+            trees: vec![],
+            water: vec![],
+            grass: vec![],
+            ornaments: vec![],
+            boxes: vec![],
+            effects: vec![scene::Effect {
+                export_id: 17,
+                scale: 1.,
+                position: [0., 0., 0.5],
+                direction: [0., 0., 1.],
+                up: [0., 1., 0.],
+                speed: 1.,
+                valid_time: 2,
+                alpha: 1.,
+                attenuation: false,
+                path: "scene\\lamp.gfx".into(),
+            }],
+            models: vec![],
+            critters: vec![],
+            beziers: vec![],
+            sounds: vec![],
+        }],
+    };
+    assert_eq!(world.install_scene_effects(&scene_fixture).unwrap(), 1);
+    world.set_view_center(0., 0., 128.);
+    // One root loads per update and the load frame publishes nothing.
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        0,
+    );
+    assert_eq!(world.gfx_status().live, 1);
+    check(
+        &device,
+        &queue,
+        &world,
+        [[32, 64, 96, 136], [96, 32, 64, 136]],
+    );
+    // The next advancing update ticks the owner, publishes and consumes.
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        17,
+    );
+    check(
+        &device,
+        &queue,
+        &world,
+        [[45, 89, 134, 136], [134, 45, 89, 136]],
+    );
+    // Region unload removes the producer, so its light cannot survive.
+    world.set_view_center(4096., 4096., 16.);
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        17,
+    );
+    check(
+        &device,
+        &queue,
+        &world,
+        [[32, 64, 96, 136], [96, 32, 64, 136]],
+    );
+    println!("::notice::scene effect owner passed: ECWLD placement -> one-root-per-update load -> publication -> scene query -> receiving pixels, and region unload removes the light");
     assert_eq!(world.status(), (1, 0, 1));
     let mut unsupported = opaque_dim;
     unsupported.blend_enabled = true;

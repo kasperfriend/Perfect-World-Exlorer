@@ -105,6 +105,15 @@ pub struct LightPublications {
     entries: Vec<(u64, DynamicLight)>,
 }
 impl LightPublications {
+    /// Pending publications for this frame. Membership is not live-light state:
+    /// it is cleared by `consume_into` after the dynamic cells are built.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
     pub fn publish(&mut self, identity: u64, light: DynamicLight) {
         if let Some((_, current)) = self.entries.iter_mut().find(|(id, _)| *id == identity) {
             *current = light;

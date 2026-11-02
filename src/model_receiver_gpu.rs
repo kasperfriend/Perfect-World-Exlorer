@@ -121,7 +121,15 @@ impl Receiver {
         depth: Option<(wgpu::TextureFormat, wgpu::CompareFunction)>,
         depth_write: bool,
     ) -> Result<Self, String> {
-        Self::with_blending(device, format, depth, depth_write, true)
+        Self::with_blending(
+            device,
+            format,
+            depth,
+            depth_write,
+            true,
+            wgpu::BlendFactor::SrcAlpha,
+            wgpu::BlendFactor::OneMinusSrcAlpha,
+        )
     }
     /// Non-alpha skin queue: the retail caller disables blending, even when
     /// an ordinary DDS contains graded alpha. Alpha testing remains independent.
@@ -131,7 +139,36 @@ impl Receiver {
         depth: Option<(wgpu::TextureFormat, wgpu::CompareFunction)>,
         depth_write: bool,
     ) -> Result<Self, String> {
-        Self::with_blending(device, format, depth, depth_write, false)
+        Self::with_blending(
+            device,
+            format,
+            depth,
+            depth_write,
+            false,
+            wgpu::BlendFactor::SrcAlpha,
+            wgpu::BlendFactor::OneMinusSrcAlpha,
+        )
+    }
+    /// Retail alpha list: the model's authored D3D8 blend factors (0x7a76a0
+    /// applies them) instead of the fixed MODULATE defaults. Factors with no
+    /// `wgpu` equivalent are rejected by the caller before reaching here.
+    pub fn new_blended(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        depth: Option<(wgpu::TextureFormat, wgpu::CompareFunction)>,
+        depth_write: bool,
+        source: wgpu::BlendFactor,
+        destination: wgpu::BlendFactor,
+    ) -> Result<Self, String> {
+        Self::with_blending(
+            device,
+            format,
+            depth,
+            depth_write,
+            true,
+            source,
+            destination,
+        )
     }
     fn with_blending(
         device: &wgpu::Device,
@@ -139,6 +176,8 @@ impl Receiver {
         depth: Option<(wgpu::TextureFormat, wgpu::CompareFunction)>,
         depth_write: bool,
         enabled: bool,
+        src_factor: wgpu::BlendFactor,
+        dst_factor: wgpu::BlendFactor,
     ) -> Result<Self, String> {
         if !matches!(
             format,
@@ -154,8 +193,8 @@ impl Receiver {
             source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         let blend = wgpu::BlendComponent {
-            src_factor: wgpu::BlendFactor::SrcAlpha,
-            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+            src_factor,
+            dst_factor,
             operation: wgpu::BlendOperation::Add,
         };
         let attributes =

@@ -75,11 +75,17 @@ impl Effect {
     /// 0x5b18a1..0x5b18d4: both day-only and night-only effects are
     /// invalid at exactly 0.5. The first x87 C0 test treats unordered as day.
     pub fn valid_at(&self, night_factor: f32) -> bool {
-        self.valid_time == 2
-            || (self.valid_time == 0 && (night_factor < 0.5 || night_factor.is_nan()))
-            || (self.valid_time == 1 && night_factor > 0.5)
+        effect_visible(self.valid_time, night_factor)
     }
 }
+/// ECWLD effect time eligibility, shared with the runtime light owners so the
+/// loaded and published states cannot diverge.
+pub fn effect_visible(valid_time: i32, night_factor: f32) -> bool {
+    valid_time == 2
+        || (valid_time == 0 && (night_factor < 0.5 || night_factor.is_nan()))
+        || (valid_time == 1 && night_factor > 0.5)
+}
+
 #[derive(Clone, Debug)]
 pub struct Sound {
     pub export_id: u32,
