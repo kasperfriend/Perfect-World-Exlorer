@@ -159,6 +159,16 @@ impl Gpu {
         assert!(source.contains(fallback));
         source = source.replacen(fallback, "return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);", 1);
         if light_layout.is_some() {
+            // Patch the scene fragment's final return so the lightmapped branch
+            // samples the authored day/night pair; without this the grass keeps
+            // the unlit texture and GRASS_LIGHT_WGSL is dead code.
+            let marker = "return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);";
+            assert!(source.contains(marker));
+            source = source.replacen(
+                marker,
+                "if camera.sun.w>=0. {return vec4<f32>(grass_pass_fog(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w,i.grass_refraction),1.);} return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);",
+                1,
+            );
             source.push_str(GRASS_LIGHT_WGSL);
         }
         // Ordinary grass retains table fog. Only the water-plane-clipped
@@ -351,6 +361,12 @@ mod tests {
             "grass keeps the lightmap path"
         );
         assert!(w.contains("mix(night,day,clamp(camera.sun.w,0.,1.))*2."));
+        // The declarations are inert unless the assembled shader actually calls
+        // `grass_lighting`; assert the source keeps that injection.
+        let source = include_str!("grass_instances.rs");
+        assert!(source.contains(
+            "if camera.sun.w>=0. {return vec4<f32>(grass_pass_fog(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w,i.grass_refraction),1.);}"
+        ));
     }
 
     #[test]
