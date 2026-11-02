@@ -26,9 +26,19 @@
 //! test stays disabled for every file-authored mesh; the enabled branch
 //! (`0x7a98f8..0x7a9924`) computes `80 * alpha / 255 + 1` as `ALPHAREF`.
 //! Blending is *not* part of the mesh loop: no `ALPHABLENDENABLE` write exists
-//! between `0x7a9808` and the draws it gates. The calling pass owns it, and the
-//! image has both blended and unblended scenery passes (see [`Blend`]), so this
-//! table records blending as queue-owned rather than opaque.
+//! between `0x7a9808` and the draws it gates. Every pass that calls the
+//! submitter turns it on immediately beforehand (`0x42b5a5`, `0x42bc17`,
+//! `0x42c32e`, `0x42c650`), and none of them writes `SRCBLEND`/`DESTBLEND`, so
+//! the pair left by the previous restore (`SRCALPHA`/`INVSRCALPHA`, e.g.
+//! `0x410089`/`0x41023a`) applies. The state cannot change the image anyway:
+//! stage-0 `ALPHAOP` is `SELECTARG2` with `ALPHAARG2 = DIFFUSE` (`0x7a9785`,
+//! `0x7a9792`), and the per-mesh loop rewrites the diffuse alpha with
+//! `mesh+0x2cc << 24` (`0x7b9d64..0x7b9d74`), which is `0xff` for every
+//! file-authored mesh, so the fragment alpha is 1.0 and src-over is a replace.
+//! One of the four passes is the water-quality variant: `0x42c5f3` compares the
+//! quality byte `+0x95` against 2 before enabling blending, and that byte is
+//! the `WaterEffect` key this pass object parses at `0x40d16c` and saves at
+//! `0x40d765`. The gate is a graphics setting, never a material or mesh field.
 //!
 //! Depth: the world pass leaves `ZFUNC` at the D3D8 default (`LESSEQUAL`) and
 //! never writes `ZBIAS` (`0x77a250` is called only from the effect path at
@@ -77,16 +87,18 @@ pub enum Cull {
 /// Blend state of the baked mesh draw.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Blend {
-    /// Blending belongs to the *queue* that calls the submitter, not to the
-    /// mesh loop: `0x7a9808..0x7a99bc` never writes `ALPHABLENDENABLE`. The
-    /// image contains both a blended scenery pass (`ALPHABLENDENABLE(1)` at
-    /// `0x42c650`, reached when the drawn object's byte `+0x95` equals 2 at
-    /// `0x42c5f3`, `ALPHATEST(0)` at `0x42c660`, blend factors set through
-    /// `0x42c66c` -> `0x42c000`, `0x7a9730` at `0x42c683`) and unblended ones
-    /// (`0x42b474`, `0x42b4df`, `0x42c32e`, `0x42c509`). Which retail
-    /// ornaments take the blended pass is not established, so this table
-    /// records the state as queue-owned instead of claiming either answer.
-    QueueOwned,
+    /// Every pass enables `ALPHABLENDENABLE(1)` right before it calls the
+    /// submitter (`0x42b5a5`, `0x42bc17`, `0x42c32e`, `0x42c650`) and disables
+    /// the alpha test (`0x42b595`, `0x42bc07`, `0x42c31e`, `0x42c660`), but
+    /// the blend cannot change the image: stage-0 alpha is
+    /// `SELECTARG2(DIFFUSE)` (`0x7a9785`, `0x7a9792`) and the mesh loop
+    /// overwrites the diffuse alpha with `mesh+0x2cc << 24` (`0x7b9d64`),
+    /// i.e. `0xff`, so the fragment alpha is 1.0 and src-over reduces to a
+    /// replace. No pass writes the blend factors, and the surviving pair only
+    /// matters for a non-unit alpha, which baked meshes never produce. One of
+    /// them is the water-quality variant gated on `+0x95` (`WaterEffect`) at
+    /// `0x42c5f3`, a graphics setting rather than a mesh field.
+    EnabledButOpaque,
 }
 
 /// Draw state for one baked mesh, including the flat `kind` float the shared
@@ -146,6 +158,15 @@ pub mod native {
     pub const MESH_ALPHA_DEFAULT: u32 = 0x7b_9408;
     /// `ZBIAS(2)`/`ZBIAS(0)` in the effect path only.
     pub const EFFECT_ZBIAS: u32 = 0x41_7453;
+    /// `ALPHABLENDENABLE(1)`, one per scenery pass that draws via [`MESH_DRAW`].
+    pub const PASS_BLEND_ON: [u32; 4] = [0x42_b5a5, 0x42_bc17, 0x42_c32e, 0x42_c650];
+    /// The matching `ALPHATEST(0)` writes.
+    pub const PASS_ALPHA_TEST_OFF: [u32; 4] = [0x42_b595, 0x42_bc07, 0x42_c31e, 0x42_c660];
+    /// Settings byte compared with 2 before the water-quality pass blends
+    /// (`WaterEffect`, parsed at `0x40d16c`, saved at `0x40d765`).
+    pub const WATER_EFFECT_GATE: u32 = 0x42_c5f3;
+    /// `baked_rgb | mesh+0x2cc << 24`: the diffuse word `SELECTARG2` reads back.
+    pub const DIFFUSE_ASSEMBLY: u32 = 0x7b_9d5e;
 }
 
 /// Classifies an inspected baked mesh. Unsupported versions are refused rather
@@ -167,28 +188,28 @@ pub fn classify(mesh_version: u32, textured: bool, two_sided: bool) -> Result<Dr
             stage: Stage::ColorOnly,
             alpha,
             cull: Cull::BackFace,
-            blend: Blend::QueueOwned,
+            blend: Blend::EnabledButOpaque,
             kind: 1.1,
         },
         (false, true) => DrawState {
             stage: Stage::ColorOnly,
             alpha,
             cull: Cull::TwoSided,
-            blend: Blend::QueueOwned,
+            blend: Blend::EnabledButOpaque,
             kind: 1.2,
         },
         (true, false) => DrawState {
             stage: Stage::Modulate2x,
             alpha,
             cull: Cull::BackFace,
-            blend: Blend::QueueOwned,
+            blend: Blend::EnabledButOpaque,
             kind: 2.0,
         },
         (true, true) => DrawState {
             stage: Stage::Modulate2x,
             alpha,
             cull: Cull::TwoSided,
-            blend: Blend::QueueOwned,
+            blend: Blend::EnabledButOpaque,
             kind: 2.1,
         },
     })
@@ -289,17 +310,31 @@ mod tests {
     }
 
     #[test]
-    fn every_classified_mesh_has_no_alpha_test_and_owns_no_blend() {
+    fn every_classified_mesh_has_no_alpha_test_and_an_inert_blend() {
         for textured in [false, true] {
             for two_sided in [false, true] {
                 let s = classify(0x1000_0005, textured, two_sided).unwrap();
                 assert_eq!(s.alpha, AlphaTest::Disabled);
-                assert_eq!(s.blend, Blend::QueueOwned);
+                assert_eq!(s.blend, Blend::EnabledButOpaque);
                 assert_eq!(s.cull == Cull::BackFace, !two_sided);
             }
         }
         assert_eq!(classify(0x1000_0005, false, false).unwrap().kind, 1.1);
         assert_eq!(classify(0x1000_0005, false, true).unwrap().kind, 1.2);
+    }
+
+    #[test]
+    fn the_enabled_blend_is_inert_because_mesh_alpha_is_opaque() {
+        // The mesh loop assembles the diffuse word as `baked | mesh_alpha << 24`
+        // (`0x7b9d64..0x7b9d74`) and stage 0 reads it back with SELECTARG2, so
+        // the fragment alpha is exactly `mesh+0x2cc`. With the constructor's
+        // 0xff that is 1.0, which turns SRCALPHA/INVSRCALPHA into a replace.
+        let diffuse = 0x0012_3456u32 | (CLIENT_MAX_MESH_ALPHA << 24);
+        assert_eq!(diffuse >> 24, u32::from(u8::MAX));
+        assert_eq!(alpha_test(CLIENT_MAX_MESH_ALPHA).unwrap(), AlphaTest::Disabled);
+        // A partial alpha would need a writer for `mesh+0x2cc`; there is none,
+        // so the classifier refuses it instead of blending it silently.
+        assert!(alpha_test(u32::from(u8::MAX) - 1).is_err());
     }
 
     #[test]

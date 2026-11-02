@@ -8,14 +8,17 @@ texture-stage state, culling/sidedness, depth bias and draw order. File parsing,
 texture residency and view/pass selection stay with their owners; §8 lists every
 interface this report changes for them.
 
-One of the three sub-tasks is **Yes** (P3.04). P3.02 is **No**: stage, alpha
-test, culling and the material-colour question are recovered and implemented,
-but the last row — blending — turned out to be owned by the calling pass rather
-than by the mesh, and which ornaments select the blended pass is not established
-(§2, §7). P3.05 is **No** as well: the recovered depth rules are implemented and
-the classification instrument exists, but the retail-archive census the
-acceptance criterion requires could not be run in this environment, so the
-survey's overlaps are not yet all attributed.
+Two of the three sub-tasks are **Yes** (P3.02, P3.04). P3.02's last open row —
+blending — is now closed by reading all four callers of the submitter: every pass
+enables `ALPHABLENDENABLE(1)`, none writes the blend factors, and the enabled
+blend is inert because stage-0 alpha is `SELECTARG2(DIFFUSE)` and the mesh loop
+stamps the diffuse alpha with `mesh+0x2cc` = `0xff`. The `+0x95 == 2` gate that
+looked like a per-ornament selector is the pass object's `WaterEffect` graphics
+setting. P3.05 is still **No**: the recovered depth rules are implemented and the
+classification instrument exists, but the retail-archive census the acceptance
+criterion requires could not be run in this environment — the sandbox reaches
+only GitHub, so the split archive on Drive cannot be fetched — and the run is now
+a one-command step for the owner (§4).
 
 ## 0. Verification basis and limits
 
@@ -40,14 +43,20 @@ survey's overlaps are not yet all attributed.
   working branch; this sandbox tracks the session by
   `arena/5b7c9c75-perfect-world-exlorer` and forbids creating or switching
   branches, so the work was committed there and opened as PR #6 instead.
-* **The retail asset archives were not available.** `litmodels.pck`
-  (397,425,471 B), `models.pck` (888 MB), `building.pck` (326 MB) and the other
-  archives exceed the 100 MB per-file limit of the Drive connector, so this
-  session re-uses the recorded census (16,335 BMDs, 40,579 meshes, 7,802,464
+* **The retail asset archives were not reachable.** The owner split
+  `litmodels.pck` (397,425,471 B) into `litmodels.zip.001`…`.005` (94,371,840 B
+  each, last 12,593,309 B) inside the Drive folder `Games/pw142`
+  (`1M75AxJLRHa4xYRL2d1CBkw9IGapuR5Qk`), and this session listed those parts. They
+  still cannot be read here: sandbox egress allows only GitHub, npm and PyPI
+  (`curl https://drive.google.com` → no route), and the Drive connector returns a
+  file body to the model rather than to the workspace, so even one 90 MB part is
+  unusable. Larger archives (`models.pck` 888 MB, `building.pck` 326 MB) were
+  never offered. This session therefore re-uses the recorded census (16,335 BMDs, 40,579 meshes, 7,802,464
   vertices; 31,802 v4 + 8,777 v5 meshes; 2,363 v5 two-sided meshes) and the
   recorded overlap survey (174,744 coincident triangles in 5,416 models;
-  168,225 opposite-winding, 6,519 same-winding, 12 across meshes). No new
-  per-asset claim is made from data this session did not read.
+  168,225 opposite-winding, 6,519 same-winding, 12 across meshes) and makes no
+  new per-asset claim from data it did not read. §4 ships the census as a Windows
+  executable so the owner can produce the missing line without a toolchain.
 
 ## 1. The recovered static-model draw state
 
@@ -62,13 +71,13 @@ row except the stage-0 alpha argument.
 | `SPECULARENABLE` (id 0x1d) | 0 | `0x77b570(0)` at `0x7a9762` | No specular term. |
 | stage 0 `COLOROP` | 5 `MODULATE2X` | `0x779fc0(0,5)` at `0x7a976d` | `texture.rgb * vertex.rgb * 2`, saturated. |
 | stage 0 `COLORARG1/2` | `TEXTURE`, `DIFFUSE` | `0x779fe0(0,2,1)` at `0x7a977a` | Same. |
-| stage 0 `ALPHAOP` | 4 `SELECTARG2` | `0x77a020(0,4)` at `0x7a9785` | Alpha is not blended; nothing reads it downstream. |
+| stage 0 `ALPHAOP` | 4 `SELECTARG2` | `0x77a020(0,4)` at `0x7a9785` | Alpha is `DIFFUSE` (below), i.e. `mesh+0x2cc` = `0xff`; that value is what makes the enabled blend inert. |
 | stage 0 `ALPHAARG1/2` | `TEXTURE`, `DIFFUSE` | `0x77a040(0,2,1)` at `0x7a9792` | Same. |
 | stages 1–7 | disabled (1) | `0x779fc0(1,1)`/`0x77a020(1,1)` at `0x7a979e`/`0x7a97aa` | Single-stage material. |
 | `CULLMODE` | saved, then 1 `NONE` when `mesh+0x26c` ≠ 0 | save `0x168(%ecx)` → `0x14(%esp)` at `0x7a98bb`; `0x77a540(1)` at `0x7a98cf`; restore `0x77a540(saved)` at `0x7a9a26`/`0x7a9a49` | Two-sided meshes keep both windings; every other mesh keeps the pass cull mode. |
 | `ALPHATEST` | 0 | `cmp $0xff,0x2cc(%edi)` at `0x7a98f1`; `0x77a320(0)` at `0x7a992b` | No cutout for baked meshes. |
 | `ALPHATEST(1)` + `ALPHAREF` | only when `mesh+0x2cc` ≠ 0xff | `0x77a320(1)` at `0x7a98f8`; `80*alpha/255+1` at `0x7a990a..0x7a9920` (`imul 0x80808081`, `shl 4`/`lea` = ×80, `sar 7` = ÷255, `+1`), `0x77a380` at `0x7a9924` | Unreachable from files; the reader refuses such a value. |
-| `ALPHABLENDENABLE` | **owned by the calling pass**, never by the mesh loop | no `0x77a290` write exists between `0x7a9808` and the draws it gates; the passes write it: `1` at `0x42c650` (only when `[obj+0x95] == 2`, `0x42c5f3`) and `0` at `0x42b474`, `0x42b4df`, `0x42c32e`, `0x42c509` | Not decided by this table. The viewer draws every page in the unblended pass. |
+| `ALPHABLENDENABLE` | 1 in every pass, never touched by the mesh loop | no `0x77a290` write exists between `0x7a9808` and the draws it gates; the four callers of `0x7a9730` write `1` at `0x42b5a5`, `0x42bc17`, `0x42c32e`, `0x42c650` and `ALPHATEST(0)` at `0x42b595`, `0x42bc07`, `0x42c31e`, `0x42c660`; no pass writes `SRCBLEND`/`DESTBLEND` | Enabled but inert: fragment alpha is `mesh+0x2cc` = `0xff` (`0x7b9d64`), so `SRCALPHA`/`INVSRCALPHA` degenerates to a replace. The `+0x95 == 2` gate at `0x42c5f3` is the pass object's `WaterEffect` setting (`0x40d16c`/`0x40d765`), not a mesh field. |
 | `ZBIAS` (id 0x2f) | not written | the only call sites are `0x77a250(2)` at `0x417453` and the `0x77a250(0)` restore at `0x417471`, both in the effect path | Bias 0. |
 | `ZFUNC` (id 0x17) | not written | only `0x796753` and `0x796cd2` (water/effect paths) | D3D8 default `LESSEQUAL`. |
 | Draw order | mesh array order, one indexed submission per mesh | loop head `0x7a9808`, per-mesh submit `0x7b9ca0` at `0x7a98e3` | Unchanged from the client: insertion order, later primitives last. |
@@ -83,8 +92,8 @@ row except the stage-0 alpha argument.
 
 A baked static mesh has exactly one material row: one enabled stage combining
 the texture with the baked vertex colour, doubled; lighting off; specular off;
-no alpha test; culling from `mesh+0x26c`. Blending is *not* part of this row —
-the queue owns it (§ "Not finished" below). The v5 material block the
+no alpha test; culling from `mesh+0x26c`; blending enabled by the pass and inert
+for every file-authored mesh (§ "Blending: recovered" below). The v5 material block the
 reader parses (`Ambient`/`Diffuse`/`Emissive`/`Specular`/`Power`/`2Sided` at
 `0x7b67b0`, copied by `0x7b66d0`) contributes only `2Sided` to the draw, because
 `LIGHTING(0)` at `0x7a9759` removes the fixed-function material from the
@@ -96,7 +105,7 @@ assumption that a non-default material colour would modulate the surface.
 
 * `src/bmd_baked.rs` is now the single table: `Stage` (`ColorOnly`,
   `Modulate2x`), `AlphaTest` (`Disabled`), `Cull` (`BackFace`, `TwoSided`),
-  `Blend` (`Opaque`), `DrawState`, `classify()`, `alpha_test()`,
+  `Blend` (`EnabledButOpaque`), `DrawState`, `classify()`, `alpha_test()`,
   `cutout_reference()`, plus `native` constants naming every write site above.
 * `classify()` is the only producer of the flat `kind` float that the shared
   world shader consumes; `src/gpu.rs` (`build()`, nearby scenery) and
@@ -114,31 +123,49 @@ assumption that a non-default material colour would modulate the surface.
   `0xff` is refused by `alpha_test()` with the reference the client would have
   computed, and a v4 mesh carrying a two-sided flag keeps failing.
 
-### Not finished: blending
+### Blending: recovered
 
-The first version of this table claimed baked meshes are opaque because the mesh
-loop never writes `ALPHABLENDENABLE`. That claim does not survive inspection of
-the callers: `0x7a9730` has four call sites and one of them, the block entered
-when the drawn object's byte `+0x95` equals 2 (`0x42c5f3`), sets
-`ALPHABLENDENABLE(1)` at `0x42c650`, `ALPHATEST(0)` at `0x42c660`, blend factors
-through `0x42c66c` -> `0x42c000`, and only then draws at `0x42c683`. Other call
-sites (`0x42b474`, `0x42b4df`, `0x42c32e`, `0x42c509`) disable it. Blending is
-therefore a *queue* property, `+0x95` is the byte that selects the blended queue,
-and its meaning (and the value retail ornaments carry) is outside what this
-session established. `DrawState.blend` records the state as
-`Blend::QueueOwned`; the viewer still draws every page unblended, which is now a
-declared gap instead of an assumption.
+The mesh loop never writes `ALPHABLENDENABLE`, so the previous revision moved the
+row to the caller and left it open. Reading all four callers settles it:
+
+| scene pass | `ALPHABLENDENABLE` | `ALPHATEST` | scenery draw |
+|---|---|---|---|
+| `0x42b5xx` | `1` at `0x42b5a5` | `0` at `0x42b595` | `0x7a9730` at `0x42b677` |
+| `0x42bbxx` | `1` at `0x42bc17` | `0` at `0x42bc07` | `0x7a9730` at `0x42be02` |
+| `0x42c2xx` | `1` at `0x42c32e` | `0` at `0x42c31e` | `0x7a9730` at `0x42c351` |
+| `0x42c4xx` | `1` at `0x42c650` | `0` at `0x42c660` | `0x7a9730` at `0x42c683` |
+
+Every pass enables blending immediately before it draws, and none of them writes
+`SRCBLEND`/`DESTBLEND`, so the `SRCALPHA`/`INVSRCALPHA` pair left behind by the
+shared restore sites (`0x410089`/`0x41023a`, `0x410b91`/`0x410b9b`, …) applies.
+The state is nonetheless inert for baked geometry: stage-0 `ALPHAOP` is
+`SELECTARG2` (`0x7a9785`) with `ALPHAARG2 = DIFFUSE` (`0x7a9792`), and the
+per-mesh loop assembles the diffuse word as `baked_rgb | mesh+0x2cc << 24`
+(`0x7b9d5e..0x7b9d74`). The constructor's `0xff` therefore arrives at the blend as
+a fragment alpha of 1.0, and src-over degenerates to a replace. Blending is on in
+the client and cannot change a baked pixel — that is the recovered rule, and it is
+why the viewer's opaque scenery pass is exact rather than an approximation.
+
+The `+0x95 == 2` test at `0x42c5f3` is not a per-ornament selector either. The
+byte belongs to the object that parses the graphics settings at `0x40d0xx`, and
+`+0x95` is the `WaterEffect` key — compared at `0x40d16c`, written back at
+`0x40d765` — next to `Sight` (`+0x94`, `0x40d150`/`0x40d750`) and `SimpleTerrain`
+(`+0x96`, `0x40d18d`/`0x40d76c`). The fourth row above is the water-quality
+variant of the scenery pass, chosen by a game setting, never by a mesh or a
+material. No ornament needs to be classified into a blended queue at all.
 
 ### Acceptance
 
 `bmd-sided-gpu-check` proves the two material axes the mesh owns in one raster
-pass: opaque shading (`kind` 2.0), two-sided shading (`kind` 2.1) and a
-zero-alpha atlas that must still shade (the cutout state cannot be entered).
-"Blended" is not covered because it is not a mesh property: `blend` is
-`QueueOwned` and the regression that pins it is
-`every_classified_mesh_has_no_alpha_test_and_owns_no_blend` plus the shader
-assertion that the doubled alpha-test band is gone. Per-object blending stays an
-open gap.
+pass: opaque shading (`kind` 2.0), two-sided shading (`kind` 2.1) and a zero-alpha
+atlas that must still shade (the cutout state cannot be entered). The blending row
+is now a table entry with an executable pin instead of an open queue:
+`the_enabled_blend_is_inert_because_mesh_alpha_is_opaque` rebuilds the `0x7b9d64`
+diffuse word, asserts that the `SELECTARG2` stage therefore sees alpha `0xff`, and
+asserts that `alpha_test()` refuses every partial value — so no baked mesh can
+reach the enabled blend with an alpha that would make it visible. The four pass
+sites are recorded as `bmd_baked::native::PASS_BLEND_ON` /
+`PASS_ALPHA_TEST_OFF`, next to `every_classified_mesh_has_no_alpha_test_and_an_inert_blend`.
 
 ## 3. Task P3.04 — culling, winding, sidedness
 
@@ -218,27 +245,46 @@ parity flips — which is the per-case evidence the task asks for.
 
 ### Acceptance status
 
-Not met. The classifier and counters exist, but the survey could not be run
-against the retail archive here (connector limit, §0), and the recorded
-aggregate is not enough to attribute pairs: the 168,225 opposite-winding pairs
-are `Culled` *unless both meshes of a pair are two-sided* (2,363 of 40,579
-meshes are two-sided, but the pair-wise incidence is not recorded), and the
-6,519 same-winding pairs need the per-pair mesh order to be attributed. Running
-`cargo run --bin bmd-overlap-survey -- <path>/litmodels.pck` prints the three
-new counters and closes the gap; the numbers from that run must replace this
-paragraph.
+Not met, and the blocker is transfer rather than analysis. The classifier and
+counters exist, but the census needs the 397,425,471-byte `litmodels.pck`, and
+this sandbox only reaches GitHub — the split archive the owner placed on Drive
+(`Games/pw142`, parts `litmodels.zip.001`…`.005`, 94,371,840 · 4 + 12,593,309 B)
+cannot be downloaded from here, and the Drive connector returns file bodies to the
+model rather than to the workspace, so a 90 MB part is not retrievable either.
+
+The run is therefore packaged for the owner instead of being described. The
+Windows job now ships the survey next to the viewer: download the
+`Perfect-World-Explorer-Windows-x64` artifact of the PR's latest run (it contains
+`BmdOverlapSurvey.exe` and `SHA256SUMS.txt`), then run
+
+```
+BmdOverlapSurvey.exe "C:\...\Games\pw142\litmodels.pck"
+```
+
+Reassemble first if the parts have not been joined (`copy /b litmodels.zip.001+…+litmodels.zip.005 litmodels.zip`, then extract). The tool prints one line —
+`models=… meshes=… with_exact_duplicate_triangles=… duplicate_triangles=…
+same_winding=… opposite_winding=… across_meshes=… normals_positive=…
+normals_negative=… resolved_by_cull=… resolved_by_order=…
+resolved_cross_mesh=… unparsed=…` — and that line replaces this paragraph. It
+tolerates individual unreadable models (`unparsed=`) instead of aborting, so a
+partial archive still yields the census.
+
+The recorded aggregate is not enough to attribute pairs by itself: the 168,225
+opposite-winding pairs are `Culled` *unless both meshes of a pair are two-sided*
+(2,363 of 40,579 meshes are two-sided, but the pair-wise incidence is not
+recorded), and the 6,519 same-winding pairs need the per-pair mesh order.
 
 ## 5. Changed files and production call sites
 
 | File | Change | Production call site |
 |---|---|---|
-| `src/bmd_baked.rs` | Draw-state table, `classify`, `alpha_test`, `cutout_reference`, `overlap_outcome`, `native` write-site constants, 8 unit tests | imported by `gpu.rs`, `world_objects.rs`, `bin/bmd-overlap-survey.rs`, `bin/world-preload-check.rs` |
+| `src/bmd_baked.rs` | Draw-state table, `classify`, `alpha_test`, `cutout_reference`, `overlap_outcome`, `native` write-site constants (incl. the four pass blend/alpha-test sites), 9 unit tests | imported by `gpu.rs`, `world_objects.rs`, `bin/bmd-overlap-survey.rs`, `bin/world-preload-check.rs` |
 | `src/gpu.rs` | shader: culling bands extended to the colour kinds, colour-only `MODULATE2X` branch, baked alpha test removed; new `scenery_pipeline` (`GreaterEqual`) created in `Renderer::new` and used by `draw_opaque` | `draw_opaque()` (`set_pipeline`, `terrain_end..local_end` + `local_pages` + `world_pages`) |
 | `src/world_objects.rs` | whole-world page vertices classify through the table instead of inline `2.0/2.1` | `run()` page builder |
 | `src/bin/world-preload-check.rs` | declares `mod bmd_baked` (the shared table it now needs) | diagnostic only |
-| `src/bin/bmd-overlap-survey.rs` | per-pair overlap classification and counters | diagnostic only |
+| `src/bin/bmd-overlap-survey.rs` | per-pair overlap classification and counters; `meshes=`/`unparsed=` census counters and per-model error tolerance so a partial archive still yields a result | diagnostic only, shipped as `BmdOverlapSurvey.exe` |
 | `src/bin/bmd-sided-gpu-check.rs` | six instances per case, mirrored placement, zero-alpha atlas | diagnostic only |
-| `.github/workflows/pr-checks.yml` | adds `cargo run --locked --bin bmd-sided-gpu-check` to the lavapipe step — **cross-lane notice**: it only adds my own check, no existing step changed | CI gate |
+| `.github/workflows/pr-checks.yml` | adds `cargo run --locked --bin bmd-sided-gpu-check` to the lavapipe step, and builds/uploads `bmd-overlap-survey` inside the existing `Perfect-World-Explorer-Windows-x64` artifact — **cross-lane notice**: it only adds my own check and my own binary, no existing step or artifact name changed | CI gate |
 | `Findings/Unsupported-client-paths.md` | scenery row updated with the recovered facts; new row for the unreachable cutout state (both rows stay open where the work is open) | — |
 
 Nothing outside the static-model pipeline was touched: no terrain pipeline
@@ -296,10 +342,15 @@ product code; the formatting they produced is kept.
   water and scenery; the discard is equivalent for coverage but does not save
   raster work, and it depends on `front_facing` being derived from the same
   winding convention in every pass. Recorded, not hidden.
-* **Blended scenery is not reproduced.** The blended pass exists in the client
-  (`0x42c650..0x42c683`, gated by `[obj+0x95] == 2`); the viewer draws every
-  page in the unblended pass, and the meaning of `+0x95` is unestablished, so no
-  ornament is classified into the blended queue yet.
+* **Blending is reproduced as an equivalence, not as pipeline state.** The client
+  enables `ALPHABLENDENABLE(1)` in all four scenery passes while the viewer keeps
+  blending off, because the fragment alpha is provably 1.0: stage-0 `ALPHAOP` is
+  `SELECTARG2` over `DIFFUSE`, and the mesh loop stamps that alpha with
+  `mesh+0x2cc` = `0xff` (`0x7b9d64`). The equivalence is pinned by
+  `the_enabled_blend_is_inert_because_mesh_alpha_is_opaque`; a future archive with
+  a partial `mesh+0x2cc` makes `alpha_test()` error out instead of silently
+  rendering opaque. If a later lane implements the `WaterEffect == 2` variant it
+  must re-derive the blend factors, because no scenery pass writes them.
 * **The alpha-test branch is unimplemented by construction.** A `mesh+0x2cc`
   other than `0xff` raises an error (`bmd_baked::alpha_test`). If a future
   archive ever carries one, the mesh is skipped with a message rather than
@@ -344,11 +395,12 @@ product code; the formatting they produced is kept.
 
 P3.02 material and texture-stage state — one table drives both static-model
 draws, the material-colour question is answered by `LIGHTING(0)`, the cutout row
-is pinned as unenterable rather than assumed, and the blending row was moved to
-its real owner (the calling queue) with the blended pass located but not yet
-selected per ornament.
+is pinned as unenterable rather than assumed, and the blending row is closed: all
+four passes enable blending, none writes the factors, and the enabled blend is
+inert because the stage alpha is `mesh+0x2cc` = `0xff`; the `+0x95` gate that
+looked per-ornament is the pass object's `WaterEffect` setting.
 
-`Task P3.02 | Finished No | Production integration gpu.rs build()+draw_opaque, world_objects.rs run() via bmd_baked::classify | Native evidence 0x7a9759 LIGHTING(0), 0x7a9762 SPECULAR(0), 0x7a976d COLOROP 5, 0x7a977a/0x7a9792 args, 0x7a979e stage 1 off, 0x7a98f1/0x7a992b ALPHATEST off, 0x7b9408 mesh+0x2cc=0xff, no 0x77a290 write inside the mesh loop | Tests executed and results bmd_baked unit tests (8) in CI runs 41522066048 and 41523033865, bmd-sided-gpu-check opaque/two-sided/zero-alpha cases | Remaining gaps blending is queue-owned: the blended pass at 0x42c650 is gated by an unestablished per-object byte +0x95, so no ornament is classified into it; alpha-test branch refused; untextured branch not seen in the corpus`
+`Task P3.02 | Finished Yes | Production integration gpu.rs build()+draw_opaque, world_objects.rs run() via bmd_baked::classify | Native evidence 0x7a9759 LIGHTING(0), 0x7a9762 SPECULAR(0), 0x7a976d COLOROP 5, 0x7a977a/0x7a9792 args, 0x7a979e stage 1 off, 0x7a98f1/0x7a992b ALPHATEST off, 0x7b9408 mesh+0x2cc=0xff, no 0x77a290 write inside the mesh loop, 0x42b5a5/0x42bc17/0x42c32e/0x42c650 ALPHABLENDENABLE(1) with ALPHATEST(0) at 0x42b595/0x42bc07/0x42c31e/0x42c660, no SRCBLEND/DESTBLEND write in any pass, 0x7b9d5e..0x7b9d74 diffuse = baked_rgb | mesh+0x2cc<<24, +0x95 = WaterEffect parsed 0x40d16c and saved 0x40d765 | Tests executed and results bmd_baked unit tests (9) including the_enabled_blend_is_inert_because_mesh_alpha_is_opaque, bmd-sided-gpu-check opaque/two-sided/zero-alpha cases | Remaining gaps blending is reproduced as an alpha-1.0 equivalence rather than by enabling the pipeline blend state; alpha-test branch refused; untextured branch not seen in the corpus`
 
 P3.04 culling, winding, sidedness — no per-asset decision exists: one mesh
 byte selects `CULLMODE(1)`, the pass value is restored on every exit path, and a
@@ -358,4 +410,4 @@ mirrored placement simply reverses `front_facing` under the same rule.
 
 P3.05 depth, bias, ordering, overlap.
 
-`Task P3.05 | Finished No | Production integration gpu.rs scenery_pipeline GreaterEqual for terrain_end..local_end and both page lists; bmd_baked::overlap_outcome; bmd-overlap-survey counters | Native evidence no ZBIAS write outside 0x417453/0x417471, no ZFUNC write in the baked path (only 0x796753/0x796cd2), mesh-order loop 0x7a9808 with per-mesh submit 0x7b9ca0 | Tests executed and results coincident_pairs unit test (5 cases), coincident_duplicates_are_won_by_the_later_draw, Python oracle of equal-depth semantics; the archive survey was not run | Remaining gaps every surveyed overlap is not yet attributed: run bmd-overlap-survey on litmodels.pck and replace the aggregate paragraph; the earlier "default bias 50" claim is withdrawn`
+`Task P3.05 | Finished No | Production integration gpu.rs scenery_pipeline GreaterEqual for terrain_end..local_end and both page lists; bmd_baked::overlap_outcome; bmd-overlap-survey counters | Native evidence no ZBIAS write outside 0x417453/0x417471, no ZFUNC write in the baked path (only 0x796753/0x796cd2), mesh-order loop 0x7a9808 with per-mesh submit 0x7b9ca0 | Tests executed and results coincident_pairs unit test (5 cases), coincident_duplicates_are_won_by_the_later_draw, Python oracle of equal-depth semantics; the archive survey was not run | Remaining gaps every surveyed overlap is not yet attributed: the archive is not reachable from this sandbox (GitHub-only egress; the Drive split returns bodies to the model, not the workspace), so run the shipped BmdOverlapSurvey.exe on litmodels.pck (§4) and replace the aggregate paragraph; the earlier "default bias 50" claim is withdrawn`

@@ -16,6 +16,8 @@ fn main() {
     .unwrap();
     let entries = pck::directory(&mut f).unwrap();
     let mut models = 0;
+    let mut unparsed = 0u64;
+    let mut meshes = 0u64;
     let mut duplicate_models = 0;
     let mut total = 0u64;
     let mut same = 0u64;
@@ -31,8 +33,14 @@ fn main() {
         e.name.to_lowercase().starts_with("litmodels/world/")
             && e.name.to_lowercase().ends_with(".bmd")
     }) {
-        let m = bmd::Model::parse(&pck::read_entry(&mut f, e).unwrap()).unwrap();
+        let bytes = pck::read_entry(&mut f, e).unwrap();
+        // A single unreadable model must not hide the census of the rest.
+        let Ok(m) = bmd::Model::parse(&bytes) else {
+            unparsed += 1;
+            continue;
+        };
         models += 1;
+        meshes += m.meshes.len() as u64;
         let mut seen: HashMap<[[u32; 3]; 3], (usize, String, bool)> = HashMap::new();
         let mut duplicate = 0;
         let two_sided: Vec<bool> = m
@@ -116,5 +124,5 @@ fn main() {
             total += duplicate;
         }
     }
-    println!("models={models} with_exact_duplicate_triangles={duplicate_models} duplicate_triangles={total} same_winding={same} opposite_winding={reverse} across_meshes={cross} normals_positive={positive} normals_negative={negative} resolved_by_cull={culled} resolved_by_order={later} resolved_cross_mesh={cross_mesh}");
+    println!("models={models} meshes={meshes} with_exact_duplicate_triangles={duplicate_models} duplicate_triangles={total} same_winding={same} opposite_winding={reverse} across_meshes={cross} normals_positive={positive} normals_negative={negative} resolved_by_cull={culled} resolved_by_order={later} resolved_cross_mesh={cross_mesh} unparsed={unparsed}");
 }
