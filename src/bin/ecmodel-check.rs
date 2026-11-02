@@ -9,6 +9,8 @@ mod model_material;
 mod pck;
 #[path = "../scene.rs"]
 mod scene;
+#[path = "../skeleton.rs"]
+mod skeleton;
 #[path = "../skin.rs"]
 mod skin;
 use std::{
@@ -27,6 +29,7 @@ fn main() -> Result<(), String> {
     let mut ecms = HashSet::new();
     let mut smds = HashSet::new();
     let mut skins = HashSet::new();
+    let mut skeleton_paths = HashSet::new();
     let mut missing = Vec::new();
     let mut versions = BTreeMap::new();
     for m in s.blocks.iter().flat_map(|b| &b.models) {
@@ -67,6 +70,9 @@ fn main() -> Result<(), String> {
             if !entries.contains_key(&target) {
                 missing.push(target.clone())
             }
+            if target.ends_with(".bon") {
+                skeleton_paths.insert(target.clone());
+            }
             if target.ends_with(".ski") {
                 skins.insert(target);
             }
@@ -75,6 +81,24 @@ fn main() -> Result<(), String> {
     let (mut skin_meshes, mut rigid_meshes, mut material_count) = (0, 0, 0);
     let mut skin_versions = BTreeMap::new();
     let mut failures = Vec::new();
+    let mut skeleton_versions = BTreeMap::new();
+    let (mut bones, mut embedded_tracks) = (0, 0);
+    for path in &skeleton_paths {
+        let Some(entry) = entries.get(path) else {
+            continue;
+        };
+        match pck::read_entry(&mut f, entry).and_then(|b| skeleton::Skeleton::parse(&b)) {
+            Ok(s) => {
+                *skeleton_versions.entry(s.version).or_insert(0usize) += 1;
+                bones += s.bones.len();
+                embedded_tracks += s.embedded_tracks.len();
+            }
+            Err(e) => failures.push(format!("{path}: {e}")),
+        }
+    }
+    println!(
+        "BON versions {skeleton_versions:?}; {bones} bones; {embedded_tracks} embedded tracks"
+    );
     for path in &skins {
         let Some(entry) = entries.get(path) else {
             continue;
@@ -135,7 +159,7 @@ fn main() -> Result<(), String> {
     }
     if !missing.is_empty() || !failures.is_empty() {
         return Err(format!(
-            "{} unresolved dependencies; {} skin/material failures",
+            "{} unresolved dependencies; {} skeleton/skin/material failures",
             missing.len(),
             failures.len()
         ));

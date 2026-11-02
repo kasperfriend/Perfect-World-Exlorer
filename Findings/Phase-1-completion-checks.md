@@ -5,7 +5,7 @@ A requirement passes only if its entire scope is supported by implementation and
 | Task | Is it finished? | Check and result / next required work |
 |---|---|---|
 | P1.01 Complete scene-light selection | No | Grid/candidate/tie/range/flags arithmetic has eight passing CPU regressions and executable traces. Full runtime candidate production/lifecycle is still not integrated. |
-| P1.02 Every receiving class and its calculations | No | Skin/rigid light arithmetic has a 15-case GPU comparison. This is not a census of every receiving class or material binding path. |
+| P1.02 Every receiving class and its calculations | No | Ordinary skin/rigid material and light variants have a 47-case RGBA/specular GPU comparison. The world corpus is 14 skins, 41 meshes and 23 materials; full receiving-class eligibility/integration remains open. |
 | P1.03 Model shader integration without double lighting | No | Baked BMD and terrain remain unmodified by point lights. The eligible animated-world model renderer is absent; a standalone lighting helper is not integration. |
 | P1.04 Regional environment lighting | No | Authored endpoints, clock curve and transitions exist. Full asynchronous region ordering and all material consumers remain unverified. |
 | P1.05 Sun curve at proven material consumers only | No | Sky uses the recovered curve without relighting baked surfaces. Material-consumer tracing is not complete. |
@@ -38,3 +38,5 @@ A requirement passes only if its entire scope is supported by implementation and
   the full-archive and world-only checks, including two malformed archive
   records. The world's 14 referenced skins/41 skin meshes/23 materials pass
   the parser/material-binding check. This does not close P1.03's renderer gate.
+
+- `184f7d8`: [CI 41433732886](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41433732886) passed Linux checks, the 47-case model shader comparison, and the Windows build.

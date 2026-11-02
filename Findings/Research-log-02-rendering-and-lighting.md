@@ -392,7 +392,7 @@ vector `-light_direction - camera_forward`, the `lit` frontface gate and
 material power, then multiplies by c9 and upper-clamps. Added separate CPU/
 WGSL functions and 16 more GPU cases (47 total), including near lights that
 would expose incorrectly reusing `_ns_dl` attenuation, backfaces and point
-on/off. CPU core suite passes 33 tests; GPU result is pending this commit's CI.
+on/off. CPU core suite passes 33 tests; CI 41433732886 passed the 47-case GPU comparison and the Windows executable build at 184f7d8.
 
 `morph_rigid_mesh_c4_m1_s_dl.txt` notably lacks that attenuation clamp and
 scales alpha with the light terms. It must not be routed through the ordinary

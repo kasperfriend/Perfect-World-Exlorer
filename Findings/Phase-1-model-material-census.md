@@ -55,3 +55,14 @@ nonzero exit status. Neither diagnostic draws the receivers.
 **Still open:** the 73 placements are not yet drawn by a world skin renderer.
 The verified parser and material constants do not replace that integration.
 Baked BMD/terrain and the approved tree path remain untouched.
+
+### World skeleton/descriptor follow-up
+
+The production `parse_ecm`, `parse_smd` and `Skeleton::parse` readers were also
+compiled into the isolated harness (glam 0.27.0, encoding_rs 0.8.35). All 14
+world descriptor/skeleton chains passed: nine SMD8/BON6 chains and five
+SMD5/BON5 chains. The latter contain 77 embedded bone tracks in total; the
+14 BONs contain 154 bones in total. No world SMD in this census has hangers.
+External STCK tracks and runtime pose/palette conventions are not validated
+by this result. `ecmodel-check` now also parses the referenced BONs and
+includes skeleton failures in its nonzero-exit gate.
