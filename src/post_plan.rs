@@ -32,6 +32,10 @@ pub struct Inputs {
     pub underwater: bool,
     /// Diagnostic depth fog. Never requested by production shading.
     pub screen_fog: bool,
+    /// Camera fog is active (atmospheric fog enabled, or submerged). The
+    /// client only assembles the fog state in those cases, so the retained
+    /// diagnostic pass must not invent a third state.
+    pub fog_enabled: bool,
     /// Display ramp inside the scene chain (windowed approximation only).
     pub display_gamma: bool,
     /// The composite target is an sRGB format, which encodes on write.
@@ -115,7 +119,7 @@ pub fn plan(input: Inputs) -> Plan {
         input.bloom || input.sharpen || input.underwater || input.screen_fog || input.display_gamma;
     Plan {
         capture,
-        fog: capture && input.screen_fog,
+        fog: capture && input.screen_fog && input.fog_enabled,
         // Spacewarp is gated on the underwater state only (0x40fd33). It is a
         // distortion of the captured scene, not a glow-strength effect.
         warp: capture && input.underwater,
@@ -149,14 +153,15 @@ mod tests {
 
     fn all_inputs() -> Vec<Inputs> {
         let mut out = Vec::new();
-        for bits in 0u32..64 {
+        for bits in 0u32..128 {
             out.push(Inputs {
                 bloom: bits & 1 != 0,
                 sharpen: bits & 2 != 0,
                 underwater: bits & 4 != 0,
                 screen_fog: bits & 8 != 0,
-                display_gamma: bits & 16 != 0,
-                srgb_target: bits & 32 != 0,
+                fog_enabled: bits & 16 != 0,
+                display_gamma: bits & 32 != 0,
+                srgb_target: bits & 64 != 0,
             });
         }
         out
@@ -181,6 +186,7 @@ mod tests {
     fn screen_fog_never_forces_the_production_chain() {
         let diagnostic = Inputs {
             screen_fog: true,
+            fog_enabled: true,
             srgb_target: true,
             ..Inputs::default()
         };
@@ -201,6 +207,29 @@ mod tests {
                 ..input
             };
             assert_eq!(required(diagnostic_only), required(without));
+        }
+    }
+
+    #[test]
+    fn screen_fog_requires_an_active_camera_fog_state() {
+        for underwater in [false, true] {
+            let without = Inputs {
+                screen_fog: true,
+                underwater,
+                fog_enabled: false,
+                srgb_target: true,
+                ..Inputs::default()
+            };
+            assert!(!plan(without).fog, "no fog state must skip the pass");
+            let with = Inputs {
+                fog_enabled: true,
+                ..without
+            };
+            assert!(plan(with).fog);
+            // The gate does not resurrect the chain for production: the
+            // production caller never requests the diagnostic pass.
+            assert!(!required(without));
+            assert!(!required(with));
         }
     }
 
@@ -321,6 +350,7 @@ mod tests {
     fn screen_fog_runs_before_warp_and_glow() {
         let stages = plan(Inputs {
             screen_fog: true,
+            fog_enabled: true,
             underwater: true,
             bloom: true,
             ..Inputs::default()

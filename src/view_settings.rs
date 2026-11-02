@@ -11,6 +11,7 @@ pub fn post_required(bloom: bool, sharpen: bool, underwater: bool, gamma: bool) 
         sharpen,
         underwater,
         screen_fog: false,
+        fog_enabled: false,
         display_gamma: gamma,
         srgb_target: true,
     })

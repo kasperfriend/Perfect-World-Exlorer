@@ -450,6 +450,7 @@ impl PostGpu {
             sharpen: self.sharpen,
             underwater: underwater > 0.,
             screen_fog,
+            fog_enabled: atmospheric_fog || underwater > 0.,
             display_gamma: client_gamma,
             srgb_target: self.format.is_srgb(),
         });
