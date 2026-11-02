@@ -28,10 +28,12 @@ mod bmd;
 #[cfg(windows)]
 mod client_detect;
 mod client_sun;
+mod color_chain;
 mod display_gamma;
 mod ecmodel;
 mod environment;
 mod far_trees_gpu;
+mod fog_matrix;
 mod foliage_mips;
 #[allow(dead_code)]
 mod gfx_color_track;
@@ -65,6 +67,7 @@ mod pck;
 mod post_gpu;
 #[cfg(test)]
 mod post_reference;
+mod present_encode;
 #[allow(dead_code)]
 mod scene;
 #[allow(dead_code)]
