@@ -813,15 +813,18 @@ fn load_lightmaps(
                     );
                 };
                 if bc {
-                    if raw.len() < 128 + 32768 || &raw[..4] != b"DDS " || &raw[84..88] != b"DXT1" {
+                    let dds = crate::model_dds::Dds::parse(raw)
+                        .map_err(|e| format!("lightmap {}: {e}", path.display()))?;
+                    if dds.format != crate::model_dds::Format::Dxt1
+                        || dds.mips.len() != 1
+                        || dds.mips[0].width != 256
+                        || dds.mips[0].height != 256
+                    {
                         return Err(format!("Unsupported lightmap DDS in {}", path.display()));
                     }
-                    // DXT1 consists of 4x4 blocks, 8 bytes each.
-                    write_tile(
-                        &raw[128..128 + 32768],
-                        (side / 4 * 8) as u32,
-                        (side / 4) as u32,
-                    );
+                    // Validate the authored dimensions and complete payload,
+                    // not merely a FourCC and a sufficiently long byte slice.
+                    write_tile(dds.mips[0].bytes, (side / 4 * 8) as u32, (side / 4) as u32);
                 } else {
                     let img = image::load_from_memory_with_format(raw, image::ImageFormat::Dds)
                         .map_err(|e| format!("lightmap {}: {e}", path.display()))?

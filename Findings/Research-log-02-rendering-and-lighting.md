@@ -839,3 +839,19 @@ file's 1,993 112-byte records. Position association is not exact (1,966 of
 interchangeable sources. Do not add the editor lights to baked surfaces.
 The selected lightmap pair has the expected T2LM2/16×256 header; this alone
 does not close the atlas/fallback census.
+
+#### Apply bounded DDS validation to the existing terrain consumer
+
+Render-defaults head **0d201e8** passed full CI **41444973586**. Continued
+checking actual consumers, without approving the still-open Phase1 gates.
+
+The existing terrain BC upload checked only DDS magic/FourCC and a minimum
+length, then uploaded a fixed slice; unlike its decoded fallback, it did not
+validate the authored width/height. It now uses the bounded DDS reader,
+requires the supported single 256×256 DXT1 level and submits that validated
+level's bytes. This leaves valid tile color/coordinates/sampler arithmetic
+unchanged and prevents malformed/mismatched compressed tiles from bypassing
+the fallback's dimension check. The downloaded real day/night pair passes
+all **32** tile payload/dimension checks through this production DDS reader.
+Full atlas and unloaded-pair semantics still require work; one pair is not a
+full-world census. Full CI for this consumer hardening is pending.
