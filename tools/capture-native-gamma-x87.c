@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 static FARPROC native_pow, native_ftol;
 static float from_bits(uint32_t bits) {
@@ -51,12 +52,14 @@ static unsigned short entry(int setting, int index) {
 /* Small immutable numeric reference (51 KiB), also exposed in annotations
  * because some build sandboxes cannot reach GitHub's artifact blob host. */
 static unsigned short captured[101*256];
-static void emit_pc24_words(void) {
+static void emit_pc24_words(unsigned first) {
     const unsigned char *data=(const unsigned char*)captured;
     const char *alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     const size_t size=sizeof captured, chunk=3000;
     for (size_t offset=0; offset<size; offset+=chunk) {
         size_t end=offset+chunk<size?offset+chunk:size;
+        unsigned part=(unsigned)(offset/chunk+1);
+        if(part<first || part>=first+8)continue;
         printf("::notice::PC24-DATA-%u:",(unsigned)(offset/chunk+1));
         for (size_t i=offset;i<end;i+=3) {
             unsigned n=(unsigned)data[i]<<16;
@@ -72,7 +75,7 @@ static void emit_pc24_words(void) {
 int main(int argc, char **argv) {
     HMODULE crt=LoadLibraryA("msvcrt.dll");
     unsigned short original,cw,after;
-    if (argc!=2 || !crt) return 2;
+    if ((argc!=2 && argc!=3) || !crt) return 2;
     native_pow=GetProcAddress(crt,"_CIpow");
     native_ftol=GetProcAddress(crt,"_ftol");
     if (!native_pow || !native_ftol) return 3;
@@ -101,7 +104,7 @@ int main(int argc, char **argv) {
             mode?53:24,(unsigned long long)hash,cw,after);
         if ((after&0xf00)!=(cw&0xf00)) return 5;
     }
-    emit_pc24_words();
+    emit_pc24_words(argc==3?(unsigned)atoi(argv[2]):1);
     FreeLibrary(crt);
     return 0;
 }

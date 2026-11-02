@@ -89,6 +89,16 @@ jobs:
           $command = "call `"$vcvars`" && cl /nologo /W4 /O2 tools\capture-native-gamma-x87.c /Fe:`"$exe`" && `"$exe`" `"$prefix`""
           cmd /d /s /c $command
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Capture native numeric reference parts 9 onward
+        shell: pwsh
+        run: |
+          & (Join-Path $env:RUNNER_TEMP "native-gamma.exe") (Join-Path $env:RUNNER_TEMP "native-gamma") 9
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Capture native numeric reference parts 17 onward
+        shell: pwsh
+        run: |
+          & (Join-Path $env:RUNNER_TEMP "native-gamma.exe") (Join-Path $env:RUNNER_TEMP "native-gamma") 17
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: NativeGammaX87Words
