@@ -90,9 +90,7 @@ pub fn classify(mesh_version: u32, textured: bool, two_sided: bool) -> Result<Dr
 /// `(day * (255 - w) + night * w) >> 8` per channel, `w` in `0..=255`.
 pub fn blend(day: [u8; 3], night: [u8; 3], night_factor: u8) -> [u8; 3] {
     let w = u32::from(night_factor);
-    let mix = |a: u8, b: u8| -> u8 {
-        (((u32::from(a) * (255 - w)) + u32::from(b) * w) >> 8) as u8
-    };
+    let mix = |a: u8, b: u8| -> u8 { (((u32::from(a) * (255 - w)) + u32::from(b) * w) >> 8) as u8 };
     [
         mix(day[0], night[0]),
         mix(day[1], night[1]),
@@ -148,12 +146,9 @@ mod tests {
     #[test]
     fn production_wgsl_implements_the_classified_states() {
         let gpu = include_str!("gpu.rs");
-        assert!(gpu.contains(
-            "fn bmd_baked_rgb(day:u32, night:u32, night_factor:f32)->vec3<u32>"
-        ));
+        assert!(gpu.contains("fn bmd_baked_rgb(day:u32, night:u32, night_factor:f32)->vec3<u32>"));
         assert!(
-            gpu.contains("((a*(255u-w)+b*w))>>vec3<u32>(8u)")
-                || gpu.contains("a*(255u-w)+b*w"),
+            gpu.contains("((a*(255u-w)+b*w))>>vec3<u32>(8u)") || gpu.contains("a*(255u-w)+b*w"),
             "integer day/night blend must stay integer"
         );
         assert!(gpu.contains("1.-camera.direction.w"), "night factor source");
@@ -170,10 +165,7 @@ mod tests {
         assert!(single.kind > 1.5 && single.kind < 2.05, "{single:?}");
         assert!(!(two.kind < 2.05), "{two:?}");
         // Baked meshes must not consume the ordinary receiving light.
-        let baked = gpu
-            .split("fn bmd_baked_rgb")
-            .nth(1)
-            .expect("baked helper");
+        let baked = gpu.split("fn bmd_baked_rgb").nth(1).expect("baked helper");
         let baked = baked.split("fn ").next().unwrap();
         assert!(!baked.contains("camera.light"));
     }

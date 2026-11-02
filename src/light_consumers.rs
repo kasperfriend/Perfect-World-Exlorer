@@ -224,9 +224,10 @@ mod tests {
             assert!(receives(c, Value::SkyObjectDirection));
             assert_eq!(direction_source(c), DirectionSource::SkyObject);
         }
-        for row in MATRIX.iter().filter(|r| {
-            r.consumer != Consumer::SkySunDisc && r.consumer != Consumer::SkyMoonDisc
-        }) {
+        for row in MATRIX
+            .iter()
+            .filter(|r| r.consumer != Consumer::SkySunDisc && r.consumer != Consumer::SkyMoonDisc)
+        {
             assert!(
                 !row.receives.contains(&Value::SkyObjectDirection),
                 "{:?} must not use the animated celestial curve",
@@ -288,7 +289,9 @@ mod tests {
             .iter()
             .filter(|r| r.evidence.contains("viewer"))
             .count();
-        assert_eq!(viewers, 2, "only tree tint and the lightmap-off diagnostic are viewer rows");
+        assert_eq!(
+            viewers, 2,
+            "only tree tint and the lightmap-off diagnostic are viewer rows"
     }
 
     /// Structural guard over the production sources. These are the wiring facts
