@@ -114,6 +114,14 @@ impl MenuPage {
         self != Self::Closed
     }
 }
+/// The terrain the recovered rules select: the camera block window (`0x77ecf0`)
+/// and the level of every block inside it (`0x77e360`). Comparing it with the
+/// mesh being drawn is what decides whether that mesh is stale.
+#[derive(Clone, PartialEq)]
+struct LodState {
+    window: crate::terrain_lod::Window,
+    levels: Vec<u8>,
+}
 struct MeshData {
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
@@ -123,6 +131,9 @@ struct MeshData {
     center: (isize, isize),
     tree_center: (f32, f32),
     detail: DetailSettings,
+    lod: LodState,
+    /// Resident terrain blocks and the index range each occupies.
+    spans: Vec<crate::terrain_residency::Span>,
     terrain_end: u32,
     object_start: u32,
     water_start: u32,
@@ -186,76 +197,159 @@ fn push_quad(v: &mut Vec<Vertex>, i: &mut Vec<u32>, points: [[f32; 3]; 4], color
     }
     i.extend_from_slice(&[n, n + 1, n + 2, n + 1, n + 3, n + 2]);
 }
-fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<MeshData, String> {
+/// Recovered block window and per-block levels (`src/terrain_lod.rs`). The client
+/// re-evaluates `0x77e360` for every resident block on every frame, so the viewer
+/// re-runs the same rule per frame and rebuilds geometry only when the answer
+/// changes; the window origin moves with the camera's block (`0x77ecf0`).
+fn lod_window(
+    width: usize,
+    height: usize,
+    spacing: f32,
+    cam: [f32; 2],
+    radius: isize,
+) -> (crate::terrain_lod::Window, crate::terrain_lod::WindowLod) {
+    let cols = width / TILE;
+    let rows = height / TILE;
+    let block_world = TILE as f32 * spacing;
+    let gx = cam[0] / spacing + width as f32 * 0.5;
+    let gy = height as f32 * 0.5 - cam[1] / spacing;
+    let lod = crate::terrain_lod::LodConfig {
+        block_size: block_world,
+        ..Default::default()
+    };
+    // `world+0x1bc`: draw range in world units, one slider step = one block.
+    let range = radius.max(1) as f32 * block_world;
+    let win = crate::terrain_lod::window(
+        [gx / TILE as f32, gy / TILE as f32],
+        [cols, rows],
+        range,
+        block_world,
+    );
+    // Viewer world axis: x = (cell - width/2) * spacing, z = (height/2 - cell) * spacing.
+    let levels = crate::terrain_lod::window_lod(
+        win,
+        &lod,
+        cam,
+        |x, y| {
+            let cx = (x * TILE) as f32 + TILE as f32 * 0.5;
+            let cy = (y * TILE) as f32 + TILE as f32 * 0.5;
+            [
+                (cx - width as f32 * 0.5) * spacing,
+                (height as f32 * 0.5 - cy) * spacing,
+            ]
+        },
+        |x, y| x < cols && y < rows,
+    );
+    (win, levels)
+}
+fn build(
+    t: &mut Terrain,
+    cx: f32,
+    cz: f32,
+    detail: DetailSettings,
+    residency: &mut crate::terrain_residency::Residency,
+) -> Result<MeshData, String> {
     let rad = detail.radius;
     let gx = cx / t.grid_spacing + t.width as f32 * 0.5;
     let gy = t.height as f32 * 0.5 - cz / t.grid_spacing;
+    // Camera block, used as the rebuild anchor compared against `self.center`.
     let bx = (gx / TILE as f32).floor() as isize;
     let by = (gy / TILE as f32).floor() as isize;
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     let mut atlas = vec![0u8; ATLAS * ATLAS * 4];
-    let max_x = ((t.width - 1) / TILE * TILE) as isize;
-    let max_y = ((t.height - 1) / TILE * TILE) as isize;
-    let stitch_bounds = [
-        ((bx - rad) * TILE as isize).clamp(0, max_x) as usize,
-        ((bx + rad + 1) * TILE as isize).clamp(0, max_x) as usize,
-        ((by - rad) * TILE as isize).clamp(0, max_y) as usize,
-        ((by + rad + 1) * TILE as isize).clamp(0, max_y) as usize,
-    ];
-    for ty in -rad..=rad {
-        for tx in -rad..=rad {
-            let x0 = (bx + tx) * TILE as isize;
-            let y0 = (by + ty) * TILE as isize;
-            if x0 < 0 || y0 < 0 || x0 as usize + TILE >= t.width || y0 as usize + TILE >= t.height {
-                continue;
-            }
-            let slotx = (tx + rad) as usize;
-            let sloty = (ty + rad) as usize;
-            let base = vertices.len() as u32;
-            for y in 0..=TILE {
-                for x in 0..=TILE {
-                    let gx = x0 as usize + x;
-                    let gy = y0 as usize + y;
-                    let (elevation, n) = crate::terrain_seam::stitch(
-                        &t.heights,
-                        &t.normals,
-                        t.width,
-                        t.height,
-                        gx,
-                        gy,
-                        stitch_bounds,
-                    );
-                    vertices.push(Vertex {
-                        pos: [
-                            (gx as f32 - t.width as f32 * 0.5) * t.grid_spacing,
-                            elevation,
-                            (t.height as f32 * 0.5 - gy as f32) * t.grid_spacing,
-                        ],
-                        normal: n,
-                        uv: [
-                            (slotx * TEX) as f32 / ATLAS as f32
-                                + x as f32 * TEX as f32 / (TILE * ATLAS) as f32,
-                            (sloty * TEX) as f32 / ATLAS as f32
-                                + y as f32 * TEX as f32 / (TILE * ATLAS) as f32,
-                        ],
+    // Recovered block residency, resolution levels and block-edge rule
+    // (src/terrain_lod.rs). The client keeps a square window of blocks around
+    // the camera's block (`0x77ecf0`), gives each one of three meshes by camera
+    // distance (`0x77e360`) and closes block boundaries with the coarser
+    // neighbour's edge stride (`0x7c40e6`). This is the near mesh; the persistent
+    // whole-world mesh below the window keeps the rest of the world visible.
+    if t.grid != TILE || TILE != crate::terrain_lod::CELLS {
+        return Err(format!(
+            "T2BK blocks are {} cells but the recovered block/LOD rule assumes {} \
+             (elementclient 0x7e5f70); refusing to draw substitute geometry",
+            t.grid,
+            crate::terrain_lod::CELLS
+        ));
+    }
+    if t.width % TILE != 0 || t.height % TILE != 0 {
+        return Err(format!(
+            "T2 terrain grid {}x{} is not a whole number of {TILE}-cell blocks",
+            t.width, t.height
+        ));
+    }
+    let (win, levels) = lod_window(t.width, t.height, t.grid_spacing, [cx, cz], rad);
+    let lod_state = LodState {
+        window: win,
+        levels: levels.levels.clone(),
+    };
+    // The loader stores `grid` cells per block and drops each block's last row
+    // and column (the neighbour re-supplies them), so a block's offset-`TILE`
+    // vertex clamps to the last stored cell at the world border.
+    let sample = |cell_x: usize, cell_y: usize| {
+        let x = cell_x.min(t.width - 1);
+        let y = cell_y.min(t.height - 1);
+        (x, y, y * t.width + x)
+    };
+    // `0x77e250`: the resident set follows the window. Blocks that enter are
+    // meshed at the level `0x77e360` picked, blocks whose level changed are
+    // re-meshed, and blocks the window leaves release their geometry.
+    let census =
+        residency.update(
+            &win,
+            |x, y| levels.level(x, y),
+            |x, y, level| {
+                let cases = levels.cases[(y - win.y0) * (win.x1 - win.x0) + (x - win.x0)];
+                let surface = crate::terrain_lod::block_surface(level, cases);
+                let mut block_vertices = Vec::with_capacity(surface.grid.len());
+                let mut low = [f32::INFINITY; 3];
+                let mut high = [f32::NEG_INFINITY; 3];
+                for g in &surface.grid {
+                    let (cell_x, cell_y, at) =
+                        sample(x * TILE + g[0] as usize, y * TILE + g[1] as usize);
+                    let n = t.normals.get(at).copied().ok_or_else(|| {
+                        format!("cell {at} outside {}x{} terrain", t.width, t.height)
+                    })?;
+                    let height = *t.heights.get(at).ok_or_else(|| {
+                        format!("cell {at} outside {}x{} terrain", t.width, t.height)
+                    })?;
+                    let pos = [
+                        (cell_x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
+                        height,
+                        (t.height as f32 * 0.5 - cell_y as f32) * t.grid_spacing,
+                    ];
+                    for axis in 0..3 {
+                        low[axis] = low[axis].min(pos[axis]);
+                        high[axis] = high[axis].max(pos[axis]);
+                    }
+                    block_vertices.push(Vertex {
+                        pos,
+                        normal: [n[0] as f32 / 127., n[1] as f32 / 127., n[2] as f32 / 127.],
+                        uv: [0.; 2],
                         color: [1.; 4],
                         kind: 0.,
                         diffuse: 0xffff_ffff,
                         night_diffuse: 0xffff_ffff,
-                    })
+                    });
                 }
-            }
-            for y in 0..TILE {
-                for x in 0..TILE {
-                    let a = base + (y * (TILE + 1) + x) as u32;
-                    let b = a + 1;
-                    let c = a + (TILE + 1) as u32;
-                    indices.extend_from_slice(&[a, b, c, b, c + 1, c]);
-                }
-            }
-        }
-    }
+                Ok((
+                    block_vertices,
+                    surface.indices,
+                    [low[0], low[1], low[2], high[0], high[1], high[2]],
+                ))
+            },
+        )?;
+    let spans = residency.append(&win, &mut vertices, &mut indices);
+    eprintln!(
+        "Terrain residency: {} blocks resident ({} entered, {} evicted, {} re-meshed), \
+         {} triangles; {} blocks submitted",
+        census.resident,
+        census.loaded,
+        census.evicted,
+        census.remeshed,
+        census.triangles,
+        spans.len()
+    );
     let terrain_end = indices.len() as u32;
     // Trees are now entirely GPU-instanced at three runtime-generated LODs.
     let mut atlas_allocator = crate::texture_atlas::Atlas::new();
@@ -628,6 +722,8 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
         center: (bx, by),
         tree_center: (cx, cz),
         detail,
+        lod: lod_state,
+        spans,
         terrain_end,
         object_start,
         water_start,
@@ -691,6 +787,11 @@ struct Renderer {
     grass: crate::grass_instances::Gpu,
     tree_center: (f32, f32),
     detail: DetailSettings,
+    /// Window/levels the current terrain mesh was built for.
+    lod: LodState,
+    /// Resident terrain blocks (`0x77e250`) and the runs submitted last frame.
+    spans: Vec<crate::terrain_residency::Span>,
+    terrain_runs: Vec<(u32, u32)>,
     terrain_end: u32,
     world_width: usize,
     world_height: usize,
@@ -1085,6 +1186,9 @@ impl Renderer {
             count,
             depth: d,
             center: m.center,
+            lod: m.lod,
+            spans: m.spans,
+            terrain_runs: Vec::new(),
         })
     }
     fn update_mesh(&mut self, m: MeshData) {
@@ -1123,6 +1227,8 @@ impl Renderer {
         self.center = m.center;
         self.tree_center = m.tree_center;
         self.detail = m.detail;
+        self.lod = m.lod;
+        self.spans = m.spans;
         self.terrain_end = m.terrain_end;
         self.object_start = m.object_start;
         self.water_start = m.water_start;
@@ -1170,12 +1276,21 @@ impl Renderer {
         if clear_color.is_none() {
             self.sky.draw(&mut p, sky_reflected);
         }
+        // The main view submits only the blocks its frustum keeps
+        // (`block+0x74`); the other passes reuse the full terrain because they
+        // look through different matrices and must not lose blocks.
+        let runs = if reflected {
+            None
+        } else {
+            Some(self.terrain_runs.as_slice())
+        };
         self.terrain_gpu.draw(
             &mut p,
             reflected,
             &self.vertex,
             &self.index,
             self.terrain_end,
+            runs,
         );
         drop(p);
         if let Some(source) = terrain_depth_source {
@@ -1468,6 +1583,9 @@ impl Renderer {
         w: u32,
         h: u32,
     ) {
+        // Per-frame, per-view visibility of the resident terrain (`0x77e250`):
+        // the same block walk the client runs before the level rule.
+        self.terrain_runs = crate::terrain_residency::visible_runs(&self.spans, matrix);
         let now = Instant::now();
         let dt = now.duration_since(self.wind_last).as_secs_f32();
         self.grass_wind_state.update(dt);
@@ -2276,7 +2394,14 @@ pub fn run(
         .environments
         .atmosphere(camera.pos.to_array(), camera.time_of_day);
     let mut settings = ViewSettings::load();
-    let m = build(&mut t, camera.pos.x, camera.pos.z, settings.detail)?;
+    let mut residency = crate::terrain_residency::Residency::default();
+    let m = build(
+        &mut t,
+        camera.pos.x,
+        camera.pos.z,
+        settings.detail,
+        &mut residency,
+    )?;
     let mut renderer = Renderer::new(
         device,
         queue,
@@ -2337,9 +2462,10 @@ pub fn run(
     std::thread::Builder::new()
         .name("world-streaming".into())
         .spawn(move || {
+            let mut residency = crate::terrain_residency::Residency::default();
             while let Ok((x, z, detail)) = request_rx.recv() {
                 let started = Instant::now();
-                let result = build(&mut t, x, z, detail);
+                let result = build(&mut t, x, z, detail, &mut residency);
                 eprintln!(
                     "Background terrain build at ({x:.1},{z:.1}) took {:.2}s",
                     started.elapsed().as_secs_f32()
@@ -2562,15 +2688,30 @@ pub fn run(
                             }
                         }
                     }
-                    let gx = ((camera.pos.x / spacing + width as f32 * 0.5) / TILE as f32).floor()
-                        as isize;
-                    let gy = ((height as f32 * 0.5 - camera.pos.z / spacing) / TILE as f32).floor()
-                        as isize;
-                    if !streaming
-                        && ((gx - renderer.center.0).abs() >= 2
-                            || (gy - renderer.center.1).abs() >= 2
-                            || renderer.detail != settings.detail)
-                    {
+                    // `0x77e360` runs for every resident block on every frame and
+                    // the window origin follows the camera's block, so re-select
+                    // both per frame and rebuild only when the drawn mesh would
+                    // differ. The in-flight flag rate-limits the rebuilds.
+                    let aim = if streaming {
+                        None
+                    } else {
+                        let (win, levels) = lod_window(
+                            width,
+                            height,
+                            spacing,
+                            [camera.pos.x, camera.pos.z],
+                            settings.detail.radius,
+                        );
+                        Some(LodState {
+                            window: win,
+                            levels: levels.levels,
+                        })
+                    };
+                    let stale = match &aim {
+                        Some(aim) => aim != &renderer.lod || renderer.detail != settings.detail,
+                        None => false,
+                    };
+                    if stale {
                         if request_tx.send((camera.pos.x, camera.pos.z, settings.detail)).is_err() {
                             eprintln!("World streaming worker exited");
                             target.exit();
@@ -2729,7 +2870,7 @@ pub fn run(
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
                                                     0=>{ui.heading("Graphics");ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
-                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} failed; alpha meshes ordered {}",g.live,g.pending,g.emitters,g.failed_owners+models.gfx_failures().len(),models.alpha_order().len()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Detailed terrain radius (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
+                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} failed; alpha meshes ordered {}",g.live,g.pending,g.emitters,g.failed_owners+models.gfx_failures().len(),models.alpha_order().len()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());ui.label("Music follows the client zone playlists; ambient sounds are not yet implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
                                                 }
@@ -2919,7 +3060,14 @@ pub fn preview(
     cam.underwater_fog = t
         .environments
         .underwater(cam.pos.to_array(), cam.time_of_day);
-    let mesh = build(&mut t, cam.pos.x, cam.pos.z, DetailSettings::default())?;
+    let mut residency = crate::terrain_residency::Residency::default();
+    let mesh = build(
+        &mut t,
+        cam.pos.x,
+        cam.pos.z,
+        DetailSettings::default(),
+        &mut residency,
+    )?;
     let (width, height) = (960u32, 720u32);
     let fmt = wgpu::TextureFormat::Rgba8UnormSrgb;
     let mut renderer = Renderer::new(device, queue, fmt, width, height, mesh, &mut t)?;
