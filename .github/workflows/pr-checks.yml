@@ -69,9 +69,25 @@ jobs:
           cargo run --locked --bin model-draw-gpu-check
           cargo run --locked --bin phase1-fog-gpu-check
           cargo run --locked --bin terrain-refraction-gpu-check
-          cargo run --locked --bin terrain-lod-gpu-check
-          cargo run --locked --bin terrain-view-gpu-check
           cargo run --locked --bin water-fog-gpu-check
+      # Separate steps so a failure names the program that failed instead of
+      # only the batch that contained it.
+      - name: Run terrain LOD GPU check
+        env:
+          WGPU_BACKEND: vulkan
+          XDG_RUNTIME_DIR: /tmp
+        run: |
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
+          test -n "$VK_ICD_FILENAMES"
+          cargo run --locked --bin terrain-lod-gpu-check
+      - name: Run terrain per-view GPU check
+        env:
+          WGPU_BACKEND: vulkan
+          XDG_RUNTIME_DIR: /tmp
+        run: |
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
+          test -n "$VK_ICD_FILENAMES"
+          cargo run --locked --bin terrain-view-gpu-check
 
   windows:
     name: Windows executable (x64)

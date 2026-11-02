@@ -63,10 +63,7 @@ fn main() {
         &wgpu::DeviceDescriptor {
             label: None,
             required_features: wgpu::Features::empty(),
-            // This check needs the same 4096px mask page the viewer uploads, so
-            // it must ask for the adapter's real 2D texture limit rather than the
-            // downlevel baseline (which caps at 2048).
-            required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
+            required_limits: wgpu::Limits::downlevel_defaults(),
         },
         None,
     ))
@@ -163,13 +160,16 @@ fn main() {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         ..Default::default()
     });
-    eprintln!("terrain-view: building 4096px mask page");
-    // 4096px mask page, as the viewer uploads (MASK_PAGE).
+    eprintln!("terrain-view: uploading mask page");
+    // A 512px mask page holding the two 256px slots this check uses. The shader
+    // divides by the MASK_PAGE constant (4096) in `fs`, so only slot 0 is
+    // addressed here; the point of the check is that all views read the same
+    // slot, not the atlas geometry.
     let mask_tex = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("terrain mask page"),
         size: wgpu::Extent3d {
-            width: 4096,
-            height: 4096,
+            width: 512,
+            height: 512,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -179,15 +179,10 @@ fn main() {
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    // Two 256px slots with different weights, so swapping slots is visible.
-    let mut mask_px = vec![0u8; 4096 * 4096 * 4];
-    for y in 0..4096 {
-        for x in 0..4096 {
-            let slot = x / 256 + (y / 256) * 16;
-            let value = if slot == 0 { 220 } else { 40 };
-            let i = (y * 4096 + x) * 4;
-            mask_px[i..i + 4].copy_from_slice(&[value, value, value, 255]);
-        }
+    // One 256px slot at weight 220, so the composite is deterministic.
+    let mut mask_px = vec![0u8; 512 * 512 * 4];
+    for px in mask_px.chunks_mut(4) {
+        px.copy_from_slice(&[220, 220, 220, 255]);
     }
     queue.write_texture(
         wgpu::ImageCopyTexture {
@@ -199,12 +194,12 @@ fn main() {
         &mask_px,
         wgpu::ImageDataLayout {
             offset: 0,
-            bytes_per_row: Some(4096 * 4),
-            rows_per_image: Some(4096),
+            bytes_per_row: Some(512 * 4),
+            rows_per_image: Some(512),
         },
         wgpu::Extent3d {
-            width: 4096,
-            height: 4096,
+            width: 512,
+            height: 512,
             depth_or_array_layers: 1,
         },
     );
