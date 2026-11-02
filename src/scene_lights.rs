@@ -296,6 +296,130 @@ impl StaticGrid {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn fixture(position: [f32; 3], range: f32) -> SceneLight {
+        SceneLight {
+            position,
+            range,
+            stored_attenuation: [1., 2., 3.],
+            diffuse: [0.8, 0.4, 0.2, 0.5],
+            ambient: [0.2, 0.1, 0.05, 0.25],
+            bounds_center: position,
+            bounds_half_extent: [100.; 3],
+            bounds_min: position.map(|v| v - 100.),
+            bounds_max: position.map(|v| v + 100.),
+            flags: 1,
+        }
+    }
+
+    #[test]
+    fn candidate_range_is_not_a_query_cutoff_and_night_does_not_change_priority() {
+        let first = fixture([0., 100., 0.], 1.);
+        let mut second = first.clone();
+        second.flags = 0;
+        second.diffuse = [1.; 4];
+        let lights = SceneLights {
+            lights: vec![first.clone(), second],
+        };
+        let mut grid = StaticGrid::default();
+        grid.update(&lights, [0., 100., 0.]);
+        // The chosen cell's AABBs overlap the query even though range does not.
+        for night in [0., 0.5, 1.] {
+            let chosen = grid.query(&lights, [45., 100., 0.], night).unwrap();
+            assert_eq!(chosen.range, 1.);
+            assert_eq!(
+                chosen.flags, 1,
+                "equal-distance static ties keep source order"
+            );
+            assert_eq!(chosen.diffuse[0], first.diffuse[0] * night);
+            assert_eq!(chosen.ambient[0], first.ambient[0] * night);
+            assert_eq!(chosen.diffuse[3], 1.);
+            assert_eq!(chosen.ambient[3], 1.);
+        }
+        assert_eq!(
+            lights.lights[0], first,
+            "queries must not rescale stored colors"
+        );
+    }
+
+    #[test]
+    fn runtime_light_replaces_static_only_when_strictly_closer() {
+        let lights = SceneLights {
+            lights: vec![fixture([8., 100., 0.], 20.)],
+        };
+        let mut grid = StaticGrid::default();
+        grid.update(&lights, [0., 100., 0.]);
+        for (x, expected) in [(9., 8.), (8., 8.), (7., 7.)] {
+            grid.update_dynamic(&[DynamicLight {
+                position: [x, 100., 0.],
+                radius: 20.,
+                color: [0.25, 0.5, 1., 0.5],
+            }]);
+            let chosen = grid.query(&lights, [0., 100., 0.], 1.).unwrap();
+            assert_eq!(chosen.position[0], expected);
+            if x == 7. {
+                assert_eq!(chosen.diffuse, [0.25, 0.5, 1., 1.]);
+                assert_eq!(chosen.ambient, [0.025, 0.05, 0.1, 1.]);
+            }
+        }
+        grid.update(&lights, [12., 100., 0.]);
+        assert!(
+            grid.dynamic.is_empty(),
+            "rebuild must discard old-frame runtime cells"
+        );
+    }
+
+    #[test]
+    fn query_bounds_are_inclusive_and_edge_indices_are_clamped() {
+        let lights = SceneLights {
+            lights: vec![fixture([0., 100., 0.], 1.)],
+        };
+        let mut grid = StaticGrid::default();
+        grid.update(&lights, [0., 100., 0.]);
+        for x in [-60., 60.] {
+            for z in [-60., 60.] {
+                for y in [0., 800.] {
+                    assert!(grid.query(&lights, [x, y, z], 1.).is_some());
+                }
+            }
+        }
+        for p in [
+            [-60.001, 100., 0.],
+            [60.001, 100., 0.],
+            [0., -0.001, 0.],
+            [0., 800.001, 0.],
+            [0., 100., -60.001],
+            [0., 100., 60.001],
+            [f32::NAN, 100., 0.],
+            [0., f32::INFINITY, 0.],
+        ] {
+            assert!(grid.query(&lights, p, 1.).is_none());
+        }
+    }
+
+    #[test]
+    fn invalid_runtime_candidates_do_not_consume_the_cell_cap() {
+        let lights = SceneLights::default();
+        let mut grid = StaticGrid::default();
+        grid.update(&lights, [0., 100., 0.]);
+        let valid = DynamicLight {
+            position: [0., 100., 0.],
+            radius: 10.,
+            color: [1.; 4],
+        };
+        let mut bad_radius = valid;
+        bad_radius.radius = -1.;
+        let mut bad_position = valid;
+        bad_position.position[0] = f32::NAN;
+        let mut bad_color = valid;
+        bad_color.color[3] = f32::INFINITY;
+        grid.update_dynamic(&[bad_radius, bad_position, bad_color, valid]);
+        assert_eq!(
+            grid.query(&lights, valid.position, 1.).unwrap().position,
+            valid.position
+        );
+    }
+
     #[test]
     fn static_grid_scales_night_and_uses_cell_not_global_nearest() {
         fn light(x: f32, range: f32, flag: u32) -> SceneLight {
