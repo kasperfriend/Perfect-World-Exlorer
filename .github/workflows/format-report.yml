@@ -3,7 +3,10 @@ name: Formatting report
 # Review-only helper: applies rustfmt to the branch and commits the result, so a
 # sandbox without a Rust toolchain can read rustfmt's exact opinion. Deleted
 # before this branch is handed off.
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/5b7c9c75-perfect-world-exlorer]
 
 permissions:
   contents: write
