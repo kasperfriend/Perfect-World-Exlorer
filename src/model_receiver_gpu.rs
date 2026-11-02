@@ -28,6 +28,8 @@ pub struct Params {
     /// power, point enabled, specular variant enabled, reserved.
     pub lighting: [f32; 4],
     pub fog_color: [f32; 4],
+    /// Table fog: start, end, enabled, reserved. Disabled uses supplied vertex fog.
+    pub fog_range: [f32; 4],
     /// World clip plane; zero disables clipping.
     pub clip_plane: [f32; 4],
     /// two sided, reverse front face, alpha-test enabled, alpha reference.
@@ -137,7 +139,49 @@ impl Receiver {
             dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
             operation: wgpu::BlendOperation::Add,
         };
-        let pipeline=device.create_render_pipeline(&wgpu::RenderPipelineDescriptor{label:Some("encoded ordinary model receiver"),layout:None,vertex:wgpu::VertexState{module:&shader,entry_point:"vs",buffers:&[wgpu::VertexBufferLayout{array_stride:std::mem::size_of::<Vertex>() as u64,step_mode:wgpu::VertexStepMode::Vertex,attributes:&wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32]}]},fragment:Some(wgpu::FragmentState{module:&shader,entry_point:"fs",targets:&[Some(wgpu::ColorTargetState{format,blend:Some(wgpu::BlendState{color:blend,alpha:blend}),write_mask:wgpu::ColorWrites::ALL})]}),primitive:wgpu::PrimitiveState{cull_mode:None,..Default::default()},depth_stencil:depth.map(|(format,depth_compare)|wgpu::DepthStencilState{format,depth_write_enabled:depth_write,depth_compare,stencil:Default::default(),bias:Default::default()}),multisample:Default::default(),multiview:None});
+        let attributes =
+            wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32];
+        let buffers = [wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Vertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &attributes,
+        }];
+        let targets = [Some(wgpu::ColorTargetState {
+            format,
+            blend: Some(wgpu::BlendState {
+                color: blend,
+                alpha: blend,
+            }),
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
+        let depth_stencil = depth.map(|(format, depth_compare)| wgpu::DepthStencilState {
+            format,
+            depth_write_enabled: depth_write,
+            depth_compare,
+            stencil: Default::default(),
+            bias: Default::default(),
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("encoded ordinary model receiver"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs",
+                buffers: &buffers,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs",
+                targets: &targets,
+            }),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil,
+            multisample: Default::default(),
+            multiview: None,
+        });
         let layout = pipeline.get_bind_group_layout(0);
         Ok(Self { pipeline, layout })
     }
@@ -191,7 +235,7 @@ pub const WGSL: &str = r#"
 struct Params {
  matrix:mat4x4<f32>,ambient:vec4<f32>,diffuse:vec4<f32>,point_ambient:vec4<f32>,point_diffuse:vec4<f32>,
  direction:vec4<f32>,point_position:vec4<f32>,attenuation:vec4<f32>,eye_direction:vec4<f32>,specular:vec4<f32>,lighting:vec4<f32>,
- fog_color:vec4<f32>,clip_plane:vec4<f32>,raster:vec4<f32>
+ fog_color:vec4<f32>,fog_range:vec4<f32>,clip_plane:vec4<f32>,raster:vec4<f32>
 };
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var image:texture_2d<f32>;
@@ -215,6 +259,13 @@ struct Output {@builtin(position) position:vec4<f32>,@location(0) uv:vec2<f32>,@
  let alpha=clamp(t.a*v.diffuse.a,0.,1.);
  if p.raster.z>0.5 && alpha<p.raster.w {discard;}
  let encoded=clamp(t.rgb*v.diffuse.rgb+v.specular,vec3<f32>(0.),vec3<f32>(1.));
- return vec4<f32>(mix(p.fog_color.rgb,encoded,v.fog),alpha);
+ var fog=v.fog;
+ if p.fog_range.z>0.5 {
+  let depth=1./max(v.position.w,0.0000001);
+  let span=p.fog_range.y-p.fog_range.x;
+  if abs(span)<0.001 {fog=select(1.,0.,depth>=p.fog_range.y);}
+  else {fog=clamp((p.fog_range.y-depth)/span,0.,1.);}
+ }
+ return vec4<f32>(mix(p.fog_color.rgb,encoded,fog),alpha);
 }
 "#;

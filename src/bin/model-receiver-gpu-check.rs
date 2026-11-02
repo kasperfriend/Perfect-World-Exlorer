@@ -143,6 +143,7 @@ fn main() {
                         specular: [0.03, 0.02, 0.01, 0.],
                         lighting: [7., u32::from(point) as f32, u32::from(specular) as f32, 0.],
                         fog_color,
+                        fog_range: [0.; 4],
                         clip_plane: [0.; 4],
                         raster: [1., 0., 0., 0.],
                     };
@@ -158,7 +159,7 @@ fn main() {
                     let mesh = Mesh::new(&device, &vertices, &[0, 1, 2, 2, 1, 3]).unwrap();
                     assert!(mesh.update(&queue, &vertices[..3]).is_err());
                     let binding = receiver.binding(&device, &view, &sampler, &params).unwrap();
-                    for reject in [0, 1, 2, 3, 4] {
+                    for reject in [0, 1, 2, 3, 4, 5] {
                         let mut p = params;
                         if reject == 1 {
                             p.clip_plane = [0., 0., 0., -1.];
@@ -174,6 +175,9 @@ fn main() {
                         if reject == 4 {
                             p.raster[0] = 0.;
                             p.raster[1] = 0.;
+                        }
+                        if reject == 5 {
+                            p.fog_range = [0., 2., 1., 0.];
                         }
                         binding.update(&queue, &p).unwrap();
                         let mut encoder = device.create_command_encoder(&Default::default());
@@ -225,9 +229,10 @@ fn main() {
                             } else {
                                 let encoded =
                                     (texel[c] as f32 / 255. * primary[c] + shine[c]).clamp(0., 1.);
-                                fog_color[c] * (1. - fog) + encoded * fog
+                                let f = if reject == 5 { 0.5 } else { fog };
+                                fog_color[c] * (1. - f) + encoded * f
                             };
-                            let expected = if reject != 0 && reject != 4 {
+                            let expected = if reject != 0 && reject != 4 && reject != 5 {
                                 background[c]
                             } else {
                                 ((src * opacity + background[c] as f32 / 255. * (1. - opacity))

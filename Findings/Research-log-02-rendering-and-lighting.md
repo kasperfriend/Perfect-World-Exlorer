@@ -898,3 +898,26 @@ clip rejection, alpha rejection and reversed/ordinary face decisions. This is
 not yet scene submission or complete shader/material variant coverage. Full
 CI validation is pending, so P1.03 remains No. Next: validate the raster stage
 and connect retained world instances to it without relighting baked objects.
+
+Raster checkpoint: commit `3f76217`, CI `41447009510`, completed successfully
+on Linux and Windows, including all 120 production raster cases. The earlier
+`fb7b1a8` run failed to compile the depth-state tuple; this was corrected before
+that successful run. This validates the isolated raster stage, not submission.
+
+The next extension adds pixel/table linear fog using reciprocal fragment W
+(perspective view depth), separately from explicitly supplied vertex fog. The
+ordinary skin shader emits no `oFog`; its `oD1.w` is explicitly 1 in both the
+specular and non-specular variants. Table fog therefore must not be substituted
+with interpolation of per-vertex radial distances. The test now intends 144
+cases: the extra case overrides three distinct vertex-fog values with table
+fog at depth 1, start 0/end 2. Validation of this extension is pending.
+
+Additional material binding evidence: `7a62db–7a630f` multiplies all four
+material-specular components by directional-light specular for constant 9;
+this is distinct from directional diffuse. The shader header independently
+identifies c9 as `material.specular * dir_light.specular`. A diagnostic through
+the production retained asset reader inspected all 23 loaded mesh materials:
+all have specular RGB zero, alpha 1 (powers include 0 and approximately 10).
+This does not justify disabling the specular shader variant: its diffuse-alpha
+calculation still differs. Nonzero specular materials must use the actual light
+specular, not an invented copy of directional diffuse.
