@@ -676,7 +676,7 @@ fn bmd_baked_rgb(day:u32, night:u32, night_factor:f32)->vec3<u32> {
 @vertex fn vs(i:VIn)->VOut { var o:VOut; var pos=i.pos; var norm=i.normal;
  if i.kind>4.5 { let d=normalize(camera.direction.xyz); let az=atan2(d.z,d.x); let el=asin(clamp(d.y,-1.,1.)); let rho=i.color.w; let q=vec3<f32>(cos(el)*i.normal.x-sin(el)*i.normal.z,i.normal.y,sin(el)*i.normal.x+cos(el)*i.normal.z); let a=az+rho;var v=vec3<f32>(cos(a)*q.x-sin(a)*q.y,sin(a)*q.x+cos(a)*q.y,q.z);if rho>1000. { v=i.normal; }pos+=vec3<f32>(v.x,v.z,v.y);norm=vec3<f32>(0.,1.,0.); }
  o.pos=camera.matrix*vec4<f32>(pos,1.);o.bmd_refraction=1.;if camera.clip.y<0. && i.kind>1.5 && i.kind<2.5 {o.bmd_refraction=bmd_refraction_transmittance(pos);}o.world=pos;o.normal=norm;o.uv=i.uv;o.color=i.color;o.kind=i.kind;o.diffuse=vec3<f32>(bmd_baked_rgb(i.diffuse,i.night_diffuse,1.-camera.direction.w))/255.;return o; }
-@fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if i.kind>1.5 && i.kind<2.05 && camera.clip.w == 0. && (front == (camera.clip.z != 0.)) {discard;} if camera.clip.y != 0.0 && (i.world.y-camera.clip.x)*camera.clip.y < 0.0 {discard;} if i.kind>0.5 && i.kind<1.5 {return vec4<f32>(fogged(i.color.rgb,i.pos.w),1.);} let uv_dx=dpdx(i.uv);let uv_dy=dpdy(i.uv);var uv=i.uv; if i.kind>1.5 {let scale=vec2<f32>(i.color.z,select(i.color.z,i.color.w,i.kind<2.5));let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(uv_dx*dims),length(uv_dy*dims)),1.)),0.,7.);let border=0.5*exp2(mip);let half_pixel=min(vec2<f32>(border)/dims,scale*0.499);let local=fract((i.uv-i.color.xy)/scale)*scale;uv=i.color.xy+clamp(local,half_pixel,scale-half_pixel);} let raw_tex=textureSampleGrad(atlas,atlas_sampler,uv,uv_dx,uv_dy);let encoded=raw_tex.rgb;let linear=select(encoded/12.92,pow((encoded+0.055)/1.055,vec3<f32>(2.4)),encoded>vec3<f32>(0.04045));let tex=vec4<f32>(linear,raw_tex.a);if ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9) {discard;} if i.kind>1.5 && i.kind<2.5 {let c=clamp(raw_tex.rgb*i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.));let rgb=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));return vec4<f32>(bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),1.);} let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.);}
+@fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if ((i.kind>1.05 && i.kind<1.15) || (i.kind>1.5 && i.kind<2.05)) && camera.clip.w == 0. && (front == (camera.clip.z != 0.)) {discard;} if camera.clip.y != 0.0 && (i.world.y-camera.clip.x)*camera.clip.y < 0.0 {discard;} if i.kind>0.5 && i.kind<1.05 {return vec4<f32>(fogged(i.color.rgb,i.pos.w),1.);} if i.kind>1.05 && i.kind<1.25 {return vec4<f32>(bmd_pass_fog(clamp(i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.)),i.pos.w,i.bmd_refraction),1.);} let uv_dx=dpdx(i.uv);let uv_dy=dpdy(i.uv);var uv=i.uv; if i.kind>1.5 {let scale=vec2<f32>(i.color.z,select(i.color.z,i.color.w,i.kind<2.5));let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(uv_dx*dims),length(uv_dy*dims)),1.)),0.,7.);let border=0.5*exp2(mip);let half_pixel=min(vec2<f32>(border)/dims,scale*0.499);let local=fract((i.uv-i.color.xy)/scale)*scale;uv=i.color.xy+clamp(local,half_pixel,scale-half_pixel);} let raw_tex=textureSampleGrad(atlas,atlas_sampler,uv,uv_dx,uv_dy);let encoded=raw_tex.rgb;let linear=select(encoded/12.92,pow((encoded+0.055)/1.055,vec3<f32>(2.4)),encoded>vec3<f32>(0.04045));let tex=vec4<f32>(linear,raw_tex.a);if i.kind>3.5 && tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9) {discard;} if i.kind>1.5 && i.kind<2.5 {let c=clamp(raw_tex.rgb*i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.));let rgb=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));return vec4<f32>(bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),1.);} let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.);}
 "#;
 struct Renderer {
     models: Option<crate::world_models_gpu::World>,
@@ -685,6 +685,7 @@ struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
+    scenery_pipeline: wgpu::RenderPipeline,
     terrain_gpu: crate::terrain_gpu::TerrainGpu,
     sky: crate::sky_gpu::SkyGpu,
     far_trees: crate::far_trees_gpu::FarTrees,
@@ -970,6 +971,50 @@ impl Renderer {
             multisample: Default::default(),
             multiview: None,
         });
+        // Static scenery shares the client's single depth buffer with the
+        // terrain, which is submitted first (`terrain_end..local_end`). Under
+        // the reversed projection the client's fixed-point `LESSEQUAL` test
+        // becomes `Greater`/`GreaterEqual`, and the tie rule matters: a
+        // duplicate baked triangle submitted after an identical one must win,
+        // exactly as a second draw at equal depth passes `LESSEQUAL`. Nothing
+        // in the baked path changes `ZFUNC` or `ZBIAS` (the only `ZBIAS` writes
+        // are the effect path's 2/0 pair at 0x417453 and 0x417471). Only the
+        // comparand differs from `pipeline`; the shader and layout are the same.
+        let scenery_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("scenery GPU pipeline"),
+            layout: Some(&pl),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs",
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<Vertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &ATTR,
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview: None,
+        });
         let vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&m.vertices),
@@ -1056,6 +1101,7 @@ impl Renderer {
             device,
             queue,
             pipeline,
+            scenery_pipeline,
             uniform,
             reflected_uniform,
             bind,
@@ -1209,7 +1255,7 @@ impl Renderer {
         }
         self.grass
             .draw(&mut p, bind, Some(&self.terrain_gpu.grass_light_bind));
-        p.set_pipeline(&self.pipeline);
+        p.set_pipeline(&self.scenery_pipeline);
         p.set_bind_group(0, bind, &[]);
         p.set_vertex_buffer(0, self.vertex.slice(..));
         p.set_index_buffer(self.index.slice(..), wgpu::IndexFormat::Uint32);

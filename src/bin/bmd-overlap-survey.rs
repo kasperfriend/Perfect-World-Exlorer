@@ -2,6 +2,8 @@
 #![allow(dead_code)]
 #[path = "../bmd.rs"]
 mod bmd;
+#[path = "../bmd_baked.rs"]
+mod bmd_baked;
 #[path = "../pck.rs"]
 mod pck;
 use std::{collections::HashMap, env, fs::File};
@@ -20,6 +22,9 @@ fn main() {
     let mut reverse = 0u64;
     let mut cross = 0u64;
     let mut examples = 0;
+    let mut culled = 0u64;
+    let mut later = 0u64;
+    let mut cross_mesh = 0u64;
     let mut positive = 0u64;
     let mut negative = 0u64;
     for e in entries.iter().filter(|e| {
@@ -30,6 +35,11 @@ fn main() {
         models += 1;
         let mut seen: HashMap<[[u32; 3]; 3], (usize, String, bool)> = HashMap::new();
         let mut duplicate = 0;
+        let two_sided: Vec<bool> = m
+            .meshes
+            .iter()
+            .map(|mesh| mesh.material.as_ref().is_some_and(|mat| mat.two_sided))
+            .collect();
         for (mi, mesh) in m.meshes.iter().enumerate() {
             for triangle in mesh.indices.chunks_exact(3) {
                 let a = &mesh.vertices[triangle[0] as usize];
@@ -65,14 +75,31 @@ fn main() {
                 if let Some((other, tex, old_parity)) = seen.get(&ps) {
                     duplicate += 1;
                     cross += (*other != mi) as u64;
-                    if *old_parity == (parity % 2 == 1) {
+                    let same_winding = *old_parity == (parity % 2 == 1);
+                    if same_winding {
                         same += 1
                     } else {
                         reverse += 1
                     };
+                    // One model reaches the device in one indexed submission, so
+                    // the later triangle of a pair is the later primitive.
+                    let outcome = bmd_baked::overlap_outcome(
+                        same_winding,
+                        two_sided[*other],
+                        two_sided[mi],
+                        true,
+                    );
+                    match outcome {
+                        bmd_baked::OverlapOutcome::Culled => culled += 1,
+                        bmd_baked::OverlapOutcome::LaterSubmissionWins => {
+                            later += 1;
+                            cross_mesh += (*other != mi) as u64;
+                        }
+                        bmd_baked::OverlapOutcome::Unresolved => {}
+                    }
                     if examples < 12 {
                         println!(
-                            "{} duplicate mesh {other} ({tex}) / {mi} ({})",
+                            "{} duplicate mesh {other} ({tex}) / {mi} ({}) {outcome:?}",
                             e.name, mesh.texture
                         );
                         examples += 1;
@@ -87,5 +114,5 @@ fn main() {
             total += duplicate;
         }
     }
-    println!("models={models} with_exact_duplicate_triangles={duplicate_models} duplicate_triangles={total} same_winding={same} opposite_winding={reverse} across_meshes={cross} normals_positive={positive} normals_negative={negative}");
+    println!("models={models} with_exact_duplicate_triangles={duplicate_models} duplicate_triangles={total} same_winding={same} opposite_winding={reverse} across_meshes={cross} normals_positive={positive} normals_negative={negative} resolved_by_cull={culled} resolved_by_order={later} resolved_cross_mesh={cross_mesh}");
 }

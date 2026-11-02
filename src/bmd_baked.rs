@@ -6,49 +6,137 @@
 //! path (`0x7a714f..0x7a7158`, `0x7926d2..0x79275a`), which would add regional
 //! ambient/diffuse/specular a second time.
 //!
-//! This module pins the draw state the production shader (`gpu.rs`,
-//! `bmd_baked_rgb` and `fs`) implements, and the integer blend the client uses.
-//! It deliberately covers only the two mesh versions the reader was inspected
-//! against: `0x10000004` and `0x10000005`.
+//! The submitter is `0x7a9730` for the ordinary world draw (`0x7a9120` is the
+//! refraction variant, which differs only in the stage-0 alpha argument) and
+//! its per-mesh loop is `0x7a9808..0x7a99bc`. Every row of [`DrawState`] is a
+//! write in that loop:
+//!
+//! | state | write site | value for baked meshes |
+//! |---|---|---|
+//! | `LIGHTING` (`0x77a3c0`, id 0x89) | `0x7a9759` | 0, so material colours never contribute |
+//! | `SPECULARENABLE` (`0x77b570`, id 0x1d) | `0x7a9762` | 0 |
+//! | stage 0 `COLOROP` (`0x779fc0`) | `0x7a976d` | 5 `MODULATE2X`, args `TEXTURE`, `DIFFUSE` (`0x7a977a`) |
+//! | stage 0 `ALPHAOP` (`0x77a020`) | `0x7a9785` | 4 `SELECTARG2`, args `TEXTURE`, `DIFFUSE` (`0x7a9792`) |
+//! | stages 1..7 | `0x7a979e`/`0x7a97aa` | disabled (`COLOROP`/`ALPHAOP` = 1) |
+//! | `CULLMODE` (`0x77a540`, id 0x16) | `0x7a98cf`, restored `0x7a9a26`/`0x7a9a49` | 1 `NONE` when `mesh+0x26c` is set, else the pass default (2 `CCW`) |
+//! | `ALPHATEST` (`0x77a320`, id 0xf) | `0x7a992b` / `0x7a98f8` | 0, unless `mesh+0x2cc` differs from `0xff` |
+//!
+//! `mesh+0x2cc` is initialised to `0xff` by the mesh constructor (`0x7b9408`,
+//! `movl $0xff,0x2cc(%esi)`) and no BMD reader writes it, so in 1.4.2 the alpha
+//! test stays disabled for every file-authored mesh; the enabled branch
+//! (`0x7a98f8..0x7a9924`) computes `80 * alpha / 255 + 1` as `ALPHAREF`.
+//! No write of `ALPHABLENDENABLE` exists in the baked path either: the queue
+//! outside the mesh loop owns transparency, so a baked mesh is opaque here.
+//!
+//! Depth: the world pass leaves `ZFUNC` at the D3D8 default (`LESSEQUAL`) and
+//! never writes `ZBIAS` (`0x77a250` is called only from the effect path at
+//! `0x417453`, value 2, restored at `0x417471`). Under the viewer's reversed
+//! projection that stays `GREATER` for the terrain and becomes `GREATER_EQUAL`
+//! for baked scenery, so a coincident duplicate submitted later wins exactly
+//! as it does in the client's single depth buffer.
 
 /// Mesh versions the reader and this draw state were inspected against.
 pub const INSPECTED_MESH_VERSIONS: [u32; 2] = [0x1000_0004, 0x1000_0005];
 
+/// `mesh+0x2cc` value the mesh constructor installs, i.e. no alpha test.
+pub const CLIENT_MAX_MESH_ALPHA: u32 = 0xff;
+
+/// Numerator of the client's alpha-test reference arithmetic (`0x7a990a`).
+pub const CLIENT_ALPHA_REF_NUMERATOR: u32 = 80;
+
 /// Texture stage combination for one baked mesh.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Stage {
-    /// No texture: the baked vertex colour is the fragment colour.
+    /// No texture: `MODULATE2X` against an unbound stage returns the doubled
+    /// vertex colour, i.e. the baked day/night blend times two.
     ColorOnly,
-    /// MODULATE2X (`0x7a9730`, texture stage 5): `texture.rgb * colour * 2`.
+    /// `COLOROP(5)` = `MODULATE2X` at `0x7a976d`: `texture.rgb * colour * 2`.
     Modulate2x,
 }
 
 /// Alpha test applied to the sampled texture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AlphaTest {
-    /// No alpha test; the mesh is fully opaque apart from the queue/blend state.
-    None,
-    /// `texture.a < 0.5` (alpha registration `0x7a59c5..0x7a5b6f`).
-    TextureHalf,
+    /// `ALPHATEST(0)` at `0x7a992b`: every fragment survives.
+    Disabled,
 }
 
 /// Back-face handling for one baked mesh.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cull {
-    /// Single-sided: the production shader drops the reversed winding.
+    /// Single-sided: the client keeps the pass cull mode (`D3DCULL_CCW`, the
+    /// device default cached at `+0x168`) and the production shader drops the
+    /// reversed winding.
     BackFace,
-    /// v5 `two_sided`/no-cull material flag (`+0x26c`, culling `0x7a98c5`).
+    /// `mesh+0x26c` set: `CULLMODE(1)` at `0x7a98cf`, restored afterwards.
     TwoSided,
 }
 
+/// Blend state of the baked mesh draw itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Blend {
+    /// No `ALPHABLENDENABLE` write exists between `0x7a9808` and the draw
+    /// calls it gates, so the mesh writes opaque fragments.
+    Opaque,
+}
+
 /// Draw state for one baked mesh, including the flat `kind` float the shared
-/// world pipeline carries into the shader.
+/// world pipeline carries into the shader. The float encodes `stage` and `cull`
+/// for the shader; the remaining rows document states the pipeline pins rather
+/// than varies.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DrawState {
     pub stage: Stage,
     pub alpha: AlphaTest,
     pub cull: Cull,
+    pub blend: Blend,
     pub kind: f32,
+}
+
+/// Native write sites for the states in this table (image base `0x400000`).
+/// Kept for traceability; the runtime only needs the resulting [`DrawState`].
+#[allow(dead_code)]
+pub mod native {
+    /// Ordinary world BMD submitter.
+    pub const MESH_DRAW: u32 = 0x7a_9730;
+    /// Refraction/reflection variant of the same submitter.
+    pub const MESH_DRAW_REFRACTED: u32 = 0x7a_9120;
+    /// Per-mesh loop head.
+    pub const MESH_LOOP: u32 = 0x7a_9808;
+    /// `LIGHTING(0)`.
+    pub const LIGHTING_OFF: u32 = 0x7a_9759;
+    /// `SPECULARENABLE(0)`.
+    pub const SPECULAR_OFF: u32 = 0x7a_9762;
+    /// `COLOROP(stage 0, MODULATE2X)`.
+    pub const STAGE0_COLOROP: u32 = 0x7a_976d;
+    /// `COLORARG1(stage 0, TEXTURE)` / `COLORARG2(stage 0, DIFFUSE)`.
+    pub const STAGE0_COLORARG: u32 = 0x7a_977a;
+    /// `ALPHAOP(stage 0, SELECTARG2)`.
+    pub const STAGE0_ALPHAOP: u32 = 0x7a_9785;
+    /// `ALPHAARG1/2(stage 0, TEXTURE, DIFFUSE)`.
+    pub const STAGE0_ALPHAARG: u32 = 0x7a_9792;
+    /// `COLOROP/ALPHAOP(stage 1, DISABLE)`.
+    pub const STAGE1_DISABLE: u32 = 0x7a_979e;
+    /// Two-sided test on `mesh+0x26c`.
+    pub const TWO_SIDED_TEST: u32 = 0x7a_98c5;
+    /// `CULLMODE(NONE)` for a two-sided mesh.
+    pub const CULL_OVERRIDE: u32 = 0x7a_98cf;
+    /// `CULLMODE(saved)` restore.
+    pub const CULL_RESTORE: u32 = 0x7a_9a26;
+    /// Per-mesh submit (`0x7b9ca0`): transform, day/night blend, index append.
+    pub const MESH_SUBMIT: u32 = 0x7a_98e3;
+    /// `mesh+0x2cc` compare against `0xff`.
+    pub const ALPHA_COMPARE: u32 = 0x7a_98f1;
+    /// `ALPHATEST(1)` on the unreachable branch.
+    pub const ALPHA_TEST_ON: u32 = 0x7a_98f8;
+    /// `80 * alpha / 255 + 1` reference arithmetic.
+    pub const ALPHA_REF_MATH: u32 = 0x7a_990a;
+    /// `ALPHATEST(0)` for every file-authored mesh.
+    pub const ALPHA_TEST_OFF: u32 = 0x7a_992b;
+    /// Mesh constructor default for `mesh+0x2cc`.
+    pub const MESH_ALPHA_DEFAULT: u32 = 0x7b_9408;
+    /// `ZBIAS(2)`/`ZBIAS(0)` in the effect path only.
+    pub const EFFECT_ZBIAS: u32 = 0x41_7453;
 }
 
 /// Classifies an inspected baked mesh. Unsupported versions are refused rather
@@ -59,31 +147,99 @@ pub fn classify(mesh_version: u32, textured: bool, two_sided: bool) -> Result<Dr
             "unsupported BMD mesh version {mesh_version:#x} for baked draw state"
         ));
     }
+    let alpha = alpha_test(CLIENT_MAX_MESH_ALPHA)?;
     Ok(match (textured, two_sided) {
         // The no-cull flag only exists on v5 materials; a v4 mesh with a
         // two-sided flag is a caller bug, not something to paper over.
         (_, true) if mesh_version != 0x1000_0005 => {
             return Err("two-sided flag requires an inspected v5 material".into())
         }
-        (false, _) => DrawState {
+        (false, false) => DrawState {
             stage: Stage::ColorOnly,
-            alpha: AlphaTest::None,
+            alpha,
             cull: Cull::BackFace,
-            kind: 1.0,
+            blend: Blend::Opaque,
+            kind: 1.1,
+        },
+        (false, true) => DrawState {
+            stage: Stage::ColorOnly,
+            alpha,
+            cull: Cull::TwoSided,
+            blend: Blend::Opaque,
+            kind: 1.2,
         },
         (true, false) => DrawState {
             stage: Stage::Modulate2x,
-            alpha: AlphaTest::TextureHalf,
+            alpha,
             cull: Cull::BackFace,
+            blend: Blend::Opaque,
             kind: 2.0,
         },
         (true, true) => DrawState {
             stage: Stage::Modulate2x,
-            alpha: AlphaTest::TextureHalf,
+            alpha,
             cull: Cull::TwoSided,
+            blend: Blend::Opaque,
             kind: 2.1,
         },
     })
+}
+
+/// Maps `mesh+0x2cc` onto the alpha-test state. 1.4.2 only ever stores `0xff`
+/// (see the module documentation), so any other value is refused: emitting a
+/// cutout state the shader cannot sample correctly would be a silent guess.
+pub fn alpha_test(mesh_alpha: u32) -> Result<AlphaTest, String> {
+    match mesh_alpha {
+        CLIENT_MAX_MESH_ALPHA => Ok(AlphaTest::Disabled),
+        other => Err(format!(
+            "mesh alpha {other:#04x} enables the alpha test with reference {:#04x}; \
+             no 1.4.2 BMD reader writes mesh+0x2cc, so this state is unrepresentable",
+            cutout_reference(other)
+        )),
+    }
+}
+
+/// `ALPHAREF` the client would compute on the unreachable branch
+/// (`0x7a990a..0x7a9920`): `80 * alpha / 255 + 1`, saturated at `0xff`.
+pub fn cutout_reference(mesh_alpha: u32) -> u8 {
+    let reference = (mesh_alpha * CLIENT_ALPHA_REF_NUMERATOR) / 255 + 1;
+    reference.min(u32::from(u8::MAX)) as u8
+}
+
+/// How one surveyed coincidence between two baked triangles is reproduced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OverlapOutcome {
+    /// Opposite winding and at least one of the two meshes is single-sided: the
+    /// cull state (`0x7a98cf` / the shader's winding drop) keeps exactly one
+    /// surface for any camera side, so the coincidence never reaches the depth
+    /// test twice.
+    Culled,
+    /// Both surfaces rasterise (same winding, or both meshes two-sided) and the
+    /// later submission wins the equal-depth tie, which is the client's
+    /// `LESSEQUAL` order.
+    LaterSubmissionWins,
+    /// Both surfaces rasterise but they do not reach the device in one
+    /// submission, so no client order is proved for them.
+    Unresolved,
+}
+
+/// Classifies one coincident pair. `same_submission` must be false when the two
+/// triangles can land in different draw calls (for example a locally streamed
+/// page and a fully preloaded world page); the result is then
+/// [`OverlapOutcome::Unresolved`] rather than an assumed order.
+pub fn overlap_outcome(
+    same_winding: bool,
+    first_two_sided: bool,
+    second_two_sided: bool,
+    same_submission: bool,
+) -> OverlapOutcome {
+    if !same_winding && !(first_two_sided && second_two_sided) {
+        OverlapOutcome::Culled
+    } else if same_submission {
+        OverlapOutcome::LaterSubmissionWins
+    } else {
+        OverlapOutcome::Unresolved
+    }
 }
 
 /// Integer day/night vertex blend, mirroring `bmd_baked_rgb` in `gpu.rs`:
@@ -122,11 +278,59 @@ mod tests {
     }
 
     #[test]
-    fn untextured_meshes_never_take_the_modulate_or_alpha_path() {
-        let s = classify(0x1000_0005, false, false).unwrap();
-        assert_eq!(s.stage, Stage::ColorOnly);
-        assert_eq!(s.alpha, AlphaTest::None);
-        assert_eq!(s.kind, 1.0);
+    fn every_classified_mesh_is_opaque_and_untested_for_alpha() {
+        for textured in [false, true] {
+            for two_sided in [false, true] {
+                let s = classify(0x1000_0005, textured, two_sided).unwrap();
+                assert_eq!(s.alpha, AlphaTest::Disabled);
+                assert_eq!(s.blend, Blend::Opaque);
+                assert_eq!(s.cull == Cull::BackFace, !two_sided);
+            }
+        }
+        assert_eq!(classify(0x1000_0005, false, false).unwrap().kind, 1.1);
+        assert_eq!(classify(0x1000_0005, false, true).unwrap().kind, 1.2);
+    }
+
+    #[test]
+    fn authored_alpha_is_refused_instead_of_becoming_a_cutout() {
+        assert!(alpha_test(CLIENT_MAX_MESH_ALPHA).is_ok());
+        for alpha in [0, 1, 0x80, 0xfe, 0x1_00] {
+            assert!(alpha_test(alpha).is_err(), "{alpha:#x}");
+        }
+    }
+
+    #[test]
+    fn cutout_reference_matches_the_native_integer_arithmetic() {
+        // 80 * alpha / 255 + 1, truncated, exactly as 0x7a990a..0x7a9920.
+        assert_eq!(cutout_reference(0), 1);
+        assert_eq!(cutout_reference(1), 1);
+        assert_eq!(cutout_reference(128), 41);
+        assert_eq!(cutout_reference(0xfe), 80);
+        assert_eq!(cutout_reference(CLIENT_MAX_MESH_ALPHA), 81);
+        assert_eq!(cutout_reference(u32::MAX), 255);
+    }
+
+    #[test]
+    fn coincident_duplicates_are_won_by_the_later_draw() {
+        // Reversed depth turns the client's LESSEQUAL into GREATER_EQUAL, so
+        // equal depth must reach the later submission, not the earlier one.
+        let passes = |incoming: f32, stored: f32| incoming >= stored;
+        assert!(passes(0.5, 0.5));
+        assert!(passes(0.75, 0.5));
+        assert!(!passes(0.25, 0.5));
+    }
+
+    #[test]
+    fn coincident_pairs_resolve_to_a_cull_or_a_proved_order() {
+        // Opposite winding, single-sided: the two surfaces cannot both survive.
+        assert_eq!(overlap_outcome(false, false, false, true), OverlapOutcome::Culled);
+        // Same winding: both rasterise and the later submission wins the tie.
+        assert_eq!(overlap_outcome(true, false, false, true), OverlapOutcome::LaterSubmissionWins);
+        // Two-sided pairs are drawn twice whatever the winding.
+        assert_eq!(overlap_outcome(false, true, true, true), OverlapOutcome::LaterSubmissionWins);
+        // Split submissions are reported instead of being ordered by assumption.
+        assert_eq!(overlap_outcome(true, false, false, false), OverlapOutcome::Unresolved);
+        assert_eq!(overlap_outcome(false, true, true, false), OverlapOutcome::Unresolved);
     }
 
     #[test]
@@ -153,17 +357,36 @@ mod tests {
         );
         assert!(gpu.contains("1.-camera.direction.w"), "night factor source");
         assert!(gpu.contains("raw_tex.rgb*i.diffuse*2."), "MODULATE2X");
-        assert!(gpu.contains("tex.a<select(0.5,"), "texture alpha < 0.5");
         assert!(
-            gpu.contains("i.kind>1.5 && i.kind<2.05 && camera.clip.w == 0."),
-            "single-sided winding drop"
+            gpu.contains(
+                "if ((i.kind>1.05 && i.kind<1.15) || (i.kind>1.5 && i.kind<2.05)) \
+                 && camera.clip.w == 0."
+            ),
+            "single-sided winding drop must cover both baked colour kinds"
+        );
+        // The alpha test may only survive for the grass/tree bands; baked meshes
+        // are ALPHATEST(0) (0x7a992b).
+        assert!(gpu.contains("if i.kind>3.5 && tex.a<select(0.5,"));
+        assert!(
+            !gpu.contains("(i.kind>1.5 && i.kind<2.5) || i.kind>3.5"),
+            "baked meshes must not take the alpha test"
         );
         // The classified kinds must land on the intended side of the shader's
-        // single-sided winding threshold.
+        // single-sided winding band.
         let single = classify(0x1000_0005, true, false).unwrap();
+        let single_flat = classify(0x1000_0005, false, false).unwrap();
         let two = classify(0x1000_0005, true, true).unwrap();
+        let two_flat = classify(0x1000_0005, false, true).unwrap();
         assert!(single.kind > 1.5 && single.kind < 2.05, "{single:?}");
-        assert!(!(two.kind < 2.05), "{two:?}");
+        assert!(single_flat.kind > 1.05 && single_flat.kind < 1.15, "{single_flat:?}");
+        assert!(!(two.kind > 1.5 && two.kind < 2.05), "{two:?}");
+        assert!(!(two_flat.kind > 1.05 && two_flat.kind < 1.15), "{two_flat:?}");
+        // Scenery must compare equal depth as a pass so duplicates keep the
+        // later submission, as the client's LESSEQUAL test does.
+        assert!(
+            gpu.contains("depth_compare: wgpu::CompareFunction::GreaterEqual"),
+            "scenery pipeline must keep the equal-depth tie"
+        );
         // Baked meshes must not consume the ordinary receiving light.
         let baked = gpu.split("fn bmd_baked_rgb").nth(1).expect("baked helper");
         let baked = baked.split("fn ").next().unwrap();
