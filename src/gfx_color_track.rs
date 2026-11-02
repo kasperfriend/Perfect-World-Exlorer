@@ -61,15 +61,16 @@ impl ColorTrack {
         {
             return None;
         }
-        // Native loads the stored f32 process time and keeps multiplication,
-        // segment subtraction/division in x87 precision until integer index.
-        let mut ms = keypoint_seconds as f64 * 1000.;
+        // 0x6ec1ce..0x6ec20b runs on the rendering/update thread. D3D8
+        // selects PC24: x87 registers do not imply f64 arithmetic. This
+        // sampling context is separate from the table's load-thread context.
+        let mut ms = keypoint_seconds * 1000.;
         for (duration, table) in &self.segments {
-            if ms < *duration as f64 {
-                let index = (ms / *duration as f64 * 127.) as usize;
+            if ms < *duration {
+                let index = (ms / *duration * 127.) as usize;
                 return Some(table[index.min(127)]);
             }
-            ms -= *duration as f64;
+            ms -= *duration;
         }
         Some(self.segments.last().unwrap().1[127])
     }
@@ -104,6 +105,16 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn render_thread_pc24_rounds_multiply_divide_and_segment_subtraction() {
+        let t = ColorTrack::new(0., -1., 0, &[(0xffffffff, 1000.)]).unwrap();
+        // Native f32(ms/time*127) is exactly 1. PC53 falsely selects index 0.
+        assert_eq!(t.sample(f32::from_bits(0x3c010204)), Some(0x02020202));
+        let t = ColorTrack::new(0., -1., 0, &[(0xff0000ff, 290.), (0xff00ff00, 1000.)]).unwrap();
+        // PC24 rounds stored .29 seconds *1000 to 290, crossing the segment
+        // exactly. The authored endpoint is independent of LUT load precision.
+        assert_eq!(t.sample(0.29), Some(0xff0000ff));
     }
     #[test]
     fn times_are_keypoint_relative_end_inclusive_and_last_color_held() {

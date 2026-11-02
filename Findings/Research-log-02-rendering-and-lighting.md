@@ -1838,3 +1838,24 @@ The new arithmetic fixtures are assembly-derived cases, not original-client
 runtime screenshots. Approved tree defaults and baked surface exclusions are
 unchanged. **Confirmation P1.02/P1.04/P1.05: No — continue** remaining full-scope
 receiving/material/visibility coverage and native-time context verification.
+
+`ee250d4` / CI **41475894315 succeeded**: Linux all-bin/unit/production GPU
+(including the new clock-to-nonzero-specular weighted AND rigid world pixels),
+Windows regional primitives, fresh CRT gamma comparison and executable build.
+
+### Controller-108 process-time sampling uses render-thread PC24
+
+Re-traced `6ec190..6ec22e`: stored keypoint seconds are multiplied by 1000,
+compared/subtracted against stored segment durations, divided by duration and
+multiplied by 127 before `_ftol`. On the render/update thread, PC24 rounds
+EVERY arithmetic instruction. Production sampling no longer incorrectly
+retains f64 products/quotients merely because the registers are x87.
+
+New regression: stored 1/127 seconds selects index 1 (native x87 index word
+**3f800000**), not legacy index 0; actual x87 reference now executes this
+sequence. Stored .29 seconds crosses a 290ms segment exactly and returns its
+authored endpoint, independent of table-construction precision. Existing LUT
+construction oracle is retained separately: load-thread precision is NOT
+established by this render-thread sampling proof. No silent table-mode guess
+was made. Four track tests pass; expanded Windows CPU coverage includes them.
+**Confirmation P1.01: No — continue** ownership/parent/load-context integration.

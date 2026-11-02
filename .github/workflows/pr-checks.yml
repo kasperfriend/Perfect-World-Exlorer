@@ -105,7 +105,7 @@ jobs:
       - name: Verify native gamma and glow CPU references on Windows
         shell: pwsh
         run: |
-          foreach ($module in @("gamma_curve", "glow_state", "client_region_shade", "client_region_stream", "client_regional_light")) {
+          foreach ($module in @("gamma_curve", "glow_state", "client_region_shade", "client_region_stream", "client_regional_light", "gfx_color_track")) {
             $exe = Join-Path $env:RUNNER_TEMP "$module-tests.exe"
             rustc --edition=2021 --test "src/$module.rs" -o $exe
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
