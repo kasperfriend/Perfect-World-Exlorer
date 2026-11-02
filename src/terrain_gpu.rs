@@ -987,9 +987,7 @@ mod tests {
         let bc1 = super::neutral_tile(256, true);
         assert_eq!(bc1.len(), 256 * 256 / 2);
         // Every 8-byte block selects colour0 = RGB565(0.5,0.5,0.5).
-        assert!(bc1
-            .chunks(8)
-            .all(|b| b == [0x10, 0x84, 0, 0, 0, 0, 0, 0]));
+        assert!(bc1.chunks(8).all(|b| b == [0x10, 0x84, 0, 0, 0, 0, 0, 0]));
         assert_eq!(super::neutral_tile(16, true).len(), 16 * 16 / 2);
     }
     #[test]

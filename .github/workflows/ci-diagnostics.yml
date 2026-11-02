@@ -29,7 +29,7 @@ jobs:
           set +e
           {
             echo "### fmt"
-            cargo fmt --all -- --check 2>&1 | head -60
+            cargo fmt --all -- --check 2>&1 | head -200
             echo "### check"
             cargo check --locked --bins --message-format short 2>&1 | grep -E "^(src|error|warning)" | head -80
             echo "### tests"
