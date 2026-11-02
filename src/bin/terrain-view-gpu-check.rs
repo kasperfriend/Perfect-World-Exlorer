@@ -141,9 +141,8 @@ fn main() {
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
-    let storage_usage = wgpu::BufferUsages::STORAGE
-        | wgpu::BufferUsages::COPY_DST
-        | wgpu::BufferUsages::COPY_SRC;
+    let storage_usage =
+        wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC;
     let areas_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("per-frame area snapshot"),
         contents: bytemuck::cast_slice(&area_records()),
@@ -331,7 +330,11 @@ fn main() {
     let mut sampled = Vec::new();
     for (name, clip_y, reflected, far_mesh) in views {
         // One per-frame snapshot is reused by every view; nothing is rebuilt.
-        assert_eq!(read_back(&device, &queue, &areas_buf), area_snapshot, "{name}");
+        assert_eq!(
+            read_back(&device, &queue, &areas_buf),
+            area_snapshot,
+            "{name}"
+        );
         assert_eq!(
             read_back(&device, &queue, &layers_buf),
             layer_snapshot,
@@ -422,12 +425,7 @@ fn main() {
     );
 }
 
-fn array(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    side: u32,
-    layers: u32,
-) -> wgpu::Texture {
+fn array(device: &wgpu::Device, queue: &wgpu::Queue, side: u32, layers: u32) -> wgpu::Texture {
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("terrain layer array"),
         size: wgpu::Extent3d {
@@ -445,7 +443,12 @@ fn array(
     let mut level = vec![0u8; (side * side * 4) as usize];
     for (i, px) in level.chunks_mut(4).enumerate() {
         // A gradient, so a shifted sample cannot alias to the same value.
-        px.copy_from_slice(&[(i % side as usize) as u8 * 4, (i / side as usize) as u8 * 4, 96, 255]);
+        px.copy_from_slice(&[
+            (i % side as usize) as u8 * 4,
+            (i / side as usize) as u8 * 4,
+            96,
+            255,
+        ]);
     }
     let mut s = side;
     for mip in 0..=side.ilog2() {

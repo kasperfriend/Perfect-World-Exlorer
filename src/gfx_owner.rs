@@ -794,7 +794,10 @@ mod tests {
         manager.update(0, &mut publications);
         let status = manager.status();
         assert_eq!(status.live, 2, "both roots decoded");
-        assert_eq!(status.non_light_owners, 1, "the sprite root carries no light");
+        assert_eq!(
+            status.non_light_owners, 1,
+            "the sprite root carries no light"
+        );
         assert_eq!(status.emitters, 1);
         assert_eq!(status.failed_owners, 0);
         assert_eq!(status.failures, 0);
