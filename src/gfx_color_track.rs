@@ -279,7 +279,10 @@ mod tests {
         // the PC24 one (module notes; no thread creation, no control-word
         // write anywhere in the application code).
         assert_eq!(CONSTRUCTION, Precision::Pc24);
-        assert_eq!(shipped.segments[0].1[1], build(0, 0x7f7f7f7f, Precision::Pc24)[1]);
+        assert_eq!(
+            shipped.segments[0].1[1],
+            build(0, 0x7f7f7f7f, Precision::Pc24)[1]
+        );
     }
     #[test]
     fn segment_chain_reports_one_end_pair_per_destination() {
