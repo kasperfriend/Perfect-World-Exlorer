@@ -1,7 +1,11 @@
 //! Fullscreen glow based on the client's fullglow1_14/fullglow2_14 shader arithmetic,
 //! plus client-region-driven underwater fog, spacewarp and optional display gamma.
+//! Which stages run is decided by the shared `post_plan` audit matrix, never by
+//! ad-hoc conditions at the call site.
 #[path = "gamma_curve.rs"]
 mod gamma_curve;
+#[path = "post_plan.rs"]
+pub mod post_plan;
 #[path = "glow_modulation.rs"]
 pub mod glow_modulation;
 use bytemuck::{Pod, Zeroable};
@@ -440,6 +444,19 @@ impl PostGpu {
                 ramp: gamma_curve::table(gamma_setting),
             }),
         );
+        // Resolve every enable/disable rule in one audited place.
+        let plan = post_plan::plan(post_plan::Inputs {
+            bloom,
+            sharpen: self.sharpen,
+            underwater: underwater > 0.,
+            screen_fog,
+            display_gamma: client_gamma,
+            srgb_target: self.format.is_srgb(),
+        });
+        if !plan.active() {
+            // Nothing writes the frame: do not copy or quantize it.
+            return;
+        }
         let scene = self.scene.create_view(&wgpu::TextureViewDescriptor {
             format: Some(self.format.remove_srgb_suffix()),
             ..Default::default()
@@ -479,7 +496,9 @@ impl PostGpu {
             })
         };
         let mut encoder = device.create_command_encoder(&Default::default());
-        let apply_fog = screen_fog && (underwater > 0. || atmospheric_fog);
+        // Diagnostic depth fog only. Production shading is fogged per material,
+        // so this stage is never part of the shipped chain (`post_plan`).
+        let apply_fog = plan.fog;
         if apply_fog {
             let group = bind(&scene, &scene);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -501,7 +520,8 @@ impl PostGpu {
             pass.draw(0..3, 0..1);
         }
         let before_warp = if apply_fog { &fogged } else { &scene };
-        if underwater > 0. {
+        // 0x40fd33: spacewarp consumes the quantized capture, before glow.
+        if plan.warp {
             let group = bind(before_warp, before_warp);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("underwater distortion before glow"),
@@ -521,12 +541,10 @@ impl PostGpu {
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);
         }
-        let input = if underwater > 0. {
-            &warped
-        } else {
-            before_warp
-        };
-        if bloom {
+        let input = if plan.warp { &warped } else { before_warp };
+        // 0x40fdb0/0x40f053: quarter-size copy, horizontal blur, then the
+        // vertical blur + composite in the finish pass.
+        if plan.glow {
             {
                 let group = bind(input, input);
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -572,7 +590,7 @@ impl PostGpu {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("underwater and glow"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: if self.sharpen {
+                    view: if plan.sharpen {
                         &composite_target
                     } else {
                         target
@@ -587,7 +605,7 @@ impl PostGpu {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            pass.set_pipeline(if self.sharpen {
+            pass.set_pipeline(if plan.sharpen {
                 &self.encoded_finish
             } else {
                 &self.finish
@@ -595,7 +613,8 @@ impl PostGpu {
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);
         }
-        if self.sharpen {
+        // 0x40fd64..0x40fd9c: authored fullsharpen_14 after the encoded glow.
+        if plan.sharpen {
             let group = bind(&composite_target, &blur);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("client fullscreen sharpen after encoded glow"),

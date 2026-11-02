@@ -1,8 +1,19 @@
 //! Persisted viewer controls; malformed values fall back safely.
+#[path = "post_plan.rs"]
+mod post_plan;
 /// The renderer must allocate/execute the post chain for each independent
-/// effect, not only when bloom happens to be enabled.
-pub fn post_required(bloom: bool, sharpen: bool, underwater: bool, fog: bool, gamma: bool) -> bool {
-    bloom || sharpen || underwater || fog || gamma
+/// scene effect, not only when bloom happens to be enabled. The retained
+/// screen-space fog is a diagnostic route and is deliberately not an input:
+/// production shading is fogged per material (`fog_matrix`).
+pub fn post_required(bloom: bool, sharpen: bool, underwater: bool, gamma: bool) -> bool {
+    post_plan::required(post_plan::Inputs {
+        bloom,
+        sharpen,
+        underwater,
+        screen_fog: false,
+        display_gamma: gamma,
+        srgb_target: true,
+    })
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -308,13 +319,13 @@ mod tests {
     }
     #[test]
     fn every_independent_post_effect_activates_the_renderer_chain() {
-        for bits in 0..32 {
+        // bloom, sharpen, underwater and the scene-chain ramp each allocate the
+        // chain on their own; the screen-space fog diagnostic does not.
+        for bits in 0..16 {
             let f = |i| bits & (1 << i) != 0;
-            assert_eq!(
-                super::post_required(f(0), f(1), f(2), f(3), f(4)),
-                bits != 0
-            );
+            assert_eq!(super::post_required(f(0), f(1), f(2), f(3)), bits != 0);
         }
-        assert!(super::post_required(false, true, false, false, false));
+        assert!(super::post_required(false, true, false, false));
+        assert!(!super::post_required(false, false, false, false));
     }
 }

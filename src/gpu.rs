@@ -1232,7 +1232,7 @@ impl Renderer {
                 eye_direction: uniform.direction[..3].try_into().unwrap(),
                 directional_specular: [light.specular[0], light.specular[1], light.specular[2], 1.],
                 specular_variant: true,
-                vertex_fog: 1.,
+                vertex_fog: crate::fog_matrix::MODEL_VERTEX_FOG,
                 fog_color: uniform.fog_color,
                 fog_range: uniform.fog_range,
                 clip_plane: [0., uniform.clip[1], 0., -uniform.clip[0] * uniform.clip[1]],
@@ -1453,11 +1453,12 @@ impl Renderer {
             camera.bloom_opacity_fade,
         );
         let direction = camera.direction();
+        // Only real scene effects allocate the chain; the retained screen-space
+        // fog diagnostic is not an input (production fog is per material).
         let use_post = crate::view_settings::post_required(
             camera.bloom,
             camera.sharpen,
             camera.underwater_depth > 0.,
-            camera.atmospheric_fog,
             camera.client_gamma,
         );
         let post_view = if use_post {
@@ -1789,13 +1790,20 @@ impl Renderer {
                 );
                 let mut refracted = normal;
                 refracted.clip = [plane, -1., 1., normal.clip[3]];
-                refracted.fog_range = [fog_range[0], fog_range[1], 1., 0.];
-                refracted.fog_color = [
-                    camera.underwater_fog.color[0],
-                    camera.underwater_fog.color[1],
-                    camera.underwater_fog.color[2],
-                    1.,
-                ];
+                // Clipped refraction binds the water fog color with the
+                // plane-relative range for every material of that pass.
+                let pass_fog = crate::fog_matrix::refraction_fog(
+                    crate::fog_matrix::Fog {
+                        start: camera.underwater_fog.start,
+                        end: camera.underwater_fog.end,
+                        color: camera.underwater_fog.color,
+                        enabled: true,
+                    },
+                    fog_range[0],
+                    fog_range[1],
+                );
+                refracted.fog_range = pass_fog.range();
+                refracted.fog_color = pass_fog.color4();
                 self.queue
                     .write_buffer(&self.reflected_uniform, 0, bytemuck::bytes_of(&refracted));
                 let linear = |x: f32| -> f64 {
@@ -1843,13 +1851,16 @@ impl Renderer {
                 // water height into its refraction target, using air fog.
                 let mut above = normal;
                 above.clip = [plane, 1., 1., normal.clip[3]];
-                above.fog_range = [camera.air_fog.start, camera.air_fog.end, 1., 0.];
-                above.fog_color = [
-                    camera.air_fog.color[0],
-                    camera.air_fog.color[1],
-                    camera.air_fog.color[2],
-                    1.,
-                ];
+                // 0x7cca50: the below-surface scene is drawn with air fog even
+                // while the camera is underwater.
+                let above_fog = crate::fog_matrix::below_surface_fog(crate::fog_matrix::Fog {
+                    start: camera.air_fog.start,
+                    end: camera.air_fog.end,
+                    color: camera.air_fog.color,
+                    enabled: true,
+                });
+                above.fog_range = above_fog.range();
+                above.fog_color = above_fog.color4();
                 self.queue
                     .write_buffer(&self.reflected_uniform, 0, bytemuck::bytes_of(&above));
                 let mut re = self.device.create_command_encoder(&Default::default());
@@ -2063,25 +2074,25 @@ impl Camera {
         }
     }
     fn fog_uniform(&self) -> ([f32; 4], [f32; 4]) {
-        let underwater = self.underwater_depth > 0.;
-        let f = if underwater {
-            self.underwater_fog
-        } else {
-            self.air_fog
-        };
-        (
-            [
-                f.start,
-                f.end,
-                if underwater || self.atmospheric_fog {
-                    1.
-                } else {
-                    0.
-                },
-                0.,
-            ],
-            [f.color[0], f.color[1], f.color[2], 1.],
-        )
+        // Main/reflection table fog uses the camera's active regional set; the
+        // selection (and its enable rule) lives in the audited fog matrix.
+        let f = crate::fog_matrix::camera_fog(
+            self.underwater_depth > 0.,
+            self.atmospheric_fog,
+            crate::fog_matrix::Fog {
+                start: self.air_fog.start,
+                end: self.air_fog.end,
+                color: self.air_fog.color,
+                enabled: true,
+            },
+            crate::fog_matrix::Fog {
+                start: self.underwater_fog.start,
+                end: self.underwater_fog.end,
+                color: self.underwater_fog.color,
+                enabled: true,
+            },
+        );
+        (f.range(), f.color4())
     }
     fn region_uniform(&self) -> ([f32; 4], [f32; 4], [f32; 4]) {
         if let Some(l) = self.regional_light.filter(|_| self.regional_tree_lighting) {
@@ -2176,18 +2187,23 @@ pub fn run(
         adapter.get_info().name
     ));
     let caps = surface.get_capabilities(&adapter);
-    let format = *caps
+    let surface_format = *caps
         .formats
         .iter()
         .find(|x| x.is_srgb())
         .unwrap_or(&caps.formats[0]);
+    // Every material shader returns linear color and the render target performs
+    // the single encode. When the swapchain has no sRGB format, composition
+    // happens in an sRGB intermediate that is encoded once at presentation
+    // (`present_encode`); a UNORM swapchain is never written with linear values.
+    let format = crate::present_encode::render_format(surface_format);
     let size = window.inner_size();
     let mut config = surface
         .get_default_config(&adapter, size.width.max(1), size.height.max(1))
         .ok_or("surface configuration unavailable")?;
-    config.format = format;
-    if format.is_srgb() {
-        config.view_formats.push(format.remove_srgb_suffix());
+    config.format = surface_format;
+    if surface_format.is_srgb() {
+        config.view_formats.push(surface_format.remove_srgb_suffix());
     }
     surface.configure(&device, &config);
     let mut camera = Camera::new(&t);
@@ -2209,6 +2225,19 @@ pub fn run(
         &mut t,
     )?;
     let mut display_gamma: Option<crate::display_gamma::DisplayGamma> = None;
+    // Only allocated for UNORM-only swapchains; None is the normal sRGB route.
+    let mut present_encode: Option<crate::present_encode::PresentEncode> = if
+        crate::color_chain::present_encode_required(surface_format)
+    {
+        Some(crate::present_encode::PresentEncode::new(
+            &renderer.device,
+            surface_format,
+            config.width,
+            config.height,
+        ))
+    } else {
+        None
+    };
     let mut music = crate::music::MusicPlayer::new(&t.element);
     #[cfg(windows)]
     drop(loading);
@@ -2406,6 +2435,7 @@ pub fn run(
                     renderer.water.resize(&renderer.device, s.width, s.height);
                     renderer.post.resize(&renderer.device,s.width,s.height);
                     if let Some(gamma)=display_gamma.as_mut() {gamma.resize(&renderer.device,s.width,s.height);}
+                    if let Some(encode)=present_encode.as_mut() {encode.resize(&renderer.device,s.width,s.height);}
                 }
                 WindowEvent::RedrawRequested => {
                     if settings != saved_settings && last_settings_save.elapsed().as_secs_f32() >= 1. {
@@ -2538,9 +2568,10 @@ pub fn run(
                     let frame_gamma_setting=settings.gamma_setting;
                     if whole_frame_gamma && display_gamma.is_none() {display_gamma=Some(crate::display_gamma::DisplayGamma::new(&renderer.device,format,config.width,config.height));}
                     if !whole_frame_gamma {display_gamma=None;}
-                    // Retail skips the display ramp in windowed mode. In fullscreen it
+                    // Retail skips the display ramp in windowed mode; in fullscreen it
                     // belongs after bloom, maps and UI, never in the scene-only pass.
-                    camera.client_gamma=false;
+                    // `color_chain` makes the mutually exclusive ownership testable.
+                    camera.client_gamma=crate::color_chain::scene_chain_ramp(false,whole_frame_gamma);
                     camera.gamma_setting=settings.gamma_setting;
                     camera.terrain_lightmaps=settings.terrain_lightmaps;
                     camera.model_backface_culling=settings.model_backface_culling;
@@ -2573,12 +2604,14 @@ pub fn run(
                     }}
                     match surface.get_current_texture() {
                         Ok(frame) => {
-                            let view = frame.texture.create_view(&Default::default());
-                            let raw_view = frame.texture.create_view(&wgpu::TextureViewDescriptor { format: Some(format.remove_srgb_suffix()), ..Default::default() });
-                            let composed_view=if whole_frame_gamma {Some(display_gamma.as_ref().unwrap().view())} else {None};
-                            let composed_raw=if whole_frame_gamma {Some(display_gamma.as_ref().unwrap().raw_view())} else {None};
-                            let scene_view=composed_view.as_ref().unwrap_or(&view);
-                            let scene_raw=composed_raw.as_ref().unwrap_or(&raw_view);
+                            let surface_view = frame.texture.create_view(&Default::default());
+                            let surface_raw = frame.texture.create_view(&wgpu::TextureViewDescriptor { format: Some(surface_format.remove_srgb_suffix()), ..Default::default() });
+                            // Composition target: the whole-frame gamma intermediate, else the
+                            // present-encode intermediate, else the swapchain itself.
+                            let composed_view=if whole_frame_gamma {Some(display_gamma.as_ref().unwrap().view())} else if let Some(encode)=present_encode.as_ref() {Some(encode.view())} else {None};
+                            let composed_raw=if whole_frame_gamma {Some(display_gamma.as_ref().unwrap().raw_view())} else if let Some(encode)=present_encode.as_ref() {Some(encode.raw_view())} else {None};
+                            let scene_view=composed_view.as_ref().unwrap_or(&surface_view);
+                            let scene_raw=composed_raw.as_ref().unwrap_or(&surface_raw);
                             renderer.render(
                                 scene_view,
                                 scene_raw,
@@ -2689,7 +2722,10 @@ pub fn run(
                                 renderer.queue.submit(cmd.into_iter().chain(std::iter::once(encoder.finish())));
                                 for id in &output.textures_delta.free {egui_renderer.free_texture(id);}
                             }
-                            if let Some(gamma)=display_gamma.as_ref() {gamma.present(&renderer.device,&renderer.queue,&view,frame_gamma_setting);}
+                            // Exactly one ramp stage, then exactly one output encode.
+                            let ramp_target=match present_encode.as_ref() {Some(encode)=>encode.view(),None=>surface_view.clone()};
+                            if let Some(gamma)=display_gamma.as_ref() {gamma.present(&renderer.device,&renderer.queue,&ramp_target,frame_gamma_setting);}
+                            if let Some(encode)=present_encode.as_ref() {encode.present(&renderer.device,&renderer.queue,&surface_view);}
                             frame.present();
                             if software_adapter { renderer.device.poll(wgpu::Maintain::Wait); }
                         }

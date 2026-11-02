@@ -230,6 +230,131 @@ mod glow_tests {
         assert_eq!(g.update(true, 1., false, 2.5)[5], 0.);
     }
 }
+/// Presenter interruption/cancellation coverage. Every case drives the same
+/// state machine production uses; the numbers are the hand-computed native
+/// recurrence (stored f32 step, integer milliseconds).
+#[cfg(test)]
+mod interruption_tests {
+    use super::WorldGlow;
+    fn close(actual: f32, expected: f32, what: &str) {
+        assert!(
+            (actual - expected).abs() < 1e-4,
+            "{what}: {actual} != {expected}"
+        );
+    }
+    #[test]
+    fn mode_change_mid_transition_retargets_from_the_current_value() {
+        let mut g = WorldGlow::default();
+        // Ordinary daytime mode: level/power 0 -> 0.25 over 5000 ms.
+        g.select(true, 1., false, 0, 0xffffffff);
+        g.tick(2500);
+        close(g.parameters()[1], 0.125, "power half way");
+        close(g.parameters()[0], 0.125, "level half way");
+        // Underwater mode takes over without snapping to zero first.
+        g.select(true, 1., true, 0, 0xffffffff);
+        g.tick(1000);
+        let p = g.parameters();
+        close(p[0], 0.3625, "level retargeted to 0.6");
+        close(p[1], 0.3125, "power retargeted to 0.5");
+        close(p[5], 1. / 3., "mono half way to 0.5");
+        // Draining the transitions lands exactly on the authored endpoints.
+        g.tick(1000);
+        let p = g.parameters();
+        assert_eq!(&p[..2], &[0.6, 0.5]);
+        g.tick(1000);
+        assert_eq!(g.parameters()[5], 0.5);
+    }
+    #[test]
+    fn triggering_a_fade_cancels_it_from_the_current_value() {
+        let mut g = WorldGlow::default();
+        g.select(true, 1., false, 0, 0xffffffff);
+        g.set_fade(0., 1., 1000);
+        g.tick(300);
+        close(g.brightness_fade(), 0.3, "fade up");
+        // A caller colour change restarts the type, which calls StopFade(true):
+        // the running fade is cancelled and retargeted from its current value.
+        g.select(true, 1., false, 0, 0xff804020);
+        g.tick(500);
+        close(g.brightness_fade(), 0.15, "fade released from 0.3");
+        g.tick(500);
+        assert_eq!(g.brightness_fade(), 0.);
+    }
+    #[test]
+    fn mode_four_does_not_cancel_a_running_fade() {
+        let mut g = WorldGlow::default();
+        g.select(true, 1., false, 0, 0xffffffff);
+        g.set_fade(0., 1., 1000);
+        g.tick(500);
+        close(g.brightness_fade(), 0.5, "half way");
+        g.select(true, 1., false, 4, 0xffffffff);
+        g.tick(0);
+        close(g.brightness_fade(), 0.5, "mode 4 keeps the fade");
+        g.tick(500);
+        assert_eq!(g.brightness_fade(), 1.);
+    }
+    #[test]
+    fn disabling_mid_fade_freezes_and_resuming_continues_the_same_channel() {
+        let mut g = WorldGlow::default();
+        g.select(true, 1., false, 0, 0xffffffff);
+        g.set_fade(0., 1., 1000);
+        g.tick(400);
+        let frozen = g.brightness_fade();
+        close(frozen, 0.4, "fade up");
+        g.select(false, 0., false, 5, 0xff000000);
+        g.tick(10000);
+        assert_eq!(g.parameters(), [0.; 6]);
+        assert_eq!(g.brightness_fade(), frozen);
+        // Re-enabling with the unchanged type resumes instead of restarting.
+        g.select(true, 1., false, 0, 0xffffffff);
+        assert_eq!(g.brightness_fade(), frozen);
+        g.tick(600);
+        assert_eq!(g.brightness_fade(), 1.);
+    }
+    #[test]
+    fn extreme_ticks_snap_and_never_overflow() {
+        let mut g = WorldGlow::default();
+        g.select(true, 1., false, 0, 0xffffffff);
+        g.tick(i32::MAX);
+        assert_eq!(&g.parameters()[..2], &[0.25, 0.25]);
+        // Negative/NaN frame deltas are clamped by the seconds adapter.
+        g.select(true, 0., false, 0, 0xffffffff);
+        let p = g.update_with_mode(true, 0., false, 0, -5.);
+        assert_eq!(&p[..2], &[0.25, 0.25]);
+        let p = g.update_with_mode(true, 0., false, 0, f32::NAN);
+        assert_eq!(&p[..2], &[0.25, 0.25]);
+    }
+    #[test]
+    fn underwater_entry_and_exit_reproduce_the_presenter_sequence() {
+        let mut g = WorldGlow::default();
+        // Daytime surface: ordinary mode settles at 0.25/0.25 with no mono.
+        g.select(true, 1., false, 0, 0xffffffff);
+        g.tick(5000);
+        assert_eq!(&g.parameters()[..2], &[0.25, 0.25]);
+        assert_eq!(g.parameters()[5], 0.);
+        // Entering the water selects mode 3: 0.5 power / 0.6 level over 2 s and
+        // the mono ramp from zero over 1.5 s with its authored tint.
+        g.select(true, 1., true, 0, 0xffffffff);
+        g.tick(2000);
+        let p = g.parameters();
+        assert_eq!(&p[..2], &[0.6, 0.5]);
+        assert_eq!(
+            &p[2..5],
+            &[187., 234., 187.].map(|b| b * f32::from_bits(0x3b808081))
+        );
+        g.tick(1500);
+        assert_eq!(g.parameters()[5], 0.5);
+        // Leaving the water returns to the ordinary mode: the mode change
+        // releases the brightness fade over one second and drains mono over
+        // five seconds, while level/power transition from their current values.
+        g.select(true, 1., false, 0, 0xffffffff);
+        g.tick(1000);
+        assert_eq!(g.brightness_fade(), 0.);
+        g.tick(5000);
+        let p = g.parameters();
+        assert_eq!(&p[..2], &[0.25, 0.25]);
+        assert_eq!(p[5], 0.);
+    }
+}
 #[cfg(test)]
 mod native_tests {
     use super::*;
