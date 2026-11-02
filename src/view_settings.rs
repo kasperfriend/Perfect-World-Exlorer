@@ -72,7 +72,7 @@ impl Default for ViewSettings {
             regional_tree_lighting: false,
             streamed_regions: false,
             grass_distance_fade: true,
-            area_grass_lightmaps: false,
+            area_grass_lightmaps: true,
             celestial_discs: false,
         }
     }
@@ -226,5 +226,13 @@ mod tests {
         assert_eq!(s.boost, 1.);
         assert_eq!(s.sensitivity, 0.0025);
         assert!(!s.bloom);
+    }
+    #[test]
+    fn area_center_lightmaps_default_on_but_explicit_legacy_setting_is_preserved() {
+        assert!(ViewSettings::default().area_grass_lightmaps);
+        assert!(ViewSettings::decode("unknown=ignored").area_grass_lightmaps);
+        let s = ViewSettings::decode("area_grass_lightmaps=false");
+        assert!(!s.area_grass_lightmaps);
+        assert!(!ViewSettings::decode(&s.encode()).area_grass_lightmaps);
     }
 }

@@ -465,3 +465,26 @@ vertex/fog path; it does not validate every terrain texture/layer variant.
 CPU core now passes 40 tests; terrain GPU validation is pending.
 
 BMD extension `6a903ad` passed [CI 41435206213](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41435206213), including the two BMD and three grass rendered refraction cases and the Windows executable build.
+
+### Grass area-center lightmap selection and clamp addressing
+
+At `0x652d99–0x652da0`, grass passes the area's center (`area+0x38`) to
+`0x77f480`, not each expanded vertex. That function resolves the terrain
+block/mask area and returns its day/night lightmap pair plus UV rectangle.
+`0x651287–0x65129c` calls `0x77a0e0` with `(stage,3,3)` for stages 1/2;
+`0x77a0e0` maps these to D3DTSS_ADDRESSU/V (13/14), proving CLAMP for both
+lightmaps. This resolves the previously unconfirmed edge-addressing part.
+It does not yet prove the unloaded-pair fixed-function fallback.
+
+The grass area-center path now defaults on (explicit saved legacy false
+settings remain respected). Its UI no longer describes edge addressing as
+unknown. Both terrain/grass atlas normalization now uses actual texture
+extent instead of a hardcoded 4096; normal production textures are still
+4096, so this retains their coordinates and supports meaningful small-atlas
+regressions. The production grass GPU test adds six day/night × area/legacy
+cases on a real 8x8 atlas with distinct neighboring and opposite-edge
+texels. They catch selecting the vertex's tile, sampling the wrong edge,
+bleeding across tile boundaries, or keeping the hardcoded atlas divisor.
+GPU results pending; 41 dependency-free CPU tests pass locally.
+
+Terrain refraction commit `3ab718b` passed [CI 41435695632](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41435695632): all eight GPU binaries, unit/compile/format checks and Windows executable build.

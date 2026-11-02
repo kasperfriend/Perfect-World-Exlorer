@@ -1,19 +1,19 @@
 # Phase 1 — completion checks
 
-A requirement passes only if its entire scope is supported by implementation and evidence. “Is it finished?” below is an acceptance check, not a confidence estimate. Passing Cargo/CI is not a substitute for an unfinished renderer path.
+A requirement passes only if its entire scope is supported by implementation and evidence. “Ready?” below is an acceptance check, not a confidence estimate. Passing Cargo/CI is not a substitute for an unfinished renderer path.
 
-| Task | Is it finished? | Check and result / next required work |
+| Task | Ready? | Check and result / next required work |
 |---|---|---|
 | P1.01 Complete scene-light selection | No | Grid/candidate/tie/range/flags arithmetic has eight passing CPU regressions and executable traces. Full runtime candidate production/lifecycle is still not integrated. |
 | P1.02 Every receiving class and its calculations | No | Ordinary skin/rigid material and light variants have a 47-case RGBA/specular GPU comparison. The world corpus is 14 skins, 41 meshes and 23 materials; full receiving-class eligibility/integration remains open. |
 | P1.03 Model shader integration without double lighting | No | Baked BMD and terrain remain unmodified by point lights. The eligible animated-world model renderer is absent; a standalone lighting helper is not integration. |
 | P1.04 Regional environment lighting | No | Authored endpoints, clock curve and transitions exist. Full asynchronous region ordering and all material consumers remain unverified. |
 | P1.05 Sun curve at proven material consumers only | No | Sky uses the recovered curve without relighting baked surfaces. Material-consumer tracing is not complete. |
-| P1.06 Terrain/grass lightmaps | No | Existing day/night arithmetic and area-center selection remain. Exact atlas mapping, edge addressing and unloaded texture behavior are not fully established. |
+| P1.06 Terrain/grass lightmaps | No | Area-center selection and CLAMP U/V are now traced; the client path defaults on with a six-case tile-edge/day-night GPU regression (validation pending). Full atlas/data mapping census and unloaded-pair fallback remain open. |
 | P1.07 Baked-model lighting/material/alpha overrides | No | Existing integer endpoint blend was rechecked against `0x7b9bc0`; now its GPU implementation stays integer until normalization, with a new exhaustive byte-weight regression. Complete material stages/alpha/overrides remain open. |
 | P1.08 Bloom | No | Corrected tap spacing to `4/full_resolution` from `0x40edd0` and `0x40f053`. Patterned-image GPU tests passed on UNORM/sRGB and odd dimensions; the CPU fixture also rejects the old offsets. Full special modes/pass ordering are not complete. |
 | P1.09 Gamma and color chain | No | Windowed gating and final fullscreen ramp are corrected and tested; encoded UNORM/sRGB output tests pass. This is not verification of every upstream material color conversion and Windows compositor path. |
-| P1.10 Per-pass and underwater fog | No | Main per-material fog exists. Grass refraction uses traced exponential vertex fog in the actual clipped pass (CI 41434813651 passed). Opaque BMD refraction has its distinct above-plane-depth clamp (CI 41435206213 passed). Near/far terrain now has the traced plane projection, depth darkness and vertex fog (validation pending). Complete material-variant/underwater pass coverage remains open. |
+| P1.10 Per-pass and underwater fog | No | Main per-material fog exists. Grass refraction uses traced exponential vertex fog in the actual clipped pass (CI 41434813651 passed). Opaque BMD refraction has its distinct above-plane-depth clamp (CI 41435206213 passed). Near/far terrain has the traced plane projection, depth darkness and vertex fog (CI 41435695632 passed). Complete material-variant/underwater pass coverage remains open. |
 | P1.11 Preserve approved trees while tracing separately | Yes, preservation requirement | Tree shader, geometry and default lighting were not changed. Existing fallback remains; the incomplete replacement has not been enabled or represented as parity. This does not mean the full tree material path is recovered. |
 | P1.12 Automated tests in requested categories | Yes, category coverage | CPU tests cover selection, transitions and color arithmetic; CI exercises production gamma, postprocess, fog and model-light shaders. New bloom UV and BMD byte-blend checks extend coverage. These tests do not close the implementation gaps in P1.01–P1.10. |
 
@@ -40,3 +40,11 @@ A requirement passes only if its entire scope is supported by implementation and
   the parser/material-binding check. This does not close P1.03's renderer gate.
 
 - `184f7d8`: [CI 41433732886](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41433732886) passed Linux checks, the 47-case model shader comparison, and the Windows build.
+
+## Confirmation gate
+
+Run `python3 tools/check-phase1-ready.py` before offering the confirmation
+poll. It returns nonzero while any full-scope requirement is No, missing,
+duplicated or invalid. Build success cannot override that result. The script
+checks the recorded acceptance table, not renderer parity on its own; evidence
+still has to justify every Yes. Confirmation must not waive an unfinished item.

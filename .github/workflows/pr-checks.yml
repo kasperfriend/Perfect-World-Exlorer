@@ -30,6 +30,8 @@ jobs:
           sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
       - name: Check formatting
         run: cargo fmt --all -- --check
+      - name: Test Phase 1 readiness audit
+        run: python3 tools/test_phase1_ready.py
       - name: Check all binary targets
         run: cargo check --locked --bins
       - name: Run viewer unit tests

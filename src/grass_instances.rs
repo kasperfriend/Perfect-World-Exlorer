@@ -171,7 +171,7 @@ fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
  let id=ay*s.areas.x+ax;let slot=id%s.light.z;let page=id/s.light.z;
  let side=f32(s.light.x);let xy=vec2<f32>(f32(slot%s.light.y),f32(slot/s.light.y))*side;
  let loc=clamp((coord-selected)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));
- let lmuv=(xy+loc)/4096.;
+ let lmuv=(xy+loc)/vec2<f32>(textureDimensions(grass_lightmaps));
  let day=textureSampleLevel(grass_lightmaps,grass_light_sampler,lmuv,i32(page),0.).rgb;
  let night=textureSampleLevel(grass_lightmaps,grass_light_sampler,lmuv,i32(page+s.light.w),0.).rgb;
  return grass_linear(clamp(base*mix(night,day,clamp(camera.sun.w,0.,1.))*2.,vec3<f32>(0.),vec3<f32>(1.)));

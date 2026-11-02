@@ -786,6 +786,194 @@ fn main() {
     );
     println!("Grass cutout fade visibility at disabled/near/mid/far/disabled: {counts:?}; CPU reference mismatch {mismatch}");
     uni[55] = 0.;
+    // A grass area may cross a terrain lightmap boundary. The client chooses
+    // one map from the area's center, then clamps that map's UVs, not the world
+    // vertex's map. Use a small real atlas to expose tile-edge bleed/addressing.
+    let edge_saved = uni.clone();
+    let edge_values: [u32; 12] = [
+        8f32.to_bits(),
+        8f32.to_bits(),
+        1f32.to_bits(),
+        4f32.to_bits(),
+        2,
+        0,
+        0,
+        0,
+        2,
+        4,
+        16,
+        1,
+    ];
+    let edge_settings = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(&edge_values),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let edge_texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("LM tile edge fixture"),
+        size: wgpu::Extent3d {
+            width: 8,
+            height: 8,
+            depth_or_array_layers: 2,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let mut edge_pixels = vec![0u8; 8 * 8 * 2 * 4];
+    for layer in 0..2 {
+        for y in 0..8 {
+            for x in 0..8 {
+                let value = match (layer, x) {
+                    (0, 0..=1) => 64,
+                    (0, 2) => 96,
+                    (0, 3) => 192,
+                    (1, 0..=1) => 32,
+                    (1, 2) => 48,
+                    (1, 3) => 64,
+                    _ => 255,
+                };
+                let at = ((layer * 8 + y) * 8 + x) * 4;
+                edge_pixels[at..at + 4].copy_from_slice(&[value, value, value, 255]);
+            }
+        }
+    }
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: &edge_texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &edge_pixels,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(32),
+            rows_per_image: Some(8),
+        },
+        wgpu::Extent3d {
+            width: 8,
+            height: 8,
+            depth_or_array_layers: 2,
+        },
+    );
+    let edge_view = edge_texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    let edge_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &light_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: edge_settings.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&edge_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    });
+    let mut edge_builder = grass_instances::Builder::default();
+    edge_builder.mesh((1, 0), vertices.clone(), inds.clone());
+    edge_builder.instance_for_area((1, 0), [-0.5, 0., 0.], 1., 0., 0., [2., 0., 2.]);
+    let edge_grass = grass_instances::Gpu::new(
+        &device,
+        wgpu::TextureFormat::Rgba8Unorm,
+        &layout,
+        shader,
+        edge_builder.finish(),
+        Some(&light_layout),
+    );
+    for area_mode in [false, true] {
+        for daylight in [0.0f32, 0.5, 1.] {
+            uni[21] = 0.;
+            uni[35] = daylight;
+            uni[55] = 0.;
+            uni[57] = 0.;
+            uni[58] = if area_mode { 1. } else { 0. };
+            uni[382] = 0.;
+            queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
+            let read = device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: 128 * 128 * 4,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut e = device.create_command_encoder(&Default::default());
+            {
+                let mut p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("area center LM clamp"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &dv,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0.),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                edge_grass.draw(&mut p, &bind, Some(&edge_bind));
+            }
+            e.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    texture: &target,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &read,
+                    layout: wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(512),
+                        rows_per_image: Some(128),
+                    },
+                },
+                size,
+            );
+            queue.submit(Some(e.finish()));
+            let slice = read.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+            device.poll(wgpu::Maintain::Wait);
+            rx.recv().unwrap().unwrap();
+            let bytes = slice.get_mapped_range();
+            let green = bytes[(73 * 128 + 32) * 4 + 1];
+            let (day, night) = if area_mode { (96., 48.) } else { (64., 32.) };
+            let encoded =
+                (240. / 255. * 2. * (night * (1. - daylight) + day * daylight) / 255.).min(1.);
+            let expected = (((encoded + 0.055) / 1.055).powf(2.4) * 255.).round() as i32;
+            assert!(
+                (green as i32 - expected).abs() <= 2,
+                "area LM clamp mode={area_mode} daylight={daylight}: {green}, expected {expected}"
+            );
+            println!(
+                "area LM clamp mode={area_mode} daylight={daylight}: {green}, expected {expected}"
+            );
+            drop(bytes);
+            read.unmap();
+        }
+    }
+    uni = edge_saved;
     let hours = [
         (0., 0.),
         (3., 0.),
