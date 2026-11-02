@@ -1,0 +1,285 @@
+# Phase 1 — Agent 3 report: postprocess, output color, per-pass fog
+
+Branch: `arena/f61c0c9b-perfect-world-exlorer` (PR #4)
+Target: supplied Perfect World 1.4.2 client executable and assets.
+Status of the central gates: **not marked complete here.** This report supplies
+evidence for integrated review. Requirement rows in
+`Findings/Phase-1-completion-checks.md` keep their status.
+
+## 0. How the evidence was produced
+
+This sandbox has no Rust toolchain and no Vulkan ICD (`rustup`/static hosts are
+unreachable, `/usr/share/vulkan` is empty), so no test was executed in the
+sandbox itself. Every number below comes from CI on this branch:
+
+* Linux job: `cargo fmt --check`, `cargo check --locked --bins`,
+  `cargo test --locked --bin perfect-world-explorer`, then the 13 production
+  shader regressions on Mesa lavapipe (`WGPU_BACKEND=vulkan`,
+  `VK_ICD_FILENAMES=.../lvp_icd.json`).
+* Windows job: x86 MSVCRT gamma capture, independent gamma-word comparison,
+  the dependency-free module suites under MSVC, and the release viewer build.
+* Latest green run: `41490544268` (PR checks) and the temporary diagnostics
+  run `41490531357` used to read exact counts. The diagnostics workflow was
+  removed from the branch before merge.
+
+Consequences for interpretation: these are CPU-model and GPU-emulation
+readbacks. They are **not** evidence about a physical Windows D3D8 presentation,
+a hardware gamma ramp, or a real UNORM-only swapchain.
+
+---
+
+## 1. P1.08 — postprocess pass/state matrix
+
+### 1.1 Order (native)
+
+| # | Stage | Native anchor | Gate |
+|---|-------|---------------|------|
+| 1 | scene capture into a full-res A8R8G8B8 target | `0x40fce0` | any real effect (bloom, sharpen, underwater, scene ramp); diagnostic fog also needs it |
+| 2 | screen-space fog (diagnostic only) | recovered pass | `screen_fog && (atmospheric_fog \|\| underwater)`; production never requests it |
+| 3 | spacewarp / distortion | `0x40fd33`, bump build `0x410f10`, clamp `0x41029b` | underwater only |
+| 4 | quarter-size stretch copy | `0x40fdb0` | bloom |
+| 5 | horizontal five-tap blur | `0x40edd0`, `0x40f04b–53` | bloom |
+| 6 | vertical blur + composite (glow, blend, modulation) | `0x40f053` | bloom |
+| 7 | authored fullscreen sharpen | `0x40fd64..0x40fd9c`, renderer flag +6 | sharpen, independent of bloom |
+| 8 | display ramp | `0x77b7c0` windowed gate; ramp built from `int(30+1.7*s)` | whole-frame presentation pass after UI, fullscreen only |
+| 9 | output encode | sRGB target on write, or one copy at presentation | exactly one |
+
+The single source of truth is `src/post_plan.rs` (`Inputs`, `Stage::ORDER`,
+`plan()`, `required()`); `PostGpu::render` no longer tests ad-hoc booleans and
+`Camera`/the viewer allocate the chain through `post_plan::required`. The
+diagnostic fog is excluded from `required()` so it can never force the chain,
+and it is gated on the client fog state (`fog_enabled`).
+
+### 1.2 Values preserved
+
+* Kernel `[0.107, 0.238, 0.310, 0.238, 0.107]` (globals `0x94ecf4/f8/fc` via
+  `0x4112d0`, PS `c0.a/c1.a/c1.r`), tap step `4.0 / full_width` and
+  `4.0 / full_height`, not `1/quarter_size`.
+* Quarter target is `(w/4).max(1) × (h/4).max(1)`; odd dimensions keep the
+  native `4/full` step (`23×19`, `67×61` covered).
+* Composite is `mix(original, glow, clamp(level*strength)) +
+  power*strength*glow²`; the mono variant uses `glow*original` and
+  `dp3_sat(blur, 0.35, 0.6, 0.25)`. Caller tint/opacity blend happens in
+  encoded RGB with `SRCALPHA/INVSRCALPHA`, before the display ramp.
+* Sharpen overwrites with `2*center − below`, clamps, and re-applies the display
+  path; it is not a symmetric unsharp mask.
+* Warp samples a 3×3 (aspect-corrected, time-scrolled) procedural bump, offsets
+  UV by `±0.005`, and operates on the quantized capture before glow.
+* Gradients/UVs: all full-screen stages use a 3-vertex `uv=(x,y)` triangle;
+  the blur step is in full-frame UV; the warp uses normalized linear sampling
+  with the client's half-texel convention for the procedural bump.
+
+### 1.3 Transitions / enable changes
+
+`WorldGlow` keeps the native stored-step accumulator (per-frame `dt`, 250 ms
+cap), mode-triggered fades, and disabled-state retention. 15 CPU tests cover
+modes 1–5, mid-fade mode changes, fade cancellation, disable/resume, huge and
+negative ticks, and register order. `set_fade`/`stop_fade` half-word
+`0x3f000000` and step `0x3851b717` are pinned.
+
+### 1.4 Presentation and UI
+
+World and egui/map are composed into one target; the single ramp runs after
+that composition (fullscreen) or is skipped entirely (windowed, `0x77b7c0`).
+The readback check draws an overlay layer above the encoded world ramp and
+requires the same ramp on both, which fails if gamma is applied before
+composition or twice.
+
+### 1.5 P1.08 confirmation
+
+* **Task:** complete bloom/postprocess matrix, fix gaps.
+* **Finished:** yes for the recovered chain; the phase gate stays with
+  integrated review.
+* **Production integration:** `post_plan` drives `PostGpu::render`,
+  `view_settings::post_required` and the viewer allocation; no test-only path
+  changes production values.
+* **Native evidence:** anchors in §1.1/§1.2 and `Findings/Research-log-02…`
+  (bloom sections), previously captured CI runs `41476374791`, `41475894315`,
+  `41474331139`, `41467358187`, `41457607134`.
+* **Tests executed:** viewer 271/271; dependency-free `post_plan` 11/11;
+  `bloom-gpu-check` 4 formats × 3 sizes (max byte error 2);
+  `post-gpu-check` mono `[134,150,134]`, fog 64/68, gamma ramp 25/126/180;
+  `display-gamma-gpu-check` 108,544 RGB + 512 present-encode readbacks.
+* **Remaining gaps:** the screen-space fog pass stays a diagnostic; the scene
+  ramp is retained for diagnostics but production passes `false` (windowed has
+  no ramp); no physical D3D8 comparison.
+
+---
+
+## 2. P1.09 — gamma, settings and output encoding
+
+### 2.1 Color boundaries
+
+| Data | Stored/sampled as | Conversion | Evidence |
+|------|-------------------|------------|----------|
+| client diffuse DDS/atlas | BC1/BC3/RGBA8 **UNORM** (raw bytes) | explicit `decode` in the shader, once | `model_texture_gpu.rs`, world FS |
+| terrain layers / lightmaps | UNORM arrays | explicit `to_linear` at the described points | `terrain_gpu.rs` |
+| BMD baked vertex RGB | integer day/night mix `/256` | encoded blend, then `decode` | `bmd_baked` tests, world FS |
+| water scene/reflection/refraction | sRGB targets sampled through **raw** views | shader works on encoded bytes; `present_encoded` decodes when the target is sRGB | `water_gpu.rs` |
+| post intermediates | non-sRGB (`remove_srgb_suffix`) | values stay encoded; final `display_color` decodes for an sRGB target | `post_gpu.rs` |
+| fog color/mix | encoded | `fogged()` encode→mix→decode | `gpu.rs`, `terrain_gpu.rs`, `far_trees_gpu.rs` |
+| whole-frame ramp | encoded bytes, LUT, then decode for sRGB | one ramp | `display_gamma.rs` |
+| UNORM-only swapchain | sRGB intermediate + one copy | no second transfer function | `present_encode.rs` |
+
+There is exactly one display ramp and exactly one output encode.
+`color_chain` encodes these rules (`encode/decode`, `encoded_fog_mix`,
+`whole_frame_ramp`, `scene_chain_ramp`, `ramp_stages`,
+`present_encode_required`, `RENDER_TARGET_IS_SRGB`) and pins them with 5 tests.
+
+### 2.2 Fixes in this task
+
+* `present_encode_required` takes the swapchain's sRGB flag, not the format
+  (compile error in the viewer and in the readback check).
+* The ramp now targets the present-encode intermediate when it exists; the
+  swapchain view is no longer cloned (`TextureView` is not `Clone`).
+* The "one encode" test asserted a false exclusivity; it now asserts the real
+  contract (the copy reproduces the intermediate byte; UNORM stand-in is not
+  exclusive of the sRGB composite target).
+* Water and gamma sources sample raw (UNORM) views; the ramp/LUT therefore
+  indexes encoded bytes exactly like the client.
+* No material texture was moved to an sRGB format and no shader gained an extra
+  decode.
+
+### 2.3 Fullscreen/windowed and resizing
+
+`whole_frame_ramp(requested, fullscreen)` is false in windowed mode
+(`0x77b7c0`); the scene chain is never asked to ramp in production
+(`camera.client_gamma = scene_chain_ramp(false, whole)`), so a windowed frame is
+unmodified and a fullscreen frame is ramped once after UI. Resize recreates the
+post targets, the gamma frame and the present-encode intermediate; the
+readback suite exercises `2×2 → 1×1 → 256×1` and odd post sizes.
+
+### 2.4 P1.09 confirmation
+
+* **Task:** complete gamma/settings/color conversions and output encoding.
+* **Finished:** yes for the recovered path; gate left to review.
+* **Production integration:** `Camera::fog_uniform`/post/present all consume the
+  audited helpers; textures stay UNORM; the single encode is enforced by the
+  target format split.
+* **Native evidence:** PC24 LUT capture (FNV `0x9f351cddfec7875f`, 25,856
+  words, x86 MSVCRT compare in Windows CI), divergent words and `entry(0,41)`/
+  `entry(255,41)` pinned; `0x77b7c0` windowed gate.
+* **Tests executed:** module suites `color_chain` 5/5; `display-gamma-gpu-check`
+  108,544 RGB readbacks over 101 settings × 256 values × 4 formats, plus 512
+  present-encode readbacks (UNORM RGBA/BGRA, ±1); Windows gamma-word comparison
+  and gamma/glow reference build pass.
+* **Remaining gaps:** the ramp is emulated by a shader, not the hardware ramp;
+  presentation readback is synthetic; the UNORM route is a stand-in texture, not
+  a real UNORM-only window.
+
+---
+
+## 3. P1.10 — material/pass fog and underwater ordering
+
+### 3.1 Matrix (`src/fog_matrix.rs`, 9 materials × 4 passes)
+
+Rows are the production behavior; the table is executable and tested.
+
+| Material | Main | Reflection | Refraction (camera above) | Below-surface (camera under) |
+|----------|------|------------|---------------------------|------------------------------|
+| Terrain | table, camera fog | table, camera fog | exp2 eye-ray + `exp2(-2·0.075·d)` darkness | table, air fog |
+| Grass | table | table | exp2 eye-ray (displaced Y) | table, air |
+| BakedModel | table | table | exp2 eye-ray (Y clamped to plane) | table, air |
+| Model / transparent | table | table | table with water-refraction range/color | table, air |
+| Tree | table | table | table with water-refraction range/color | table, air |
+| Shore | **gap** (no fog constant in `waveblend.txt`) | none | none | none |
+| Sky | none | none | none | none |
+| WaterSurface | **gap** (`0x7ca9de` sets only the fog end) | none | none | none |
+
+`row()` also records quantity, range/color source, darkness and evidence; two
+cells are explicitly `implemented = false` and are listed, not hidden behind a
+blanket blocker.
+
+### 3.2 Formulas and uniforms (unchanged layouts)
+
+* `fogged()` is byte-identical in `gpu.rs`, `terrain_gpu.rs` and
+  `far_trees_gpu.rs`: `view_z = 1/max(rcp_w, 1e-7)`, linear table fog with the
+  degenerate-span `select`, encoded mix, decode for the sRGB target.
+* Clipped refraction: `bmd_pass_fog` / `terrain_pass_fog` /
+  `refraction_fog.rs` bypass on `clip.y >= 0` or fog disabled and otherwise mix
+  `fog_color` with the exponential transmittance in encoded space.
+* Grass `exp2(-0.075·d·|eye−p|/(eye.y−p.y))`, BMD clamps `p.y`, terrain
+  projects Y and multiplies diffuse by `exp2(-2·0.075·d)`
+  (`exp2(-0.15·d)` at `0x7c26e0`); water reflection
+  `clamp(0.23·(cam_y−plane_y)/underwater_end, 0.11, 0.23)`.
+* `Camera` stays 388 f32 with `fog_range` at 380–383 and `fog_color` at 384–387;
+  the model `Frame` keeps `vertex_fog = 1` (table fog is always active where a
+  model pass binds fog).
+* Selection is centralized: `camera_fog` (underwater vs atmospheric), the
+  clipped-refraction set, and `below_surface_fog` (air while submerged) are
+  called by `gpu.rs`; wetness/fog state is not duplicated at call sites.
+
+### 3.3 Underwater ordering
+
+Main scene → water surface (screen-space refraction + fresnel, edge mask from
+the terrain depth copy) → refraction pass (clipped below the plane) or
+below-surface pass (above the plane, air fog) → reflection mirror → post chain.
+The water shader's sRGB decode is keyed to the target format, not to a global
+constant, so sRGB and UNORM stand-ins both round-trip the encoded bytes.
+
+### 3.4 P1.10 confirmation
+
+* **Task:** complete material/pass fog and underwater ordering.
+* **Finished:** yes for the recovered cells; the two named gaps stay open and
+  are marked unimplemented.
+* **Production integration:** `Camera::fog_uniform`, the clipped-refraction
+  bind and the below-surface bind consume `fog_matrix`; no shader constant
+  changed and no new point light was added.
+* **Native evidence:** `0x651319`, `0x7a91dd`, `0x7c26e0`, `0x7cc6ac`,
+  `0x7cca50`, `0x7ca9de`; grass/BMD/terrain refraction equations as above.
+* **Tests executed:** `fog_matrix` 8/8; `phase1-fog-gpu-check` world/terrain/
+  trees all `[19,61,49]` vs expected; `terrain-refraction-gpu-check` main,
+  reflection, 0/quarter/half refraction and fog-disabled all exact;
+  `model-receiver` (336 checks) passes in the same run; `water-pass-gpu-check`
+  is only compiled by `cargo check --bins`, not part of the 13-binary
+  shader-regression list.
+* **Remaining gaps:** water-surface and shoreline main-pass fog are unrecovered;
+  tree refraction uses table fog because its shader has no exponential inputs;
+  regional fog *transitions* are covered by the environment tests, not by a new
+  capture.
+
+---
+
+## 4. Final handoff (7 items)
+
+1. **Changed files and call sites** — new `src/post_plan.rs`,
+   `src/color_chain.rs`, `src/fog_matrix.rs`, `src/present_encode.rs`;
+   changed `src/post_gpu.rs` (plan gate, `#[path] post_plan`),
+   `src/view_settings.rs` (`post_required` → `post_plan::required`),
+   `src/gpu.rs` (fog via `fog_matrix`, plan-based `use_post`, surface/compositing
+   format split, present-encode plumbing, ramp ordering),
+   `src/main.rs` (module registration), `src/glow_state.rs` (interruption
+   tests), `src/bin/display-gamma-gpu-check.rs` (present-encode + overlay),
+   `tools/check-phase1-core.sh`, `.github/workflows/pr-checks.yml`.
+2. **Completed behavior** — audited pass matrix; native bloom/warp/sharpen
+   arithmetic; one display ramp after UI (fullscreen only); one output encode
+   for sRGB and UNORM swapchains; material/pass fog selection including the
+   clipped refraction exponential and the below-surface air fog.
+3. **Native anchors** — `0x40fce0`, `0x40fd33`, `0x40fdb0`, `0x40f053`,
+   `0x40fd64..0x40fd9c`, `0x40edd0`, `0x410f10`, `0x41029b`, `0x77b7c0`,
+   `0x651319`, `0x7a91dd`, `0x7c26e0`, `0x7cc6ac`, `0x7cca50`, `0x7ca9de`;
+   PC24 LUT (`0x9f351cddfec7875f`); shader assets `fullglow1_14`,
+   `fullglow2_14`, `monofullglow_14`, `fullsharpen_14`; `waveblend.txt`,
+   `water_expensive.txt`.
+4. **Tests actually executed** — CI `41490544268` green; viewer 271/271;
+   `post_plan` 11/11, `color_chain` 5/5, `fog_matrix` 8/8, `glow_state` 15/15,
+   `view_settings` 18/18; all 13 GPU binaries exit 0
+   (display-gamma 108,544 RGB + 512 encode readbacks; bloom max error 2;
+   post-gpu mono 134/150/134; phase1-fog 3× `[19,61,49]`; terrain-refraction 6
+   exact samples; model-receiver 336 checks; bmd 2048 exact). Sandbox-local
+   execution was impossible (no toolchain, no ICD); this is stated above.
+5. **Remaining unsupported routes and limits** — water-surface and shoreline
+   main-pass fog; tree refraction exponential (not present natively); hardware
+   gamma ramp vs viewer emulation vs synthetic readback vs physical Windows
+   presentation remain distinct; no physical D3D8 frame was captured.
+6. **Interfaces affecting Agents 1–2** — `Camera` uniform layout unchanged
+   (388 f32, `fog_range` 380–383, `fog_color` 384–387); no model `Frame` layout
+   change; no material texture format change; no color-space convention change
+   (UNORM sampling + explicit decode). `post_plan::Inputs` gained a
+   `fog_enabled` field (viewer-internal), and `post_gpu::render` keeps its
+   signature. Any change to `Camera`'s tail or the model fog gate must be
+   coordinated before merge.
+7. **Yes/No per task** — P1.08: Yes for the audited chain. P1.09: Yes for the
+   recovered color path. P1.10: Yes for the recovered material/pass cells, with
+   the two named unimplemented cells above. Central gates remain for integrated
+   review.
