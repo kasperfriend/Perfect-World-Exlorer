@@ -61,7 +61,12 @@ fn main() {
     // always retrievable; mirror it into a GitHub annotation so a CI failure
     // stays diagnosable.
     std::panic::set_hook(Box::new(|info| {
-        println!("::error::terrain-view-gpu-check panicked: {info}");
+        // Annotations truncate at the first newline, and wgpu validation errors
+        // are multi-line, so flatten the message.
+        println!(
+            "::error::terrain-view-gpu-check panicked: {}",
+            info.to_string().replace('\n', " | ")
+        );
     }));
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
