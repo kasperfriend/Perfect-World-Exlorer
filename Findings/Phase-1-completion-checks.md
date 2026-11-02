@@ -1,5 +1,7 @@
 # Phase 1 — completion checks
 
+Full eight-phase recheck: [76-point reassessment](Eight-phase-reassessment-2026-11-02.md). It recognizes implemented portions without changing these ten unfinished full-scope gates to Yes.
+
 A requirement passes only if its entire scope is supported by implementation and evidence. “Ready?” below is an acceptance check, not a confidence estimate. Passing Cargo/CI is not a substitute for an unfinished renderer path.
 
 | Task | Ready? | Check and result / next required work |

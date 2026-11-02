@@ -34,8 +34,11 @@ jobs:
         run: |
           cc -O0 tools/check-native-region-reference.c -o /tmp/native-region-reference
           /tmp/native-region-reference
-      - name: Test Phase 1 readiness audit
-        run: python3 tools/test_phase1_ready.py
+      - name: Test requirement status audits
+        run: |
+          python3 tools/test_phase1_ready.py
+          python3 tools/test_eight_phase_status.py
+          python3 tools/check-eight-phase-status.py
       - name: Check all binary targets
         run: cargo check --locked --bins
       - name: Test GFX light dependency audit

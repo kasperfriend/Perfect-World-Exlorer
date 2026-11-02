@@ -1,3 +1,5 @@
+> **Current status correction — 2 November 2026:** Use the [full eight-phase reassessment](Eight-phase-reassessment-2026-11-02.md) and [unsupported-path register](Unsupported-client-paths.md) for current decisions. The material below preserves historical milestones and may contain superseded absence claims. Old percentages are not current completion scores. Ordinary animated world models/scene-light submission, recovered postprocessing/gamma, per-material fog and clipped water/edge passes now exist; none of that establishes full phase parity.
+
 # Remaining work toward a one-to-one Perfect World 1.4.2 viewer
 
 This is the current known backlog, not a guarantee that every unknown discrepancy has already been discovered. The viewer is an experimental reconstruction, not the original engine or a parity-complete port. Gameplay is intentionally out of scope.

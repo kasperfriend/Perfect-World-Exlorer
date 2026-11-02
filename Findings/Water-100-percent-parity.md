@@ -1,3 +1,5 @@
+> **Current status correction — 2 November 2026:** Use the [full eight-phase reassessment](Eight-phase-reassessment-2026-11-02.md) and [unsupported-path register](Unsupported-client-paths.md) for current decisions. The material below preserves historical milestones and may contain superseded absence claims. Old percentages are not current completion scores. Ordinary animated world models/scene-light submission, recovered postprocessing/gamma, per-material fog and clipped water/edge passes now exist; none of that establishes full phase parity.
+
 # Water 100% parity
 
 Acceptance: port the supplied PW 1.4.2 client's water behavior using its executable, shaders and real assets, across the world, above and below the surface. Preserve approved trees. The aim is a Windows executable and matching source, with visual comparison against the live game.

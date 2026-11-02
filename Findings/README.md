@@ -2,9 +2,11 @@
 
 This folder preserves research and open questions for the inspected client build. Addresses, counts and observations refer to that build; they should not be generalized to other versions without verification. Source data is not included. Historical entries reflect what was believed or implemented at the time and may be contradicted by later work.
 
+- [Full eight-phase reassessment — 2 November 2026](Eight-phase-reassessment-2026-11-02.md): current 76-point evidence matrix, implemented deliverables, partial implementations and remaining acceptance.
+- [Known unsupported client paths](Unsupported-client-paths.md): explicit nonempty register and completion policy.
 - [Eight-phase status](Eight-phase-status.md): the requested requirements, with explicit completion gates and no estimated parity percentage.
 - [Phase 1 completion checks](Phase-1-completion-checks.md): an explicit “Is it finished?” check for every Phase 1 requirement, including remaining gates.
-- [Phase 1 audit — 2 November 2026](Phase-1-audit-2026-11-02.md): current source audit, gamma correction, executed checks and remaining blockers.
+- [Phase 1 audit — 2 November 2026](Phase-1-audit-2026-11-02.md): initial audit plus corrected current source table; historical validation notes are retained below.
 - [Water 100% parity plan](Water-100-percent-parity.md): implementation goals, current work and unresolved gates. Water is **not** complete.
 - [Research log 01 — foundations](Research-log-01-foundations.md): archive and world formats, terrain, SpeedTree, water and early renderer work.
 - [Research log 02 — rendering and lighting](Research-log-02-rendering-and-lighting.md): lighting, vegetation, maps, postprocessing, model formats and memory research.

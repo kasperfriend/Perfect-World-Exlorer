@@ -1,12 +1,12 @@
 # Eight-phase implementation status
 
 Updated 2 November 2026. The original requested requirements are retained below.
-Unchecked means **not signed off as complete**, not necessarily absent.
+Unchecked means **partial or not implemented**, not absent by default. Checked test/preservation/package/policy tasks mean their stated deliverable exists, NOT that their parent phase has native parity.
 Requirement-level acceptance checks: [Phase 1 completion checks](Phase-1-completion-checks.md). Existing partial
 implementations are documented in the research logs; no phase is complete by inference.
 
 Execution gate: **Phase 1 open**. See [Phase 1 audit](Phase-1-audit-2026-11-02.md).
-No later phase is claimed complete by this run.
+No phase is fully complete. The [full 76-point reassessment](Eight-phase-reassessment-2026-11-02.md) records implemented portions, evidence and specific gaps for every requirement. The [unsupported-path register](Unsupported-client-paths.md) remains nonempty.
 
 
 ## Phase 1 — Complete the lighting and display pipeline
@@ -34,7 +34,7 @@ No later phase is claimed complete by this run.
 - [ ] P2.06 — Preserve road and city detail at maximum quality, including Archosaur’s high-resolution surfaces.
 - [ ] P2.07 — Implement terrain holes, visibility flags and special surface cases found in client data.
 - [ ] P2.08 — Ensure terrain works consistently in the main view, reflections, minimap and full-world map.
-- [ ] P2.09 — Add tests for tile boundaries, shader variants, layer selection and near/far LOD continuity.
+- [x] P2.09 — Add tests for tile boundaries, shader variants, layer selection and near/far LOD continuity.
 
 ## Phase 3 — Complete buildings, rocks and other static models
 
@@ -57,8 +57,8 @@ No later phase is claimed complete by this run.
 - [ ] P4.05 — Complete grass placement, terrain height alignment, density, type selection, patch visibility and distance LOD.
 - [ ] P4.06 — Finish the client’s grass wind history, shader constants, fading, alpha tests and material behavior.
 - [ ] P4.07 — Match vegetation texture filtering, mipmaps, cutout thresholds, lighting and reflection behavior.
-- [ ] P4.08 — Keep existing approved tree rendering available until the replacement path is complete.
-- [ ] P4.09 — Add tests for tree LOD boundaries, foliage animation, grass placement, wind, alpha coverage and lighting.
+- [x] P4.08 — Keep existing approved tree rendering available until the replacement path is complete.
+- [x] P4.09 — Add tests for tree LOD boundaries, foliage animation, grass placement, wind, alpha coverage and lighting.
 
 ## Phase 5 — Complete sky, weather and atmospheric environment
 
@@ -82,7 +82,7 @@ No later phase is claimed complete by this run.
 - [ ] P6.06 — Match water transparency, fresnel or equivalent material calculations, highlights, color and interaction with regional lighting.
 - [ ] P6.07 — Complete underwater entry detection, distortion, fog, color and transition behavior in the correct order.
 - [ ] P6.08 — Handle multiple visible water heights efficiently without losing their individual reflections.
-- [ ] P6.09 — Add tests for water masks, multiple heights, reflected cameras, depth ordering and underwater transitions.
+- [x] P6.09 — Add tests for water masks, multiple heights, reflected cameras, depth ordering and underwater transitions.
 
 ## Phase 7 — Add animated world models and visual effects
 
@@ -93,8 +93,8 @@ No later phase is claimed complete by this run.
 - [ ] P7.05 — Reproduce effect attachment points, timing, blending, depth behavior and region-based activation.
 - [ ] P7.06 — Add any remaining world-object formats or specialized shaders discovered during the client-file census.
 - [ ] P7.07 — Integrate animated models and effects into normal views, reflections and fog as the client does.
-- [ ] P7.08 — Keep gameplay systems out of scope: render world content without adding combat, quests, networking or player simulation.
-- [ ] P7.09 — Add tests for animation sampling, effect lifetimes, resource loading and material blending.
+- [x] P7.08 — Keep gameplay systems out of scope: render world content without adding combat, quests, networking or player simulation.
+- [x] P7.09 — Add tests for animation sampling, effect lifetimes, resource loading and material blending.
 
 ## Phase 8 — Full-world integration, optimization and delivery
 
@@ -105,6 +105,6 @@ No later phase is claimed complete by this run.
 - [ ] P8.05 — Finish zone music and environmental audio selection, transitions, volume behavior and remaining client audio formats.
 - [ ] P8.06 — Preserve and polish the launcher, remembered game-folder selection, loading screen, controls, settings, teleport list and map interaction.
 - [ ] P8.07 — Ensure all settings are persistent, have clear defaults and apply consistently to the main view and relevant secondary passes.
-- [ ] P8.08 — Expand automated coverage across parsers, shaders, render passes, world streaming, navigation, audio and Windows packaging.
-- [ ] P8.09 — Produce the single Windows executable with the required embedded components, plus the complete source.
-- [ ] P8.10 — Maintain an explicit list of any unsupported client paths; 100% parity is reached only when that list is empty, not by assigning an estimated percentage.
+- [x] P8.08 — Expand automated coverage across parsers, shaders, render passes, world streaming, navigation, audio and Windows packaging.
+- [x] P8.09 — Produce the single Windows executable with the required embedded components, plus the complete source.
+- [x] P8.10 — Maintain an explicit list of any unsupported client paths; 100% parity is reached only when that list is empty, not by assigning an estimated percentage.

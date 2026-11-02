@@ -1907,3 +1907,9 @@ same-key changes and unchanged directional/specular values. The production sky
 WGSL is additionally compiled by the GPU integration binary; pixel/material
 parity is not inferred from that shader-compilation check. New CI pending.
 **Confirmation P1.04/P1.05: No — continue** full material/celestial consumers.
+
+Validation checkpoint: **a9c4b35 / CI 41478115664 SUCCESS** (Linux and Windows).
+This includes actual production sky WGSL validation, all production GPU checks,
+109 standalone core tests, Windows executable, and fresh native gamma-word
+comparison. Local real scene/environment tests: 23 PASS. Readiness rechecked:
+all ten full-scope gates still No; no complete phase claim is justified.
