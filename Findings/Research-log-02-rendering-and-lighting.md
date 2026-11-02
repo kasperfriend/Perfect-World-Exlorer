@@ -1700,3 +1700,47 @@ source shows environment direction comes from the selected default box,
 not necessarily the local box supplying ambient/fog, and transition target
 setup has a different frame branch from ongoing shading. These require 142
 consumer/arithmetic verification, not a speculative checklist promotion.
+
+### Native region target/shade branches, default direction and FPU context
+
+`01746b1` / CI 41469462371 passed Linux/all-bin/GPU and Windows reference/exe
+checks. The following follow-up is based on additional 142 disassembly:
+
+- `41ebaf..41ec65` independently retains last containing local (ebp) and
+  default (`[esp+64]`) during native map enumeration. Local supplies fog and
+  light colors; default supplies direction on init (`41f244`) AND area-key
+  changes (`41fd58`, `41fdb1`). Sun/moon visibility/setup is init-only here;
+  it is not a reason to animate material light direction with celestial discs.
+- `41fdbe` jumps past shading on a changed-key frame. Same-key `41fdc3` uses
+  integer milliseconds times stored `.001f`, then `421e80` advances each
+  stored component step and clamps according to step sign. Elapsed-ratio
+  interpolation and advancing on the target-setup frame were both incorrect.
+- **Do not infer extended precision just from x87 instructions.** Native game
+  flags are 1/5 at `42fef6..42ff1a`, not FPU-preserve bit 8. Engine
+  `7795c6..7795ca` maps that bit to D3D's FPU_PRESERVE bit 2; it is absent.
+  D3D8 therefore selects PC24. Scalar subtraction/multiplication round just
+  like the stored color-vector subtraction. Initial f64-derived scalar
+  fixtures were rejected, not promoted as native proof. The independent
+  `tools/check-native-region-reference.c` executes the recovered operations
+  on actual x87 with explicit PC24 and contrasting PC53, restoring the CW.
+  PC24/53 target delta words are 3b1a33cf / 3b1a33ce respectively; 312x16ms
+  forward/reverse step words are 3f6612a9 / 3dcf6ab4.
+- Native game clamps logic dt to 250ms (`42fc7d..42fc94`); the regional caller
+  reads +490 (`42b7fd`), not uncapped +494. Viewer now uses integer tick
+  differences and that independent cap, not the camera's .1-second cap.
+
+Production streamed selection retains the default independently and uses its
+noninterpolated direction while local colors/fog transition. Missing-default
+invalid data uses an explicit safe viewer direction, not invented local-box
+parity. Legacy opt-in/approved tree settings have not changed. Core: 102
+passing; real scene/environment: 19 passing. Actual 99-box world traversal
+(176x128 centers, three samples each) produces 67,584 finite fog/light samples;
+this is a data-path safety census, NOT a native pixel/runtime oracle.
+
+**Confirmation: P1.04 finished? No — continue.** Default-direction and target
+frame gaps are addressed, but full native celestial diffuse/specular/visibility
+and material consumers remain. **P1.09 finished? No — continue.** The FPU-context
+finding also requires revalidating previous gamma/color arithmetic references:
+their Decimal/exhaustive agreement proves the implemented mathematical model,
+not that the native live rendering thread uses that assumed precision. No
+all-Yes or parity claim follows from those earlier green tests.

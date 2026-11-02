@@ -2333,6 +2333,7 @@ pub fn run(
     let mut saved_settings = settings.clone();
     let mut last_settings_save = Instant::now();
     let mut last = Instant::now();
+    let mut region_tick_ms = renderer.started.elapsed().as_millis() as u64;
     event_loop
         .run(move |event, target| match event {
             Event::WindowEvent { event, window_id } if window_id == window.id() => {
@@ -2540,9 +2541,12 @@ pub fn run(
                     camera.terrain_lightmaps=settings.terrain_lightmaps;
                     camera.model_backface_culling=settings.model_backface_culling;
                     camera.underwater_depth=water_depth(&water_areas,camera.pos);
-                    let legacy_fog=fog_transition.update(&environments,camera.pos.to_array(),camera.time_of_day,dt);
+                    let region_tick = renderer.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                    let region_delta = crate::environment::frame_ms(region_tick.saturating_sub(region_tick_ms));
+                    region_tick_ms = region_tick;
+                    let legacy_fog=fog_transition.update_ms(&environments,camera.pos.to_array(),camera.time_of_day,region_delta);
                     let streamed_fog=match (streamed_transition.as_mut(),regional_streaming.as_mut()) {
-                        (Some(transition),Some(active))=>Some(transition.update_streamed(&environments,active,camera.pos.to_array(),camera.time_of_day,dt)),
+                        (Some(transition),Some(active))=>Some(transition.update_streamed_ms(&environments,active,camera.pos.to_array(),camera.time_of_day,region_delta)),
                         _=>None,
                     };
                     if settings.streamed_regions && streamed_fog.is_some() {

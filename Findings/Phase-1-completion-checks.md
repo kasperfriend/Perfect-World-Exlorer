@@ -63,3 +63,12 @@ execution and native controller-108 are now verified through production
 weighted/rigid receiver GPU pixels. CI 41464185202 is green for e59268e.
 Owner record retention does not close graph/scene/model-event lifecycle gaps.
 The readiness audit still has ten No gates; no full-scope No was relabeled Yes.
+
+2026-11-02 regional follow-up confirmation: **No — continue implementation**.
+Native target-only changed-region frames, stored-step shading, PC24 arithmetic,
+250ms logic-tick cap and separate default-direction selection now have focused
+coverage (102 core / 19 scene-environment tests and independent x87 arithmetic).
+Actual-world finite-value census: 99 boxes / 67,584 samples. Full-scope gates
+remain No; the newly established native FPU context reopens assumptions in
+prior gamma/color arithmetic oracles pending runtime-precision revalidation.
+Do not count green CI or a finite-data census as full lighting completion.
