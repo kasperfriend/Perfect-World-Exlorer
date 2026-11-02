@@ -1533,3 +1533,16 @@ unit tests pass, including parser rejection, boundaries, controller lookup,
 parent scale/translation, range independence, visibility, priority and reset.
 New GPU/Windows validation pending. Full P1.01 remains No for general graph/
 scene/model-event ownership and parent/lifetime integration; no fabricated Yes.
+
+CI `41463476329` / `8189af2` completed SUCCESS: Linux compilation/unit
+checks, all production GPU binaries including decoded-emitter-to-weighted/
+rigid pixel assertions and the Windows executable. Runtime source clock
+boundary, hidden/priority progression and publication expiry pass GPU checks.
+Local core is now 83 tests. Added a further native DWORD-wrap regression:
+0x6edd80's pre-start early return leaves an already active keypoint intact,
+so an infinite light must not disappear at the unsigned clock wrap. All 19
+combined runtime/selection tests pass; the 524-file / 546-light corpus still
+produces 4,259 finite active samples. Added reproducible production archive
+survey CLI (`gfx-light-runtime-survey`); it states its element-only scope and
+does not pretend to validate surrounding owner graphs or visual effects.
+Full P1.01 remains No. Continue with unresolved owner/parent/event integration.

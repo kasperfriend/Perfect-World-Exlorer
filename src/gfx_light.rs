@@ -208,6 +208,7 @@ pub struct Emitter {
     elapsed: u32,
     color: u32,
     finished: bool,
+    active: bool,
 }
 impl Emitter {
     pub fn new(definition: Definition) -> Self {
@@ -217,12 +218,14 @@ impl Emitter {
             elapsed: 0,
             color,
             finished: false,
+            active: false,
         }
     }
     pub fn reset(&mut self) {
         self.elapsed = 0;
         self.color = self.definition.color;
         self.finished = false;
+        self.active = false;
     }
     /// Input delta has already been scaled by the GFX owner's clock. Visibility
     /// and priority gate publication, not keypoint progression (0x70ba00).
@@ -243,19 +246,23 @@ impl Emitter {
             return Ok(None);
         }
         self.elapsed = self.elapsed.wrapping_add(delta_ms);
-        if self.elapsed < self.definition.start_ms {
-            return Ok(None);
-        }
-        let ms = self.elapsed - self.definition.start_ms;
-        if self.definition.duration_ms.is_some_and(|d| ms >= d) {
-            self.finished = true;
-            return Ok(None);
-        }
-        if let Some(track) = &self.definition.track {
-            if let Some(color) = track.sample(ms as f32 / 1000.) {
-                self.color = color;
+        if self.elapsed >= self.definition.start_ms {
+            self.active = true;
+            let ms = self.elapsed - self.definition.start_ms;
+            if self.definition.duration_ms.is_some_and(|d| ms >= d) {
+                self.finished = true;
+                return Ok(None);
             }
+            if let Some(track) = &self.definition.track {
+                if let Some(color) = track.sample(ms as f32 / 1000.) {
+                    self.color = color;
+                }
+            }
+        } else if !self.active {
+            return Ok(None);
         }
+        // DWORD wrap before StartTime leaves a previously active keypoint's
+        // process data intact in 0x6edd80; it does not unpublish that live key.
         if !visible || self.definition.priority > manager_priority {
             return Ok(None);
         }
@@ -351,5 +358,15 @@ mod tests {
             e.tick(500, true, 4, IDENTITY, None).unwrap().unwrap().color,
             [127. / 255.; 4]
         );
+    }
+    #[test]
+    fn infinite_key_preserves_active_state_across_owner_dword_wrap() {
+        let source = file().replace("TimeSpan: 1000", "TimeSpan: -1");
+        let mut e = Emitter::new(parse(&source).unwrap().pop().unwrap());
+        assert!(e.tick(100, true, 4, IDENTITY, None).unwrap().is_some());
+        e.elapsed = u32::MAX;
+        assert!(e.tick(1, true, 4, IDENTITY, None).unwrap().is_some());
+        e.reset();
+        assert!(e.tick(0, true, 4, IDENTITY, None).unwrap().is_none());
     }
 }
