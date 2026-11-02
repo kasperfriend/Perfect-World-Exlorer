@@ -1284,3 +1284,11 @@ Remaining work includes retaining/feeding source sort metadata, distance
 construction, per-mesh ordered GPU draws, pass-state verification and the
 above/below-water alpha split. Existing ordinary draws remain unchanged.
 Full P1.02/P1.03/P1.10 remain No. Continue.
+
+CI `41455486665` (`5f049e3`) passed Linux/Windows/all 13 GPU checks.
+Follow-up disassembly of `7a5460` confirms distance is the minimum over
+eight transformed ORIGINAL mesh AABB corners, capped by float bits
+`497423fe` (999999.875), not geometric point-to-box distance. Added
+`alpha_corner_distance` and three CPU tests for inside-box behavior,
+rotation/nonuniform scale/translation, sentinel saturation and invalid inputs.
+Core now 71 passing. Alpha scene submission and its water split remain No.

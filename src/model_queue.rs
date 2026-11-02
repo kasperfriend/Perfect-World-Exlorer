@@ -56,6 +56,56 @@ impl AlphaNode {
         }
     }
 }
+/// Retail 0x7a5460: minimum distance to EIGHT transformed initial-AABB
+/// corners, capped at 999999.875. Not distance to its surface, posed bounds,
+/// or center: even an eye inside the box can have nonzero sort distance.
+/// `world` is column-major and must be affine (as model placements are).
+pub fn alpha_corner_distance(
+    min: [f32; 3],
+    max: [f32; 3],
+    world: [[f32; 4]; 4],
+    eye: [f32; 3],
+) -> Result<f32, String> {
+    let bounds = AlphaNode {
+        model: 0,
+        mesh_weight: 0,
+        skin_weight: 0,
+        group: 0,
+        group_weight: 0,
+        min,
+        max,
+        distance: 0.,
+    };
+    if !bounds.valid()
+        || world
+            .iter()
+            .flatten()
+            .chain(eye.iter())
+            .any(|v| !v.is_finite())
+        || [world[0][3], world[1][3], world[2][3], world[3][3]] != [0., 0., 0., 1.]
+    {
+        return Err("invalid alpha distance bounds/affine transform/eye".into());
+    }
+    let mut nearest = f32::from_bits(0x497423fe);
+    for x in [min[0], max[0]] {
+        for y in [min[1], max[1]] {
+            for z in [min[2], max[2]] {
+                let mut delta = [0.; 3];
+                for i in 0..3 {
+                    delta[i] =
+                        world[0][i] * x + world[1][i] * y + world[2][i] * z + world[3][i] - eye[i];
+                }
+                let distance =
+                    (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
+                if !distance.is_finite() {
+                    return Err("alpha distance overflow".into());
+                }
+                nearest = nearest.min(distance);
+            }
+        }
+    }
+    Ok(nearest)
+}
 /// Source 0x7a5a1d–0x7a5aef. In 1.4.2, AABB comparisons ALSO run when
 /// the new same-model weight is greater (not merely equal). Related 1.5.2
 /// adds an equality guard; substituting that version changes render order.
@@ -82,6 +132,57 @@ pub fn alpha_insert_index(nodes: &[AlphaNode], new: AlphaNode) -> Result<usize, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    const IDENTITY: [[f32; 4]; 4] = [
+        [1., 0., 0., 0.],
+        [0., 1., 0., 0.],
+        [0., 0., 1., 0.],
+        [0., 0., 0., 1.],
+    ];
+    #[test]
+    fn alpha_distance_uses_initial_corners_not_surface_or_center() {
+        let d = alpha_corner_distance([-1.; 3], [1.; 3], IDENTITY, [0.; 3]).unwrap();
+        assert!((d - 3f32.sqrt()).abs() < 1e-6);
+        assert_eq!(
+            alpha_corner_distance([-1.; 3], [1.; 3], IDENTITY, [1.; 3]).unwrap(),
+            0.
+        );
+    }
+    #[test]
+    fn alpha_corner_distance_applies_rotation_scale_and_translation() {
+        let world = [
+            [2., 0., 0., 0.],
+            [0., 3., 0., 0.],
+            [0., 0., 4., 0.],
+            [10., 20., 30., 1.],
+        ];
+        assert_eq!(
+            alpha_corner_distance([-1.; 3], [1.; 3], world, [13., 23., 34.]).unwrap(),
+            1.
+        );
+        let rotation = [
+            [0., 1., 0., 0.],
+            [-1., 0., 0., 0.],
+            [0., 0., 1., 0.],
+            [0., 0., 0., 1.],
+        ];
+        assert_eq!(
+            alpha_corner_distance([0.; 3], [1., 2., 0.], rotation, [-2., 1., 0.]).unwrap(),
+            0.
+        );
+        assert_eq!(
+            alpha_corner_distance([0.; 3], [0.; 3], IDENTITY, [2_000_000., 0., 0.]).unwrap(),
+            999999.875
+        );
+    }
+    #[test]
+    fn alpha_corner_distance_rejects_nonaffine_nonfinite_and_overflow() {
+        let mut bad = IDENTITY;
+        bad[0][3] = 1.;
+        assert!(alpha_corner_distance([0.; 3], [1.; 3], bad, [0.; 3]).is_err());
+        assert!(alpha_corner_distance([0.; 3], [1.; 3], IDENTITY, [f32::NAN; 3]).is_err());
+        assert!(alpha_corner_distance([0.; 3], [1.; 3], IDENTITY, [f32::MAX; 3]).is_err());
+        assert!(alpha_corner_distance([2.; 3], [1.; 3], IDENTITY, [0.; 3]).is_err());
+    }
     fn node(model: usize, distance: f32) -> AlphaNode {
         AlphaNode {
             model,
