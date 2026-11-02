@@ -36,6 +36,10 @@ survey's overlaps are not yet all attributed.
   a `tree-sitter-rust` parse of every touched file (0 `ERROR`/`MISSING` nodes)
   and a Python oracle for the integer arithmetic and for the shader's culling
   predicate.
+* **All work is on the Arena session branch.** The task asked for a private
+  working branch; this sandbox tracks the session by
+  `arena/5b7c9c75-perfect-world-exlorer` and forbids creating or switching
+  branches, so the work was committed there and opened as PR #6 instead.
 * **The retail asset archives were not available.** `litmodels.pck`
   (397,425,471 B), `models.pck` (888 MB), `building.pck` (326 MB) and the other
   archives exceed the 100 MB per-file limit of the Drive connector, so this
