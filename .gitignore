@@ -15,3 +15,7 @@ Thumbs.db
 /.cache/
 # Private client files staged by the Drive connector
 /google_drive/
+
+# Python validation helpers
+__pycache__/
+*.pyc

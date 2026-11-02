@@ -16,7 +16,7 @@ pub struct SkinModel {
     pub hangers: Vec<Hanger>,
     pub properties: Vec<(String, String)>,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Action {
     pub name: String,
     pub start: f32,
@@ -25,7 +25,7 @@ pub struct Action {
     pub track_file: String,
     pub joints: Vec<JointAction>,
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct JointAction {
     pub joint: i32,
     pub start: f32,
@@ -41,6 +41,21 @@ pub struct Hanger {
     pub on_bone: bool,
     pub file: String,
     pub child_hook: String,
+}
+impl SkinModel {
+    /// External STCK paths are relative to the SMD's own directory, then its
+    /// track-directory field; they are not relative to models.pck's root.
+    pub fn action_track_path(&self, descriptor_path: &str, action: &Action) -> Option<String> {
+        if action.track_file.is_empty() {
+            return None;
+        }
+        let descriptor = normalize(descriptor_path);
+        let parent = descriptor.rsplit_once('/').map_or("", |x| x.0);
+        Some(normalize(&format!(
+            "{parent}/{}/{}",
+            self.track_directory, action.track_file
+        )))
+    }
 }
 fn gbk(bytes: &[u8]) -> Result<String, String> {
     let (s, _, bad) = encoding_rs::GBK.decode(bytes);
@@ -262,6 +277,14 @@ mod tests {
         assert_eq!(m.track_directory, "tracks");
         assert_eq!(m.actions[0].track_file, "idle.stck");
         assert_eq!(m.actions[0].end, 30.);
+        assert_eq!(
+            m.action_track_path("Models\\Scene\\Rig.SMD", &m.actions[0])
+                .as_deref(),
+            Some("models/scene/tracks/idle.stck")
+        );
+        let mut embedded = m.actions[0].clone();
+        embedded.track_file.clear();
+        assert!(m.action_track_path("models/rig.smd", &embedded).is_none());
         assert!(m.hangers[0].on_bone);
         assert_eq!(m.hangers[0].child_hook, "root");
         assert_eq!(m.properties[0], ("mode".into(), "visible".into()));

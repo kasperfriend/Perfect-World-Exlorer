@@ -31,6 +31,7 @@ fn main() -> Result<(), String> {
     let mut skins = HashSet::new();
     let mut skeleton_paths = HashSet::new();
     let mut missing = Vec::new();
+    let mut track_owners: BTreeMap<String, HashSet<String>> = BTreeMap::new();
     let mut versions = BTreeMap::new();
     for m in s.blocks.iter().flat_map(|b| &b.models) {
         if !placed.insert(m.export_id) {
@@ -62,6 +63,15 @@ fn main() -> Result<(), String> {
         let smd = ecmodel::parse_smd(&pck::read_entry(&mut f, ent)?)?;
         *versions.entry(smd.version).or_insert(0usize) += 1;
         let parent = path.rsplit_once('/').map(|x| x.0).unwrap_or("");
+        let skeleton_path = ecmodel::normalize(&format!("{parent}/{}", smd.skeleton));
+        for action in &smd.actions {
+            if let Some(track_path) = smd.action_track_path(&path, action) {
+                track_owners
+                    .entry(track_path)
+                    .or_default()
+                    .insert(skeleton_path.clone());
+            }
+        }
         for refname in std::iter::once(smd.skeleton).chain(smd.skins) {
             if refname.is_empty() {
                 continue;
@@ -82,6 +92,7 @@ fn main() -> Result<(), String> {
     let mut skin_versions = BTreeMap::new();
     let mut failures = Vec::new();
     let mut skeleton_versions = BTreeMap::new();
+    let mut joint_counts = HashMap::new();
     let (mut bones, mut embedded_tracks) = (0, 0);
     for path in &skeleton_paths {
         let Some(entry) = entries.get(path) else {
@@ -90,6 +101,7 @@ fn main() -> Result<(), String> {
         match pck::read_entry(&mut f, entry).and_then(|b| skeleton::Skeleton::parse(&b)) {
             Ok(s) => {
                 *skeleton_versions.entry(s.version).or_insert(0usize) += 1;
+                joint_counts.insert(path.clone(), s.joints.len());
                 bones += s.bones.len();
                 embedded_tracks += s.embedded_tracks.len();
             }
@@ -98,6 +110,59 @@ fn main() -> Result<(), String> {
     }
     println!(
         "BON versions {skeleton_versions:?}; {bones} bones; {embedded_tracks} embedded tracks"
+    );
+    let mut track_versions = BTreeMap::new();
+    let mut external_tracks = 0;
+    for (path, owners) in &track_owners {
+        let Some(entry) = entries.get(path) else {
+            missing.push(path.clone());
+            continue;
+        };
+        match pck::read_entry(&mut f, entry).and_then(|b| animation::TrackSet::parse(&b)) {
+            Ok(t) => {
+                *track_versions.entry(t.version).or_insert(0usize) += 1;
+                external_tracks += t.tracks.len();
+                for owner in owners {
+                    if let Some(&count) = joint_counts.get(owner) {
+                        if let Err(e) = t.validate_joint_count(count) {
+                            failures.push(format!("{path} -> {owner}: {e}"));
+                        }
+                    } else {
+                        failures.push(format!("{path}: skeleton was not validated: {owner}"));
+                    }
+                }
+                for track in &t.tracks {
+                    for frame in [
+                        t.start as f32,
+                        (t.start as f32 + t.end as f32) * 0.5,
+                        t.end as f32,
+                    ] {
+                        let seconds = frame / t.fps as f32;
+                        if (!track.position.keys.is_empty()
+                            && !track
+                                .position
+                                .sample(seconds)
+                                .is_some_and(|p| p.iter().all(|v| v.is_finite())))
+                            || (!track.rotation.keys.is_empty()
+                                && !track
+                                    .rotation
+                                    .sample(seconds)
+                                    .is_some_and(|q| q.iter().all(|v| v.is_finite())))
+                        {
+                            failures.push(format!(
+                                "{path}: invalid sampled transform at frame {frame}, joint {}",
+                                track.id
+                            ));
+                        }
+                    }
+                }
+            }
+            Err(e) => failures.push(format!("{path}: {e}")),
+        }
+    }
+    println!(
+        "STCK versions {track_versions:?}; {} external files, {external_tracks} joint tracks",
+        track_owners.len()
     );
     for path in &skins {
         let Some(entry) = entries.get(path) else {
@@ -159,13 +224,13 @@ fn main() -> Result<(), String> {
     }
     if !missing.is_empty() || !failures.is_empty() {
         return Err(format!(
-            "{} unresolved dependencies; {} skeleton/skin/material failures",
+            "{} unresolved dependencies; {} skeleton/track/skin/material failures",
             missing.len(),
             failures.len()
         ));
     }
     println!(
-        "Dependency and skin-material checks pass; world rendering is not checked by this survey."
+        "Dependency, track-sampling and skin-material checks pass; world rendering is not checked by this survey."
     );
     Ok(())
 }

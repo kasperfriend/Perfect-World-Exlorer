@@ -488,3 +488,23 @@ bleeding across tile boundaries, or keeping the hardcoded atlas divisor.
 GPU results pending; 41 dependency-free CPU tests pass locally.
 
 Terrain refraction commit `3ab718b` passed [CI 41435695632](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41435695632): all eight GPU binaries, unit/compile/format checks and Windows executable build.
+
+### World external animation dependencies
+
+Resolved SMD8 actions under `SMD parent / track_directory / track_file`,
+not the archive root. All 18 external STCK files for the nine BON6 world
+chains exist in models.pck. The production parser consumes their complete
+payloads: STCK1, 208 joint tracks, 15fps. A native isolated harness also
+checks every track ID against its owning BON joint count and samples all
+position/quaternion tracks at start/mid/end (624 transform sample times).
+All 14 world chains pass; the five older BON5 chains retain their separate
+77 embedded tracks. No private client files are committed.
+
+`ecmodel-check` now includes these external dependencies, parser errors,
+invalid joint references and nonfinite samples in its failure gate. Added
+STCK trailing-data rejection and truncation/tail/joint-bound tests. Native
+animation+descriptor tests pass (7); the application build is pending CI.
+These data/sampling results do not establish runtime pose matrices, palette
+ordering or a world skin draw path. Those implementation gates stay No.
+
+Grass lightmap commit `598393d` passed [CI 41436006986](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41436006986), including all six area/legacy × day/night atlas-edge renders and the new readiness-audit tests. The independent readiness audit still reports P1.01–P1.10 unfinished and no malformed/missing acceptance rows.
