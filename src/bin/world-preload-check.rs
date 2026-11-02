@@ -12,6 +12,8 @@ mod pck;
 mod scene;
 #[path = "../texture_atlas.rs"]
 mod texture_atlas;
+#[path = "../texture_resolution.rs"]
+mod texture_resolution;
 #[path = "../world_objects.rs"]
 mod world_objects;
 mod gpu {
@@ -49,7 +51,24 @@ fn main() {
                 tris += p.indices.len() / 3;
                 println!("Page {pages}: {} placements, {verts} vertices", p.processed)
             }
-            world_objects::Message::Done { processed, skipped } => {
+            world_objects::Message::Done {
+                processed,
+                skipped,
+                stats,
+            } => {
+                println!(
+                    "residency: decodes={} alias_hits={} alias_bytes_saved={} evictions={} evicted_bytes={} peak_resident_bytes={} resident_bytes={} pinned_over_budget={} budget_bytes={}",
+                    stats.residency.decodes, stats.residency.alias_hits, stats.residency.alias_bytes_saved,
+                    stats.residency.evictions, stats.residency.evicted_bytes, stats.residency.peak_resident_bytes,
+                    stats.residency.resident_bytes, stats.residency.pinned_over_budget, stats.residency.budget_bytes
+                );
+                println!(
+                    "resolver: queries={} cache_hits={} trivial={} shader_registry={} archive_hits={} disk_hits={} missing={} missing_quiet={} nrf_derived={} nrf_derived_present={} nrf_default_fallback={} shader_registry_file_backed={} unresolved_rows={} pages={}",
+                    stats.resolver.queries, stats.resolver.cache_hits, stats.resolver.trivial, stats.resolver.shader_registry,
+                    stats.resolver.archive_hits, stats.resolver.disk_hits, stats.resolver.missing, stats.resolver.missing_quiet,
+                    stats.resolver.nrf_derived, stats.resolver.nrf_derived_present, stats.resolver.nrf_default_fallback,
+                    stats.resolver.shader_registry_file_backed, stats.unresolved_rows, stats.pages
+                );
                 println!("Done {processed}/{count}, {pages} pages, {verts} vertices, {tris} triangles, {skipped} missing-texture meshes; atlas base {:.1} MiB, with mips ~{:.1} MiB",atlas_bytes as f64/1048576.,atlas_bytes as f64/1048576.*(1.-1./65536.)/0.75);
                 return;
             }
