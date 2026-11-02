@@ -69,15 +69,15 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 
 | ID | Decision | Already implemented / evidence | Remaining acceptance / boundary |
 |---|---|---|---|
-| P2.01 | Partial | Source terrain heights, local full-resolution mesh and 4-grid distant mesh (`src/main.rs`, `src/terrain_gpu.rs`). | Native block visibility, distance LOD and exact transitions. |
-| P2.02 | Partial | Near/far crack-reduction stitching is implemented and tested (`src/terrain_seam.rs`). | Replace its explicitly approximate interpolation with native neighbor/edge rules. |
-| P2.03 | Partial | Layer/mask/lightmap terrain shader and distinct near/far vertex paths (`src/material.rs`, `src/terrain_gpu.rs`). | All native variants, specular and hardware fallback semantics. |
-| P2.04 | Partial | Native-resolution defaults, texture gradients, mip generation and anisotropic sampling (`src/terrain_gpu.rs`, `src/material.rs`). | Per-material original mip/filter/addressing behavior and all source formats. |
-| P2.05 | Partial | T2MK layer axes, transforms and masks; T2LM rectangular mapping (`src/material.rs`, `src/terrain_lightmaps.rs`). | Verify every authored projection, format and seam case against the client. |
-| P2.06 | Partial | High-resolution nearby terrain/materials and native-size scenery atlases exist (`src/terrain_gpu.rs`, `src/texture_atlas.rs`). | Archosaur/road maximum-quality visual acceptance and distant residency/detail. |
-| P2.07 | Not implemented | Ordinary height-grid terrain renders (`src/main.rs`). | No demonstrated native terrain-hole/visibility-flag/special-surface implementation. |
-| P2.08 | Partial | Terrain participates in main, clipped water and rendered map views (`src/gpu.rs`, `src/terrain_gpu.rs`). | Native-equivalent LOD/material behavior across every view and full-world loading state. |
-| P2.09 | Implemented | Boundary/seam, mask blending, grid edges and near/far vertex shader tests exist (`src/terrain_seam.rs`, `src/material.rs`, `src/terrain_gpu.rs`, `src/bin/terrain-lod-gpu-check.rs`). | Test-category requirement met; terrain-lod GPU diagnostic is not in the latest 13-program CI run. |
+| P2.01 | Partial | Height blocks and T2MK areas load from the world stream and the local terrain mesh is built at full resolution (`src/main.rs`, `src/terrain_gpu.rs`). | Native residency/draw-selection window, per-view block visibility, streaming growth/eviction and explicit failures for missing or malformed blocks. |
+| P2.02 | Partial | Two resolutions exist: a full-resolution local mesh and a coarse distant mesh with its own vertex path (`src/terrain_gpu.rs`, `src/bin/terrain-lod-gpu-check.rs`). | The client's own level thresholds, hysteresis and transition geometry; the current near/far split is a viewer approximation, not a recovered rule. |
+| P2.03 | Partial | Near/far crack reduction with boundary tests (`src/terrain_seam.rs`). | Replace the explicitly approximate interpolation with native edge/neighbour rules, including level boundaries. |
+| P2.04 | Partial | One layer/mask/lightmap terrain shader with distinct near/far vertex paths (`src/terrain_gpu.rs`, `src/material.rs`). | Every native variant, stage setup, cull/depth/blend/alpha-test state and the hardware fallback paths; state is not yet recovered as a table. |
+| P2.05 | Partial | T2LM/T2LM1 pair availability, rectangular tile mapping and the 2x day/night modulation (`src/terrain_lightmaps.rs`, `src/terrain_gpu.rs`). | Pair-selection edge cases, clamp/wrap, encoded-space arithmetic and the exact combination with regional ambient. |
+| P2.06 | Partial | T2MK v2 layer axes, per-layer transforms and mask grid (`src/material.rs`). | Verify every authored projection, layer count and mask format/resolution against the client; world-to-texture mapping is only proven for the exercised areas. |
+| P2.07 | Partial | Native source dimensions by default, 16x anisotropic gradients, generated mips (`src/terrain_gpu.rs`, `src/material.rs`). | Per-material mip/filter/addressing behavior, the optional downsampled-mask path and every source format the archive contains. |
+| P2.08 | Partial | High-resolution nearby terrain and native-size scenery atlases exist (`src/terrain_gpu.rs`, `src/texture_atlas.rs`). | No demonstrated native terrain-hole/visibility-flag implementation, no recovered special-surface cases, and maximum-quality road/city (Archosaur) detail is not validated. |
+| P2.09 | Partial | Terrain participates in main, clipped water and rendered map views (`src/gpu.rs`, `src/terrain_gpu.rs`); boundary/seam, mask-blending and near/far shader regressions exist (`src/terrain_seam.rs`, `src/material.rs`, `src/bin/terrain-lod-gpu-check.rs`). | Reflection/refraction and minimap/full-world-map equivalence is not established, and the terrain LOD GPU program is not part of the current 13-program CI run. |
 
 ## Phase 3
 
@@ -168,6 +168,11 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 
 Previously checked P1.11/P1.12 remain checked. Corrected nine additional entries:
 P2.09, P4.08, P4.09, P6.09, P7.08, P7.09, P8.08, P8.09 and P8.10.
+The Phase 2 re-cut of 2 November 2026 moved the old P2.09 test deliverable into
+the new P2.09 (multi-view consistency plus regression coverage), which is Partial
+because reflection/refraction and minimap equivalence are not established, so its
+checkbox is unchecked again; the existing terrain regressions are still recorded in
+that row.
 P8.10's explicit consolidated register was supplied by this reassessment;
 its creation does not resolve its open entries. The other corrected entries
 recognize existing code/tests/artifacts, not newly implemented rendering features.
