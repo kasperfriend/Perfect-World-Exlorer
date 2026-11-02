@@ -159,38 +159,51 @@ fn decode(fields: &[(&str, &str)]) -> Result<Definition, String> {
         track,
     })
 }
-/// A skipped element that still declares light fields is a light path this
-/// reader cannot execute (the `Segs`/`LightNum`/`WaveLen` family printed by the
-/// element at `0x707b55`, whose keys are `Segs: %d`, `LightNum: %d`,
-/// `WaveLen: %f`, `Interval: %d`, `Width: %f`, `Alpha: %f`, `Amplitude: %f`,
-/// `Pos1Enable`/`Pos2Enable`, `UseNormal`, `Normal`, `Filter`). Dropping it
-/// silently would under-report an authored light, so it is an explicit failure.
-/// Non-light elements (particles, sprites, trails) are skipped exactly as before.
-const LIGHT_FIELDS: [&str; 8] = [
-    "LightType",
-    "LightNum",
-    "WaveLen",
-    "Segs",
-    "Interval",
-    "Amplitude",
-    "Pos1Enable",
-    "Filter",
-];
+/// Which light an element actually *is*.
+///
+/// The previous reader treated any element carrying `LightNum`/`WaveLen`/
+/// `Segs`/`Interval`/`Amplitude`/`Pos1Enable`/`Filter` as a light path it could
+/// not execute and failed the whole root. Those keys are not light-exclusive:
+/// `BufLen: %d`, `Amplitude: %f`, `WaveLen: %d`, `Persistence: %f`,
+/// `OctaveNum: %d` are the effect's **noise** block, which the native reader
+/// loads for the sprite/particle/beam/trail families exactly as it loads
+/// `StartPos`/`EndPos`/`LightNum`/`Filter` for the line and beam families
+/// (`0x7078d0` is the range-light loader; `0x8ebbac` `Amplitude: %f` and
+/// `0x8ebbbc` `WaveLen: %d` are consumed by the shared header). Measured on the
+/// retail `gfx.pck`: 5,878 elements carry one of those keys, but only **546**
+/// carry `LightType`, and all 546 are element 130. Counting the noise block as a
+/// light rejected 2,014 of 5,459 roots and loaded 0 of the 524 roots that
+/// really contain a light.
+///
+/// The light marker is therefore `LightType: %d`, the only key the light
+/// element reader consumes (`0x8ed204`, hit twice: `0x70b50b`/`0x70b7d5`).
+/// Element 130 is implemented; any other element that declares `LightType` is
+/// still an explicit failure rather than a silent drop, so a future light class
+/// cannot disappear without a register entry.
+const LIGHT_MARKER: &str = "LightType";
+
 fn finish_element(
     current: Option<u32>,
     fields: &[(&str, &str)],
     definitions: &mut Vec<Definition>,
 ) -> Result<(), String> {
-    match current {
-        Some(130) => definitions.push(decode(fields)?),
-        Some(id) => {
-            if let Some((key, _)) = fields.iter().find(|(k, _)| LIGHT_FIELDS.contains(k)) {
-                return Err(format!(
-                    "unsupported GFX light element {id} ({key}); only element 130 point lights are executed"
-                ));
-            }
+    let marker = fields.iter().find(|(k, _)| *k == LIGHT_MARKER);
+    match (current, marker) {
+        (Some(130), Some(_)) => definitions.push(decode(fields)?),
+        (Some(130), None) => return Err("element 130 is missing its LightType".into()),
+        (Some(id), Some((key, _))) => {
+            return Err(format!(
+                "unsupported GFX light element {id} ({key}); only element 130 point lights are executed"
+            ))
         }
-        None => {}
+        // No element id in scope: the header is not a light record. Retail
+        // roots never declare LightType before their first GFXELEMENTID.
+        (None, Some((key, _))) => {
+            return Err(format!("GFX root declares {key} outside any element"))
+        }
+        // Non-light elements (particles, sprites, beams, trails, containers)
+        // are skipped exactly as the native loader skips their light pass.
+        (_, None) => {}
     }
     Ok(())
 }
@@ -389,10 +402,9 @@ mod tests {
     }
     #[test]
     fn a_skipped_element_that_declares_lights_is_an_explicit_error() {
-        // The Segs/LightNum family (keys printed by the element at 0x707b55) is
-        // a light path this reader cannot execute. Dropping it silently would
-        // under-report an authored light, so the whole root fails.
-        let extra = "GFXELEMENTID: 106\nSegs: 3\nLightNum: 4\nWaveLen: 2.5\n";
+        // An element carrying the light marker LightType that this reader
+        // cannot execute must fail the root rather than be silently dropped.
+        let extra = "GFXELEMENTID: 106\nLightType: 1\nSegs: 3\nLightNum: 4\n";
         let source = file().replace("GFXELEMENTCOUNT: 1", "GFXELEMENTCOUNT: 2") + extra;
         let error = parse(&source).unwrap_err();
         assert!(
@@ -404,6 +416,54 @@ mod tests {
         let particles = "GFXELEMENTID: 200\nParticleCount: 12\nEmitSpeed: 3\n";
         let source = file().replace("GFXELEMENTCOUNT: 1", "GFXELEMENTCOUNT: 2") + particles;
         assert_eq!(parse(&source).unwrap().len(), 1);
+    }
+
+    /// The effect noise block is not a light. Retail element 101/123/150/152
+    /// records author `BufLen`/`Amplitude`/`WaveLen: <int>`/`Persistence`/
+    /// `OctaveNum`, and the line families add `StartPos`/`EndPos`/`Segs`/
+    /// `LightNum`/`Interval`/`Width`/`Alpha`/`Pos1Enable`/`Filter`. Treating
+    /// those keys as lights rejected 2,014 of 5,459 retail roots and loaded 0
+    /// of the 524 roots that contain element 130.
+    #[test]
+    fn effect_noise_and_line_blocks_are_not_light_paths() {
+        // Element 101 (particle) with the full noise block, verbatim shape from
+        // `gfx/models/暗语者营地/暗语者营地.gfx`.
+        let particle = "GFXELEMENTID: 101\nName: Unnamed3\nSrcBlend: 5\nDestBlend: 2\n\
+                        TexFile: 粒子\\26.dds\nBufLen: 256\nAmplitude: 2.000000\n\
+                        WaveLen: 1\nPersistence: 1.000000\nOctaveNum: 5\n";
+        let source = file().replace("GFXELEMENTCOUNT: 1", "GFXELEMENTCOUNT: 2") + particle;
+        assert_eq!(parse(&source).unwrap().len(), 1);
+
+        // Element 150 (range light) with its own record, verbatim shape from
+        // `gfx/models/暗语者营地/暗语者营地.gfx`. It declares no LightType, so it
+        // is not a point light and the root still yields element 130.
+        let range = "GFXELEMENTID: 150\nName: 11\nTexFile: 闪电\\lightning002.dds\n\
+                     BufLen: 256\nAmplitude: 1.000000\nWaveLen: 1\nPersistence: 1.000000\n\
+                     OctaveNum: 5\nStartPos: 0.000000, 0.000000, 0.000000\n\
+                     EndPos: 0.000000, 0.000000, 0.000000\nSegs: 10\nLightNum: 1\n\
+                     WaveLen: 0.100000\nInterval: 70\nWidth: 0.400000\nAlpha: 1.000000\n\
+                     Amplitude: 1.000000\nPos1Enable: 0\nPos2Enable: 0\nUseNormal: 0\n\
+                     Normal: 0.000000, 0.000000, 0.000000\nFilter: 1\n";
+        let source = file().replace("GFXELEMENTCOUNT: 1", "GFXELEMENTCOUNT: 2") + range;
+        assert_eq!(parse(&source).unwrap().len(), 1);
+
+        // Element 152 (trail) with the lightning/branch block and LightNum: 0.
+        let trail = "GFXELEMENTID: 152\nName: Unnamed1\nTexFile: 轨迹\\trail003.dds\n\
+                     Segs: 20\nLightNum: 0\nWaveLen: 1.000000\nInterval: 100\n\
+                     Width: 0.070000\nAlpha: 1.000000\nAmplitude: 0.000000\n\
+                     Pos1Enable: 0\nPos2Enable: 0\nNormal: 0.000000, 0.000000, 0.000000\n\
+                     Filter: 2\n";
+        let source = file().replace("GFXELEMENTCOUNT: 1", "GFXELEMENTCOUNT: 2") + trail;
+        assert_eq!(parse(&source).unwrap().len(), 1);
+    }
+
+    /// Element 130 without the marker is malformed: it can no longer be found
+    /// by the light pass at all, so it must not be treated as a skipped sprite.
+    #[test]
+    fn element_130_without_light_type_is_an_error() {
+        let source = file().replace("LightType: 1\n", "");
+        let error = parse(&source).unwrap_err();
+        assert!(error.contains("missing its LightType"), "{error}");
     }
 
     #[test]

@@ -86,6 +86,7 @@ mod skin_pose;
 mod sky_gpu;
 mod terrain_gpu;
 mod terrain_lightmaps;
+mod terrain_sampling;
 mod terrain_seam;
 mod texture_atlas;
 mod tree_lod;

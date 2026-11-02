@@ -88,13 +88,28 @@ impl Materials {
                 .find(|e| e.name.eq_ignore_ascii_case(path))
                 .ok_or_else(|| format!("missing texture {path}"))?;
             let raw = pck::read_entry(&mut file, entry)?;
+            // Terrain sources must be one of the compressed formats the client
+            // can create; anything else is an explicit error naming the file
+            // instead of an `image` crate fallback that silently decodes a
+            // format the native device would have rejected.
+            let info = crate::terrain_sampling::parse_terrain_dds(&raw)
+                .map_err(|e| format!("texture {path}: {e}"))?;
             let img = image::load_from_memory_with_format(&raw, image::ImageFormat::Dds)
                 .map_err(|e| format!("texture {path}: {e}"))?
                 .to_rgb8();
-            let (w, h) = img.dimensions();
+            if (info.width, info.height) != (img.width(), img.height()) {
+                return Err(format!(
+                    "texture {path}: header says {}x{} but decoded {}x{}",
+                    info.width,
+                    info.height,
+                    img.width(),
+                    img.height()
+                ));
+            }
+            let (w, h) = (info.width as usize, info.height as usize);
             textures.push(Texture {
-                w: w as usize,
-                h: h as usize,
+                w,
+                h,
                 pixels: img.into_raw(),
             });
         }

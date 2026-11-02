@@ -411,18 +411,36 @@ impl TerrainGpu {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
+        // Native terrain layer sampler (`A3DTerrain2`, 0x7c14b0 / 0x7c1a20):
+        // D3DTSS_ADDRESSU/V = 2 = D3DTADDRESS_MIRROR and MAG/MIN/MIPFILTER = 2
+        // = D3DTEXF_LINEAR for stages 1..5. D3DTSS_MAXANISOTROPY(21) is never
+        // written anywhere in the terrain path (the 0x77a1b0/0x77a1d0 wrappers
+        // that write it have two call sites, neither inside the terrain
+        // functions), so the client runs trilinear mirror sampling with no
+        // anisotropic taps. The previous Repeat/16x request was not native.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_u: wgpu::AddressMode::MirrorRepeat,
+            address_mode_v: wgpu::AddressMode::MirrorRepeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
-            anisotropy_clamp: 16,
+            anisotropy_clamp: 1,
             ..Default::default()
         });
+        // The mask/lightmap atlas is a packed page grid, not a tiled texture:
+        // the fragment shader already clamps each tile's local UV to half a
+        // texel inside its slot, so this sampler must never wrap or mirror
+        // across slot borders. The client samples the mask in the layer pass
+        // with the same point-clamped lookup, and terrain lightmaps are read at
+        // exactly one texel per fragment (0x7c1a54: `texld r0, t1, s1` after
+        // the atlas address is computed on the CPU).
         let mask_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            anisotropy_clamp: 1,
             ..Default::default()
         });
         // Share the exact terrain day/night lightmap texture with grass.  The

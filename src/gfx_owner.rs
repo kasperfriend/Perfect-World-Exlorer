@@ -229,6 +229,13 @@ pub struct Status {
     pub emitters: usize,
     /// Number of recorded failure strings, including rejected roots.
     pub failures: usize,
+    /// Owners that loaded cleanly but contain no light producer (`LightType`).
+    /// The native player executes their sprites/particles/trails through the
+    /// rest of the GFX graph; that graph is not implemented here, so they are
+    /// reported separately instead of being counted as failed or as lights.
+    pub non_light_owners: usize,
+    /// Frames the manager has ticked; the loader admits one root per frame.
+    pub frames: u64,
 }
 
 pub struct Manager {
@@ -243,6 +250,11 @@ pub struct Manager {
     next_serial: u64,
     removed: usize,
     loads: usize,
+    /// Frames the manager has ticked. `load_one` admits at most one pending
+    /// owner per frame (`0x5b1a00` returns immediately after a load), so a
+    /// status line showing `0 loaded` next to a large pending count can simply
+    /// mean the queue is still being drained one root per frame.
+    frames: u64,
     read: Option<Box<dyn FnMut(&str) -> Result<String, String>>>,
 }
 
@@ -261,6 +273,7 @@ impl Manager {
             next_serial: 1,
             removed: 0,
             loads: 0,
+            frames: 0,
             read: None,
         }
     }
@@ -393,6 +406,7 @@ impl Manager {
     /// Order follows 0x5b1a00: existing owners tick and publish first, then at
     /// most one pending root is loaded and the update returns immediately.
     pub fn update(&mut self, delta_ms: u32, publications: &mut LightPublications) {
+        self.frames += 1;
         let limit = self.priority_limit;
         let mut finished = Vec::new();
         let mut failed = Vec::new();
@@ -433,6 +447,12 @@ impl Manager {
     }
 
     /// Lazily load exactly one pending root; 0x5b1a00 returns after a load.
+    /// Frames ticked so far; paired with the loader budget so the UI can say
+    /// how far the one-per-frame queue has been drained.
+    pub fn frames(&self) -> u64 {
+        self.frames
+    }
+
     fn load_one(&mut self) {
         let Some(index) = self
             .owners
@@ -470,6 +490,7 @@ impl Manager {
             removed: self.removed,
             loads: self.loads,
             failures: self.failures.len(),
+            frames: self.frames,
             ..Default::default()
         };
         for owner in &self.owners {
@@ -479,6 +500,9 @@ impl Manager {
                 State::Live(emitters) => {
                     status.live += 1;
                     status.emitters += emitters.len();
+                    if emitters.is_empty() {
+                        status.non_light_owners += 1;
+                    }
                 }
             }
         }
@@ -740,6 +764,42 @@ mod tests {
         assert_eq!(manager.status().live, 0);
         assert_eq!(manager.status().failures, 1);
         assert!(manager.failures()[0].contains("nonfinite attachment parent"));
+    }
+
+    /// The status line used to read `0 elements` while 257 roots were loaded
+    /// because every loaded root was a sprite/particle root with no
+    /// `LightType`; those are now counted separately from failures, and the
+    /// frame counter makes the one-root-per-frame queue visible.
+    #[test]
+    fn owners_without_a_light_are_reported_apart_from_failures() {
+        let light = light_file();
+        // A sprite-only root: noise/line keys, but no LightType marker.
+        let sprite = "MOXTVersion: 37\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 150\n\
+                      Name: 11\nBufLen: 256\nAmplitude: 1\nWaveLen: 1\nSegs: 10\n\
+                      LightNum: 1\nInterval: 70\nFilter: 1\n"
+            .to_string();
+        let mut manager = Manager::with_reader(move |path| {
+            Ok(if path.contains("lamp") {
+                light.clone()
+            } else {
+                sprite.clone()
+            })
+        });
+        let mut r = request(1, true);
+        r.path = "gfx/scene/sprite.gfx".into();
+        manager.insert(r).unwrap();
+        manager.insert(request(2, true)).unwrap();
+        let mut publications = LightPublications::default();
+        manager.update(0, &mut publications);
+        manager.update(0, &mut publications);
+        let status = manager.status();
+        assert_eq!(status.live, 2, "both roots decoded");
+        assert_eq!(status.non_light_owners, 1, "the sprite root carries no light");
+        assert_eq!(status.emitters, 1);
+        assert_eq!(status.failed_owners, 0);
+        assert_eq!(status.failures, 0);
+        assert_eq!(status.frames, 2);
+        assert_eq!(manager.frames(), 2);
     }
 
     #[test]

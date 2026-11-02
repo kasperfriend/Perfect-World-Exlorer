@@ -1,0 +1,293 @@
+# Phase 2 — Agent C report (P2.07, P2.08, P2.09)
+
+Branch `arena/119d167b-perfect-world-exlorer`, based on `b718574`. Target is the
+1.4.2 client only: `google_drive/elementclient.exe`, 6,000,640 bytes, md5
+`5f02895688fa580506e869156340a664` (verified before any disassembly), PE i386,
+image base `0x400000`, `.text` at `0x401000`.
+
+Everything below was measured on the retail archives in the same Drive folder as
+the executable. Where a claim is a rule rather than a measurement it says so, and
+where a rule could not be checked against the archive the gap is listed.
+
+---
+
+## 1. Production changes and call sites
+
+| File | Change | Production call site |
+|---|---|---|
+| `src/terrain_sampling.rs` (new) | Native sampler/addressing/format policy for `A3DTerrain2`: `StageSampler`, `stage_sampler()`, `AddressMode::from_native`, `DxtFormat`/`parse_terrain_dds`, `array_slot`, `generates_mips`, mask channel and layer order tables, 12 unit tests | Referenced by `src/material.rs::Materials::load` (see below) and compiled into the binary by `src/main.rs` (`mod terrain_sampling;`). The sampler values are mirrored in `src/terrain_gpu.rs::TerrainGpu::new` and in `src/bin/terrain-view-gpu-check.rs`. |
+| `src/terrain_gpu.rs` | Layer sampler changed from `Repeat`/`Repeat` + `anisotropy_clamp: 16` to `MirrorRepeat`/`MirrorRepeat`, `anisotropy_clamp: 1`; mask/lightmap sampler pinned to `ClampToEdge` + `MipmapFilterMode::Nearest` | `TerrainGpu::new`, the only sampler creation site for terrain |
+| `src/material.rs` | Each terrain DDS is validated by `terrain_sampling::parse_terrain_dds` before decoding; unsupported FourCC, malformed/truncated mip chains and header/decoder dimension mismatches are explicit errors naming the asset | `Materials::load`, the only terrain texture read |
+| `src/gfx_light.rs` | `LIGHT_FIELDS` (8 guessed keys) replaced by the single native marker `LightType`; element 130 without it and any other element with it are explicit errors | `gfx_light::parse`, reached from `gfx_owner::Manager::decode` |
+| `src/gfx_owner.rs` | `Status` gains `non_light_owners` and `frames`; `Manager::frames()` | `Manager::status`, read by `src/world_models_gpu.rs::World::gfx_status` |
+| `src/world_models_gpu.rs` | New `AlphaStatus` + `World::alpha_status()` so an empty alpha queue can be told apart from a broken one | `src/gpu.rs` World panel |
+| `src/gpu.rs` | Settings line rewritten to show truthful counters; the loader-queue explanation moved into hover text | World panel |
+| `src/bin/terrain-view-gpu-check.rs` (new) | Per-view terrain submission check (P2.09) | `pr-checks.yml` |
+| `.github/workflows/pr-checks.yml` | Adds `terrain-lod-gpu-check` (previously outside the GPU program set) and the new `terrain-view-gpu-check` | Phase 1 production shader regressions |
+| `tools/check-phase1-core.sh` | Adds `terrain_sampling` to the dependency-free module list | local/CI core checks |
+| `Findings/Unsupported-client-paths.md` | Corrected the false "second light family" entry; added terrain sampling, terrain formats and the T2MK `+12` byte registration | — |
+
+---
+
+## 2. Implemented behaviour
+
+### 2.1 The settings line `FX light producers: 257 loaded, 0 pending, 0 elements, 4278 failed; alpha meshes ordered 0`
+
+The line was not one bug but three independent ones, and each is now either fixed
+or reported honestly.
+
+**`0 elements` — the FX reader was rejecting every root that contained a light.**
+`gfx_light::LIGHT_FIELDS` treated any element carrying `LightNum`, `WaveLen`,
+`Segs`, `Interval`, `Amplitude`, `Pos1Enable` or `Filter` as an unexecutable light
+family and failed the whole root. Those keys are not light-exclusive. The native
+player reads `BufLen: %d`, `Amplitude: %f`, `WaveLen: %d`, `Persistence: %f`,
+`OctaveNum: %d` as the effect **noise** block and `StartPos`/`EndPos`/`Segs`/
+`LightNum`/`WaveLen`/`Interval`/`Width`/`Alpha`/`Amplitude`/`Pos1Enable`/
+`Pos2Enable`/`UseNormal`/`Normal`/`Filter` as the line/beam/trail record, and
+`0x7078d0` is a separate light-element loader.
+
+Measured with a parser that replicates the Rust field scan exactly, over all
+**5,459** `.gfx` roots in `gfx.pck` (v2 directory, 10,104 entries):
+
+| | roots |
+|---|---|
+| carry at least one of the eight former "light" keys | 5,459 (5,878 elements) |
+| carry `LightType` — the only key the light reader consumes (`0x8ed204`, hit at `0x70b50b`/`0x70b7d5`) | **524** (546 elements) |
+| all `LightType` elements are element 130 | yes, 546/546 |
+| loaded under the old rule with ≥1 light | **0** |
+| loaded under the old rule overall | 3,445 of 5,459 (2,014 rejected) |
+
+Rejected roots by first offending element: 101×706, 123×577, 100×245, 150×129,
+120×95, 121×55, 140×51, 152×43, 122×40, 124×33, 102×14, 125×8, 160×6, 110×4,
+180/200/190/151×2.
+
+With `LIGHT_FIELDS` replaced by the `LightType` marker: **5,459 of 5,459 roots
+load, 524 of them publish a light, 0 rejected.** Nothing is silently dropped — an
+element that declares `LightType` but is not element 130 still fails with
+`unsupported GFX light element <id>`.
+
+**`257 loaded / 0 pending` — the loader budget, now visible.** `0x5b1a00` admits at
+most **one** pending root per update and returns immediately after the load. The
+manager already reproduced that; there was simply no way to see how far the queue
+had been drained. `Status.frames` and `Manager::frames()` now report it, and the
+hover text on the line explains the rule.
+
+**`0 elements` also had a second, honest cause.** Of the 5,459 roots that now load,
+**4,935** genuinely contain no `LightType` element: they are sprite, particle,
+beam and trail roots whose playback belongs to the visual-effect graph (P7), not
+to this pass. They are now counted as `non_light_roots` instead of appearing as
+zero emitters on 257 loaded roots.
+
+**`4278 failed` — owners, not roots.** The old expression added
+`g.failed_owners` to `models.gfx_failures().len()`, which mixes two populations:
+rejected owners and the recorded failure *strings* (one per rejected root, and
+every root was rejected). Under the corrected reader the same corpus yields 0
+rejected roots, so this term collapses on its own; it is kept in the line because
+it is the only place a genuinely rejected owner surfaces.
+
+**`alpha meshes ordered 0` — a plausible steady state, previously unreadable.**
+`rebuild_alpha_order` only orders meshes a model declares as alpha-blended, and
+retail monsters/props are overwhelmingly opaque, so 0 is a legitimate result. The
+line printed the ordered count alone, so "0" could equally mean "no alpha meshes",
+"no model published bounds", or "every slot failed". `World::alpha_status()` now
+reports `ordered / alpha_meshes (drawable of slots, failed, without bounds)`.
+
+The line now reads, for example:
+
+```
+FX light producers: 524 loaded, 0 pending, 524 elements, 0 failed, 4935 non-light roots;
+alpha meshes ordered 0/0 (312 drawable of 312 slots, 0 failed, 0 without bounds)
+```
+
+### 2.2 Terrain sampling (P2.07)
+
+Recovered from the state wrappers, whose constant argument *is* the D3D state
+type (`0x77bdb0` = `SetTextureStageState`, `0x77a1b0` writes `0x16` = 22 etc.):
+
+* `0x7c14b0` (batched PS1.4 terrain path): stages 1–5 get
+  MAG/MIN/MIPFILTER = `2` (`D3DTEXF_LINEAR`) and ADDRESSU/V = `2`
+  (`D3DTADDRESS_MIRROR`); `0x77a120` assigns each stage the coordinate set with the
+  same index. `0x7c1a20` repeats it and disables `ZENABLE`.
+* `0x7c1e00` (fallback / one-layer path): stage 0 filters `0`
+  (`D3DTEXF_NONE`), `COLOROP 0`, ARG1/2 `0`, `ALPHAOP 0`, `RESULTARG 0`; stages
+  0/1 use `COLOROP 5/3` with ADDRESSU/V = `1` (`D3DTADDRESS_WRAP`).
+* `D3DTSS_MAXANISOTROPY`(21) and `D3DTSS_MIPMAPLODBIAS`(19) are written **nowhere**
+  in the terrain path: `0x77a1b0`/`0x77a1d0` have exactly two call sites each and
+  none lies in the terrain region. Anisotropy is therefore D3D8's default 1.
+
+The viewer previously sampled with `Repeat` and `anisotropy_clamp: 16`, which is
+not native in either respect. Both are fixed. Mips are still generated for the
+array slots (the client uploads authored chains, and the array contract requires a
+full chain); `terrain_sampling::generates_mips` records the single-level case.
+
+### 2.3 Terrain texture formats and sources (P2.07)
+
+`A3DTexture::CreateDXTExture()` at `0x7f7f74`:
+`0x7f84..0x7f88` forwards the authored FourCC to `CreateTexture`;
+`0x7f7e4e/55/5c/63/6a` compare against exactly `"DXT1".."DXT5"`
+(`0x7f8e9a` checks the DDS `DDPF_FOURCC` bit); `0x7f7e71` aligns the row to four
+texels; `0x7f7e9c/0x7f7e95/0x7f7ea3/0x7f7dfd` pick 16/32/16/64 bits per block for
+DXT1/2/3/4/5; `0x7f7ef1` caps the mip count at `floor(log2(max(w,h)))+1`. The
+failure text is `A3DTexture::CreateDXTExture(), Fail in creating format[%d],
+[%d]x[%d], [%d]mip texture`.
+
+`parse_terrain_dds` therefore accepts DXT1–DXT5 only, validates the header, the
+cube/flags bits, the declared mip count against the dimensions and the payload
+length of every declared level, and reports each failure explicitly. Uncompressed
+sources, `ATI1`/`ATI2`, over-declared mip counts and truncated levels are errors,
+never fallbacks.
+
+### 2.4 Terrain specials survey (P2.08)
+
+`surfaces.pck` (93,542,325 bytes) is now surveyed locally: PCK v2, **3,724**
+entries — `.dds` 2,314, `.tga` 1,056, `.bmp` 284, `.jpg` 39, `.txt` 29, `.sw` 1,
+`.cmf` 1. These are item/UI/skill artwork; they do **not** hold the terrain record
+types.
+
+The real terrain data is the loose `maps/world` tree. Two T2MK samples were
+pulled and decoded against the T2MK loader at `0x7a1520`:
+
+* `world_39.t2mk` — `BMKT` v2, 16 areas, 9 layer records, `+16 = 1`;
+  areas carry 3–6 layers each.
+* `world_88.t2mk` — `BMKT` v2, 16 areas, 5 layer records, `+16 = 1`.
+
+Layer record = `texture:u32, 0xffffffff, mask_size:u32, +12:u1, u:f32, v:f32,
++24:u1` (28 bytes, `0x7a178c`), mask size 256 or 0 for the first layer, and
+`world_39` area 0 selects layer indices `[0, 1, 8]` — layer selection is sparse and
+not "first N".
+
+The one unresolved special is the byte at `+12`. The native build copies it into
+`[record+0x0c]` of its 9-dword draw record and hands that record to `0x77f180`
+(`0x7a255b..0x7a25be`); the viewer reads the same byte as the texture projection
+axis. The values seen (0/1/2) are consistent with both readings, so no new
+behaviour is claimed — it is registered as an open case rather than guessed.
+Holes were **not** invented: nothing in the sampled records describes one, so
+nothing new is rendered for them.
+
+### 2.5 Per-view consistency (P2.09)
+
+`src/bin/terrain-view-gpu-check.rs` drives the production WGSL out of
+`src/terrain_gpu.rs` with its real `vs`, `vs_far` and `fs` entry points and its
+real 11-binding layout, and submits five views:
+
+| View | Selector |
+|---|---|
+| main | `clip.y >= 0`, near mesh |
+| reflection | `clip.y >= 0`, near mesh, reflected light set |
+| clipped refraction | `clip.y < 0` (`terrain_refract_vs` projection) |
+| minimap | far mesh, same area/layer storage |
+| full-world map | far mesh, same area/layer storage |
+
+Before **and after** each submission the area and layer buffers are read back and
+compared with one pre-computed snapshot, proving no view rebuilds or advances the
+snapshot; then all five read-backs must return the same terrain colour for the
+same world position (≤3/255, sampling rounding only).
+
+---
+
+## 3. Tests executed
+
+```
+$ RUSTC=/tmp/tc/bin/rustc LD_LIBRARY_PATH=/tmp/tc/lib sh tools/check-phase1-core.sh
+```
+27 module suites green (one `test result: ok` per suite), including the new
+`terrain_sampling` suite (12 passed) and the extended `gfx_owner` harness
+(39 passed, up from 36). New regressions:
+
+* `terrain_sampling`: batched path is trilinear+mirror; no stage requests
+  anisotropic taps; fallback stage 0 disables filtering and wraps; address enum
+  decoding fails closed; mask channels b/g/r/a; layer order `['b','g','r']`; DXT
+  FourCC table matches the native comparisons; DXT formats map to UNORM, not sRGB;
+  authored single level parses; authored full chain is kept; unsupported sources
+  fail explicitly; array slots preserve authored resolution.
+* `gfx_light`: effect noise/line blocks are not light paths (three verbatim retail
+  record shapes); element 130 without `LightType` is an error; an element with the
+  marker that is not 130 is still an error.
+* `gfx_owner`: `owners_without_a_light_are_reported_apart_from_failures`
+  (2 loaded, 1 non-light, 1 emitter, 0 failures, frame counter).
+
+```
+$ python3 tools/check-eight-phase-status.py   # consistent: true, errors: []
+$ python3 tools/check-phase1-ready.py         # P1.01..P1.12 unchanged
+```
+
+`cargo` is not installed in this environment, so `cargo check`/`cargo test` and the
+WGSL checks could not be executed here; the new GPU check was verified to compile
+past name resolution (`rustc` reports only unresolved external crates), and CI
+gains both `terrain-lod-gpu-check` and `terrain-view-gpu-check`. `cargo fmt` was
+also unavailable; the hand-written style follows the surrounding one-liner UI code.
+
+---
+
+## 4. Confirmation blocks
+
+**P2.07 — texture sourcing, mips, samplers.**
+Task: match source dimensions, mip chain generation vs authored mips, addressing
+modes, anisotropic filtering, per-material sampler settings and every archive
+format; keep authored chains; match filters where the client generates.
+Finished **No** (sampling fully recovered and implemented; the per-file format
+census is blocked).
+Production integration **Yes** — `TerrainGpu::new` sampler, `Materials::load`
+validation, `terrain_sampling` module.
+Native evidence **Yes** — `0x7c14b0`, `0x7c1a20`, `0x7c1e00`, `0x77a0e0`,
+`0x779f60`, `0x77a120`; absence of `D3DTSS_MAXANISOTROPY` at `0x77a1b0`/`0x77a1d0`;
+`A3DTexture::CreateDXTExture()` `0x7f7d83..0x7f7f3c` and `0x7f7f74`.
+Tests executed and results: `terrain_sampling` 12 passed, full core suite green;
+per-file survey not run.
+Remaining gaps: `textures.pck` is 117,047,648 bytes and exceeds this
+environment's 100 MiB transfer limit, so the DXT1–DXT5 rule is verified against
+the executable's comparisons and the format table, not against every terrain file;
+`D3DTEXF_NONE` (fallback stage 0) has no wgpu equivalent inside a trilinear
+pipeline and is registered.
+
+**P2.08 — terrain specials and detail surfaces.**
+Task: implement holes, visibility flags and special surface cases from client
+data, plus maximum-quality road and city detail including Archosaur's
+high-resolution surfaces; name the driving record for each implemented case and
+register the rest.
+Finished **No**.
+Production integration **No** (survey only; no new rendering path).
+Native evidence **Yes** — T2MK loader `0x7a1520..0x7a18b7` (magic `BMKT`, version
+gate `≤ 2` at `0x7a15c5`, draw-record copy at `0x7a253d..0x7a25b9`), T2BK loader
+`0x7a18c0` onward (magic `BKBT`), `world_39.t2mk` and `world_88.t2mk` decoded.
+Tests executed and results: archive survey (3,724 `surfaces.pck` entries; two T2MK
+files decoded, 16 areas each, 9 and 5 layer records, 3–6 layers per area, sparse
+layer indices).
+Remaining gaps: the T2MK layer `+12` selector is read but its meaning (projection
+axis vs native draw-type) is not separated; no hole/visibility record was found in
+the sampled data and none is rendered; Archosaur high-resolution surfaces and road
+detail were not surveyed because they need more of `maps/world` than was pulled.
+
+**P2.09 — multi-view consistency and CI regressions.**
+Task: keep terrain consistent across main, reflection, clipped refraction, minimap
+and full-world map with one per-frame snapshot; keep boundary/variant/
+layer-selection/near-far LOD-continuity regressions in CI; wire
+`terrain-lod-gpu-check` into the GPU program set.
+Finished **Yes** for the per-view submission check and the CI wiring.
+Production integration **Partly** — the check drives the production shader and
+storage layout; the viewer's own view submission was not changed.
+Native evidence **Yes** — `0x7c14b0`/`0x7c1a20` shared stage setup for the main and
+reflection passes, `0x7cb642`/`0x7cb8ef` for clipped refraction,
+`vs/terrain_refract_vs` from `shaders.pck`.
+Tests executed and results: `terrain-view-gpu-check` added and verified to compile
+past name resolution; not executed here (no `cargo`/GPU). Core suite green.
+Remaining gaps: the new check has not been run on lavapipe in this session; the
+minimap and full-world-map views are exercised through the far mesh and the shared
+storage rather than through their real GUI entry points.
+
+---
+
+## 5. Interface changes for other agents
+
+* `gfx_owner::Status` gained two public fields (`non_light_owners`, `frames`) and
+  `Manager::frames()`. Construct with `..Default::default()`.
+* `world_models_gpu::AlphaStatus` and `World::alpha_status()` are new; nothing
+  existing changed signature.
+* `gfx_light::parse` no longer rejects roots for `LightNum`/`WaveLen`/`Segs`/
+  `Interval`/`Amplitude`/`Pos1Enable`/`Filter`. Any audit that counted those as
+  failures must switch to `LightType`.
+* `terrain_sampling` (new module) is the single place for terrain sampler/format
+  policy; Agent 2-B should take sampler values from it rather than hard-coding
+  them in `terrain_gpu.rs`.
+* `src/terrain_gpu.rs` sampler block changed inside Agent 2-C's lane; mesh/LOD
+  construction and WGSL arithmetic were not touched.
