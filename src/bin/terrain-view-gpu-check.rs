@@ -443,18 +443,21 @@ fn main() {
     assert_eq!(read_back(&device, &queue, &areas_buf), area_snapshot);
     assert_eq!(read_back(&device, &queue, &layers_buf), layer_snapshot);
 
-    let main = sampled[0].1;
+    // The four non-refraction views must agree exactly: same layer stack, same
+    // world position, same snapshot.
+    let main = sampled.iter().find(|(n, _)| *n == "main").unwrap().1;
     if main == [0, 0, 0] {
         println!("::error::terrain-view-gpu-check: main view rendered black; sampled={sampled:?}");
         std::process::exit(1);
     }
     for (name, rgb) in &sampled {
+        if *name == "clipped-refraction" {
+            continue;
+        }
         let delta = (0..3)
             .map(|i| (rgb[i] as i32 - main[i] as i32).abs())
             .max()
             .unwrap_or(0);
-        // The unlit branch is a pure function of the shared layer snapshot, so
-        // the only permitted difference is sampling/interpolation rounding.
         if *rgb == [0, 0, 0] || delta > 3 {
             println!(
                 "::error::terrain-view-gpu-check: {name} rgb={rgb:?} vs main={main:?} \
@@ -463,8 +466,31 @@ fn main() {
             std::process::exit(1);
         }
     }
+    // The clipped refraction view hides geometry below the clip plane by driving
+    // transmittance to zero, so it must resolve to the fog colour rather than to
+    // the layer composite.
+    let fog: Vec<i32> = to_linear(FOG)
+        .iter()
+        .map(|v| (v * 255.).round() as i32)
+        .collect();
+    let refraction = sampled
+        .iter()
+        .find(|(n, _)| *n == "clipped-refraction")
+        .unwrap()
+        .1;
+    let fog_delta = (0..3)
+        .map(|i| (refraction[i] as i32 - fog[i]).abs())
+        .max()
+        .unwrap_or(0);
+    if fog_delta > 4 {
+        println!(
+            "::error::terrain-view-gpu-check: clipped-refraction rgb={refraction:?} should be the \
+             fog colour {fog:?}; all={sampled:?}"
+        );
+        std::process::exit(1);
+    }
     println!(
-        "five views shaded one per-frame snapshot: {} area / {} layers",
+        "five views: four agree on the layer composite, refraction resolves to fog; {} areas / {} layers",
         area_records().len(),
         layer_records().len()
     );
@@ -573,6 +599,21 @@ fn layer_records() -> Vec<Layer> {
     ]
 }
 
+/// Encoded client fog colour (`element_client.cfg` fog_color 70,77,91).
+const FOG: [f32; 3] = [70. / 255., 77. / 255., 91. / 255.];
+
+/// The shader's `to_linear`, so the refraction expectation is derived the same
+/// way production derives it.
+fn to_linear(c: [f32; 3]) -> [f32; 3] {
+    c.map(|v| {
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    })
+}
+
 /// World position the check samples: the origin cell of an 8x8 grid, which also
 /// contains the authored infinite hole used in the viewer's unit tests, so the
 /// `discard` path is covered by the same storage.
@@ -630,11 +671,18 @@ fn write_camera(
     words[53] = EYE[1];
     words[54] = EYE[2];
     words[55] = 0.;
-    // fog_range.z = 0 disables fog, so no view gains a per-view fog term.
+    // fog_range.z = 0 disables the ordinary fog term, but the refraction path
+    // still returns the fog colour where its transmittance reaches zero, which is
+    // exactly what happens to geometry below the clip plane. Use the client's
+    // authored fog colour (`element_client.cfg`: fog_color 70,77,91).
     words[380] = 0.;
     words[381] = 0.;
     words[382] = 0.;
     words[383] = 0.;
+    words[384] = FOG[0];
+    words[385] = FOG[1];
+    words[386] = FOG[2];
+    words[387] = 1.;
     queue.write_buffer(camera, 0, &bytes);
 
     let mut sbytes = [0u8; 12 * 4];
