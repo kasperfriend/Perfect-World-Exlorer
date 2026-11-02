@@ -1,0 +1,13 @@
+/target/
+*.log
+*.pck
+*.pkx
+*.pwt
+*.dat
+*.dds
+*.spt
+*.dll
+.DS_Store
+Thumbs.db
+.env
+.env.*
