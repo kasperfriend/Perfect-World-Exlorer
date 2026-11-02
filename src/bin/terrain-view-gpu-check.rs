@@ -643,16 +643,17 @@ fn write_camera(
     // camera.clip = (plane, clip, 0, 0). clip.y >= 0 is the ordinary path; a
     // negative value selects the refraction projection of terrain_refract_vs.
     //
-    // fs() begins with `if camera.clip.y > 0. && i.world.y < camera.clip.x
-    // { discard; }`, so the plane is the height *below which* terrain is hidden
-    // (the viewer's underwater clip). It must sit below the sampled geometry
-    // (y = EYE[1]), otherwise every fragment is discarded and the view renders
-    // black. The refraction view keeps the plane just under the surface so the
-    // projection is small and the triangle stays on screen.
+    // For an ordinary view fs() discards 3D geometry below clip.x, so the plane
+    // belongs below the visible band. For the refraction view
+    // terrain_refract_vs computes `projected.y = min(world.y, clip.x)`: a plane
+    // below every vertex drags the whole triangle onto one line (nothing is
+    // drawn) and a plane above every vertex leaves the geometry alone but makes
+    // transmittance zero everywhere. The plane must therefore straddle the
+    // triangle, which spans EYE[1]-1.5 .. EYE[1]+1.5.
     words[20] = if clip_y < 0. {
-        EYE[1] - 0.1
+        EYE[1] + 0.25
     } else {
-        EYE[1] - 0.5
+        EYE[1] - 2.
     };
     words[21] = clip_y;
     // camera.sun = (dir.xyz, night factor). A negative w selects the unlit
