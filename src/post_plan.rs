@@ -234,11 +234,13 @@ mod tests {
             ..off
         };
         assert!(!plan(submerged).fog);
-        assert!(plan(Inputs {
-            fog_enabled: true,
-            ..submerged
-        })
-        .fog);
+        assert!(
+            plan(Inputs {
+                fog_enabled: true,
+                ..submerged
+            })
+            .fog
+        );
     }
 
     #[test]
