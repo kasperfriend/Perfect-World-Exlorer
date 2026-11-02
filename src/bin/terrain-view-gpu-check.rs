@@ -63,7 +63,10 @@ fn main() {
         &wgpu::DeviceDescriptor {
             label: None,
             required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::downlevel_defaults(),
+            // This check needs the same 4096px mask page the viewer uploads, so
+            // it must ask for the adapter's real 2D texture limit rather than the
+            // downlevel baseline (which caps at 2048).
+            required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
         },
         None,
     ))
@@ -160,6 +163,7 @@ fn main() {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         ..Default::default()
     });
+    eprintln!("terrain-view: building 4096px mask page");
     // 4096px mask page, as the viewer uploads (MASK_PAGE).
     let mask_tex = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("terrain mask page"),
@@ -340,6 +344,7 @@ fn main() {
             layer_snapshot,
             "{name}"
         );
+        eprintln!("terrain-view: submitting {name}");
         write_camera(&queue, &camera_buf, &settings_buf, clip_y, reflected);
         let target = new_target(&device, name);
         let mut encoder = device.create_command_encoder(&Default::default());
