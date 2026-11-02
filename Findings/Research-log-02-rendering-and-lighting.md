@@ -802,3 +802,40 @@ and forced-decoded paths, plus transparent BC1. The test reports whether
 native BC was actually enabled; it must not imply native testing on a device
 without BC support. Full CI validation pending. This remains a texture stage,
 not an actual world-model material shader or sampler/blending parity proof.
+
+#### Recovered ordinary render defaults and latest validation
+
+Authored-mip upload head **f74fc8a** passed full CI **41444228075**: Linux
+application/all-target/unit checks, **eleven** GPU binaries (including the
+32 mip-RGBA comparisons), and the Windows release executable. The GPU program
+reports native-BC availability, but the run's raw log download is blocked by
+the results-receiver EOF; do not claim the native-BC flag's value from an
+empty downloaded log. The successful check status proves the test passed,
+not an unobserved hardware-feature value.
+
+Completed the previously unproved legacy descriptor defaults: static-data
+constructor `0x6d453f` sets OrgColor to white, `0x6d4547` sets DefSpeed to 1,
+and `0x6d46b5/0x6d46bc` set SrcBlend/DestBlend to 5/6. `0x6cfa69–0x6cfa7e`
+copy those blend fields into the loaded skin model. The production descriptor
+now exposes these recovered effective defaults while retaining the raw
+optional fields for auditing; explicit zero speed/custom blends/colors are
+not overwritten. Combined native suite: **32 passed**.
+
+Two further runtime prerequisites: `0x6cfa64` pushes 1 to `0x7924b0`, whose
+`0x7924c1` sets the skin-model `+0x1a1` specular selector (and propagates it to
+children). Thus ordinary successful ECM loading enables that selector; do not
+choose `_ns` merely because it was the first isolated helper implemented.
+Skin-renderer constructor `0x7a4d16` sets color op 4 (MODULATE), with override
+application at `0x7a6768` and restore to 4 at `0x7a69e0`. This differs from the
+baked BMD path's MODULATE2X; the receiver's texture stage must not reuse that
+baked multiplication. Actual model submission/material/pass integration is
+still required.
+
+Downloaded the actual `world_light.dat` and the `world_1.t2lm`/`t2lm1` pair
+for the next data checks, without adding client assets to Git. The editor
+light file has 2,997 108-byte records, distinct from the runtime scene-light
+file's 1,993 112-byte records. Position association is not exact (1,966 of
+1,993 runtime positions match at least one editor record), so these are NOT
+interchangeable sources. Do not add the editor lights to baked surfaces.
+The selected lightmap pair has the expected T2LM2/16×256 header; this alone
+does not close the atlas/fallback census.

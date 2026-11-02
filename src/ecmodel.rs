@@ -12,6 +12,26 @@ pub struct EcModel {
     pub actions: Vec<CombinedAction>,
     pub events: Vec<EcmEvent>,
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RenderSettings {
+    pub original_color: u32,
+    pub source_blend: u32,
+    pub destination_blend: u32,
+    pub default_speed: f32,
+}
+impl EcModel {
+    /// Static-data constructor: 0x6d453f/0x6d4547 set white and speed 1;
+    /// 0x6d46b5/0x6d46bc set SRCALPHA/INVSRCALPHA. Raw optional fields
+    /// stay intact so absence and explicit values can still be audited.
+    pub fn render_settings(&self) -> RenderSettings {
+        RenderSettings {
+            original_color: self.original_color.unwrap_or(u32::MAX),
+            source_blend: self.source_blend.unwrap_or(5),
+            destination_blend: self.destination_blend.unwrap_or(6),
+            default_speed: self.default_speed.unwrap_or(1.),
+        }
+    }
+}
 #[derive(Debug, Default)]
 pub struct CombinedAction {
     pub name: String,
@@ -534,6 +554,30 @@ mod ecm_schedule_tests {
         );
         assert_eq!(m.events[1].action.as_deref(), Some("visible"));
         assert!(m.events[1].gfx_path().is_none());
+    }
+    #[test]
+    fn source_backed_legacy_render_defaults_do_not_replace_explicit_fields() {
+        let m = parse("").unwrap();
+        assert!(m.original_color.is_none());
+        assert_eq!(
+            m.render_settings(),
+            RenderSettings {
+                original_color: u32::MAX,
+                source_blend: 5,
+                destination_blend: 6,
+                default_speed: 1.
+            }
+        );
+        let m = parse("OrgColor: 80402010\nSrcBlend: 2\nDestBlend: 1\nDefSpeed: 0").unwrap();
+        assert_eq!(
+            m.render_settings(),
+            RenderSettings {
+                original_color: 0x80402010,
+                source_blend: 2,
+                destination_blend: 1,
+                default_speed: 0.
+            }
+        );
     }
     #[test]
     fn retail_single_base_infinite_override_and_default_bounds() {

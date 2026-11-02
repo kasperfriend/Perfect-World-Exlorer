@@ -72,6 +72,10 @@ fn main() -> Result<(), String> {
             pck::read_entry(&mut f, entry)
         })?;
         let ec = &asset.descriptor;
+        println!(
+            "{key}: recovered render settings {:?}",
+            ec.render_settings()
+        );
         for skin in &asset.skins {
             for i in 0..skin.data.textures.len() {
                 match skin.load_texture_with(i, |path| {
