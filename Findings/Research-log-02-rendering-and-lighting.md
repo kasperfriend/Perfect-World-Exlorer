@@ -1195,3 +1195,40 @@ This removes the opt-in/default integration gap, not the remaining alpha and
 effect-material variants or runtime FX light production. The ten full-scope
 No gates are retained. Local core 60 passing; native world suite previously
 45 passing; full CI for the new default/UI/status checks pending.
+
+CI `41453546142` (`258cd03`) passed Linux/Windows and all 13 GPU binaries,
+including default receiver UI/status compilation and rejected-instance checks.
+All 73 actual model placement positions have a regional-light endpoint in the
+production environment selector (99 actual boxes). Confirmation: default
+ordinary receiver integration Yes; full P1.03 No. Continue.
+
+### Actual GFX runtime-light dependency census
+
+Downloaded the 97,723,094-byte gfx.pck through the authorized Drive connector;
+private assets stay ignored. Directory: 10,104 entries; 5,459 GFX text files.
+Archive scan finds 524 light-bearing files / 546 elements of type 130, all
+point LightType 1. Every light has one keypoint; 542 have no controllers and
+four have one controller. This is presence metadata, not implemented playback.
+
+The world's 2,275 scene-effect references resolve to 163 unique roots. All
+36 model-event GFX references resolve to 14 additional roots. Following all
+74 GfxPath container edges produces 214 unique files, no missing dependency,
+**zero light elements**. The production audit parser independently validates
+all 214 decoded actual files and their element counts; unknown dependency
+fields/versions and incomplete counts fail rather than silently disappear.
+
+Added `gfx-light-audit` CLI using production PCK/ECWLD/ECM readers, normalized
+archive duplicate checks and transitive container traversal. It reports the
+asset graph, not runtime support, and exits nonzero if light-bearing assets
+need unimplemented playback. Three CPU regressions cover presence, malformed
+counts/light types and hidden/unclassified dependencies. Core suite 63 pass;
+CLI compilation/full CI pending. No private fixture is uploaded to CI.
+
+Related light TickAnimation source was checked against actual 1.4.2 vtable
+load `70b4a0`, save `70b780`, tick `70ba00`: base tick, visibility, priority,
+keypoint/controller evaluation, packed outer-color multiplication, and parent
+transforms precede light emission. These cannot be replaced with a permanent
+constant point merely because most files have one keypoint. General light
+production/lifetime remains open. The current world's empty runtime list is
+now supported by its resolved asset graph, not an assumption that gfx.pck has
+no lights. P1.01 remains No until the general lifecycle criterion is covered.
