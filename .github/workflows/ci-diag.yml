@@ -1,9 +1,10 @@
 name: CI diagnostics (temporary)
 
-# Temporary: the sandbox used for development has no Rust toolchain and cannot
-# read Actions logs. This workflow runs the same checks as pr-checks.yml and
-# posts the captured output as a pull-request comment so the failure text is
-# readable through the GitHub API. Delete once the branch is green.
+# Temporary: the development sandbox has no Rust toolchain and cannot read
+# Actions logs. This workflow applies rustfmt to the branch, runs the same
+# checks as pr-checks.yml, and posts the captured output as pull-request
+# comments so the failure text is readable through the GitHub API.
+# Delete once the branch is green.
 
 on:
   push:
@@ -11,12 +12,12 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 jobs:
   diagnostics:
-    name: Collect check output
+    name: Format and collect check output
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -29,20 +30,33 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
-      - name: Collect
+      - name: Format and push
+        env:
+          CARGO_TERM_COLOR: never
         run: |
           set +e
-          cargo fmt --all -- --check > /tmp/fmt.log 2>&1
-          echo "fmt exit=$?" > /tmp/exit.log
+          cargo fmt --all > /dev/null 2>&1
+          git diff > /tmp/fmt.patch
+          wc -c /tmp/fmt.patch > /tmp/fmt.size
+          if [ -s /tmp/fmt.patch ]; then
+            git config user.name "rustfmt"
+            git config user.email "rustfmt@users.noreply.github.com"
+            git commit -aqm "style: cargo fmt" && git push
+            echo "pushed=yes" >> /tmp/fmt.size
+          else
+            echo "pushed=clean" >> /tmp/fmt.size
+          fi
+      - name: Collect
+        env:
+          CARGO_TERM_COLOR: never
+        run: |
+          set +e
           cargo check --locked --bins > /tmp/check.log 2>&1
-          echo "check exit=$?" >> /tmp/exit.log
-          for module in gamma_curve glow_state client_region_shade client_region_stream client_regional_light gfx_color_track gfx_owner model_receiver_class model_queue; do
-            echo "== $module ==" >> /tmp/modules.log
-            rustc --edition=2021 --test "src/$module.rs" -o "/tmp/$module-tests" >> /tmp/modules.log 2>&1
-            echo "$module exit=$?" >> /tmp/modules.log
-          done
+          echo "check exit=$?" > /tmp/exit.log
           cargo test --locked --bin perfect-world-explorer --no-run > /tmp/testbuild.log 2>&1
           echo "testbuild exit=$?" >> /tmp/exit.log
+          cargo test --locked --bin perfect-world-explorer > /tmp/viewer.log 2>&1
+          echo "viewer exit=$?" >> /tmp/exit.log
           sh tools/check-phase1-core.sh > /tmp/core.log 2>&1
           echo "core exit=$?" >> /tmp/exit.log
       - name: Publish diagnostics
@@ -55,25 +69,25 @@ jobs:
             echo "CI diagnostics for \`$GITHUB_SHA\`."
             echo
             echo '```'
+            cat /tmp/fmt.size
             cat /tmp/exit.log
+            echo '### cargo check --bins: errors and unused warnings'
+            grep -E "^(error|warning: unused)" -A 6 /tmp/check.log | head -c 5000
             echo
-            echo '### fmt (first 4000 bytes)'
-            head -c 4000 /tmp/fmt.log
+            echo '### viewer test failures'
+            grep -E "(FAILED|^failures:|panicked|test result: FAILED)" -B 2 -A 10 /tmp/viewer.log | head -c 5000
             echo
-            echo '### cargo check --bins (first 24000 bytes)'
-            head -c 24000 /tmp/check.log
+            echo '### check-phase1-core.sh failures'
+            grep -E "(FAILED|^failures:|^error|panicked|test result: FAILED)" -B 2 -A 10 /tmp/core.log | head -c 5000
             echo
-            echo '### standalone module compiles'
-            head -c 8000 /tmp/modules.log
-            echo
-            echo '### test build'
-            tail -c 8000 /tmp/testbuild.log
-            echo
-            echo '### check-phase1-core.sh'
-            tail -c 6000 /tmp/core.log
+            echo '### viewer test result line'
+            grep -E "^test result" /tmp/viewer.log | tail -5
             echo '```'
           } > /tmp/body.md
           gh pr comment 3 --body-file /tmp/body.md
-          # Also surface the tail as annotations so a truncated comment still
-          # points at the failing area.
-          grep -m 8 -E "^error(\[E[0-9]+\])?:" /tmp/check.log | cut -c1-400 || true
+          if [ "$(grep -c 'pushed=yes' /tmp/fmt.size)" = "1" ]; then
+            { echo "rustfmt applied and pushed as a commit on this branch."; } > /tmp/patch.md
+          else
+            { echo '```diff'; head -c 50000 /tmp/fmt.patch; echo '```'; } > /tmp/patch.md
+          fi
+          gh pr comment 3 --body-file /tmp/patch.md
