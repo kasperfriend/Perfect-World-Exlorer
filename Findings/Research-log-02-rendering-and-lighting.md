@@ -933,3 +933,10 @@ assumes GREATER_EQUAL. The diagnostic adds all eight comparisons against
 reference 1 with nonopaque fragment alpha: 336 intended RGBA cases total.
 This follow-up requires full CI validation; runtime pass/state wiring is still
 not complete. No readiness point has been changed to Yes on this evidence.
+
+Validation checkpoint: `91a17fb`, CI `41447611763`, passed Linux and Windows.
+All twelve production GPU regression binaries ran, including **336 ordinary
+model raster RGBA cases**, table-fog override, and all alpha comparison modes.
+The local core suite passed 52 tests. The seven readiness-audit tests passed.
+Internal confirmation still returns ten unfinished points and no audit errors;
+the raster API now exposes the pass inputs but world submission is not wired.
