@@ -19,10 +19,18 @@ mod model_draw_gpu;
 mod model_light;
 #[path = "../model_material.rs"]
 mod model_material;
+#[path = "../model_playback.rs"]
+mod model_playback;
 #[path = "../model_receiver_gpu.rs"]
 mod model_receiver_gpu;
 #[path = "../model_texture_gpu.rs"]
 mod model_texture_gpu;
+#[path = "../pck.rs"]
+mod pck;
+#[path = "../scene.rs"]
+mod scene;
+#[path = "../scene_lights.rs"]
+mod scene_lights;
 #[path = "../skeleton.rs"]
 mod skeleton;
 #[path = "../skeleton_pose.rs"]
@@ -31,6 +39,29 @@ mod skeleton_pose;
 mod skin;
 #[path = "../skin_pose.rs"]
 mod skin_pose;
+#[path = "../world_models.rs"]
+mod world_models;
+#[path = "../world_models_gpu.rs"]
+mod world_models_gpu;
+trait TestDraw {
+    fn needs_depth(&self) -> bool {
+        false
+    }
+    fn submit<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>);
+}
+impl TestDraw for model_draw_gpu::Draw {
+    fn submit<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        self.draw(pass);
+    }
+}
+impl TestDraw for world_models_gpu::World {
+    fn needs_depth(&self) -> bool {
+        true
+    }
+    fn submit<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        self.draw(pass);
+    }
+}
 fn white_dds() -> Vec<u8> {
     let mut b = vec![0; 128];
     b[..4].copy_from_slice(b"DDS ");
@@ -70,12 +101,7 @@ fn poses(asset: &model_asset::ModelAsset) -> Vec<model_asset::PosedMesh> {
         })
         .collect()
 }
-fn check(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    draw: &model_draw_gpu::Draw,
-    expected: [[u8; 4]; 2],
-) {
+fn check(device: &wgpu::Device, queue: &wgpu::Queue, draw: &dyn TestDraw, expected: [[u8; 4]; 2]) {
     let target = device.create_texture(&wgpu::TextureDescriptor {
         label: None,
         size: wgpu::Extent3d {
@@ -97,6 +123,19 @@ fn check(
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
+    let depth = draw.needs_depth().then(|| {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: target.size(),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+    });
+    let depth_view = depth.as_ref().map(|d| d.create_view(&Default::default()));
     let mut e = device.create_command_encoder(&Default::default());
     {
         let mut p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -109,11 +148,20 @@ fn check(
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: depth_view.as_ref().map(|view| {
+                wgpu::RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }
+            }),
             timestamp_writes: None,
             occlusion_query_set: None,
         });
-        draw.draw(&mut p);
+        draw.submit(&mut p);
     }
     e.copy_texture_to_buffer(
         target.as_image_copy(),
@@ -263,5 +311,80 @@ fn main() {
     }
     draw.update(&queue, &asset, &moved, dim).unwrap();
     check(&device, &queue, &draw, [[0; 4], expected[1]]);
+    let playback = model_playback::Playback::new(&asset, None).unwrap();
+    let scene_assets = world_models::Assets {
+        assets: vec![asset],
+        instances: vec![world_models::Instance {
+            placement: scene::SceneModel {
+                export_id: 1,
+                position: [0.; 3],
+                direction: [0., 0., 1.],
+                up: [0., 1., 0.],
+                path: "models/a/a.ecm".into(),
+                action: "absent".into(),
+            },
+            asset: 0,
+            action: None,
+            playback: Ok(playback),
+        }],
+        failures: vec![],
+        unloaded: vec![],
+    };
+    let mut world = world_models_gpu::World::with_reader(
+        &device,
+        wgpu::TextureFormat::Rgba8Unorm,
+        scene_assets,
+        |_| Ok(white_dds()),
+    )
+    .unwrap();
+    world.update(
+        &device,
+        &queue,
+        frame,
+        [0.; 3],
+        &scene_lights::SceneLights::default(),
+        0.,
+        0,
+    );
+    check(
+        &device,
+        &queue,
+        &world,
+        [[64, 128, 191, 255], [191, 64, 128, 255]],
+    );
+    world.update(
+        &device,
+        &queue,
+        dim,
+        [0.; 3],
+        &scene_lights::SceneLights::default(),
+        0.,
+        17,
+    );
+    check(&device, &queue, &world, expected);
+    let lights = scene_lights::SceneLights {
+        lights: vec![scene_lights::SceneLight {
+            position: [0., 0., 0.5],
+            range: 2.,
+            stored_attenuation: [0., 0.4, 0.],
+            diffuse: [0., 0., 0., 1.],
+            ambient: [0.5, 0.5, 0.5, 1.],
+            bounds_center: [0., 0., 0.5],
+            bounds_half_extent: [2.; 3],
+            bounds_min: [-2., -2., -1.5],
+            bounds_max: [2., 2., 2.5],
+            flags: 1,
+        }],
+    };
+    world.update(&device, &queue, dim, [13., 0., 0.], &lights, 0., 17);
+    check(&device, &queue, &world, expected);
+    world.update(&device, &queue, dim, [13., 0., 0.], &lights, 1., 17);
+    check(
+        &device,
+        &queue,
+        &world,
+        [[64, 128, 191, 255], [191, 64, 128, 255]],
+    );
+    println!("::notice::world instance pipeline passed: source placement basis, no-action bind pose, authored texture/material, reversed-depth attachment, and updated regional lighting");
     println!("::notice::retained model draw passed: two material meshes, shared authored DDS with decode-failure retry, frame update, rejected-update atomicity, and posed geometry movement");
 }

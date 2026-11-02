@@ -11,6 +11,7 @@ pub struct Instance {
     pub action: Option<usize>,
     pub playback: Result<crate::model_playback::Playback, String>,
 }
+#[derive(Default)]
 pub struct Assets {
     pub assets: Vec<ModelAsset>,
     pub instances: Vec<Instance>,
@@ -88,9 +89,59 @@ impl Assets {
         }))
     }
 }
+/// 1.4.2 0x6d4304 -> 0x7b0d60 -> 0x788960. Normalize forward/up
+/// separately, then their cross product; do NOT silently orthogonalize up.
+pub fn transform(placement: &SceneModel) -> Result<glam::Mat4, String> {
+    let position = glam::Vec3::from_array(placement.position);
+    let direction = glam::Vec3::from_array(placement.direction);
+    let up = glam::Vec3::from_array(placement.up);
+    if !position.is_finite()
+        || !direction.is_finite()
+        || !up.is_finite()
+        || direction.length_squared() < 1e-12
+        || up.length_squared() < 1e-12
+    {
+        return Err("invalid world model placement basis".into());
+    }
+    let direction = direction.normalize();
+    let up = up.normalize();
+    let right = up.cross(direction);
+    if right.length_squared() < 1e-12 {
+        return Err("parallel world model placement axes".into());
+    }
+    Ok(glam::Mat4::from_cols(
+        right.normalize().extend(0.),
+        up.extend(0.),
+        direction.extend(0.),
+        position.extend(1.),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn source_basis_normalizes_axes_but_preserves_nonorthogonal_up() {
+        let p = SceneModel {
+            export_id: 1,
+            position: [10., 2., -3.],
+            direction: [0., 0., 2.],
+            up: [0., 2., 2.],
+            path: String::new(),
+            action: String::new(),
+        };
+        let m = transform(&p).unwrap();
+        assert_eq!(m.w_axis.to_array(), [10., 2., -3., 1.]);
+        assert_eq!(m.x_axis.to_array(), [1., 0., 0., 0.]);
+        assert_eq!(m.z_axis.to_array(), [0., 0., 1., 0.]);
+        assert!((m.y_axis.z - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
+        let mut p = p;
+        p.up = p.direction;
+        assert!(transform(&p).is_err());
+        p.up = [0., 1., 0.];
+        p.position[0] = f32::NAN;
+        assert!(transform(&p).is_err());
+    }
     #[test]
     fn failed_shared_assets_are_read_once_and_named() {
         let mut reads = 0;

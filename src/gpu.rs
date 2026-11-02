@@ -672,6 +672,9 @@ fn bmd_baked_rgb(day:u32, night:u32, night_factor:f32)->vec3<u32> {
 @fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if i.kind>1.5 && i.kind<2.05 && camera.clip.w == 0. && (front == (camera.clip.z != 0.)) {discard;} if camera.clip.y != 0.0 && (i.world.y-camera.clip.x)*camera.clip.y < 0.0 {discard;} if i.kind>0.5 && i.kind<1.5 {return vec4<f32>(fogged(i.color.rgb,i.pos.w),1.);} let uv_dx=dpdx(i.uv);let uv_dy=dpdy(i.uv);var uv=i.uv; if i.kind>1.5 {let scale=vec2<f32>(i.color.z,select(i.color.z,i.color.w,i.kind<2.5));let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(uv_dx*dims),length(uv_dy*dims)),1.)),0.,7.);let border=0.5*exp2(mip);let half_pixel=min(vec2<f32>(border)/dims,scale*0.499);let local=fract((i.uv-i.color.xy)/scale)*scale;uv=i.color.xy+clamp(local,half_pixel,scale-half_pixel);} let raw_tex=textureSampleGrad(atlas,atlas_sampler,uv,uv_dx,uv_dy);let encoded=raw_tex.rgb;let linear=select(encoded/12.92,pow((encoded+0.055)/1.055,vec3<f32>(2.4)),encoded>vec3<f32>(0.04045));let tex=vec4<f32>(linear,raw_tex.a);if ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9) {discard;} if i.kind>1.5 && i.kind<2.5 {let c=clamp(raw_tex.rgb*i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.));let rgb=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));return vec4<f32>(bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),1.);} let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.);}
 "#;
 struct Renderer {
+    models: Option<crate::world_models_gpu::World>,
+    model_tick_ms: u64,
+    model_lights: std::sync::Arc<crate::scene_lights::SceneLights>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
@@ -990,7 +993,20 @@ impl Renderer {
                 )
             })
             .collect();
+        // Explicit world-submission harness until alpha queues and clipped
+        // material variants are complete. Do not advertise default parity.
+        let models = if std::env::var_os("PW_WORLD_MODELS_TEST").is_some() {
+            let assets = std::mem::take(&mut t.models);
+            Some(crate::world_models_gpu::World::new(
+                &device, format, assets, &t.element,
+            )?)
+        } else {
+            None
+        };
         Ok(Self {
+            models,
+            model_tick_ms: 0,
+            model_lights: t.scene_lights.clone(),
             terrain_gpu,
             sky,
             far_trees,
@@ -1513,6 +1529,69 @@ impl Renderer {
             Some(&self.depth),
             None,
         );
+        if let (Some(models), Some(light)) = (&mut self.models, camera.regional_light) {
+            let tick = self.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+            let delta = tick.saturating_sub(self.model_tick_ms).min(u32::MAX as u64) as u32;
+            self.model_tick_ms = tick;
+            let d = Vec3::from_array(light.toward_sun).normalize_or_zero();
+            let frame = crate::model_draw_gpu::Frame {
+                matrix: matrix.to_cols_array_2d(),
+                lighting: crate::model_material::Lighting {
+                    environment_ambient: [light.ambient[0], light.ambient[1], light.ambient[2], 1.],
+                    additional_ambient: [0.; 4],
+                    directional_diffuse: [light.diffuse[0], light.diffuse[1], light.diffuse[2], 1.],
+                    point_ambient: [0.; 4],
+                    point_diffuse: [0.; 4],
+                    transparency: 0.,
+                    point_enabled: false,
+                },
+                direction: [-d.x, -d.y, -d.z],
+                point_position: [0.; 3],
+                attenuation: [0., 0.4, 0.],
+                eye_direction: direction.to_array(),
+                directional_specular: [0., 0., 0., 1.],
+                specular_variant: true,
+                vertex_fog: 1.,
+                fog_color: camera.fog_uniform().1,
+                fog_range: camera.fog_uniform().0,
+                clip_plane: [0.; 4],
+                reverse_front: false,
+                alpha_compare: 5,
+                alpha_reference: 84. / 255.,
+            };
+            models.update(
+                &self.device,
+                &self.queue,
+                frame,
+                camera.pos.to_array(),
+                &self.model_lights,
+                1. - daylight,
+                delta,
+            );
+            let raw = self.water.scene_raw();
+            let mut pass = e.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("world receiving-model main-pass harness"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &raw,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &scene_depth,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            models.draw(&mut pass);
+        }
         self.water.copy_scene_to_refraction(&mut e);
         self.water.copy_depth(&mut e, &self.depth);
         self.water.blit(&mut e, scene_target);

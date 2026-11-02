@@ -84,6 +84,7 @@ mod water_gpu;
 #[cfg(windows)]
 mod windows_setup;
 mod world_models;
+mod world_models_gpu;
 mod world_objects;
 struct Terrain {
     element: PathBuf,

@@ -680,6 +680,14 @@ impl WaterGpu {
     pub fn scene(&self) -> wgpu::TextureView {
         self.targets.scene.create_view(&Default::default())
     }
+    pub fn scene_raw(&self) -> wgpu::TextureView {
+        self.targets
+            .scene
+            .create_view(&wgpu::TextureViewDescriptor {
+                format: Some(self.format.remove_srgb_suffix()),
+                ..Default::default()
+            })
+    }
     pub fn copy_scene_to_refraction(&self, e: &mut wgpu::CommandEncoder) {
         e.copy_texture_to_texture(
             wgpu::ImageCopyTexture {
