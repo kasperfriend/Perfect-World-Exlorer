@@ -269,7 +269,7 @@ run caught, is:
 | (formatting helper, deleted) | `131c642` | `cargo fmt --all` applied; only `src/bmd_baked.rs` changed |
 | 41521409838 | `249ec9e` | `Check formatting` ✓, `Verify recovered regional arithmetic on x87` ✓, `Test requirement status audits` ✓, `Check all binary targets` ✓ (`cargo check --locked --bins`), `Test GFX light dependency audit` ✓, `Run viewer unit tests` **failed** |
 | 41522066048 | `ddc3839` | `Viewer unit tests` ✓, `Baked scenery raster regression` ✓ (`bmd-sided-gpu-check` on lavapipe) |
-| **41523033865** | `991fe2d` | **both jobs green.** `Rust checks and tests (Linux)`: `Check formatting` ✓, `Verify recovered regional arithmetic on x87` ✓, `Test requirement status audits` ✓, `Check all binary targets` ✓, `Test GFX light dependency audit` ✓, `Run viewer unit tests` ✓, `Run Phase 1 production shader regressions` ✓ (all fourteen lavapipe binaries, including the extended `bmd-sided-gpu-check` now wired into that step). `Windows executable (x64)` ✓ |
+| 41523033865 | `991fe2d` | **both jobs green.** `Rust checks and tests (Linux)`: `Check formatting` ✓, `Verify recovered regional arithmetic on x87` ✓, `Test requirement status audits` ✓, `Check all binary targets` ✓, `Test GFX light dependency audit` ✓, `Run viewer unit tests` ✓, `Run Phase 1 production shader regressions` ✓ (all fourteen lavapipe binaries, including the extended `bmd-sided-gpu-check` now wired into that step). `Windows executable (x64)` ✓ |
 
 The unit-test failure was real and is fixed in `ddc3839`:
 `cutout_reference(u32::MAX)` multiplied in 32 bits and panicked on overflow in a
@@ -278,9 +278,11 @@ debug build ("attempt to multiply with overflow"); the client's `imul` at
 multiply. After the fix, the eight `bmd_baked` tests and every pre-existing
 viewer unit test pass, and the extended `bmd-sided-gpu-check` passes on lavapipe
 — the six-instance expectation table of §3 is therefore confirmed by raster
-output, not only by the Python oracle. The final head `991fe2d` repeats all of
-that inside the ordinary PR gate (run 41523033865) and stands green on both
-jobs.
+output, not only by the Python oracle. The last code head `991fe2d` repeats all of
+that inside the ordinary PR gate (run 41523033865), and the final head
+`a1ae646` — documentation only after `991fe2d` — is green again on both jobs
+(run 41523949303), so every number above is from a run of the code in this
+branch.
 
 Two temporary, review-only workflows were used to get feedback into this sandbox
 (`cargo fmt` and the failure text, because Actions logs and check annotations
