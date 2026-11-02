@@ -179,13 +179,13 @@ def window(cell, dims, rng, block_size):
     return (x0, y0, x1, y1)
 
 
-def level_at(cam, centre, block=64.0, near=1.5, far=3.0):
+def level_at(cam, centre, block=64.0, near=180.0, far=320.0, scale=1.0):
     dx = centre[0] - cam[0]
     dz = centre[1] - cam[1]
     d = math.hypot(dx, dz) - block * HALF_DIAGONAL
-    if d < near * block:
+    if d < near * scale:
         return 3
-    if d < far * block:
+    if d < far * scale:
         return 2
     return 1
 
@@ -202,13 +202,16 @@ def main():
 
     # 2. levels
     assert level_at((32.0, 32.0), (32.0, 32.0)) == 3
-    edge = 1.5 * 64 + 64 * HALF_DIAGONAL
+    edge = 180.0 + 64 * HALF_DIAGONAL
     assert level_at((0.0, 0.0), (edge - 0.01, 0.0)) == 3
     assert level_at((0.0, 0.0), (edge + 0.01, 0.0)) == 2
-    edge = 3.0 * 64 + 64 * HALF_DIAGONAL
+    edge = 320.0 + 64 * HALF_DIAGONAL
     assert level_at((0.0, 0.0), (edge - 0.01, 0.0)) == 2
     assert level_at((0.0, 0.0), (edge + 0.01, 0.0)) == 1
-    print("levels ...................... ok (two thresholds, -half diagonal, no hysteresis)")
+    # per-block scale 0.5 halves both thresholds (90 units after the bias).
+    assert level_at((0.0, 0.0), (90.0 + 64 * HALF_DIAGONAL - 0.01, 0.0), scale=0.5) == 3
+    assert level_at((0.0, 0.0), (90.0 + 64 * HALF_DIAGONAL + 0.01, 0.0), scale=0.5) == 2
+    print("levels ...................... ok (180/320 world units, -half diagonal, no hysteresis)")
 
     # 3. seam strides agree from both sides
     for own in (1, 2, 3):

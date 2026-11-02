@@ -12,8 +12,9 @@
 //!   clamped to the block array) driven from the frame update `0x77e1b0`.
 //! * Levels: `0x77e360` per block; distance from the camera to the block centre
 //!   in XZ, minus the block's half diagonal (`0x8f0a5c` = 0.7071067), compared
-//!   against two per-block scaled thresholds (`world+0x26c`, `world+0x270`
-//!   times `block+0x7c`).
+//!   against two thresholds (`terrain+0x26c`/`+0x270`, 180/320 world units for
+//!   the shipped quality preset, set by `0x77f450` from `[CECWorld+0x18]+0x60/
+//!   +0x64`) scaled per block by `block+0x7c`.
 //! * Level geometry: `0x7e5f70`/`0x7e6070` build one index grid per level with
 //!   `step = 1 << (3 - level)` and `q = (cells - 2*step)/step` interior cells,
 //!   i.e. the interior mesh spans grid coordinates `step ..= cells-step`.
@@ -44,26 +45,34 @@ pub fn interior_cells(level: u8) -> usize {
     (CELLS - 2 * s) / s
 }
 
-/// Two thresholds and one distance bias. The glvalues live on the terrain
-/// object: `near`/`far` are `world+0x26c`/`world+0x270`, multiplied per block by
-/// `block+0x7c` (the block's world size), and the bias is
-/// `world+0x1c8 = block_size * 0.7071067`.
+/// The level ladder. `near`/`far` are `A3DTerrain2+0x26c` / `+0x270`, both in
+/// world units, written by `0x77f450` from the render settings object
+/// (`[CECWorld+0x18]+0x60/+0x64`, quality preset `0x40e3e0`): 40/80, 120/240 or
+/// 180/320 for quality 0, 1 and >=2. `0x77f450` stores the first value into
+/// `+0x26c` and the larger of the two into `+0x270`. `0x77e360` multiplies each
+/// threshold by the per-block scale `block+0x7c` (1.0 for shipped blocks) and
+/// compares it against the camera distance with the block's half diagonal
+/// removed (`world+0x1c8 = block_size * 0.7071067`, `0x8f0a5c`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LodConfig {
     /// World size of one block (`world+0x1c4`, `TRN2 grid * grid_spacing`).
     pub block_size: f32,
-    /// Near threshold multiplier (`world+0x26c`, applied to `block+0x7c`).
+    /// Level 3 distance (`world+0x26c`), world units.
     pub near: f32,
-    /// Far threshold multiplier (`world+0x270`, applied to `block+0x7c`).
+    /// Level 2 distance (`world+0x270`), world units.
     pub far: f32,
+    /// Per-block scale `block+0x7c`; 1.0 for the shipped blocks.
+    pub block_scale: f32,
 }
 
 impl Default for LodConfig {
     fn default() -> Self {
+        // Shipped quality preset >= 2: 180 / 320 world units.
         Self {
             block_size: 64.0,
-            near: 1.5,
-            far: 3.0,
+            near: 180.0,
+            far: 320.0,
+            block_scale: 1.0,
         }
     }
 }
@@ -80,9 +89,9 @@ impl LodConfig {
     /// client re-evaluates the two comparisons every frame (`0x77e467..0x77e4a3`)
     /// and switches exactly at the threshold.
     pub fn level(&self, distance: f32) -> u8 {
-        if distance < self.near * self.block_size {
+        if distance < self.near * self.block_scale {
             3
-        } else if distance < self.far * self.block_size {
+        } else if distance < self.far * self.block_scale {
             2
         } else {
             1
@@ -429,16 +438,23 @@ mod tests {
         let block = cfg.block_size;
         // A block under the camera: distance = -half diagonal.
         assert_eq!(cfg.level_at([32.0, 32.0], [32.0, 32.0]), 3);
-        // Level 3 boundary: camera distance where centre distance - bias == 1.5 blocks.
-        let edge = 1.5 * block + block * HALF_DIAGONAL;
+        // Level 3 boundary: camera distance where centre distance - bias == 180.
+        let edge = cfg.near + block * HALF_DIAGONAL;
         assert_eq!(cfg.level_at([0.0, 0.0], [edge - 0.01, 0.0]), 3);
         assert_eq!(cfg.level_at([0.0, 0.0], [edge + 0.01, 0.0]), 2);
-        let edge = 3.0 * block + block * HALF_DIAGONAL;
+        let edge = cfg.far + block * HALF_DIAGONAL;
         assert_eq!(cfg.level_at([0.0, 0.0], [edge - 0.01, 0.0]), 2);
         assert_eq!(cfg.level_at([0.0, 0.0], [edge + 0.01, 0.0]), 1);
+        // Shipped preset distances (0x40e41f): 180 / 320 world units.
+        assert_eq!(cfg.near, 180.0);
+        assert_eq!(cfg.far, 320.0);
+        // A block scale other than 1.0 stretches both thresholds.
+        let coarse = LodConfig { block_scale: 0.5, ..cfg };
+        assert_eq!(coarse.level(89.9), 3);
+        assert_eq!(coarse.level(90.1), 2);
         // No hysteresis band: the level at the threshold is defined by one
         // comparison and does not depend on the previous frame.
-        let d = 1.5 * block;
+        let d = cfg.near;
         assert_eq!(cfg.level(d), 3);
         assert_eq!(cfg.level(d), 3);
     }

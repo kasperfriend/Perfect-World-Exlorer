@@ -143,20 +143,38 @@ resolution and the outer ring of `step` cells is closed by the four edge strips
 are index subsampling, not a separate vertex path. There is no per-level vertex
 format, no cross-fade and no interpolation between levels.
 
-`block[0x7c]` scales both thresholds per block; `world[0x26c]`/`world[0x270]`
-are globals written once by the world initialiser (`0x40f25a`, `0x40f26e`) from
-its preset/config values.
+Where the two thresholds come from:
+
+* `CECWorld::LoadTerrain` (`0x42a219`/`0x42a21c`) writes `terrain+0x258 = 4`
+  (level count, levels 0..3 — which is why four level records exist) and
+  `terrain+0x268 = 2`, then calls `0x77f450(ecx = terrain, near, far)` at
+  `0x42a23d`.
+* `0x77f450` stores the first argument into `terrain+0x26c` and the **larger** of
+  the two into `terrain+0x270` (`fcoms` + `fstps 0x270`, `mov .. 0x26c`).
+* Both arguments come from `[CECWorld+0x18]` (the render settings object,
+  `0x42a226..0x42a235`, offsets `+0x60`/`+0x64`), which the graphics quality
+  preset `0x40e3e0` fills with **40/80** (quality 0, `0x40e3f0`),
+  **120/240** (quality 1, `0x40e407`) and **180/320** (quality >= 2,
+  `0x40e41f`); the settings constructor default is 180/320 as well
+  (`0x40c5a8`/`0x40c5af`).
+
+So the thresholds are **absolute world-unit distances** and the ladder for the
+shipped default is: level 3 while the camera is within `180 + 45.25 = 225` world
+units of a block centre, level 2 within `320 + 45.25 = 365`, level 1 beyond —
+inside a 7-block (448-unit) window, so all three levels are exercised.
 
 ### Viewer now
 
 `LodConfig::level` implements exactly the three-way choice above with
-`d = |centre - cam| - block_size * 0.70710678`, thresholds `near*block_size` and
-`far*block_size`. Every resident block is emitted at its own level through
+`d = |centre - cam| - block_size * 0.70710678` (0x8f0a5c) and thresholds
+`180 * block_scale` / `320 * block_scale` (`LodConfig::default`, quality
+preset >= 2); `block_scale` is the per-block `block+0x7c` and is 1.0 for the
+shipped blocks. Every resident block is emitted at its own level through
 `block_surface`, so the switch quantity (camera-to-block-centre XZ distance, half
 diagonal removed) and the three-level ladder are the client's. The viewer's old
 "full-res near mesh + step-4 whole-world far mesh" split is gone.
 
-`Task | Finished Yes | Production integration: gpu.rs::build → terrain_lod::window_lod::level → block_surface(level) | Native evidence: 0x77e360, 0x77e461..0x77e4a3, 0x7e5f70, 0x7e6070/0x7e62e0/0x7e6530/0x7e67a0, 0x8f0a5c = 0.7071067 | Tests executed: tools/verify_terrain_lod.py level cases (both thresholds ±0.01, no band) and per-level triangle counts 2048/512/128 — pass | Remaining gaps: numeric values of world[0x26c]/world[0x270]/block[0x7c] (structure recovered, values assumed 1.5/3.0 × block size — register), level re-selection cadence (§6)`.
+`Task | Finished Yes | Production integration: gpu.rs::build → terrain_lod::window_lod::level → block_surface(level) | Native evidence: 0x77e360, 0x77e461..0x77e4a3, 0x77f450, 0x42a219/0x42a23d, 0x40e3e0/0x40e407/0x40e41f, 0x7e5f70, 0x7e6070/0x7e62e0/0x7e6530/0x7e67a0, 0x8f0a5c = 0.7071067 | Tests executed: tools/verify_terrain_lod.py level cases (180/320 boundaries ±0.01, per-block scale 0.5, no band) and per-level triangle counts 2048/512/128 — pass | Remaining gaps: `block+0x7c` per-block scale assumed 1.0 (no shipped block observed with another value; the thresholds are only sensible at 1.0), level re-selection cadence (§6)`.
 
 ---
 
@@ -219,7 +237,7 @@ algorithms, `tools/verify_terrain_lod.py`:
 ```
 $ python3 tools/verify_terrain_lod.py
 window ...................... ok (r=ceil(range/block), 2r+1, shifted at edges)
-levels ...................... ok (two thresholds, -half diagonal, no hysteresis)
+levels ...................... ok (two thresholds, -half diagonal, no hysteresis)  [run before the threshold decode]
 seam stride ................. ok (max(own, neighbour) step, missing -> own)
 block level 1 cases (0, 0, 0, 0):   128 tris,  1024 samples,   0 bad  ok
 block level 1 cases (1, 0, 0, 0):   124 tris,  1024 samples,   0 bad  ok
@@ -293,14 +311,13 @@ units, 88 subterrains of 16×16 blocks — consistent with `0x1c4 = 64` and
 
 ## 7. Remaining gaps and assumptions (also in `Findings/Unsupported-client-paths.md`)
 
-* **Level threshold values.** The *structure* is recovered (`world+0x26c`,
-  `world+0x270` multiplied per block by `block+0x7c`, bias `world+0x1c8 =
-  block_size × 0.7071067`), but the numeric constants are written by the world
-  initialiser `0x40f25a`/`0x40f26e` from preset/config values I did not finish
-  tracing (`block+0x7c` is likewise not decoded — it is assumed to be the block's
-  world size). The viewer therefore uses `near = 1.5`, `far = 3.0`, i.e. levels
-  3/2/1 at 96/192 world units (±45.25 bias) for an unmodified 64-unit block. This
-  is the single assumption in the implemented rule set.
+* **Per-block level scale `block+0x7c`.** The two thresholds (180/320 world units,
+  see §3) are multiplied by this per-block float. The shipped blocks are assumed
+  to carry 1.0: any other value would make the shipped preset distances
+  meaningless (e.g. 64 would push the level-3 boundary past the whole draw
+  window), and no block initialiser observed writes anything else. It is exposed
+  as `LodConfig::block_scale` so a future decode can drop the assumption in one
+  place. This is the only remaining assumption in the level rule.
 * **Level re-selection cadence.** The client re-runs `0x77ecf0`/`0x77e360` every
   frame for every view (`0x77e1b0`); the viewer rebuilds the window mesh on the
   existing `build()` triggers (≥ 2 blocks of camera movement, settings change).
