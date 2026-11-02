@@ -392,19 +392,14 @@ mod tests {
         // The Segs/LightNum family (keys printed by the element at 0x707b55) is
         // a light path this reader cannot execute. Dropping it silently would
         // under-report an authored light, so the whole root fails.
-        let source = file().replace(
-            "GFXELEMENTCOUNT: 1",
-            "GFXELEMENTCOUNT: 2",
-        ) + "GFXELEMENTID: 106\nSegs: 3\nLightNum: 4\nWaveLen: 2.5\n";
+        let extra = "GFXELEMENTID: 106\nSegs: 3\nLightNum: 4\nWaveLen: 2.5\n";
+        let source = file().replace("GFXELEMENTCOUNT: 1", "GFXELEMENTCOUNT: 2") + extra;
         let error = parse(&source).unwrap_err();
-        assert!(
-            error.contains("unsupported GFX light element 106"),
-            "{error}"
-        );
+        assert!(error.contains("unsupported GFX light element 106"), "{error}");
         // A non-light element is skipped, so a root that also carries particles
         // still yields its point lights.
-        let source = file().replace("GFXELEMENTCOUNT: 1", "GFXELEMENTCOUNT: 2")
-            + "GFXELEMENTID: 200\nParticleCount: 12\nEmitSpeed: 3\n";
+        let particles = "GFXELEMENTID: 200\nParticleCount: 12\nEmitSpeed: 3\n";
+        let source = file().replace("GFXELEMENTCOUNT: 1", "GFXELEMENTCOUNT: 2") + particles;
         assert_eq!(parse(&source).unwrap().len(), 1);
     }
 
