@@ -119,10 +119,60 @@ sampling behaviour. This is recorded as a deviation, not as missing behaviour.
   The two bits are published independently of the local box that supplies
   colour/fog, confirming the ownership rule the viewer now encodes.
 
-## 6. Not verified here
+## 6. Retail BMD corpus (P1.07)
+
+Both world model packs were reassembled from the owner's split archives and
+decoded end to end with an independent parser written for this check.
+
+| | `litmodels.pck` | `building.pck` |
+|---|---|---|
+| Source | `litmodels.zip.001..005` | `building.zip.001..004` |
+| Size | 397,425,471 B (zips total 390,080,669 B) | 326,185,591 B |
+| MD5 | `359be12bc2aab785210ab82506a67aaf` | `d23d8941ed15f42153477f1c083af50f` |
+| Content | **28,858 `.bmd` files** | textures only (dds/tga/bmp) |
+
+`litmodels.pck` decoded with **zero parse failures** (PCK v2, `0x20002`, guard
+keys `0xfdfdfeee`/`0xf00dbeef`, 28,858 entries):
+
+* 68,362 meshes: **44,376 v4** (`0x10000004`) and **23,986 v5** (`0x10000005`).
+* Every mesh has a texture; no mesh has an empty texture name.
+* **2,579 of the 23,986 v5 meshes are two-sided**, 21,407 single-sided.
+* 59,984 of 68,362 meshes have `day != night` in their two baked arrays, so the
+  integer blend is live for 88% of the content and both arrays must be kept.
+* **Every v5 material is the identity:** computed name `"MATERIAL: "`, ambient
+  `(1,1,1,1)`, diffuse `(1,1,1,1)`, emissive `(0,0,0,1)`, specular
+  `(0,0,0,1)`, power `0`. Only `two_sided` varies. There are therefore **no
+  client-specific colour or light overrides in the retail world BMD pack** — the
+  appearance comes from the texture and the baked vertex arrays alone. (An
+  earlier scan counter in this session counted the emissive *alpha* channel and
+  wrongly reported non-zero emissive; the values above are the corrected ones.)
+
+### Texture-stage sequence
+
+`0x7a9730` is the world-BMD material applier. The D3D wrappers it calls push a
+fixed D3DTSS type, so the sequence decodes unambiguously:
+
+| Call site | Wrapper | Meaning |
+|---|---|---|
+| `0x7a976d` | `0x779fc0` (COLOROP) | stage 0 COLOROP = **5 (MODULATE2X)** |
+| `0x7a977a` | `0x779fe0` (COLORARG1) | stage 0 colour arg = texture |
+| `0x7a9785` | `0x77a020` (ALPHAOP) | stage 0 ALPHAOP = **4 (MODULATE)** |
+| `0x7a9792` | `0x77a040` (ALPHAARG1) | stage 0 alpha arg |
+| `0x7a979e` | `0x779fc0` | stage 1 COLOROP = **1 (DISABLE)** |
+| `0x7a97aa` | `0x77a020` | stage 1 ALPHAOP = 1 (DISABLE) |
+
+One applier, one stage configuration, and it matches the production shader
+(`raw_tex.rgb * i.diffuse * 2.` with a texture-alpha cutout). Baked world models
+are therefore drawn in the single opaque queue with a cutout test — there is no
+transparent baked queue whose ordering would need reproducing.
+
+## 7. Not verified here
 * The texture-stage switch inside `0x7a8d90` (MODULATE2X at `0x7a9730`) was
   located, not enumerated case by case; P1.07 therefore keeps its open items.
-* No retail BMD was decoded in this pass (the payload PCKs are 326-888 MB), so
-  the v5 material/stage claims rest on the parser plus the recorded addresses.
+* `models.pck` (888 MB, character/effect BMDs) was not decoded; the corpus
+  above is the world BMD pack, which is what the phase-2/3 BMD path renders.
+* The alpha-test reference (`0x7a59c5..0x7a5b6f`) and the `0x497423fe` distance
+  cap belong to the *model* queue, not to baked world BMDs, and were not
+  re-derived here.
 * Indirect calls (vtables, function pointers) are not in the xref index, so
   "exactly N callers" always means "exactly N literal call sites".

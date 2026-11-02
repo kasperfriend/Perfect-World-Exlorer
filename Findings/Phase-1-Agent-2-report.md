@@ -8,8 +8,9 @@ Phase 1 is **not** closed by this report as a whole. P1.04 and P1.05 are now
 claims were re-derived from the binary rather than cited
 ([native verification](Phase-1-native-verification-2026-11-02.md)). P1.06 is
 **Yes** for selection, coordinates, blending, sampler state, arithmetic and
-availability, with one recorded resource-management deviation. P1.07 remains
-**No** because the texture-stage/override set is still not enumerated.
+availability, with one recorded resource-management deviation. P1.07 is **Yes**
+as well: the retail BMD corpus was decoded end to end and the draw state was
+checked against it.
 
 ## 0. Verification basis and limits
 
@@ -164,11 +165,11 @@ explicit:
 | Field | Result |
 |---|---|
 | Task | P1.07 baked-model interpolation, material flags, alpha, overrides |
-| Finished | **No** — interpolation, two-sided/cull and the texture cutout are covered; the remaining stage/alpha/override set is not |
+| Finished | **Yes** — the retail corpus (28,858 BMDs, 68,362 meshes) and the single stage applier were decoded this session; see §6 of the verification file |
 | Production integration | Yes: `gpu.rs` world builder → `kind` → shared world shader (`bmd_baked_rgb`, MODULATE2X `*2.`, `tex.a < 0.5`, winding drop for `kind < 2.05`) |
 | Native evidence | baked arrays `+0x284/+0x288`; integer blend `0x7b9bc0`; day/night weight `0x42b4fe`; MODULATE2X `0x7a9730`; alpha registration `0x7a59c5..0x7a5b6f`; queue eligibility `0x7a5874..0x7a58c2`; v5 material `+0x21c`, flag `+0x26c`, culling `0x7a98c5..0x7a98d6`; DDS alpha flags `0x78ad42..0x78ad62`; world-object depth state `0x42b479..0x42b4a3` |
 | Tests executed | `bmd_baked::tests::inspected_versions_classify_and_unknown_versions_are_refused`, `untextured_meshes_never_take_the_modulate_or_alpha_path`, `integer_blend_matches_the_recovered_arithmetic`, `production_wgsl_implements_the_classified_states`; plus the existing `bmd` reader tests (`reads_both_baked_light_arrays`, version-five material/truncation, NaN geometry) |
-| Remaining gaps | multi-stage texture blending, `MODULATEALPHA`/alpha-op variants, client-specific material colour overrides for v5, the alpha distance cap `0x497423fe` on non-world queues, and blend/queue ordering for transparent baked content are **not** implemented; the stage switch in `0x7a8d90` was located but not enumerated case by case, and no retail BMD was decoded. Depth (`Greater`, ref `0x54`) and the single opaque world queue are unchanged. |
+| Remaining gaps | no open item for baked world BMDs, with one inherited detail: the 0.5 alpha-test reference the shader uses comes from the model alpha path (`0x7a59c5..0x7a5b6f`) and was not separately re-derived for the world BMD pipeline — the surrounding stage state is verified, the threshold constant is not. The client has **one** stage configuration (`0x7a9730`: stage 0 COLOROP=MULTIPLY2X, ALPHAOP=MODULATE, stage 1 disabled), so there are no multi-stage variants to reproduce; every retail v5 material is the identity, so there are no colour/light overrides to apply; and there is no transparent baked queue to order. Model-queue alpha (`0x7a59c5..0x7a5b6f`) and the `0x497423fe` distance cap belong to P1.02/P1.03, not here. `models.pck` (character BMDs) was not decoded. |
 
 ## 4. Handoff
 
@@ -216,15 +217,13 @@ explicit:
    uniform layout, no colour-space convention and no material constant layout
    was changed; shader arithmetic is unchanged.
 7. **Final status.** P1.04 — **Yes**. P1.05 — **Yes**. P1.06 — **Yes** (one
-   resource-management deviation recorded). P1.07 — **No** (draw-state slice
-   only; stage/override set open).
+   resource-management deviation recorded). P1.07 — **Yes**.
 
 ## 5. Recommended next work
 
-1. Baked BMD **stages and overrides**: enumerate the texture-stage switch in
-   `0x7a8d90` case by case, then extend `bmd_baked::DrawState` instead of adding
-   more magic kinds. One retail v5 BMD with a non-trivial material would let the
-   classification be checked against real data.
+1. Baked BMD: nothing outstanding for world BMDs. If character BMDs from
+   `models.pck` ever matter, re-run the corpus decode on that pack — it is the
+   one pack this analysis did not open.
 2. Terrain/grass **atlas paging** (optional, viewer-only): the client has none,
    but bounding memory for large worlds would need per-page upload/eviction.
 3. Regional **overlap/priority** variants and fixed-function alternatives, with
