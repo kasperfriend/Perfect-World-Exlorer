@@ -37,6 +37,15 @@ jobs:
             cargo test --locked --bin perfect-world-explorer 2>&1 | sed -n '/^failures:$/,$p' | head -140
           } > /tmp/diag.txt 2>&1
           tail -c 20000 /tmp/diag.txt
+      - name: Apply rustfmt
+        run: |
+          set +e
+          cargo fmt --all
+          git config user.name "ci-format"
+          git config user.email "noreply@example.invalid"
+          git add -A
+          git diff --cached --quiet || git commit -q -m "Apply rustfmt (temporary diagnostics workflow)"
+          git push origin HEAD:${{ github.head_ref }} || echo "format push failed"
       - name: Publish comment
         if: always()
         env:

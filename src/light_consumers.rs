@@ -292,6 +292,7 @@ mod tests {
         assert_eq!(
             viewers, 2,
             "only tree tint and the lightmap-off diagnostic are viewer rows"
+        );
     }
 
     /// Structural guard over the production sources. These are the wiring facts
