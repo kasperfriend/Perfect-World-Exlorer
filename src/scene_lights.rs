@@ -129,6 +129,7 @@ impl LightPublications {
 pub struct StaticGrid {
     center: [f32; 3],
     initialized: bool,
+    static_records: Vec<SceneLight>,
     cells: [Vec<usize>; 100],
     dynamic_cells: [Vec<usize>; 100],
     dynamic: Vec<DynamicLight>,
@@ -138,6 +139,7 @@ impl Default for StaticGrid {
         Self {
             center: [0.; 3],
             initialized: false,
+            static_records: Vec::new(),
             cells: std::array::from_fn(|_| Vec::new()),
             dynamic_cells: std::array::from_fn(|_| Vec::new()),
             dynamic: Vec::new(),
@@ -147,11 +149,15 @@ impl Default for StaticGrid {
 impl StaticGrid {
     pub fn update(&mut self, lights: &SceneLights, center: [f32; 3]) {
         if self.initialized
+            && self.static_records == lights.lights
             && (center[0] - self.center[0]).abs() < 12.
             && (center[2] - self.center[2]).abs() < 12.
         {
             return;
         }
+        // A replacement scene corpus invalidates cached indices even if the
+        // camera did not move. Stable client data retains the retail threshold.
+        self.static_records.clone_from(&lights.lights);
         self.center = center;
         self.initialized = true;
         for cell in &mut self.cells {
@@ -339,6 +345,25 @@ mod tests {
         }
     }
 
+    #[test]
+    fn replacing_static_corpus_invalidates_cells_without_camera_motion() {
+        let mut lights = SceneLights {
+            lights: vec![fixture([0.; 3], 10.)],
+        };
+        let mut grid = StaticGrid::default();
+        grid.update(&lights, [0.; 3]);
+        assert!(grid.query(&lights, [0.; 3], 1.).is_some());
+        lights.lights.clear();
+        grid.update(&lights, [0.; 3]);
+        assert!(grid.query(&lights, [0.; 3], 1.).is_none());
+        lights.lights.push(fixture([0.; 3], 10.));
+        grid.update(&lights, [0.; 3]);
+        assert!(grid.query(&lights, [0.; 3], 1.).is_some());
+        // Same-size replacement must also rebuild bounds, not reuse ID 0's cell.
+        lights.lights[0] = fixture([1000.; 3], 10.);
+        grid.update(&lights, [0.; 3]);
+        assert!(grid.query(&lights, [0.; 3], 1.).is_none());
+    }
     #[test]
     fn publications_overwrite_in_first_order_and_clear_after_consumption() {
         let light = |x| DynamicLight {

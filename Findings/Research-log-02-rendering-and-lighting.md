@@ -1444,3 +1444,15 @@ ambient .2*2.5 and zero material diffuse RGB; no tolerance relaxation.
 New bridge GPU validation pending. **Confirmation: publication lifecycle CPU
 Yes; full P1.01 No** until real GFX controller/producer integration and its
 lifetime/visibility/parent transform verification. Continue implementation.
+
+
+Bridge CI `41459882957` / `cde918a`: Windows SUCCESS, Linux GPU step
+FAILED. Check-run annotation identified stale static-cell IDs when the
+fixture changed the static corpus to empty without moving the camera
+(scene_lights.rs index out of bounds), before the new pixel oracle. Fixed
+cache invalidation on static-record replacement, including same-size bounds
+changes. Stable corpus/camera thresholds are unchanged. Added regression
+for populated -> empty -> populated -> same-size relocated light, all at
+one camera position. 79 core tests pass. This is a viewer cache-safety fix,
+not a claim of recovered client asynchronous streaming order. GPU rerun
+pending; prior rigid/sharpen successful runs remain valid.
