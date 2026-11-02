@@ -4,25 +4,27 @@ Branch: `arena/bdae8dca-perfect-world-exlorer`, based on reviewed state `3b4cc59
 (latest merged revision here: `9aea524`). Date: 2026-11-02.
 Target: the supplied Perfect World 1.4.2 executable and assets.
 
-## 0. Environment and what could be executed
+## 0. Environment and what was actually executed
 
-This sandbox contains **only the Git checkout**. It has no supplied 1.4.2 client
-binary, no `element/` asset tree, no `models.pck`/`gfx.pck`/`world.ecwld`, and
-**no Rust toolchain** (`cargo`/`rustc` are absent and `static.rust-lang.org` is
-not reachable, so one cannot be installed). Consequences, stated up front so no
-claim below is overstated:
+The development sandbox contains **only the Git checkout**: no supplied 1.4.2
+client binary, no `element/` asset tree, no `models.pck`/`gfx.pck`/`world.ecwld`,
+and **no Rust toolchain** (no `cargo`/`rustc`, and the toolchain download hosts are
+not reachable, so none can be installed). Two consequences, stated up front:
 
-- No new native address could be traced in this session. Every native claim used
-  below is an existing, previously verified trace in
-  `Findings/Research-log-02-rendering-and-lighting.md`; where that evidence ends,
-  the work is recorded as a gap instead of a guess.
-- No Rust test binary was executed here. The new regressions are written and
-  reviewed but their execution requires CI or a machine with a Rust toolchain.
-  Reproduction commands are in section 9.
-- What *was* executed is real: the controller-108 table-precision analysis in
-  section 5 (IEEE-754 single rounding, 8,257,536 entry comparisons) and the
-  repository's own status audits (`check-eight-phase-status.py`,
-  `check-phase1-ready.py`, `test_phase1_ready.py`) which still pass unchanged.
+- No new native address could be traced in this session. Every native claim below
+  is an existing trace in `Findings/Research-log-02-rendering-and-lighting.md`;
+  where that evidence ends the work is recorded as a gap, not a guess.
+- All compilation and test execution therefore happened in GitHub Actions on this
+  branch (`arena/bdae8dca-perfect-world-exlorer`, PR #3). A temporary workflow
+  (`ci-diag.yml`, since removed) ran the same steps as `pr-checks.yml` plus the
+  standalone module tests, applied `rustfmt`, and published the captured output
+  so it could be read through the API. It found three real defects that a review
+  pass had missed (see section 11). Everything below marked "executed" is from
+  those runs, not from local execution.
+
+Latest verified run: workflow **PR checks and Windows build**, commit
+`1be0c72d43df6a982615261cd72a119495f8dc2b` — **success** (both jobs: Linux checks
+and tests, and the Windows x64 build).
 
 ## 1. Task 1 — light producers and owner lifecycles
 
@@ -101,7 +103,7 @@ not a publication API waiting for a caller:
 | Publication membership is cleared after dynamic-cell build | `0x425bf8..0x425c2c` | `consume_into` (pre-existing) |
 | Specular selector enabled by ordinary ECM load | `0x6cfa64 → 0x7924b0/0x7924c1` | `world_models_gpu` assignment |
 
-### 1.4 Tests added (written, not executed here)
+### 1.4 Tests added (executed in CI)
 
 `src/gfx_owner.rs` — nine regressions:
 `placement_transform_normalizes_basis_and_applies_authored_scale`,
@@ -115,7 +117,7 @@ not a publication API waiting for a caller:
 `publication_identities_are_unique_per_owner_and_element`,
 `owner_speed_scales_the_clock_and_overflow_is_explicit`.
 
-Production GPU regression (written, needs CI): `model-draw-gpu-check` now drives
+Production GPU regression (`model-draw-gpu-check`, executed): drives
 `ECWLD effect record → owner → one-root-per-update load → publication → scene
 query → weighted+rigid receiving pixels`, and asserts that a region change
 (`set_view_center` far away) removes the light again. Expected pixels are the
@@ -178,7 +180,7 @@ hard-coded flag, i.e. the matrix drives the submission.
   made the alpha queue unreachable); it now rejects only pair codes with no
   pipeline equivalent, plus a non-opaque ECM colour override.
 
-### 2.3 Tests added (written, not executed here)
+### 2.3 Tests added (executed in CI)
 
 - `model_receiver_class`: `only_ordinary_models_receive_runtime_scene_lights`,
   `every_variant_is_distinguishable_by_its_own_flags`,
@@ -227,7 +229,7 @@ hard-coded flag, i.e. the matrix drives the submission.
   interactive clock; `Playback`'s diagnostic/initial-random-phase inputs are not
   capped.
 
-### 3.2 Tests added (written, not executed here)
+### 3.2 Tests added (executed in CI)
 
 `model-draw-gpu-check` additions:
 - authored non-default blend pair → both meshes land in `alpha_meshes()`, the
@@ -263,18 +265,32 @@ the surrounding arithmetic:
 
 - `gfx_color_track::Precision { Extended, Pc24 }`, `CONSTRUCTION = Extended`,
   `ColorTrack::new_with_precision`, `construction_divergences()`.
-- Evidence that the choice is material (executed here with IEEE-754 single
-  rounding, the stored reciprocal `0x3c010204 = 2113665/268435456`):
+- Evidence that the choice is material, reproduced by
+  `python3 tools/analyze-color-track-construction.py` (12 s, pure stdlib). It
+  mirrors `channel()`/`build()` exactly: the stored reciprocal is
+  `0x3c010204 = 2113665/2^28`, every operation is rounded to IEEE-754 single
+  precision, and every result is truncated to an integer byte exactly like the
+  native store. Over all 65,536 `(from, to)` byte pairs and all 126 interior
+  indices:
 
-| Interpolation order | Interior entries differing from the exact rational table |
+| Interpolation order | Interior entries differing from the integer table |
 |---|---:|
 | `a·(1−f) + b·f`, every operation rounded to f32 | **17,790 / 8,257,536** |
 | `a + (b−a)·f`, every operation rounded to f32 | **16,332 / 8,257,536** |
 
+  Worst endpoint pair: `from = 63, to = 190`, where **all 126** interior entries
+  differ. So neither float order is "close enough" to dismiss.
+
 - Concrete case used as a regression: `from = 0, to = 127, i = 1` gives `0` in
-  the extended table and `1` in the PC24 table (because `f32(127 × 1/127)`
-  rounds to exactly `1.0`). Authored endpoints (`i = 0`, `i = 127`) are exact in
-  both modes.
+  the integer table and `1` in both float orders (because the stored reciprocal
+  is slightly below `1/127`, while `f32(127 × reciprocal)` rounds up to exactly
+  `1.0`). Authored endpoints (`i = 0`, `i = 127`) are exact in all modes.
+- `ColorTrack::construction_divergences()` now compares the two *built packed
+  tables* per interior index. The first version of this counter passed packed
+  colours into the per-byte interpolation helper, which the CI run caught as a
+  wrong count (125 vs the correct 118 for one endpoint pair); the regression now
+  recomputes the expected count from `build()` instead of hard-coding a
+  constant, and asserts `0 < divergences <= 126`.
 - `gfx-light-runtime-survey` now prints the corpus-wide divergence count, so the
   real archive yields the number rather than an assumption.
 
@@ -298,10 +314,14 @@ unsupported-path register; it is not claimed resolved.
 - **Native evidence:** `0x5b33f3`, `0x5b3700`, `0x5b18a1`, `0x5b1a00`, `0x70ba00`,
   `0x70bd20`, `0x70b130`, `0x425bf8` (all previously traced; no new trace in this
   session).
-- **Tests executed and results:** none executed — no Rust toolchain in this
-  environment. Ten owner regressions and one GPU end-to-end case are written;
-  execution requires CI (`cargo test --locked --bin perfect-world-explorer` and
-  `cargo run --locked --bin model-draw-gpu-check`).
+- **Tests executed and results:** executed in CI, all passing.
+  `cargo test --bin perfect-world-explorer` → **250 passed; 0 failed**, which
+  includes the ten `gfx_owner` regressions and the `gfx_light` owner-clock
+  regressions. `model-draw-gpu-check` (lavapipe) → **exit 0**, including
+  "scene effect owner passed: ECWLD placement -> one-root-per-update load ->
+  publication -> scene query -> receiving pixels, and region unload removes the
+  light". `sh tools/check-phase1-core.sh` → **exit 0** with the new
+  multi-module `gfx_owner` harness.
 - **Remaining gaps:** skeleton-hook attachments (explicit failure today), visual
   GFX playback, native manager priority source, owner fade/stop/release phases,
   and unexecuted validation.
@@ -317,8 +337,12 @@ unsupported-path register; it is not claimed resolved.
 - **Native evidence:** `0x7a6eff`, `0x7a6110`, `0x7a62db..0x7a630f`, `0x7a63af`,
   `0x7a76a0`, `0x7924b0/0x7924c1`, `0x6cfa64`, `0x7a5857..0x7a58c2`,
   `0x7a5a1d..0x7a5aef`, `0x7b9bc0` (baked exclusion).
-- **Tests executed and results:** none executed locally (no toolchain). Four
-  receiving-class regressions and four queue/blend regressions written.
+- **Tests executed and results:** executed in CI. `model_receiver_class` and
+  `model_queue` compile standalone under `rustc --test` and pass there
+  (4 + 14 tests), and the same tests run inside
+  `cargo test --bin perfect-world-explorer` (**250 passed; 0 failed**).
+  `model-receiver-gpu-check` → **exit 0** (variant arithmetic and uploaded
+  constants unchanged and still matching the independent references).
 - **Remaining gaps:** mesh-level transparency source, morph/supple classes,
   fixed-function alternatives, alpha-list weights/groups, unexecuted validation.
 
@@ -332,9 +356,12 @@ unsupported-path register; it is not claimed resolved.
 - **Native evidence:** `0x7a5857` (queue), `0x7a76a0` (blend factors + alpha
   test), `0x7a5460` (initial-AABB corner distance), `0x7a5a1d` (insertion),
   `41a32e–41a349` / `42b479–42b4a3` (alpha compare + reference).
-- **Tests executed and results:** none executed locally (no toolchain). Queue
-  routing, unsupported-factor rejection, alpha-list emptiness for opaque ECMs
-  and the scene-owner pixel case are written for CI.
+- **Tests executed and results:** executed in CI. `model-draw-gpu-check` →
+  **exit 0** with the alpha routing case (authored pair → `alpha_meshes() ==
+  [0, 1]`, opaque submission skips them, unsupported pair `11` → `Err`), the
+  opaque-ECM case, and the scene-owner pixel case. The whole
+  `pr-checks.yml` GPU step (13 binaries) → **success**; Windows x64 build →
+  **success**. Two defects were found by these runs and fixed (section 11).
 - **Remaining gaps:** alpha z-write state (documented assumption), per-mesh
   transparency, unexecuted validation, and full multi-view alpha parity.
 
@@ -358,6 +385,8 @@ unsupported-path register; it is not claimed resolved.
 | `src/main.rs` | `mod gfx_owner; mod model_receiver_class;`; `Terrain.scene` |
 | `src/gpu.rs` | Producer installation, per-frame view region, FX producer status line |
 | `tools/check-phase1-core.sh` | `model_receiver_class` module + multi-module `gfx_owner` harness |
+| `tools/analyze-color-track-construction.py` (new) | Reproducible controller-108 construction comparison (17,790 / 16,332 interior divergences) |
+| `Findings/Unsupported-client-paths.md` | Register entries for hook attachment, visual GFX playback, LUT precision, `ALPHA_DEPTH_WRITE`, mesh-level transparency and the remaining receiving classes |
 
 ## 8. Interface changes affecting other agents
 
@@ -378,12 +407,13 @@ unsupported-path register; it is not claimed resolved.
 ## 9. Reproduction
 
 ```sh
-cargo fmt --all -- --check
-cargo check --locked --bins
-cargo test --locked --bin perfect-world-explorer
-sh tools/check-phase1-core.sh                # now includes gfx_owner + model_receiver_class
-python3 tools/check-eight-phase-status.py
-python3 tools/check-phase1-ready.py          # intentionally nonzero: full-scope gates still No
+cargo fmt --all -- --check                  # CI: clean
+cargo check --locked --bins                 # CI: exit 0
+cargo test --locked --bin perfect-world-explorer   # CI: 250 passed, 0 failed
+sh tools/check-phase1-core.sh               # CI: exit 0 (gfx_owner harness + model_receiver_class)
+python3 tools/analyze-color-track-construction.py  # 17,790 / 16,332 interior divergences
+python3 tools/check-eight-phase-status.py   # 63 partial, complete_phases: []
+python3 tools/check-phase1-ready.py         # exit 1 by design: full-scope gates still No
 ```
 
 GPU regressions (need a working adapter; CI uses lavapipe):
@@ -397,13 +427,47 @@ cargo run --locked --bin gfx-light-audit -- /path/to/element
 cargo run --locked --bin scene-model-light-survey -- world.ecwld scenelights.dat
 ```
 
-## 10. Final status
+## 10. Defects found by the first executable run (and fixed)
+
+Running the branch in CI was not a formality; it found three real defects that
+the review pass had not:
+
+1. **Alpha meshes were submitted through the opaque pipeline.**
+   `model-draw-gpu-check` failed with a wgpu validation error
+   ("Incompatible bind group at index 0 ... Assigned implicit bind group layout
+   without label"): each `Receiver` builds its own implicit bind-group layout, so
+   an alpha binding drawn by the opaque pipeline is invalid. `draw_opaque` now
+   skips alpha-list meshes and `draw_alpha_mesh` submits them in retail order
+   (`1be0c72`).
+2. **`construction_divergences()` fed packed colours to a per-byte helper.**
+   The viewer test asserted `4 * 126` and got `125`, exposing that the counter
+   compared `0x7f7f7f7f` as if it were a single byte channel. The counter now
+   compares built packed tables and the test derives its expectation from
+   `build()` (`3e1a1ed`).
+3. **Hand-formatting was not rustfmt-clean.** `cargo fmt --all -- --check`
+   failed on 7 files; CI applied rustfmt (`e5883bc`) and the branch is now
+   format-clean (`0`-byte patch on the next run).
+
+Neither defect would have been visible without executing the regressions — which
+is exactly why the "no completion claims from compilation" rule matters: the
+compilation itself was green on the first CI run; only execution caught these.
+
+## 11. Final status
 
 | Task | Implemented in the production path | Finished |
 |---|---|---|
 | P1.01 scene-light selection and producer lifecycle | Yes (scene effects + hook-free ECM events) | **No** |
 | P1.02 receiving classes and lighting calculations | Yes for the four ordinary variants; matrix + exclusions | **No** |
 | P1.03 production submission without double lighting | Yes for ordinary + alpha queues, one snapshot | **No** |
+
+All three rows now also have executed evidence: PR #3, commit `1be0c72`, run
+`41487134319` — `cargo fmt --check` clean, `cargo check --locked --bins` clean,
+`cargo test --bin perfect-world-explorer` 250 passed / 0 failed, all 13 GPU
+regressions exit 0, `tools/check-phase1-core.sh` exit 0, Windows x64 build
+success. The "No" verdicts now rest on the *named remaining gaps* in sections
+1.5, 2.4 and 3.3 (hook attachments, visual GFX playback, native manager priority,
+owner fade/stop phase, mesh-level transparency source, morph/supple classes,
+alpha z-write state) rather than on unverified code.
 
 No central Phase 1 gate was changed to Yes, and
 `Findings/Eight-phase-reassessment-2026-11-02.md` /
