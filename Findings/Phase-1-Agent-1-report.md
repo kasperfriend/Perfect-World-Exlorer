@@ -22,9 +22,17 @@ not reachable, so none can be installed). Two consequences, stated up front:
   pass had missed (see section 11). Everything below marked "executed" is from
   those runs, not from local execution.
 
-Latest verified run: workflow **PR checks and Windows build**, commit
-`1be0c72d43df6a982615261cd72a119495f8dc2b` — **success** (both jobs: Linux checks
-and tests, and the Windows x64 build).
+Latest fully verified run: workflow **PR checks and Windows build**, run
+`41488072928` on commit `9b7996e0a20255d1be8588157a19f367816dacbf` — **success**,
+every step in both jobs:
+`Check formatting`, `Verify recovered regional arithmetic on x87`,
+`Test requirement status audits`, `Check all binary targets`,
+`Test GFX light dependency audit`, `Run viewer unit tests`,
+`Run Phase 1 production shader regressions` (all 13 GPU binaries), and on Windows
+`Compare production gamma with independent x86 MSVCRT words`,
+`Verify native gamma and glow CPU references on Windows` and
+`Build standalone viewer`. The earlier run `41487134319` on `1be0c72` was the first
+green one. The temporary diagnostics workflow has been deleted from the branch.
 
 ## 1. Task 1 — light producers and owner lifecycles
 
@@ -460,8 +468,8 @@ compilation itself was green on the first CI run; only execution caught these.
 | P1.02 receiving classes and lighting calculations | Yes for the four ordinary variants; matrix + exclusions | **No** |
 | P1.03 production submission without double lighting | Yes for ordinary + alpha queues, one snapshot | **No** |
 
-All three rows now also have executed evidence: PR #3, commit `1be0c72`, run
-`41487134319` — `cargo fmt --check` clean, `cargo check --locked --bins` clean,
+All three rows now also have executed evidence: PR #3, run `41488072928` on
+commit `9b7996e` — `cargo fmt --check` clean, `cargo check --locked --bins` clean,
 `cargo test --bin perfect-world-explorer` 250 passed / 0 failed, all 13 GPU
 regressions exit 0, `tools/check-phase1-core.sh` exit 0, Windows x64 build
 success. The "No" verdicts now rest on the *named remaining gaps* in sections
