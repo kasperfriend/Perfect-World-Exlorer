@@ -120,12 +120,16 @@ fn main() {
                     } else {
                         model_light::vertex_light_rgba(input, alpha)
                     };
+                    let specular_color = model_material::bind_specular(
+                        [0.06, 0.08, 0.08, 1.],
+                        [0.5, 0.25, 0.125, 1.],
+                    );
                     let shine = if specular {
                         model_light::directional_specular(
                             input,
                             [0., 0., -1.],
                             7.,
-                            [0.03, 0.02, 0.01],
+                            [specular_color[0], specular_color[1], specular_color[2]],
                         )
                     } else {
                         [0.; 3]
@@ -140,7 +144,7 @@ fn main() {
                         point_position: [0., 0., 10., 0.],
                         attenuation: [0., 0.4, 0., 0.],
                         eye_direction: [0., 0., -1., 0.],
-                        specular: [0.03, 0.02, 0.01, 0.],
+                        specular: specular_color,
                         lighting: [7., u32::from(point) as f32, u32::from(specular) as f32, 0.],
                         fog_color,
                         fog_range: [0.; 4],

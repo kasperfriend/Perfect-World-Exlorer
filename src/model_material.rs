@@ -1,4 +1,4 @@
-//! Non-specular skin/rigid material constants recovered from retail 0x7a6110.
+//! Ordinary skin/rigid material constants recovered from retail 0x7a6110.
 //! Kept separate from baked BMD materials: these coefficients must never be
 //! applied to terrain, BMD vertex colors, or the approved tree fallback.
 #[derive(Clone, Copy, Debug)]
@@ -50,6 +50,13 @@ pub fn bind(m: Material, l: Lighting) -> Constants {
     c
 }
 
+/// c9 at 0x7a62db–0x7a630f. Directional specular is a separate light
+/// color, not directional diffuse. Preserve alpha and unclamped HDR values;
+/// the vertex shader subsequently replaces specular output alpha with one.
+pub fn bind_specular(material: [f32; 4], light: [f32; 4]) -> [f32; 4] {
+    std::array::from_fn(|i| material[i] * light[i])
+}
+
 /// GPU counterpart for model material binding and shader regression tests.
 pub const WGSL: &str = r#"
 struct ModelMaterialConstants {
@@ -73,6 +80,17 @@ fn bind_model_material(mat_ambient:vec4<f32>,mat_diffuse:vec4<f32>,emissive:vec4
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn specular_uses_its_own_light_color_without_preclamp() {
+        assert_eq!(
+            bind_specular([0.25, 0.5, 2., 0.5], [0.5, 0.25, 2., 0.25]),
+            [0.125, 0.125, 4., 0.125]
+        );
+        assert_eq!(
+            bind_specular([0., 0., 0., 1.], [1., 2., 3., 1.]),
+            [0., 0., 0., 1.]
+        );
+    }
     fn material() -> Material {
         Material {
             ambient: [0.5; 4],
