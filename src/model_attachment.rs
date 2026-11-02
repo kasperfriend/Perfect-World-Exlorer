@@ -121,7 +121,7 @@ impl Attachment {
         if !quat.is_finite() {
             return Err(format!("nonfinite attachment rotation for {:?}", self.hook));
         }
-        let mut matrix = quat.to_mat4();
+        let mut matrix = Mat4::from_quat(quat);
         matrix.w_axis = Vec3::from(self.offset).extend(1.);
         Ok(matrix)
     }
