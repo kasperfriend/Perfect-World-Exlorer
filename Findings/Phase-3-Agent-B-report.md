@@ -3,6 +3,14 @@
 **Branch** `arena/5b7c9c75-perfect-world-exlorer` · **PR** #6 · **Base** `main` (`b718574`)
 **Date** 2 November 2026 · **Scope** P3.02, P3.04, P3.05
 
+> **Post-merge follow-up (alpha regression).** The blended-scenery state this
+> report recovers is accurate for the 1.4.2 client, but reproducing its
+> depth-writing blend in the viewer broke water rendering (square lily-pad
+> cards) and stacked tree canopies. The viewer now renders textured baked meshes
+> as an alpha-test cutout instead. See the updated §7 bullet and the module note
+> in `src/bmd_baked.rs`; the P3.02 half-alpha/zero-alpha raster cases are
+> replaced by above/below-cutout cases.
+
 The lane is *how a parsed static model reaches the device*: material and
 texture-stage state, culling/sidedness, depth bias and draw order. File parsing,
 texture residency and view/pass selection stay with their owners; §8 lists every
@@ -377,11 +385,22 @@ product code; the formatting they produced is kept.
   water and scenery; the discard is equivalent for coverage but does not save
   raster work, and it depends on `front_facing` being derived from the same
   winding convention in every pass. Recorded, not hidden.
-* **Blended scenery writes depth.** The client leaves `ZWRITEENABLE` alone in the
-  scenery passes, so a tree card at alpha 0 still occupies the depth buffer even
-  though it writes no colour. The viewer reproduces that (`depth_write_enabled:
-  true` beside the blend) because deviating would change which duplicate wins a
-  tie, i.e. §4's order rule. It is the client's behaviour, not an oversight.
+* **The depth-writing blend was reverted to an alpha-test cutout (post-merge
+  follow-up).** The reverse engineering in §2 is sound — the client does leave
+  `ZWRITEENABLE` on while `ALPHABLENDENABLE(1)` is set, so an alpha-0 card still
+  occupies its single, ordered depth buffer — but reproducing that state in the
+  viewer broke it. The viewer's water pass is depth-tested against the same
+  buffer (`water_gpu.rs` reads `scene_depth` for the refraction guard), so a
+  transparent baked quad occluded water as a solid square (lily pads) and a
+  nearer canopy hid the canopy behind it through its transparent gaps. The
+  shared world shader now discards texels below the cutout threshold for the
+  textured baked band too (`((i.kind>1.5 && i.kind<2.5) || i.kind>3.5)`), so
+  transparent texels write neither colour nor depth; survivors are opaque and
+  still write depth (`GreaterEqual` keeps §4's duplicate-tie rule intact).
+  `scenery_pipeline` is unblended again. `Blend`/`AlphaTest` in `bmd_baked.rs`
+  remain as client-state documentation; the deviation is documented there and
+  pinned by `production_wgsl_implements_the_classified_states` and
+  `bmd-sided-gpu-check` (a nonzero below-cutout alpha must now write nothing).
 * **One alpha source only.** Coverage is the sampled texture alpha; a mesh that
   declares its own opacity needs the `ALPHATEST(1)` branch and is refused by
   `alpha_test()` until that branch is recovered. No 1.4.2 reader writes
