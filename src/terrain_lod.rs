@@ -372,7 +372,10 @@ pub fn window_lod(
         }
     }
     let get = |x: isize, y: isize| -> Option<u8> {
-        if x < win.x0 as isize || y < win.y0 as isize || x >= win.x1 as isize || y >= win.y1 as isize
+        if x < win.x0 as isize
+            || y < win.y0 as isize
+            || x >= win.x1 as isize
+            || y >= win.y1 as isize
         {
             return None;
         }
@@ -429,7 +432,15 @@ mod tests {
         assert_eq!((w.y0, w.y1), (161, 176));
         // A world smaller than the window is covered completely.
         let w = window([0.0, 0.0], [4, 4], 420.0, 64.0);
-        assert_eq!(w, Window { x0: 0, y0: 0, x1: 4, y1: 4 });
+        assert_eq!(
+            w,
+            Window {
+                x0: 0,
+                y0: 0,
+                x1: 4,
+                y1: 4
+            }
+        );
     }
 
     #[test]
@@ -449,7 +460,10 @@ mod tests {
         assert_eq!(cfg.near, 180.0);
         assert_eq!(cfg.far, 320.0);
         // A block scale other than 1.0 stretches both thresholds.
-        let coarse = LodConfig { block_scale: 0.5, ..cfg };
+        let coarse = LodConfig {
+            block_scale: 0.5,
+            ..cfg
+        };
         assert_eq!(coarse.level(89.9), 3);
         assert_eq!(coarse.level(90.1), 2);
         // No hysteresis band: the level at the threshold is defined by one
@@ -496,7 +510,12 @@ mod tests {
 
     /// Rasterised coverage: every point of a block must be covered by exactly
     /// one triangle, for every level and every edge-case combination.
-    fn coverage(surfaces: &[([f32; 2], BlockSurface)], lo: f32, hi: f32, step: f32) -> (usize, usize) {
+    fn coverage(
+        surfaces: &[([f32; 2], BlockSurface)],
+        lo: f32,
+        hi: f32,
+        step: f32,
+    ) -> (usize, usize) {
         let mut inside = 0usize;
         let mut bad = 0usize;
         let mut x = lo + step * 0.37;
@@ -506,12 +525,7 @@ mod tests {
                 let mut n = 0usize;
                 for (origin, s) in surfaces {
                     for t in s.triangles() {
-                        let p = t.map(|v| {
-                            [
-                                origin[0] + v[0] as f32,
-                                origin[1] + v[1] as f32,
-                            ]
-                        });
+                        let p = t.map(|v| [origin[0] + v[0] as f32, origin[1] + v[1] as f32]);
                         if point_in_triangle([x, y], p) {
                             n += 1;
                         }
@@ -561,7 +575,10 @@ mod tests {
                 let cell = step(level) as f32;
                 let (n, bad) = coverage(&[([0.0, 0.0], s)], 0.0, CELLS as f32, cell * 0.25);
                 assert!(n > 0);
-                assert_eq!(bad, 0, "level {level} cases {cases:?}: {bad}/{n} samples uncovered or doubled");
+                assert_eq!(
+                    bad, 0,
+                    "level {level} cases {cases:?}: {bad}/{n} samples uncovered or doubled"
+                );
             }
         }
     }
@@ -599,6 +616,9 @@ mod tests {
         }
         let (n, bad) = coverage(&surfaces, 0.0, (2 * CELLS) as f32, 0.25);
         assert!(n > 0);
-        assert_eq!(bad, 0, "{bad}/{n} samples uncovered or doubled across levels");
+        assert_eq!(
+            bad, 0,
+            "{bad}/{n} samples uncovered or doubled across levels"
+        );
     }
 }

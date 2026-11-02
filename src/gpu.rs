@@ -247,13 +247,9 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
         let y = cell_y.min(t.height - 1);
         (x, y, y * t.width + x)
     };
-    let levels = crate::terrain_lod::window_lod(
-        win,
-        &lod,
-        [cx, cz],
-        block_centre,
-        |x, y| x < cols && y < rows,
-    );
+    let levels = crate::terrain_lod::window_lod(win, &lod, [cx, cz], block_centre, |x, y| {
+        x < cols && y < rows
+    });
     for y in win.y0..win.y1 {
         for x in win.x0..win.x1 {
             let level = levels.level(x, y);
