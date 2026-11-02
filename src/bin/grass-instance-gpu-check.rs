@@ -992,8 +992,16 @@ fn main() {
         assert!((environment::daylight(hour) - expected).abs() < 0.00001);
     }
     let mut greens = Vec::new();
-    for (hour, _) in hours {
-        let daylight = environment::daylight(hour);
+    for (hour, _) in hours.into_iter().chain([(-1., -1.)]) {
+        let daylight = if hour < 0. {
+            -1.
+        } else {
+            environment::daylight(hour)
+        };
+        // No-map fallback must ignore unrelated scene directional lighting.
+        if hour < 0. {
+            uni[36..44].fill(0.);
+        }
         uni[21] = 0.;
         uni[35] = daylight;
         uni[19] = daylight;
@@ -1058,9 +1066,13 @@ fn main() {
         drop(pixels);
         buf.unmap();
     }
-    for (j, (_, daylight)) in hours.into_iter().enumerate() {
+    for (j, (_, daylight)) in hours.into_iter().chain([(-1., -1.)]).enumerate() {
         let mix = (lm[5] as f32 * (1. - daylight) + lm[1] as f32 * daylight) / 255.;
-        let encoded = (240. / 255. * 2. * mix).clamp(0., 1.);
+        let encoded = if daylight < 0. {
+            240. / 255.
+        } else {
+            (240. / 255. * 2. * mix).clamp(0., 1.)
+        };
         let linear = if encoded <= 0.04045 {
             encoded / 12.92
         } else {

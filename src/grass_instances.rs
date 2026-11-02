@@ -152,6 +152,12 @@ impl Gpu {
             "tex.a*i.grass_fade<=select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)",
             1,
         );
+        // Retail 0x652e84: without a complete day/night pair, stage 0
+        // SELECTARG1 keeps the texture RGB and stage 1 is disabled. It is not
+        // an invitation to add a provisional directional-light multiplier.
+        let fallback="let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.);";
+        assert!(source.contains(fallback));
+        source = source.replacen(fallback, "return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);", 1);
         if light_layout.is_some() {
             let declarations = r#"
 struct GrassLightSettings { params:vec4<f32>, areas:vec4<u32>, light:vec4<u32> };
@@ -177,16 +183,16 @@ fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
  return grass_linear(clamp(base*mix(night,day,clamp(camera.sun.w,0.,1.))*2.,vec3<f32>(0.),vec3<f32>(1.)));
 }
 "#;
-            let marker = "let light=camera.light.x+camera.light.y*max";
+            let marker = "return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);";
             assert!(source.contains(marker));
-            source=source.replacen(marker, "if camera.sun.w>=0. {return vec4<f32>(grass_pass_fog(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w,i.grass_refraction),1.);} let light=camera.light.x+camera.light.y*max",1);
+            source=source.replacen(marker, "if camera.sun.w>=0. {return vec4<f32>(grass_pass_fog(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w,i.grass_refraction),1.);} return vec4<f32>(fogged(tex.rgb,i.pos.w),1.);",1);
             source.push_str(declarations);
         }
         // Ordinary grass retains table fog. Only the water-plane-clipped
         // refraction pass interpolates the recovered exponential vertex fog.
         source = source.replace(
-            "fogged(tex.rgb*light*camera.light.zww,i.pos.w)",
-            "grass_pass_fog(tex.rgb*light*camera.light.zww,i.pos.w,i.grass_refraction)",
+            "fogged(tex.rgb,i.pos.w)",
+            "grass_pass_fog(tex.rgb,i.pos.w,i.grass_refraction)",
         );
         source.push_str(refraction_fog::WGSL);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {

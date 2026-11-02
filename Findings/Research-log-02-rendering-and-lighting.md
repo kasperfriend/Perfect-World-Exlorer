@@ -1150,3 +1150,25 @@ reports incomplete census rather than calling that a full-world success.
 Drive metadata lists all 176 corresponding 526424-byte lightmap files;
 metadata is not payload validation. Full corpus and unloaded-pair material
 fallback remain open, so P1.06 remains No. Continue.
+
+CI `41452828587` (`e9d0735`) passed Linux/Windows and all 13 GPU binaries.
+Confirmation: independent record lengths / checked layout Yes; full P1.06 No.
+
+### Separate terrain and grass missing-map policies
+
+Actual 1.4.2 terrain `ApplyLightMap` is `7c2650`: day texture is mask+0c,
+night is mask+10; missing night falls back to day (`7c2678–7c2683`), while
+missing day returns without binding. Lighting disabled uses environment white
+texture. This agrees with the related-source routine, but it is NOT grass's
+policy. Grass `652db4–652dc1` requires BOTH maps; otherwise `652e84–652ec5`
+sets stage0 SELECTARG1 RGB, disables stage1 and retains texture-alpha
+modulation. Related `EL_GrassType.cpp` confirms the same no-map branch.
+
+Corrected the production grass no-lightmap shader path to retain texture RGB,
+not apply the provisional global directional multiplier. Complete-pair atlas
+sampling, fade, alpha test and per-pass fog are unchanged. Added a GPU case
+with no-map selection and deliberately black scene lighting; expected output
+is the original texture color. The current strict terrain loader still
+requires files, so per-area missing/unloaded metadata and lifecycle remain
+open, as does the full-world payload census. No claim that a global no-map
+shader switch implements per-area unloading. GPU validation pending.
