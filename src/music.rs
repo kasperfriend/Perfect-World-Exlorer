@@ -1,0 +1,456 @@
+//! Music playlists and polygons from the retail client's UTF-16 precinct.clt.
+use crate::pck;
+use std::{
+    collections::HashMap,
+    fs,
+    path::{Path, PathBuf},
+    time::Instant,
+};
+#[derive(Debug)]
+pub struct Zone {
+    pub name: String,
+    polygon: Vec<[f32; 2]>,
+    pub tracks: Vec<String>,
+    area: f32,
+}
+pub struct Zones {
+    pub zones: Vec<Zone>,
+}
+fn quoted(s: &str) -> Result<String, String> {
+    let s = s.trim();
+    if !s.starts_with('"') {
+        return Err(format!("expected quoted precinct string: {s}"));
+    }
+    let end = s[1..].find('"').ok_or("unterminated precinct string")? + 1;
+    Ok(s[1..end].to_string())
+}
+fn vector(s: &str) -> Result<[f32; 3], String> {
+    let vals: Vec<_> = s
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|x| !x.is_empty())
+        .map(str::parse::<f32>)
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    if vals.len() != 3 || vals.iter().any(|x| !x.is_finite()) {
+        return Err(format!("invalid precinct vertex {s}"));
+    }
+    Ok([vals[0], vals[1], vals[2]])
+}
+impl Zones {
+    pub fn open(path: &Path) -> Result<Self, String> {
+        let bytes = fs::read(path).map_err(|e| e.to_string())?;
+        if bytes.len() < 2 || bytes.len() % 2 != 0 {
+            return Err("invalid UTF-16 precinct file".into());
+        }
+        let words: Vec<u16> = bytes
+            .chunks_exact(2)
+            .map(|x| u16::from_le_bytes([x[0], x[1]]))
+            .collect();
+        let text = String::from_utf16(&words).map_err(|e| e.to_string())?;
+        Self::parse(text.trim_start_matches('\u{feff}'))
+    }
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let lines: Vec<_> = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with("//"))
+            .collect();
+        if lines.len() < 2 || lines[0].split_whitespace().collect::<Vec<_>>() != ["version", "6"] {
+            return Err("unsupported precinct version (expected 6)".into());
+        }
+        let mut i = 2usize;
+        let mut zones = Vec::new();
+        while i < lines.len() {
+            let name = quoted(lines[i])?;
+            let nums: Vec<_> = lines
+                .get(i + 1)
+                .ok_or("missing precinct header")?
+                .split_whitespace()
+                .map(str::parse::<usize>)
+                .collect::<Result<_, _>>()
+                .map_err(|e| e.to_string())?;
+            if nums.len() < 10
+                || nums[1] < 3
+                || nums[1] > 10000
+                || nums[2] > 10000
+                || nums[5] > 1000
+            {
+                return Err(format!("invalid precinct counts at {name}"));
+            }
+            let (n, labels, tracks) = (nums[1], nums[2], nums[5]);
+            let begin = i + 3;
+            let stop = begin.checked_add(n).ok_or("overflow")?;
+            if stop + labels + tracks + 2 > lines.len() {
+                return Err(format!("truncated precinct {name}"));
+            }
+            let mut poly = Vec::with_capacity(n);
+            for line in &lines[begin..stop] {
+                let [x, _, z] = vector(line)?;
+                poly.push([x, z]);
+            }
+            let mut area = 0.;
+            for j in 0..n {
+                let p = poly[j];
+                let q = poly[(j + 1) % n];
+                area += p[0] * q[1] - q[0] * p[1];
+            }
+            let list = stop + labels + 1;
+            let mut playlist = Vec::new();
+            for line in &lines[list..list + tracks] {
+                let path = quoted(line)?;
+                if !path.is_empty() {
+                    playlist.push(path)
+                }
+            }
+            zones.push(Zone {
+                name,
+                polygon: poly,
+                tracks: playlist,
+                area: area.abs() * 0.5,
+            });
+            i = list + tracks + 1;
+        }
+        Ok(Self { zones })
+    }
+    pub fn find(&self, x: f32, z: f32) -> Option<usize> {
+        self.zones
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| contains(&p.polygon, x, z))
+            .min_by(|(_, a), (_, b)| a.area.total_cmp(&b.area))
+            .map(|(i, _)| i)
+    }
+}
+fn contains(poly: &[[f32; 2]], x: f32, z: f32) -> bool {
+    let mut inside = false;
+    let mut j = poly.len() - 1;
+    for i in 0..poly.len() {
+        let [xi, zi] = poly[i];
+        let [xj, zj] = poly[j];
+        if (zi > z) != (zj > z) && x < (xj - xi) * (z - zi) / (zj - zi) + xi {
+            inside = !inside
+        }
+        j = i;
+    }
+    inside
+}
+fn resolve(element: &Path, raw: &str) -> Option<PathBuf> {
+    let parts: Vec<_> = raw.split(['\\', '/']).filter(|s| !s.is_empty()).collect();
+    if parts.is_empty()
+        || !parts[0].eq_ignore_ascii_case("music")
+        || parts.iter().any(|p| *p == ".." || *p == ".")
+    {
+        return None;
+    }
+    let mut path = element.to_path_buf();
+    for part in parts {
+        let next = fs::read_dir(&path)
+            .ok()?
+            .filter_map(Result::ok)
+            .find(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(part))?;
+        path = next.path();
+    }
+    if path.is_file() {
+        Some(path)
+    } else {
+        None
+    }
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Track {
+    Loose(PathBuf),
+    Packed { archive: PathBuf, entry: pck::Entry },
+}
+impl Track {
+    fn label(&self) -> String {
+        match self {
+            Track::Loose(p) => p
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            Track::Packed { entry, .. } => format!(
+                "{} (sfx.pck)",
+                entry.name.rsplit('/').next().unwrap_or(&entry.name)
+            ),
+        }
+    }
+    #[cfg(windows)]
+    fn read(&self) -> Result<Vec<u8>, String> {
+        match self {
+            Track::Loose(p) => fs::read(p).map_err(|e| e.to_string()),
+            Track::Packed { archive, entry } => {
+                let mut f = fs::File::open(archive).map_err(|e| e.to_string())?;
+                let r = pck::read_entry(&mut f, entry);
+                r
+            }
+        }
+    }
+}
+fn packed_key(raw: &str) -> Option<String> {
+    let path = raw.replace('\\', "/");
+    let (prefix, name) = path.split_once('/')?;
+    if !prefix.eq_ignore_ascii_case("music")
+        || name.is_empty()
+        || name.contains('/')
+        || name == "."
+        || name == ".."
+    {
+        return None;
+    }
+    let stem = name.rsplit_once('.').map(|x| x.0).unwrap_or(name);
+    Some(format!("sfx/music/{}.ogg", stem.to_lowercase()))
+}
+fn catalog(element: &Path) -> HashMap<String, pck::Entry> {
+    let path = element.join("sfx.pck");
+    fs::File::open(path)
+        .ok()
+        .and_then(|mut f| pck::directory(&mut f).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.name.to_ascii_lowercase().starts_with("sfx/music/"))
+        .map(|e| (e.name.to_lowercase(), e))
+        .collect()
+}
+fn resolve_track(element: &Path, packed: &HashMap<String, pck::Entry>, raw: &str) -> Option<Track> {
+    if let Some(path) = resolve(element, raw) {
+        return Some(Track::Loose(path));
+    }
+    // Client playlists may name MP3 while a distribution ships loose OGG.
+    if raw.to_ascii_lowercase().ends_with(".mp3") {
+        let alt = format!("{}.ogg", &raw[..raw.len() - 4]);
+        if let Some(path) = resolve(element, &alt) {
+            return Some(Track::Loose(path));
+        }
+    }
+    let key = packed_key(raw)?;
+    packed.get(&key).cloned().map(|entry| Track::Packed {
+        archive: element.join("sfx.pck"),
+        entry,
+    })
+}
+#[derive(Debug)]
+struct Request {
+    enabled: bool,
+    volume: f32,
+    zone: Option<usize>,
+    paths: Vec<Track>,
+}
+pub struct MusicPlayer {
+    zones: Option<Zones>,
+    element: PathBuf,
+    packed: HashMap<String, pck::Entry>,
+    last_zone: Option<usize>,
+    last_enabled: bool,
+    last_volume: f32,
+    last_check: Instant,
+    status: String,
+    #[cfg(windows)]
+    tx: std::sync::mpsc::Sender<Request>,
+    #[cfg(windows)]
+    rx: std::sync::mpsc::Receiver<String>,
+}
+impl MusicPlayer {
+    pub fn new(element: &Path) -> Self {
+        let zones = Zones::open(&element.join("maps/world/precinct.clt"));
+        let status = match &zones {
+            Ok(z) => format!("{} music zones loaded", z.zones.len()),
+            Err(e) => format!("Music zones unavailable: {e}"),
+        };
+        #[cfg(windows)]
+        let (tx, rx) = {
+            let (tx, request_rx) = std::sync::mpsc::channel();
+            let (status_tx, rx) = std::sync::mpsc::channel();
+            std::thread::Builder::new()
+                .name("zone-music".into())
+                .spawn(move || audio_worker(request_rx, status_tx))
+                .expect("music worker");
+            (tx, rx)
+        };
+        Self {
+            zones: zones.ok(),
+            element: element.to_path_buf(),
+            packed: catalog(element),
+            last_zone: None,
+            last_enabled: false,
+            last_volume: -1.,
+            last_check: Instant::now() - std::time::Duration::from_secs(2),
+            status,
+            #[cfg(windows)]
+            tx,
+            #[cfg(windows)]
+            rx,
+        }
+    }
+    pub fn update(&mut self, enabled: bool, volume: f32, x: f32, z: f32) {
+        #[cfg(windows)]
+        while let Ok(s) = self.rx.try_recv() {
+            if enabled {
+                self.status = s;
+            }
+        }
+        if self.last_check.elapsed() < std::time::Duration::from_millis(500)
+            && enabled == self.last_enabled
+            && (volume - self.last_volume).abs() < 0.001
+        {
+            return;
+        }
+        self.last_check = Instant::now();
+        let zone = if enabled {
+            self.zones.as_ref().and_then(|db| db.find(x, z))
+        } else {
+            None
+        };
+        if zone == self.last_zone
+            && enabled == self.last_enabled
+            && (volume - self.last_volume).abs() < 0.001
+        {
+            return;
+        }
+        self.last_zone = zone;
+        self.last_enabled = enabled;
+        self.last_volume = volume;
+        let paths: Vec<_> = zone
+            .and_then(|i| self.zones.as_ref().map(|z| &z.zones[i]))
+            .map(|q| {
+                q.tracks
+                    .iter()
+                    .filter_map(|p| resolve_track(&self.element, &self.packed, p))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let label = zone
+            .and_then(|i| self.zones.as_ref().map(|z| z.zones[i].name.as_str()))
+            .unwrap_or("No music zone");
+        self.status = if !enabled {
+            "Music off".into()
+        } else if paths.is_empty() {
+            format!("{label}: no available tracks in client")
+        } else {
+            format!("{label}: {} available tracks", paths.len())
+        };
+        let req = Request {
+            enabled,
+            volume,
+            zone,
+            paths,
+        };
+        #[cfg(windows)]
+        let _ = self.tx.send(req);
+        #[cfg(not(windows))]
+        {
+            let _ = req;
+            if enabled {
+                self.status.push_str(" (audio playback is Windows-only)");
+            }
+        }
+    }
+    pub fn status(&self) -> &str {
+        &self.status
+    }
+}
+#[cfg(windows)]
+fn audio_worker(rx: std::sync::mpsc::Receiver<Request>, status: std::sync::mpsc::Sender<String>) {
+    use rodio::{Decoder, OutputStream, Sink};
+    use std::{
+        io::{BufReader, Cursor},
+        time::Duration,
+    };
+    let mut output = None;
+    let mut sink: Option<Sink> = None;
+    let mut current = None;
+    let mut paths = Vec::new();
+    let mut index = 0usize;
+    let mut volume = 0.5f32;
+    let mut enabled = false;
+    loop {
+        match rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(req) => {
+                let changed = req.zone != current || req.enabled != enabled || req.paths != paths;
+                volume = req.volume.clamp(0., 1.);
+                enabled = req.enabled;
+                if changed {
+                    if let Some(s) = sink.take() {
+                        s.stop();
+                    }
+                    paths = req.paths;
+                    current = req.zone;
+                    index = 0;
+                }
+                if let Some(s) = &sink {
+                    s.set_volume(volume)
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+        }
+        if !enabled || paths.is_empty() {
+            continue;
+        }
+        if output.is_none() {
+            match OutputStream::try_default() {
+                Ok(o) => output = Some(o),
+                Err(e) => {
+                    let _ = status.send(format!("Audio output unavailable: {e}"));
+                    std::thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+            }
+        }
+        if sink.as_ref().map_or(true, |s| s.empty()) {
+            let path = &paths[index % paths.len()];
+            index += 1;
+            let track = path.read().and_then(|bytes| {
+                Decoder::new(BufReader::new(Cursor::new(bytes))).map_err(|e| e.to_string())
+            });
+            match track {
+                Ok(source) => {
+                    let s = match Sink::try_new(&output.as_ref().unwrap().1) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            let _ = status.send(format!("Audio output error: {e}"));
+                            continue;
+                        }
+                    };
+                    s.set_volume(volume);
+                    s.append(source);
+                    let _ = status.send(format!("Playing: {}", path.label()));
+                    sink = Some(s);
+                }
+                Err(e) => {
+                    let _ = status.send(format!("Cannot decode {}: {e}", path.label()));
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+        }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn mp3_playlist_maps_to_archived_vorbis() {
+        assert_eq!(
+            packed_key("Music\\island2_n.mp3").as_deref(),
+            Some("sfx/music/island2_n.ogg")
+        );
+        assert_eq!(
+            packed_key("MUSIC/city_d1.OGG").as_deref(),
+            Some("sfx/music/city_d1.ogg")
+        );
+        assert!(packed_key("Music/../../secret.mp3").is_none());
+    }
+    #[test]
+    fn parse_regions_and_select_smallest() {
+        let s="version 6\n123\n\"large\"\n1 5 0 0 1 1 60 1 1 0\n0, 0, 0\n-10 0 -10\n10 0 -10\n10 0 10\n-10 0 10\n-10 0 -10\n\"\"\n\"Music\\a.mp3\"\n\"\"\n\"small\"\n2 5 0 0 1 1 60 1 1 0\n0, 0, 0\n-1 0 -1\n1 0 -1\n1 0 1\n-1 0 1\n-1 0 -1\n\"\"\n\"Music\\b.ogg\"\n\"\"";
+        let z = Zones::parse(s).unwrap();
+        assert_eq!(z.find(0., 0.), Some(1));
+        assert_eq!(z.find(5., 5.), Some(0));
+        assert_eq!(z.find(50., 50.), None);
+        assert_eq!(z.zones[1].tracks[0], "Music\\b.ogg");
+    }
+    #[test]
+    fn invalid_header_rejected() {
+        assert!(Zones::parse("version 5\n1\n").is_err())
+    }
+}

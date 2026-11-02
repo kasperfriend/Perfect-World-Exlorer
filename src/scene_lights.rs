@@ -1,0 +1,409 @@
+//! Retail CECSceneLights version 0x80000001 file records.
+//! Client scene-light grid and candidate selection in 0x425470 / 0x4250c0.
+//! Runtime effect lights can be supplied to the query; the affected animated
+//! model/effect rendering paths are not yet connected.
+use std::{fs, path::Path};
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SceneLight {
+    pub position: [f32; 3],
+    pub range: f32,
+    pub stored_attenuation: [f32; 3],
+    pub diffuse: [f32; 4],
+    pub ambient: [f32; 4],
+    pub bounds_center: [f32; 3],
+    pub bounds_half_extent: [f32; 3],
+    pub bounds_min: [f32; 3],
+    pub bounds_max: [f32; 3],
+    pub flags: u32,
+}
+#[derive(Debug, Clone, Default)]
+pub struct SceneLights {
+    pub lights: Vec<SceneLight>,
+}
+fn u32_at(b: &[u8], p: usize) -> Result<u32, String> {
+    Ok(u32::from_le_bytes(
+        b.get(p..p + 4)
+            .ok_or("truncated scene-light record")?
+            .try_into()
+            .unwrap(),
+    ))
+}
+fn f32_at(b: &[u8], p: usize) -> Result<f32, String> {
+    let f = f32::from_bits(u32_at(b, p)?);
+    if !f.is_finite() {
+        return Err("non-finite scene-light value".into());
+    }
+    Ok(f)
+}
+fn floats<const N: usize>(b: &[u8], p: usize) -> Result<[f32; N], String> {
+    let mut a = [0.; N];
+    for (i, v) in a.iter_mut().enumerate() {
+        *v = f32_at(b, p + i * 4)?;
+    }
+    Ok(a)
+}
+impl SceneLights {
+    pub fn load(path: &Path) -> Result<Self, String> {
+        let b = fs::read(path).map_err(|e| e.to_string())?;
+        Self::parse(&b)
+    }
+    pub fn parse(b: &[u8]) -> Result<Self, String> {
+        if u32_at(b, 0)? != 0x80000001 {
+            return Err("unsupported scene-light version".into());
+        }
+        let n = u32_at(b, 4)? as usize;
+        let required = n
+            .checked_mul(112)
+            .and_then(|v| v.checked_add(8))
+            .ok_or("scene-light size overflow")?;
+        if n > 1_000_000 || required != b.len() {
+            return Err(format!(
+                "scene-light size mismatch: count {n}, bytes {}",
+                b.len()
+            ));
+        }
+        let mut lights = Vec::with_capacity(n);
+        for i in 0..n {
+            let r = &b[8 + i * 112..8 + (i + 1) * 112];
+            let light = SceneLight {
+                position: floats(r, 0)?,
+                range: f32_at(r, 0x0c)?,
+                stored_attenuation: floats(r, 0x10)?,
+                diffuse: floats(r, 0x1c)?,
+                ambient: floats(r, 0x2c)?,
+                bounds_center: floats(r, 0x3c)?,
+                bounds_half_extent: floats(r, 0x48)?,
+                bounds_min: floats(r, 0x54)?,
+                bounds_max: floats(r, 0x60)?,
+                flags: u32_at(r, 0x6c)?,
+            };
+            if light.range < 0. || light.bounds_half_extent.iter().any(|x| *x < 0.) {
+                return Err(format!("invalid scene light bounds at {i}"));
+            }
+            lights.push(light);
+        }
+        Ok(Self { lights })
+    }
+}
+/// Runtime effect light fields read by 0x42592f–0x425b09.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DynamicLight {
+    pub position: [f32; 3],
+    pub radius: f32,
+    /// RGBA vector at runtime-light offset +4; alpha is an intensity factor.
+    pub color: [f32; 4],
+}
+
+/// Static file-light grid. The client rebuilds a 10x10 grid of 12-unit
+/// cells centered on the tracked position when it moves over one cell in X/Z.
+/// A separate runtime list is rebuilt by update_dynamic.
+#[derive(Debug)]
+pub struct StaticGrid {
+    center: [f32; 3],
+    initialized: bool,
+    cells: [Vec<usize>; 100],
+    dynamic_cells: [Vec<usize>; 100],
+    dynamic: Vec<DynamicLight>,
+}
+impl Default for StaticGrid {
+    fn default() -> Self {
+        Self {
+            center: [0.; 3],
+            initialized: false,
+            cells: std::array::from_fn(|_| Vec::new()),
+            dynamic_cells: std::array::from_fn(|_| Vec::new()),
+            dynamic: Vec::new(),
+        }
+    }
+}
+impl StaticGrid {
+    pub fn update(&mut self, lights: &SceneLights, center: [f32; 3]) {
+        if self.initialized
+            && (center[0] - self.center[0]).abs() < 12.
+            && (center[2] - self.center[2]).abs() < 12.
+        {
+            return;
+        }
+        self.center = center;
+        self.initialized = true;
+        for cell in &mut self.cells {
+            cell.clear();
+        }
+        for cell in &mut self.dynamic_cells {
+            cell.clear();
+        }
+        self.dynamic.clear();
+        let min_x = center[0] - 60.;
+        let max_x = center[0] + 60.;
+        let min_z = center[2] - 60.;
+        let max_z = center[2] + 60.;
+        let index = |v: f32| (v as i32).clamp(0, 9) as usize;
+        for (id, l) in lights.lights.iter().enumerate() {
+            if l.bounds_min[0] > max_x
+                || l.bounds_max[0] < min_x
+                || l.bounds_min[2] > max_z
+                || l.bounds_max[2] < min_z
+            {
+                continue;
+            }
+            let x0 = index((l.bounds_min[0] - min_x) / 12.);
+            let x1 = index((l.bounds_max[0] - min_x) / 12.);
+            let z0 = index((max_z - l.bounds_max[2]) / 12.);
+            let z1 = index((max_z - l.bounds_min[2]) / 12.);
+            for z in z0..=z1 {
+                for x in x0..=x1 {
+                    self.cells[z * 10 + x].push(id);
+                }
+            }
+        }
+    }
+    /// Rebuild the dynamic list each frame. The client takes at most three
+    /// runtime candidates per cell in source order (0x425b09).
+    pub fn update_dynamic(&mut self, lights: &[DynamicLight]) {
+        self.dynamic.clear();
+        self.dynamic.extend_from_slice(lights);
+        for cell in &mut self.dynamic_cells {
+            cell.clear();
+        }
+        if !self.initialized {
+            return;
+        }
+        let min_x = self.center[0] - 60.;
+        let max_x = self.center[0] + 60.;
+        let min_z = self.center[2] - 60.;
+        let max_z = self.center[2] + 60.;
+        let index = |v: f32| (v as i32).clamp(0, 9) as usize;
+        for (id, l) in self.dynamic.iter().enumerate() {
+            if !l.radius.is_finite()
+                || l.radius < 0.
+                || l.position
+                    .iter()
+                    .chain(l.color.iter())
+                    .any(|x| !x.is_finite())
+            {
+                continue;
+            }
+            let [x, _, z] = l.position;
+            let r = l.radius;
+            if x - r > max_x || x + r < min_x || z - r > max_z || z + r < min_z {
+                continue;
+            }
+            let x0 = index((x - r - min_x) / 12.);
+            let x1 = index((x + r - min_x) / 12.);
+            let z0 = index((max_z - z - r) / 12.);
+            let z1 = index((max_z - z + r) / 12.);
+            for cz in z0..=z1 {
+                for cx in x0..=x1 {
+                    let cell = &mut self.dynamic_cells[cz * 10 + cx];
+                    if cell.len() < 3 {
+                        cell.push(id);
+                    }
+                }
+            }
+        }
+    }
+    /// Nearest among the cell's static and runtime candidates, not globally nearest.
+    /// Returns none outside the client's grid bounds (including y < 0 or > 800).
+    /// The 0x4250c0 path scales flag-1 colors by the current night factor,
+    /// forces attenuation to (0,.4,0) and color alpha to 1.
+    pub fn query(&self, lights: &SceneLights, point: [f32; 3], night: f32) -> Option<SceneLight> {
+        if !self.initialized || point.iter().any(|x| !x.is_finite()) {
+            return None;
+        }
+        let min_x = self.center[0] - 60.;
+        let max_x = self.center[0] + 60.;
+        let min_z = self.center[2] - 60.;
+        let max_z = self.center[2] + 60.;
+        if point[0] < min_x
+            || point[0] > max_x
+            || point[2] < min_z
+            || point[2] > max_z
+            || point[1] < 0.
+            || point[1] > 800.
+        {
+            return None;
+        }
+        let x = (((point[0] - min_x) / 12.) as usize).min(9);
+        let z = (((max_z - point[2]) / 12.) as usize).min(9);
+        let mut best = None;
+        let mut best_d = 99999.8984375_f32;
+        for &id in &self.cells[z * 10 + x] {
+            let l = &lights.lights[id];
+            let d = ((l.position[0] - point[0]).powi(2)
+                + (l.position[1] - point[1]).powi(2)
+                + (l.position[2] - point[2]).powi(2))
+            .sqrt();
+            if d < best_d {
+                best_d = d;
+                best = Some(l);
+            }
+        }
+        let mut result = best.cloned();
+        if let Some(l) = &mut result {
+            l.stored_attenuation = [0., 0.4, 0.];
+            if l.flags & 1 != 0 {
+                for v in &mut l.diffuse {
+                    *v *= night;
+                }
+                for v in &mut l.ambient {
+                    *v *= night;
+                }
+            }
+        }
+        for &id in &self.dynamic_cells[z * 10 + x] {
+            let d = &self.dynamic[id];
+            let distance = ((d.position[0] - point[0]).powi(2)
+                + (d.position[1] - point[1]).powi(2)
+                + (d.position[2] - point[2]).powi(2))
+            .sqrt();
+            if distance < best_d {
+                best_d = distance;
+                let scale = d.color[3];
+                let diff = [
+                    2. * d.color[0] * scale,
+                    2. * d.color[1] * scale,
+                    2. * d.color[2] * scale,
+                    1.,
+                ];
+                let ambient = [
+                    0.2 * d.color[0] * scale,
+                    0.2 * d.color[1] * scale,
+                    0.2 * d.color[2] * scale,
+                    1.,
+                ];
+                result = Some(SceneLight {
+                    position: d.position,
+                    range: 10.,
+                    stored_attenuation: [0., 0.4, 0.],
+                    diffuse: diff,
+                    ambient,
+                    bounds_center: d.position,
+                    bounds_half_extent: [d.radius; 3],
+                    bounds_min: std::array::from_fn(|i| d.position[i] - d.radius),
+                    bounds_max: std::array::from_fn(|i| d.position[i] + d.radius),
+                    flags: 0,
+                });
+            }
+        }
+        if let Some(l) = &mut result {
+            l.diffuse[3] = 1.;
+            l.ambient[3] = 1.;
+        }
+        result
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn static_grid_scales_night_and_uses_cell_not_global_nearest() {
+        fn light(x: f32, range: f32, flag: u32) -> SceneLight {
+            SceneLight {
+                position: [x, 100., 0.],
+                range,
+                stored_attenuation: [1., 2., 3.],
+                diffuse: [1., 0.5, 0.25, 2.],
+                ambient: [0.2, 0.1, 0.05, 0.4],
+                bounds_center: [x, 100., 0.],
+                bounds_half_extent: [range; 3],
+                bounds_min: [x - range, 100. - range, -range],
+                bounds_max: [x + range, 100. + range, range],
+                flags: flag,
+            }
+        }
+        let lights = SceneLights {
+            lights: vec![light(0., 20., 1), light(30., 5., 0)],
+        };
+        let mut grid = StaticGrid::default();
+        grid.update(&lights, [0., 100., 0.]);
+        let l = grid.query(&lights, [0., 100., 0.], 0.5).unwrap();
+        assert_eq!(l.diffuse, [0.5, 0.25, 0.125, 1.]);
+        assert_eq!(l.stored_attenuation, [0., 0.4, 0.]);
+        let l = grid.query(&lights, [30., 100., 0.], 0.).unwrap();
+        assert_eq!(l.diffuse, [1., 0.5, 0.25, 1.]);
+        assert!(grid.query(&lights, [0., 801., 0.], 1.).is_none());
+        assert!(grid.query(&lights, [59., 100., 59.], 1.).is_none());
+        grid.update(&lights, [100., 100., 0.]);
+        assert!(grid.query(&lights, [0., 100., 0.], 1.).is_none());
+    }
+    #[test]
+    fn dynamic_candidates_replace_nearer_static_and_are_capped_at_three() {
+        let lights = SceneLights::default();
+        let mut grid = StaticGrid::default();
+        grid.update(&lights, [0., 100., 0.]);
+        let mut dynamic = vec![];
+        for x in [8., 7., 6., 0.] {
+            dynamic.push(DynamicLight {
+                position: [x, 100., 0.],
+                radius: 20.,
+                color: [0.5, 0.25, 0.125, 0.5],
+            });
+        }
+        grid.update_dynamic(&dynamic);
+        let chosen = grid.query(&lights, [0., 100., 0.], 0.).unwrap();
+        assert_eq!(chosen.position, [6., 100., 0.]);
+        assert_eq!(chosen.diffuse, [0.5, 0.25, 0.125, 1.]);
+        assert_eq!(chosen.ambient, [0.05, 0.025, 0.0125, 1.]);
+        assert_eq!(chosen.range, 10.);
+        assert_eq!(chosen.stored_attenuation, [0., 0.4, 0.]);
+        grid.update_dynamic(&[]);
+        assert!(grid.query(&lights, [0., 100., 0.], 0.).is_none());
+    }
+    #[test]
+    fn camera_cell_rebuilds_at_exact_boundary_and_dynamic_tie_keeps_static() {
+        let mut b = vec![0u8; 120];
+        b[0..4].copy_from_slice(&0x80000001u32.to_le_bytes());
+        b[4..8].copy_from_slice(&1u32.to_le_bytes());
+        for (o, v) in [
+            (4, 100f32),
+            (12, 50.),
+            (28, 0.75),
+            (0x54, -50.),
+            (0x58, 50.),
+            (0x5c, -50.),
+            (0x60, 50.),
+            (0x64, 150.),
+            (0x68, 50.),
+        ] {
+            b[8 + o..12 + o].copy_from_slice(&v.to_le_bytes());
+        }
+        let lights = SceneLights::parse(&b).unwrap();
+        let mut grid = StaticGrid::default();
+        grid.update(&lights, [0., 100., 0.]);
+        grid.update_dynamic(&[DynamicLight {
+            position: [0., 100., 0.],
+            radius: 10.,
+            color: [1., 1., 1., 1.],
+        }]);
+        assert_eq!(
+            grid.query(&lights, [0., 100., 0.], 0.).unwrap().diffuse[0],
+            0.75
+        );
+        grid.update(&lights, [11.999, 100., 0.]);
+        assert_eq!(grid.center[0], 0.);
+        grid.update(&lights, [12., 100., 0.]);
+        assert_eq!(grid.center[0], 12.);
+    }
+    #[test]
+    fn parses_record_and_rejects_bad_inputs() {
+        let mut b = vec![0; 120];
+        b[0..4].copy_from_slice(&0x80000001u32.to_le_bytes());
+        b[4..8].copy_from_slice(&1u32.to_le_bytes());
+        let put =
+            |b: &mut Vec<u8>, o: usize, v: f32| b[8 + o..12 + o].copy_from_slice(&v.to_le_bytes());
+        put(&mut b, 0, 1.);
+        put(&mut b, 0xc, 25.);
+        put(&mut b, 0x1c, 0.5);
+        put(&mut b, 0x28, 2.);
+        put(&mut b, 0x48, 25.);
+        b[116..120].copy_from_slice(&1u32.to_le_bytes());
+        let s = SceneLights::parse(&b).unwrap();
+        assert_eq!(s.lights[0].position[0], 1.);
+        assert_eq!(s.lights[0].diffuse, [0.5, 0., 0., 2.]);
+        assert_eq!(s.lights[0].flags, 1);
+        assert!(SceneLights::parse(&b[..119]).is_err());
+        put(&mut b, 0, f32::NAN);
+        assert!(SceneLights::parse(&b).is_err());
+    }
+}

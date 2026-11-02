@@ -1,0 +1,348 @@
+//! GPU-instanced local MOXB grass. Placement sampling remains the viewer's
+//! client-derived patch randomization; meshes are stored once per type/material.
+use crate::gpu::Vertex;
+use std::{collections::BTreeMap, ops::Range};
+use wgpu::util::DeviceExt;
+
+#[derive(Default)]
+struct Group {
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
+    instances: Vec<[f32; 12]>,
+}
+#[derive(Default)]
+pub struct Builder {
+    groups: BTreeMap<(usize, usize), Group>,
+}
+pub struct Batch {
+    indices: Range<u32>,
+    instances: Range<u32>,
+}
+#[derive(Default)]
+pub struct Data {
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
+    instances: Vec<[f32; 12]>,
+    batches: Vec<Batch>,
+}
+impl Builder {
+    pub fn contains(&self, key: (usize, usize)) -> bool {
+        self.groups.contains_key(&key)
+    }
+    pub fn mesh(&mut self, key: (usize, usize), vertices: Vec<Vertex>, indices: Vec<u32>) {
+        self.groups.entry(key).or_insert(Group {
+            vertices,
+            indices,
+            instances: Vec::new(),
+        });
+    }
+    pub fn instance(&mut self, key: (usize, usize), position: [f32; 3], scale: f32) {
+        self.instance_oriented(key, position, scale, 0., 0.);
+    }
+    pub fn instance_oriented(
+        &mut self,
+        key: (usize, usize),
+        position: [f32; 3],
+        scale: f32,
+        yaw: f32,
+        wind_index: f32,
+    ) {
+        self.instance_for_area(key, position, scale, yaw, wind_index, position);
+    }
+    pub fn instance_for_area(
+        &mut self,
+        key: (usize, usize),
+        position: [f32; 3],
+        scale: f32,
+        yaw: f32,
+        wind_index: f32,
+        area_center: [f32; 3],
+    ) {
+        if let Some(g) = self.groups.get_mut(&key) {
+            let (sn, cs) = yaw.sin_cos();
+            g.instances.push([
+                position[0],
+                position[1],
+                position[2],
+                scale,
+                cs,
+                sn,
+                wind_index,
+                0.,
+                area_center[0],
+                area_center[2],
+                0.,
+                0.,
+            ]);
+        }
+    }
+    pub fn finish(self) -> Data {
+        let mut data = Data::default();
+        for (_, g) in self.groups {
+            if g.instances.is_empty() {
+                continue;
+            }
+            let base = data.vertices.len() as u32;
+            let i = data.indices.len() as u32;
+            let n = data.instances.len() as u32;
+            data.vertices.extend(g.vertices);
+            data.indices.extend(g.indices.into_iter().map(|v| v + base));
+            data.instances.extend(g.instances);
+            data.batches.push(Batch {
+                indices: i..data.indices.len() as u32,
+                instances: n..data.instances.len() as u32,
+            });
+        }
+        data
+    }
+}
+impl Data {
+    pub fn counts(&self) -> (usize, usize, usize) {
+        (
+            self.vertices.len(),
+            self.instances.len(),
+            self.batches.len(),
+        )
+    }
+}
+pub struct Gpu {
+    pipeline: wgpu::RenderPipeline,
+    vertices: wgpu::Buffer,
+    indices: wgpu::Buffer,
+    instances: wgpu::Buffer,
+    batches: Vec<Batch>,
+}
+impl Gpu {
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        layout: &wgpu::BindGroupLayout,
+        shader: &str,
+        data: Data,
+        light_layout: Option<&wgpu::BindGroupLayout>,
+    ) -> Self {
+        let marker = "@vertex fn vs(i:VIn)->VOut { var o:VOut; var pos=i.pos;";
+        assert!(
+            shader.contains(marker),
+            "world shader changed; grass transform must be updated"
+        );
+        let mut source=shader.replacen(marker,"@vertex fn vs(i:VIn, @location(6) instance:vec4<f32>, @location(8) extra:vec4<f32>, @location(9) area_center:vec2<f32>)->VOut { var o:VOut; var local=vec3<f32>(i.pos.x*extra.x+i.pos.z*extra.y,i.pos.y,-i.pos.x*extra.y+i.pos.z*extra.x); var pos=local*instance.w+instance.xyz;",1);
+        let marker = "var norm=i.normal;";
+        assert!(source.contains(marker));
+        source = source.replacen(marker, "var norm=vec3<f32>(i.normal.x*extra.x+i.normal.z*extra.y,i.normal.y,-i.normal.x*extra.y+i.normal.z*extra.x);", 1);
+        // The retail grass VS computes alpha per original world-space vertex,
+        // and its PS multiplies this into the texture alpha before D3D alpha test.
+        // i.diffuse stores the authored per-type range as f32 bits for this pass.
+        let marker = "@location(5) diffuse:vec3<f32> };";
+        assert!(source.contains(marker));
+        source = source.replacen(
+            marker,
+            "@location(5) diffuse:vec3<f32>, @location(6) grass_fade:f32, @location(7) @interpolate(flat) grass_area:vec2<f32> };",
+            1,
+        );
+        let marker = "o.pos=camera.matrix*vec4<f32>(pos,1.);";
+        assert!(source.contains(marker));
+        source = source.replacen(marker,"o.grass_area=area_center; o.grass_fade=1.; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0. && weight>=0. && weight<100. {let history_index=u32(clamp(extra.z,0.,79.)); pos+=camera.grass_history[history_index].xyz*weight*camera.grass_wind.y;} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
+        let marker = "tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)";
+        assert!(source.contains(marker));
+        source = source.replacen(
+            marker,
+            "tex.a*i.grass_fade<=select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)",
+            1,
+        );
+        if light_layout.is_some() {
+            let declarations = r#"
+struct GrassLightSettings { params:vec4<f32>, areas:vec4<u32>, light:vec4<u32> };
+@group(1) @binding(0) var<uniform> grass_settings:GrassLightSettings;
+@group(1) @binding(1) var grass_lightmaps:texture_2d_array<f32>;
+@group(1) @binding(2) var grass_light_sampler:sampler;
+fn grass_linear(c:vec3<f32>)->vec3<f32>{return select(c/12.92,pow((max(c,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));}
+fn grass_lighting(world:vec3<f32>, area:vec2<f32>, base:vec3<f32>)->vec3<f32>{
+ let s=grass_settings;
+ let gx=clamp(world.x/s.params.z+s.params.x*0.5,0.,s.params.x-1.);
+ let gy=clamp(s.params.y*0.5-world.z/s.params.z,0.,s.params.y-1.);
+ let coord=vec2<f32>(gx,gy)/s.params.w;
+ let area_gx=clamp(area.x/s.params.z+s.params.x*0.5,0.,s.params.x-1.);
+ let area_gy=clamp(s.params.y*0.5-area.y/s.params.z,0.,s.params.y-1.);
+ let selected=select(floor(coord),floor(vec2<f32>(area_gx,area_gy)/s.params.w),camera.grass_wind.z>0.5);
+ let ax=u32(selected.x);let ay=u32(selected.y);
+ let id=ay*s.areas.x+ax;let slot=id%s.light.z;let page=id/s.light.z;
+ let side=f32(s.light.x);let xy=vec2<f32>(f32(slot%s.light.y),f32(slot/s.light.y))*side;
+ let loc=clamp((coord-selected)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));
+ let lmuv=(xy+loc)/4096.;
+ let day=textureSampleLevel(grass_lightmaps,grass_light_sampler,lmuv,i32(page),0.).rgb;
+ let night=textureSampleLevel(grass_lightmaps,grass_light_sampler,lmuv,i32(page+s.light.w),0.).rgb;
+ return grass_linear(clamp(base*mix(night,day,clamp(camera.sun.w,0.,1.))*2.,vec3<f32>(0.),vec3<f32>(1.)));
+}
+"#;
+            let marker = "let light=camera.light.x+camera.light.y*max";
+            assert!(source.contains(marker));
+            source=source.replacen(marker, "if camera.sun.w>=0. {return vec4<f32>(fogged(grass_lighting(i.world,i.grass_area,raw_tex.rgb),i.pos.w),1.);} let light=camera.light.x+camera.light.y*max",1);
+            source.push_str(declarations);
+        }
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("instanced client grass shader"),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
+        let mut layouts = vec![layout];
+        if let Some(l) = light_layout {
+            layouts.push(l);
+        }
+        let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("instanced grass layout"),
+            bind_group_layouts: &layouts,
+            push_constant_ranges: &[],
+        });
+        const ATTR: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4,4=>Float32,5=>Uint32,7=>Uint32];
+        const INSTANCE: [wgpu::VertexAttribute; 3] =
+            wgpu::vertex_attr_array![6=>Float32x4,8=>Float32x4,9=>Float32x2];
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("instanced grass pipeline"),
+            layout: Some(&pl),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: "vs",
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Vertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &ATTR,
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: 48,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &INSTANCE,
+                    },
+                ],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: "fs",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Greater,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview: None,
+        });
+        let (vertices, indices, instances, batches) = Self::buffers(device, data);
+        Self {
+            pipeline,
+            vertices,
+            indices,
+            instances,
+            batches,
+        }
+    }
+    fn buffers(
+        device: &wgpu::Device,
+        mut data: Data,
+    ) -> (wgpu::Buffer, wgpu::Buffer, wgpu::Buffer, Vec<Batch>) {
+        if data.vertices.is_empty() {
+            data.vertices.push(bytemuck::Zeroable::zeroed());
+        }
+        if data.indices.is_empty() {
+            data.indices.push(0);
+        }
+        if data.instances.is_empty() {
+            data.instances.push([0.; 12]);
+        }
+        let buffer = |label, contents: &[u8], usage| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(label),
+                contents,
+                usage,
+            })
+        };
+        (
+            buffer(
+                "grass mesh vertices",
+                bytemuck::cast_slice(&data.vertices),
+                wgpu::BufferUsages::VERTEX,
+            ),
+            buffer(
+                "grass mesh indices",
+                bytemuck::cast_slice(&data.indices),
+                wgpu::BufferUsages::INDEX,
+            ),
+            buffer(
+                "grass placement instances",
+                bytemuck::cast_slice(&data.instances),
+                wgpu::BufferUsages::VERTEX,
+            ),
+            data.batches,
+        )
+    }
+    pub fn update(&mut self, device: &wgpu::Device, data: Data) {
+        let (v, i, n, b) = Self::buffers(device, data);
+        self.vertices = v;
+        self.indices = i;
+        self.instances = n;
+        self.batches = b;
+    }
+    pub fn draw<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        bind: &'a wgpu::BindGroup,
+        light: Option<&'a wgpu::BindGroup>,
+    ) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, bind, &[]);
+        if let Some(l) = light {
+            pass.set_bind_group(1, l, &[]);
+        }
+        pass.set_vertex_buffer(0, self.vertices.slice(..));
+        pass.set_vertex_buffer(1, self.instances.slice(..));
+        pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
+        for b in &self.batches {
+            pass.draw_indexed(b.indices.clone(), 0, b.instances.clone());
+        }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn area_center_is_preserved_per_instance() {
+        let mut builder = Builder::default();
+        builder.mesh((0, 0), Vec::new(), Vec::new());
+        builder.instance_for_area((0, 0), [12., 5., 22.], 1., 0., 0., [100., 10., -50.]);
+        builder.instance_oriented((0, 0), [3., 4., 5.], 1., 0., 0.);
+        let d = builder.finish();
+        assert_eq!(&d.instances[0][8..10], &[100., -50.]);
+        assert_eq!(&d.instances[1][8..10], &[3., 5.]);
+    }
+    #[test]
+    fn stores_mesh_once_for_many_instances() {
+        let mut b = Builder::default();
+        let v = Vertex {
+            pos: [1., 2., 3.],
+            normal: [0., 1., 0.],
+            uv: [0., 0.],
+            color: [1.; 4],
+            kind: 3.75,
+            diffuse: 0,
+            night_diffuse: 0xffff_ffff,
+        };
+        b.mesh((2, 0), vec![v, v, v], vec![0, 1, 2]);
+        for i in 0..1000 {
+            b.instance((2, 0), [i as f32, 0., 0.], 2.);
+        }
+        let d = b.finish();
+        assert_eq!(d.counts(), (3, 1000, 1));
+        assert_eq!(d.batches[0].instances, 0..1000);
+    }
+}
