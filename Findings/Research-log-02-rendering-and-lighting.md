@@ -785,3 +785,20 @@ reader/material/asset suite: **31 passed**. Dependency-free core now includes
 DDS truncation/format/mip tests: **51 passed**. CI validation of this texture
 lookup/payload follow-up is pending. The actual receiving-model draw is still
 absent; readiness has not been relabeled.
+
+#### Authored-mip GPU upload stage
+
+Texture lookup/payload head `672f9dd` passed full CI **41443902584**.
+Added production GPU upload of the retained DDS mip chain: native BC1/BC2/BC3
+when the enabled device supports it, otherwise a decoded UNORM fallback.
+Neither path regenerates authored mip levels or introduces sRGB sampling.
+The fallback decodes complete stored blocks and crops tiny/non-block-aligned
+mips, and explicitly retains DXT1's authored one-bit transparency even with
+an RGB-only image decoder. Upload rejects device dimension overruns.
+
+Added a GPU check for 32 per-mip RGBA comparisons: all levels of differently
+colored/alpha DXT1/DXT3/DXT5 chains, including 2x2 and 1x1, both auto/native
+and forced-decoded paths, plus transparent BC1. The test reports whether
+native BC was actually enabled; it must not imply native testing on a device
+without BC support. Full CI validation pending. This remains a texture stage,
+not an actual world-model material shader or sampler/blending parity proof.
