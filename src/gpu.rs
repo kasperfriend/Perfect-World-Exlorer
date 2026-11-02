@@ -190,70 +190,98 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
     let rad = detail.radius;
     let gx = cx / t.grid_spacing + t.width as f32 * 0.5;
     let gy = t.height as f32 * 0.5 - cz / t.grid_spacing;
+    // Camera block, used as the rebuild anchor compared against `self.center`.
     let bx = (gx / TILE as f32).floor() as isize;
     let by = (gy / TILE as f32).floor() as isize;
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     let mut atlas = vec![0u8; ATLAS * ATLAS * 4];
-    let max_x = ((t.width - 1) / TILE * TILE) as isize;
-    let max_y = ((t.height - 1) / TILE * TILE) as isize;
-    let stitch_bounds = [
-        ((bx - rad) * TILE as isize).clamp(0, max_x) as usize,
-        ((bx + rad + 1) * TILE as isize).clamp(0, max_x) as usize,
-        ((by - rad) * TILE as isize).clamp(0, max_y) as usize,
-        ((by + rad + 1) * TILE as isize).clamp(0, max_y) as usize,
-    ];
-    for ty in -rad..=rad {
-        for tx in -rad..=rad {
-            let x0 = (bx + tx) * TILE as isize;
-            let y0 = (by + ty) * TILE as isize;
-            if x0 < 0 || y0 < 0 || x0 as usize + TILE >= t.width || y0 as usize + TILE >= t.height {
+    // Recovered block residency, resolution levels and block-edge rule
+    // (src/terrain_lod.rs). The client keeps a square window of blocks around
+    // the camera's block (`0x77ecf0`), gives each one of three meshes by camera
+    // distance (`0x77e360`) and closes block boundaries with the coarser
+    // neighbour's edge stride (`0x7c40e6`). Nothing outside the window is drawn.
+    if t.grid != TILE || TILE != crate::terrain_lod::CELLS {
+        return Err(format!(
+            "T2BK blocks are {} cells but the recovered block/LOD rule assumes {} \
+             (elementclient 0x7e5f70); refusing to draw substitute geometry",
+            t.grid,
+            crate::terrain_lod::CELLS
+        ));
+    }
+    if t.width % TILE != 0 || t.height % TILE != 0 {
+        return Err(format!(
+            "T2 terrain grid {}x{} is not a whole number of {TILE}-cell blocks",
+            t.width, t.height
+        ));
+    }
+    let block_world = TILE as f32 * t.grid_spacing;
+    let cols = t.width / TILE;
+    let rows = t.height / TILE;
+    let lod = crate::terrain_lod::LodConfig {
+        block_size: block_world,
+        ..Default::default()
+    };
+    // `world+0x1bc`: draw range in world units, one slider step = one block.
+    let range = rad.max(1) as f32 * block_world;
+    let win = crate::terrain_lod::window(
+        [gx / TILE as f32, gy / TILE as f32],
+        [cols, rows],
+        range,
+        block_world,
+    );
+    // Viewer world axis: x = (cell - width/2) * spacing, z = (height/2 - cell) * spacing.
+    let block_centre = |x: usize, y: usize| {
+        let cx = (x * TILE) as f32 + TILE as f32 * 0.5;
+        let cy = (y * TILE) as f32 + TILE as f32 * 0.5;
+        [
+            (cx - t.width as f32 * 0.5) * t.grid_spacing,
+            (t.height as f32 * 0.5 - cy) * t.grid_spacing,
+        ]
+    };
+    // The loader stores `grid` cells per block and drops each block's last row
+    // and column (the neighbour re-supplies them), so a block's offset-`TILE`
+    // vertex clamps to the last stored cell at the world border.
+    let sample = |cell_x: usize, cell_y: usize| {
+        let x = cell_x.min(t.width - 1);
+        let y = cell_y.min(t.height - 1);
+        (x, y, y * t.width + x)
+    };
+    let levels = crate::terrain_lod::window_lod(
+        win,
+        &lod,
+        [cx, cz],
+        block_centre,
+        |x, y| x < cols && y < rows,
+    );
+    for y in win.y0..win.y1 {
+        for x in win.x0..win.x1 {
+            let level = levels.level(x, y);
+            if level == 0 {
                 continue;
             }
-            let slotx = (tx + rad) as usize;
-            let sloty = (ty + rad) as usize;
+            let cases = levels.cases[(y - win.y0) * (win.x1 - win.x0) + (x - win.x0)];
+            let surface = crate::terrain_lod::block_surface(level, cases);
             let base = vertices.len() as u32;
-            for y in 0..=TILE {
-                for x in 0..=TILE {
-                    let gx = x0 as usize + x;
-                    let gy = y0 as usize + y;
-                    let (elevation, n) = crate::terrain_seam::stitch(
-                        &t.heights,
-                        &t.normals,
-                        t.width,
-                        t.height,
-                        gx,
-                        gy,
-                        stitch_bounds,
-                    );
-                    vertices.push(Vertex {
-                        pos: [
-                            (gx as f32 - t.width as f32 * 0.5) * t.grid_spacing,
-                            elevation,
-                            (t.height as f32 * 0.5 - gy as f32) * t.grid_spacing,
-                        ],
-                        normal: n,
-                        uv: [
-                            (slotx * TEX) as f32 / ATLAS as f32
-                                + x as f32 * TEX as f32 / (TILE * ATLAS) as f32,
-                            (sloty * TEX) as f32 / ATLAS as f32
-                                + y as f32 * TEX as f32 / (TILE * ATLAS) as f32,
-                        ],
-                        color: [1.; 4],
-                        kind: 0.,
-                        diffuse: 0xffff_ffff,
-                        night_diffuse: 0xffff_ffff,
-                    })
-                }
+            for g in &surface.grid {
+                let (cell_x, cell_y, at) =
+                    sample(x * TILE + g[0] as usize, y * TILE + g[1] as usize);
+                let n = t.normals[at];
+                vertices.push(Vertex {
+                    pos: [
+                        (cell_x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
+                        t.heights[at],
+                        (t.height as f32 * 0.5 - cell_y as f32) * t.grid_spacing,
+                    ],
+                    normal: [n[0] as f32 / 127., n[1] as f32 / 127., n[2] as f32 / 127.],
+                    uv: [0.; 2],
+                    color: [1.; 4],
+                    kind: 0.,
+                    diffuse: 0xffff_ffff,
+                    night_diffuse: 0xffff_ffff,
+                });
             }
-            for y in 0..TILE {
-                for x in 0..TILE {
-                    let a = base + (y * (TILE + 1) + x) as u32;
-                    let b = a + 1;
-                    let c = a + (TILE + 1) as u32;
-                    indices.extend_from_slice(&[a, b, c, b, c + 1, c]);
-                }
-            }
+            indices.extend(surface.indices.iter().map(|i| base + *i));
         }
     }
     let terrain_end = indices.len() as u32;
@@ -2729,7 +2757,7 @@ pub fn run(
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
                                                     0=>{ui.heading("Graphics");ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
-                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} failed; alpha meshes ordered {}",g.live,g.pending,g.emitters,g.failed_owners+models.gfx_failures().len(),models.alpha_order().len()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Detailed terrain radius (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
+                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} failed; alpha meshes ordered {}",g.live,g.pending,g.emitters,g.failed_owners+models.gfx_failures().len(),models.alpha_order().len()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());ui.label("Music follows the client zone playlists; ambient sounds are not yet implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
                                                 }

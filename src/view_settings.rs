@@ -19,13 +19,16 @@ pub fn post_required(bloom: bool, sharpen: bool, underwater: bool, gamma: bool) 
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct DetailSettings {
+    /// Terrain block window half-size in blocks (`world+0x1bc / block size`,
+    /// `0x77d720`). The client's range is 420 world units for the shipped
+    /// quality presets (`0x40e41f`), i.e. 7 blocks of 64 units.
     pub radius: isize,
     pub tree_lod_scale: f32,
 }
 impl Default for DetailSettings {
     fn default() -> Self {
         Self {
-            radius: 6,
+            radius: 7,
             tree_lod_scale: 1.0,
         }
     }
