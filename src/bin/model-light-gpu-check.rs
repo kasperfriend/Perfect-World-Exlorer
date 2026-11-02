@@ -4,6 +4,8 @@
 mod model_light;
 use model_light::{vertex_light, LightInput};
 
+const CASES: u32 = 15;
+
 fn main() {
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
@@ -18,13 +20,13 @@ fn main() {
     .unwrap();
     let output = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: 6 * 16,
+        size: CASES as u64 * 16,
         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
         mapped_at_creation: false,
     });
     let read = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: 6 * 16,
+        size: CASES as u64 * 16,
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
@@ -36,13 +38,23 @@ fn main() {
 @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id:vec3<u32>) {
  let i=id.x;
  var normal=vec3<f32>(0.,1.,0.);var light=vec3<f32>(0.,10.,0.);var enabled=1.;
- var ambient=vec3<f32>(0.1,0.2,0.3);
+ var ambient=vec3<f32>(0.1,0.2,0.3);var att=vec3<f32>(0.,0.4,0.);
  if i==1u {enabled=0.;}
  if i==2u {normal=vec3<f32>(0.,-1.,0.);}
  if i==3u {light=vec3<f32>(0.);}
  if i==4u {ambient=vec3<f32>(2.,3.,4.);}
  if i==5u {light=vec3<f32>(10.,10.,0.);normal=vec3<f32>(2.,2.,0.);}
- let c=model_vertex_light(vec3<f32>(0.),normal,vec3<f32>(0.,-1.,0.),light,vec3<f32>(0.,0.4,0.),ambient,vec3<f32>(0.2,0.1,0.),vec3<f32>(0.4,0.2,0.1),vec3<f32>(0.04,0.08,0.12),enabled);
+ if i==6u {normal=vec3<f32>(0.);}
+ if i==7u {normal=vec3<f32>(0.,0.0000001,0.);}
+ if i==8u {normal=vec3<f32>(0.,0.000001,0.);}
+ if i>=9u && i<=11u {att=vec3<f32>(1.,0.,0.);}
+ if i==9u {light=vec3<f32>(0.,0.0000001,0.);}
+ if i==10u {light=vec3<f32>(0.,0.000001,0.);}
+ if i==11u {light=vec3<f32>(0.,0.000002,0.);}
+ if i==12u {att=vec3<f32>(-1.,0.,0.);}
+ if i==13u {att=vec3<f32>(0.);}
+ if i==14u {att=vec3<f32>(1.,0.2,0.01);}
+ let c=model_vertex_light(vec3<f32>(0.),normal,vec3<f32>(0.,-1.,0.),light,att,ambient,vec3<f32>(0.2,0.1,0.),vec3<f32>(0.4,0.2,0.1),vec3<f32>(0.04,0.08,0.12),enabled);
  result[i]=vec4<f32>(c,1.);
 }
 "#
@@ -73,9 +85,9 @@ fn main() {
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind, &[]);
-        pass.dispatch_workgroups(6, 1, 1);
+        pass.dispatch_workgroups(CASES, 1, 1);
     }
-    enc.copy_buffer_to_buffer(&output, 0, &read, 0, 96);
+    enc.copy_buffer_to_buffer(&output, 0, &read, 0, CASES as u64 * 16);
     queue.submit(Some(enc.finish()));
     let slice = read.slice(..);
     let (tx, rx) = std::sync::mpsc::channel();
@@ -84,7 +96,7 @@ fn main() {
     rx.recv().unwrap().unwrap();
     let bytes = slice.get_mapped_range();
     let results: &[f32] = bytemuck::cast_slice(&bytes);
-    for i in 0..6 {
+    for i in 0..CASES as usize {
         let mut p = LightInput {
             world_position: [0.; 3],
             normal: [0., 1., 0.],
@@ -106,6 +118,16 @@ fn main() {
                 p.point_position = [10., 10., 0.];
                 p.normal = [2., 2., 0.];
             }
+            6 => p.normal = [0.; 3],
+            7 => p.normal = [0., 1e-7, 0.],
+            8 => p.normal = [0., 1e-6, 0.],
+            9..=11 => {
+                p.attenuation = [1., 0., 0.];
+                p.point_position = [0., [1e-7, 1e-6, 2e-6][i - 9], 0.];
+            }
+            12 => p.attenuation = [-1., 0., 0.],
+            13 => p.attenuation = [0.; 3],
+            14 => p.attenuation = [1., 0.2, 0.01],
             _ => {}
         }
         let expected = vertex_light(p);

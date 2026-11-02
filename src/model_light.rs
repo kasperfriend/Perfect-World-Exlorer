@@ -18,13 +18,20 @@ pub struct LightInput {
 /// Zero-distance and zero-denominator are undefined on the original shader;
 /// here we choose finite conservative values to avoid poisoning a frame.
 pub fn vertex_light(p: LightInput) -> [f32; 3] {
-    let n = glam::Vec3::from_array(p.normal).normalize_or_zero();
-    let dir = glam::Vec3::from_array(p.direction);
-    let lambert = n.dot(-dir).max(0.);
-    let delta = glam::Vec3::from_array(p.point_position) - glam::Vec3::from_array(p.world_position);
-    let d = delta.length();
+    // Keep the finite fallback identical to WGSL. Retail rsq(0) behavior is
+    // hardware-dependent; this guard is viewer safety, not recovered semantics.
+    let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let length = dot(p.normal, p.normal).sqrt();
+    let n = if length > 1e-6 {
+        p.normal.map(|v| v / length)
+    } else {
+        [0.; 3]
+    };
+    let lambert = dot(n, p.direction.map(|v| -v)).max(0.);
+    let delta = std::array::from_fn(|i| p.point_position[i] - p.world_position[i]);
+    let d = dot(delta, delta).sqrt();
     let point_lambert = if d > 1e-6 {
-        n.dot(delta / d).max(0.)
+        dot(n, delta.map(|v| v / d)).max(0.)
     } else {
         0.
     };
@@ -46,7 +53,7 @@ pub fn vertex_light(p: LightInput) -> [f32; 3] {
 pub const WGSL: &str = r#"
 fn model_vertex_light(pos:vec3<f32>, normal:vec3<f32>, direction:vec3<f32>, light_pos:vec3<f32>, att:vec3<f32>, ambient:vec3<f32>, dir_diff:vec3<f32>, point_diff:vec3<f32>, point_ambient:vec3<f32>, enabled:f32)->vec3<f32> {
  let nl=length(normal);let n=select(vec3<f32>(0.),normal/max(nl,0.000001),nl>0.000001);
- let delta=light_pos-pos;let d=length(delta);let l=delta/max(d,0.000001);
+ let delta=light_pos-pos;let d=length(delta);let l=select(vec3<f32>(0.),delta/max(d,0.000001),d>0.000001);
  let diffuse=max(dot(n,-direction),0.);let point=max(dot(n,l),0.);
  let denom=dot(att,vec3<f32>(1.,d,d*d));let factor=select(0.,1./max(denom,0.000001),enabled>0.5 && denom>0.000001);
  return min(ambient+dir_diff*diffuse+(point_ambient+point_diff*point)*factor,vec3<f32>(1.));
@@ -83,6 +90,37 @@ mod tests {
         assert!((vertex_light(p)[0] - 0.3).abs() < 1e-6);
         p.normal = [0., -1., 0.];
         assert!((vertex_light(p)[0] - 0.1).abs() < 1e-6);
+    }
+    #[test]
+    fn degenerate_normal_and_point_guards_match_shader_thresholds() {
+        let mut p = input();
+        p.point_enabled = false;
+        for y in [0., 1e-7, 1e-6] {
+            p.normal = [0., y, 0.];
+            assert_eq!(vertex_light(p), p.other_ambient);
+        }
+        p = input();
+        p.attenuation = [1., 0., 0.];
+        let base = [0.34, 0.38, 0.42]; // other + directional + point ambient
+        for y in [0., 1e-7, 1e-6] {
+            p.point_position = [0., y, 0.];
+            for (a, b) in vertex_light(p).into_iter().zip(base) {
+                assert!((a - b).abs() < 1e-6);
+            }
+        }
+        p.point_position = [0., 2e-6, 0.];
+        assert!(vertex_light(p)[0] > base[0]);
+    }
+    #[test]
+    fn nonpositive_denominator_disables_the_point_term() {
+        let mut p = input();
+        for constant in [-1., 0., 1e-7, 1e-6] {
+            p.attenuation = [constant, 0., 0.];
+            let actual = vertex_light(p);
+            p.point_enabled = false;
+            assert_eq!(actual, vertex_light(p));
+            p.point_enabled = true;
+        }
     }
     #[test]
     fn zero_distance_is_finite() {

@@ -312,3 +312,22 @@ Terrain lightmap initialization now uploads each day/night DDS tile directly int
 ### Experimental sky sun and moon
 `elementclient.exe`'s CECSunMoon initialization loads `textures/nature/sun.bmp` (0x4b2da0), `textures/nature/sunshine.bmp` (0x4b2ddd), and `textures/nature/moon.tga` (0x4b2e17). Added optional GPU sky discs using the client's sun and moon textures directly from the user's `textures.pck`, and the already recovered sky-object time/azimuth direction; the active region's authored direction supplies azimuth, with a fallback when no region is active. The reflected sky uses the same ray transformation and thus includes the discs. Rendering occurs only in the sky pass; it does not change baked models, trees, or material lighting. The option defaults off and is in World settings. Missing or undecodable textures become transparent. The angular size, choice of sun versus moon at 03:30/21:00, visibility fade and compositing are approximations; sunshine, lens flare, occlusion, region flags and original quad transforms are not implemented. The sky shader pipeline validated on a software GPU, but the actual 117 MB textures archive was not acquired, so these textures and live output have not been verified here. This is not full sky or lighting parity.
 
+
+### Phase 1 audit and follow-up validation (2026-11-02)
+
+See [the requirement-by-requirement audit](Phase-1-audit-2026-11-02.md) and
+[the eight-phase status ledger](Eight-phase-status.md). Phase 1 is not signed off.
+PR #1 fixes the viewer's windowed scene-only gamma, shares LUT arithmetic and
+adds an executed production whole-frame GPU regression. CI at `8866669` passed
+formatting, all binary checks, viewer unit tests, four Phase 1 GPU checks and
+the Windows release build. A follow-up aligns the standalone CPU/WGSL light
+helper's small-vector fallback and expands its synthetic coverage; it does not
+add scene lighting to any rendered world object.
+
+The executable and shader archive are now locally available in ignored storage.
+Their fog-state trace distinguishes table fog from the shader's vertex fog
+output. In particular, ordinary grass requests table fog, whereas its separate
+refraction mode requests vertex fog and uploads c91; the ordinary shader's
+constant oFog alone is not evidence that ordinary grass should be fog-free.
+Do not remove main-view grass fog or change approved trees on that inference.
+The separate exponential refraction fog path remains unfinished.

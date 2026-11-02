@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 RUSTC=${RUSTC:-rustc}
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT HUP INT TERM
-for module in gamma_curve scene_lights client_region_map client_sun view_settings; do
+for module in gamma_curve scene_lights client_region_map client_sun view_settings model_light; do
     "$RUSTC" --edition=2021 --test "src/$module.rs" -o "$work/$module"
     "$work/$module"
 done
