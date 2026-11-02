@@ -1259,3 +1259,28 @@ Added a coefficient-clamp CPU test and distinct RGB ARGB-order GPU update
 regression (`ff804020`), followed by restoring original method. Core 64 pass;
 native world/material/pose suite 46 pass; GPU validation pending. Full P1.02/
 P1.03 material coverage remains No. Continue.
+
+CI `41454850805` (`37561bf`) passed Linux/Windows/all 13 GPU regressions,
+including the distinct-channel original-color material update. Confirmation:
+opaque original-color scaling Yes; full material/alpha integration No.
+
+### Alpha insertion must preserve another 1.4.2 version difference
+
+Actual alpha registration `7a59c5–7a5b6f` computes mesh distance then walks
+an insertion list, not a generic total-order sort. Same model: mesh weight
+(nonzero) or skin weight fallback; lower new weight inserts immediately.
+Crucially, `7a5a45–7a5a7c` still tests original AABB MaxY/MaxZ/MinZ when the
+new weight is GREATER, not only equal. The related 1.5.2 source puts these
+AABB checks in an equality branch. Copying it changes 1.4.2 ordering.
+Different models with the same nonzero group ID compare group weights;
+otherwise distance is far-first and a new equal-distance node inserts before
+an old one. This is not generally a transitive comparator.
+
+Added bounded `alpha_insert_index` implementing that insertion policy, with
+four CPU regressions: distance/ties, source-version weight/AABB behavior,
+group precedence and invalid-input rejection. Core suite now 68 passing.
+This is queue-order implementation, NOT enabled alpha scene submission.
+Remaining work includes retaining/feeding source sort metadata, distance
+construction, per-mesh ordered GPU draws, pass-state verification and the
+above/below-water alpha split. Existing ordinary draws remain unchanged.
+Full P1.02/P1.03/P1.10 remain No. Continue.
