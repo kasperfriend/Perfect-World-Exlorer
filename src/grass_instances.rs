@@ -346,7 +346,10 @@ mod tests {
         let fallback = w.split("!=3u {").nth(1).unwrap().split('}').next().unwrap();
         assert!(fallback.contains("base"));
         assert!(!fallback.contains("camera.light"));
-        assert!(!w.contains("camera.region_"), "grass keeps the lightmap path");
+        assert!(
+            !w.contains("camera.region_"),
+            "grass keeps the lightmap path"
+        );
         assert!(w.contains("mix(night,day,clamp(camera.sun.w,0.,1.))*2."));
     }
 
