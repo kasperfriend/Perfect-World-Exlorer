@@ -53,6 +53,8 @@ jobs:
           cargo run --locked --bin bmd-baked-gpu-check
           cargo run --locked --bin grass-instance-gpu-check
           cargo run --locked --bin model-light-gpu-check
+          cargo run --locked --bin skin-pose-gpu-check
+          cargo run --locked --bin skin-palette-gpu-check
           cargo run --locked --bin phase1-fog-gpu-check
           cargo run --locked --bin terrain-refraction-gpu-check
 

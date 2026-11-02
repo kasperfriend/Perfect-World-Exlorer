@@ -11,8 +11,12 @@ mod pck;
 mod scene;
 #[path = "../skeleton.rs"]
 mod skeleton;
+#[path = "../skeleton_pose.rs"]
+mod skeleton_pose;
 #[path = "../skin.rs"]
 mod skin;
+#[path = "../skin_pose.rs"]
+mod skin_pose;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::File,
@@ -31,6 +35,7 @@ fn main() -> Result<(), String> {
     let mut skins = HashSet::new();
     let mut skeleton_paths = HashSet::new();
     let mut missing = Vec::new();
+    let mut skin_owners: BTreeMap<String, HashSet<String>> = BTreeMap::new();
     let mut track_owners: BTreeMap<String, HashSet<String>> = BTreeMap::new();
     let mut versions = BTreeMap::new();
     for m in s.blocks.iter().flat_map(|b| &b.models) {
@@ -84,6 +89,10 @@ fn main() -> Result<(), String> {
                 skeleton_paths.insert(target.clone());
             }
             if target.ends_with(".ski") {
+                skin_owners
+                    .entry(target.clone())
+                    .or_default()
+                    .insert(skeleton_path.clone());
                 skins.insert(target);
             }
         }
@@ -93,6 +102,8 @@ fn main() -> Result<(), String> {
     let mut failures = Vec::new();
     let mut skeleton_versions = BTreeMap::new();
     let mut joint_counts = HashMap::new();
+    let mut skeleton_data = HashMap::new();
+    let mut sampled_poses: HashMap<String, Vec<skeleton_pose::Pose>> = HashMap::new();
     let (mut bones, mut embedded_tracks) = (0, 0);
     for path in &skeleton_paths {
         let Some(entry) = entries.get(path) else {
@@ -104,6 +115,24 @@ fn main() -> Result<(), String> {
                 joint_counts.insert(path.clone(), s.joints.len());
                 bones += s.bones.len();
                 embedded_tracks += s.embedded_tracks.len();
+                if !s.embedded_tracks.is_empty() {
+                    for frame in [
+                        s.start as f32,
+                        (s.start as f32 + s.end as f32) * 0.5,
+                        s.end as f32,
+                    ] {
+                        match skeleton_pose::evaluate(
+                            &s,
+                            &s.embedded_tracks,
+                            frame / s.fps as f32,
+                            glam::Mat4::IDENTITY,
+                        ) {
+                            Ok(p) => sampled_poses.entry(path.clone()).or_default().push(p),
+                            Err(e) => failures.push(format!("{path}: embedded pose: {e}")),
+                        }
+                    }
+                }
+                skeleton_data.insert(path.clone(), s);
             }
             Err(e) => failures.push(format!("{path}: {e}")),
         }
@@ -126,6 +155,27 @@ fn main() -> Result<(), String> {
                     if let Some(&count) = joint_counts.get(owner) {
                         if let Err(e) = t.validate_joint_count(count) {
                             failures.push(format!("{path} -> {owner}: {e}"));
+                        }
+                        if let Some(s) = skeleton_data.get(owner) {
+                            for frame in [
+                                t.start as f32,
+                                (t.start as f32 + t.end as f32) * 0.5,
+                                t.end as f32,
+                            ] {
+                                match skeleton_pose::evaluate(
+                                    s,
+                                    &t.tracks,
+                                    frame / t.fps as f32,
+                                    glam::Mat4::IDENTITY,
+                                ) {
+                                    Ok(p) => {
+                                        sampled_poses.entry(owner.clone()).or_default().push(p)
+                                    }
+                                    Err(e) => {
+                                        failures.push(format!("{path} -> {owner}: pose: {e}"))
+                                    }
+                                }
+                            }
                         }
                     } else {
                         failures.push(format!("{path}: skeleton was not validated: {owner}"));
@@ -164,6 +214,7 @@ fn main() -> Result<(), String> {
         "STCK versions {track_versions:?}; {} external files, {external_tracks} joint tracks",
         track_owners.len()
     );
+    let mut posed_vertices = 0usize;
     for path in &skins {
         let Some(entry) = entries.get(path) else {
             continue;
@@ -171,6 +222,54 @@ fn main() -> Result<(), String> {
         match pck::read_entry(&mut f, entry).and_then(|b| skin::Skin::parse(&b)) {
             Ok(s) => {
                 *skin_versions.entry(s.version).or_insert(0usize) += 1;
+                if let Some(owners) = skin_owners.get(path) {
+                    for owner in owners {
+                        if let (Some(skeleton), Some(poses)) =
+                            (skeleton_data.get(owner), sampled_poses.get(owner))
+                        {
+                            for pose in poses {
+                                match skeleton_pose::palette(&s, skeleton, pose) {
+                                    Ok(palette) => {
+                                        for mesh in &s.meshes {
+                                            if mesh.rigid_bone.is_some() {
+                                                failures.push(format!(
+                                                    "{path}: rigid pose is not checked"
+                                                ));
+                                                continue;
+                                            }
+                                            for v in &mesh.vertices {
+                                                match skin_pose::deform(
+                                                    v.position,
+                                                    v.normal,
+                                                    [v.weights[0], v.weights[1], v.weights[2]],
+                                                    v.joints,
+                                                    &palette,
+                                                ) {
+                                                    Ok(v)
+                                                        if v.position
+                                                            .iter()
+                                                            .chain(v.normal.iter())
+                                                            .all(|x| x.is_finite()) =>
+                                                    {
+                                                        posed_vertices += 1
+                                                    }
+                                                    Ok(_) => failures.push(format!(
+                                                        "{path}: nonfinite posed vertex"
+                                                    )),
+                                                    Err(e) => failures.push(format!("{path}: {e}")),
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => failures.push(format!("{path}: palette: {e}")),
+                                }
+                            }
+                        } else {
+                            failures
+                                .push(format!("{path}: no validated skeleton/pose for {owner}"));
+                        }
+                    }
+                }
                 for mesh in &s.meshes {
                     if mesh.rigid_bone.is_some() {
                         rigid_meshes += 1
@@ -205,6 +304,10 @@ fn main() -> Result<(), String> {
             Err(e) => failures.push(format!("{path}: {e}")),
         }
     }
+    println!(
+        "{} sampled poses; {posed_vertices} finite vertex deformations",
+        sampled_poses.values().map(Vec::len).sum::<usize>()
+    );
     println!("SKI versions {skin_versions:?}; {skin_meshes} skinned / {rigid_meshes} rigid meshes; {material_count} materials");
     println!(
         "{} placements, {} ECMs, {} SMDs, {} unique SKIs; SMD versions {:?}",

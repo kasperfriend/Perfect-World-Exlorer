@@ -57,6 +57,7 @@ mod scene_lights;
 mod shore_gpu;
 mod simple_water_gpu;
 mod skeleton;
+mod skeleton_pose;
 mod skin;
 mod skin_pose;
 mod sky_gpu;

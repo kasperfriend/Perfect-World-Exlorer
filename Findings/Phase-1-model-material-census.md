@@ -70,3 +70,18 @@ times). `ecmodel-check` includes these checks and missing tracks in its
 nonzero-exit gate. Native animation/descriptor tests pass; full application
 build pending CI. Runtime pose/palette conventions and world drawing remain
 unverified, not replaced by this data census.
+
+### Ordinary palette evaluation follow-up
+
+The ordinary unscaled pose path now evaluates the actual world's 14 chains
+at 69 start/mid/end poses and deforms 26,643 vertices without invalid palette
+references/nonfinite results. This checks data and deformation viability,
+not image parity, ECM action scheduling or a world draw. Joint IDs are mapped
+to child bones and v9 skin names are mapped to skeleton palette indices;
+unsupported reflection/scale/controller paths explicitly fail.
+
+Important distinction: the zero **SMD** hanger count does not imply zero
+**ECM** attachments. The descriptors contain 36 EventType-100 GFX references.
+Combined ECM actions are not always the corresponding SMD action names.
+These are still required by the renderer/effect integration, not silently
+covered by the earlier skeleton/material census.

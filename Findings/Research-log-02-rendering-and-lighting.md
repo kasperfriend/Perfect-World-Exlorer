@@ -624,3 +624,45 @@ Core CPU suite passes 48 tests. Full application/GPU validation pending.
 
 Caller modulation cycle `b66e905` passed
 [CI 41440063378](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41440063378): all 144 tinted/faded glow comparisons, all eight production GPU binaries, Linux application checks/tests and Windows executable build. Readiness remains No for P1.01–P1.10; this is component validation, not Phase 1 completion.
+
+### Ordinary bone palette prerequisites for the receiving-model renderer
+
+Continued without another user question, as requested. The readiness audit
+still requires further implementation; no No was relabeled as Yes.
+
+Followed `0x7b4b63–0x7b4c2b`: normalize sampled quaternion, write its local
+matrix and sampled translation. `0x7b4c35` initializes the extra matrix to
+identity (`0x787fa0`), then `0x7b4dc9` composes through the parent.
+`0x79269c`/`0x7926d2` combine inverse bind, bone transform and model transform
+before GPU transpose. The new ordinary, unscaled pose evaluator maps track
+IDs through `joint.child` instead of assuming joint ID equals bone index,
+processes parents before children without recursion, and builds the skin
+palette plus separate model/root slot. v9 skin names reorder the palette;
+v8 retains direct skeleton indices. Reflection/scale controllers and
+non-animation joints fail explicitly, not silently draw a guessed pose.
+
+A native production-reader harness evaluated all 14 actual world chains:
+69 start/mid/end poses from 18 external action files and five embedded-track
+skeletons, with a nonidentity model rotation/translation, then 26,643 finite
+vertex deformations through production skin deformation. Three crafted
+palette tests separately verify inverse-bind order, joint/bone remapping,
+parent ordering, v9 name reordering/root slot and invalid/unsupported inputs.
+The combined native parser/material/pose suite passes 19 tests.
+`ecmodel-check` now includes sampled pose/palette/deformed-vertex failures
+in its nonzero-exit gate, rather than counting descriptor parsing as proof
+of a usable pose.
+
+Added the existing four-case skin-deformation-plus-lighting GPU binary to CI
+(it was previously only compiled) and a second eight-case palette-input GPU
+fixture with rotations, nonuniform scales, implicit fourth weights, negative
+weights and zero normals. Full build/GPU validation pending. These fixtures
+are synthetic compute checks, not a world-model screenshot. World drawing,
+action scheduling and all receiving-class coverage remain open.
+
+The ECM payload audit also found 36 EventType-100 GFX references across the
+world descriptors, even though the SMD hanger count is zero. SMD hanger
+absence must NOT be mistaken for absence of ECM-attached effects. Combined
+action names also differ from underlying SMD actions (e.g. 海马右 `飘动` maps
+to `飘动右`, 浑天仪 `旋转` maps to `转`), and the plant has four base actions.
+Do not enable a guessed first-SMD-action renderer or claim the dependency
+survey proves these action/effect semantics.
