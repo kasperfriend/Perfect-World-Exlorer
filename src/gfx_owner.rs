@@ -660,11 +660,7 @@ mod tests {
         let mut publications = LightPublications::default();
         manager.update(0, &mut publications); // lazy load
         manager.update(0, &mut publications);
-        assert_eq!(
-            publications.len(),
-            1,
-            "priority 4 passes a limit of 4"
-        );
+        assert_eq!(publications.len(), 1, "priority 4 passes a limit of 4");
         publications.consume_into(&mut grid());
         // Lowering the limit suppresses publication only: the owner stays live
         // and keeps its clock (0x70bd0b returns alive).

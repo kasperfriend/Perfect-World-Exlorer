@@ -12,7 +12,6 @@ use crate::{
 };
 use std::{collections::HashMap, fs::File, path::Path};
 
-
 /// Identity space for ECM model-event owners, kept disjoint from scene effects.
 const MODEL_EVENT_IDENTITY: u64 = 1 << 40;
 
