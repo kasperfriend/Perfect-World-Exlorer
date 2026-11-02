@@ -523,35 +523,6 @@ impl TerrainGpu {
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
         });
-        // Variant selection and pass state come from the recovered native
-        // switch (`src/terrain_shading.rs`, 0x7c1450) instead of being restated
-        // here. `Caps::default()` is the stock 1.4.2 state: a device with a pixel
-        // pipeline and neither GDebugKey flag set, i.e. `Variant::Batch3Layer`.
-        let variant = crate::terrain_shading::select(crate::terrain_shading::Caps::default())
-            .map_err(|e| format!("terrain variant {e:?} is unreachable in the client"))?;
-        debug_assert_eq!(variant, crate::terrain_shading::Variant::Batch3Layer);
-        let state = crate::terrain_shading::pass_state(variant);
-        // 0x7cd789 pushes D3DCULL_NONE (1); the state type keeps the restored
-        // value explicit so the mapping cannot drift silently.
-        debug_assert!(matches!(state.cull, crate::terrain_shading::Cull::None));
-        let primitive = wgpu::PrimitiveState {
-            cull_mode: None,
-            ..Default::default()
-        };
-        let targets = [Some(wgpu::ColorTargetState {
-            format,
-            // ALPHABLENDENABLE is never called for terrain (0x77a290 has no
-            // caller in 0x7c1400-0x7d3fff), so terrain is opaque.
-            blend: None,
-            write_mask: wgpu::ColorWrites::ALL,
-        })];
-        let depth = wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: state.z_write,
-            depth_compare: wgpu::CompareFunction::Greater,
-            stencil: Default::default(),
-            bias: Default::default(),
-        };
         const ATTR: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4,4=>Float32];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("layered terrain"),
@@ -568,10 +539,23 @@ impl TerrainGpu {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs",
-                targets: &targets,
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
             }),
-            primitive,
-            depth_stencil: Some(depth),
+            primitive: wgpu::PrimitiveState {
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Greater,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
             multisample: Default::default(),
             multiview: None,
         });
