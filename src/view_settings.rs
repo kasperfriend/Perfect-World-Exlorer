@@ -26,6 +26,9 @@ pub struct ViewSettings {
     pub bloom: bool,
     pub bloom_strength: f32,
     pub bloom_mode: u8,
+    pub bloom_tint: u32,
+    pub bloom_brightness_fade: f32,
+    pub bloom_opacity_fade: f32,
     pub client_gamma: bool,
     pub gamma_setting: f32,
     pub terrain_lightmaps: bool,
@@ -59,6 +62,9 @@ impl Default for ViewSettings {
             bloom: false,
             bloom_strength: 1.,
             bloom_mode: 0,
+            bloom_tint: 0xffffffff,
+            bloom_brightness_fade: 0.,
+            bloom_opacity_fade: 0.,
             client_gamma: false,
             gamma_setting: 41.,
             terrain_lightmaps: true,
@@ -120,6 +126,16 @@ impl ViewSettings {
                 "grass_wind_strength" => number!(s.grass_wind_strength, 0., 1.),
                 "tree_wind_strength" => number!(s.tree_wind_strength, 0., 1.),
                 "bloom_strength" => number!(s.bloom_strength, 0., 4.),
+                "bloom_tint" => {
+                    if let Ok(color) = v
+                        .strip_prefix("0x")
+                        .map_or_else(|| v.parse::<u32>(), |hex| u32::from_str_radix(hex, 16))
+                    {
+                        s.bloom_tint = color;
+                    }
+                }
+                "bloom_brightness_fade" => number!(s.bloom_brightness_fade, 0., 1.),
+                "bloom_opacity_fade" => number!(s.bloom_opacity_fade, 0., 1.),
                 "bloom_mode" => {
                     if let Ok(mode) = v.parse::<u8>() {
                         s.bloom_mode = if matches!(mode, 4 | 5) { mode } else { 0 };
@@ -152,11 +168,11 @@ impl ViewSettings {
     fn encode(&self) -> String {
         format!(concat!("# Perfect World Explorer settings, version 1\n",
             "radius={}\ntree_lod_scale={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
-            "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nclient_gamma={}\ngamma_setting={}\n",
+            "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
             "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
-            self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.client_gamma,self.gamma_setting,
+            self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs)
     }
@@ -256,5 +272,21 @@ mod tests {
                 0
             );
         }
+    }
+    #[test]
+    fn glow_caller_color_and_independent_fades_round_trip_safely() {
+        let s = ViewSettings::decode(
+            "bloom_tint=0x8040a0e0\nbloom_brightness_fade=0.25\nbloom_opacity_fade=0.5",
+        );
+        assert_eq!(s.bloom_tint, 0x8040a0e0);
+        assert_eq!(s.bloom_brightness_fade, 0.25);
+        assert_eq!(s.bloom_opacity_fade, 0.5);
+        assert_eq!(s, ViewSettings::decode(&s.encode()));
+        let invalid = ViewSettings::decode(
+            "bloom_tint=bogus\nbloom_brightness_fade=NaN\nbloom_opacity_fade=2",
+        );
+        assert_eq!(invalid.bloom_tint, 0xffffffff);
+        assert_eq!(invalid.bloom_brightness_fade, 0.);
+        assert_eq!(invalid.bloom_opacity_fade, 1.);
     }
 }

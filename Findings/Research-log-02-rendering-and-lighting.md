@@ -591,3 +591,33 @@ vtable. Wrapper position setter `0x6d4210` forwards to the +0xc4 skin object.
 This resolves a derived wrapper relationship, not every scene receiver's
 runtime flags or world placement class. Do not relight baked BMD/terrain
 from this limited type evidence.
+
+### Confirmation checkpoint and caller glow modulation
+
+The user confirmed **No — continue implementation** at the explicit Phase 1
+checkpoint. The audit still has P1.01–P1.10 No. Completion approval is not
+available while any gate remains open; checkpoints report No and resume work.
+
+Implemented the traced c3 binding from `0x411340–0x41145f`: caller ARGB,
+RGB multiplied by `1-brightness_fade`, alpha by `1-opacity_fade`. Both
+ordinary and monochrome glow multiply their result by c3; the renderer sets
+SRCALPHA/INVSRCALPHA at `0x41007b–0x410089`. The viewer now composites that
+source over the pre-glow scene in encoded RGB, before gamma/output encoding.
+The source is clamped for the UNORM blend; comparisons cover saturated glow
+as well as partial and zero opacity. Default white/zero fades retain the
+previous result. Invalid fade preview values are bounded for viewer safety,
+not claimed to be recovered retail invalid-input behavior.
+
+The Graphics controls and remembered settings expose caller tint/opacity and
+both independent fade values, explicitly as previews. Offscreen capture
+supports `PW_PREVIEW_BLOOM_TINT` (hex ARGB),
+`PW_PREVIEW_BLOOM_BRIGHTNESS_FADE`, and `PW_PREVIEW_BLOOM_OPACITY_FADE`.
+These static inputs are wired into the actual renderer, not only a helper.
+Automatic client fade-event triggers/transition timing are not implemented
+by these controls and remain open.
+
+The patterned production GPU fixture adds four modulation states to every
+previous case: neutral, opaque colored, independently faded translucent,
+and zero caller alpha (144 total). Its independent CPU reference applies
+modulation before the encoded blend, not to an already-quantized result.
+Core CPU suite passes 48 tests. Full application/GPU validation pending.

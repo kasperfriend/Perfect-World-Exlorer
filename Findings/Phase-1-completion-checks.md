@@ -11,7 +11,7 @@ A requirement passes only if its entire scope is supported by implementation and
 | P1.05 Sun curve at proven material consumers only | No | Sky uses the recovered curve without relighting baked surfaces. Material-consumer tracing is not complete. |
 | P1.06 Terrain/grass lightmaps | No | Area-center selection and CLAMP U/V are now traced; the client path defaults on with a six-case tile-edge/day-night GPU regression (CI 41436006986 passed). Full atlas/data mapping census and unloaded-pair fallback remain open. |
 | P1.07 Baked-model lighting/material/alpha overrides | No | Existing integer endpoint blend was rechecked against `0x7b9bc0`; now its GPU implementation stays integer until normalization, with a new exhaustive byte-weight regression. Complete material stages/alpha/overrides remain open. |
-| P1.08 Bloom | No | Corrected tap spacing to `4/full_resolution` from `0x40edd0` and `0x40f053`. Patterned-image GPU tests passed on UNORM/sRGB and odd dimensions; the CPU fixture also rejects the old offsets. Recovered and corrected underwater distortion before downsample/glow; added independent quantized-warp pattern regressions (CI 41436969265 passed). Traced special modes 4/5 now have explicit preview controls, transition tests and GPU endpoint fixtures (CI 41438393668 passed). Full effect/fade interactions remain open. |
+| P1.08 Bloom | No | Corrected tap spacing to `4/full_resolution` from `0x40edd0` and `0x40f053`. Patterned-image GPU tests passed on UNORM/sRGB and odd dimensions; the CPU fixture also rejects the old offsets. Recovered and corrected underwater distortion before downsample/glow; added independent quantized-warp pattern regressions (CI 41436969265 passed). Traced special modes 4/5 now have explicit preview controls, transition tests and GPU endpoint fixtures (CI 41438393668 passed). Caller tint and independent brightness/opacity fade inputs are now wired into the renderer with encoded alpha blending and 144 patterned GPU cases (validation pending). Automatic fade triggers/timing and further effect interactions remain open. |
 | P1.09 Gamma and color chain | No | Windowed gating and final fullscreen ramp are corrected and tested; encoded UNORM/sRGB output tests pass. This is not verification of every upstream material color conversion and Windows compositor path. |
 | P1.10 Per-pass and underwater fog | No | Main per-material fog exists. Grass refraction uses traced exponential vertex fog in the actual clipped pass (CI 41434813651 passed). Opaque BMD refraction has its distinct above-plane-depth clamp (CI 41435206213 passed). Near/far terrain has the traced plane projection, depth darkness and vertex fog (CI 41435695632 passed). Complete material-variant/underwater pass coverage remains open. |
 | P1.11 Preserve approved trees while tracing separately | Yes, preservation requirement | Tree shader, geometry and default lighting were not changed. Existing fallback remains; the incomplete replacement has not been enabled or represented as parity. This does not mean the full tree material path is recovered. |
@@ -43,8 +43,15 @@ A requirement passes only if its entire scope is supported by implementation and
 
 ## Confirmation gate
 
-Run `python3 tools/check-phase1-ready.py` before offering the confirmation
-poll. It returns nonzero while any full-scope requirement is No, missing,
-duplicated or invalid. Build success cannot override that result. The script
-checks the recorded acceptance table, not renderer parity on its own; evidence
-still has to justify every Yes. Confirmation must not waive an unfinished item.
+Run `python3 tools/check-phase1-ready.py` before each confirmation checkpoint.
+It returns nonzero while any full-scope requirement is No, missing,
+duplicated or invalid. A checkpoint in that state must report **No — continue
+implementation**, not offer completion approval. Repeat implementation and
+verification when No remains. Only an all-Yes audit can justify the completion
+confirmation poll. Build success cannot override an unfinished requirement.
+The script checks recorded acceptance decisions, not renderer parity on its
+own; evidence still has to justify every Yes. Confirmation cannot waive a No.
+
+Latest checkpoint: the user selected **No — continue implementation**.
+The subsequent cycle implements caller glow modulation/fade inputs and
+keeps the unresolved full-scope gates open.

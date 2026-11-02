@@ -133,6 +133,33 @@ impl Image {
         )
     }
     fn bloom_with_steps(&self, level: f32, power: f32, mono: [f32; 4], dx: f32, dy: f32) -> Self {
+        self.bloom_modulated_with_steps(level, power, mono, dx, dy, [1.; 4])
+    }
+    pub fn bloom_modulated(
+        &self,
+        level: f32,
+        power: f32,
+        mono: [f32; 4],
+        modulation: [f32; 4],
+    ) -> Self {
+        self.bloom_modulated_with_steps(
+            level,
+            power,
+            mono,
+            4. / self.width as f32,
+            4. / self.height as f32,
+            modulation,
+        )
+    }
+    fn bloom_modulated_with_steps(
+        &self,
+        level: f32,
+        power: f32,
+        mono: [f32; 4],
+        dx: f32,
+        dy: f32,
+        modulation: [f32; 4],
+    ) -> Self {
         let w = (self.width / 4).max(1);
         let h = (self.height / 4).max(1);
         let copy = Self::render(w, h, |u, v| self.sample(u, v));
@@ -144,11 +171,16 @@ impl Image {
                 let add = if mono[3] > 0. { original[k] } else { glow[k] };
                 original[k] + (glow[k] - original[k]) * level + power * glow[k] * add
             });
-            if mono[3] <= 0. {
-                return base;
-            }
-            let luma = (base[0] * 0.35 + base[1] * 0.6 + base[2] * 0.25).clamp(0., 1.);
-            std::array::from_fn(|k| base[k] + (luma * mono[k] - base[k]) * mono[3])
+            let composite = if mono[3] <= 0. {
+                base
+            } else {
+                let luma = (base[0] * 0.35 + base[1] * 0.6 + base[2] * 0.25).clamp(0., 1.);
+                std::array::from_fn(|k| base[k] + (luma * mono[k] - base[k]) * mono[3])
+            };
+            std::array::from_fn(|k| {
+                let source = (composite[k] * modulation[k]).clamp(0., 1.);
+                original[k] * (1. - modulation[3]) + source * modulation[3]
+            })
         })
     }
 }
@@ -230,5 +262,21 @@ mod tests {
             2
         );
         assert_eq!(comparison_tolerance(0.1, 0.25, [0.; 4]), 2);
+    }
+    #[test]
+    fn caller_alpha_zero_keeps_scene_and_rgb_modulation_is_before_blend() {
+        let image = Image {
+            width: 8,
+            height: 8,
+            pixels: vec![[64, 128, 192]; 64],
+        };
+        assert_eq!(
+            image
+                .bloom_modulated(1., 0.7, [0.; 4], [0., 0., 0., 0.])
+                .pixels,
+            image.pixels
+        );
+        let result = image.bloom_modulated(0., 0., [0.; 4], [0.5, 0.25, 1., 0.5]);
+        assert_eq!(result.pixels, vec![[48, 80, 192]; 64]);
     }
 }

@@ -87,7 +87,7 @@ fn main() {
                 height: h,
                 depth_or_array_layers: 1,
             };
-            let post = post_gpu::PostGpu::new(&device, format, w, h);
+            let mut post = post_gpu::PostGpu::new(&device, format, w, h);
             let source = post.scene_raw_view();
             let target = device.create_texture(&wgpu::TextureDescriptor {
                 label: None,
@@ -152,95 +152,118 @@ fn main() {
                 (1., 0.7, [226. / 255., 1., 1., 1.], false, 0.),
                 (0.1, 0.25, [0.; 4], false, 0.),
             ] {
-                post.render(
-                    &device,
-                    &queue,
-                    &target_view,
-                    &depth_view,
-                    w,
-                    h,
-                    time,
-                    100.,
-                    if underwater { 1. } else { 0. },
-                    environment::Fog {
-                        start: 0.,
-                        end: 100.,
-                        density: 0.,
-                        color: [0.; 3],
-                    },
-                    false,
-                    false,
-                    true,
-                    1.,
-                    [level, power, mono[0], mono[1], mono[2], mono[3]],
-                    false,
-                    41.,
-                );
-                let row = (w * 4 + 255) / 256 * 256;
-                let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: None,
-                    size: row as u64 * h as u64,
-                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                let mut encoder = device.create_command_encoder(&Default::default());
-                encoder.copy_texture_to_buffer(
-                    wgpu::ImageCopyTexture {
-                        texture: &target,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    wgpu::ImageCopyBuffer {
-                        buffer: &buffer,
-                        layout: wgpu::ImageDataLayout {
-                            offset: 0,
-                            bytes_per_row: Some(row),
-                            rows_per_image: Some(h),
+                for (argb, brightness_fade, opacity_fade, modulation) in [
+                    (0xffffffff, 0., 0., [1.; 4]),
+                    (
+                        0xff40a0e0,
+                        0.,
+                        0.,
+                        [64. / 255., 160. / 255., 224. / 255., 1.],
+                    ),
+                    (
+                        0x8040a0e0,
+                        0.25,
+                        0.5,
+                        [48. / 255., 120. / 255., 168. / 255., 64. / 255.],
+                    ),
+                    (
+                        0x0040a0e0,
+                        0.,
+                        0.,
+                        [64. / 255., 160. / 255., 224. / 255., 0.],
+                    ),
+                ] {
+                    post.set_glow_color(argb, brightness_fade, opacity_fade);
+                    post.render(
+                        &device,
+                        &queue,
+                        &target_view,
+                        &depth_view,
+                        w,
+                        h,
+                        time,
+                        100.,
+                        if underwater { 1. } else { 0. },
+                        environment::Fog {
+                            start: 0.,
+                            end: 100.,
+                            density: 0.,
+                            color: [0.; 3],
                         },
-                    },
-                    size,
-                );
-                queue.submit(Some(encoder.finish()));
-                let slice = buffer.slice(..);
-                let (tx, rx) = std::sync::mpsc::channel();
-                slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
-                device.poll(wgpu::Maintain::Wait);
-                rx.recv().unwrap().unwrap();
-                let pixels = slice.get_mapped_range();
-                let input = if underwater {
-                    image.underwater_warp(time)
-                } else {
-                    image.clone()
-                };
-                let reference = input.bloom(level, power, mono);
-                let mut worst = 0;
-                let mut worst_pixel = (0, 0, 0, 0, 0);
-                for y in 0..h as usize {
-                    for x in 0..w as usize {
-                        for c in 0..3 {
-                            let actual = pixels[y * row as usize + x * 4 + c];
-                            let expected = reference.pixels[y * w as usize + x][c];
-                            let error = (actual as i32 - expected as i32).abs();
-                            if error > worst {
-                                worst = error;
-                                worst_pixel = (x, y, c, actual, expected);
+                        false,
+                        false,
+                        true,
+                        1.,
+                        [level, power, mono[0], mono[1], mono[2], mono[3]],
+                        false,
+                        41.,
+                    );
+                    let row = (w * 4 + 255) / 256 * 256;
+                    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                        label: None,
+                        size: row as u64 * h as u64,
+                        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    let mut encoder = device.create_command_encoder(&Default::default());
+                    encoder.copy_texture_to_buffer(
+                        wgpu::ImageCopyTexture {
+                            texture: &target,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::ImageCopyBuffer {
+                            buffer: &buffer,
+                            layout: wgpu::ImageDataLayout {
+                                offset: 0,
+                                bytes_per_row: Some(row),
+                                rows_per_image: Some(h),
+                            },
+                        },
+                        size,
+                    );
+                    queue.submit(Some(encoder.finish()));
+                    let slice = buffer.slice(..);
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+                    device.poll(wgpu::Maintain::Wait);
+                    rx.recv().unwrap().unwrap();
+                    let pixels = slice.get_mapped_range();
+                    let input = if underwater {
+                        image.underwater_warp(time)
+                    } else {
+                        image.clone()
+                    };
+                    let reference = input.bloom_modulated(level, power, mono, modulation);
+                    let mut worst = 0;
+                    let mut worst_pixel = (0, 0, 0, 0, 0);
+                    for y in 0..h as usize {
+                        for x in 0..w as usize {
+                            for c in 0..3 {
+                                let actual = pixels[y * row as usize + x * 4 + c];
+                                let expected = reference.pixels[y * w as usize + x][c];
+                                let error = (actual as i32 - expected as i32).abs();
+                                if error > worst {
+                                    worst = error;
+                                    worst_pixel = (x, y, c, actual, expected);
+                                }
                             }
                         }
                     }
-                }
-                let tolerance = post_reference::comparison_tolerance(level, power, mono);
-                assert!(
+                    let tolerance = post_reference::comparison_tolerance(level, power, mono);
+                    assert!(
                     worst <= tolerance,
-                    "{format:?} {w}x{h}, level {level}, power {power}, mono {}, underwater {underwater}, time {time}: max byte error {worst}, tolerance {tolerance}, pixel {worst_pixel:?}",
+                    "{format:?} {w}x{h}, level {level}, power {power}, mono {}, underwater {underwater}, time {time}, ARGB {argb:08x}, fades {brightness_fade}/{opacity_fade}: max byte error {worst}, tolerance {tolerance}, pixel {worst_pixel:?}",
                     mono[3]
                 );
-                println!(
+                    println!(
                     "Glow UV/reference check: {format:?} {w}x{h}, mono {}, max byte error {worst}",
                     mono[3]
                 );
-                drop(pixels);
-                buffer.unmap();
+                    drop(pixels);
+                    buffer.unmap();
+                }
             }
         }
     }

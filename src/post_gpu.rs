@@ -2,6 +2,8 @@
 //! plus client-region-driven underwater fog, spacewarp and optional display gamma.
 #[path = "gamma_curve.rs"]
 mod gamma_curve;
+#[path = "glow_modulation.rs"]
+pub mod glow_modulation;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 /// Glow constants and interpolation traced through 0x410bb0 / 0x4111f0.
@@ -177,9 +179,10 @@ struct Params {
     fog_color: [f32; 4],
     gamma: [f32; 4],
     mono: [f32; 4],
+    modulation: [f32; 4],
 }
 const SHADER: &str = r#"
-struct Params {screen:vec4<f32>,effect:vec4<f32>,fog:vec4<f32>,fog_color:vec4<f32>,gamma:vec4<f32>,mono:vec4<f32>};
+struct Params {screen:vec4<f32>,effect:vec4<f32>,fog:vec4<f32>,fog_color:vec4<f32>,gamma:vec4<f32>,mono:vec4<f32>,modulation:vec4<f32>};
 @group(0) @binding(0) var scene:texture_2d<f32>;
 @group(0) @binding(1) var blur:texture_2d<f32>;
 @group(0) @binding(2) var smp:sampler;
@@ -264,6 +267,12 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
      out=mix(original,glow,clamp(p.gamma.z*strength,0.,1.))+p.gamma.w*strength*glow*glow;
    }
  }
+ // PS c3 and D3DBLEND_SRCALPHA / INVSRCALPHA (0x41007b–0x410089).
+ // Blend in encoded RGB before display gamma / sRGB presentation.
+ if p.effect.y>0.5 {
+   let source=clamp(out*p.modulation.rgb,vec3<f32>(0.),vec3<f32>(1.));
+   out=mix(original,source,p.modulation.a);
+ }
  // Emulate the client's 256-entry 16-bit D3D8 display ramp without
  // changing the desktop display. Linear interpolation models LUT lookup.
  if p.gamma.x>0.5 {
@@ -298,6 +307,7 @@ fn texture(
     })
 }
 pub struct PostGpu {
+    modulation: [f32; 4],
     format: wgpu::TextureFormat,
     scene: wgpu::Texture,
     fogged: wgpu::Texture,
@@ -347,6 +357,7 @@ impl PostGpu {
                 fog_color: [0.; 4],
                 gamma: [0.; 4],
                 mono: [0.; 4],
+                modulation: [1.; 4],
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -432,6 +443,7 @@ impl PostGpu {
             })
         };
         Self {
+            modulation: [1.; 4],
             format,
             scene,
             fogged,
@@ -447,6 +459,10 @@ impl PostGpu {
             horizontal: make("glow_h", format.remove_srgb_suffix()),
             finish: make("finish", format),
         }
+    }
+    /// Bind the caller tint and the effect object's independent fade channels.
+    pub fn set_glow_color(&mut self, argb: u32, brightness_fade: f32, opacity_fade: f32) {
+        self.modulation = glow_modulation::constant(argb, brightness_fade, opacity_fade);
     }
     pub fn resize(&mut self, device: &wgpu::Device, w: u32, h: u32) {
         self.scene = texture(device, self.format, w, h, "post scene");
@@ -539,6 +555,7 @@ impl PostGpu {
                     glow_parameters[4],
                     glow_parameters[5],
                 ],
+                modulation: self.modulation,
             }),
         );
         let scene = self.scene.create_view(&wgpu::TextureViewDescriptor {
