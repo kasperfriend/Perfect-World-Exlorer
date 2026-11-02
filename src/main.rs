@@ -43,6 +43,7 @@ mod launcher_ui;
 mod material;
 mod model_asset;
 mod model_dds;
+mod model_draw;
 mod model_light;
 mod model_material;
 mod model_receiver_gpu;

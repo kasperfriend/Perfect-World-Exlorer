@@ -940,3 +940,16 @@ model raster RGBA cases**, table-fog override, and all alpha comparison modes.
 The local core suite passed 52 tests. The seven readiness-audit tests passed.
 Internal confirmation still returns ten unfinished points and no audit errors;
 the raster API now exposes the pass inputs but world submission is not wired.
+
+### Retained asset draw-contract confirmation
+
+Added production `model_draw::prepare`: joins every posed mesh to its authored
+UVs, index topology, material and source-ordered texture paths. Validates full
+mesh coverage/uniqueness before GPU writes; rejects changed topology, bad
+indices/nonfinite inputs and unsupported ECM color/blend overrides instead of
+silently drawing a partial model. Three regressions cover the join and errors.
+The combined native suite passes 36 tests. The actual world corpus passes the
+new production contract for all 14 assets / 69 poses / 26,643 posed vertices.
+This closes the asset-to-draw-data subtask, not scene submission or scheduling.
+Confirmation: P1.03 remains No; all ten full-scope No gates remain. Continue to
+GPU draw ownership/update and actual scene submission.
