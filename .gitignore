@@ -19,3 +19,4 @@ Thumbs.db
 # Python validation helpers
 __pycache__/
 *.pyc
+google_drive/
