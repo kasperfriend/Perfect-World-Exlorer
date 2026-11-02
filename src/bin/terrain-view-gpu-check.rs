@@ -57,6 +57,12 @@ struct Target {
 }
 
 fn main() {
+    // Panics exit 101 and their message only reaches the job log, which is not
+    // always retrievable; mirror it into a GitHub annotation so a CI failure
+    // stays diagnosable.
+    std::panic::set_hook(Box::new(|info| {
+        println!("::error::terrain-view-gpu-check panicked: {info}");
+    }));
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
     let (device, queue) = pollster::block_on(adapter.request_device(
@@ -404,19 +410,24 @@ fn main() {
     assert_eq!(read_back(&device, &queue, &layers_buf), layer_snapshot);
 
     let main = sampled[0].1;
-    assert_ne!(main, [0, 0, 0], "the main view must shade the terrain");
+    if main == [0, 0, 0] {
+        println!("::error::terrain-view-gpu-check: main view rendered black; sampled={sampled:?}");
+        std::process::exit(1);
+    }
     for (name, rgb) in &sampled {
-        assert_ne!(*rgb, [0, 0, 0], "{name} submitted no terrain");
         let delta = (0..3)
             .map(|i| (rgb[i] as i32 - main[i] as i32).abs())
             .max()
             .unwrap_or(0);
         // The unlit branch is a pure function of the shared layer snapshot, so
         // the only permitted difference is sampling/interpolation rounding.
-        assert!(
-            delta <= 3,
-            "{name} terrain {rgb:?} differs from main {main:?} by {delta}"
-        );
+        if *rgb == [0, 0, 0] || delta > 3 {
+            println!(
+                "::error::terrain-view-gpu-check: {name} rgb={rgb:?} vs main={main:?} \
+                 delta={delta}; all={sampled:?}"
+            );
+            std::process::exit(1);
+        }
     }
     println!(
         "five views shaded one per-frame snapshot: {} area / {} layers",
