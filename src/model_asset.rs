@@ -148,22 +148,27 @@ impl ModelAsset {
     fn meshes_from_pose(&self, pose: &skeleton_pose::Pose) -> Result<Vec<PosedMesh>, String> {
         let mut meshes = Vec::new();
         for (skin, asset) in self.skins.iter().enumerate() {
+            // Bind/validate all SKI names even for a rigid-only skin. Rigid
+            // vertices below do not use this remapped weighted palette.
             let palette = skeleton_pose::palette(&asset.data, &self.skeleton, pose)?;
             for (mesh, data) in asset.data.meshes.iter().enumerate() {
-                // Rigid vertices have different binding-space semantics. Do not
-                // pretend a weighted bind-palette transform implements them.
-                if data.rigid_bone.is_some() {
-                    return Err(format!("{}: rigid pose path not implemented", asset.path));
-                }
+                let rigid = data
+                    .rigid_bone
+                    .map(|bone| skeleton_pose::rigid_matrix(pose, bone))
+                    .transpose()?;
                 let mut vertices = Vec::with_capacity(data.vertices.len());
                 for v in &data.vertices {
-                    vertices.push(skin_pose::deform(
-                        v.position,
-                        v.normal,
-                        [v.weights[0], v.weights[1], v.weights[2]],
-                        v.joints,
-                        &palette,
-                    )?);
+                    vertices.push(if let Some(matrix) = rigid {
+                        skin_pose::deform_rigid(v.position, v.normal, matrix)?
+                    } else {
+                        skin_pose::deform(
+                            v.position,
+                            v.normal,
+                            [v.weights[0], v.weights[1], v.weights[2]],
+                            v.joints,
+                            &palette,
+                        )?
+                    });
                 }
                 meshes.push(PosedMesh {
                     skin,

@@ -52,8 +52,14 @@ pub fn prepare<'a>(
             .meshes
             .get(pose.mesh)
             .ok_or("posed mesh index out of range")?;
-        if mesh.rigid_bone.is_some() {
-            return Err("ordinary weighted draw received a rigid mesh".into());
+        if let Some(bone) = mesh.rigid_bone {
+            if usize::try_from(bone)
+                .ok()
+                .filter(|&i| i <= asset.skeleton.bones.len())
+                .is_none()
+            {
+                return Err("rigid bone index out of range".into());
+            }
         }
         if mesh.vertices.len() != pose.vertices.len()
             || mesh.vertices.is_empty()
@@ -125,6 +131,54 @@ mod tests {
             .unwrap();
         let prepared = prepare(&asset, &poses).unwrap();
         assert_eq!(prepared[0].vertices[2].position, [12., 4., -2.]);
+    }
+    #[test]
+    fn rigid_uses_direct_skeleton_inverse_bind_not_skin_name_map() {
+        let (mut asset, _) = fixture();
+        let t = |x| glam::Mat4::from_translation(glam::Vec3::X * x);
+        asset.skeleton.bones.push(crate::skeleton::Bone {
+            name: "root".into(),
+            flags: 0,
+            parent: -1,
+            first_joint: -1,
+            relative: t(5.).to_cols_array(),
+            initial: t(-3.).to_cols_array(),
+            children: vec![],
+        });
+        asset.skins[0].data.meshes[0].rigid_bone = Some(0);
+        asset.skeleton.bones.push(crate::skeleton::Bone {
+            name: "other".into(),
+            flags: 0,
+            parent: -1,
+            first_joint: -1,
+            relative: t(99.).to_cols_array(),
+            initial: t(-5.).to_cols_array(),
+            children: vec![],
+        });
+        // Neither this valid reordered mapping nor weighted joint bytes may
+        // alter rigid ID 0. Vertices already live in skeleton bind space.
+        asset.skins[0].data.bones = vec!["other".into()];
+        for v in &mut asset.skins[0].data.meshes[0].vertices {
+            v.joints = [255; 4];
+            v.weights = [0.; 4];
+            v.normal = [0., 3., 0.];
+        }
+        let p = asset.pose_bind(t(10.)).unwrap();
+        assert_eq!(p[0].vertices[2].position, [14., 0., 0.]);
+        assert_eq!(p[0].vertices[2].normal, [0., 1., 0.]);
+        assert!(prepare(&asset, &p).is_ok());
+        // Final skeleton slot is the model transform, not the last real bone.
+        asset.skins[0].data.meshes[0].rigid_bone = Some(2);
+        let p = asset.pose_bind(t(10.)).unwrap();
+        assert_eq!(p[0].vertices[2].position, [12., 0., 0.]);
+        asset.skins[0].data.bones = vec!["missing".into()];
+        assert!(asset.pose_bind(t(10.)).is_err());
+        asset.skins[0].data.bones.clear();
+        for bone in [-1, 3] {
+            asset.skins[0].data.meshes[0].rigid_bone = Some(bone);
+            assert!(asset.pose_bind(t(10.)).is_err());
+            assert!(prepare(&asset, &p).is_err());
+        }
     }
     #[test]
     fn joins_posed_geometry_to_authored_uv_material_and_texture() {

@@ -1361,3 +1361,52 @@ rejects gamma-before-sharpen. The GPU matrix now also exercises sharpen
 then gamma at setting 67 on exact unwarped patterns, in both UNORM and
 sRGB targets. Existing ordinary tolerances remain unchanged. Local core
 76 passing; this new gamma-order extension awaits CI.
+
+
+## Full world terrain lightmap payload census and rigid receiving path
+
+`3364cdc` CI 41457984418 completed SUCCESS (Linux, all GPU binaries,
+Windows); the 76-test core count remains current. This validates the
+sharpen-before-gamma follow-up previously marked pending above.
+
+Downloaded every actual `.t2lm`/`.t2lm1` named by the world's TRN2:
+176 files, 92,650,624 bytes. Rebuilt and executed the existing production
+validator against `google_drive` (not just Drive metadata):
+
+```
+rustc --edition=2021 tools/validate-terrain-lightmaps.rs -o validate-lightmaps
+validate-lightmaps /path/to/world
+World: 32x44 mask areas; 88 subterrain pairs. Validated 176 files / 2816 DDS tiles; missing 0; invalid 0.
+```
+
+[Per-file size/SHA-256 manifest](Phase-1-lightmap-payload-manifest.csv),
+SHA-256 `830736129ef9accf45a01225fd6ad21884ff3dae2b3e14090932ec76d54827a2`.
+Checks include complete nonoverlapping rectangular area coverage in both
+maps and the production DDS payload parser; private payloads stay ignored.
+**Confirmation: full world lightmap payload census Yes. Full P1.06 No**:
+missing-day runtime binding and dynamic loading/unloading are separate gates.
+
+Rigid receiving-path research verified against retail 1.4.2:
+`0x7a714f..0x7a7158` loads the rigid mesh's bone at +0x64 and applies
+three VS constants starting at c14. `0x792969..0x792986` indexes the
+skeleton TVS blend array (+0x3ac) directly with `bone << 6`, without the
+v9 SKI weighted name remap. `0x7926d2..0x79275a` constructs/transposes
+inverse-bind/ordinary bone/model matrices; `0x7927e9..0x792822` appends
+the virtual model slot. Scale/controllers remain explicitly unsupported.
+The actual `rigid_mesh_ns.txt` shader transforms position with m4x3,
+normal with m3x3, then normalizes normal (dp3/rsq/mul), matching the
+ordinary supported CPU pose-space path. Related 1.5.2 source was used
+only to identify candidates; the implementation is independently written.
+
+Added direct skeleton-index rigid posing (not skin-name remapping),
+inverse bind and virtual slot, preserving bind-name validation and rejecting
+negative/out-of-range/nonfinite indices/matrices. Retained prepare/upload
+now accepts validated rigid geometry and keeps authored material/texture.
+GPU fixture now uses production pose_bind instead of hand-built poses,
+with one weighted and one rigid mesh, direct real-bone motion, virtual
+slot, frame updates, then existing ordinary world/pass checks. New CPU
+regressions cover reordered SKI names, inverse bind, ignored weighted
+bytes, normalized normals, virtual slot, >255 skeleton indices and invalid
+inputs. New GPU/Windows validation pending; do not treat it as passed yet.
+**Confirmation: rigid pose CPU implementation Yes; full P1.02/P1.03 No**
+until GPU validation and the remaining receiving/material/lifecycle paths.

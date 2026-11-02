@@ -103,6 +103,22 @@ pub fn evaluate(
     })
 }
 
+/// Rigid mesh bone IDs address the skeleton blend array directly, including
+/// its final virtual/model slot. Unlike weighted v9 vertices they are NOT
+/// remapped through SKI bone names (retail 0x7a7158 -> 0x792969).
+pub fn rigid_matrix(pose: &Pose, bone: i32) -> Result<Mat4, String> {
+    let bone = usize::try_from(bone).map_err(|_| "negative rigid bone index")?;
+    let matrix = if bone == pose.skin.len() {
+        pose.model
+    } else {
+        *pose.skin.get(bone).ok_or("rigid bone index out of range")?
+    };
+    if !matrix.is_finite() {
+        return Err("nonfinite rigid matrix".into());
+    }
+    Ok(matrix)
+}
+
 /// v9 uses skin-local bone names. Earlier skins use skeleton indices.
 /// The extra model/root slot follows the palette allocation at 0x7927e9.
 pub fn palette(skin: &Skin, skeleton: &Skeleton, pose: &Pose) -> Result<Vec<Mat4>, String> {
@@ -203,6 +219,21 @@ mod tests {
         assert_eq!(pose.skin[0].transform_point3(Vec3::X), Vec3::X * 14.);
         let rest = evaluate(&s, &[], 0., Mat4::from_translation(Vec3::X * 10.)).unwrap();
         assert_eq!(rest.skin[0].transform_point3(Vec3::X), Vec3::X * 11.);
+    }
+    #[test]
+    fn rigid_indices_are_not_limited_to_weighted_vertex_bytes() {
+        let mut pose = Pose {
+            absolute: vec![],
+            skin: vec![Mat4::IDENTITY; 300],
+            model: Mat4::from_translation(Vec3::X * 23.),
+        };
+        pose.skin[299] = Mat4::from_translation(Vec3::X * 17.);
+        assert_eq!(rigid_matrix(&pose, 299).unwrap(), pose.skin[299]);
+        assert_eq!(rigid_matrix(&pose, 300).unwrap(), pose.model);
+        assert!(rigid_matrix(&pose, 301).is_err());
+        assert!(rigid_matrix(&pose, -1).is_err());
+        pose.skin[299] = Mat4::from_cols_array(&[f32::NAN; 16]);
+        assert!(rigid_matrix(&pose, 299).is_err());
     }
     #[test]
     fn skin_names_reorder_matrices_and_keep_separate_model_slot() {

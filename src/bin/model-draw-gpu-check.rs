@@ -84,24 +84,7 @@ fn white_dds() -> Vec<u8> {
     b
 }
 fn poses(asset: &model_asset::ModelAsset) -> Vec<model_asset::PosedMesh> {
-    asset.skins[0]
-        .data
-        .meshes
-        .iter()
-        .enumerate()
-        .map(|(mesh, m)| model_asset::PosedMesh {
-            skin: 0,
-            mesh,
-            vertices: m
-                .vertices
-                .iter()
-                .map(|v| skin_pose::PosedVertex {
-                    position: v.position,
-                    normal: v.normal,
-                })
-                .collect(),
-        })
-        .collect()
+    asset.pose_bind(glam::Mat4::IDENTITY).unwrap()
 }
 fn check(device: &wgpu::Device, queue: &wgpu::Queue, draw: &dyn TestDraw, expected: [[u8; 4]; 2]) {
     let target = device.create_texture(&wgpu::TextureDescriptor {
@@ -223,6 +206,9 @@ fn main() {
     for i in 0..2 {
         let mut m = source.clone();
         m.material = i;
+        if i == 1 {
+            m.rigid_bone = Some(0);
+        } // final model slot with no bones
         m.indices = vec![0, 1, 2, 2, 1, 3];
         let left = i as f32 - 1.;
         let right = i as f32;
@@ -318,6 +304,25 @@ fn main() {
     }
     draw.update(&queue, &asset, &moved, dim).unwrap();
     check(&device, &queue, &draw, [[0; 4], expected[1]]);
+    // Actual pose -> retained GPU upload: the rigid ID remains a direct
+    // skeleton index while the weighted mesh keeps its v9 virtual slot.
+    let t = |x| glam::Mat4::from_translation(glam::Vec3::X * x);
+    asset.skeleton.bones.push(skeleton::Bone {
+        name: "rigid-root".into(),
+        flags: 0,
+        parent: -1,
+        first_joint: -1,
+        relative: t(5.).to_cols_array(),
+        initial: t(-1.).to_cols_array(),
+        children: vec![],
+    });
+    draw.update(&queue, &asset, &poses(&asset), dim).unwrap();
+    check(&device, &queue, &draw, [expected[0], [0; 4]]);
+    asset.skins[0].data.meshes[1].rigid_bone = Some(1);
+    draw.update(&queue, &asset, &poses(&asset), dim).unwrap();
+    check(&device, &queue, &draw, expected);
+    asset.skeleton.bones.clear();
+    asset.skins[0].data.meshes[1].rigid_bone = Some(0);
     // Descriptor RGB selects the clamped scaled-material method; alpha remains
     // separately controlled. Restore original method before the world fixture.
     asset.descriptor.original_color = Some(0xff804020);

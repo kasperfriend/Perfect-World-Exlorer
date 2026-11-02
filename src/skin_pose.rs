@@ -1,8 +1,8 @@
 //! A3D skin-mesh four-matrix vertex deformation, isolated from rendering.
 //! Retail `skin_mesh_m4_ns_dl` computes weight 4 as 1-w0-w1-w2, then
 //! transforms position and normal by each palette matrix and sums them.
-//! Matrix palette generation, skeleton/animation loading, rigid binding and
-//! world model rendering are not implemented by this module.
+//! Rigid deformation uses one already selected skeleton-space matrix.
+//! Matrix generation, skeleton/animation loading and drawing live elsewhere.
 use glam::{Mat4, Vec3, Vec4};
 
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +51,16 @@ pub fn deform(
         position: p.to_array(),
         normal: n.normalize_or_zero().to_array(),
     })
+}
+
+/// Retail rigid_mesh_* transforms with one skeleton-space matrix and
+/// normalizes the resulting normal. No skin-local palette or vertex weights.
+pub fn deform_rigid(
+    position: [f32; 3],
+    normal: [f32; 3],
+    matrix: Mat4,
+) -> Result<PosedVertex, &'static str> {
+    deform(position, normal, [1., 0., 0.], [0; 4], &[matrix])
 }
 
 pub const WGSL: &str = r#"
