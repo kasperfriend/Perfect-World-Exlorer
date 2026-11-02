@@ -57,6 +57,7 @@ jobs:
           cargo run --locked --bin skin-palette-gpu-check
           cargo run --locked --bin model-texture-gpu-check
           cargo run --locked --bin model-receiver-gpu-check
+          cargo run --locked --bin model-draw-gpu-check
           cargo run --locked --bin phase1-fog-gpu-check
           cargo run --locked --bin terrain-refraction-gpu-check
 

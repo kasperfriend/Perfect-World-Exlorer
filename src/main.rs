@@ -44,6 +44,10 @@ mod material;
 mod model_asset;
 mod model_dds;
 mod model_draw;
+#[cfg(test)]
+#[path = "../tools/fixtures/model_draw.rs"]
+mod model_draw_fixture;
+mod model_draw_gpu;
 mod model_light;
 mod model_material;
 mod model_receiver_gpu;
