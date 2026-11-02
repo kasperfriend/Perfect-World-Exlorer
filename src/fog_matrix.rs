@@ -18,11 +18,14 @@
 //!   shaders never receive the exponential inputs.
 //! * The below-surface scene (`0x7cca50`) is rendered with the *air* fog while
 //!   the camera is underwater; the underwater fog is restored afterwards.
-//! * The water surface itself is a known gap: `0x7ca9de` pushes the underwater
-//!   fog end into the engine fog state for the water draw, but the fog start,
-//!   color and whether D3D8 applies table fog after a PS1.4 shader were not
-//!   recovered, so production leaves the surface unfogged and this table marks
-//!   the row unimplemented rather than guessing.
+//! * The water surface and the shoreline waves keep table fog too. The client
+//!   refreshes the surface object's fog fields from the active region fog on
+//!   every update (`0x6bfa34`/`0x6bfa47` through the setters at `0x780990` and
+//!   `0x7809c0`) and rebinds them right before the draw
+//!   (`0x7ca9d9`/`0x7ca9e8`/`0x7ca9f7`, plus `0x7cb444`/`0x7cb502`/`0x7cb94e`
+//!   for the edge and refraction passes). Neither water shader carries fog
+//!   math: `wavevs.txt` writes `oFog = 1.0` and `waveblend.txt` has no fog
+//!   constants, so the pass state applies unchanged.
 //!
 //! Transparent/alpha-tested variants inherit their class row: the recovered
 //! shaders return encoded material color and the client applied fog after the
@@ -95,6 +98,27 @@ pub fn below_surface_fog(air: Fog) -> Fog {
         enabled: true,
         ..air
     }
+}
+
+/// The fog state the water surface binds immediately before drawing.
+///
+/// `A3DTerrainWater` seeds two triples in its constructor
+/// (`0x7c9212..0x7c9248`): colour `0xffffffff`/100/400 at `0x6bc`/`0x6c0`/`0x6c4`
+/// and colour `0xff0000ff`/10/60 at `0x6c8`/`0x6cc`/`0x6d0`. Both are only
+/// start-up seeds: the scene fog update calls the two interface setters with the
+/// active regional fog on every update (`0x6bfa34` → `0x780990` for the first
+/// triple, `0x6bfa47` → `0x7809c0` for the second), passing the same colour and
+/// the `0.0`/`400.0` range it pushes into `D3DRS_FOGCOLOR`/`FOGSTART`/`FOGEND`
+/// at `0x6bf9d8..0x6bfa11`.
+///
+/// The drawing sites then rebind those object fields through the engine fog
+/// setters: the surface renderer at `0x7ca9d9`/`0x7ca9e8`/`0x7ca9f7`, the edge
+/// and refraction passes at `0x7cb444` and `0x7cb94e`, and the pass at
+/// `0x7cb502`. The water path never writes `D3DRS_FOGENABLE`, so the surface
+/// inherits the scene fog enable state and uses the same linear table fog over
+/// view-space `z` as every other table-fog draw.
+pub fn water_fog(camera_underwater: bool, atmospheric: bool, air: Fog, water: Fog) -> Fog {
+    camera_fog(camera_underwater, atmospheric, air, water)
 }
 
 /// Materials that can be submitted in the water-related passes.
@@ -195,12 +219,16 @@ pub fn row(material: Material, pass: Pass) -> Row {
             "sky panorama pass has no fog constants",
         ),
         // The water surface gap is described in the module documentation.
+        // The surface rebinds the object's fog fields right before its draw
+        // (0x7ca9d9..0x7ca9f7) and those fields hold the region fog
+        // (0x6bfa47); the shaders carry no fog math and water_vs writes no oFog,
+        // so the quantity is the engine table fog.
         (WaterSurface, Main) => row_of(
             TableFogViewZ,
-            WaterRefraction,
+            Camera,
             false,
-            false,
-            "0x7ca9de engine fog end; start/color/mode unrecovered",
+            true,
+            "0x6bfa47 refresh; 0x7cb502/0x7ca9f9 bind before the draw",
         ),
         (WaterSurface, _) => row_of(
             Quantity::None,
@@ -210,12 +238,15 @@ pub fn row(material: Material, pass: Pass) -> Row {
             "water surface not submitted in this pass",
         ),
         // Shoreline waves are drawn only into the main scene target.
+        // wavevs.txt writes oFog = c0.x = 1.0 ("set no fog") and waveblend.txt
+        // has no fog constants, so the waves add no fog of their own; they are
+        // drawn in the water pass under the same bound fog state.
         (Shore, Main) => row_of(
             TableFogViewZ,
             Camera,
             false,
-            false,
-            "waveblend.txt has no fog; engine fog state unproven",
+            true,
+            "wavevs.txt oFog=1.0; waveblend.txt has no fog; pass state shared",
         ),
         (Shore, _) => row_of(
             Quantity::None,
@@ -425,13 +456,9 @@ mod tests {
             .flat_map(|m| PASSES.map(|p| (*m, p)))
             .filter(|(m, p)| !row(*m, *p).implemented)
             .collect::<Vec<_>>();
-        assert_eq!(
-            gaps,
-            vec![
-                (Material::Shore, Pass::Main),
-                (Material::WaterSurface, Pass::Main)
-            ]
-        );
+        // Both former gaps are recovered: the water surface binds its own
+        // fog triple and the waves add none of their own.
+        assert!(gaps.is_empty(), "unexpected gaps: {gaps:?}");
     }
 
     #[test]
@@ -472,6 +499,35 @@ mod tests {
         assert_eq!(MODEL_VERTEX_FOG, 1.);
         for pass in PASSES {
             assert_ne!(row(Material::Model, pass).quantity, Quantity::None);
+        }
+    }
+
+    #[test]
+    fn water_surface_uses_the_active_region_fog() {
+        let air = Fog {
+            start: 0.,
+            end: 400.,
+            color: [0.5, 0.6, 0.7],
+            enabled: true,
+        };
+        let water = Fog {
+            start: 12.,
+            end: 64.,
+            color: [0.1, 0.2, 0.4],
+            enabled: true,
+        };
+        assert_eq!(water_fog(false, true, air, water), camera_fog(false, true, air, water));
+        assert_eq!(water_fog(true, false, air, water), camera_fog(true, false, air, water));
+        // The surface never invents a fixed triple: with the atmosphere off and
+        // the camera above water it stays disabled, exactly like the scene.
+        let off = water_fog(false, false, air, water);
+        assert!(!off.enabled);
+        // Both water rows use the camera's active regional fog.
+        for material in [Material::WaterSurface, Material::Shore] {
+            let row = row(material, Pass::Main);
+            assert_eq!(row.range, RangeColor::Camera, "{material:?}");
+            assert_eq!(row.quantity, Quantity::TableFogViewZ);
+            assert!(row.implemented);
         }
     }
 }

@@ -64,6 +64,8 @@ fn main() {
                 size: [64., 64., 100., 1.],
                 animation: [0., 100., 0., 0.],
                 edge_mode: [0.; 4],
+                fog: [0., 1., 0., 0.],
+                fog_color: [1., 1., 1., 1.],
             },
         );
         let v = |x, y, z| gpu::Vertex {
@@ -137,6 +139,10 @@ fn main() {
                     size: [64., 64., 100., 1.],
                     animation: [0., 100., 0., 0.],
                     edge_mode: [0.; 4],
+                    fog: [0., 1., 0., 0.],
+                    fog_color: [1., 1., 1., 1.],
+                fog: [0., 1., 0., 0.],
+                fog_color: [1., 1., 1., 1.],
                 },
             );
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {

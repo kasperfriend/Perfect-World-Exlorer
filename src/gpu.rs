@@ -1619,6 +1619,10 @@ impl Renderer {
                     crate::water_gpu::normal_offset_angle(self.started.elapsed().as_secs_f64()),
                 ],
                 edge_mode: [if camera.water_reflections { 1. } else { 0. }, 0., 0., 0.],
+                // Water-surface fog: the client binds the region's own triple
+                // (white 100..400 above water, blue 10..60 below).
+                fog: crate::water_gpu::surface_fog_uniform(camera.active_fog()).0,
+                fog_color: crate::water_gpu::surface_fog_uniform(camera.active_fog()).1,
             },
         );
         self.simple_water
@@ -2073,10 +2077,10 @@ impl Camera {
             logic_delta_ms: 0,
         }
     }
-    fn fog_uniform(&self) -> ([f32; 4], [f32; 4]) {
+    fn active_fog(&self) -> crate::fog_matrix::Fog {
         // Main/reflection table fog uses the camera's active regional set; the
         // selection (and its enable rule) lives in the audited fog matrix.
-        let f = crate::fog_matrix::camera_fog(
+        crate::fog_matrix::camera_fog(
             self.underwater_depth > 0.,
             self.atmospheric_fog,
             crate::fog_matrix::Fog {
@@ -2091,7 +2095,10 @@ impl Camera {
                 color: self.underwater_fog.color,
                 enabled: true,
             },
-        );
+        )
+    }
+    fn fog_uniform(&self) -> ([f32; 4], [f32; 4]) {
+        let f = self.active_fog();
         (f.range(), f.color4())
     }
     fn region_uniform(&self) -> ([f32; 4], [f32; 4], [f32; 4]) {
