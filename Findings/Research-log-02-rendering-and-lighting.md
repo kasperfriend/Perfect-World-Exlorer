@@ -1017,3 +1017,28 @@ choosing any animation. All 14 real assets' bind poses pass production draw
 preparation. A regression checks model/root transformation in this path. The
 combined native suite passes 39 tests. Full CI of this dispatch/bind-pose change
 is pending. Random/tick/transition playback still needs its own integration.
+
+### Ordinary world playback clock confirmation
+
+Added `model_playback::Playback` and compile it for retained scene instances.
+Scope is explicit: one base, start 0, fixed/infinite loop policy, ordinary
+nonnegative speed; multi-base/random/delayed policies fail rather than choose
+a first base. This covers **all 66 actual playing world placements**; the
+seven failed scene-name/idle lookups have no sampled action and use bind pose.
+
+Further exact executable checks, guided by the pinned related-client source:
+`7c5580` truncates frame*1000/fps to milliseconds; `7c50e0–7c5118` sets
+span=end_ms-start_ms+1 (**one millisecond**, not one extra frame).
+`6d208e–6d20a1` multiplies combined speed by descriptor default speed;
+`6d0e4f–6d0e62` truncates delta*speed per tick, without fractional carry.
+`6f7890–6f7a53` matches the ordinary combined base progression/loop decision;
+`6f7a60–6f7a7b` subtracts the base time span on a loop. No later-version
+random/event/transition behavior was enabled by analogy alone.
+
+Four native regressions test inclusive-ms wrap, large-tick multi-wrap, finite
+end-pose hold, failed dispatch, forced infinite sole-base policy, per-tick speed
+truncation and explicit unsupported-policy rejection. Combined suite: 43 pass.
+Actual-world validation advances all 73 programs through five clock/pose/draw
+preparation checkpoints each: 365 checks, zero failures. Full CI pending.
+Confirmation: ordinary clock subtask Yes locally; P1.03 still No because GPU
+world-pass submission remains missing. Continue implementation and CI checks.

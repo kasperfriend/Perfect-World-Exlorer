@@ -9,6 +9,7 @@ pub struct Instance {
     /// Effective combined action after the source idle fallback; None is
     /// a non-playing model, not a direct-SMD-name dispatch.
     pub action: Option<usize>,
+    pub playback: Result<crate::model_playback::Playback, String>,
 }
 pub struct Assets {
     pub assets: Vec<ModelAsset>,
@@ -53,10 +54,12 @@ impl Assets {
                 let action = result.assets[asset]
                     .descriptor
                     .scene_action(&placement.action);
+                let playback = crate::model_playback::Playback::new(&result.assets[asset], action);
                 result.instances.push(Instance {
                     placement,
                     asset,
                     action,
+                    playback,
                 });
             } else {
                 result.unloaded.push(placement);
