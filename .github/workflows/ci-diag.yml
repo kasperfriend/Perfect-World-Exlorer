@@ -1,0 +1,30 @@
+name: CI diagnostics (temporary)
+on:
+  push:
+    branches: [arena/bdae8dca-perfect-world-exlorer]
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Collect fmt patch
+        run: |
+          set +e
+          cargo fmt --all -> /tmp/before.txt 2>&1
+          git diff > /tmp/patch.diff
+          {
+            echo 'CI fmt patch for '"$GITHUB_SHA"
+            echo '```diff'
+            head -c 40000 /tmp/patch.diff
+            echo '```'
+          } > /tmp/body.md
+          gh pr comment 3 --body-file /tmp/body.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
