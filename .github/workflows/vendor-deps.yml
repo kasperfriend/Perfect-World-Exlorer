@@ -1,0 +1,30 @@
+name: Vendor dependencies (one-shot)
+
+# Temporary helper: produces a vendored copy of the locked crate sources so an
+# offline sandbox can build and test without crates.io access. The resulting
+# vendor.tar.gz commit is removed from the branch immediately after retrieval.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  vendor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vendor locked dependencies
+        run: |
+          cargo vendor --locked vendor
+          tar czf vendor.tar.gz vendor
+          rm -rf vendor
+          ls -la vendor.tar.gz
+      - name: Commit tarball back to the dispatch branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add vendor.tar.gz
+          git commit -m "chore: temporary vendored dependency tarball [skip ci]"
+          git push origin "HEAD:${GITHUB_REF#refs/heads/}"
