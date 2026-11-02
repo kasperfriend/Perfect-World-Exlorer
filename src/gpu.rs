@@ -707,6 +707,8 @@ struct Renderer {
     started: Instant,
     wind_last: Instant,
     world_glow: crate::post_gpu::WorldGlow,
+    glow_tick_ms: u64,
+    glow_requested_fade: Option<f32>,
     grass_wind_state: crate::grass_wind::GrassWind,
     atlas: wgpu::Texture,
     vertex: wgpu::Buffer,
@@ -1041,6 +1043,8 @@ impl Renderer {
             started: Instant::now(),
             wind_last: Instant::now(),
             world_glow: crate::post_gpu::WorldGlow::default(),
+            glow_tick_ms: 0,
+            glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
             atlas,
             vertex,
@@ -1428,17 +1432,35 @@ impl Renderer {
         self.grass_wind_state.update(dt);
         self.wind_last = now;
         self.post.set_sharpen(camera.sharpen);
-        self.post.set_glow_color(
-            camera.bloom_tint,
-            camera.bloom_brightness_fade,
-            camera.bloom_opacity_fade,
-        );
-        let glow_parameters = self.world_glow.update_with_mode(
+        self.world_glow.select(
             camera.bloom,
             crate::environment::daylight(camera.time_of_day),
             camera.underwater_depth > 0.,
             camera.bloom_mode,
-            dt,
+            camera.bloom_tint,
+        );
+        // Viewer fade-control changes are explicit SetFade requests, not a
+        // permanently forced value that defeats native mode-triggered StopFade.
+        if camera.bloom && self.glow_requested_fade != Some(camera.bloom_brightness_fade) {
+            self.world_glow.set_fade(
+                self.world_glow.brightness_fade(),
+                camera.bloom_brightness_fade,
+                1000,
+            );
+            self.glow_requested_fade = Some(camera.bloom_brightness_fade);
+        }
+        let tick = now
+            .duration_since(self.started)
+            .as_millis()
+            .min(u64::MAX as u128) as u64;
+        let glow_delta = tick.saturating_sub(self.glow_tick_ms).min(i32::MAX as u64) as i32;
+        self.glow_tick_ms = tick;
+        self.world_glow.tick(glow_delta);
+        let glow_parameters = self.world_glow.parameters();
+        self.post.set_glow_color(
+            camera.bloom_tint,
+            self.world_glow.brightness_fade(),
+            camera.bloom_opacity_fade,
         );
         let direction = camera.direction();
         let use_post = crate::view_settings::post_required(
@@ -2603,7 +2625,7 @@ pub fn run(
                                                 let defaults=ViewSettings::default();
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
-                                                    0=>{ui.heading("Graphics");ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow brightness fade (preview)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
+                                                    0=>{ui.heading("Graphics");ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
                                                     1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Detailed terrain radius (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());ui.label("Music follows the client zone playlists; ambient sounds are not yet implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}

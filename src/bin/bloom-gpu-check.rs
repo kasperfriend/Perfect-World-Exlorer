@@ -58,6 +58,8 @@ fn main() {
     for format in [
         wgpu::TextureFormat::Rgba8Unorm,
         wgpu::TextureFormat::Rgba8UnormSrgb,
+        wgpu::TextureFormat::Bgra8Unorm,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
     ] {
         let fixture_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: None,
@@ -133,7 +135,7 @@ fn main() {
             }
             queue.submit(Some(encoder.finish()));
             let image = post_reference::Image::pattern(w as usize, h as usize);
-            for (level, power, mono, underwater, time) in [
+            let mut cases = vec![
                 (0.25, 0.25, [0.; 4], false, 0.),
                 (
                     0.5,
@@ -152,9 +154,41 @@ fn main() {
                 ),
                 (1., 0.7, [226. / 255., 1., 1., 1.], false, 0.),
                 (0.1, 0.25, [0.; 4], false, 0.),
-            ] {
+            ];
+            // Production environment -> presenter transitions -> shader pixels.
+            // Independently recovered native c0.r/c0.g expectations catch the
+            // old level/power swap (static shader tests alone could not).
+            let mut state = post_gpu::WorldGlow::default();
+            state.select(true, 1., false, 0, 0xffffffff);
+            state.tick(5000);
+            state.select(true, 1., true, 0, 0xffffffff);
+            state.tick(1000);
+            let p = state.parameters();
+            assert_eq!(&p[..2], &[0.425, 0.375]);
+            assert_eq!(p[5], 1. / 3.);
+            cases.push((p[0], p[1], [p[2], p[3], p[4], p[5]], true, 0.7));
+            state.tick(1000);
+            let p = state.parameters();
+            assert_eq!(&p[..2], &[0.6, 0.5]);
+            cases.push((p[0], p[1], [p[2], p[3], p[4], p[5]], true, 1.7));
+            state.select(true, 1., false, 4, 0xffffffff);
+            state.tick(2000);
+            let p = state.parameters();
+            assert_eq!(&p[..2], &[0.7, 1.]);
+            cases.push((p[0], p[1], [p[2], p[3], p[4], p[5]], false, 0.));
+            state.select(true, 1., false, 5, 0xffffffff);
+            state.tick(1000);
+            let p = state.parameters();
+            assert_eq!(&p[..2], &[0.25, 0.1]);
+            cases.push((p[0], p[1], [p[2], p[3], p[4], p[5]], false, 0.));
+            state.set_fade(0., 1., 1000);
+            state.tick(250);
+            let runtime_fade = state.brightness_fade();
+            assert_eq!(runtime_fade, 0.25);
+            for (level, power, mono, underwater, time) in cases {
                 for (argb, brightness_fade, opacity_fade, modulation) in [
                     (0xffffffff, 0., 0., [1.; 4]),
+                    (0xffffffff, runtime_fade, 0., [0.75, 0.75, 0.75, 1.]),
                     (
                         0xff40a0e0,
                         0.,
@@ -268,7 +302,16 @@ fn main() {
                         for y in 0..h as usize {
                             for x in 0..w as usize {
                                 for c in 0..3 {
-                                    let actual = pixels[y * row as usize + x * 4 + c];
+                                    let memory_channel = if matches!(
+                                        format,
+                                        wgpu::TextureFormat::Bgra8Unorm
+                                            | wgpu::TextureFormat::Bgra8UnormSrgb
+                                    ) {
+                                        2 - c
+                                    } else {
+                                        c
+                                    };
+                                    let actual = pixels[y * row as usize + x * 4 + memory_channel];
                                     let expected = reference.pixels[y * w as usize + x][c];
                                     let error = (actual as i32 - expected as i32).abs();
                                     if error > worst {

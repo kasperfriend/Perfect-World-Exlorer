@@ -1599,3 +1599,38 @@ production GPU validation and Windows executable. This includes complete
 owner record retention and the two new scene tests. Confirmation remains
 **No — continue implementation** for full P1.01; the other full-scope gates
 have not been promoted based on this survey or compilation.
+
+### Native glow presenter timing and shader-register ordering correction
+
+Re-traced `0x410bb0..0x410d68`, `0x411100..0x4112bf`,
+`0x411340..0x411391`, `0x4114a0..0x4114f4`, and scene caller
+`0x4214d5..0x4214e6`. This exposed an actual production integration error:
+setter +0 is **power**, +0x10 is **level**, but c0.r receives +0x10 and c0.g
+receives +0. Previous `WorldGlow` supplied setter order as shader order. Thus
+underwater/special-mode coefficients were swapped despite static shader
+fixtures passing. Corrected output is [level,power]: underwater [.6,.5],
+mode 4 [.7,1], mode 5 [.25,.1]. Earlier historical log attributions of these
+values as [.5,.6]/[1,.7]/[.1,.25] in level/power order are superseded.
+
+Replaced elapsed-ratio interpolation with native stored-f32-step updates and
+signed integer-millisecond remaining times, including exact end snap. Native
+zero-duration behavior holds start, negative duration snaps on first update.
+Added timed SetFade, StopFade(true/false), automatic StopFade on types 1/2/3/5
+but not type 4, type-OR-caller-color change detection, and disabled-state
+freeze/resume rather than erasing the presenter. Viewer now consumes monotonic
+integer-ms differences and actual timed fade state. The fade slider explicitly
+requests a one-second transition; it no longer forcibly overrides every frame
+and defeats mode-triggered StopFade. No gameplay triggers are fabricated.
+
+`glow_state.rs` is dependency-free and production-shared; nine CPU regressions
+pass, bringing the core script to 92. Golden recurrence checks distinguish
+native accumulation by 24 ULPs after 312 frames from the old elapsed-ratio
+implementation. StopFade 1->0 at 500 ms is 0x3effffff, not guessed exact 0.5.
+Production GPU fixture now exercises actual presenter state -> composite
+pixels with independent native register-order assertions and timed fade.
+Expanded targets to BGRA/BGRA-sRGB in addition to RGBA/RGBA-sRGB because the
+interactive surface commonly chooses BGRA. Readback correctly decodes BGRA
+memory channel order; reference comparison still checks RGB semantics.
+
+**Confirmation: Is P1.08 finished? No — continue validation and final pass
+coverage audit.** CPU success alone cannot sign off GPU or the full criterion.
