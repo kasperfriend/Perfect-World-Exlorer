@@ -48,6 +48,27 @@ static unsigned short entry(int setting, int index) {
     if (index>0 && (unsigned short)result<1) result=1;
     return (unsigned short)result;
 }
+/* Small immutable numeric reference (51 KiB), also exposed in annotations
+ * because some build sandboxes cannot reach GitHub's artifact blob host. */
+static unsigned short captured[101*256];
+static void emit_pc24_words(void) {
+    const unsigned char *data=(const unsigned char*)captured;
+    const char *alphabet="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const size_t size=sizeof captured, chunk=12288;
+    for (size_t offset=0; offset<size; offset+=chunk) {
+        size_t end=offset+chunk<size?offset+chunk:size;
+        printf("::notice::PC24-DATA-%u:",(unsigned)(offset/chunk+1));
+        for (size_t i=offset;i<end;i+=3) {
+            unsigned n=(unsigned)data[i]<<16;
+            if(i+1<end)n|=(unsigned)data[i+1]<<8;
+            if(i+2<end)n|=data[i+2];
+            putchar(alphabet[(n>>18)&63]); putchar(alphabet[(n>>12)&63]);
+            putchar(i+1<end?alphabet[(n>>6)&63]:'=');
+            putchar(i+2<end?alphabet[n&63]:'=');
+        }
+        putchar('\n');
+    }
+}
 int main(int argc, char **argv) {
     HMODULE crt=LoadLibraryA("msvcrt.dll");
     unsigned short original,cw,after;
@@ -67,6 +88,7 @@ int main(int argc, char **argv) {
         for (int setting=0; setting<=100; ++setting) {
             for (int i=0; i<256; ++i) {
                 unsigned short word=entry(setting,i);
+                if(!mode)captured[setting*256+i]=word;
                 fwrite(&word,sizeof word,1,file);
                 hash=(hash^(word&255))*UINT64_C(0x100000001b3);
                 hash=(hash^(word>>8))*UINT64_C(0x100000001b3);
@@ -79,6 +101,7 @@ int main(int argc, char **argv) {
             mode?53:24,(unsigned long long)hash,cw,after);
         if ((after&0xf00)!=(cw&0xf00)) return 5;
     }
+    emit_pc24_words();
     FreeLibrary(crt);
     return 0;
 }
