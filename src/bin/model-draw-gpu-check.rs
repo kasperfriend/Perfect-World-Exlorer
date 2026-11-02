@@ -21,6 +21,8 @@ mod model_light;
 mod model_material;
 #[path = "../model_playback.rs"]
 mod model_playback;
+#[path = "../model_queue.rs"]
+mod model_queue;
 #[path = "../model_receiver_gpu.rs"]
 mod model_receiver_gpu;
 #[path = "../model_texture_gpu.rs"]
@@ -241,6 +243,7 @@ fn main() {
         asset.skins[0].data.meshes.push(m);
     }
     let frame = model_draw_gpu::Frame {
+        blend_enabled: true,
         matrix: glam::Mat4::IDENTITY.to_cols_array_2d(),
         lighting: model_material::Lighting {
             environment_ambient: [1.; 4],
@@ -290,6 +293,9 @@ fn main() {
     assert_eq!(reads, 2);
     assert_eq!(draw.mesh_count(), 2);
     assert_eq!(draw.texture_count(), 1);
+    // A BC1 DDS decoded into RGBA8 must retain its source queue category.
+    assert_eq!(draw.alpha_texture(0), Some(false));
+    assert_eq!(draw.alpha_texture(1), Some(false));
     check(
         &device,
         &queue,
@@ -330,17 +336,32 @@ fn main() {
         failures: vec![],
         unloaded: vec![],
     };
+    let mut opaque = frame;
+    opaque.blend_enabled = false;
+    opaque.lighting.transparency = -1.;
+    opaque.alpha_compare = 5;
+    opaque.alpha_reference = 84. / 255.;
+    let mut opaque_dim = dim;
+    opaque_dim.blend_enabled = false;
+    opaque_dim.lighting.transparency = -1.;
+    opaque_dim.alpha_compare = 5;
+    opaque_dim.alpha_reference = 84. / 255.;
     let mut world = world_models_gpu::World::with_reader(
         &device,
         wgpu::TextureFormat::Rgba8Unorm,
         scene_assets,
-        |_| Ok(white_dds()),
+        |_| {
+            let mut b = white_dds();
+            b[84..88].copy_from_slice(b"DXT3");
+            b.splice(128..128, [0x88; 8]);
+            Ok(b)
+        },
     )
     .unwrap();
     world.update(
         &device,
         &queue,
-        frame,
+        opaque,
         [0.; 3],
         &scene_lights::SceneLights::default(),
         0.,
@@ -350,18 +371,23 @@ fn main() {
         &device,
         &queue,
         &world,
-        [[64, 128, 191, 255], [191, 64, 128, 255]],
+        [[64, 128, 191, 136], [191, 64, 128, 136]],
     );
     world.update(
         &device,
         &queue,
-        dim,
+        opaque_dim,
         [0.; 3],
         &scene_lights::SceneLights::default(),
         0.,
         17,
     );
-    check(&device, &queue, &world, expected);
+    check(
+        &device,
+        &queue,
+        &world,
+        [[32, 64, 96, 136], [96, 32, 64, 136]],
+    );
     let lights = scene_lights::SceneLights {
         lights: vec![scene_lights::SceneLight {
             position: [0., 0., 0.5],
@@ -376,14 +402,19 @@ fn main() {
             flags: 1,
         }],
     };
-    world.update(&device, &queue, dim, [13., 0., 0.], &lights, 0., 17);
-    check(&device, &queue, &world, expected);
-    world.update(&device, &queue, dim, [13., 0., 0.], &lights, 1., 17);
+    world.update(&device, &queue, opaque_dim, [13., 0., 0.], &lights, 0., 17);
     check(
         &device,
         &queue,
         &world,
-        [[64, 128, 191, 255], [191, 64, 128, 255]],
+        [[32, 64, 96, 136], [96, 32, 64, 136]],
+    );
+    world.update(&device, &queue, opaque_dim, [13., 0., 0.], &lights, 1., 17);
+    check(
+        &device,
+        &queue,
+        &world,
+        [[64, 128, 191, 136], [191, 64, 128, 136]],
     );
     println!("::notice::world instance pipeline passed: source placement basis, no-action bind pose, authored texture/material, reversed-depth attachment, and updated regional lighting");
     println!("::notice::retained model draw passed: two material meshes, shared authored DDS with decode-failure retry, frame update, rejected-update atomicity, and posed geometry movement");

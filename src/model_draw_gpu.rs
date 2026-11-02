@@ -10,6 +10,7 @@ use crate::{
 
 #[derive(Clone, Copy)]
 pub struct Frame {
+    pub blend_enabled: bool,
     pub matrix: [[f32; 4]; 4],
     pub lighting: model_material::Lighting,
     pub direction: [f32; 3],
@@ -75,10 +76,12 @@ struct Mesh {
     paths: [String; 2],
     indices: Vec<u16>,
     vertices: usize,
+    alpha_texture: bool,
     mesh: raster::Mesh,
     binding: raster::Binding,
 }
 pub struct Draw {
+    blend_enabled: bool,
     receiver: raster::Receiver,
     meshes: Vec<Mesh>,
     // Keep authored textures alive and share repeated per-skin texture slots.
@@ -103,25 +106,31 @@ impl Draw {
             .iter()
             .map(|m| frame.params(m.material))
             .collect::<Result<_, _>>()?;
-        let receiver = raster::Receiver::new(device, format, depth, depth_write)?;
+        let receiver = if frame.blend_enabled {
+            raster::Receiver::new(device, format, depth, depth_write)
+        } else {
+            raster::Receiver::new_opaque(device, format, depth, depth_write)
+        }?;
         let mut textures: Vec<wgpu::Texture> = Vec::new();
-        let mut cache: std::collections::HashMap<[String; 2], usize> =
+        let mut cache: std::collections::HashMap<[String; 2], (usize, bool)> =
             std::collections::HashMap::new();
         let mut meshes = Vec::new();
         for (m, p) in prepared.iter().zip(&params) {
-            let texture = if let Some(&index) = cache.get(&m.texture_paths) {
+            let (texture, alpha_texture) = if let Some(&index) = cache.get(&m.texture_paths) {
                 index
             } else {
                 let mut failures = Vec::new();
                 let mut loaded = None;
                 for path in &m.texture_paths {
                     let result = read(path).and_then(|bytes| {
+                        let alpha = crate::model_dds::Dds::parse(&bytes)?.format.alpha_texture();
                         model_texture_gpu::upload(
                             device,
                             queue,
                             &bytes,
                             model_texture_gpu::UploadMode::Auto,
                         )
+                        .map(|texture| (texture, alpha))
                     });
                     match result {
                         Ok(t) => {
@@ -131,11 +140,11 @@ impl Draw {
                         Err(e) => failures.push(format!("{path}: {e}")),
                     }
                 }
-                let texture = loaded.ok_or_else(|| failures.join("; "))?;
+                let (texture, alpha) = loaded.ok_or_else(|| failures.join("; "))?;
                 let index = textures.len();
                 textures.push(texture);
-                cache.insert(m.texture_paths.clone(), index);
-                index
+                cache.insert(m.texture_paths.clone(), (index, alpha));
+                (index, alpha)
             };
             let view = textures[texture].create_view(&Default::default());
             let vertices = vertices(m, frame.vertex_fog);
@@ -144,11 +153,13 @@ impl Draw {
                 paths: m.texture_paths.clone(),
                 indices: m.indices.to_vec(),
                 vertices: vertices.len(),
+                alpha_texture,
                 mesh: raster::Mesh::new(device, &vertices, m.indices)?,
                 binding: receiver.binding(device, &view, sampler, p)?,
             });
         }
         Ok(Self {
+            blend_enabled: frame.blend_enabled,
             receiver,
             meshes,
             textures,
@@ -163,6 +174,9 @@ impl Draw {
         poses: &[PosedMesh],
         frame: Frame,
     ) -> Result<(), String> {
+        if frame.blend_enabled != self.blend_enabled {
+            return Err("model pass blending changed; rebuild its pipeline".into());
+        }
         let prepared = model_draw::prepare(asset, poses)?;
         if prepared.len() != self.meshes.len() {
             return Err("model draw mesh count changed".into());
@@ -188,6 +202,9 @@ impl Draw {
         for m in &self.meshes {
             self.receiver.draw(pass, &m.mesh, &m.binding);
         }
+    }
+    pub fn alpha_texture(&self, mesh: usize) -> Option<bool> {
+        self.meshes.get(mesh).map(|m| m.alpha_texture)
     }
     pub fn mesh_count(&self) -> usize {
         self.meshes.len()

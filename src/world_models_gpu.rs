@@ -101,6 +101,22 @@ impl World {
             }
             let asset = &self.assets.assets[instance.asset];
             let result = (|| -> Result<(), String> {
+                let settings = asset.descriptor.render_settings();
+                if frame.blend_enabled
+                    || crate::model_queue::classify(
+                        false,
+                        frame.lighting.transparency,
+                        settings.source_blend,
+                        settings.destination_blend,
+                        false,
+                        false,
+                    ) != crate::model_queue::Queue::Opaque
+                {
+                    return Err(
+                        "world main-pass harness only accepts verified ordinary opaque queue state"
+                            .into(),
+                    );
+                }
                 if asset
                     .skins
                     .iter()

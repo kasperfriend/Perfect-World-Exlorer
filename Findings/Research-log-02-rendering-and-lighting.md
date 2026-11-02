@@ -1042,3 +1042,39 @@ Actual-world validation advances all 73 programs through five clock/pose/draw
 preparation checkpoints each: 365 checks, zero failures. Full CI pending.
 Confirmation: ordinary clock subtask Yes locally; P1.03 still No because GPU
 world-pass submission remains missing. Continue implementation and CI checks.
+
+### World main-pass harness confirmation / ordinary queue correction
+
+The opt-in `PW_WORLD_MODELS_TEST` harness now calls the actual viewer main
+scene pass: retained instances -> source-selected clock/bind pose -> source
+placement matrix -> authored geometry/material/textures -> regional light and
+camera-centered static grid -> encoded UNORM attachment with reversed depth.
+It does not relight BMDs, terrain or approved trees. Distinct per-pass variants,
+source random initial phase, effect/material overrides and complete alpha queues
+are not enabled; this remains a harness, not default parity.
+
+Commit `f1fda96`, CI `41451041196`, passed Linux and Windows, including the
+extended world-instance GPU regression: production placement/bind/texture/draw
+code, depth attachment, regional updates and night-scaled static point ambient.
+Native placement-basis test initially compared a normalized float exactly
+(0.99999994 vs 1); changed to 1e-6 float tolerance, then all 44 native tests
+passed. Actual 73 placements pass 365 world-transform clock/pose/draw-preparation
+checks. Confirmation: harness integration Yes; P1.03 full/default integration
+No; ten full-scope No gates remain. Continue.
+
+**Important 1.4.2 versus related-source difference:** the actual executable
+`7a5874–7a5886` checks texture+36 (shader texture) AND texture+35 (alpha texture)
+for alpha-shader queue eligibility. The 1.5.2 `IsModelAlphaMesh` source has the
+shader-texture condition commented out. Copying that later rule would route
+ordinary graded DDS files to the wrong pass. `7a588c–7a58c2` then tests mesh
+transparency >=0, nondefault blend factors, or that alpha-shader flag.
+`78ad42–78ad62` confirms DDS DXT3/5 alpha flags, excluding DXT1.
+
+Added production queue classification preserving the 1.4.2 conjunction and
+separate authored DDS alpha metadata through decoded/native uploads. Ordinary
+scene DDS + default transparency -1 is the non-alpha queue, even for DXT3.
+The actual world caller `42b479–42b4a3` uses GREATER/84 alpha test; blending is
+separate. The raster/draw API now supports a blend-disabled pipeline, rather
+than forcing SRCALPHA on the ordinary queue. The world GPU regression is
+extended to a graded-alpha DXT3 (136 alpha): source RGB must remain unattenuated
+when blending is off. New GPU validation pending. Core CPU suite: 56 passing.

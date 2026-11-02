@@ -1535,6 +1535,7 @@ impl Renderer {
             self.model_tick_ms = tick;
             let d = Vec3::from_array(light.toward_sun).normalize_or_zero();
             let frame = crate::model_draw_gpu::Frame {
+                blend_enabled: false,
                 matrix: matrix.to_cols_array_2d(),
                 lighting: crate::model_material::Lighting {
                     environment_ambient: [light.ambient[0], light.ambient[1], light.ambient[2], 1.],
@@ -1542,7 +1543,7 @@ impl Renderer {
                     directional_diffuse: [light.diffuse[0], light.diffuse[1], light.diffuse[2], 1.],
                     point_ambient: [0.; 4],
                     point_diffuse: [0.; 4],
-                    transparency: 0.,
+                    transparency: -1.,
                     point_enabled: false,
                 },
                 direction: [-d.x, -d.y, -d.z],

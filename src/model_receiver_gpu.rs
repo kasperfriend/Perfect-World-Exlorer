@@ -121,6 +121,25 @@ impl Receiver {
         depth: Option<(wgpu::TextureFormat, wgpu::CompareFunction)>,
         depth_write: bool,
     ) -> Result<Self, String> {
+        Self::with_blending(device, format, depth, depth_write, true)
+    }
+    /// Non-alpha skin queue: the retail caller disables blending, even when
+    /// an ordinary DDS contains graded alpha. Alpha testing remains independent.
+    pub fn new_opaque(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        depth: Option<(wgpu::TextureFormat, wgpu::CompareFunction)>,
+        depth_write: bool,
+    ) -> Result<Self, String> {
+        Self::with_blending(device, format, depth, depth_write, false)
+    }
+    fn with_blending(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        depth: Option<(wgpu::TextureFormat, wgpu::CompareFunction)>,
+        depth_write: bool,
+        enabled: bool,
+    ) -> Result<Self, String> {
         if !matches!(
             format,
             wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Bgra8Unorm
@@ -148,7 +167,7 @@ impl Receiver {
         }];
         let targets = [Some(wgpu::ColorTargetState {
             format,
-            blend: Some(wgpu::BlendState {
+            blend: enabled.then_some(wgpu::BlendState {
                 color: blend,
                 alpha: blend,
             }),

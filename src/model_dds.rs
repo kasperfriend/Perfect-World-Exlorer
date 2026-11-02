@@ -7,6 +7,14 @@ pub enum Format {
     Dxt3,
     Dxt5,
 }
+impl Format {
+    /// Retail 0x78ad42–0x78ad62 sets the DDS alpha-texture flag for
+    /// DXT3/DXT5, NOT DXT1. This flag is one input to shader-texture routing, distinct from
+    /// decoded opacity: BC1 one-bit alpha still uses the ordinary alpha test.
+    pub fn alpha_texture(self) -> bool {
+        matches!(self, Self::Dxt3 | Self::Dxt5)
+    }
+}
 #[derive(Debug)]
 pub struct Mip<'a> {
     pub width: u32,
@@ -71,6 +79,13 @@ impl<'a> Dds<'a> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn alpha_texture_flag_is_authored_format_not_decoded_pixel_opacity() {
+        assert!(!super::Format::Dxt1.alpha_texture());
+        assert!(super::Format::Dxt3.alpha_texture());
+        assert!(super::Format::Dxt5.alpha_texture());
+    }
+
     use super::*;
     fn fixture(tag: &[u8; 4], unit: usize) -> Vec<u8> {
         let mut b = vec![0; 128];

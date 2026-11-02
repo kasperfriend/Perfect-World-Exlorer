@@ -51,6 +51,7 @@ mod model_draw_gpu;
 mod model_light;
 mod model_material;
 mod model_playback;
+mod model_queue;
 mod model_receiver_gpu;
 mod model_texture_gpu;
 mod music;
