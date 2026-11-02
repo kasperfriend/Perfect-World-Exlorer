@@ -42,15 +42,19 @@ and ownership: [Phase 2 plan and agent prompts](Phase-2-plan-and-agent-prompts.m
 
 ## Phase 3 — Complete buildings, rocks and other static models
 
-- [ ] P3.01 — Finish the BMD format and renderer: all versions, material fields, texture references, transforms and per-mesh flags.
-- [ ] P3.02 — Trace and implement the client’s actual culling and two-sided-material rules rather than using a global approximation.
-- [ ] P3.03 — Identify the real causes of building Z-fighting and reproduce the client’s depth, bias, ordering and overlapping-geometry behavior.
-- [ ] P3.04 — Implement all static-model texture stages, alpha tests, transparency, material colors and baked-light combinations.
-- [ ] P3.05 — Handle missing, shared and animated texture references using the client’s original lookup rules.
-- [ ] P3.06 — Reproduce client model visibility, distance selection, LOD and regional loading.
+Nine work points (re-cut 2 November 2026; the Phase 3 scope is unchanged, only its
+boundaries are now non-overlapping and independently verifiable). Execution order
+and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.md).
+
+- [ ] P3.01 — Finish BMD container and format coverage: every model and mesh version, chunk layout, transforms, texture references, baked arrays, per-mesh and per-material flags, with explicit errors for unsupported versions and truncation.
+- [ ] P3.02 — Reproduce every static-model material and texture-stage state: stage setups, alpha test, blending, transparency, material colors, two-sided flags and the baked-light combination, as a recovered table rather than per-asset special cases.
+- [ ] P3.03 — Handle missing, shared and animated texture references with the client's original lookup rules, page sharing and fallbacks, and explicit dependency errors.
+- [ ] P3.04 — Trace and implement the client's actual culling, winding and two-sided-material rules instead of a global approximation, including mirrored or negative-scale placements.
+- [ ] P3.05 — Identify and reproduce the real causes of building Z-fighting and overlap: depth bias, draw order, duplicate placements and overlapping geometry behavior.
+- [ ] P3.06 — Reproduce static-model visibility, distance selection, LOD and regional loading and eviction.
 - [ ] P3.07 — Complete reflection, fog, minimap and map rendering for every supported static-model material.
-- [ ] P3.08 — Improve atlas allocation and streaming so full-resolution assets do not require all world textures to remain resident simultaneously.
-- [ ] P3.09 — Add regression tests for model versions, culling, texture stages, depth conflicts and day/night baked lighting.
+- [ ] P3.08 — Bound atlas residency so full-resolution assets do not all have to stay resident: packing, cross-page deduplication, eviction and streaming.
+- [ ] P3.09 — Keep regression coverage for model versions and truncation, culling and sidedness, texture stages, depth conflicts and day/night baked lighting running in CI.
 
 ## Phase 4 — Complete SpeedTree and grass
 

@@ -83,15 +83,15 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 
 | ID | Decision | Already implemented / evidence | Remaining acceptance / boundary |
 |---|---|---|---|
-| P3.01 | Partial | BMD model 0x10000002 and mesh 0x10000004/05, transforms, textures, baked arrays and material fields parse/render (`src/bmd.rs`, `src/objects.rs`). | Other versions and all material/mesh flags; unsupported versions explicitly error. |
-| P3.02 | Partial | Per-mesh two-sided data and GPU facing/culling controls (`src/bmd.rs`, `src/gpu.rs`, `src/bin/bmd-sided-gpu-check.rs`). | Full native culling/state rules, not universal equivalence from one field. |
-| P3.03 | Partial | Reversed depth, overlap diagnostics and atomic local/world scenery switch remove known duplicate draws (`src/gpu.rs`, `src/bin/bmd-overlap-survey.rs`). | Original depth bias/order and remaining intra-mesh/real-building conflicts. |
-| P3.04 | Partial | Authored texture, baked blend, opaque RGB scaling and cutouts (`src/gpu.rs`, `src/world_objects.rs`). | All texture stages, transparent queues, sorting and special materials. |
-| P3.05 | Partial | Archive lookup, shared texture/page handling and explicit model dependency errors (`src/objects.rs`, `src/world_objects.rs`, `src/model_dds.rs`). | Native animated/missing texture lookup and every fallback rule. |
-| P3.06 | Partial | Local loading and background whole-world static scenery pages (`src/world_objects.rs`, `src/gpu.rs`). | Native visibility/LOD/region lifecycle, complete eviction and model classes. |
-| P3.07 | Partial | Baked scenery in main, reflected, fogged and rendered map passes (`src/gpu.rs`). | Every supported static material, especially alpha/special stages, in every pass. |
-| P3.08 | Partial | 4096-square native-size rectangle atlases and background page loading (`src/texture_atlas.rs`, `src/world_objects.rs`). | Bounded texture residency, cross-page deduplication, eviction and avoiding full-world full-resolution residency. |
-| P3.09 | Partial | BMD version/truncation/material tests, sided GPU diagnostic, reversed-depth tests and exhaustive baked blend GPU comparison (`src/bmd.rs`, `src/bin/bmd-baked-gpu-check.rs`). | Complete multi-stage/transparent material and real depth-conflict regression coverage. |
+| P3.01 | Partial | BMD model version 0x10000002 and mesh versions 0x10000004/0x10000005 parse and render, with transforms, texture references, baked arrays and material fields (`src/bmd.rs`, `src/objects.rs`); unsupported versions and truncation already fail explicitly. | Every authored version and every per-mesh/per-material flag; an archive-wide survey that names what is still unsupported. |
+| P3.02 | Partial | Authored texture binding, baked day/night blend, opaque RGB scaling and cutouts (`src/gpu.rs`, `src/world_objects.rs`). | All texture stages, alpha-test/blend/transparency states, two-sided material behavior and special materials as a recovered state table rather than per-asset cases. |
+| P3.03 | Partial | Archive lookup, shared texture/page handling and explicit model dependency errors (`src/objects.rs`, `src/world_objects.rs`, `src/model_dds.rs`). | Native animated-texture and missing-texture lookup rules and every fallback the client applies. |
+| P3.04 | Partial | Per-mesh two-sided data and GPU facing/culling controls (`src/bmd.rs`, `src/gpu.rs`, `src/bin/bmd-sided-gpu-check.rs`). | Full native cull-mode selection, including mirrored/negative-scale placements; one field is not universal equivalence. |
+| P3.05 | Partial | Reversed depth, overlap diagnostics and an atomic local/world scenery switch that removes known duplicate draws (`src/gpu.rs`, `src/bin/bmd-overlap-survey.rs`). | The client's own depth bias, draw order and the remaining intra-mesh and real-building conflicts. |
+| P3.06 | Partial | Local loading and background whole-world static scenery pages (`src/world_objects.rs`, `src/gpu.rs`). | Native visibility flags, distance selection, LOD/detail reduction and the region lifecycle, including complete eviction and every model class. |
+| P3.07 | Partial | Baked scenery is submitted in the main, reflected, fogged and rendered map passes (`src/gpu.rs`). | Every supported static material, especially alpha and special stages, in every pass, with one snapshot per frame. |
+| P3.08 | Partial | 4096-square native-size rectangle atlases with background page loading (`src/texture_atlas.rs`, `src/world_objects.rs`). | Bounded texture residency, cross-page deduplication, eviction and avoiding full-world full-resolution residency. |
+| P3.09 | Partial | BMD version/truncation/material tests, a sided GPU diagnostic, reversed-depth tests and an exhaustive baked-blend GPU comparison (`src/bmd.rs`, `src/bin/bmd-baked-gpu-check.rs`). | Multi-stage and transparent material coverage, real depth-conflict regressions and CI wiring for every static-model diagnostic. |
 
 ## Phase 4
 
