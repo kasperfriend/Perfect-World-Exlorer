@@ -217,9 +217,7 @@ fn main() {
         d.poll(wgpu::Maintain::Wait);
         rx.recv().unwrap().unwrap();
         let bytes = slice.get_mapped_range();
-        let reds: Vec<u8> = (0..6)
-            .map(|i| bytes[(8 * 128 + i * 16 + 8) * 4])
-            .collect();
+        let reds: Vec<u8> = (0..6).map(|i| bytes[(8 * 128 + i * 16 + 8) * 4]).collect();
         let pixels: Vec<bool> = reds.iter().map(|&red| red > 200).collect();
         if alpha == 255 {
             // Two-sided meshes are never dropped, mirrored or not (`CULLMODE(1)`
