@@ -1,17 +1,40 @@
 //! Ordinary world receiving-model submission in main and clipped water passes.
-//! Unsupported alpha/effect overrides and runtime FX lights remain explicit gaps.
+//! Owns the real scene/model effect light producers (ECWLD effects and hook-free
+//! ECM EventType-100 roots) and the receiving queues they publish into.
 //! Never sends baked terrain/BMD/tree vertices through receiving-model lighting.
 use crate::{
+    gfx_owner,
     model_draw_gpu::{Draw, Frame},
+    model_queue,
     scene_lights::{DynamicLight, LightPublications, SceneLights, StaticGrid},
     world_models::Assets,
 };
 use std::{collections::HashMap, fs::File, path::Path};
+
+/// Manager priority handed to scene/model effect lights. The native manager
+/// priority source for these owners was not recovered from the supplied
+/// executable, so production does not suppress any element: an invented
+/// threshold would silently drop authored lights. The gate itself is real and
+/// covered by the owner regressions.
+pub const OWNER_PRIORITY: i32 = i32::MAX;
+
+/// Identity space for ECM model-event owners, kept disjoint from scene effects.
+const MODEL_EVENT_IDENTITY: u64 = 1 << 40;
+
+/// One light-producing owner installed from the scene or from a model event.
+struct Producer {
+    identity: u64,
+    /// ECWLD effect time eligibility; `None` for model events and all-day roots.
+    valid_time: Option<i32>,
+    position: [f32; 3],
+}
+
 struct Slot {
     draw: Option<Draw>,
     failed: bool,
     transform: Result<glam::Mat4, String>,
 }
+
 pub struct World {
     assets: Assets,
     slots: Vec<Slot>,
@@ -21,7 +44,15 @@ pub struct World {
     format: wgpu::TextureFormat,
     grid: StaticGrid,
     publications: LightPublications,
+    owners: gfx_owner::Manager,
+    producers: Vec<Producer>,
+    /// Explorer position and effect activation radius in world units.
+    view: Option<(f32, f32, f32)>,
+    /// Retail alpha insertion order as (slot, mesh) pairs.
+    alpha: Vec<model_queue::AlphaCandidate>,
+    reported: Vec<String>,
 }
+
 impl World {
     pub fn new(
         device: &wgpu::Device,
@@ -94,17 +125,160 @@ impl World {
             format: format.remove_srgb_suffix(),
             grid: StaticGrid::default(),
             publications: LightPublications::default(),
+            owners: gfx_owner::Manager::new(),
+            producers: Vec::new(),
+            view: None,
+            alpha: Vec::new(),
+            reported: Vec::new(),
         })
     }
-    /// Publish after an eligible FX tick, before this world's lighting update.
-    /// The producer owns stable identities and must unregister on destruction.
-    /// This bridge does not itself execute GFX controllers or invent lights.
+    /// Attach the real GFX archive so installed producers can load their roots.
+    /// Root text is GBK-decoded here; the owner manager never guesses an
+    /// encoding and refuses binary containers explicitly.
+    pub fn attach_gfx_archive(&mut self, element: &Path) -> Result<(), String> {
+        let mut pack = File::open(element.join("gfx.pck"))
+            .map_err(|e| format!("gfx.pck: {e}"))?;
+        let entries: HashMap<String, crate::pck::Entry> = crate::pck::directory(&mut pack)?
+            .into_iter()
+            .map(|e| (crate::ecmodel::normalize(&e.name), e))
+            .collect();
+        self.owners.set_reader(move |path: &str| {
+            let entry = entries
+                .get(path)
+                .ok_or_else(|| "missing gfx.pck entry".to_string())?;
+            let bytes = crate::pck::read_entry(&mut pack, entry)?;
+            if !bytes.starts_with(b"MOXT") {
+                return Err("binary GFX container is not implemented".into());
+            }
+            let (text, _, bad) = encoding_rs::GBK.decode(&bytes);
+            if bad {
+                return Err("invalid GBK GFX text".into());
+            }
+            Ok(text.into_owned())
+        });
+        Ok(())
+    }
+    /// Attach an arbitrary root reader (diagnostics and GPU regressions).
+    pub fn attach_gfx_reader(
+        &mut self,
+        read: impl FnMut(&str) -> Result<String, String> + 'static,
+    ) {
+        self.owners.set_reader(read);
+    }
+    /// Install the actual ECWLD effect placements as scene-light producers.
+    /// The owners stay pending and are loaded one root per update, as 0x5b1a00.
+    pub fn install_scene_effects(&mut self, scene: &crate::scene::Scene) -> Result<usize, String> {
+        let mut installed = 0;
+        for block in &scene.blocks {
+            for effect in &block.effects {
+                let transform = gfx_owner::placement_transform(
+                    effect.position,
+                    effect.direction,
+                    effect.up,
+                    effect.scale,
+                )?;
+                let identity = self.producers.len() as u64;
+                self.owners.insert(gfx_owner::Request {
+                    identity,
+                    path: gfx_owner::root_path(&effect.path),
+                    transform,
+                    speed: effect.speed,
+                    priority: OWNER_PRIORITY,
+                    start_ms: 0,
+                    span_ms: None,
+                    outer: None,
+                    active: false,
+                    origin: format!(
+                        "world.ecwld ({},{}) export {}",
+                        block.row, block.col, effect.export_id
+                    ),
+                })?;
+                self.producers.push(Producer {
+                    identity,
+                    valid_time: Some(effect.valid_time),
+                    position: effect.position,
+                });
+                installed += 1;
+            }
+        }
+        Ok(installed)
+    }
+    /// Install ECM EventType-100 roots that need no skeleton hook. A recovered
+    /// non-empty HookName is refused explicitly instead of being attached to the
+    /// model origin: hook resolution is not implemented.
+    pub fn install_model_events(&mut self) -> Result<usize, String> {
+        let mut installed = 0;
+        for (index, instance) in self.assets.instances.iter().enumerate() {
+            let asset = &self.assets.assets[instance.asset];
+            let transform = *self.slots[index]
+                .transform
+                .as_ref()
+                .map_err(Clone::clone)?;
+            for (event_index, event) in asset.descriptor.events.iter().enumerate() {
+                let Some(path) = event.gfx_path() else {
+                    continue;
+                };
+                let hook = event
+                    .fields
+                    .iter()
+                    .find(|(key, _)| key == "HookName")
+                    .map(|(_, value)| value.as_str())
+                    .unwrap_or("");
+                if !hook.is_empty() {
+                    self.reported.push(format!(
+                        "{} event {event_index}: hook {hook:?} attachment is not implemented",
+                        instance.placement.path
+                    ));
+                    continue;
+                }
+                let start_ms = event_milliseconds(event, "StartTime")?.max(0.);
+                let span_ms = match event_milliseconds(event, "TimeSpan")? {
+                    value if value < 0. => None,
+                    value => Some(value.trunc() as u32),
+                };
+                let identity = MODEL_EVENT_IDENTITY + self.producers.len() as u64;
+                self.owners.insert(gfx_owner::Request {
+                    identity,
+                    path: gfx_owner::root_path(&path),
+                    transform: transform.to_cols_array(),
+                    speed: asset.descriptor.render_settings().default_speed,
+                    priority: OWNER_PRIORITY,
+                    start_ms: start_ms as u32,
+                    span_ms,
+                    outer: None,
+                    active: false,
+                    origin: format!(
+                        "{} export {} event {event_index}",
+                        instance.placement.path, instance.placement.export_id
+                    ),
+                })?;
+                self.producers.push(Producer {
+                    identity,
+                    valid_time: None,
+                    position: instance.placement.position,
+                });
+                installed += 1;
+            }
+        }
+        Ok(installed)
+    }
+    /// Explorer position plus the radius in which installed producers are
+    /// active. Effects outside the radius are unloaded without publishing.
+    pub fn set_view_center(&mut self, x: f32, z: f32, radius: f32) {
+        self.view = Some((x, z, radius.max(0.)));
+    }
+    pub fn gfx_status(&self) -> gfx_owner::Status {
+        self.owners.status()
+    }
+    /// Direct publication entry point for an already-resolved producer.
+    /// Production uses the owner manager below; this stays public because the
+    /// publication bridge regressions drive it with explicit identities.
     pub fn publish_dynamic_light(&mut self, identity: u64, light: DynamicLight) {
         self.publications.publish(identity, light);
     }
-    /// Execute a decoded retail light element, then publish its current params.
-    /// The GFX graph owner supplies its scaled tick, resolved parent transform,
-    /// visibility/priority and optional outer color; it must unregister on death.
+    /// Execute one decoded retail light element and publish its current params.
+    /// The caller owns the scaled tick, resolved parent, visibility/priority and
+    /// destruction (`unregister_dynamic_light`).
     pub fn tick_gfx_light(
         &mut self,
         identity: u64,
@@ -125,6 +299,34 @@ impl World {
     pub fn unregister_dynamic_light(&mut self, identity: u64) {
         self.publications.unregister(identity);
     }
+    pub fn gfx_failures(&self) -> Vec<String> {
+        let mut failures = self.owners.failures().to_vec();
+        failures.extend(self.reported.iter().cloned());
+        failures
+    }
+    fn apply_activation(&mut self, night: f32) {
+        if self.producers.is_empty() {
+            return;
+        }
+        let (x, z, radius) = self.view.unwrap_or((0., 0., -1.));
+        let updates: Vec<(u64, bool)> = self
+            .producers
+            .iter()
+            .map(|producer| {
+                let dx = producer.position[0] - x;
+                let dz = producer.position[2] - z;
+                let inside = dx * dx + dz * dz <= radius * radius;
+                let visible = match producer.valid_time {
+                    Some(mode) => crate::scene::effect_visible(mode, night),
+                    None => true,
+                };
+                (producer.identity, inside && visible)
+            })
+            .collect();
+        for (identity, active) in updates {
+            self.owners.set_active(identity, active);
+        }
+    }
     pub fn update(
         &mut self,
         device: &wgpu::Device,
@@ -137,9 +339,10 @@ impl World {
     ) {
         self.update_pass(device, queue, frame, center, lights, night, delta_ms, true);
     }
-    /// The first/main pass advances the frame and consumes publications.
-    /// Reflection/refraction only update pass-dependent matrices/fog/clip;
-    /// they must reuse the same lighting snapshot and playback time.
+    /// The first/main pass advances the frame, ticks producers and consumes
+    /// publications. Reflection/refraction only update pass-dependent
+    /// matrices/fog/clip; they must reuse the same lighting snapshot, playback
+    /// time and alpha order.
     pub fn update_pass(
         &mut self,
         device: &wgpu::Device,
@@ -152,8 +355,11 @@ impl World {
         advance: bool,
     ) {
         if advance {
+            // Producers publish before the grid consumes, so a light created on
+            // this tick already lights this frame's receivers.
+            self.apply_activation(night);
+            self.owners.update(delta_ms, &mut self.publications);
             self.grid.update(lights, center);
-            // Consume once, not again when drawing a clipped water pass.
             self.publications.consume_into(&mut self.grid);
         }
         for (instance, slot) in self.assets.instances.iter_mut().zip(&mut self.slots) {
@@ -162,21 +368,6 @@ impl World {
             }
             let asset = &self.assets.assets[instance.asset];
             let result = (|| -> Result<(), String> {
-                let settings = asset.descriptor.render_settings();
-                if frame.blend_enabled
-                    || crate::model_queue::classify(
-                        false,
-                        frame.lighting.transparency,
-                        settings.source_blend,
-                        settings.destination_blend,
-                        false,
-                        false,
-                    ) != crate::model_queue::Queue::Opaque
-                {
-                    return Err(
-                        "world receiver only accepts verified ordinary opaque queue state".into(),
-                    );
-                }
                 let transform = *slot.transform.as_ref().map_err(Clone::clone)?;
                 let clock = instance.playback.as_mut().map_err(|e| e.clone())?;
                 if advance {
@@ -188,7 +379,16 @@ impl World {
                 };
                 let mut f = frame;
                 let point = self.grid.query(instance.placement.position, night);
-                f.lighting.point_enabled = point.is_some();
+                // Ordinary loaded ECMs enable the specular selector through
+                // 0x6cfa64 -> 0x7924b0/0x7924c1; the point constants depend on
+                // whether the scene query returned a candidate.
+                let assignment = crate::model_receiver_class::assign(
+                    crate::model_receiver_class::MeshKind::Weighted,
+                    true,
+                    point.is_some(),
+                )?;
+                f.specular_variant = assignment.directional_specular;
+                f.lighting.point_enabled = assignment.point_constants;
                 if let Some(point) = point {
                     f.lighting.point_ambient = point.ambient;
                     f.lighting.point_diffuse = point.diffuse;
@@ -226,13 +426,75 @@ impl World {
                 Ok(())
             })();
             if let Err(e) = result {
-                eprintln!(
-                    "World model {} ({}): {e}",
+                self.reported.push(format!(
+                    "world model {} ({}): {e}",
                     instance.placement.export_id, instance.placement.path
-                );
+                ));
                 slot.failed = true;
                 slot.draw = None;
             }
+        }
+        if advance {
+            self.rebuild_alpha_order(center);
+        }
+    }
+    /// Retail alpha insertion walk over this frame's alpha meshes. Ordering uses
+    /// the eight transformed initial-AABB-corner distance; the per-mesh
+    /// priority weights of the original insertion routine were not recovered, so
+    /// they stay zero and the comparison falls through to distance.
+    fn rebuild_alpha_order(&mut self, eye: [f32; 3]) {
+        let mut candidates: Vec<model_queue::AlphaCandidate> = Vec::new();
+        let mut failures: Vec<(usize, String)> = Vec::new();
+        for (slot, entry) in self.slots.iter().enumerate() {
+            let Some(draw) = &entry.draw else {
+                continue;
+            };
+            let Ok(transform) = &entry.transform else {
+                continue;
+            };
+            for &mesh in draw.alpha_meshes() {
+                let Some((min, max)) = draw.mesh_bounds(mesh) else {
+                    continue;
+                };
+                match model_queue::alpha_corner_distance(
+                    min,
+                    max,
+                    transform.to_cols_array_2d(),
+                    eye,
+                ) {
+                    Ok(distance) => candidates.push(model_queue::AlphaCandidate {
+                        slot,
+                        mesh,
+                        node: model_queue::AlphaNode {
+                            model: slot,
+                            mesh_weight: 0,
+                            skin_weight: 0,
+                            group: 0,
+                            group_weight: 0,
+                            min,
+                            max,
+                            distance,
+                        },
+                    }),
+                    Err(e) => failures.push((slot, e)),
+                }
+            }
+        }
+        match model_queue::alpha_order(&candidates) {
+            Ok(order) => self.alpha = order,
+            Err(e) => {
+                self.alpha.clear();
+                self.reported.push(format!("alpha queue: {e}"));
+            }
+        }
+        for (slot, error) in failures {
+            self.reported
+                .push(format!("alpha queue slot {slot}: {error}"));
+            if let Some(entry) = self.slots.get_mut(slot) {
+                entry.failed = true;
+                entry.draw = None;
+            }
+            self.alpha.retain(|candidate| candidate.slot != slot);
         }
     }
     /// Include dependency failures in the UI; never count a skipped asset ready.
@@ -241,11 +503,35 @@ impl World {
         let failed = self.slots.iter().filter(|s| s.failed).count() + self.assets.unloaded.len();
         (ready, failed, self.slots.len() + self.assets.unloaded.len())
     }
+    /// Opaque meshes first, then the retail alpha list in its insertion order.
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         for slot in &self.slots {
             if let Some(draw) = &slot.draw {
-                draw.draw(pass);
+                draw.draw_opaque(pass);
+            }
+        }
+        for candidate in &self.alpha {
+            if let Some(Some(draw)) = self.slots.get(candidate.slot).map(|s| &s.draw) {
+                draw.draw_alpha_mesh(pass, candidate.mesh);
             }
         }
     }
+    pub fn alpha_order(&self) -> Vec<(usize, usize)> {
+        self.alpha.iter().map(|c| (c.slot, c.mesh)).collect()
+    }
+}
+
+/// Event milliseconds from an ECM event field. Missing fields are explicit
+/// failures: the light owner must not invent a start time or a lifetime.
+fn event_milliseconds(event: &crate::ecmodel::EcmEvent, key: &str) -> Result<f32, String> {
+    let Some((_, value)) = event.fields.iter().find(|(name, _)| name == key) else {
+        return Err(format!("GFX event is missing {key}"));
+    };
+    let value: f32 = value
+        .parse()
+        .map_err(|_| format!("invalid GFX event {key}: {value}"))?;
+    if !value.is_finite() {
+        return Err(format!("nonfinite GFX event {key}"));
+    }
+    Ok(value)
 }

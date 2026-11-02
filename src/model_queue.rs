@@ -129,6 +129,105 @@ pub fn alpha_insert_index(nodes: &[AlphaNode], new: AlphaNode) -> Result<usize, 
         })
         .unwrap_or(nodes.len()))
 }
+/// D3D8 `D3DBLEND` codes. The 1.4.2 skin queue applies the ECM's authored
+/// blend factors; codes that have no `wgpu` equivalent (11 `SRCALPHASAT`,
+/// 12 `BOTHINVSRCALPHA`) stay explicit errors instead of being approximated.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Factor {
+    Zero,
+    One,
+    SrcColor,
+    InvSrcColor,
+    SrcAlpha,
+    InvSrcAlpha,
+    DestAlpha,
+    InvDestAlpha,
+    DestColor,
+    InvDestColor,
+}
+
+pub fn blend_factor(code: u32) -> Result<Factor, String> {
+    Ok(match code {
+        1 => Factor::Zero,
+        2 => Factor::One,
+        3 => Factor::SrcColor,
+        4 => Factor::InvSrcColor,
+        5 => Factor::SrcAlpha,
+        6 => Factor::InvSrcAlpha,
+        7 => Factor::DestAlpha,
+        8 => Factor::InvDestAlpha,
+        9 => Factor::DestColor,
+        10 => Factor::InvDestColor,
+        _ => return Err(format!("unsupported D3D8 blend factor {code}")),
+    })
+}
+
+/// Blend/depth state for one submitted mesh.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MeshQueueState {
+    pub queue: Queue,
+    pub source: Factor,
+    pub destination: Factor,
+    pub depth_write: bool,
+}
+
+/// Depth write for the retail alpha list. ASSUMPTION: the 1.4.2 skin queue
+/// saves/restores alpha testing (0x7a76a0) and applies authored blend factors,
+/// but its z-write state for the alpha list was not recovered from the supplied
+/// executable. The viewer disables z-write for blended meshes and records this
+/// as an unverified state in the unsupported-path register.
+pub const ALPHA_DEPTH_WRITE: bool = false;
+
+/// Complete queue state for one receiver mesh, or an explicit failure when the
+/// authored blend factors cannot be reproduced.
+pub fn mesh_state(
+    invisible: bool,
+    transparency: f32,
+    source_blend: u32,
+    destination_blend: u32,
+    shader_texture: bool,
+    alpha_texture: bool,
+) -> Result<MeshQueueState, String> {
+    let queue = classify(
+        invisible,
+        transparency,
+        source_blend,
+        destination_blend,
+        shader_texture,
+        alpha_texture,
+    );
+    Ok(MeshQueueState {
+        queue,
+        source: blend_factor(source_blend)?,
+        destination: blend_factor(destination_blend)?,
+        depth_write: match queue {
+            Queue::Alpha => ALPHA_DEPTH_WRITE,
+            Queue::Opaque | Queue::Hidden => true,
+        },
+    })
+}
+
+/// One candidate mesh for the retail alpha insertion walk.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct AlphaCandidate {
+    pub slot: usize,
+    pub mesh: usize,
+    pub node: AlphaNode,
+}
+
+/// Source-ordered insertion walk of 0x7a5a1d. Retail inserts each culled mesh
+/// into the existing list; replaying the same comparisons in the same order
+/// reproduces the list because the AABB rule is not a total order.
+pub fn alpha_order(candidates: &[AlphaCandidate]) -> Result<Vec<AlphaCandidate>, String> {
+    let mut out: Vec<AlphaCandidate> = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        let existing: Vec<AlphaNode> = out.iter().map(|c| c.node).collect();
+        let at = alpha_insert_index(&existing, candidate.node)?;
+        out.insert(at, *candidate);
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,5 +363,109 @@ mod tests {
     fn nondefault_blend_routes_alpha_but_does_not_change_texture_flags() {
         assert_eq!(classify(false, -1., 1, 6, false, false), Queue::Alpha);
         assert_eq!(classify(false, -1., 5, 1, false, false), Queue::Alpha);
+    }
+
+    #[test]
+    fn authored_blend_codes_map_to_d3d8_factors() {
+        for (code, factor) in [
+            (1, Factor::Zero),
+            (2, Factor::One),
+            (3, Factor::SrcColor),
+            (4, Factor::InvSrcColor),
+            (5, Factor::SrcAlpha),
+            (6, Factor::InvSrcAlpha),
+            (7, Factor::DestAlpha),
+            (8, Factor::InvDestAlpha),
+            (9, Factor::DestColor),
+            (10, Factor::InvDestColor),
+        ] {
+            assert_eq!(blend_factor(code).unwrap(), factor);
+        }
+        // No invented equivalent for the saturate/both-inverse modes.
+        for code in [0, 11, 12, 13, u32::MAX] {
+            assert!(blend_factor(code).is_err(), "{code}");
+        }
+    }
+
+    #[test]
+    fn mesh_state_writes_depth_only_for_the_opaque_queue() {
+        let opaque = mesh_state(false, -1., 5, 6, false, false).unwrap();
+        assert_eq!(opaque.queue, Queue::Opaque);
+        assert!(opaque.depth_write);
+        assert_eq!((opaque.source, opaque.destination), (Factor::SrcAlpha, Factor::InvSrcAlpha));
+        let alpha = mesh_state(false, -1., 2, 6, false, false).unwrap();
+        assert_eq!(alpha.queue, Queue::Alpha);
+        assert!(!alpha.depth_write);
+        assert_eq!((alpha.source, alpha.destination), (Factor::One, Factor::InvSrcAlpha));
+        let hidden = mesh_state(true, -1., 5, 6, false, false).unwrap();
+        assert_eq!(hidden.queue, Queue::Hidden);
+        // An unsupported authored factor fails the whole mesh, not just its queue.
+        assert!(mesh_state(false, -1., 11, 6, false, false).is_err());
+    }
+
+    fn candidate(slot: usize, mesh: usize, distance: f32) -> AlphaCandidate {
+        AlphaCandidate {
+            slot,
+            mesh,
+            node: AlphaNode {
+                model: slot,
+                mesh_weight: 0,
+                skin_weight: 0,
+                group: 0,
+                group_weight: 0,
+                min: [0.; 3],
+                max: [1.; 3],
+                distance,
+            },
+        }
+    }
+
+    #[test]
+    fn alpha_order_replays_the_insertion_walk_far_to_near() {
+        let order = alpha_order(&[
+            candidate(0, 0, 10.),
+            candidate(1, 0, 30.),
+            candidate(2, 1, 20.),
+            candidate(3, 0, 10.),
+        ])
+        .unwrap();
+        assert_eq!(
+            order.iter().map(|c| (c.slot, c.mesh)).collect::<Vec<_>>(),
+            [(1, 0), (2, 1), (3, 0), (0, 0)]
+        );
+        assert!(alpha_order(&[candidate(0, 0, f32::NAN)]).is_err());
+    }
+
+    #[test]
+    fn alpha_order_keeps_group_and_same_model_rules() {
+        let mut grouped = candidate(0, 0, 1.);
+        grouped.node.group = 7;
+        grouped.node.group_weight = 4;
+        let mut later = candidate(1, 0, 100.);
+        later.node.group = 7;
+        later.node.group_weight = 4;
+        let order = alpha_order(&[grouped, later]).unwrap();
+        assert_eq!(
+            order.iter().map(|c| c.slot).collect::<Vec<_>>(),
+            [0, 1],
+            "equal group weight keeps first insertion"
+        );
+        later.node.group_weight = 3;
+        let order = alpha_order(&[grouped, later]).unwrap();
+        assert_eq!(order.iter().map(|c| c.slot).collect::<Vec<_>>(), [1, 0]);
+        let mut same_a = candidate(0, 0, 5.);
+        same_a.node.skin_weight = 4;
+        let mut same_b = candidate(0, 1, 50.);
+        same_b.node.skin_weight = 9;
+        let order = alpha_order(&[same_a, same_b]).unwrap();
+        assert_eq!(
+            order.iter().map(|c| c.mesh).collect::<Vec<_>>(),
+            [0, 1],
+            "equal same-model weights fall through to the distance comparison"
+        );
+        // 1.4.2 runs the AABB comparison even for a GREATER same-model weight.
+        same_b.node.max[1] = 0.5;
+        let order = alpha_order(&[same_a, same_b]).unwrap();
+        assert_eq!(order.iter().map(|c| c.mesh).collect::<Vec<_>>(), [1, 0]);
     }
 }

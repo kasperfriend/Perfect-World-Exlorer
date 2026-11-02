@@ -1,0 +1,410 @@
+# Phase 1 — Agent 1 report: scene-light ownership, receiving classes, production submission
+
+Branch: `arena/bdae8dca-perfect-world-exlorer`, based on reviewed state `3b4cc59`
+(latest merged revision here: `9aea524`). Date: 2026-11-02.
+Target: the supplied Perfect World 1.4.2 executable and assets.
+
+## 0. Environment and what could be executed
+
+This sandbox contains **only the Git checkout**. It has no supplied 1.4.2 client
+binary, no `element/` asset tree, no `models.pck`/`gfx.pck`/`world.ecwld`, and
+**no Rust toolchain** (`cargo`/`rustc` are absent and `static.rust-lang.org` is
+not reachable, so one cannot be installed). Consequences, stated up front so no
+claim below is overstated:
+
+- No new native address could be traced in this session. Every native claim used
+  below is an existing, previously verified trace in
+  `Findings/Research-log-02-rendering-and-lighting.md`; where that evidence ends,
+  the work is recorded as a gap instead of a guess.
+- No Rust test binary was executed here. The new regressions are written and
+  reviewed but their execution requires CI or a machine with a Rust toolchain.
+  Reproduction commands are in section 9.
+- What *was* executed is real: the controller-108 table-precision analysis in
+  section 5 (IEEE-754 single rounding, 8,257,536 entry comparisons) and the
+  repository's own status audits (`check-eight-phase-status.py`,
+  `check-phase1-ready.py`, `test_phase1_ready.py`) which still pass unchanged.
+
+## 1. Task 1 — light producers and owner lifecycles
+
+### 1.1 What now exists
+
+New module `src/gfx_owner.rs` — a real owner graph for light-producing effects,
+not a publication API waiting for a caller:
+
+- `Request` is one owned GFX root: stable `identity`, normalized root path,
+  column-major placement `transform`, authored `speed`, `priority`, owner
+  `start_ms`/`span_ms`, optional `outer` colour, `active` (region + time of day)
+  and a diagnostic `origin`.
+- `placement_transform()` reproduces the ECWLD placement construction: normalize
+  forward and up **separately**, cross product for right, normalize, then apply
+  the authored scale, translation last. Degenerate/parallel axes and non-finite
+  inputs are errors.
+- `Manager` owns the lifecycle: `insert` (validated, duplicate identity
+  rejected), `set_active`/`active` (region/time visibility, never progression),
+  `remove` (destroys **and** unregisters), `clear` (region unload),
+  `update` (tick then lazy-load), `status`/`failures`/`origins`.
+- Per-update order matches native `0x5b1a00`: live owners tick and publish first,
+  then **at most one** pending root is loaded and the update returns. A load
+  frame publishes nothing for the newly loaded root; already-live owners keep
+  publishing.
+- Owner clock: `elapsed += trunc(delta * speed)`; `span_ms` destruction at
+  `elapsed >= start + span`; `visible = active && elapsed >= start`. Visibility
+  and priority gate **publication only** — keypoint time always advances
+  (`0x70ba00`).
+- Publication identity is `(owner_serial << 32) | element_index`, so two owners
+  can never collide and destruction removes exactly the elements that owner
+  published. Root loading failures, unsupported container formats, missing
+  readers and clock overflow are recorded as named failures; a failed root never
+  blocks later owners and is not retried as a substitute.
+
+### 1.2 Production call sites (not a diagnostic path)
+
+- `src/world_models_gpu.rs::World::attach_gfx_archive(element)` — opens
+  `element/gfx.pck` with the production `pck` reader, GBK-decodes text roots and
+  refuses binary containers explicitly.
+- `World::install_scene_effects(&scene::Scene)` — installs one owner per actual
+  `ECWLD` `Effect` record (`placement_transform`, authored speed, `valid_time`
+  eligibility, origin `world.ecwld (row,col) export N`).
+- `World::install_model_events()` — installs ECM `EventType 100` roots that carry
+  no `HookName` at the instance placement transform; a non-empty hook is reported
+  as an unimplemented attachment instead of being attached to the model origin.
+- `World::set_view_center(x, z, radius)` — the region gate used for load/unload.
+- `World::update_pass(...)` (main pass, `advance == true`):
+  1. `apply_activation(night)` → `scene::effect_visible(mode, night)` **and** the
+     view radius,
+  2. `owners.update(delta, &mut publications)` — real producer tick,
+  3. `grid.update(lights, center)`,
+  4. `publications.consume_into(&mut grid)`.
+  Producers therefore publish before the consumption step, so a light created on
+  this tick already lights this frame's receivers.
+- `src/gpu.rs::Renderer::new` calls `attach_gfx_archive` + `install_scene_effects`
+  + `install_model_events`, logs the installed counts and every producer failure.
+- `src/gpu.rs::Renderer::draw_models` calls `set_view_center` with
+  `detail.radius × scene.block_size` before `update_pass`.
+- `src/main.rs` now retains `scene::Scene` on `Terrain`
+  (`scene: Arc<scene::Scene>`) so the renderer owns the real ECWLD records. This
+  is the only reason the effect producers can exist at all.
+- `src/scene.rs` gained `effect_visible(valid_time, night)`; `Effect::valid_at`
+  delegates to it so the loaded state and the published state cannot diverge.
+
+### 1.3 Native evidence used
+
+| Behaviour | Address | Where implemented |
+|---|---|---|
+| `LoadEffect` reads the 60-byte record (position/direction/up, scale/speed, valid-time, alpha, attenuation) | `0x5b33f3..0x5b34b0` | `scene::Effect::read` (pre-existing) + `install_scene_effects` |
+| Normalized placement matrix, authored scale, play speed, parent install | `0x788960`, `0x5b3700..0x5b37b9` | `gfx_owner::placement_transform`, `Request.speed` |
+| Day/night validity, strict `0.5` boundary, unordered counts as day | `0x5b18a1..0x5b18d4` | `scene::effect_visible` |
+| Tick owners, check time eligibility, load one root per frame, return after load | `0x5b1a00…` | `Manager::update` / `Manager::load_one` |
+| Keypoint clock advances before the visibility/priority gate | `0x70ba00` | `tick_owner` |
+| Duplicate publication updates params in place, keeps first insertion order | `0x70bd20` | `LightPublications::publish` (pre-existing) |
+| Destruction removes a pending publication | `0x70b130` | `Manager::remove` / `clear` / failed-owner path |
+| Publication membership is cleared after dynamic-cell build | `0x425bf8..0x425c2c` | `consume_into` (pre-existing) |
+| Specular selector enabled by ordinary ECM load | `0x6cfa64 → 0x7924b0/0x7924c1` | `world_models_gpu` assignment |
+
+### 1.4 Tests added (written, not executed here)
+
+`src/gfx_owner.rs` — nine regressions:
+`placement_transform_normalizes_basis_and_applies_authored_scale`,
+`owner_publishes_only_between_start_and_death_then_unregisters`,
+`hidden_owner_keeps_progressing_and_priority_only_gates_publication`,
+`one_root_is_loaded_per_update_and_insertion_order_is_preserved`,
+`duplicate_identity_and_invalid_requests_are_rejected`,
+`missing_root_fails_explicitly_without_blocking_later_owners`,
+`binary_roots_are_refused_rather_than_parsed_as_lights`,
+`removal_and_region_unload_cannot_leave_stale_publications`,
+`publication_identities_are_unique_per_owner_and_element`,
+`owner_speed_scales_the_clock_and_overflow_is_explicit`.
+
+Production GPU regression (written, needs CI): `model-draw-gpu-check` now drives
+`ECWLD effect record → owner → one-root-per-update load → publication → scene
+query → weighted+rigid receiving pixels`, and asserts that a region change
+(`set_view_center` far away) removes the light again. Expected pixels are the
+same ones the pre-existing direct-emitter fixture produced for identical light
+parameters (`Range 2`, white, `Position 0,0,0.5`), so the new expectation is not
+an invented baseline.
+
+### 1.5 Task 1 gaps (precise, not approximated)
+
+1. **Skeleton hook attachments.** ECM events with a non-empty `HookName` are
+   refused with a named failure. Resolving them needs the 1.4.2 hook/joint
+   binding for `SMD` hangers, which is not established by any evidence here.
+2. **Visual effect playback.** The rest of the GFX graph (particles, sprites,
+   trails, animated textures) is untouched; only light elements are executed.
+   The effect record's authored `alpha`/`attenuation` visual fade is retained but
+   not applied to the light path (it is a visual property).
+3. **Manager priority source.** The native manager priority for scene-effect
+   lights is not recovered, so production passes `i32::MAX` (no suppression)
+   rather than inventing a threshold. The gate itself is implemented and tested.
+4. **`valid_time` per-owner fade/stop.** `0x5b1a00` also fades/stops/releases
+   roots; only the strict day/night eligibility is reproduced.
+
+## 2. Task 2 — receiving classes and material rules
+
+### 2.1 The matrix (implemented as data in `src/model_receiver_class.rs`)
+
+| Object class | Eligibility | Material / render state | Lighting variant | Uploaded constants | Attenuation / range | Passes | Explicit exclusion |
+|---|---|---|---|---|---|---|---|
+| Ordinary model, weighted skin mesh | visible (`transparency < 1`), no point candidate, specular selector off | `MODULATE`, alpha test per caller | `rigid_mesh_ns` (`NonSpecular`) | c7 = matamb·envamb + emissive + extra; c8 copied; c11/c12 zero | not evaluated | main, reflection, clipped refraction | — |
+| Ordinary model, weighted skin mesh | as above, point candidate present | same | `rigid_mesh_ns_dl` (`NonSpecularPoint`) | c7; c8 all channels × Lambert; c11.rgb, c11.a = 0; c12 | `1/(a0+a1·d+a2·d²)`, **no range cut** | same | unsupported ECM colour override |
+| Ordinary model, rigid mesh | visible, no point candidate, specular selector on | `MODULATE` | `rigid_mesh_s` (`Specular`) | c7; c8.a preserved; c9 = matspec·dirspec | not evaluated | same | morph-specular shader (different instructions) |
+| Ordinary model, rigid mesh | as above, point candidate present | same | `rigid_mesh_s_dl` (`SpecularPoint`) | c7; c8.a preserved; c9; c11.a = 0; c12 | denominator floored to ≥ 1 before reciprocal | same | alpha mesh without a supported blend mapping |
+| Baked BMD scenery | never | baked `MODULATE2X` | — | baked day/night vertex bytes (`0x7b9bc0`) | n/a | main, reflection, clipped refraction | already baked: runtime point light would double-light it |
+| Terrain | never | layer/mask/lightmap | — | T2LM tile colours | n/a | main, clipped water | already lightmapped |
+| Grass | never | instanced, area lightmap | — | T2LM area colours | n/a | main, clipped water | already lightmapped |
+| Tree/foliage | never | approved fallback shader | — | preserved | n/a | main, reflection | approved lighting must not change |
+
+Implemented API: `Recipient::{receives_runtime_scene_lights, light_source,
+passes}`, `MeshKind`, `Variant::{shader, point_enabled, attenuation_floor_one,
+alpha_uses_directional_lambert}`, `assign(kind, specular_selector,
+point_enabled) -> Result<Assignment>`, `attenuation_denominator`, and `MATRIX`
+(the table above as data, so a missing class/variant fails a test).
+
+Production consumer: `world_models_gpu::update_pass` now derives
+`frame.specular_variant` and `lighting.point_enabled` from
+`model_receiver_class::assign(Weighted, true, point.is_some())` instead of a
+hard-coded flag, i.e. the matrix drives the submission.
+
+### 2.2 Queue, blend and alpha state (`src/model_queue.rs`)
+
+- `Factor` (D3D8 `D3DBLEND` 1–10) + `blend_factor(code)`; **11 `SRCALPHASAT` and
+  12 `BOTHINVSRCALPHA` are explicit errors** — no invented equivalent.
+- `MeshQueueState { queue, source, destination, depth_write }` and
+  `mesh_state(...)`, which classifies with the existing 1.4.2 rule and resolves
+  the authored blend factors in one place.
+- `AlphaCandidate` + `alpha_order()` replay the retail insertion walk
+  (`0x7a5a1d`) in source order, including the 1.4.2 same-model AABB rule and the
+  group-weight rule.
+- `model_draw::prepare` no longer rejects every non-default blend pair (that
+  made the alpha queue unreachable); it now rejects only pair codes with no
+  pipeline equivalent, plus a non-opaque ECM colour override.
+
+### 2.3 Tests added (written, not executed here)
+
+- `model_receiver_class`: `only_ordinary_models_receive_runtime_scene_lights`,
+  `every_variant_is_distinguishable_by_its_own_flags`,
+  `morph_and_supple_receivers_are_rejected_not_approximated`,
+  `attenuation_has_no_range_cutoff_and_floors_only_for_specular`.
+- `model_queue`: `authored_blend_codes_map_to_d3d8_factors`,
+  `mesh_state_writes_depth_only_for_the_opaque_queue`,
+  `alpha_order_replays_the_insertion_walk_far_to_near`,
+  `alpha_order_keeps_group_and_same_model_rules`.
+- The module is now part of `tools/check-phase1-core.sh` (dependency-free).
+
+### 2.4 Task 2 gaps
+
+1. **Mesh-level transparency is not parsed.** The current `SKI` reader has no
+   per-mesh transparency field, so `Lighting.transparency` is the frame value the
+   caller supplies. The strict-positive override (`c8.a = 1 − transparency`) is
+   implemented and tested, but its *source* is not established for 1.4.2.
+2. **Morph/supple receiving classes** remain explicit errors (no such records in
+   the census; the shaders differ and are not reproduced).
+3. **Fixed-function alternatives** for the model path were not established by
+   the inspected client in this session; nothing substitutes for them.
+4. **Alpha-list priority weights/groups** are zero, so ordering reduces to the
+   recovered distance rule.
+
+## 3. Task 3 — production model submission
+
+### 3.1 What changed
+
+- `src/model_receiver_gpu.rs`: `Receiver::new_blended(...)` takes the authored
+  D3D8 pair; `new`/`new_opaque` keep their exact previous behaviour.
+- `src/model_draw_gpu.rs`: `Draw` now owns an opaque receiver and, when any mesh
+  classifies alpha, an alpha receiver built from the authored factors with
+  z-write disabled. Meshes are `Vec<Option<Mesh>>` so a `Hidden` mesh is never
+  submitted. Each mesh stores its **initial (bind-pose) AABB** — the retail sort
+  uses the eight transformed *initial*-box corners — plus an `alpha_meshes()`
+  list and `mesh_bounds(index)`.
+  `draw_opaque` / `draw_alpha_mesh` allow the world to submit the alpha list in
+  retail insertion order across models; `draw()` keeps the old whole-model order
+  for direct-draw regressions.
+- `src/world_models_gpu.rs`: `World::draw` emits all opaque meshes first, then
+  the retail alpha order (`alpha_order()`); the order is rebuilt only in the
+  advancing (main) pass, so reflection/refraction reuse the same snapshot.
+- `src/gpu.rs`: unchanged pass structure; the secondary passes still pass
+  `advance == false`, so they neither tick playback nor consume publications.
+  `camera.logic_delta_ms` (the already capped root tick) remains the only
+  interactive clock; `Playback`'s diagnostic/initial-random-phase inputs are not
+  capped.
+
+### 3.2 Tests added (written, not executed here)
+
+`model-draw-gpu-check` additions:
+- authored non-default blend pair → both meshes land in `alpha_meshes()`, the
+  alpha pipeline builds, bounds are available;
+- an unsupported pair (`11`) fails `Draw::new` instead of being coerced;
+- the ordinary opaque ECM puts nothing in the alpha list;
+- the scene-effect owner end-to-end pixel case (section 1.4).
+
+### 3.3 Task 3 gaps
+
+1. **Alpha z-write state.** The retail state for the alpha list was not
+   recovered; `model_queue::ALPHA_DEPTH_WRITE = false` is a named, documented
+   assumption (register entry), not a silent default.
+2. **Per-mesh transparency** (section 2.4.1) also limits which meshes can reach
+   the alpha queue from authored data.
+3. **Model material variants** beyond the four ordinary variants (morph,
+   untextured, unsupported texture stages) remain explicit errors.
+
+## 4. Explicit exclusions preserved
+
+`Recipient::BakedModel`, `Terrain`, `Grass` and `Tree` all return
+`receives_runtime_scene_lights() == false`, are listed in `MATRIX` with their
+light source, and are asserted by `only_ordinary_models_receive_runtime_scene_lights`.
+No baked BMD, terrain, grass or tree vertex path was modified, and no scene light
+reaches those paths. Approved tree geometry/motion/lighting is untouched.
+
+## 5. Controller-108 LUT construction precision and load-thread context
+
+The verified render-thread sampling (`0x6ec190..0x6ec22e`, PC24 per instruction)
+is *not* evidence for how the 128-entry table is built on the loading thread.
+The table construction is now an explicit, named choice instead of an accident of
+the surrounding arithmetic:
+
+- `gfx_color_track::Precision { Extended, Pc24 }`, `CONSTRUCTION = Extended`,
+  `ColorTrack::new_with_precision`, `construction_divergences()`.
+- Evidence that the choice is material (executed here with IEEE-754 single
+  rounding, the stored reciprocal `0x3c010204 = 2113665/268435456`):
+
+| Interpolation order | Interior entries differing from the exact rational table |
+|---|---:|
+| `a·(1−f) + b·f`, every operation rounded to f32 | **17,790 / 8,257,536** |
+| `a + (b−a)·f`, every operation rounded to f32 | **16,332 / 8,257,536** |
+
+- Concrete case used as a regression: `from = 0, to = 127, i = 1` gives `0` in
+  the extended table and `1` in the PC24 table (because `f32(127 × 1/127)`
+  rounds to exactly `1.0`). Authored endpoints (`i = 0`, `i = 127`) are exact in
+  both modes.
+- `gfx-light-runtime-survey` now prints the corpus-wide divergence count, so the
+  real archive yields the number rather than an assumption.
+
+**Blocked, not guessed:** the native loading-thread FPU mode (and even the native
+interpolation operand order) is not established by the supplied executable in
+this environment. `Extended` is retained because it is the only mode the existing
+independent oracle has validated. This is recorded as an open item in the
+unsupported-path register; it is not claimed resolved.
+
+## 6. Confirmation checks
+
+### Task 1
+
+- **Task:** P1.01 — complete scene-light selection and producer lifecycle
+  (owner graph, parent resolution, lifetimes, region load/unload).
+- **Finished — Yes/No:** **No.**
+- **Production integration:** Yes. `World` owns a `gfx_owner::Manager`; the
+  actual `ECWLD` effects and hook-free ECM `EventType 100` roots are installed by
+  `gpu.rs` and tick/publish/consume inside `update_pass` before the receiving
+  draw; region changes and owner death unregister publications.
+- **Native evidence:** `0x5b33f3`, `0x5b3700`, `0x5b18a1`, `0x5b1a00`, `0x70ba00`,
+  `0x70bd20`, `0x70b130`, `0x425bf8` (all previously traced; no new trace in this
+  session).
+- **Tests executed and results:** none executed — no Rust toolchain in this
+  environment. Ten owner regressions and one GPU end-to-end case are written;
+  execution requires CI (`cargo test --locked --bin perfect-world-explorer` and
+  `cargo run --locked --bin model-draw-gpu-check`).
+- **Remaining gaps:** skeleton-hook attachments (explicit failure today), visual
+  GFX playback, native manager priority source, owner fade/stop/release phases,
+  and unexecuted validation.
+
+### Task 2
+
+- **Task:** P1.02 — complete receiving-class eligibility and lighting
+  calculations.
+- **Finished — Yes/No:** **No.**
+- **Production integration:** Yes for the four ordinary variants: the matrix
+  drives `specular_variant`/`point_enabled`, the arithmetic is unchanged and
+  tested, and the exclusions are asserted.
+- **Native evidence:** `0x7a6eff`, `0x7a6110`, `0x7a62db..0x7a630f`, `0x7a63af`,
+  `0x7a76a0`, `0x7924b0/0x7924c1`, `0x6cfa64`, `0x7a5857..0x7a58c2`,
+  `0x7a5a1d..0x7a5aef`, `0x7b9bc0` (baked exclusion).
+- **Tests executed and results:** none executed locally (no toolchain). Four
+  receiving-class regressions and four queue/blend regressions written.
+- **Remaining gaps:** mesh-level transparency source, morph/supple classes,
+  fixed-function alternatives, alpha-list weights/groups, unexecuted validation.
+
+### Task 3
+
+- **Task:** P1.03 — production integration without double-lighting baked content.
+- **Finished — Yes/No:** **No.**
+- **Production integration:** Yes for the ordinary queue plus the new alpha
+  queue and retail alpha ordering; FX publications now reach the production
+  receivers; baked BMD/terrain/grass/tree paths remain untouched.
+- **Native evidence:** `0x7a5857` (queue), `0x7a76a0` (blend factors + alpha
+  test), `0x7a5460` (initial-AABB corner distance), `0x7a5a1d` (insertion),
+  `41a32e–41a349` / `42b479–42b4a3` (alpha compare + reference).
+- **Tests executed and results:** none executed locally (no toolchain). Queue
+  routing, unsupported-factor rejection, alpha-list emptiness for opaque ECMs
+  and the scene-owner pixel case are written for CI.
+- **Remaining gaps:** alpha z-write state (documented assumption), per-mesh
+  transparency, unexecuted validation, and full multi-view alpha parity.
+
+## 7. Changed files and production call sites
+
+| File | Change |
+|---|---|
+| `src/gfx_owner.rs` (new) | Owner lifecycle manager, placement transform, root path normalization, ten regressions |
+| `src/model_receiver_class.rs` (new) | Receiving-class matrix, variant assignment, attenuation helper, four regressions |
+| `src/model_queue.rs` | `Factor`, `blend_factor`, `MeshQueueState`, `mesh_state`, `ALPHA_DEPTH_WRITE`, `AlphaCandidate`, `alpha_order`, four regressions |
+| `src/model_receiver_gpu.rs` | `Receiver::new_blended`, authored blend components |
+| `src/model_draw_gpu.rs` | Alpha receiver, per-mesh queue routing, hidden meshes, initial AABB, `draw_opaque`/`draw_alpha_mesh`/`alpha_meshes`/`mesh_bounds` |
+| `src/model_draw.rs` | Blend validation moved to `model_queue::blend_factor`; one test case updated |
+| `src/world_models_gpu.rs` | Owner manager, `attach_gfx_archive`, `attach_gfx_reader`, `install_scene_effects`, `install_model_events`, `set_view_center`, activation, alpha order rebuild, `draw` split, matrix-driven variant flags |
+| `src/scene.rs` | `effect_visible` shared predicate |
+| `src/scene_lights.rs` | `LightPublications::{len, is_empty}` |
+| `src/gfx_color_track.rs` | `Precision`, `new_with_precision`, `construction_divergences`, two new regressions |
+| `src/gfx_light.rs` | `Definition::construction_divergences` |
+| `src/bin/gfx-light-runtime-survey.rs` | Reports corpus LUT construction divergence |
+| `src/bin/model-draw-gpu-check.rs` | Alpha queue case + scene-effect owner pixel case + new module includes |
+| `src/main.rs` | `mod gfx_owner; mod model_receiver_class;`; `Terrain.scene` |
+| `src/gpu.rs` | Producer installation, per-frame view region, FX producer status line |
+| `tools/check-phase1-core.sh` | `model_receiver_class` module + multi-module `gfx_owner` harness |
+
+## 8. Interface changes affecting other agents
+
+- **To Agent 2 (regional lighting):** no change to `client_regional_light` or the
+  frame constants you supply; `world_models_gpu` still consumes
+  `RegionalLight::ambient/diffuse/specular/toward_sun` exactly as before. New:
+  the same `World` now *also* owns runtime light producers. If you add a second
+  consumer of the grid, it must consume publications exactly once per frame —
+  only the main pass calls `owners.update` + `consume_into`.
+- **To Agent 3 (post/gamma/fog):** the alpha queue submits blended meshes with
+  authored factors into the encoded UNORM scene target, so your encoded-space
+  compositing assumptions still hold; no linear-space blending was introduced.
+  `ALPHA_DEPTH_WRITE` is false and needs your eventual pass-ordering input.
+- **Shared `src/gpu.rs`:** the only edits are the producer installation block in
+  `Renderer::new`, `set_view_center` in `draw_models`, one new `Renderer` field
+  (`model_scene`), and a status line. No unrelated section was reformatted.
+
+## 9. Reproduction
+
+```sh
+cargo fmt --all -- --check
+cargo check --locked --bins
+cargo test --locked --bin perfect-world-explorer
+sh tools/check-phase1-core.sh                # now includes gfx_owner + model_receiver_class
+python3 tools/check-eight-phase-status.py
+python3 tools/check-phase1-ready.py          # intentionally nonzero: full-scope gates still No
+```
+
+GPU regressions (need a working adapter; CI uses lavapipe):
+`model-draw-gpu-check`, `model-receiver-gpu-check`, `model-light-gpu-check`.
+
+Archive diagnostics (need the private client):
+
+```sh
+cargo run --locked --bin gfx-light-runtime-survey -- /path/to/element/gfx.pck
+cargo run --locked --bin gfx-light-audit -- /path/to/element
+cargo run --locked --bin scene-model-light-survey -- world.ecwld scenelights.dat
+```
+
+## 10. Final status
+
+| Task | Implemented in the production path | Finished |
+|---|---|---|
+| P1.01 scene-light selection and producer lifecycle | Yes (scene effects + hook-free ECM events) | **No** |
+| P1.02 receiving classes and lighting calculations | Yes for the four ordinary variants; matrix + exclusions | **No** |
+| P1.03 production submission without double lighting | Yes for ordinary + alpha queues, one snapshot | **No** |
+
+No central Phase 1 gate was changed to Yes, and
+`Findings/Eight-phase-reassessment-2026-11-02.md` /
+`Findings/Phase-1-completion-checks.md` keep their recorded decisions.

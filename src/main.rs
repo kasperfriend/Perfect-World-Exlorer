@@ -37,6 +37,7 @@ mod foliage_mips;
 mod gfx_color_track;
 #[allow(dead_code)]
 mod gfx_light;
+mod gfx_owner;
 mod gpu;
 mod grass;
 mod grass_instances;
@@ -56,6 +57,7 @@ mod model_light;
 mod model_material;
 mod model_playback;
 mod model_queue;
+mod model_receiver_class;
 mod model_receiver_gpu;
 mod model_texture_gpu;
 mod music;
@@ -105,6 +107,8 @@ struct Terrain {
     water: Vec<water::WaterArea>,
     environments: environment::Environments,
     scene_lights: std::sync::Arc<scene_lights::SceneLights>,
+    /// Retained ECWLD so the renderer can own its effect light producers.
+    scene: std::sync::Arc<scene::Scene>,
     models: world_models::Assets,
     water_normals: Vec<Vec<image::RgbaImage>>,
     water_simple_frames: Vec<Vec<image::RgbaImage>>,
@@ -408,6 +412,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         models,
         environments,
         scene_lights: std::sync::Arc::new(scene_lights),
+        scene: std::sync::Arc::new(world_scene),
         element: element.to_path_buf(),
         grass,
         water_normals,

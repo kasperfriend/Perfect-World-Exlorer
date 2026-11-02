@@ -12,6 +12,16 @@ pub struct Definition {
     color: u32,
     track: Option<ColorTrack>,
 }
+impl Definition {
+    /// Interior colour-table entries whose two candidate construction
+    /// precisions disagree. Reported by the corpus survey because the native
+    /// loading-thread precision is not established (see `gfx_color_track`).
+    pub fn construction_divergences(&self) -> usize {
+        self.track
+            .as_ref()
+            .map_or(0, ColorTrack::construction_divergences)
+    }
+}
 fn number<T: std::str::FromStr>(s: &str) -> Result<T, String> {
     s.parse()
         .map_err(|_| format!("invalid GFX light number: {s}"))

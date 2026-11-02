@@ -1,9 +1,14 @@
 //! Retained ordinary model GPU draw/update ownership. One Draw is a single
 //! render-pass instance: reflection/refraction need distinct uniforms so queue
 //! writes cannot overwrite constants for a previously encoded pass.
+//!
+//! Queue routing follows `model_queue`: opaque meshes keep blending disabled,
+//! alpha meshes use the model's authored D3D8 blend factors and are submitted
+//! through the retail alpha insertion order by `world_models_gpu`. Hidden meshes
+//! are not submitted at all.
 use crate::{
     model_asset::{ModelAsset, PosedMesh},
-    model_draw, model_material,
+    model_draw, model_material, model_queue,
     model_receiver_gpu::{self as raster, Params},
     model_texture_gpu,
 };
@@ -94,19 +99,43 @@ impl Frame {
         Ok(p)
     }
 }
+
+/// Authored D3D8 blend factor to the pipeline equivalent. The unrecovered
+/// saturate modes never reach here: `model_queue::blend_factor` rejects them.
+fn blend_factor(factor: model_queue::Factor) -> wgpu::BlendFactor {
+    match factor {
+        model_queue::Factor::Zero => wgpu::BlendFactor::Zero,
+        model_queue::Factor::One => wgpu::BlendFactor::One,
+        model_queue::Factor::SrcColor => wgpu::BlendFactor::Src,
+        model_queue::Factor::InvSrcColor => wgpu::BlendFactor::OneMinusSrc,
+        model_queue::Factor::SrcAlpha => wgpu::BlendFactor::SrcAlpha,
+        model_queue::Factor::InvSrcAlpha => wgpu::BlendFactor::OneMinusSrcAlpha,
+        model_queue::Factor::DestAlpha => wgpu::BlendFactor::DstAlpha,
+        model_queue::Factor::InvDestAlpha => wgpu::BlendFactor::OneMinusDstAlpha,
+        model_queue::Factor::DestColor => wgpu::BlendFactor::Dst,
+        model_queue::Factor::InvDestColor => wgpu::BlendFactor::OneMinusDst,
+    }
+}
+
 struct Mesh {
     key: (usize, usize),
     paths: [String; 2],
     indices: Vec<u16>,
     vertices: usize,
     alpha_texture: bool,
+    /// Initial (bind-pose) mesh AABB in model space, used by the retail alpha
+    /// sort: 0x7a5460 measures the eight transformed initial-box corners.
+    bounds: ([f32; 3], [f32; 3]),
     mesh: raster::Mesh,
     binding: raster::Binding,
 }
 pub struct Draw {
     blend_enabled: bool,
     receiver: raster::Receiver,
-    meshes: Vec<Mesh>,
+    alpha_receiver: Option<raster::Receiver>,
+    /// Indexed by prepared-mesh position; `None` is a hidden queue mesh.
+    meshes: Vec<Option<Mesh>>,
+    alpha_meshes: Vec<usize>,
     // Keep authored textures alive and share repeated per-skin texture slots.
     textures: Vec<wgpu::Texture>,
 }
@@ -124,33 +153,24 @@ impl Draw {
         mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<Self, String> {
         let prepared = model_draw::prepare(asset, poses)?;
+        let settings = asset.descriptor.render_settings();
         // Validate every frame/material before allocating or uploading anything.
         let params: Vec<_> = prepared
             .iter()
-            .map(|m| {
-                frame.params(
-                    m.material,
-                    asset.descriptor.render_settings().original_color,
-                )
-            })
+            .map(|m| frame.params(m.material, settings.original_color))
             .collect::<Result<_, _>>()?;
-        let receiver = if frame.blend_enabled {
-            raster::Receiver::new(device, format, depth, depth_write)
-        } else {
-            raster::Receiver::new_opaque(device, format, depth, depth_write)
-        }?;
         let mut textures: Vec<wgpu::Texture> = Vec::new();
         let mut cache: std::collections::HashMap<[String; 2], (usize, bool)> =
             std::collections::HashMap::new();
-        let mut meshes = Vec::new();
-        for (m, p) in prepared.iter().zip(&params) {
+        let mut loaded: Vec<(usize, bool)> = Vec::with_capacity(prepared.len());
+        for m in &prepared {
             let (texture, alpha_texture) = if let Some(&index) = cache.get(&m.texture_paths) {
                 index
             } else {
                 let mut failures = Vec::new();
-                let mut loaded = None;
+                let mut result = None;
                 for path in &m.texture_paths {
-                    let result = read(path).and_then(|bytes| {
+                    let attempt = read(path).and_then(|bytes| {
                         let alpha = crate::model_dds::Dds::parse(&bytes)?.format.alpha_texture();
                         model_texture_gpu::upload(
                             device,
@@ -160,36 +180,95 @@ impl Draw {
                         )
                         .map(|texture| (texture, alpha))
                     });
-                    match result {
+                    match attempt {
                         Ok(t) => {
-                            loaded = Some(t);
+                            result = Some(t);
                             break;
                         }
                         Err(e) => failures.push(format!("{path}: {e}")),
                     }
                 }
-                let (texture, alpha) = loaded.ok_or_else(|| failures.join("; "))?;
+                let (texture, alpha) = result.ok_or_else(|| failures.join("; "))?;
                 let index = textures.len();
                 textures.push(texture);
                 cache.insert(m.texture_paths.clone(), (index, alpha));
                 (index, alpha)
             };
+            loaded.push((texture, alpha_texture));
+        }
+        // Queue classification uses the recovered 1.4.2 rule. Mesh-level
+        // transparency is not parsed by the current SKI reader, so the caller's
+        // frame value is the only transparency input.
+        let mut states = Vec::with_capacity(prepared.len());
+        for (_, alpha_texture) in &loaded {
+            states.push(model_queue::mesh_state(
+                false,
+                frame.lighting.transparency,
+                settings.source_blend,
+                settings.destination_blend,
+                false,
+                *alpha_texture,
+            )?);
+        }
+        let receiver = if frame.blend_enabled {
+            raster::Receiver::new(device, format, depth, depth_write)
+        } else {
+            raster::Receiver::new_opaque(device, format, depth, depth_write)
+        }?;
+        let alpha_receiver = match states
+            .iter()
+            .find(|state| state.queue == model_queue::Queue::Alpha)
+        {
+            Some(state) => Some(raster::Receiver::new_blended(
+                device,
+                format,
+                depth,
+                // ALPHA_DEPTH_WRITE is false: the retail z-write state for the
+                // alpha list was not recovered; see model_queue's register note.
+                model_queue::ALPHA_DEPTH_WRITE,
+                blend_factor(state.source),
+                blend_factor(state.destination),
+            )?),
+            None => None,
+        };
+        let mut meshes = Vec::with_capacity(prepared.len());
+        let mut alpha_meshes = Vec::new();
+        for index in 0..prepared.len() {
+            let m = &prepared[index];
+            let state = states[index];
+            if state.queue == model_queue::Queue::Hidden {
+                meshes.push(None);
+                continue;
+            }
+            let (texture, alpha_texture) = loaded[index];
+            let bounds = initial_bounds(asset, m.skin, m.mesh)?;
             let view = textures[texture].create_view(&Default::default());
             let vertices = vertices(m, frame.vertex_fog);
-            meshes.push(Mesh {
+            let alpha = state.queue == model_queue::Queue::Alpha;
+            let binding = match &alpha_receiver {
+                Some(receiver) if alpha => receiver.binding(device, &view, sampler, &params[index]),
+                _ => receiver.binding(device, &view, sampler, &params[index]),
+            }?;
+            if alpha {
+                alpha_meshes.push(index);
+            }
+            meshes.push(Some(Mesh {
                 key: (m.skin, m.mesh),
                 paths: m.texture_paths.clone(),
                 indices: m.indices.to_vec(),
                 vertices: vertices.len(),
                 alpha_texture,
+                bounds,
                 mesh: raster::Mesh::new(device, &vertices, m.indices)?,
-                binding: receiver.binding(device, &view, sampler, p)?,
-            });
+                binding,
+            }));
         }
         Ok(Self {
             blend_enabled: frame.blend_enabled,
             receiver,
+            alpha_receiver,
             meshes,
+            alpha_meshes,
             textures,
         })
     }
@@ -209,36 +288,60 @@ impl Draw {
         if prepared.len() != self.meshes.len() {
             return Err("model draw mesh count changed".into());
         }
+        let settings = asset.descriptor.render_settings();
         let mut updates = Vec::with_capacity(prepared.len());
-        for (m, gpu) in prepared.iter().zip(&self.meshes) {
-            if (m.skin, m.mesh) != gpu.key
-                || m.texture_paths != gpu.paths
-                || m.indices != gpu.indices
-                || m.vertices.len() != gpu.vertices
-            {
-                return Err("model draw topology/texture assignment changed".into());
+        for (index, m) in prepared.iter().enumerate() {
+            let params = frame.params(m.material, settings.original_color)?;
+            if let Some(gpu) = &self.meshes[index] {
+                if (m.skin, m.mesh) != gpu.key
+                    || m.texture_paths != gpu.paths
+                    || m.indices != gpu.indices
+                    || m.vertices.len() != gpu.vertices
+                {
+                    return Err("model draw topology/texture assignment changed".into());
+                }
             }
-            updates.push((
-                vertices(m, frame.vertex_fog),
-                frame.params(
-                    m.material,
-                    asset.descriptor.render_settings().original_color,
-                )?,
-            ));
+            updates.push((index, vertices(m, frame.vertex_fog), params));
         }
-        for (gpu, (vertices, params)) in self.meshes.iter().zip(updates) {
-            gpu.mesh.update(queue, &vertices)?;
-            gpu.binding.update(queue, &params)?;
+        for (index, vertices, params) in updates {
+            if let Some(gpu) = &self.meshes[index] {
+                gpu.mesh.update(queue, &vertices)?;
+                gpu.binding.update(queue, &params)?;
+            }
         }
         Ok(())
     }
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        for m in &self.meshes {
-            self.receiver.draw(pass, &m.mesh, &m.binding);
+        self.draw_opaque(pass);
+        for &mesh in &self.alpha_meshes {
+            self.draw_alpha_mesh(pass, mesh);
         }
     }
+    /// Non-alpha queue only. `World` submits the alpha list afterwards so the
+    /// retail insertion order spans models, not just one model's meshes.
+    pub fn draw_opaque<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        for mesh in self.meshes.iter().flatten() {
+            self.receiver.draw(pass, &mesh.mesh, &mesh.binding);
+        }
+    }
+    pub fn draw_alpha_mesh<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, index: usize) {
+        let (Some(receiver), Some(Some(mesh))) = (&self.alpha_receiver, self.meshes.get(index))
+        else {
+            return;
+        };
+        receiver.draw(pass, &mesh.mesh, &mesh.binding);
+    }
+    pub fn alpha_meshes(&self) -> &[usize] {
+        &self.alpha_meshes
+    }
+    pub fn mesh_bounds(&self, index: usize) -> Option<([f32; 3], [f32; 3])> {
+        self.meshes.get(index).and_then(|m| m.as_ref()).map(|m| m.bounds)
+    }
     pub fn alpha_texture(&self, mesh: usize) -> Option<bool> {
-        self.meshes.get(mesh).map(|m| m.alpha_texture)
+        self.meshes
+            .get(mesh)
+            .and_then(|m| m.as_ref())
+            .map(|m| m.alpha_texture)
     }
     pub fn mesh_count(&self) -> usize {
         self.meshes.len()
@@ -246,6 +349,33 @@ impl Draw {
     pub fn texture_count(&self) -> usize {
         self.textures.len()
     }
+}
+fn initial_bounds(
+    asset: &ModelAsset,
+    skin: usize,
+    mesh: usize,
+) -> Result<([f32; 3], [f32; 3]), String> {
+    let vertices = &asset
+        .skins
+        .get(skin)
+        .and_then(|s| s.data.meshes.get(mesh))
+        .ok_or("alpha bounds mesh index out of range")?
+        .vertices;
+    if vertices.is_empty() {
+        return Err("alpha bounds mesh has no vertices".into());
+    }
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+    for v in vertices {
+        for (axis, value) in v.position.iter().enumerate() {
+            min[axis] = min[axis].min(*value);
+            max[axis] = max[axis].max(*value);
+        }
+    }
+    if min.iter().chain(max.iter()).any(|v| !v.is_finite()) {
+        return Err("nonfinite initial mesh bounds".into());
+    }
+    Ok((min, max))
 }
 fn vertices(m: &model_draw::PreparedMesh<'_>, fog: f32) -> Vec<raster::Vertex> {
     m.vertices

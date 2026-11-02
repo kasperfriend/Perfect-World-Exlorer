@@ -27,11 +27,13 @@ pub fn prepare<'a>(
     poses: &[PosedMesh],
 ) -> Result<Vec<PreparedMesh<'a>>, String> {
     let settings = asset.descriptor.render_settings();
-    if settings.source_blend != 5
-        || settings.destination_blend != 6
-        || settings.original_color >> 24 != 255
-    {
-        return Err("ordinary model draw does not implement this ECM color/blend override".into());
+    // Authored blend factors are applied by the alpha queue (0x7a76a0), so a
+    // non-default pair is not itself unsupported. Modes with no pipeline
+    // equivalent still fail here instead of being approximated.
+    crate::model_queue::blend_factor(settings.source_blend)?;
+    crate::model_queue::blend_factor(settings.destination_blend)?;
+    if settings.original_color >> 24 != 255 {
+        return Err("ordinary model draw does not implement an ECM color override".into());
     }
     let expected: usize = asset.skins.iter().map(|s| s.data.meshes.len()).sum();
     if poses.len() != expected {
@@ -219,7 +221,7 @@ mod tests {
             let (mut a, mut p) = fixture();
             match kind {
                 0 => a.descriptor.original_color = Some(0x80808080),
-                1 => a.descriptor.destination_blend = Some(1),
+                1 => a.descriptor.destination_blend = Some(11),
                 2 => a.skins[0].data.meshes[0].material = -1,
                 3 => a.skins[0].data.meshes[0].texture = -1,
                 4 => a.skins[0].data.meshes[0].indices[2] = 99,
