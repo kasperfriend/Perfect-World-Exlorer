@@ -855,3 +855,27 @@ the fallback's dimension check. The downloaded real day/night pair passes
 all **32** tile payload/dimension checks through this production DDS reader.
 Full atlas and unloaded-pair semantics still require work; one pair is not a
 full-world census. Full CI for this consumer hardening is pending.
+
+#### Receiver entry census and camera fallback for the selection center
+
+Terrain DDS consumer head **cafcab8** passed full CI **41445434461**:
+Linux application/unit/eleven-GPU checks and Windows release. Readiness still
+has ten No gates; the world receiving-model draw remains the next integration
+step, not an approved completion.
+
+A raw direct-call census of every executable PE section finds exactly these
+entry edges: `0x6d1578 -> 0x41a5d0`, `0x41a740 -> 0x4250c0`, and
+`0x42b17a -> 0x425470`. There are no absolute-address references to those
+three function entries in the binary. This documents the ordinary traced
+consumer chain, not a claim to have implemented every subclass/material.
+
+The selection update's center is no longer an unproved always-player rule.
+`0x42afa2–0x42afab` fills the stack vector through `0x438290`; `0x42b16d`
+passes that same vector to `0x425470`. `0x438290–0x4382b6` uses the tracked
+object's +0x3c position only when the object exists and its +0x91c flag is set.
+Otherwise `0x4382b9–0x4382e7` obtains the supplied/global viewport camera and
+uses `0x7744f0` (camera position, following its parent-camera flag if needed).
+A no-player/no-tracked-object world viewer therefore has an actual client
+camera-position fallback to implement; it need not invent a simulated player.
+Dynamic effect-light production/lifetime and the runtime receiver submission
+still remain open.
