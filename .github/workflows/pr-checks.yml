@@ -50,7 +50,8 @@ jobs:
         run: |
           # Temporary: the sandbox that authors these changes cannot read job
           # logs, so surface compiler errors as check-run annotations.
-          cargo check --locked --bins 2>&1 | head -120 | sed 's/^/::error::/'
+          cargo check --locked --bins --message-format=short 2>&1 \
+            | grep -E "error" | head -40 | sed 's/^/::error::/'
       - name: Install software Vulkan for Phase 1 shader checks
         run: sudo apt-get install -y mesa-vulkan-drivers
       - name: Run Phase 1 production shader regressions
