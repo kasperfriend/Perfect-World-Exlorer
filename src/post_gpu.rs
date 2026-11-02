@@ -180,18 +180,17 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
  let b=mix(bump_texel(base+vec2<f32>(0.,1.)),bump_texel(base+vec2<f32>(1.,1.)),f.x);
  return mix(a,b,f.y)*2.0-vec2<f32>(1.0);
 }
+// 0x40fd33 executes spacewarp, copies its result back, then 0x40fd64
+// starts glow. Blur must therefore consume the quantized warped scene.
+@fragment fn warp_scene(i:Out)->@location(0) vec4<f32> {
+ let uv=i.uv;
+ let bump_uv=vec2<f32>(uv.x*3.,uv.y*3.*p.screen.y/p.screen.x+p.screen.z*0.5);
+ let normal=bump_bilinear(bump_uv);
+ // Texture stage 1 is CLAMP at 0x41029b–0x4102a4, not a 0.001 UV inset.
+ return vec4<f32>(textureSample(scene,smp,uv+normal*vec2<f32>(-0.005,0.005)).rgb,1.);
+}
 @fragment fn finish(i:Out)->@location(0) vec4<f32> {
- var uv=i.uv;
- let underwater=p.effect.x>0.;
- if underwater {
-   // CECFullGlowRender::LoadResource creates a 256² bump map procedurally:
-   // R=128+32*cos(4*pi*(x/256+y/256-1)), G=128+32*sin(...).
-   // spacewarp_tl applies r0_bx2 times (-0.005,+0.005); the client
-   // uses three repeats across screen width and scrolls at 0.5 cycles/sec.
-   let bump_uv=vec2<f32>(uv.x*3.,uv.y*3.*p.screen.y/p.screen.x+p.screen.z*0.5);
-   let normal=bump_bilinear(bump_uv);
-   uv=clamp(uv+normal*vec2<f32>(-0.005,0.005),vec2<f32>(0.001),vec2<f32>(0.999));
- }
+ let uv=i.uv;
  let original=textureSample(scene,smp,uv).rgb;
  var out=original;
  if p.effect.y>0.5 {
@@ -250,12 +249,14 @@ pub struct PostGpu {
     format: wgpu::TextureFormat,
     scene: wgpu::Texture,
     fogged: wgpu::Texture,
+    warped: wgpu::Texture,
     downsample: wgpu::Texture,
     blur: wgpu::Texture,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     uniform: wgpu::Buffer,
     fog_pipeline: wgpu::RenderPipeline,
+    warp_pipeline: wgpu::RenderPipeline,
     downsample_pipeline: wgpu::RenderPipeline,
     horizontal: wgpu::RenderPipeline,
     finish: wgpu::RenderPipeline,
@@ -264,6 +265,13 @@ impl PostGpu {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, w: u32, h: u32) -> Self {
         let scene = texture(device, format, w, h, "post scene");
         let fogged = texture(device, format.remove_srgb_suffix(), w, h, "fogged scene");
+        let warped = texture(
+            device,
+            format.remove_srgb_suffix(),
+            w,
+            h,
+            "underwater warped scene",
+        );
         let downsample = texture(
             device,
             format.remove_srgb_suffix(),
@@ -375,12 +383,14 @@ impl PostGpu {
             format,
             scene,
             fogged,
+            warped,
             downsample,
             blur,
             layout,
             sampler,
             uniform,
             fog_pipeline: make("fog_scene", format.remove_srgb_suffix()),
+            warp_pipeline: make("warp_scene", format.remove_srgb_suffix()),
             downsample_pipeline: make("downsample", format.remove_srgb_suffix()),
             horizontal: make("glow_h", format.remove_srgb_suffix()),
             finish: make("finish", format),
@@ -394,6 +404,13 @@ impl PostGpu {
             w,
             h,
             "fogged scene",
+        );
+        self.warped = texture(
+            device,
+            self.format.remove_srgb_suffix(),
+            w,
+            h,
+            "underwater warped scene",
         );
         self.downsample = texture(
             device,
@@ -477,6 +494,7 @@ impl PostGpu {
             ..Default::default()
         });
         let fogged = self.fogged.create_view(&Default::default());
+        let warped = self.warped.create_view(&Default::default());
         let downsample = self.downsample.create_view(&Default::default());
         let blur = self.blur.create_view(&Default::default());
         // Separate horizontal and composite bind groups avoid binding the blur texture
@@ -531,7 +549,32 @@ impl PostGpu {
             pass.set_bind_group(0, &group, &[]);
             pass.draw(0..3, 0..1);
         }
-        let input = if apply_fog { &fogged } else { &scene };
+        let before_warp = if apply_fog { &fogged } else { &scene };
+        if underwater > 0. {
+            let group = bind(before_warp, before_warp);
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("underwater distortion before glow"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &warped,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.warp_pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        let input = if underwater > 0. {
+            &warped
+        } else {
+            before_warp
+        };
         if bloom {
             {
                 let group = bind(input, input);

@@ -508,3 +508,24 @@ These data/sampling results do not establish runtime pose matrices, palette
 ordering or a world skin draw path. Those implementation gates stay No.
 
 Grass lightmap commit `598393d` passed [CI 41436006986](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41436006986), including all six area/legacy × day/night atlas-edge renders and the new readiness-audit tests. The independent readiness audit still reports P1.01–P1.10 unfinished and no malformed/missing acceptance rows.
+
+### Underwater distortion is an input to glow, not a composite UV change
+
+`0x40fce0` first copies the scene to its capture target. When warp is enabled,
+`0x40fd33` calls `0x410250` (the spacewarp path), then `0x40fd58` copies that
+result back into the capture target. Only afterward does `0x40fd64` invoke
+`0x40fdb0` (quarter copy / glow). Thus the blur input is the separately
+quantized warped scene. The old viewer sampled unwarped blur at a warped UV
+in the final composite, which is not equivalent. `0x41029b–0x4102a4` also
+explicitly sets the captured scene's sampler (stage 1) to CLAMP U/V; the
+previous artificial 0.001/0.999 UV inset has no basis in this trace.
+
+Added a full-resolution encoded UNORM warp target/pass before downsample,
+used with or without glow and after any screen-fog diagnostic. Kept the
+already traced procedural bump amplitude/repeat/scroll. The independent
+CPU reference now rasterizes that warp into bytes before its existing glow
+passes. A patterned CPU case distinguishes the reversed ordering by more
+than the two-byte GPU tolerance. The GPU fixture now compares normal/mono
+with/without warp on all three sizes and both output formats (24 cases).
+42 core CPU tests pass locally; GPU/build validation pending. This fixes the
+traced ordinary/underwater ordering, not every special effect/interaction.

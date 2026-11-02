@@ -1,7 +1,7 @@
 //! Independent encoded-space reference for the recovered ordinary/mono glow.
 //! This models UNORM8 pass boundaries, normalized bilinear clamp sampling and
 //! offsets from 0x40edd0 / 0x40f053 (4 divided by FULL resolution).
-//! It does not model underwater distortion or claim full pass-order parity.
+//! Includes the recovered underwater-before-glow pass, not all special effects.
 #[derive(Clone)]
 pub struct Image {
     pub width: usize,
@@ -79,6 +79,37 @@ impl Image {
                 + (outer_a[k] + outer_b[k]) * 0.107
         })
     }
+    /// Independently rasterize the procedural 256² bump texture and clamp-
+    /// sample the encoded scene into a separate UNORM8 target before glow.
+    pub fn underwater_warp(&self, seconds: f32) -> Self {
+        let bump = |x: f32, y: f32| {
+            let theta = std::f32::consts::TAU * 2. * ((x + y) / 256. - 1.);
+            [
+                (128. - (-32. * theta.cos()).trunc()) / 255.,
+                (128. - (-32. * theta.sin()).trunc()) / 255.,
+            ]
+        };
+        Self::render(self.width, self.height, |u, v| {
+            let px = (u * 3.).fract() * 256. - 0.5;
+            let py = (v * 3. * self.height as f32 / self.width as f32 + seconds * 0.5).fract()
+                * 256.
+                - 0.5;
+            let x = px.floor();
+            let y = py.floor();
+            let fx = px - x;
+            let fy = py - y;
+            let a = bump(x, y);
+            let b = bump(x + 1., y);
+            let c = bump(x, y + 1.);
+            let d = bump(x + 1., y + 1.);
+            let normal: [f32; 2] = std::array::from_fn(|k| {
+                let top = a[k] * (1. - fx) + b[k] * fx;
+                let bottom = c[k] * (1. - fx) + d[k] * fx;
+                (top * (1. - fy) + bottom * fy) * 2. - 1.
+            });
+            self.sample(u - normal[0] * 0.005, v + normal[1] * 0.005)
+        })
+    }
     pub fn bloom(&self, level: f32, power: f32, mono: [f32; 4]) -> Self {
         self.bloom_with_steps(
             level,
@@ -152,5 +183,29 @@ mod tests {
         // negligible monochrome mixing; this isolates its different add term.
         let mono = image.bloom(0.5, 0.6, [1., 1., 1., 1e-8]);
         assert_ne!(ordinary.pixels, mono.pixels);
+    }
+    #[test]
+    fn underwater_warp_is_a_quantized_input_to_glow_not_a_late_uv_change() {
+        let image = Image::pattern(67, 61);
+        let correct = image.underwater_warp(0.37).bloom(
+            0.5,
+            0.6,
+            [187. / 255., 234. / 255., 187. / 255., 0.5],
+        );
+        let wrong = image
+            .bloom(0.5, 0.6, [187. / 255., 234. / 255., 187. / 255., 0.5])
+            .underwater_warp(0.37);
+        let worst = correct
+            .pixels
+            .iter()
+            .zip(&wrong.pixels)
+            .flat_map(|(a, b)| a.iter().zip(b))
+            .map(|(a, b)| (*a as i32 - *b as i32).abs())
+            .max()
+            .unwrap();
+        assert!(
+            worst > 2,
+            "pattern must distinguish the pass ordering, max difference {worst}"
+        );
     }
 }

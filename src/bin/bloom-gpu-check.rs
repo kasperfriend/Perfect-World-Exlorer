@@ -121,9 +121,23 @@ fn main() {
             }
             queue.submit(Some(encoder.finish()));
             let image = post_reference::Image::pattern(w as usize, h as usize);
-            for (level, power, mono) in [
-                (0.25, 0.25, [0.; 4]),
-                (0.5, 0.6, [187. / 255., 234. / 255., 187. / 255., 0.5]),
+            for (level, power, mono, underwater, time) in [
+                (0.25, 0.25, [0.; 4], false, 0.),
+                (
+                    0.5,
+                    0.6,
+                    [187. / 255., 234. / 255., 187. / 255., 0.5],
+                    false,
+                    0.,
+                ),
+                (0.25, 0.25, [0.; 4], true, 0.37),
+                (
+                    0.5,
+                    0.6,
+                    [187. / 255., 234. / 255., 187. / 255., 0.5],
+                    true,
+                    1.2,
+                ),
             ] {
                 post.render(
                     &device,
@@ -132,9 +146,9 @@ fn main() {
                     &depth_view,
                     w,
                     h,
-                    0.,
+                    time,
                     100.,
-                    0.,
+                    if underwater { 1. } else { 0. },
                     environment::Fog {
                         start: 0.,
                         end: 100.,
@@ -181,7 +195,12 @@ fn main() {
                 device.poll(wgpu::Maintain::Wait);
                 rx.recv().unwrap().unwrap();
                 let pixels = slice.get_mapped_range();
-                let reference = image.bloom(level, power, mono);
+                let input = if underwater {
+                    image.underwater_warp(time)
+                } else {
+                    image.clone()
+                };
+                let reference = input.bloom(level, power, mono);
                 let mut worst = 0;
                 for y in 0..h as usize {
                     for x in 0..w as usize {
@@ -194,7 +213,7 @@ fn main() {
                 }
                 assert!(
                     worst <= 2,
-                    "{format:?} {w}x{h}, mono {}: max byte error {worst}",
+                    "{format:?} {w}x{h}, mono {}, underwater {underwater}, time {time}: max byte error {worst}",
                     mono[3]
                 );
                 println!(
