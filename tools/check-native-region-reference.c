@@ -21,6 +21,18 @@ static float step(float current, float delta, float seconds) {
         : "=m"(out) : "m"(delta), "m"(seconds), "m"(current) : "st");
     return out;
 }
+static float glow_delta(float current, float target, int ms) {
+    float out;
+    __asm__ volatile("flds %1; fsubs %2; fidivl %3; fstps %0"
+        : "=m"(out) : "m"(target), "m"(current), "m"(ms) : "st");
+    return out;
+}
+static float glow_step(float current, float delta, int ms) {
+    float out;
+    __asm__ volatile("fildl %1; fmuls %2; fadds %3; fstps %0"
+        : "=m"(out) : "m"(ms), "m"(delta), "m"(current) : "st");
+    return out;
+}
 static float color_byte(int byte) {
     float out, reciprocal;
     uint32_t u=0x3b808081;
@@ -49,6 +61,7 @@ int main(void) {
         down = step(down, dd, .016f);
     }
     uint32_t pc24 = bits(delta), up_word = bits(up), down_word = bits(down);
+    uint32_t fade = bits(glow_step(1.f, glow_delta(1.f, 0.f, 1000), 500));
     uint64_t colors=UINT64_C(0xcbf29ce484222325);
     for (int byte=0;byte<256;++byte) {
         uint32_t u=bits(color_byte(byte));
@@ -61,6 +74,7 @@ int main(void) {
     printf("x87 PC24 delta=%08x up=%08x down=%08x; PC53 delta=%08x\n",
         pc24, up_word, down_word, pc53);
     printf("x87 256 normalized color words FNV=%016llx\n", (unsigned long long)colors);
-    return !(colors == UINT64_C(0xaf1301c35b66c4a5) && pc24 == 0x3b1a33cf && pc53 == 0x3b1a33ce &&
+    printf("x87 PC24 half-time StopFade word=%08x\n", fade);
+    return !(fade == 0x3f000000 && colors == UINT64_C(0xaf1301c35b66c4a5) && pc24 == 0x3b1a33cf && pc53 == 0x3b1a33ce &&
         up_word == 0x3f6612a9 && down_word == 0x3dcf6ab4);
 }

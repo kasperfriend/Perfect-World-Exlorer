@@ -104,7 +104,7 @@ int main(int argc, char **argv) {
             mode?53:24,(unsigned long long)hash,cw,after);
         if ((after&0xf00)!=(cw&0xf00)) return 5;
     }
-    emit_pc24_words(argc==3?(unsigned)atoi(argv[2]):1);
+    if(argc==3)emit_pc24_words((unsigned)atoi(argv[2]));
     FreeLibrary(crt);
     return 0;
 }

@@ -6,10 +6,10 @@ pub fn constant(argb: u32, brightness_fade: f32, opacity_fade: f32) -> [f32; 4] 
     let rgb = 1. - fade(brightness_fade);
     let alpha = 1. - fade(opacity_fade);
     [
-        ((argb >> 16) & 255) as f32 / 255. * rgb,
-        ((argb >> 8) & 255) as f32 / 255. * rgb,
-        (argb & 255) as f32 / 255. * rgb,
-        (argb >> 24) as f32 / 255. * alpha,
+        ((argb >> 16) & 255) as f32 * f32::from_bits(0x3b808081) * rgb,
+        ((argb >> 8) & 255) as f32 * f32::from_bits(0x3b808081) * rgb,
+        (argb & 255) as f32 * f32::from_bits(0x3b808081) * rgb,
+        (argb >> 24) as f32 * f32::from_bits(0x3b808081) * alpha,
     ]
 }
 

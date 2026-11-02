@@ -12,9 +12,9 @@ impl Channel {
     fn set(&mut self, start: f32, end: f32, ms: i32) {
         self.value = start;
         self.target = end;
-        // Native x87 subtract/divide, then one f32 store. In particular zero
+        // D3D8 render-thread PC24 rounds the subtraction before FIDIV. Zero
         // duration leaves start active (remaining==0), not an instant endpoint.
-        self.step = ((end as f64 - start as f64) / ms as f64) as f32;
+        self.step = ((end - start) as f64 / ms as f64) as f32;
         self.remaining = ms;
     }
     fn continue_to(&mut self, end: f32, ms: i32) {
@@ -27,7 +27,8 @@ impl Channel {
         self.remaining = self.remaining.wrapping_sub(ms);
         if self.remaining > 0 {
             // fild(int); fmul(stored step); fadd(stored value); fstp(float).
-            self.value = (ms as f64 * self.step as f64 + self.value as f64) as f32;
+            let product = (ms as f64 * self.step as f64) as f32;
+            self.value += product;
         } else {
             self.value = self.target;
             self.remaining = 0;
@@ -97,10 +98,17 @@ impl WorldGlow {
                         0.5,
                         2000,
                         1500,
-                        [187. / 255., 234. / 255., 187. / 255.],
+                        [187., 234., 187.].map(|b| b * f32::from_bits(0x3b808081)),
                     )
                 } else {
-                    (1., 0.7, 1., 2000, 2000, [226. / 255., 1., 1.])
+                    (
+                        1.,
+                        0.7,
+                        1.,
+                        2000,
+                        2000,
+                        [226., 255., 255.].map(|b| b * f32::from_bits(0x3b808081)),
+                    )
                 };
                 self.power.continue_to(power, time);
                 self.level.continue_to(level, time);
@@ -177,7 +185,7 @@ mod glow_tests {
         let mut g = WorldGlow::default();
         let a = g.update_with_mode(true, 1., false, 4, 1.);
         assert_eq!(&a[..2], &[0.35, 0.5]);
-        assert_eq!(&a[2..5], &[226. / 255., 1., 1.]);
+        assert_eq!(&a[2..5], &[f32::from_bits(0x3f62e2e4), 1., 1.]);
         assert_eq!(a[5], 0.5);
         let b = g.update_with_mode(true, 1., false, 4, 1.);
         assert_eq!(&b[..2], &[0.7, 1.]);
@@ -208,7 +216,10 @@ mod glow_tests {
         assert!((a[0] - 0.425).abs() < 1e-6);
         assert!((a[1] - 0.375).abs() < 1e-6);
         assert!((a[5] - 1. / 3.).abs() < 1e-6);
-        assert_eq!(&a[2..5], &[187. / 255., 234. / 255., 187. / 255.]);
+        assert_eq!(
+            &a[2..5],
+            &[187., 234., 187.].map(|b| b * f32::from_bits(0x3b808081))
+        );
         let b = g.update(true, 1., true, 1.);
         assert_eq!(&b[..2], &[0.6, 0.5]);
         assert_eq!(b[5], 0.5);
@@ -280,7 +291,7 @@ mod native_tests {
         assert_eq!(g.brightness_fade(), 1.);
         g.select(true, 1., true, 0, 0xffffffff);
         g.tick(500);
-        assert_eq!(g.brightness_fade().to_bits(), 0x3effffff);
+        assert_eq!(g.brightness_fade().to_bits(), 0x3f000000);
         g.tick(500);
         assert_eq!(g.brightness_fade(), 0.);
         g.stop_fade(false);

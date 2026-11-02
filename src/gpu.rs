@@ -707,7 +707,6 @@ struct Renderer {
     started: Instant,
     wind_last: Instant,
     world_glow: crate::post_gpu::WorldGlow,
-    glow_tick_ms: u64,
     glow_requested_fade: Option<f32>,
     grass_wind_state: crate::grass_wind::GrassWind,
     atlas: wgpu::Texture,
@@ -1043,7 +1042,6 @@ impl Renderer {
             started: Instant::now(),
             wind_last: Instant::now(),
             world_glow: crate::post_gpu::WorldGlow::default(),
-            glow_tick_ms: 0,
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
             atlas,
@@ -1449,13 +1447,9 @@ impl Renderer {
             );
             self.glow_requested_fade = Some(camera.bloom_brightness_fade);
         }
-        let tick = now
-            .duration_since(self.started)
-            .as_millis()
-            .min(u64::MAX as u128) as u64;
-        let glow_delta = tick.saturating_sub(self.glow_tick_ms).min(i32::MAX as u64) as i32;
-        self.glow_tick_ms = tick;
-        self.world_glow.tick(glow_delta);
+        // AdjustEnvironment passes the frozen +0x490 logic tick to glow
+        // (0x4214dc), including its 250ms cap; do not resample wall time here.
+        self.world_glow.tick(camera.logic_delta_ms as i32);
         let glow_parameters = self.world_glow.parameters();
         self.post.set_glow_color(
             camera.bloom_tint,
@@ -2022,6 +2016,7 @@ struct Camera {
     grass_distance_fade: bool,
     area_grass_lightmaps: bool,
     regional_light: Option<crate::environment::RegionalLight>,
+    logic_delta_ms: u32,
 }
 impl Camera {
     fn new(t: &Terrain) -> Self {
@@ -2056,6 +2051,7 @@ impl Camera {
             grass_distance_fade: true,
             area_grass_lightmaps: true,
             regional_light: None,
+            logic_delta_ms: 0,
         }
     }
     fn fog_uniform(&self) -> ([f32; 4], [f32; 4]) {
@@ -2544,6 +2540,7 @@ pub fn run(
                     let region_tick = renderer.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
                     let region_delta = crate::environment::frame_ms(region_tick.saturating_sub(region_tick_ms));
                     region_tick_ms = region_tick;
+                    camera.logic_delta_ms = region_delta;
                     let legacy_fog=fog_transition.update_ms(&environments,camera.pos.to_array(),camera.time_of_day,region_delta);
                     let streamed_fog=match (streamed_transition.as_mut(),regional_streaming.as_mut()) {
                         (Some(transition),Some(active))=>Some(transition.update_streamed_ms(&environments,active,camera.pos.to_array(),camera.time_of_day,region_delta)),
@@ -2757,6 +2754,7 @@ pub fn preview(
             grass_distance_fade: true,
             area_grass_lightmaps: true,
             regional_light: None,
+            logic_delta_ms: 0,
         }
     } else {
         Camera::new(&t)

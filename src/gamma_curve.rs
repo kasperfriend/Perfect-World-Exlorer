@@ -13,17 +13,14 @@ pub fn setting(value: f32) -> f32 {
     }
 }
 
+// Captured by tools/capture-native-gamma-x87.c using the client's actual
+// MSVCRT _CIpow/_ftol imports at PC24. The CRT's internal precision behavior
+// is NOT reproduced by a double-precision pow followed by an f32 store.
+// Every word is compared with a fresh independent Windows-x86 capture in CI.
+const NATIVE_WORDS: &[u8; 101 * 256 * 2] = include_bytes!("data/display-gamma-pc24.bin");
 pub fn entry(index: u8, value: f32) -> u16 {
-    if index == 0 {
-        return 0;
-    }
-    // 0x430226: fild(config), fmul(stored 1.7f), fadd(30f), ftol.
-    let device_gamma = (setting(value) as f64 * f32::from_bits(0x3fd9999a) as f64 + 30.).trunc();
-    // 0x77b7ed..0x77b826: integer * stored .01f, reciprocal, fstp(float).
-    let exponent = (1. / (device_gamma * f32::from_bits(0x3c23d70a) as f64)) as f32;
-    // No f32 store between fild(index)/fmul(stored 1/255f) and _CIpow.
-    let base = index as f64 * f32::from_bits(0x3b808081) as f64;
-    (65535. * base.powf(exponent as f64)).trunc().max(1.) as u16
+    let p = (setting(value) as usize * 256 + index as usize) * 2;
+    u16::from_le_bytes([NATIVE_WORDS[p], NATIVE_WORDS[p + 1]])
 }
 
 pub fn sample(encoded: f32, value: f32) -> f32 {
@@ -69,9 +66,9 @@ fn client_gamma_ramp(encoded:vec3<f32>)->vec3<f32> {
 mod tests {
     use super::*;
     #[test]
-    fn native_16bit_words_match_independent_80_digit_decimal_oracle() {
-        // Reproduce with tools/check-native-gamma-reference.py (Fraction
-        // nearest-even exponent store and Decimal power, not platform powf).
+    fn native_16bit_words_match_captured_x86_msvcrt() {
+        // Reproduce with tools/capture-native-gamma-x87.c, then compare ALL
+        // fresh native words with tools/check-native-gamma-words.rs in CI.
         let mut hash = 0xcbf29ce484222325u64;
         for setting in 0..=100 {
             for i in 0..=255 {
@@ -80,10 +77,23 @@ mod tests {
                 }
             }
         }
-        assert_eq!(hash, 0x1988df3e411fa151);
-        // Former shader-f32 formula produced 51165 and 11390 respectively.
-        assert_eq!(entry(235, 2.), 51166);
-        assert_eq!(entry(64, 29.), 11389);
+        assert_eq!(hash, 0x9f351cddfec7875f);
+        // These reject a double/Decimal pow with only surrounding PC24
+        // rounding; all eight differ from the native CRT's result.
+        for (setting, index, expected) in [
+            (2., 239, 53851),
+            (26., 128, 25820),
+            (29., 194, 46363),
+            (61., 151, 44194),
+            (70., 204, 56420),
+            (75., 42, 20776),
+            (82., 59, 27563),
+            (87., 45, 24596),
+        ] {
+            assert_eq!(entry(index, setting), expected);
+        }
+        assert_eq!(entry(0, 41.), 0);
+        assert_eq!(entry(255, 41.), 65535);
     }
     #[test]
     fn uniform_table_contains_every_recovered_word_in_index_order() {

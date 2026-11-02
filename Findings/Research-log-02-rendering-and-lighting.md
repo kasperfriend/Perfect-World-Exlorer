@@ -1760,3 +1760,45 @@ capture/build and Linux GPU tests passed; binary reference download is blocked
 by the sandbox's artifact-storage host restriction. Reference hashes are also
 published as GitHub annotations so precision verification can proceed without
 claiming inaccessible artifacts were inspected.
+
+### PC24 gamma: reject the mathematical substitute, retain actual CRT words
+
+Completed Windows-x86 captures in CI 41473598574 (job 125373256487) use the
+client's actual MSVCRT `_CIpow`/`_ftol` imports and recovered instructions.
+PC53 gives the old **1988df3e411fa151**; PC24 gives **9f351cddfec7875f**.
+Both control words are unchanged after all calls (027f / 007f). This positively
+identifies the earlier oracle's precision assumption, rather than attributing
+small mismatches to GPU tolerance.
+
+The portable double/Decimal-power substitution with PC24 surrounding operations
+still differs at eight entries: (setting,index,native) = (2,239,53851),
+(26,128,25820), (29,194,46363), (61,151,44194), (70,204,56420),
+(75,42,20776), (82,59,27563), (87,45,24596). It was rejected, not accepted
+by loosening a threshold. Production now reads a small captured numeric table
+(51,712 bytes; SHA256 6fae72f31f9fd16b926482b306a0c7cd0fce1cacbf11eaf92b242b61f11ef2b3).
+Windows CI independently regenerates all values through the CRT exports and
+compares EVERY word with production, not just a checksum or self-oracle.
+The Python diagnostic explicitly retains the rejected substitution and reports
+its eight differences. Source/reproduction details are in `src/data/README.md`.
+The existing production RGBA/BGRA all-byte/all-setting GPU tests consume this
+same table; their new-head result must be checked before claiming success.
+
+**Confirmation P1.09: No — continue.** Native word generation is addressed;
+the full upstream color chain/compositor acceptance is not thereby waived.
+
+### Glow uses the same frozen logic tick and PC24 component operations
+
+142 `4214dc..4214e6` passes the environment's argument to glow. That argument
+is the capped +490 logic tick, not independent uncapped wall time. The viewer
+now passes the SAME frame delta to regional shading and glow (including first
+frame and 250ms cap), instead of resampling a separate glow clock. Presenter
+subtraction, integer multiply, add, packed caller color and mono tint now honor
+PC24/stored reciprocal boundaries. An actual-x87 reference confirms half-time
+StopFade is **3f000000**, not the earlier f64-derived **3effffff**. Existing
+nine presenter tests pass with this independently confirmed word. Core 103
+passes; native x87 color/region/fade references pass. Approved tree defaults
+are unchanged. **Confirmation P1.08: No — continue** complete-pass auditing.
+
+Controller-108 loading/sampling precision must also be checked in its actual
+owner/load-thread context; the prior PC53 exhaustive arithmetic oracle alone
+is not proof of that context. Full P1.01 ownership remains No.
