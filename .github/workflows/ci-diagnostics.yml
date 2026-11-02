@@ -1,6 +1,8 @@
 name: ci-diagnostics
 
-on: workflow_dispatch
+on:
+  push:
+    branches: ['arena/f61c0c9b-perfect-world-exlorer']
 
 permissions:
   contents: read
