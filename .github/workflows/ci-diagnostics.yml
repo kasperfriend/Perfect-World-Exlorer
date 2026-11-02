@@ -15,6 +15,8 @@ jobs:
     name: Diagnostics
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: never
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -38,7 +40,8 @@ jobs:
             cargo fmt --all
             git --no-pager diff
             echo "## cargo check --bins"
-            cargo check --locked --bins 2>&1 | grep -E "^(error|warning: unused|thread)" -A 6 | head -220
+            cargo check --locked --bins 2>&1 | tail -160
+            echo "check-exit=${PIPESTATUS[0]}"
             echo "## unit tests"
             cargo test --locked --bin perfect-world-explorer 2>&1 | tail -120
             echo "## dependency-free modules"
