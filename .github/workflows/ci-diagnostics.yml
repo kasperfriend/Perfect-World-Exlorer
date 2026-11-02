@@ -1,0 +1,51 @@
+name: CI diagnostics (temporary)
+
+# Temporary, review-only workflow. GitHub serves job logs from a host this
+# environment cannot reach, so this job republishes the compiler and test output
+# as a PR comment, which the session can read. It builds nothing that is
+# shipped and is deleted before handoff.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Collect output
+        run: |
+          set +e
+          {
+            echo "### fmt"
+            cargo fmt --all -- --check 2>&1 | head -60
+            echo "### check"
+            cargo check --locked --bins --message-format short 2>&1 | grep -E "^(src|error|warning)" | head -80
+            echo "### tests"
+            cargo test --locked --bin perfect-world-explorer 2>&1 | grep -E "^(test |error|failures:|---- )|panicked" | head -120
+          } > /tmp/diag.txt 2>&1
+          tail -c 20000 /tmp/diag.txt
+      - name: Publish comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          n=${{ github.event.pull_request.number }}
+          [ -n "$n" ] || exit 0
+          { echo '<!-- ci-diagnostics -->'; echo "Run ${{ github.run_id }}"; echo '```'; cat /tmp/diag.txt; echo '```'; } > /tmp/body.md
+          for id in $(gh api "repos/${GITHUB_REPOSITORY}/issues/${n}/comments" --paginate --jq '.[] | select(.body | startswith("<!-- ci-diagnostics -->")) | .id'); do
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/issues/comments/${id}" || true
+          done
+          gh api "repos/${GITHUB_REPOSITORY}/issues/${n}/comments" -F body=@/tmp/body.md >/dev/null

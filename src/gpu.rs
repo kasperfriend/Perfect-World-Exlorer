@@ -496,6 +496,19 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
             let Some((page_id, slot)) = texture_slots.get(&key).copied() else {
                 continue;
             };
+            // v5 stores the client's no-cull flag in the material; the draw
+            // state (stage, alpha test, culling, kind) comes from one place.
+            let kind = match crate::bmd_baked::classify(
+                mesh.version,
+                !mesh.texture.trim().is_empty(),
+                mesh.material.as_ref().is_some_and(|m| m.two_sided),
+            ) {
+                Ok(state) => state.kind,
+                Err(e) => {
+                    eprintln!("Skipping baked mesh {}: {e}", mesh.name);
+                    continue;
+                }
+            };
             let page = &mut pages[page_id].1;
             let base = page.vertices.len() as u32;
             let ox = slot.x as f32 / ATLAS as f32;
@@ -514,13 +527,7 @@ fn build(t: &mut Terrain, cx: f32, cz: f32, detail: DetailSettings) -> Result<Me
                     normal: n.to_array(),
                     uv: [ox + vert.uv[0] * sx, oy + vert.uv[1] * sy],
                     color: [ox, oy, sx, sy],
-                    // v5 stores the client's no-cull flag in the material;
-                    // retain it in the existing flat per-mesh kind.
-                    kind: if mesh.material.as_ref().is_some_and(|m| m.two_sided) {
-                        2.1
-                    } else {
-                        2.0
-                    },
+                    kind,
                     diffuse: vert.day_diffuse,
                     night_diffuse: vert.night_diffuse,
                 });

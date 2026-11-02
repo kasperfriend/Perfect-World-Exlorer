@@ -769,13 +769,25 @@ fn load_lightmaps(
     // and shader sampling remain exactly the same.
     let layout =
         crate::terrain_lightmaps::Layout::new(m.areas_x, m.areas.len(), t.subterrain_names.len())?;
-    let mut availability = vec![0u32; m.areas.len()];
+    // Per-area binding state. A missing day record leaves an area unbound
+    // (client `ApplyLightMap` returns without binding), which is not the same
+    // as the day/night fallback the night slot uses.
+    let mut availability = vec![crate::terrain_lightmaps::Availability::Unbound; m.areas.len()];
+    let mut unbound = Vec::new();
     for (si, name) in t.subterrain_names.iter().enumerate() {
         let base = t.element.join("maps/world");
-        let pair = crate::terrain_lightmaps::Pair::read(
+        let pair = match crate::terrain_lightmaps::Pair::read_optional(
             &base.join(format!("{name}.t2lm")),
             &base.join(format!("{name}.t2lm1")),
-        )?;
+        )? {
+            Some(pair) => pair,
+            None => {
+                for j in 0..crate::terrain_lightmaps::TILES {
+                    unbound.push(layout.area(si, j).unwrap());
+                }
+                continue;
+            }
+        };
         for (which, ext) in ["t2lm", "t2lm1"].iter().enumerate() {
             let path = t.element.join("maps/world").join(format!("{name}.{ext}"));
             let tiles = crate::terrain_lightmaps::Tiles::parse(pair.bytes(which == 1))
@@ -853,15 +865,71 @@ fn load_lightmaps(
             device.poll(wgpu::Maintain::Wait);
         }
     }
+    // An unbound area still owns an atlas slot, so fill it with a neutral tile
+    // rather than the texture's zero-initialised contents. The shader keeps
+    // sampling the slot; 0.5 grey reproduces "no lightmap bound" instead of
+    // black terrain. Grass never reads these slots (availability is 0).
+    if !unbound.is_empty() {
+        let neutral = neutral_tile(side, bc);
+        for &id in &unbound {
+            for which in 0..2usize {
+                let slot = id % per_page;
+                let page = id / per_page + which * pages;
+                queue.write_texture(
+                    wgpu::ImageCopyTexture {
+                        texture: &texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d {
+                            x: ((slot % per_row) * side) as u32,
+                            y: ((slot / per_row) * side) as u32,
+                            z: page as u32,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &neutral,
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(if bc {
+                            (side / 4 * 8) as u32
+                        } else {
+                            (side * 4) as u32
+                        }),
+                        rows_per_image: Some(if bc { (side / 4) as u32 } else { side as u32 }),
+                    },
+                    wgpu::Extent3d {
+                        width: side as u32,
+                        height: side as u32,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+        }
+        queue.submit(std::iter::empty());
+        device.poll(wgpu::Maintain::Wait);
+    }
     eprintln!(
-        "Loaded {} terrain lightmap areas ({} with authored night maps, {} day-only) at {}px ({})",
+        "Loaded {} terrain lightmap areas ({} with authored night maps, {} day-only, {} unbound) at {}px ({})",
         m.areas.len(),
-        availability.iter().filter(|&&a| a == 3).count(),
-        availability.iter().filter(|&&a| a == 1).count(),
+        availability.iter().filter(|a| a.bits() == 3).count(),
+        availability.iter().filter(|a| a.bits() == 1).count(),
+        unbound.len(),
         side,
         if bc { "native BC1" } else { "RGBA" }
     );
+    let availability: Vec<u32> = availability.iter().map(|a| a.bits()).collect();
     Ok((texture, side, per_row, per_page, pages, availability))
+}
+
+/// Neutral stand-in for an area the client would leave unbound. BC1 blocks
+/// select colour0 (`RGB565(0.5,0.5,0.5)`) with every index bit clear.
+fn neutral_tile(side: usize, bc: bool) -> Vec<u8> {
+    if bc {
+        let mut block = [0u8; 8];
+        block[..2].copy_from_slice(&0x8410u16.to_le_bytes());
+        block.repeat((side / 4) * (side / 4))
+    } else {
+        [128, 128, 128, 255].repeat(side * side)
+    }
 }
 
 #[repr(C)]
@@ -911,6 +979,19 @@ fn grid_axis(size: usize, step: usize) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn neutral_tiles_match_the_atlas_block_layout() {
+        let rgba = super::neutral_tile(256, false);
+        assert_eq!(rgba.len(), 256 * 256 * 4);
+        assert!(rgba.chunks(4).all(|p| p == [128, 128, 128, 255]));
+        let bc1 = super::neutral_tile(256, true);
+        assert_eq!(bc1.len(), 256 * 256 / 2);
+        // Every 8-byte block selects colour0 = RGB565(0.5,0.5,0.5).
+        assert!(bc1
+            .chunks(8)
+            .all(|b| b == [0x10, 0x84, 0, 0, 0, 0, 0, 0]));
+        assert_eq!(super::neutral_tile(16, true).len(), 16 * 16 / 2);
+    }
     #[test]
     fn lod_grid_covers_exact_edges_without_duplicates() {
         assert_eq!(grid_axis(17, 8), vec![0, 8, 16]);
