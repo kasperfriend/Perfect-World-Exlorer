@@ -16,6 +16,17 @@ mod post_gpu;
 mod post_reference;
 
 fn main() {
+    // Surface fixture failures through the Checks API as well as runner logs.
+    // This preserves diagnostics when log downloads use an unavailable host.
+    std::panic::set_hook(Box::new(|info| {
+        eprintln!(
+            "::error::{}",
+            info.to_string()
+                .replace('%', "%25")
+                .replace('\r', "%0D")
+                .replace('\n', "%0A")
+        );
+    }));
     let instance = wgpu::Instance::default();
     let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
     let (device, queue) = pollster::block_on(adapter.request_device(
@@ -204,18 +215,23 @@ fn main() {
                 };
                 let reference = input.bloom(level, power, mono);
                 let mut worst = 0;
+                let mut worst_pixel = (0, 0, 0, 0, 0);
                 for y in 0..h as usize {
                     for x in 0..w as usize {
                         for c in 0..3 {
                             let actual = pixels[y * row as usize + x * 4 + c];
                             let expected = reference.pixels[y * w as usize + x][c];
-                            worst = worst.max((actual as i32 - expected as i32).abs());
+                            let error = (actual as i32 - expected as i32).abs();
+                            if error > worst {
+                                worst = error;
+                                worst_pixel = (x, y, c, actual, expected);
+                            }
                         }
                     }
                 }
                 assert!(
                     worst <= 2,
-                    "{format:?} {w}x{h}, mono {}, underwater {underwater}, time {time}: max byte error {worst}",
+                    "{format:?} {w}x{h}, level {level}, power {power}, mono {}, underwater {underwater}, time {time}: max byte error {worst}, pixel {worst_pixel:?}",
                     mono[3]
                 );
                 println!(
