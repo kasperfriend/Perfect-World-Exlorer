@@ -3,6 +3,8 @@
 use crate::scene::Scene;
 #[path = "client_region_map.rs"]
 mod client_region_map;
+#[path = "client_regional_light.rs"]
+mod client_regional_light;
 use client_region_map::ActiveBoxMap;
 #[path = "client_region_stream.rs"]
 mod client_region_stream;
@@ -18,19 +20,10 @@ use std::{collections::BTreeMap, fs, path::Path};
 /// `41ec86`, `42b4fe`, and `42bd6e` pass it to fog, BMD and terrain.
 /// Hour is the world-clock time, normalized by 24 before the client curve.
 pub fn daylight(hour: f32) -> f32 {
-    let t = hour.rem_euclid(24.) / 24.;
-    let night = if t < 0.125 {
-        1.
-    } else if t < f32::from_bits(0x3e955555) {
-        1. - (t - 0.125) * 6.
-    } else if (t as f64) < 0.75 {
-        0.
-    } else if t < 0.875 {
-        (t - 0.75) * 8.
-    } else {
-        1.
-    };
-    1. - night.clamp(0., 1.)
+    1. - night_factor(hour)
+}
+pub fn night_factor(hour: f32) -> f32 {
+    client_regional_light::night_factor(hour)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -123,13 +116,12 @@ impl FogEndpoints {
         )
     }
 }
-fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
-    std::array::from_fn(|i| a[i] + (b[i] - a[i]) * t)
-}
+
 #[derive(Clone, Copy, Debug)]
 pub struct RegionalLight {
     pub ambient: [f32; 3],
     pub diffuse: [f32; 3],
+    pub specular: [f32; 3],
     pub toward_sun: [f32; 3],
 }
 /// Stored-step transitions between authored region endpoints. Each new
@@ -157,10 +149,12 @@ impl FogTransition {
     pub fn lighting(&self, hour: f32) -> Option<RegionalLight> {
         self.key?;
         let e = self.current();
-        let d = daylight(hour);
+        let nf = night_factor(hour);
+        let colors = client_regional_light::evaluate(hour, e.diffuse_day, e.diffuse_night);
         Some(RegionalLight {
-            ambient: mix3(e.ambient_night, e.ambient_day, d),
-            diffuse: mix3(e.diffuse_night, e.diffuse_day, d),
+            ambient: client_regional_light::ambient(e.ambient_day, e.ambient_night, nf),
+            diffuse: colors.diffuse,
+            specular: colors.specular,
             toward_sun: e.sun_direction.map(|x| -x),
         })
     }
@@ -617,15 +611,15 @@ mod tests {
         };
         let mut transition = FogTransition::new(&env, [0.; 3]);
         let light = transition.lighting(5.).unwrap();
-        assert!((light.ambient[0] - (89. + 108.) / 510.).abs() < 1e-6);
+        assert_eq!(light.ambient[0], 98. * f32::from_bits(0x3b808081));
         assert!((light.toward_sun[1] - 0.619779).abs() < 1e-6);
         let (_, unchanged) = transition.update(&env, [200., 0., 0.], 12., 2.5);
         assert_eq!(unchanged.start, 7.);
         let (_, w) = transition.update(&env, [200., 0., 0.], 12., 2.5);
         assert!((w.start - 17.).abs() < 1e-5);
         let mid = transition.lighting(12.).unwrap();
-        assert!((mid.ambient[0] - (89. / 255. + 1.) * 0.5).abs() < 1e-6);
-        assert!((mid.diffuse[0] - (75. / 255. + 0.4) * 0.5).abs() < 1e-6);
+        assert_eq!(mid.ambient[0], 172. * f32::from_bits(0x3b808081));
+        assert_eq!(mid.diffuse[0], 88. * f32::from_bits(0x3b808081));
         let (_, outside) = transition.update(&env, [500., 0., 0.], 12., 10.);
         assert!((outside.start - 17.).abs() < 1e-5);
         let (_, night) = transition.update(&env, [200., 0., 0.], 0., 0.);

@@ -1234,7 +1234,7 @@ impl Renderer {
                 point_position: [0.; 3],
                 attenuation: [0., 0.4, 0.],
                 eye_direction: uniform.direction[..3].try_into().unwrap(),
-                directional_specular: [0., 0., 0., 1.],
+                directional_specular: [light.specular[0], light.specular[1], light.specular[2], 1.],
                 specular_variant: true,
                 vertex_fog: 1.,
                 fog_color: uniform.fog_color,
@@ -1250,7 +1250,7 @@ impl Renderer {
                 frame,
                 camera.pos.to_array(),
                 &self.model_lights,
-                1. - crate::environment::daylight(camera.time_of_day),
+                crate::environment::night_factor(camera.time_of_day),
                 delta,
                 advance,
             );

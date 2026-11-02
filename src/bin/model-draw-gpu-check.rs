@@ -3,6 +3,8 @@
 #![allow(dead_code)]
 #[path = "../animation.rs"]
 mod animation;
+#[path = "../client_regional_light.rs"]
+mod client_regional_light;
 #[path = "../ecmodel.rs"]
 mod ecmodel;
 #[path = "../gfx_color_track.rs"]
@@ -333,6 +335,11 @@ fn main() {
     draw.update(&queue, &asset, &poses(&asset), dim).unwrap();
     check(&device, &queue, &draw, [[16, 16, 12, 255], [48, 8, 8, 255]]);
     asset.descriptor.original_color = None;
+    // World materials with authored specular are no longer rejected now
+    // that actual regional directional specular reaches the frame binding.
+    for material in &mut asset.skins[0].data.materials {
+        material.specular = [0.2, 0.1, 0.05, 1.];
+    }
     let playback = model_playback::Playback::new(&asset, None).unwrap();
     let scene_assets = world_models::Assets {
         assets: vec![asset],
@@ -354,11 +361,13 @@ fn main() {
     };
     let mut opaque = frame;
     opaque.blend_enabled = false;
+    opaque.directional_specular = [0., 0., 0., 1.];
     opaque.lighting.transparency = -1.;
     opaque.alpha_compare = 5;
     opaque.alpha_reference = 84. / 255.;
     let mut opaque_dim = dim;
     opaque_dim.blend_enabled = false;
+    opaque_dim.directional_specular = [0., 0., 0., 1.];
     opaque_dim.lighting.transparency = -1.;
     opaque_dim.alpha_compare = 5;
     opaque_dim.alpha_reference = 84. / 255.;
@@ -390,6 +399,33 @@ fn main() {
         &world,
         [[64, 128, 191, 136], [191, 64, 128, 136]],
     );
+    // Clock -> native packed regional specular -> material constants ->
+    // ordinary weighted AND rigid world draws -> rasterized RGBA pixels.
+    for (hour, expected) in [
+        (12., [25, 13, 6, 136]),
+        (0., [8, 4, 2, 136]),
+        (21., [0, 0, 0, 136]),
+    ] {
+        let mut specular = opaque;
+        specular.lighting.environment_ambient = [0., 0., 0., 1.];
+        let regional = client_regional_light::evaluate(hour, [0.5; 3], [0.2; 3]);
+        specular.directional_specular = [
+            regional.specular[0],
+            regional.specular[1],
+            regional.specular[2],
+            1.,
+        ];
+        world.update(
+            &device,
+            &queue,
+            specular,
+            [0.; 3],
+            &Default::default(),
+            0.,
+            0,
+        );
+        check(&device, &queue, &world, [expected; 2]);
+    }
     world.update(
         &device,
         &queue,

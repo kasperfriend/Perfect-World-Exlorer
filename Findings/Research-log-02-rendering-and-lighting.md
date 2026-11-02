@@ -1802,3 +1802,39 @@ are unchanged. **Confirmation P1.08: No — continue** complete-pass auditing.
 Controller-108 loading/sampling precision must also be checked in its actual
 owner/load-thread context; the prior PC53 exhaustive arithmetic oracle alone
 is not proof of that context. Full P1.01 ownership remains No.
+
+### Native regional diffuse/specular material consumer
+
+`acc8bd0` CI **41474331139 succeeded**, including ALL 25,856 production words
+versus a fresh independent x86 PC24 MSVCRT capture, production GPU suites and
+Windows executable. This closes the newly found ramp-precision regression,
+not the full upstream color-chain acceptance gate.
+
+Traced `4208d0..420db0` and `4b60e0..4b6218` in 142, rather than copying the
+related152 source. Regional material light is NOT simply day/night endpoint
+lerp and NOT the animated sky-object direction. It packs warm day/orange sun
+and authored night moon to ARGB, then unpacks them for directional colors.
+Sun pitch > 0 chooses sun time. Sunset threshold is night factor .5; sunrise
+threshold is .25. The latter branch really subtracts stored **1/3** from nf
+(`420b35`), while sun/specular weight is df*stored **4/3** (`420b8d`): do not
+"repair" it into a symmetric lerp. Moon-time specular is pitch*stored
+**1.9098593**, clamped to [0,.8]. SetLightParam receives both diffuse and
+scaled specular (`420db0`); authored direction remains independently retained.
+
+Production `client_regional_light` implements these proven consumers and
+`420e77/420e84`'s packed device-ambient conversion (including signed upper-only
+ToRGBA clamp from `799540`). Environment exposes real regional specular and
+ordinary world receiving models now bind it instead of hardcoded zero. Removed
+the blanket rejection of nonzero specular materials, whose earlier rationale
+was precisely the missing directional input. Existing opaque queue eligibility
+is unchanged. The GPU regression now carries authored specular materials on
+both weighted/rigid meshes and checks noon/midnight/horizon regional inputs
+through actual world submission; its new-head result remains pending.
+
+Three new primitive tests, 23 combined real scene/environment tests and 106
+core tests pass. They cover packed noon/moon, horizon zero specular, native
+asymmetric sunrise, sunset, quantized ambient and retained global direction.
+The new arithmetic fixtures are assembly-derived cases, not original-client
+runtime screenshots. Approved tree defaults and baked surface exclusions are
+unchanged. **Confirmation P1.02/P1.04/P1.05: No — continue** remaining full-scope
+receiving/material/visibility coverage and native-time context verification.

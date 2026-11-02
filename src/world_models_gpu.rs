@@ -177,14 +177,6 @@ impl World {
                         "world receiver only accepts verified ordinary opaque queue state".into(),
                     );
                 }
-                if asset
-                    .skins
-                    .iter()
-                    .flat_map(|s| &s.data.materials)
-                    .any(|m| m.specular[..3].iter().any(|v| *v != 0.))
-                {
-                    return Err("world harness requires actual directional specular input for nonzero specular material".into());
-                }
                 let transform = *slot.transform.as_ref().map_err(Clone::clone)?;
                 let clock = instance.playback.as_mut().map_err(|e| e.clone())?;
                 if advance {
