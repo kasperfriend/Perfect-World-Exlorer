@@ -342,11 +342,13 @@ is pinned as unenterable rather than assumed, and the blending row was moved to
 its real owner (the calling queue) with the blended pass located but not yet
 selected per ornament.
 
-`Task P3.02 | Finished No | Production integration gpu.rs build()+draw_opaque, world_objects.rs run() via bmd_baked::classify | Native evidence 0x7a9759 LIGHTING(0), 0x7a9762 SPECULAR(0), 0x7a976d COLOROP 5, 0x7a977a/0x7a9792 args, 0x7a979e stage 1 off, 0x7a98f1/0x7a992b ALPHATEST off, 0x7b9408 mesh+0x2cc=0xff, no 0x77a290 write inside the mesh loop | Tests executed and results bmd_baked unit tests (8) in CI run 41522066048, bmd-sided-gpu-check opaque/two-sided/zero-alpha cases | Remaining gaps blending is queue-owned: the blended pass at 0x42c650 is gated by an unestablished per-object byte +0x95, so no ornament is classified into it; alpha-test branch refused; untextured branch not seen in the corpus`
+`Task P3.02 | Finished No | Production integration gpu.rs build()+draw_opaque, world_objects.rs run() via bmd_baked::classify | Native evidence 0x7a9759 LIGHTING(0), 0x7a9762 SPECULAR(0), 0x7a976d COLOROP 5, 0x7a977a/0x7a9792 args, 0x7a979e stage 1 off, 0x7a98f1/0x7a992b ALPHATEST off, 0x7b9408 mesh+0x2cc=0xff, no 0x77a290 write inside the mesh loop | Tests executed and results bmd_baked unit tests (8) in CI runs 41522066048 and 41523033865, bmd-sided-gpu-check opaque/two-sided/zero-alpha cases | Remaining gaps blending is queue-owned: the blended pass at 0x42c650 is gated by an unestablished per-object byte +0x95, so no ornament is classified into it; alpha-test branch refused; untextured branch not seen in the corpus`
 
-P3.04 culling, winding, sidedness.
+P3.04 culling, winding, sidedness — no per-asset decision exists: one mesh
+byte selects `CULLMODE(1)`, the pass value is restored on every exit path, and a
+mirrored placement simply reverses `front_facing` under the same rule.
 
-`Task P3.04 | Finished Yes | Production integration bmd_baked::DrawState.cull drives the shader winding bands; scenery_pipeline keeps cull_mode None and the fragment discard reproduces CULLMODE | Native evidence 0x7a98c5 test of mesh+0x26c, 0x7a98cf CULLMODE(1), 0x168(%ecx) save at 0x7a98bb, restores 0x7a9a26/0x7a9a49/0x7a96f2/0x7a9716 | Tests executed and results bmd-sided-gpu-check six-instance cases incl. mirrored placement (CI run 41520738614); Python oracle of the predicate reproduced all four expected patterns | Remaining gaps hatch culling is a fragment discard, so the mirrored case is proved by raster output rather than by hardware cull state`
+`Task P3.04 | Finished Yes | Production integration bmd_baked::DrawState.cull drives the shader winding bands; scenery_pipeline keeps cull_mode None and the fragment discard reproduces CULLMODE | Native evidence 0x7a98c5 test of mesh+0x26c, 0x7a98cf CULLMODE(1), 0x168(%ecx) save at 0x7a98bb, restores 0x7a9a26/0x7a9a49/0x7a96f2/0x7a9716 | Tests executed and results bmd-sided-gpu-check six-instance cases incl. mirrored placement (CI runs 41522066048, 41523033865); Python oracle of the predicate reproduced all four expected patterns | Remaining gaps culling is a fragment discard, so the mirrored case is proved by raster output rather than by hardware cull state`
 
 P3.05 depth, bias, ordering, overlap.
 
