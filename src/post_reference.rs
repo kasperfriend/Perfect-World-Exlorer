@@ -59,6 +59,30 @@ impl Image {
             pixels,
         }
     }
+    /// Independent byte-input display LUT reference, AFTER encoded effects.
+    pub fn display_gamma(&self, setting: f32) -> Self {
+        let exponent = 100. / (30. + 1.7 * setting.clamp(0., 100.).floor()).floor();
+        let pixels = self
+            .pixels
+            .iter()
+            .map(|pixel| {
+                pixel.map(|v| {
+                    if v == 0 {
+                        0
+                    } else {
+                        ((65535. * (v as f32 / 255.).powf(exponent)).floor().max(1.) / 65535.
+                            * 255.)
+                            .round() as u8
+                    }
+                })
+            })
+            .collect();
+        Self {
+            width: self.width,
+            height: self.height,
+            pixels,
+        }
+    }
     fn sample(&self, u: f32, v: f32) -> [f32; 3] {
         let x = u * self.width as f32 - 0.5;
         let y = v * self.height as f32 - 0.5;
@@ -205,6 +229,25 @@ impl Image {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sharpen_precedes_the_display_ramp_not_linear_display_sharpen() {
+        let image = super::Image {
+            width: 1,
+            height: 2,
+            pixels: vec![[100; 3], [150; 3]],
+        };
+        let correct = image.sharpen().display_gamma(67.);
+        let wrong = image.display_gamma(67.).sharpen();
+        assert!(correct.pixels[0][0].abs_diff(wrong.pixels[0][0]) > 3);
+        let ends = super::Image {
+            width: 1,
+            height: 1,
+            pixels: vec![[0, 128, 255]],
+        }
+        .display_gamma(67.);
+        assert_eq!(ends.pixels[0][0], 0);
+        assert_eq!(ends.pixels[0][2], 255);
+    }
     #[test]
     fn sharpen_preserves_authored_overwrites_and_bottom_clamp() {
         let image = super::Image {

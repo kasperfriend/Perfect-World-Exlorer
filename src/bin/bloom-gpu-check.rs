@@ -174,7 +174,17 @@ fn main() {
                         [64. / 255., 160. / 255., 224. / 255., 0.],
                     ),
                 ] {
-                    for (sharpen, bloom) in [(false, true), (true, true), (true, false)] {
+                    for (sharpen, bloom, gamma) in [
+                        (false, true, false),
+                        (true, true, false),
+                        (true, false, false),
+                        (true, false, true),
+                    ] {
+                        // Exact unwarped pattern isolates sharpen/display-LUT
+                        // order without amplifying a warp interpolation error.
+                        if gamma && underwater {
+                            continue;
+                        }
                         post.set_sharpen(sharpen);
                         post.set_glow_color(argb, brightness_fade, opacity_fade);
                         post.render(
@@ -198,8 +208,8 @@ fn main() {
                             bloom,
                             1.,
                             [level, power, mono[0], mono[1], mono[2], mono[3]],
-                            false,
-                            41.,
+                            gamma,
+                            67.,
                         );
                         let row = (w * 4 + 255) / 256 * 256;
                         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -248,6 +258,11 @@ fn main() {
                         } else {
                             reference
                         };
+                        let reference = if gamma {
+                            reference.display_gamma(67.)
+                        } else {
+                            reference
+                        };
                         let mut worst = 0;
                         let mut worst_pixel = (0, 0, 0, 0, 0);
                         for y in 0..h as usize {
@@ -277,7 +292,7 @@ fn main() {
                         };
                         assert!(
                     worst <= tolerance,
-                    "{format:?} {w}x{h}, level {level}, power {power}, mono {}, underwater {underwater}, time {time}, sharpen {sharpen}, bloom {bloom}, ARGB {argb:08x}, fades {brightness_fade}/{opacity_fade}: max byte error {worst}, tolerance {tolerance}, pixel {worst_pixel:?}",
+                    "{format:?} {w}x{h}, level {level}, power {power}, mono {}, underwater {underwater}, time {time}, sharpen {sharpen}, bloom {bloom}, gamma {gamma}, ARGB {argb:08x}, fades {brightness_fade}/{opacity_fade}: max byte error {worst}, tolerance {tolerance}, pixel {worst_pixel:?}",
                     mono[3]
                 );
                         println!(

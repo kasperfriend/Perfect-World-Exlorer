@@ -1352,3 +1352,12 @@ Sharpen propagates prior input error E by at most 3E for 2*C-N; existing
 non-sharpen bounds are not relaxed. New build/GPU validation pending.
 Full P1.08 remains No: this resolves the +6 classification/pass, not automatic
 fade-event lifecycle. Continue implementation after validation.
+
+CI `41457607134` (`76344d9`) passed Linux/Windows and all 13 GPU binaries,
+including 432 patterned ordinary/sharpened/bloom-disabled comparisons.
+Confirmation: +6 authored sharpen pass/settings/resize Yes; full P1.08 No.
+Added a follow-up independent byte-input LUT reference and a fixture that
+rejects gamma-before-sharpen. The GPU matrix now also exercises sharpen
+then gamma at setting 67 on exact unwarped patterns, in both UNORM and
+sRGB targets. Existing ordinary tolerances remain unchanged. Local core
+76 passing; this new gamma-order extension awaits CI.
