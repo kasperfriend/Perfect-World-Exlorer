@@ -17,7 +17,7 @@ jobs:
       - name: Collect fmt patch
         run: |
           set +e
-          cargo fmt --all -> /tmp/before.txt 2>&1
+          cargo fmt --all > /tmp/before.txt 2>&1
           git diff > /tmp/patch.diff
           {
             echo 'CI fmt patch for '"$GITHUB_SHA"
