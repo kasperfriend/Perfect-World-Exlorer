@@ -673,7 +673,6 @@ fn bmd_baked_rgb(day:u32, night:u32, night_factor:f32)->vec3<u32> {
 "#;
 struct Renderer {
     models: Option<crate::world_models_gpu::World>,
-    model_tick_ms: u64,
     model_lights: std::sync::Arc<crate::scene_lights::SceneLights>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -1008,7 +1007,6 @@ impl Renderer {
         };
         Ok(Self {
             models,
-            model_tick_ms: 0,
             model_lights: t.scene_lights.clone(),
             terrain_gpu,
             sky,
@@ -1208,15 +1206,11 @@ impl Renderer {
         advance: bool,
     ) {
         if let (Some(models), Some(light)) = (&mut self.models, camera.regional_light) {
-            let tick = self.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-            let delta = if advance {
-                tick.saturating_sub(self.model_tick_ms).min(u32::MAX as u64) as u32
-            } else {
-                0
-            };
-            if advance {
-                self.model_tick_ms = tick;
-            }
+            // Reuse the root logic tick used by regions and the glow presenter.
+            // A fresh wall-time sample here both bypassed the 250ms cap and
+            // included all asset-loading time on the first receiving-model draw.
+            // Water passes reuse the sampled pose; never tick again per view.
+            let delta = if advance { camera.logic_delta_ms } else { 0 };
             let d = Vec3::from_array(light.toward_sun).normalize_or_zero();
             let frame = crate::model_draw_gpu::Frame {
                 blend_enabled: false,

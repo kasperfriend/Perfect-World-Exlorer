@@ -1859,3 +1859,20 @@ construction oracle is retained separately: load-thread precision is NOT
 established by this render-thread sampling proof. No silent table-mode guess
 was made. Four track tests pass; expanded Windows CPU coverage includes them.
 **Confirmation P1.01: No — continue** ownership/parent/load-context integration.
+
+CI **41476374791** (`a89d4bd`) succeeded, including controller tests on Windows
+and all production GPU checks. Confirmation: controller runtime sampling
+regression verified; full P1.01 remains No (owner integration/load context).
+
+### Receiving-model frame tick shares the environment/presenter snapshot
+
+Removed the second wall-time counter from interactive model drawing. It had
+bypassed the root 250ms cap and included asset-loading elapsed time on its
+first draw. Main model submission now consumes `camera.logic_delta_ms`, the
+same already-capped root tick as regional transitions and the glow presenter;
+clipped water submissions still consume zero and reuse the pose/snapshot.
+The diagnostic Playback API remains uncapped: explicit initial random-phase
+updates and independent fixture inputs must NOT be capped a second time.
+Core cap tests and existing multipass GPU snapshots protect those separate
+contracts. This corrects viewer integration, not FX owner playback completeness.
+Confirmation P1.03: No — continue material/FX lifecycle implementation.
