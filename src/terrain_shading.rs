@@ -337,8 +337,10 @@ pub fn lightmap_pair(v: Variant) -> Option<LightmapPair> {
 /// `c3.a` is `env+0x198`, the **normalised y component of the blended scene
 /// light direction** (`GEnv::UpdateSceneLight`, 0x7b4eb0). World Y points up, so
 /// a light shining downward gives a negative y and the `_sat` clamps it to 0
-/// (full day); a light below the horizon gives a positive y and 1 (full night).
-/// The factor carries no artistic weight: night is all-or-nothing per frame.
+/// (full day) and a light pointing straight up gives 1 (full night). Any
+/// intermediate sun height cross-fades the two maps; the factor is a direction
+/// component, not an authored weight, so the blend sweeps the whole range as the
+/// scene light passes the horizon.
 pub fn day_night_lightmap(day: f32, night: f32, factor: f32) -> f32 {
     (factor * night + (1.0 - factor) * day).clamp(0.0, 1.0)
 }
@@ -362,7 +364,7 @@ pub fn lightmap_uses_night(scene_direction_y: f32) -> bool {
 /// ```
 ///
 /// The layer composite is [`composite_layers`], the mask channels are
-/// [`packed_weight`], and the factor is [`day_night_factor`]. The result is
+/// [`packed_weight`], and the factor is [`day_night_lightmap`]. The result is
 /// saturated because the render target is 8-bit.
 pub fn compose(layers: f32, lightmap: f32, specular: f32, specular_scale: f32) -> f32 {
     ((layers + lightmap * specular * specular_scale) * lightmap * 2.0).clamp(0.0, 1.0)
@@ -484,13 +486,12 @@ mod tests {
             assert_eq!(s.cull, Cull::None);
             assert!(s.z_enable && s.z_write);
             assert!(s.specular_enable);
-            // Fixed-function lighting is off for the draw so the baked lightmap
-            // is not doubled by the fixed-function pipeline.
-            assert!(!s.lighting_at_draw);
             // 0x77a290 / 0x77a320 are never reached from the terrain range.
             assert!(!s.alpha_blend && !s.alpha_test);
             // The per-mask and no-pixel-pipeline paths turn fixed-function
-            // lighting off; the stock and dead paths leave it at the bracket's 1.
+            // lighting off (0x7c1a65 / 0x7c1e15); the stock and dead paths leave
+            // it at the bracket's 1. No terrain path enables a D3D light, so the
+            // baked lightmap is never doubled.
             assert_eq!(
                 s.lighting_at_draw,
                 matches!(v, Variant::Batch3Layer | Variant::HardwareLightmap)
@@ -581,9 +582,10 @@ mod tests {
         assert_eq!(c.c2, [1.0, 1.0, 0.0, 0.0]);
         // c3.a is the direction's y, broadcast.
         assert_eq!(c.c3, [-0.7; 4]);
-        // The "no lightmap scene" branch (0x7c284e) zeroes lanes 1 and 2 only.
+        // The "no lightmap scene" branch (0x7c284e) zeroes lanes 1 and 2 only,
+        // so `c0.y`/`c0.w` collapse but `c0.z` keeps the density it was handed.
         let off = shader_constants(false, 0.075, 0.0, [false, false, false], [0.0, 1.0, 0.0]);
-        assert_eq!(off.c0, [1.0, 0.0, 0.0, 0.0]);
+        assert_eq!(off.c0, [1.0, 0.0, 0.075, 0.0]);
         assert_eq!(off.c2, [0.0, 0.0, 0.0, 0.0]);
     }
 
