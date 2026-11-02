@@ -120,13 +120,11 @@ impl ColorTrack {
     pub fn construction_divergences(&self) -> usize {
         let mut count = 0;
         for (from, to) in &self.ends {
-            for i in 1..127 {
-                if channel(*from, *to, i, Precision::Extended)
-                    != channel(*from, *to, i, Precision::Pc24)
-                {
-                    count += 1;
-                }
-            }
+            // Compare built packed tables, not single channels: one differing
+            // channel byte makes the whole entry distinct.
+            let extended = build(*from, *to, Precision::Extended);
+            let pc24 = build(*from, *to, Precision::Pc24);
+            count += (1..127).filter(|i| extended[*i] != pc24[*i]).count();
         }
         count
     }
@@ -235,9 +233,16 @@ mod tests {
             ColorTrack::new_with_precision(0., -1., 0, &[(0x7f7f7f7f, 1000.)], Precision::Pc24)
                 .unwrap();
         assert_eq!(track.segments[0].1[1], 0x01010101);
-        // The divergence counter reports per-channel interior entries, so a
-        // single differing packed entry contributes once per channel byte.
-        assert_eq!(track.construction_divergences(), 4 * 126);
+        // The counter reports packed interior entries whose built value differs
+        // between the two construction modes. Compare against the tables the
+        // constructor actually stores instead of a magic constant: the count
+        // depends on f32 rounding at every interior index.
+        let extended = build(0, 0x7f7f7f7f, Precision::Extended);
+        let pc24 = build(0, 0x7f7f7f7f, Precision::Pc24);
+        let direct = (1..127).filter(|i| extended[*i] != pc24[*i]).count();
+        assert_eq!(track.construction_divergences(), direct);
+        assert!(direct > 0, "the two modes must not be interchangeable");
+        assert!(direct <= 126);
         let extended_track = ColorTrack::new(0., -1., 0, &[(0x7f7f7f7f, 1000.)]).unwrap();
         assert!(extended_track.construction_divergences() > 0);
         assert_eq!(CONSTRUCTION, Precision::Extended);

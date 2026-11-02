@@ -59,6 +59,22 @@ jobs:
           echo "viewer exit=$?" >> /tmp/exit.log
           sh tools/check-phase1-core.sh > /tmp/core.log 2>&1
           echo "core exit=$?" >> /tmp/exit.log
+      - name: Install software Vulkan
+        run: sudo apt-get install -y mesa-vulkan-drivers
+      - name: Production shader regressions
+        env:
+          WGPU_BACKEND: vulkan
+          XDG_RUNTIME_DIR: /tmp
+          CARGO_TERM_COLOR: never
+        run: |
+          set +e
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
+          test -n "$VK_ICD_FILENAMES" || echo "no lavapipe ICD"
+          : > /tmp/gpu.log
+          for bin in display-gamma-gpu-check post-gpu-check bloom-gpu-check bmd-baked-gpu-check grass-instance-gpu-check model-light-gpu-check skin-pose-gpu-check skin-palette-gpu-check model-texture-gpu-check model-receiver-gpu-check model-draw-gpu-check phase1-fog-gpu-check terrain-refraction-gpu-check; do
+            cargo run --locked --bin "$bin" > "/tmp/gpu-$bin.log" 2>&1
+            echo "$bin exit=$?" >> /tmp/gpu.log
+          done
       - name: Publish diagnostics
         if: always()
         env:
@@ -82,6 +98,15 @@ jobs:
             echo
             echo '### viewer test result line'
             grep -E "^test result" /tmp/viewer.log | tail -5
+            echo
+            echo '### production shader regressions'
+            cat /tmp/gpu.log
+            for bin in model-draw-gpu-check model-receiver-gpu-check model-light-gpu-check bmd-baked-gpu-check grass-instance-gpu-check terrain-refraction-gpu-check phase1-fog-gpu-check post-gpu-check bloom-gpu-check display-gamma-gpu-check skin-pose-gpu-check skin-palette-gpu-check model-texture-gpu-check; do
+              if grep -q "$bin exit=[^0]" /tmp/gpu.log; then
+                echo "---- $bin ----"
+                tail -c 3000 "/tmp/gpu-$bin.log"
+              fi
+            done
             echo '```'
           } > /tmp/body.md
           gh pr comment 3 --body-file /tmp/body.md
