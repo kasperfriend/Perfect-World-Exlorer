@@ -27,6 +27,9 @@
 //! per-view rebuild — by re-reading the storage after every pass.
 use wgpu::util::DeviceExt;
 
+/// Rows copied out of a texture must be a multiple of 256 bytes.
+const PADDED_ROW: u32 = 256;
+
 const GRID: f32 = 8.;
 const SPACING: f32 = 4.;
 
@@ -396,7 +399,7 @@ fn main() {
                 buffer: &target.read,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(target.size * 4),
+                    bytes_per_row: Some(target.size * PADDED_ROW),
                     rows_per_image: Some(target.size),
                 },
             },
@@ -408,8 +411,8 @@ fn main() {
         );
         queue.submit(Some(encoder.finish()));
         let px = read_target(&device, &target);
-        let center =
-            ((target.size as usize / 2) * target.size as usize + target.size as usize / 2) * 4;
+        let center = (target.size as usize / 2) * target.size as usize * PADDED_ROW as usize
+            + (target.size as usize / 2) * 4;
         let rgb = [px[center], px[center + 1], px[center + 2]];
         println!("{name}: terrain RGB={rgb:?}");
         sampled.push((name, rgb));
@@ -648,9 +651,11 @@ fn new_target(device: &wgpu::Device, label: &str) -> Target {
         view_formats: &[],
     });
     let view = texture.create_view(&Default::default());
+    // copy_texture_to_buffer requires 256-byte row alignment; a 32px RGBA row is
+    // 128 bytes, so read back through a padded row.
     let read = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: (size * size * 4) as u64,
+        size: (size * size * PADDED_ROW) as u64,
         usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     });
