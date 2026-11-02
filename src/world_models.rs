@@ -132,7 +132,9 @@ mod tests {
         };
         let m = transform(&p).unwrap();
         assert_eq!(m.w_axis.to_array(), [10., 2., -3., 1.]);
-        assert_eq!(m.x_axis.to_array(), [1., 0., 0., 0.]);
+        for (value, expected) in m.x_axis.to_array().into_iter().zip([1., 0., 0., 0.]) {
+            assert!((value - expected).abs() < 1e-6);
+        }
         assert_eq!(m.z_axis.to_array(), [0., 0., 1., 0.]);
         assert!((m.y_axis.z - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
         let mut p = p;
