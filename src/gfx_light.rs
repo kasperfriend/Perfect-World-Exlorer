@@ -395,7 +395,10 @@ mod tests {
         let extra = "GFXELEMENTID: 106\nSegs: 3\nLightNum: 4\nWaveLen: 2.5\n";
         let source = file().replace("GFXELEMENTCOUNT: 1", "GFXELEMENTCOUNT: 2") + extra;
         let error = parse(&source).unwrap_err();
-        assert!(error.contains("unsupported GFX light element 106"), "{error}");
+        assert!(
+            error.contains("unsupported GFX light element 106"),
+            "{error}"
+        );
         // A non-light element is skipped, so a root that also carries particles
         // still yields its point lights.
         let particles = "GFXELEMENTID: 200\nParticleCount: 12\nEmitSpeed: 3\n";
