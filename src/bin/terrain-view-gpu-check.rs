@@ -684,6 +684,10 @@ fn near_vertex(device: &wgpu::Device) -> wgpu::Buffer {
         data.extend_from_slice(bytemuck::cast_slice(&[0f32, 0.]));
         data.extend_from_slice(bytemuck::cast_slice(&[1f32; 4]));
         data.extend_from_slice(bytemuck::cast_slice(&[0f32]));
+        // The terrain pipeline reuses `gpu::Vertex`, so the stride is 60 bytes:
+        // after location 4 it still carries `diffuse` and `night_diffuse`, which
+        // this pipeline does not bind but the buffer must contain.
+        data.extend_from_slice(bytemuck::cast_slice(&[0u32, 0]));
     }
     assert_eq!(data.len(), 3 * 60);
     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
