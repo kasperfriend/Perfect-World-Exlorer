@@ -18,6 +18,11 @@ pub fn inverse_time(ms: u32) -> f32 {
         (1000. / ms as f64) as f32
     }
 }
+/// A3DCOLORVALUE constructor 0x799460 loads bytes with FILD and multiplies
+/// the stored reciprocal at 0x98bf68. Division by 255 has different f32 words.
+pub fn unpack_rgb(argb: u32) -> [f32; 3] {
+    [16, 8, 0].map(|shift| ((argb >> shift) & 255) as f32 * f32::from_bits(0x3b808081))
+}
 pub fn seconds(ms: u32) -> f32 {
     (ms as f64 * f32::from_bits(0x3a83126f) as f64) as f32
 }
@@ -58,6 +63,20 @@ impl Channel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn packed_color_uses_the_native_stored_reciprocal() {
+        assert_eq!(
+            unpack_rgb(0xff0307eb).map(f32::to_bits),
+            [0x3c40c0c2, 0x3ce0e0e2, 0x3f6bebed]
+        );
+        let mut hash = 0xcbf29ce484222325u64;
+        for byte in 0..=255 {
+            for b in unpack_rgb(byte)[2].to_le_bytes() {
+                hash = (hash ^ b as u64).wrapping_mul(0x100000001b3);
+            }
+        }
+        assert_eq!(hash, 0xaf1301c35b66c4a5);
+    }
     #[test]
     fn device_pc24_precision_rounds_subtraction_before_multiplication() {
         let mut scalar = Channel::new(1. / 255.);

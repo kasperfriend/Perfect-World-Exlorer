@@ -10,7 +10,7 @@ use client_region_stream::{Change, Window};
 #[path = "client_region_shade.rs"]
 mod client_region_shade;
 pub use client_region_shade::frame_ms;
-use client_region_shade::{inverse_time, seconds, Channel};
+use client_region_shade::{inverse_time, seconds, unpack_rgb, Channel};
 use std::{collections::BTreeMap, fs, path::Path};
 
 /// Client world day weight (1 = day, 0 = night).
@@ -366,28 +366,18 @@ fn vec3(b: &[u8], p: usize) -> Result<[f32; 3], String> {
     Ok([float(b, p)?, float(b, p + 4)?, float(b, p + 8)?])
 }
 fn rgb(b: &[u8], p: usize) -> Result<[f32; 3], String> {
-    let c = word(b, p)?;
-    Ok([
-        ((c >> 16) & 255) as f32 / 255.,
-        ((c >> 8) & 255) as f32 / 255.,
-        (c & 255) as f32 / 255.,
-    ])
+    Ok(unpack_rgb(word(b, p)?))
 }
 fn scaled_rgb(b: &[u8], p: usize, scale: usize) -> Result<[f32; 3], String> {
     let k = float(b, scale)?;
     Ok(rgb(b, p)?.map(|x| x * k))
 }
 fn fog(b: &[u8], p: usize) -> Result<Fog, String> {
-    let c = word(b, p + 12)?;
     Ok(Fog {
         start: float(b, p)?,
         end: float(b, p + 4)?,
         density: float(b, p + 8)?,
-        color: [
-            ((c >> 16) & 255) as f32 / 255.,
-            ((c >> 8) & 255) as f32 / 255.,
-            (c & 255) as f32 / 255.,
-        ],
+        color: unpack_rgb(word(b, p + 12)?),
     })
 }
 impl BoxArea {

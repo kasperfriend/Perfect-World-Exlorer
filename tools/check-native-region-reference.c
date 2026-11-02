@@ -21,6 +21,14 @@ static float step(float current, float delta, float seconds) {
         : "=m"(out) : "m"(delta), "m"(seconds), "m"(current) : "st");
     return out;
 }
+static float color_byte(int byte) {
+    float out, reciprocal;
+    uint32_t u=0x3b808081;
+    memcpy(&reciprocal,&u,sizeof u);
+    __asm__ volatile("fildl %1; fmuls %2; fstps %0"
+        : "=m"(out) : "m"(byte), "m"(reciprocal) : "st");
+    return out;
+}
 static uint32_t bits(float f) {
     uint32_t u;
     memcpy(&u, &f, sizeof u);
@@ -41,12 +49,18 @@ int main(void) {
         down = step(down, dd, .016f);
     }
     uint32_t pc24 = bits(delta), up_word = bits(up), down_word = bits(down);
+    uint64_t colors=UINT64_C(0xcbf29ce484222325);
+    for (int byte=0;byte<256;++byte) {
+        uint32_t u=bits(color_byte(byte));
+        for (int j=0;j<4;++j) colors=(colors^((u>>(j*8))&255))*UINT64_C(0x100000001b3);
+    }
     cw = (original & ~0x300) | 0x200;
     __asm__ volatile("fldcw %0" : : "m"(cw));
     uint32_t pc53 = bits(target_delta(1.f/255.f, 4.f/255.f, .2f));
     __asm__ volatile("fldcw %0" : : "m"(original));
     printf("x87 PC24 delta=%08x up=%08x down=%08x; PC53 delta=%08x\n",
         pc24, up_word, down_word, pc53);
-    return !(pc24 == 0x3b1a33cf && pc53 == 0x3b1a33ce &&
+    printf("x87 256 normalized color words FNV=%016llx\n", (unsigned long long)colors);
+    return !(colors == UINT64_C(0xaf1301c35b66c4a5) && pc24 == 0x3b1a33cf && pc53 == 0x3b1a33ce &&
         up_word == 0x3f6612a9 && down_word == 0x3dcf6ab4);
 }

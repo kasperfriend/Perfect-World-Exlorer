@@ -1744,3 +1744,19 @@ finding also requires revalidating previous gamma/color arithmetic references:
 their Decimal/exhaustive agreement proves the implemented mathematical model,
 not that the native live rendering thread uses that assumed precision. No
 all-Yes or parity claim follows from those earlier green tests.
+
+Regional packed-color follow-up: `799460` multiplies bytes by the stored
+reciprocal at `98bf68` (3b808081); division by 255 is not word-equivalent.
+Environment fog/ambient/diffuse parsing now uses that constructor arithmetic.
+The independent actual-x87 reference exhausts all 256 channels, FNV
+**af1301c35b66c4a5**, matching Rust; samples 3, 7, 235 produce 3c40c0c2,
+3ce0e0e2, 3f6bebed (each differs from division). Core 103 / scene-environment
+20 tests pass. **Confirmation P1.04/P1.09: No — continue.**
+
+`848342f` adds a separate Windows-x86 capture using the client's imported
+MSVCRT `_CIpow` and `_ftol` exports with recovered gamma instructions under
+explicit PC24 and PC53, checking control-word restoration. CI 41471519297's
+capture/build and Linux GPU tests passed; binary reference download is blocked
+by the sandbox's artifact-storage host restriction. Reference hashes are also
+published as GitHub annotations so precision verification can proceed without
+claiming inaccessible artifacts were inspected.

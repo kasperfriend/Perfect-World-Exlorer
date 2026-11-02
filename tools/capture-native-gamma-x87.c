@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
         __asm fnstcw after
         __asm fldcw original
         fclose(file);
-        printf("MSVCRT x87 PC%d: 25856 words FNV=%016llx CW=%04x after=%04x\n",
+        printf("::notice::MSVCRT x87 PC%d: 25856 words FNV=%016llx CW=%04x after=%04x\n",
             mode?53:24,(unsigned long long)hash,cw,after);
         if ((after&0xf00)!=(cw&0xf00)) return 5;
     }
