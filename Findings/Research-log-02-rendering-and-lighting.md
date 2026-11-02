@@ -494,9 +494,9 @@ Terrain refraction commit `3ab718b` passed [CI 41435695632](https://github.com/k
 Resolved SMD8 actions under `SMD parent / track_directory / track_file`,
 not the archive root. All 18 external STCK files for the nine BON6 world
 chains exist in models.pck. The production parser consumes their complete
-payloads: STCK1, 208 joint tracks, 15fps. A native isolated harness also
+payloads: STCK1, 188 joint tracks, 15fps. A native isolated harness also
 checks every track ID against its owning BON joint count and samples all
-position/quaternion tracks at start/mid/end (624 transform sample times).
+position/quaternion tracks at start/mid/end (564 transform sample times).
 All 14 world chains pass; the five older BON5 chains retain their separate
 77 embedded tracks. No private client files are committed.
 

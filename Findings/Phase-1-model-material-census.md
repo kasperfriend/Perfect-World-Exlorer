@@ -64,8 +64,8 @@ world descriptor/skeleton chains passed: nine SMD8/BON6 chains and five
 SMD5/BON5 chains. The latter contain 77 embedded bone tracks in total; the
 14 BONs contain 154 bones in total. No world SMD in this census has hangers.
 Subsequently resolved all 18 external STCK1 files for the nine BON6 chains:
-208 joint tracks, valid owning-skeleton joint IDs, complete payload consumption,
-and finite position/quaternion samples at start/mid/end (624 transform sample
+188 joint tracks, valid owning-skeleton joint IDs, complete payload consumption,
+and finite position/quaternion samples at start/mid/end (564 transform sample
 times). `ecmodel-check` includes these checks and missing tracks in its
 nonzero-exit gate. Native animation/descriptor tests pass; full application
 build pending CI. Runtime pose/palette conventions and world drawing remain
