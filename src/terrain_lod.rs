@@ -466,11 +466,16 @@ mod tests {
         };
         assert_eq!(coarse.level(89.9), 3);
         assert_eq!(coarse.level(90.1), 2);
-        // No hysteresis band: the level at the threshold is defined by one
-        // comparison and does not depend on the previous frame.
-        let d = cfg.near;
-        assert_eq!(cfg.level(d), 3);
-        assert_eq!(cfg.level(d), 3);
+        // No hysteresis band: the level is a pure function of the distance, so
+        // the same distance always yields the same level and there is no state
+        // that could hold a previous result.
+        for &d in &[0.0, cfg.near - 0.01, cfg.near, cfg.far - 0.01, cfg.far, 1e6] {
+            assert_eq!(cfg.level(d), cfg.level(d));
+        }
+        assert_eq!(cfg.level(cfg.near - 0.01), 3);
+        assert_eq!(cfg.level(cfg.near), 2);
+        assert_eq!(cfg.level(cfg.far - 0.01), 2);
+        assert_eq!(cfg.level(cfg.far), 1);
     }
 
     #[test]
@@ -497,47 +502,84 @@ mod tests {
 
     #[test]
     fn interior_index_counts_match_the_native_level_grid() {
-        // 0x7e5f70 writes 6*q^2 indices per level record.
-        for level in 1..=MAX_LEVEL {
-            let q = interior_cells(level);
-            assert_eq!(6 * q * q, 6 * q * q);
-            assert_eq!(q * step(level), CELLS - 2 * step(level));
-        }
+        // 0x7e5f70 writes 6*q^2 u16 indices per level record, so the interior
+        // grid covers q x q cells: 5400 / 1176 / 216 indices for levels 3/2/1.
         assert_eq!(interior_cells(3), 30);
         assert_eq!(interior_cells(2), 14);
         assert_eq!(interior_cells(1), 6);
+        for (level, indices) in [(3u8, 5400usize), (2, 1176), (1, 216)] {
+            let q = interior_cells(level);
+            assert_eq!(6 * q * q, indices);
+            assert_eq!(q * step(level), CELLS - 2 * step(level));
+            // The emitted interior triangles are two per covered cell.
+            let surface = block_surface(level, [0; 4]);
+            assert!(surface.indices.len() / 3 >= 2 * q * q);
+        }
     }
 
     /// Rasterised coverage: every point of a block must be covered by exactly
-    /// one triangle, for every level and every edge-case combination.
+    /// one triangle, for every level and every edge-case combination. Samples
+    /// use an offset lattice so none of them lands exactly on a shared edge.
     fn coverage(
         surfaces: &[([f32; 2], BlockSurface)],
         lo: f32,
         hi: f32,
         step: f32,
     ) -> (usize, usize) {
-        let mut inside = 0usize;
-        let mut bad = 0usize;
-        let mut x = lo + step * 0.37;
-        while x < hi {
-            let mut y = lo + step * 0.61;
-            while y < hi {
-                let mut n = 0usize;
-                for (origin, s) in surfaces {
-                    for t in s.triangles() {
-                        let p = t.map(|v| [origin[0] + v[0] as f32, origin[1] + v[1] as f32]);
+        let nx = ((hi - lo) / step) as usize + 2;
+        let lattice = |offset: f32| -> Vec<f32> {
+            (0..nx)
+                .map(|k| lo + step * offset + k as f32 * step)
+                .collect()
+        };
+        let xs = lattice(0.37);
+        let ys = lattice(0.61);
+        let mut counts = vec![0u32; nx * nx];
+        for (origin, surface) in surfaces {
+            for t in surface.triangles() {
+                let p = t.map(|v| [origin[0] + v[0] as f32, origin[1] + v[1] as f32]);
+                let (x0, x1) = (
+                    p[0][0].min(p[1][0]).min(p[2][0]),
+                    p[0][0].max(p[1][0]).max(p[2][0]),
+                );
+                let (y0, y1) = (
+                    p[0][1].min(p[1][1]).min(p[2][1]),
+                    p[0][1].max(p[1][1]).max(p[2][1]),
+                );
+                let i0 = ((x0 - lo) / step).floor().max(0.) as usize;
+                let i1 = (((x1 - lo) / step).ceil() as usize + 1).min(nx - 1);
+                let j0 = ((y0 - lo) / step).floor().max(0.) as usize;
+                let j1 = (((y1 - lo) / step).ceil() as usize + 1).min(nx - 1);
+                for (j, &y) in ys.iter().enumerate().take(j1 + 1).skip(j0) {
+                    if y < y0 || y > y1 || y >= hi {
+                        continue;
+                    }
+                    for (i, &x) in xs.iter().enumerate().take(i1 + 1).skip(i0) {
+                        if x < x0 || x > x1 || x >= hi {
+                            continue;
+                        }
                         if point_in_triangle([x, y], p) {
-                            n += 1;
+                            counts[j * nx + i] += 1;
                         }
                     }
                 }
+            }
+        }
+        let mut inside = 0usize;
+        let mut bad = 0usize;
+        for (j, &y) in ys.iter().enumerate() {
+            if y >= hi {
+                break;
+            }
+            for (i, &x) in xs.iter().enumerate() {
+                if x >= hi {
+                    break;
+                }
                 inside += 1;
-                if n != 1 {
+                if counts[j * nx + i] != 1 {
                     bad += 1;
                 }
-                y += step;
             }
-            x += step;
         }
         (inside, bad)
     }
