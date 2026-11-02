@@ -351,6 +351,7 @@ runs caught (a `u32` overflow and a rustfmt shape), is:
 | 41526711344 | `8142dd0` | `Check formatting` **failed** — one new assertion in `bmd_baked.rs` was left on a single line where rustfmt's `fn_call_width` puts it in a vertical list; nothing else ran |
 | 41531096347 | `1e1088c` | **both jobs green after merging `main`** (`2b3b4d9`, Phase 3 Agent A: client-order texture resolution, bounded residency, content-keyed atlas slots). One conflict, in the `world_objects.rs` page builder: resolved as *their* content-keyed slot key plus *my* `bmd_baked::classify` kind, and `world-preload-check.rs` declares `texture_resolution` so its `#[path]` module set still closes. No report or counter changed by the merge |
 | 41527209273 | `c099c0f` | **both jobs green**, and the Windows artifact now carries `BmdOverlapSurvey.exe` plus its checksum (6,111,979 B artifact). `Rust checks and tests (Linux)`: `Check formatting` ✓, x87 reference ✓, requirement audits ✓, `Check all binary targets` ✓, GFX light audit ✓, `Run viewer unit tests` ✓ (nine `bmd_baked` tests), all fourteen lavapipe shader regressions ✓. `Windows executable (x64)` ✓ including the new survey build and stage step |
+| 41534537555 | `4dd68d0` | **both jobs green** with the stage-0 alpha correction: `Check formatting` ✓, x87 reference ✓, requirement audits ✓, `Check all binary targets` ✓, GFX light audit ✓, `Run viewer unit tests` ✓ (nine `bmd_baked` tests, including the renamed `every_classified_mesh_has_no_alpha_test_and_texture_alpha_coverage` and the new `textured_scenery_must_keep_the_texture_alpha_for_coverage`), and all fourteen lavapipe shader regressions ✓ — `bmd-sided-gpu-check` now also rasterises the alpha sweep: a half-alpha atlas lands at ~128 over a cleared target, a zero-alpha atlas writes nothing. `Windows executable (x64)` ✓ |
 
 The unit-test failure was real and is fixed in `ddc3839`:
 `cutout_reference(u32::MAX)` multiplied in 32 bits and panicked on overflow in a
@@ -359,11 +360,10 @@ debug build ("attempt to multiply with overflow"); the client's `imul` at
 multiply. After the fix, the eight `bmd_baked` tests and every pre-existing
 viewer unit test pass, and the extended `bmd-sided-gpu-check` passes on lavapipe
 — the six-instance expectation table of §3 is therefore confirmed by raster
-output, not only by the Python oracle. The last code head `c099c0f` repeats all of
-that inside the ordinary PR gate (run 41527209273), which is also the run that
-proves the shipped survey tool builds and stages on Windows. The `main` merge
-(`1e1088c`, run 41531096347) re-runs the whole gate over the combined tree, so
-every number above is from a run of code that is in this branch.
+output, not only by the Python oracle. The last code head `4dd68d0` repeats all of that inside the ordinary PR gate (run
+41534537555), which also proves the alpha correction on the raster. The `main` merge
+(`1e1088c`, run 41531096347) re-ran the whole gate over the combined tree, so every number
+above is from a run of code that is in this branch.
 
 Two temporary, review-only workflows were used to get feedback into this sandbox
 (`cargo fmt` and the failure text, because Actions logs and check annotations
