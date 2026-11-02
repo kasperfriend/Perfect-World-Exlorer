@@ -318,6 +318,12 @@ fn main() {
     }
     draw.update(&queue, &asset, &moved, dim).unwrap();
     check(&device, &queue, &draw, [[0; 4], expected[1]]);
+    // Descriptor RGB selects the clamped scaled-material method; alpha remains
+    // separately controlled. Restore original method before the world fixture.
+    asset.descriptor.original_color = Some(0xff804020);
+    draw.update(&queue, &asset, &poses(&asset), dim).unwrap();
+    check(&device, &queue, &draw, [[16, 16, 12, 255], [48, 8, 8, 255]]);
+    asset.descriptor.original_color = None;
     let playback = model_playback::Playback::new(&asset, None).unwrap();
     let scene_assets = world_models::Assets {
         assets: vec![asset],

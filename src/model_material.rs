@@ -57,6 +57,12 @@ pub fn bind_specular(material: [f32; 4], light: [f32; 4]) -> [f32; 4] {
     std::array::from_fn(|i| material[i] * light[i])
 }
 
+/// Scaled-material method: multiply each RGBA coefficient, then clamp.
+/// Retail 0x7a6198–0x7a61a8 calls 0x7b6b70 with clamp=true. The original
+/// material method must bypass this function, even for an identity scale.
+pub fn scale_rgba(value: [f32; 4], scale: [f32; 4]) -> [f32; 4] {
+    std::array::from_fn(|i| (value[i] * scale[i]).clamp(0., 1.))
+}
 /// GPU counterpart for model material binding and shader regression tests.
 pub const WGSL: &str = r#"
 struct ModelMaterialConstants {
@@ -90,6 +96,15 @@ mod tests {
             bind_specular([0., 0., 0., 1.], [1., 2., 3., 1.]),
             [0., 0., 0., 1.]
         );
+    }
+    #[test]
+    fn scaled_coefficients_clamp_all_channels_before_lighting() {
+        assert_eq!(
+            scale_rgba([4., -1., 0.5, 2.], [0.5, 1., 0.5, 1.]),
+            [1., 0., 0.25, 1.]
+        );
+        // Even identity scaling clamps in MTL_SCALED; MTL_ORIGINAL bypasses it.
+        assert_eq!(scale_rgba([4.; 4], [1.; 4]), [1.; 4]);
     }
     fn material() -> Material {
         Material {

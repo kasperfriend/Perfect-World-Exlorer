@@ -1232,3 +1232,30 @@ constant point merely because most files have one keypoint. General light
 production/lifetime remains open. The current world's empty runtime list is
 now supported by its resolved asset graph, not an assumption that gfx.pck has
 no lights. P1.01 remains No until the general lifecycle criterion is covered.
+
+CI `41454453164` (`403cd31`) passed Linux/Windows, the three new GFX audit
+unit tests, all binary target checks and all 13 GPU regressions. Confirmation:
+world GFX presence audit Yes; general lifecycle P1.01 No. Continue.
+
+### Opaque ECM original-color material scaling
+
+Actual 1.4.2 loader `6cfa9f` calls `6d0230`: it reads static descriptor
+OrgColor at +5c, decodes packed ARGB (`6d0263–6d026b`), applies alpha through
+`6d04f0`, then explicitly replaces the color scale's alpha with 1 before
+`6d0820` (`6d0270–6d028b`). Color application calls `6d09a0`.
+Ordinary material binding `7a6170–7a61a8` selects method 2, clones the original
+material and calls `7b6b70` with clamp=true. That routine multiplies all RGBA
+ambient/diffuse/specular/emissive coefficients and clamps each to [0,1].
+It does not replace the original two-sided flag or power. White/original
+material bypasses this clamp entirely; don't unconditionally clamp HDR data.
+The related older commented source agrees, but actual instructions are the
+implementation authority.
+
+Retained draw now supports descriptor RGB scaling with opaque OrgColor alpha.
+It scales a temporary per-mesh material before binding light constants, without
+mutating shared authored materials or baking a second light into vertices.
+Nonopaque OrgColor and nondefault blend queues remain rejected explicitly.
+Added a coefficient-clamp CPU test and distinct RGB ARGB-order GPU update
+regression (`ff804020`), followed by restoring original method. Core 64 pass;
+native world/material/pose suite 46 pass; GPU validation pending. Full P1.02/
+P1.03 material coverage remains No. Continue.

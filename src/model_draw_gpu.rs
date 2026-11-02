@@ -29,10 +29,33 @@ pub struct Frame {
     pub alpha_reference: f32,
 }
 impl Frame {
-    fn params(self, material: &crate::skin::Material) -> Result<Params, String> {
+    fn params(
+        self,
+        material: &crate::skin::Material,
+        original_color: u32,
+    ) -> Result<Params, String> {
         if self.alpha_compare > 8 || !self.vertex_fog.is_finite() {
             return Err("invalid model frame alpha comparison/vertex fog".into());
         }
+        let scaled;
+        let material = if original_color != u32::MAX {
+            let scale = [
+                ((original_color >> 16) & 255) as f32 / 255.,
+                ((original_color >> 8) & 255) as f32 / 255.,
+                (original_color & 255) as f32 / 255.,
+                1.,
+            ];
+            scaled = crate::skin::Material {
+                ambient: model_material::scale_rgba(material.ambient, scale),
+                diffuse: model_material::scale_rgba(material.diffuse, scale),
+                specular: model_material::scale_rgba(material.specular, scale),
+                emissive: model_material::scale_rgba(material.emissive, scale),
+                ..material.clone()
+            };
+            &scaled
+        } else {
+            material
+        };
         let c = material.light_constants(self.lighting);
         let vector = |v: [f32; 3]| [v[0], v[1], v[2], 0.];
         let p = Params {
@@ -104,7 +127,12 @@ impl Draw {
         // Validate every frame/material before allocating or uploading anything.
         let params: Vec<_> = prepared
             .iter()
-            .map(|m| frame.params(m.material))
+            .map(|m| {
+                frame.params(
+                    m.material,
+                    asset.descriptor.render_settings().original_color,
+                )
+            })
             .collect::<Result<_, _>>()?;
         let receiver = if frame.blend_enabled {
             raster::Receiver::new(device, format, depth, depth_write)
@@ -190,7 +218,13 @@ impl Draw {
             {
                 return Err("model draw topology/texture assignment changed".into());
             }
-            updates.push((vertices(m, frame.vertex_fog), frame.params(m.material)?));
+            updates.push((
+                vertices(m, frame.vertex_fog),
+                frame.params(
+                    m.material,
+                    asset.descriptor.render_settings().original_color,
+                )?,
+            ));
         }
         for (gpu, (vertices, params)) in self.meshes.iter().zip(updates) {
             gpu.mesh.update(queue, &vertices)?;
