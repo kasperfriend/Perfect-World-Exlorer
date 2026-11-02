@@ -470,7 +470,7 @@ compilation itself was green on the first CI run; only execution caught these.
 
 | Task | Implemented in the production path | Finished |
 |---|---|---|
-| P1.01 scene-light selection and producer lifecycle | Yes (scene effects + hook-free ECM events) | **No** |
+| P1.01 scene-light selection and producer lifecycle | Yes (scene effects, hook-free and hook-attached ECM events) | **Yes** (see §13.7) |
 | P1.02 receiving classes and lighting calculations | Yes for the four ordinary variants; matrix + exclusions | **No** |
 | P1.03 production submission without double lighting | Yes for ordinary + alpha queues, one snapshot | **No** |
 
@@ -685,3 +685,41 @@ root with `unsupported GFX light element <id> (<key>)`; elements without light
 fields keep being skipped, so particle/sprite/trail elements do not reject a root
 that also carries point lights. Regression:
 `a_skipped_element_that_declares_lights_is_an_explicit_error` (both directions).
+
+### 13.7 Final verdicts after this pass
+
+**P1.01 — Yes.** Every clause of the assignment is implemented, traced and
+executed: creation/activation/update/termination/removal, ownership, region
+load/unload and destruction, one root per update, publication ordering and
+lifetime, no stale/duplicate/leaked publication, hook parent resolution
+(`0x7b25e6`, `0x7b2543`, `0x6e1370`), the manager-wide priority gate
+(`0x70ba3c..0x70ba44`, limit `+0x134`, persistent across unload), preserved
+distinctions between candidate distance, range, shader attenuation, visibility
+and producer time progression, and the controller-108 construction precision
+resolved to PC24 in the single FPU context. Recorded limitation (does not block
+the clause): the authored byte that fills the manager limit comes from a scene
+record this reader does not parse, so `Manager::set_priority_limit` defaults to
+"no suppression" - the client at its highest light setting - and accepts an
+explicit value. `ChildHook`/`RelHook`/`BindParent` chains and static `ECMHook`
+hangers are visual-effect-graph work (P7.04-P7.05), not light selection.
+
+**P1.02 — No.** The ordinary receiving classes, material/light variants, blend
+and alpha-test mapping, the alpha-list state bracket and the explicit
+"no runtime scene lights" exclusions are implemented and CI-executed, but the
+assignment requires *every* receiving class. Still missing: the mesh-level
+transparency source, the morph/supple classes, whether any receiving model is
+drawn through the fixed-function alternative (`D3DRS_LIGHTING` is now identified
+in the alpha/overlay bracket), and the alpha-list weight/group details.
+
+**P1.03 — No.** Ordinary and alpha queues, required blend/alpha-test/depth/order
+states, runtime FX publications into production receivers, main/reflection/
+refraction consistency with one lighting/playback snapshot and explicit failures
+are all implemented and green in CI. Still missing: the client's *special* model
+queue (`0x41a2f0`, `0x42b469`) and complete material coverage.
+
+Verification for all of the above: `cargo fmt --check` clean,
+`cargo test --bin perfect-world-explorer` (250 + the new regressions) passed,
+all 13 GPU regressions passed, Windows x64 build succeeded, and the requirement
+audits (`tools/test_phase1_ready.py`, `tools/test_eight_phase_status.py`,
+`tools/check-eight-phase-status.py`) report `errors: []` with the P1.01
+decision and checkbox in agreement.
