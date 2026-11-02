@@ -266,10 +266,16 @@ reaches those paths. Approved tree geometry/motion/lighting is untouched.
 
 ## 5. Controller-108 LUT construction precision and load-thread context
 
+> **Superseded by §13.1.** The precision is no longer a named choice: the
+> executable creates no thread and never writes the control word, so construction
+> and sampling share the device's PC24 context and `CONSTRUCTION = Pc24`. The
+> divergence table below is retained because it bounds what a pre-device load
+> would change.
+
 The verified render-thread sampling (`0x6ec190..0x6ec22e`, PC24 per instruction)
-is *not* evidence for how the 128-entry table is built on the loading thread.
-The table construction is now an explicit, named choice instead of an accident of
-the surrounding arithmetic:
+is *not* by itself evidence for how the 128-entry table is built; §13.1 supplies
+that evidence. When this section was written the construction mode was an
+explicit, named choice instead of an accident of the surrounding arithmetic:
 
 - `gfx_color_track::Precision { Extended, Pc24 }`, `CONSTRUCTION = Extended`,
   `ColorTrack::new_with_precision`, `construction_divergences()`.
