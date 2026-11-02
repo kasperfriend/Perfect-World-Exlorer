@@ -15,6 +15,28 @@ permissions:
   pull-requests: write
 
 jobs:
+  base-grass:
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 9aea5240100bf5c031f8aa78721a553fcc249bd9
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install software Vulkan
+        run: sudo apt-get install -y mesa-vulkan-drivers
+      - name: Grass harness at the merge base
+        env:
+          WGPU_BACKEND: vulkan
+          XDG_RUNTIME_DIR: /tmp
+        run: |
+          set +e
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
+          cargo run --locked --bin grass-instance-gpu-check 2>&1 | tail -12
+          echo "base exit: $?"
+
   diagnose:
     runs-on: ubuntu-latest
     timeout-minutes: 45
