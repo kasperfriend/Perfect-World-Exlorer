@@ -214,7 +214,12 @@ fn main() {
             depth_or_array_layers: 1,
         },
     );
-    let mask_view = mask_tex.create_view(&Default::default());
+    // `masks` is declared `texture_2d_array<f32>` in the production shader, so
+    // the view must be a D2Array even though the page has one layer.
+    let mask_view = mask_tex.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
 
     // Native sampler policy: MAG/MIN/MIP = 2 = D3DTEXF_LINEAR and ADDRESSU/V = 2
     // = D3DTADDRESS_MIRROR (0x7c14b0), with no D3DTSS_MAXANISOTROPY write.
