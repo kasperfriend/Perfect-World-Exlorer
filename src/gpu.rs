@@ -2605,7 +2605,7 @@ pub fn run(
                             renderer.world_pages.push(uploaded);world_status=format!("Loading: {processed}/{} objects, {} GPU chunks",whole_ornaments.len(),renderer.world_pages.len());
                             eprintln!("{world_status}");
                         },
-                        Ok(crate::world_objects::Message::Done{processed,skipped})=>{renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture");eprintln!("{world_status}");},
+                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture; {} pages; peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits",stats.pages,stats.residency.peak_resident_bytes>>20,stats.residency.budget_bytes>>20,stats.residency.evictions,stats.residency.alias_hits);eprintln!("{world_status}");},
                         Ok(crate::world_objects::Message::Error(e))=>{world_status=format!("World load failed: {e}");eprintln!("{world_status}");},
                         Err(_)=>{}
                     }}
@@ -2954,9 +2954,17 @@ pub fn preview(
                             page,
                         ));
                 }
-                crate::world_objects::Message::Done { processed, skipped } => {
+                crate::world_objects::Message::Done {
+                    processed,
+                    skipped,
+                    stats,
+                } => {
                     eprintln!(
-                        "Preview world preload: {processed} objects, {skipped} fallback meshes"
+                        "Preview world preload: {processed} objects, {skipped} fallback meshes, {} pages, peak residency {} MiB / {} MiB budget, {} evictions",
+                        stats.pages,
+                        stats.residency.peak_resident_bytes >> 20,
+                        stats.residency.budget_bytes >> 20,
+                        stats.residency.evictions
                     );
                     renderer.world_done = true;
                     break;

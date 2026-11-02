@@ -88,6 +88,7 @@ mod terrain_gpu;
 mod terrain_lightmaps;
 mod terrain_seam;
 mod texture_atlas;
+mod texture_resolution;
 mod tree_lod;
 #[cfg(windows)]
 mod tree_source;
