@@ -202,8 +202,10 @@ pub fn alpha_test(mesh_alpha: u32) -> Result<AlphaTest, String> {
 /// `ALPHAREF` the client would compute on the unreachable branch
 /// (`0x7a990a..0x7a9920`): `80 * alpha / 255 + 1`, saturated at `0xff`.
 pub fn cutout_reference(mesh_alpha: u32) -> u8 {
-    let reference = (mesh_alpha * CLIENT_ALPHA_REF_NUMERATOR) / 255 + 1;
-    reference.min(u32::from(u8::MAX)) as u8
+    // Widened on purpose: the client's `imul` is 32x32 -> 64 bit, and a caller
+    // may pass any u32 even though only `0..=0xff` is reachable from a mesh.
+    let product = u64::from(mesh_alpha) * u64::from(CLIENT_ALPHA_REF_NUMERATOR);
+    (product / 255 + 1).min(u64::from(u8::MAX)) as u8
 }
 
 /// How one surveyed coincidence between two baked triangles is reproduced.
