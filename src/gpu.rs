@@ -1496,7 +1496,7 @@ impl Renderer {
         let authored = camera
             .regional_light
             .or(self.retained_regional_light)
-            .map(|l| l.material_direction().travel())
+            .map(|l| l.material_direction().toward_sun())
             .unwrap_or([0.6, -0.4, 0.8]);
         let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
             .unwrap_or([0., -1., 0.])
