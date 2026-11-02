@@ -7,6 +7,7 @@ This folder preserves research and open questions for the inspected client build
 - [Eight-phase status](Eight-phase-status.md): the requested requirements, with explicit completion gates and no estimated parity percentage.
 - [Phase 1 completion checks](Phase-1-completion-checks.md): an explicit “Is it finished?” check for every Phase 1 requirement, including remaining gates.
 - [Phase 1 audit — 2 November 2026](Phase-1-audit-2026-11-02.md): initial audit plus corrected current source table; historical validation notes are retained below.
+- [Phase 2 Agent A report](Phase-2-Agent-A-report.md): terrain block window, three resolution levels and the block-edge/level seam rule recovered from the 1.4.2 client, with executed geometry checks and the remaining assumptions.
 - [Phase 1 Agent 3 report](Phase-1-Agent-3-report.md): postprocess pass matrix, output color/gamma boundaries and the complete per-pass fog matrix (including water surface and shoreline), with CI-executed evidence and the recorded limits.
 - [Water 100% parity plan](Water-100-percent-parity.md): implementation goals, current work and unresolved gates. Water is **not** complete.
 - [Research log 01 — foundations](Research-log-01-foundations.md): archive and world formats, terrain, SpeedTree, water and early renderer work.

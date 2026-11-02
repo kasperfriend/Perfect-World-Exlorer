@@ -7,6 +7,8 @@ mod objects;
 mod pck;
 #[path = "../scene.rs"]
 mod scene;
+#[path = "../texture_resolution.rs"]
+mod texture_resolution;
 fn main() {
     let e = std::path::PathBuf::from(std::env::args().nth(1).unwrap());
     let s = scene::Scene::load(&e.join("maps/world/world.ecwld")).unwrap();

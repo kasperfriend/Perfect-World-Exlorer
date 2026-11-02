@@ -70,7 +70,6 @@ impl Page {
         self
     }
 }
-
 /// Deterministic hash of a page's atlas contents. Used for cross-page texture
 /// deduplication (P3.08): two pages that packed the same textures into the same
 /// atlas regions produce the same hash and can share one GPU texture.
@@ -88,14 +87,32 @@ fn atlas_hash(atlas: &[u8]) -> u64 {
     hash
 }
 
+/// Measured residency and resolution outcome of one whole-world preload
+/// (P3.08: measured numbers, not estimates).
+#[derive(Clone, Copy, Debug)]
+pub struct DoneStats {
+    pub residency: crate::objects::ResidencyStats,
+    pub resolver: crate::texture_resolution::ResolverStats,
+    /// Register rows recorded for references that resolved nowhere or were
+    /// rejected by name (.sdr. shader registry, decode failures, missing).
+    pub unresolved_rows: usize,
+    /// Pages emitted by this preload.
+    pub pages: usize,
+}
+
 pub enum Message {
     /// A whole-world scenery page. `page.page_atlas_hash` is the hash of the
     /// page's CPU atlas contents; pages with identical atlases share one GPU
     /// texture (cross-page deduplication, P3.08).
     Page(Page),
-    Done { processed: usize, skipped: usize },
+    Done {
+        processed: usize,
+        skipped: usize,
+        stats: DoneStats,
+    },
     Error(String),
 }
+
 fn basis(a: [f32; 3]) -> Vec3 {
     let v = Vec3::from_array(a);
     if v.length_squared() < 1e-8 {
@@ -104,6 +121,7 @@ fn basis(a: [f32; 3]) -> Vec3 {
         v.normalize()
     }
 }
+
 struct Builder {
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
@@ -145,43 +163,7 @@ impl Builder {
         page
     }
 }
-pub fn build(
-    element: PathBuf,
-    ornaments: Vec<Ornament>,
-    tx: SyncSender<Message>,
-    cancel: Arc<AtomicBool>,
-) {
-    let result = run(element, ornaments, &tx, &cancel);
-    if let Err(e) = result {
-        let _ = tx.send(Message::Error(e));
-    }
-}
-fn run(
-    element: PathBuf,
-    ornaments: Vec<Ornament>,
-    tx: &SyncSender<Message>,
-    cancel: &AtomicBool,
-) -> Result<(), String> {
-    let mut ornaments = ornaments;
-    // Group related models to reuse textures within a page. The supplied client
-    // fell from 101 to 66 native-resolution pages in the full-world survey.
-    if std::env::var_os("PW_WORLD_KEEP_ORDER_TEST").is_none() {
-        ornaments.sort_by(|a, b| a.path.cmp(&b.path));
-    }
-    let mut objects = Objects::open(&element, ornaments)?;
-    let first = std::env::var("PW_WORLD_TEST_START")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(0)
-        .min(objects.ornaments.len());
-    let count = std::env::var("PW_WORLD_TEST_LIMIT")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(objects.ornaments.len());
-    let limit = first.saturating_add(count).min(objects.ornaments.len());
-    let mut page = Builder::new();
-    let mut skipped = 0usize;
-    let mut visible_count = 0usize;
+
     let fallback = crate::objects::Texture {
         width: 1,
         height: 1,
@@ -215,48 +197,35 @@ fn run(
             let y = basis(model.up);
             let x = y.cross(z).normalize_or_zero();
             for mesh in &model.meshes {
-                let mut key = mesh.texture.to_lowercase();
-                let tex = if let Some(t) = objects.texture(&key) {
+                // Content-keyed slot sharing (P3.08 cross-name dedup):
+                // references with identical pixels collapse onto one atlas
+                // slot regardless of how many names point at them.
+                let key = match objects.texture_key(&mesh.texture) {
+                    Some(hash) => format!("h{hash:016x}"),
+                    None => String::from("<missing-client-texture>"),
+                };
+                let tex = if let Some(t) = objects.texture(&mesh.texture) {
                     t
                 } else {
                     skipped += 1;
-                    key = String::from("<missing-client-texture>");
                     &fallback
                 };
                 if page.vertices.len() + mesh.vertices.len() > MAX_VERTICES
                     && !page.indices.is_empty()
                 {
                     let finished = std::mem::replace(&mut page, Builder::new());
+                    pages += 1;
                     if tx.send(Message::Page(finished.page(id))).is_err() {
                         return Ok(());
                     }
                 }
-                let slot = if let Some(&s) = page.slots.get(&key) {
-                    s
-                } else {
-                    let mut slot = page.packing.allocate(tex.width, tex.height, 0, false);
-                    if slot.is_none() && !page.indices.is_empty() {
-                        let finished = std::mem::replace(&mut page, Builder::new());
-                        if tx.send(Message::Page(finished.page(id))).is_err() {
-                            return Ok(());
-                        }
-                        slot = page.packing.allocate(tex.width, tex.height, 0, false);
+                let (slot, turned) = allocate_slot(&mut page, &key, tex)?;
+                if let Some(finished) = turned {
+                    pages += 1;
+                    if tx.send(Message::Page(finished.page(id))).is_err() {
+                        return Ok(());
                     }
-                    let s = slot.ok_or("scenery texture exceeds atlas capacity")?;
-                    for py in 0..s.h {
-                        for px in 0..s.w {
-                            let sample = tex.sample_rgba(
-                                (px as f32 + 0.5) / s.w as f32,
-                                (py as f32 + 0.5) / s.h as f32,
-                            );
-                            let dst = ((s.y + py) * SIDE + s.x + px) * 4;
-                            page.atlas[dst..dst + 4].copy_from_slice(&sample);
-                        }
-                    }
-                    page.used_height = page.used_height.max(s.y + s.h);
-                    page.slots.insert(key, s);
-                    s
-                };
+                }
                 let base = page.vertices.len() as u32;
                 let ox = slot.x as f32 / SIDE as f32;
                 let oy = slot.y as f32 / SIDE as f32;
@@ -288,12 +257,21 @@ fn run(
             }
         }
     }
-    if !page.indices.is_empty() && tx.send(Message::Page(page.page(limit))).is_err() {
-        return Ok(());
+    if !page.indices.is_empty() {
+        pages += 1;
+        if tx.send(Message::Page(page.page(limit))).is_err() {
+            return Ok(());
+        }
     }
     let _ = tx.send(Message::Done {
         processed: visible_count,
         skipped,
+        stats: DoneStats {
+            residency: objects.residency(),
+            resolver: objects.resolver_stats(),
+            unresolved_rows: objects.unresolved().len(),
+            pages,
+        },
     });
     Ok(())
 }
@@ -422,6 +400,62 @@ impl GpuPage {
 #[cfg(test)]
 mod page_tests {
     use super::*;
+    fn solid(fill: u8, side: usize) -> crate::objects::Texture {
+        crate::objects::Texture {
+            width: side,
+            height: side,
+            rgba: vec![fill; side * side * 4],
+        }
+    }
+    #[test]
+    fn content_dedup_reduces_page_turns() {
+        // 512x512 textures occupy 16 atlas cells each; a 4096^2 page holds
+        // 1024 cells = 64 of them. Push 128 references through both keying
+        // schemes and count page turns.
+        let textures: Vec<_> = (0..64).map(|i| solid(i as u8 + 1, 512)).collect();
+        // Content-keyed: the 128 references are 64 contents twice, so every
+        // second reference reuses a slot and ONE page suffices.
+        let mut page = Builder::new();
+        page.indices.push(0);
+        let mut dedup_turns = 0;
+        for i in 0..128 {
+            let tex = &textures[i % 64];
+            let (_slot, turned) =
+                allocate_slot(&mut page, &format!("h{:016x}", i % 64), tex).unwrap();
+            if turned.is_some() {
+                dedup_turns += 1;
+            }
+        }
+        assert_eq!(dedup_turns, 0);
+        assert_eq!(page.slots.len(), 64);
+        // Name-keyed with 65 distinct contents: the 65th overflows the page
+        // and forces a turn — exactly what content dedup avoids when the
+        // extra references are aliases.
+        let mut page = Builder::new();
+        page.indices.push(0);
+        let mut unique_turns = 0;
+        let extra = solid(200, 512);
+        for i in 0..65 {
+            let tex = if i < 64 { &textures[i] } else { &extra };
+            let (_slot, turned) = allocate_slot(&mut page, &format!("name{i}"), tex).unwrap();
+            if turned.is_some() {
+                unique_turns += 1;
+            }
+        }
+        assert_eq!(unique_turns, 1);
+        assert!(dedup_turns < unique_turns);
+    }
+    #[test]
+    fn missing_references_share_one_fallback_slot() {
+        let mut page = Builder::new();
+        page.indices.push(0);
+        let fallback = solid(160, 1);
+        for name in ["<missing-client-texture>"; 3] {
+            let (_slot, turned) = allocate_slot(&mut page, name, &fallback).unwrap();
+            assert!(turned.is_none());
+        }
+        assert_eq!(page.slots.len(), 1);
+    }
     #[test]
     fn trim_scales_y_and_builds_independent_mips() {
         let vertex = Vertex {

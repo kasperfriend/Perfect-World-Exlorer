@@ -7,6 +7,8 @@ mod objects;
 mod pck;
 #[path = "../scene.rs"]
 mod scene;
+#[path = "../texture_resolution.rs"]
+mod texture_resolution;
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,

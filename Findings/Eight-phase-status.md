@@ -30,9 +30,9 @@ Nine work points (re-cut 2 November 2026; the Phase 2 scope is unchanged, only i
 boundaries are now non-overlapping and independently verifiable). Execution order
 and ownership: [Phase 2 plan and agent prompts](Phase-2-plan-and-agent-prompts.md).
 
-- [ ] P2.01 — Reproduce terrain block and area residency and draw selection: which T2MK areas and height blocks are resident for a camera position, which are submitted, how the streaming window grows and evicts, and explicit failures for missing or malformed blocks.
-- [ ] P2.02 — Reproduce terrain resolution levels and their transitions: the local full-resolution mesh, the distant coarse mesh, the client's own level thresholds and hysteresis, and the geometry and vertex path used at each level.
-- [ ] P2.03 — Replace approximate terrain seam stitching with the client's own edge and neighbour rules, including block boundaries and boundaries between resolution levels.
+- [x] P2.01 — Reproduce terrain block and area residency and draw selection: which T2MK areas and height blocks are resident for a camera position, which are submitted, how the streaming window grows and evicts, and explicit failures for missing or malformed blocks.
+- [x] P2.02 — Reproduce terrain resolution levels and their transitions: the local full-resolution mesh, the distant coarse mesh, the client's own level thresholds and hysteresis, and the geometry and vertex path used at each level.
+- [x] P2.03 — Replace approximate terrain seam stitching with the client's own edge and neighbour rules, including block boundaries and boundaries between resolution levels.
 - [ ] P2.04 — Complete every terrain shader variant and pass state: opaque and alpha surfaces, near and far vertex paths, stage setups, cull/depth/blend/alpha-test state, and the hardware fallback paths the client actually uses.
 - [ ] P2.05 — Complete terrain lightmap selection and arithmetic: T2LM/T2LM1 pair choice, tile addressing and clamp/wrap behavior, day/night blend, encoded-space modulation, and how the result combines with regional light.
 - [ ] P2.06 — Verify and implement every terrain material layer: layer axes and projections, ordering, per-area counts, mask formats and resolutions, and the world-to-texture mapping for each authored area.
