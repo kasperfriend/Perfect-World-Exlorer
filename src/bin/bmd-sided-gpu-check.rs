@@ -1,17 +1,21 @@
 //! Raster regression using the production BMD fragment shader and real face
-//! winding: single-sided, two-sided and mirrored-placement quads, plus a
-//! zero-alpha texture proving baked meshes never alpha-test.
+//! winding: single-sided, two-sided and mirrored-placement quads, plus the
+//! stage-0 alpha rule — `MODULATE(TEXTURE, DIFFUSE)` under the pass's
+//! `SRCALPHA`/`INVSRCALPHA` blend, so half-alpha scenery lands halfway and
+//! zero-alpha scenery writes nothing.
 use wgpu::util::DeviceExt;
 
-/// One instance per case. `flip` is the projection winding parity
-/// (`camera.clip.z`), `disable` the culling-disabled flag (`camera.clip.w`),
-/// `opaque` the alpha channel of the bound texture.
-const CASES: [(f32, f32, bool); 5] = [
-    (0., 0., true),
-    (1., 0., true),
-    (0., 1., true),
-    (1., 1., true),
-    (0., 0., false),
+/// One case: `flip` is the projection winding parity (`camera.clip.z`),
+/// `disable` the culling-disabled flag (`camera.clip.w`), `alpha` the alpha
+/// channel of the bound 1x1 texture. The first four cases sweep culling with an
+/// opaque atlas; the last two probe the stage-0 alpha at half and zero.
+const CASES: [(f32, f32, u8); 6] = [
+    (0., 0., 255),
+    (1., 0., 255),
+    (0., 1., 255),
+    (1., 1., 255),
+    (0., 1., 128),
+    (0., 1., 0),
 ];
 
 fn main() {
@@ -70,9 +74,22 @@ fn main() {
         fragment: Some(wgpu::FragmentState {
             module: &module,
             entry_point: "fs",
+            // The production `scenery_pipeline` blend: the client's
+            // `ALPHABLENDENABLE(1)` with `SRCALPHA`/`INVSRCALPHA`.
             targets: &[Some(wgpu::ColorTargetState {
                 format: wgpu::TextureFormat::Rgba8Unorm,
-                blend: None,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::SrcAlpha,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::SrcAlpha,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
@@ -114,10 +131,10 @@ fn main() {
         view_formats: &[],
     });
     let view = target.create_view(&Default::default());
-    for (flip, disable, opaque) in CASES {
+    for (flip, disable, alpha) in CASES {
         q.write_texture(
             atlas.as_image_copy(),
-            &[255, 255, 255, if opaque { 255 } else { 0 }],
+            &[255, 255, 255, alpha],
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
@@ -200,36 +217,51 @@ fn main() {
         d.poll(wgpu::Maintain::Wait);
         rx.recv().unwrap().unwrap();
         let bytes = slice.get_mapped_range();
-        let pixels: Vec<bool> = (0..6)
-            .map(|i| bytes[(8 * 128 + i * 16 + 8) * 4] > 200)
+        let reds: Vec<u8> = (0..6)
+            .map(|i| bytes[(8 * 128 + i * 16 + 8) * 4])
             .collect();
-        // Two-sided meshes are never dropped, mirrored or not (`CULLMODE(1)`
-        // at 0x7a98cf). Single-sided meshes keep only the front facing the
-        // camera; the mirrored placement reverses `front_facing` exactly as the
-        // negative-determinant basis did in the client.
-        let two_sided = [false, false, true, true, false, true];
-        let mut expected = [false; 6];
-        for i in 0..6 {
-            expected[i] = if disable != 0. || two_sided[i] {
-                true
-            } else {
-                // CCW quads face the camera when the projection is not flipped;
-                // the mirrored instance is the opposite of its cell neighbour.
-                let mirrored = i >= 4;
-                let ccw = !matches!(i, 1 | 3);
-                (ccw != mirrored) == (flip == 0.)
-            };
+        let pixels: Vec<bool> = reds.iter().map(|&red| red > 200).collect();
+        if alpha == 255 {
+            // Two-sided meshes are never dropped, mirrored or not (`CULLMODE(1)`
+            // at 0x7a98cf). Single-sided meshes keep only the front facing the
+            // camera; the mirrored placement reverses `front_facing` exactly as
+            // the negative-determinant basis did in the client.
+            let two_sided = [false, false, true, true, false, true];
+            let mut expected = [false; 6];
+            for i in 0..6 {
+                expected[i] = if disable != 0. || two_sided[i] {
+                    true
+                } else {
+                    // CCW quads face the camera when the projection is not
+                    // flipped; the mirrored instance is the opposite of its
+                    // cell neighbour.
+                    let mirrored = i >= 4;
+                    let ccw = !matches!(i, 1 | 3);
+                    (ccw != mirrored) == (flip == 0.)
+                };
+            }
+            assert_eq!(
+                pixels, expected,
+                "flip {flip}, culling disabled {disable}, opaque atlas {alpha}"
+            );
+        } else if alpha == 128 {
+            // `ALPHAOP(4)` is MODULATE of TEXTURE and DIFFUSE (`0x7a9785`,
+            // `0x7a9792`) over the pass's SRCALPHA/INVSRCALPHA blend, so a
+            // half-transparent texel must land halfway to the cleared target.
+            // An opaque shader would write 255 here.
+            assert!(
+                reds.iter().all(|&red| (110..=145).contains(&red)),
+                "half-alpha scenery did not blend: {reds:?}"
+            );
+        } else {
+            // Alpha 0 contributes nothing: this is the canopy case that used to
+            // render as a solid card under an opaque shader.
+            assert!(
+                reds.iter().all(|&red| red == 0),
+                "zero-alpha scenery still wrote the surface: {reds:?}"
+            );
         }
-        assert_eq!(
-            pixels, expected,
-            "flip {flip}, culling disabled {disable}, opaque atlas {opaque}"
-        );
-        // A zero-alpha texture must still shade: baked meshes are ALPHATEST(0)
-        // (0x7a992b), so the sampled alpha is ignored.
-        if !opaque {
-            assert!(pixels[0] && pixels[2], "baked alpha test reappeared");
-        }
-        println!("flip {flip} culled {disable} opaque {opaque}: {pixels:?}");
+        println!("flip {flip} culled {disable} alpha {alpha}: {reds:?}");
         drop(bytes);
         read.unmap();
     }

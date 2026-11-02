@@ -16,7 +16,7 @@
 //! | `LIGHTING` (`0x77a3c0`, id 0x89) | `0x7a9759` | 0, so material colours never contribute |
 //! | `SPECULARENABLE` (`0x77b570`, id 0x1d) | `0x7a9762` | 0 |
 //! | stage 0 `COLOROP` (`0x779fc0`) | `0x7a976d` | 5 `MODULATE2X`, args `TEXTURE`, `DIFFUSE` (`0x7a977a`) |
-//! | stage 0 `ALPHAOP` (`0x77a020`) | `0x7a9785` | 4 `SELECTARG2`, args `TEXTURE`, `DIFFUSE` (`0x7a9792`) |
+//! | stage 0 `ALPHAOP` (`0x77a020`) | `0x7a9785` | 4 `MODULATE`, args `TEXTURE`, `DIFFUSE` (`0x7a9792`) |
 //! | stages 1..7 | `0x7a979e`/`0x7a97aa` | disabled (`COLOROP`/`ALPHAOP` = 1) |
 //! | `CULLMODE` (`0x77a540`, id 0x16) | `0x7a98cf`, restored `0x7a9a26`/`0x7a9a49` | 1 `NONE` when `mesh+0x26c` is set, else the pass default (2 `CCW`) |
 //! | `ALPHATEST` (`0x77a320`, id 0xf) | `0x7a992b` / `0x7a98f8` | 0, unless `mesh+0x2cc` differs from `0xff` |
@@ -30,11 +30,18 @@
 //! submitter turns it on immediately beforehand (`0x42b5a5`, `0x42bc17`,
 //! `0x42c32e`, `0x42c650`), and none of them writes `SRCBLEND`/`DESTBLEND`, so
 //! the pair left by the previous restore (`SRCALPHA`/`INVSRCALPHA`, e.g.
-//! `0x410089`/`0x41023a`) applies. The state cannot change the image anyway:
-//! stage-0 `ALPHAOP` is `SELECTARG2` with `ALPHAARG2 = DIFFUSE` (`0x7a9785`,
-//! `0x7a9792`), and the per-mesh loop rewrites the diffuse alpha with
-//! `mesh+0x2cc << 24` (`0x7b9d64..0x7b9d74`), which is `0xff` for every
-//! file-authored mesh, so the fragment alpha is 1.0 and src-over is a replace.
+//! `0x410089`/`0x41023a`) applies. The blend is load bearing, because the
+//! stage-0 alpha op is not a select: D3D8's `D3DTEXTUREOP` enum is
+//! `DISABLE = 1, SELECTARG1 = 2, SELECTARG2 = 3, MODULATE = 4, MODULATE2X = 5`,
+//! so `ALPHAOP(4)` at `0x7a9785` is `MODULATE` of `TEXTURE` and `DIFFUSE`
+//! (`0x7a9792`). The surface alpha is therefore `texture.a * diffuse.a`, i.e.
+//! the bound texture's own alpha for the per-mesh opacity the loop stamps into
+//! the diffuse word (`mesh+0x2cc << 24`, `0x7b9d5e..0x7b9d74`, `0xff` unless a
+//! mesh declares opacity). That is how the client draws leaf, canopy and banner
+//! cards: no alpha test, and the texture alpha drives `SRCALPHA` coverage.
+//! (An earlier revision of this file read opcode 4 as `SELECTARG2`, concluded
+//! that the alpha was forced to 1.0, and rendered those cards opaque; the
+//! opcode table above is the correction.)
 //! One of the four passes is the water-quality variant: `0x42c5f3` compares the
 //! quality byte `+0x95` against 2 before enabling blending, and that byte is
 //! the `WaterEffect` key this pass object parses at `0x40d16c` and saves at
@@ -62,7 +69,10 @@ pub enum Stage {
     /// No texture: `MODULATE2X` against an unbound stage returns the doubled
     /// vertex colour, i.e. the baked day/night blend times two.
     ColorOnly,
-    /// `COLOROP(5)` = `MODULATE2X` at `0x7a976d`: `texture.rgb * colour * 2`.
+    /// `COLOROP(5)` = `MODULATE2X` at `0x7a976d`: `texture.rgb * colour * 2`,
+    /// with `ALPHAOP(4)` = `MODULATE` at `0x7a9785`, so the fragment alpha is
+    /// `texture.a * diffuse.a` and crops the surface through the pass's
+    /// `SRCALPHA`/`INVSRCALPHA` blend.
     Modulate2x,
 }
 
@@ -84,21 +94,22 @@ pub enum Cull {
     TwoSided,
 }
 
-/// Blend state of the baked mesh draw.
+/// Blend state of the baked mesh draw, i.e. what the fragment alpha does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Blend {
-    /// Every pass enables `ALPHABLENDENABLE(1)` right before it calls the
-    /// submitter (`0x42b5a5`, `0x42bc17`, `0x42c32e`, `0x42c650`) and disables
-    /// the alpha test (`0x42b595`, `0x42bc07`, `0x42c31e`, `0x42c660`), but
-    /// the blend cannot change the image: stage-0 alpha is
-    /// `SELECTARG2(DIFFUSE)` (`0x7a9785`, `0x7a9792`) and the mesh loop
-    /// overwrites the diffuse alpha with `mesh+0x2cc << 24` (`0x7b9d64`),
-    /// i.e. `0xff`, so the fragment alpha is 1.0 and src-over reduces to a
-    /// replace. No pass writes the blend factors, and the surviving pair only
-    /// matters for a non-unit alpha, which baked meshes never produce. One of
-    /// them is the water-quality variant gated on `+0x95` (`WaterEffect`) at
-    /// `0x42c5f3`, a graphics setting rather than a mesh field.
-    EnabledButOpaque,
+    /// Textured baked mesh. Every pass enables `ALPHABLENDENABLE(1)` right
+    /// before it calls the submitter (`0x42b5a5`, `0x42bc17`, `0x42c32e`,
+    /// `0x42c650`) with `ALPHATEST(0)` (`0x42b595`, `0x42bc07`, `0x42c31e`,
+    /// `0x42c660`), and stage 0 is `MODULATE` over `TEXTURE`/`DIFFUSE`
+    /// (`0x7a9785`/`0x7a9792`). The fragment alpha is the sampled texture's
+    /// alpha, so the pass blend (`SRCALPHA`/`INVSRCALPHA`, the pair the shared
+    /// restores leave in place) cuts leaf and canopy cards instead of drawing
+    /// their transparent texels.
+    TextureAlphaSrcOver,
+    /// Untextured baked mesh: the disabled/unbound stage returns white, so
+    /// `MODULATE(TEXTURE, DIFFUSE)` yields alpha 1.0 and the same pass blend
+    /// writes an opaque surface.
+    Opaque,
 }
 
 /// Draw state for one baked mesh, including the flat `kind` float the shared
@@ -188,28 +199,28 @@ pub fn classify(mesh_version: u32, textured: bool, two_sided: bool) -> Result<Dr
             stage: Stage::ColorOnly,
             alpha,
             cull: Cull::BackFace,
-            blend: Blend::EnabledButOpaque,
+            blend: Blend::Opaque,
             kind: 1.1,
         },
         (false, true) => DrawState {
             stage: Stage::ColorOnly,
             alpha,
             cull: Cull::TwoSided,
-            blend: Blend::EnabledButOpaque,
+            blend: Blend::Opaque,
             kind: 1.2,
         },
         (true, false) => DrawState {
             stage: Stage::Modulate2x,
             alpha,
             cull: Cull::BackFace,
-            blend: Blend::EnabledButOpaque,
+            blend: Blend::TextureAlphaSrcOver,
             kind: 2.0,
         },
         (true, true) => DrawState {
             stage: Stage::Modulate2x,
             alpha,
             cull: Cull::TwoSided,
-            blend: Blend::EnabledButOpaque,
+            blend: Blend::TextureAlphaSrcOver,
             kind: 2.1,
         },
     })
@@ -310,12 +321,21 @@ mod tests {
     }
 
     #[test]
-    fn every_classified_mesh_has_no_alpha_test_and_an_inert_blend() {
+    fn every_classified_mesh_has_no_alpha_test_and_texture_alpha_coverage() {
         for textured in [false, true] {
             for two_sided in [false, true] {
                 let s = classify(0x1000_0005, textured, two_sided).unwrap();
                 assert_eq!(s.alpha, AlphaTest::Disabled);
-                assert_eq!(s.blend, Blend::EnabledButOpaque);
+                // Coverage comes from the stage, never from the cull flag: a
+                // textured mesh blends with its texture alpha (`ALPHAOP(4)` =
+                // MODULATE), an untextured one is opaque (`ALPHAOP` against an
+                // unbound white stage).
+                let expected = if textured {
+                    Blend::TextureAlphaSrcOver
+                } else {
+                    Blend::Opaque
+                };
+                assert_eq!(s.blend, expected);
                 assert_eq!(s.cull == Cull::BackFace, !two_sided);
             }
         }
@@ -324,19 +344,26 @@ mod tests {
     }
 
     #[test]
-    fn the_enabled_blend_is_inert_because_mesh_alpha_is_opaque() {
-        // The mesh loop assembles the diffuse word as `baked | mesh_alpha << 24`
-        // (`0x7b9d64..0x7b9d74`) and stage 0 reads it back with SELECTARG2, so
-        // the fragment alpha is exactly `mesh+0x2cc`. With the constructor's
-        // 0xff that is 1.0, which turns SRCALPHA/INVSRCALPHA into a replace.
+    fn textured_scenery_must_keep_the_texture_alpha_for_coverage() {
+        // `ALPHAOP(4)` is MODULATE (D3D8: DISABLE 1, SELECTARG1 2, SELECTARG2 3,
+        // MODULATE 4, MODULATE2X 5), so the fragment alpha is
+        // `texture.a * diffuse.a`. The per-mesh loop stamps the diffuse alpha
+        // with `mesh+0x2cc << 24` (`0x7b9d5e..0x7b9d74`), which the constructor
+        // leaves at 0xff (opaque multiplier, `0x7b9408`), so the sampled
+        // texture alpha reaches the pass blend unchanged. Rendering this state
+        // as opaque is what turns leaf and canopy cards into solid rectangles.
         let diffuse = 0x0012_3456u32 | (CLIENT_MAX_MESH_ALPHA << 24);
         assert_eq!(diffuse >> 24, u32::from(u8::MAX));
+        assert_eq!(
+            classify(0x1000_0005, true, false).unwrap().blend,
+            Blend::TextureAlphaSrcOver
+        );
         assert_eq!(
             alpha_test(CLIENT_MAX_MESH_ALPHA).unwrap(),
             AlphaTest::Disabled
         );
-        // A partial alpha would need a writer for `mesh+0x2cc`; there is none,
-        // so the classifier refuses it instead of blending it silently.
+        // A mesh-declared opacity would enter the alpha-test branch instead and
+        // is refused, so the texture alpha is the only coverage input.
         assert!(alpha_test(u32::from(u8::MAX) - 1).is_err());
     }
 

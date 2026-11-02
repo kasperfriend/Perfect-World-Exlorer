@@ -8,13 +8,15 @@ texture-stage state, culling/sidedness, depth bias and draw order. File parsing,
 texture residency and view/pass selection stay with their owners; §8 lists every
 interface this report changes for them.
 
-All three sub-tasks are **Yes** (P3.02, P3.04, P3.05). P3.02's last open row —
-blending — is now closed by reading all four callers of the submitter: every pass
-enables `ALPHABLENDENABLE(1)`, none writes the blend factors, and the enabled
-blend is inert because stage-0 alpha is `SELECTARG2(DIFFUSE)` and the mesh loop
-stamps the diffuse alpha with `mesh+0x2cc` = `0xff`. The `+0x95 == 2` gate that
-looked like a per-ornament selector is the pass object's `WaterEffect` graphics
-setting. P3.05 closes on the retail census: the shipped survey executable was run
+All three sub-tasks are **Yes** (P3.02, P3.04, P3.05). P3.02's blending row is
+closed by reading all four callers of the submitter: every pass enables
+`ALPHABLENDENABLE(1)` right before drawing, none writes the blend factors, and
+stage-0 alpha is `MODULATE(TEXTURE, DIFFUSE)` — opcode `4`, not the `SELECTARG2`
+the previous revision assumed — so the sampled texture alpha is the surface
+coverage and the pass blend is what cuts canopy and leaf cards. That correction
+is what fixes the solid-card foliage this lane previously produced; the
+`+0x95 == 2` gate that looked like a per-ornament selector is the pass object's
+`WaterEffect` graphics setting. P3.05 closes on the retail census: the shipped survey executable was run
 over `litmodels.pck` (16,335 models, 40,579 meshes, `unparsed=0`) and all 174,744
 coincident triangles are attributed — 168,057 removed by the cull rule, 6,687
 decided by submission order, none unresolved (§4).
@@ -72,13 +74,13 @@ row except the stage-0 alpha argument.
 | `SPECULARENABLE` (id 0x1d) | 0 | `0x77b570(0)` at `0x7a9762` | No specular term. |
 | stage 0 `COLOROP` | 5 `MODULATE2X` | `0x779fc0(0,5)` at `0x7a976d` | `texture.rgb * vertex.rgb * 2`, saturated. |
 | stage 0 `COLORARG1/2` | `TEXTURE`, `DIFFUSE` | `0x779fe0(0,2,1)` at `0x7a977a` | Same. |
-| stage 0 `ALPHAOP` | 4 `SELECTARG2` | `0x77a020(0,4)` at `0x7a9785` | Alpha is `DIFFUSE` (below), i.e. `mesh+0x2cc` = `0xff`; that value is what makes the enabled blend inert. |
+| stage 0 `ALPHAOP` | 4 `MODULATE` | `0x77a020(0,4)` at `0x7a9785` | Alpha is `texture.a * diffuse.a`; `diffuse.a` is the per-mesh opacity, so the sampled texture alpha is the surface coverage. |
 | stage 0 `ALPHAARG1/2` | `TEXTURE`, `DIFFUSE` | `0x77a040(0,2,1)` at `0x7a9792` | Same. |
 | stages 1–7 | disabled (1) | `0x779fc0(1,1)`/`0x77a020(1,1)` at `0x7a979e`/`0x7a97aa` | Single-stage material. |
 | `CULLMODE` | saved, then 1 `NONE` when `mesh+0x26c` ≠ 0 | save `0x168(%ecx)` → `0x14(%esp)` at `0x7a98bb`; `0x77a540(1)` at `0x7a98cf`; restore `0x77a540(saved)` at `0x7a9a26`/`0x7a9a49` | Two-sided meshes keep both windings; every other mesh keeps the pass cull mode. |
 | `ALPHATEST` | 0 | `cmp $0xff,0x2cc(%edi)` at `0x7a98f1`; `0x77a320(0)` at `0x7a992b` | No cutout for baked meshes. |
 | `ALPHATEST(1)` + `ALPHAREF` | only when `mesh+0x2cc` ≠ 0xff | `0x77a320(1)` at `0x7a98f8`; `80*alpha/255+1` at `0x7a990a..0x7a9920` (`imul 0x80808081`, `shl 4`/`lea` = ×80, `sar 7` = ÷255, `+1`), `0x77a380` at `0x7a9924` | Unreachable from files; the reader refuses such a value. |
-| `ALPHABLENDENABLE` | 1 in every pass, never touched by the mesh loop | no `0x77a290` write exists between `0x7a9808` and the draws it gates; the four callers of `0x7a9730` write `1` at `0x42b5a5`, `0x42bc17`, `0x42c32e`, `0x42c650` and `ALPHATEST(0)` at `0x42b595`, `0x42bc07`, `0x42c31e`, `0x42c660`; no pass writes `SRCBLEND`/`DESTBLEND` | Enabled but inert: fragment alpha is `mesh+0x2cc` = `0xff` (`0x7b9d64`), so `SRCALPHA`/`INVSRCALPHA` degenerates to a replace. The `+0x95 == 2` gate at `0x42c5f3` is the pass object's `WaterEffect` setting (`0x40d16c`/`0x40d765`), not a mesh field. |
+| `ALPHABLENDENABLE` | 1 in every pass, never touched by the mesh loop | no `0x77a290` write exists between `0x7a9808` and the draws it gates; the four callers of `0x7a9730` write `1` at `0x42b5a5`, `0x42bc17`, `0x42c32e`, `0x42c650` and `ALPHATEST(0)` at `0x42b595`, `0x42bc07`, `0x42c31e`, `0x42c660`; no pass writes `SRCBLEND`/`DESTBLEND` | Load bearing: with `ALPHAOP` = `MODULATE` the fragment alpha is the sampled texture alpha, so `SRCALPHA`/`INVSRCALPHA` is what cuts leaf and canopy cards. The `+0x95 == 2` gate at `0x42c5f3` is the pass object's `WaterEffect` setting (`0x40d16c`/`0x40d765`), not a mesh field. |
 | `ZBIAS` (id 0x2f) | not written | the only call sites are `0x77a250(2)` at `0x417453` and the `0x77a250(0)` restore at `0x417471`, both in the effect path | Bias 0. |
 | `ZFUNC` (id 0x17) | not written | only `0x796753` and `0x796cd2` (water/effect paths) | D3D8 default `LESSEQUAL`. |
 | Draw order | mesh array order, one indexed submission per mesh | loop head `0x7a9808`, per-mesh submit `0x7b9ca0` at `0x7a98e3` | Unchanged from the client: insertion order, later primitives last. |
@@ -93,8 +95,9 @@ row except the stage-0 alpha argument.
 
 A baked static mesh has exactly one material row: one enabled stage combining
 the texture with the baked vertex colour, doubled; lighting off; specular off;
-no alpha test; culling from `mesh+0x26c`; blending enabled by the pass and inert
-for every file-authored mesh (§ "Blending: recovered" below). The v5 material block the
+no alpha test; culling from `mesh+0x26c`; coverage from the pass blend
+(`ALPHABLENDENABLE(1)`, `SRCALPHA`/`INVSRCALPHA`) applied to the stage alpha
+`texture.a * diffuse.a` (§ "Blending: recovered" below). The v5 material block the
 reader parses (`Ambient`/`Diffuse`/`Emissive`/`Specular`/`Power`/`2Sided` at
 `0x7b67b0`, copied by `0x7b66d0`) contributes only `2Sided` to the draw, because
 `LIGHTING(0)` at `0x7a9759` removes the fixed-function material from the
@@ -106,7 +109,8 @@ assumption that a non-default material colour would modulate the surface.
 
 * `src/bmd_baked.rs` is now the single table: `Stage` (`ColorOnly`,
   `Modulate2x`), `AlphaTest` (`Disabled`), `Cull` (`BackFace`, `TwoSided`),
-  `Blend` (`EnabledButOpaque`), `DrawState`, `classify()`, `alpha_test()`,
+  `Blend` (`TextureAlphaSrcOver`, `Opaque`), `DrawState`, `classify()`,
+  `alpha_test()`,
   `cutout_reference()`, plus `native` constants naming every write site above.
 * `classify()` is the only producer of the flat `kind` float that the shared
   world shader consumes; `src/gpu.rs` (`build()`, nearby scenery) and
@@ -139,13 +143,27 @@ row to the caller and left it open. Reading all four callers settles it:
 Every pass enables blending immediately before it draws, and none of them writes
 `SRCBLEND`/`DESTBLEND`, so the `SRCALPHA`/`INVSRCALPHA` pair left behind by the
 shared restore sites (`0x410089`/`0x41023a`, `0x410b91`/`0x410b9b`, …) applies.
-The state is nonetheless inert for baked geometry: stage-0 `ALPHAOP` is
-`SELECTARG2` (`0x7a9785`) with `ALPHAARG2 = DIFFUSE` (`0x7a9792`), and the
-per-mesh loop assembles the diffuse word as `baked_rgb | mesh+0x2cc << 24`
-(`0x7b9d5e..0x7b9d74`). The constructor's `0xff` therefore arrives at the blend as
-a fragment alpha of 1.0, and src-over degenerates to a replace. Blending is on in
-the client and cannot change a baked pixel — that is the recovered rule, and it is
-why the viewer's opaque scenery pass is exact rather than an approximation.
+
+**Correction (this revision).** The earlier revision of this section read the
+stage-0 alpha opcode `4` as `SELECTARG2` and concluded that the blend was inert.
+D3D8's `D3DTEXTUREOP` enum is `DISABLE = 1, SELECTARG1 = 2, SELECTARG2 = 3,
+MODULATE = 4, MODULATE2X = 5, MODULATE4X = 6, ADD = 7, …`, so `0x77a020(0,4)` at
+`0x7a9785` is **`MODULATE`**, not a select — consistent with the stage's colour
+op `5` = `MODULATE2X` at `0x7a976d`, which needs the same enum. With
+`ALPHAARG1 = TEXTURE` and `ALPHAARG2 = DIFFUSE` (`0x7a9792`) the fragment alpha is
+`texture.a * diffuse.a`, and the per-mesh loop writes `diffuse.a = mesh+0x2cc`
+(`0x7b9d5e..0x7b9d74`, `0xff` unless a mesh declares opacity). The sampled
+texture alpha therefore reaches the blend as the surface coverage, and the pass's
+`ALPHABLENDENABLE(1)` with `ALPHATEST(0)` is exactly how the client cuts leaf,
+canopy and banner cards.
+
+The symptom that exposed the mis-reading is visible in the viewer: with an opaque
+scenery pass, City of the Plume's giant tree renders its canopy as solid dark
+green rectangles, where the client shows leaf clusters between transparent
+gaps. The viewer now emits the stage alpha and blends the scenery pass
+(`scenery_pipeline`, `SRCALPHA`/`INVSRCALPHA`), and `bmd-sided-gpu-check` proves
+it on the raster: a half-alpha atlas lands at ~128 over a cleared target, a
+zero-alpha atlas writes nothing at all.
 
 The `+0x95 == 2` test at `0x42c5f3` is not a per-ornament selector either. The
 byte belongs to the object that parses the graphics settings at `0x40d0xx`, and
@@ -157,16 +175,17 @@ material. No ornament needs to be classified into a blended queue at all.
 
 ### Acceptance
 
-`bmd-sided-gpu-check` proves the two material axes the mesh owns in one raster
-pass: opaque shading (`kind` 2.0), two-sided shading (`kind` 2.1) and a zero-alpha
-atlas that must still shade (the cutout state cannot be entered). The blending row
-is now a table entry with an executable pin instead of an open queue:
-`the_enabled_blend_is_inert_because_mesh_alpha_is_opaque` rebuilds the `0x7b9d64`
-diffuse word, asserts that the `SELECTARG2` stage therefore sees alpha `0xff`, and
-asserts that `alpha_test()` refuses every partial value — so no baked mesh can
-reach the enabled blend with an alpha that would make it visible. The four pass
-sites are recorded as `bmd_baked::native::PASS_BLEND_ON` /
-`PASS_ALPHA_TEST_OFF`, next to `every_classified_mesh_has_no_alpha_test_and_an_inert_blend`.
+`bmd-sided-gpu-check` proves, on lavapipe, both axes the mesh owns and the alpha
+row: opaque shading (`kind` 2.0), two-sided shading (`kind` 2.1), a zero-alpha
+atlas that must now write *nothing* (it used to shade under the old opaque rule),
+a half-alpha atlas that must land at ~128 over a cleared target (the blend is
+real), and the culling sweep of §3. The unit tests pin the table:
+`every_classified_mesh_has_no_alpha_test_and_texture_alpha_coverage`
+(textured ⇒ `TextureAlphaSrcOver`, untextured ⇒ `Opaque`, independent of
+sidedness) and `textured_scenery_must_keep_the_texture_alpha_for_coverage`
+(rebuilds the `0x7b9d64` diffuse word and asserts the classifier never invents a
+different coverage source). The four pass sites are recorded as
+`bmd_baked::native::PASS_BLEND_ON` / `PASS_ALPHA_TEST_OFF`.
 
 ## 3. Task P3.04 — culling, winding, sidedness
 
@@ -290,11 +309,11 @@ reproduces it.
 | File | Change | Production call site |
 |---|---|---|
 | `src/bmd_baked.rs` | Draw-state table, `classify`, `alpha_test`, `cutout_reference`, `overlap_outcome`, `native` write-site constants (incl. the four pass blend/alpha-test sites), 9 unit tests | imported by `gpu.rs`, `world_objects.rs`, `bin/bmd-overlap-survey.rs`, `bin/world-preload-check.rs` |
-| `src/gpu.rs` | shader: culling bands extended to the colour kinds, colour-only `MODULATE2X` branch, baked alpha test removed; new `scenery_pipeline` (`GreaterEqual`) created in `Renderer::new` and used by `draw_opaque` | `draw_opaque()` (`set_pipeline`, `terrain_end..local_end` + `local_pages` + `world_pages`) |
+| `src/gpu.rs` | shader: culling bands extended to the colour kinds, colour-only `MODULATE2X` branch, baked alpha test removed, textured baked branch now returns the stage alpha (`raw_tex.a`, i.e. `MODULATE(TEXTURE, DIFFUSE)`); new `scenery_pipeline` (`GreaterEqual` **and** the pass's `SRCALPHA`/`INVSRCALPHA` blend) created in `Renderer::new` and used by `draw_opaque` | `draw_opaque()` (`set_pipeline`, `terrain_end..local_end` + `local_pages` + `world_pages`) |
 | `src/world_objects.rs` | whole-world page vertices classify through the table instead of inline `2.0/2.1`; after the `main` merge the same builder keys the atlas slot on Agent A's content hash (`objects.texture_key`) | `run()` page builder |
 | `src/bin/world-preload-check.rs` | declares `mod bmd_baked` (the shared table it now needs) | diagnostic only |
 | `src/bin/bmd-overlap-survey.rs` | per-pair overlap classification and counters; `meshes=`/`unparsed=` census counters and per-model error tolerance so a partial archive still yields a result | diagnostic only, shipped as `BmdOverlapSurvey.exe` |
-| `src/bin/bmd-sided-gpu-check.rs` | six instances per case, mirrored placement, zero-alpha atlas | diagnostic only |
+| `src/bin/bmd-sided-gpu-check.rs` | six instances per case, mirrored placement, and the alpha sweep: opaque atlas for the cull sweep, half-alpha atlas that must land at ~128, zero-alpha atlas that must write nothing | diagnostic only |
 | `.github/workflows/pr-checks.yml` | adds `cargo run --locked --bin bmd-sided-gpu-check` to the lavapipe step, and builds/uploads `bmd-overlap-survey` inside the existing `Perfect-World-Explorer-Windows-x64` artifact — **cross-lane notice**: it only adds my own check and my own binary, no existing step or artifact name changed | CI gate |
 | `Findings/Unsupported-client-paths.md` | scenery row updated with the recovered facts; new row for the unreachable cutout state (both rows stay open where the work is open) | — |
 
@@ -312,6 +331,7 @@ The evidence actually produced here, and the CI run that produces the rest:
 | Syntax of every touched file | `tree-sitter-rust` parse of `src/gpu.rs`, `src/bmd_baked.rs`, `src/world_objects.rs`, `src/bin/{bmd-sided-gpu-check,bmd-overlap-survey,world-preload-check}.rs` | 0 `ERROR`/`MISSING` nodes ✓ |
 | Integer alpha-reference arithmetic | Python oracle of `80*a/255+1` | `a=0→1`, `1→1`, `128→41`, `0xfe→80`, `0xff→81`, `u32::MAX→255` — matches the Rust test expectations ✓ |
 | Day/night blend arithmetic | Python oracle of `(d*(255-w)+n*w)>>8` | `[9,19,29]`, `[199,209,219]`, `[127,127,127]`, `[254,254,254]` — matches `integer_blend_matches_the_recovered_arithmetic` ✓ |
+| Stage-0 alpha coverage | Python oracle of `texture.a * diffuse.a` under `SRCALPHA`/`INVSRCALPHA` over a cleared target | `a=0 → 0`, `a=128 → 128`, `a=255 → 255` — the new `bmd-sided-gpu-check` cases assert the same three values ✓ |
 | Culling predicate of the six fixture instances | Python oracle of the shader condition | `(0,0)→[T,F,T,T,F,T]`, `(1,0)→[F,T,T,T,T,T]`, `(0,1)`/`(1,1)`→all `T` — matches the Rust expectations ✓ |
 | `python3 tools/test_phase1_ready.py` | local | `Ran 7 tests … OK` ✓ |
 | `python3 tools/test_eight_phase_status.py` | local | `Ran 5 tests … OK` ✓ |
@@ -357,15 +377,15 @@ product code; the formatting they produced is kept.
   water and scenery; the discard is equivalent for coverage but does not save
   raster work, and it depends on `front_facing` being derived from the same
   winding convention in every pass. Recorded, not hidden.
-* **Blending is reproduced as an equivalence, not as pipeline state.** The client
-  enables `ALPHABLENDENABLE(1)` in all four scenery passes while the viewer keeps
-  blending off, because the fragment alpha is provably 1.0: stage-0 `ALPHAOP` is
-  `SELECTARG2` over `DIFFUSE`, and the mesh loop stamps that alpha with
-  `mesh+0x2cc` = `0xff` (`0x7b9d64`). The equivalence is pinned by
-  `the_enabled_blend_is_inert_because_mesh_alpha_is_opaque`; a future archive with
-  a partial `mesh+0x2cc` makes `alpha_test()` error out instead of silently
-  rendering opaque. If a later lane implements the `WaterEffect == 2` variant it
-  must re-derive the blend factors, because no scenery pass writes them.
+* **Blended scenery writes depth.** The client leaves `ZWRITEENABLE` alone in the
+  scenery passes, so a tree card at alpha 0 still occupies the depth buffer even
+  though it writes no colour. The viewer reproduces that (`depth_write_enabled:
+  true` beside the blend) because deviating would change which duplicate wins a
+  tie, i.e. §4's order rule. It is the client's behaviour, not an oversight.
+* **One alpha source only.** Coverage is the sampled texture alpha; a mesh that
+  declares its own opacity needs the `ALPHATEST(1)` branch and is refused by
+  `alpha_test()` until that branch is recovered. No 1.4.2 reader writes
+  `mesh+0x2cc`, so this is a guard, not a gap in retail data.
 * **The alpha-test branch is unimplemented by construction.** A `mesh+0x2cc`
   other than `0xff` raises an error (`bmd_baked::alpha_test`). If a future
   archive ever carries one, the mesh is skipped with a message rather than
@@ -412,12 +432,14 @@ product code; the formatting they produced is kept.
 
 P3.02 material and texture-stage state — one table drives both static-model
 draws, the material-colour question is answered by `LIGHTING(0)`, the cutout row
-is pinned as unenterable rather than assumed, and the blending row is closed: all
-four passes enable blending, none writes the factors, and the enabled blend is
-inert because the stage alpha is `mesh+0x2cc` = `0xff`; the `+0x95` gate that
-looked per-ornament is the pass object's `WaterEffect` setting.
+is pinned as unenterable rather than assumed, and the blending row is closed by
+correcting the stage-0 alpha opcode: all four passes enable blending, none writes
+the factors, and `ALPHAOP(4)` is `MODULATE` over `TEXTURE`/`DIFFUSE`, so the
+texture alpha drives coverage and the viewer's scenery pass now blends. The
+`+0x95` gate that looked per-ornament is the pass object's `WaterEffect`
+setting.
 
-`Task P3.02 | Finished Yes | Production integration gpu.rs build()+draw_opaque, world_objects.rs run() via bmd_baked::classify | Native evidence 0x7a9759 LIGHTING(0), 0x7a9762 SPECULAR(0), 0x7a976d COLOROP 5, 0x7a977a/0x7a9792 args, 0x7a979e stage 1 off, 0x7a98f1/0x7a992b ALPHATEST off, 0x7b9408 mesh+0x2cc=0xff, no 0x77a290 write inside the mesh loop, 0x42b5a5/0x42bc17/0x42c32e/0x42c650 ALPHABLENDENABLE(1) with ALPHATEST(0) at 0x42b595/0x42bc07/0x42c31e/0x42c660, no SRCBLEND/DESTBLEND write in any pass, 0x7b9d5e..0x7b9d74 diffuse = baked_rgb | mesh+0x2cc<<24, +0x95 = WaterEffect parsed 0x40d16c and saved 0x40d765 | Tests executed and results bmd_baked unit tests (9) including the_enabled_blend_is_inert_because_mesh_alpha_is_opaque, bmd-sided-gpu-check opaque/two-sided/zero-alpha cases | Remaining gaps blending is reproduced as an alpha-1.0 equivalence rather than by enabling the pipeline blend state; alpha-test branch refused; untextured branch not seen in the corpus`
+`Task P3.02 | Finished Yes | Production integration gpu.rs build()+draw_opaque, world_objects.rs run() via bmd_baked::classify | Native evidence 0x7a9759 LIGHTING(0), 0x7a9762 SPECULAR(0), 0x7a976d COLOROP 5, 0x7a977a/0x7a9792 args, 0x7a979e stage 1 off, 0x7a98f1/0x7a992b ALPHATEST off, 0x7b9408 mesh+0x2cc=0xff, no 0x77a290 write inside the mesh loop, 0x42b5a5/0x42bc17/0x42c32e/0x42c650 ALPHABLENDENABLE(1) with ALPHATEST(0) at 0x42b595/0x42bc07/0x42c31e/0x42c660, no SRCBLEND/DESTBLEND write in any pass, ALPHAOP 4 = MODULATE (D3D8 DISABLE/SELECTARG1/SELECTARG2/MODULATE/MODULATE2X = 1/2/3/4/5) with TEXTURE,DIFFUSE at 0x7a9792, 0x7b9d5e..0x7b9d74 diffuse = baked_rgb | mesh+0x2cc<<24, +0x95 = WaterEffect parsed 0x40d16c and saved 0x40d765 | Tests executed and results bmd_baked unit tests (9) including every_classified_mesh_has_no_alpha_test_and_texture_alpha_coverage and textured_scenery_must_keep_the_texture_alpha_for_coverage, bmd-sided-gpu-check opaque/two-sided/half-alpha/zero-alpha cases on lavapipe | Remaining gaps alpha-test branch refused; untextured branch not seen in the corpus; the WaterEffect == 2 pass variant is not implemented`
 
 P3.04 culling, winding, sidedness — no per-asset decision exists: one mesh
 byte selects `CULLMODE(1)`, the pass value is restored on every exit path, and a
