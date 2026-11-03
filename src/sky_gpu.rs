@@ -478,10 +478,14 @@ mod reflection_tests {
         let update = &update[..update.find("pub fn draw<").expect("draw")];
         assert_eq!(update.matches("sets: [sets.0 as f32").count(), 1);
         assert!(update.contains("rotation.w_axis = glam::Vec4::W"));
-        assert!(include_str!("sky_gpu.rs").contains("p.sets.z"));
         assert!(
-            !include_str!("sky_gpu.rs").contains("weather:"),
-            "no weather lane exists until P5.05 is implemented"
+            src.contains("p.sets.z"),
+            "the shader must read the sets lane"
         );
+        // A weather lane would need an authored runtime (P5.05); the shader must
+        // not sample anything for weather until that exists.
+        let shader = &src[src.find("pub(crate) const SHADER").expect("shader")..];
+        let shader = &shader[..shader.find("\"#;").expect("shader end")];
+        assert!(!shader.contains("weather"), "no weather lane until P5.05");
     }
 }
