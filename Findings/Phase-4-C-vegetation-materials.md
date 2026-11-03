@@ -81,9 +81,21 @@ The sandbox has no local `cargo`, `rustc`, or `rustfmt`; Rust compilation, Rust 
 - `tools/check-phase1-core.sh`
 - `tools/static-model-gpu-programs.txt`
 
+## Follow-up native binary inspection (3 November 2026)
+
+The downloaded `elementclient.exe` hash matches the expected client build; the downloaded `speedtreert.dll` is PE32 i386. Static DLL inspection found these relevant facts:
+
+- `SGeometry` constructor (`0x1001dc40`) writes IEEE-754 -1.0 (`0xbf800000`) to offsets `+0x38` and `+0x74`. This is an unset/default sentinel, not evidence of either draw threshold.
+- `SetLeafTargetAlphaMask` (`0x100201b0`) writes one byte at `+0x44`; it does not set either float field. The branch/leaf material setters copy material records into their material subobjects; they do not directly reveal a cutout threshold.
+- The client reads geometry `+0x38` and `+0x74` at `0x656bf5` and `0x656d3e`, converts the float, and passes the result through `0x77a380`, which maps to render state `ALPHAREF` (24). This confirms the value's use, not the populated runtime value or matching alpha function.
+- Client helper `0x779f60` writes texture-stage states MAGFILTER (16) and MINFILTER (17) from the same supplied value, and MIPFILTER (18) from that value when config byte `global_config+7` is true, otherwise 1. Its constructor defaults that config byte to true. This is generic client state plumbing; no verified call chain ties this helper or a resulting MAG/MIN/MIP tuple to vegetation.
+- The grass draw's known `0x651287–0x65129c` calls remain address-state evidence only: stage 0 WRAP; stages 1/2 CLAMP. No vegetation-specific filtering or anisotropy tuple was established.
+
+These findings narrow the reverse-engineering question but do not close it. No native sampler/cutout values are substituted into the viewer; authored mip tails beyond LOD 7 and tree lighting/reflection parity also remain open. Latest merged-branch CI run `41715997769` passed on Linux and Windows, verifying existing checks but not closing these parity gaps.
+
 ## Remaining gaps
 
 1. Native material sampler tuples (MAG/MIN/MIP, per-stage addressing, anisotropy) are not retained in the vegetation code path; the viewer sampler is preserved rather than claimed as an exact match.
-2. Tree alpha references are runtime SpeedTreeRT SGeometry fields and were not serialized by PWTREE05/06/07. The corresponding DLL bake/probe cannot be run in this sandbox (no Wine or MinGW toolchain), so tree thresholds remain explicitly unsupported.
+2. Tree alpha references are runtime SpeedTreeRT SGeometry fields and were not serialized by PWTREE05/06/07. Static inspection of the downloaded `speedtreert.dll` confirms the SGeometry constructor initializes `+0x38` and `+0x74` to -1.0, and `SetLeafTargetAlphaMask` changes a separate byte at `+0x44`; it does not reveal the runtime values later read as ALPHAREF. The DLL bake/probe still cannot be executed in this sandbox (no Wine or MinGW toolchain), so native tree thresholds remain explicitly unsupported.
 3. Authored tree/grass mip tails beyond atlas LOD 7 cannot be isolated per packed tile; deeper levels remain cached but are not uploaded. Grass chains whose native-size rectangle cannot fit the current atlas still take the logged generated fallback.
 4. Tree regional lighting remains the existing opt-in approximation; native per-material lighting constants are not recovered. Reflection submission remains in the production reflection/refraction path, but it lacks a standalone vegetation reflection readback comparison against client output.

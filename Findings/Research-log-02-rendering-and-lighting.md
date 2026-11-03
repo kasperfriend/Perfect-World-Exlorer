@@ -1913,3 +1913,9 @@ This includes actual production sky WGSL validation, all production GPU checks,
 109 standalone core tests, Windows executable, and fresh native gamma-word
 comparison. Local real scene/environment tests: 23 PASS. Readiness rechecked:
 all ten full-scope gates still No; no complete phase claim is justified.
+
+### Phase 4-C follow-up: static SpeedTree fields and sampler helper (3 November 2026)
+
+Static disassembly of the downloaded, hash-verified PE32 client and `speedtreert.dll` narrows—but does not close—the remaining vegetation material gaps. SpeedTreeRT `SGeometry` constructor `0x1001dc40` initializes its `+0x38` and `+0x74` floats to `0xbf800000` (-1.0), so those are unset defaults, not evidence of the runtime alpha-reference values used by the tree draw. `SetLeafTargetAlphaMask` (`0x100201b0`) writes a separate byte at `+0x44`. The exported branch/leaf material setters copy material records into subobjects; no inspected constructor/setter/getter path established the runtime values consumed by the client. Client sites `0x656bf5` and `0x656d3e` still read `+0x38`/`+0x74`, convert them, and route them through `0x77a380` (D3DRS_ALPHAREF, 24); actual values and the matching alpha-function state remain unresolved.
+
+Client helper `0x779f60` applies a supplied value to texture-stage MAGFILTER (16) and MINFILTER (17), and applies the same value to MIPFILTER (18) when `global_config+7` is enabled, otherwise MIPFILTER is set to 1. The config object's constructor initializes that flag to true. This establishes generic filter-state plumbing, but the inspected call sites do not tie its resulting tuple to the vegetation path. The previously traced grass calls at `0x651287–0x65129c` establish address mode only: stage 0 WRAP; stages 1/2 CLAMP. Do not infer filtering or anisotropy from these calls. Vegetation sampler parity and tree cutout thresholds remain open; authored tails beyond LOD 7 and tree lighting/reflection parity remain explicit gaps.
