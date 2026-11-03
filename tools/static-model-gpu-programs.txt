@@ -8,6 +8,7 @@ bmd-sided-gpu-check
 bmd-depth-gpu-check
 scenery-pass-gpu-check
 phase1-fog-gpu-check
+phase5-sky-transition-gpu-check
 grass-instance-gpu-check
 model-texture-gpu-check
 tree-lod-gpu-check
