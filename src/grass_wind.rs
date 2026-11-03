@@ -49,11 +49,35 @@
 //! Isolating each constant confirms the roles: zeroing `+0x4c` removes the
 //! whole `arg1` term, zeroing `+0x54` removes the whole `arg2` term, and
 //! raising `+0x50` from 0.0 to 1.0 adds a third `arg1` (that derivative goes
-//! from -2 to -3). So `+0x4c` = 2.0 is the proportional stiffness, `+0x50` =
-//! 0.0 the derivative stiffness the shipped build leaves off, and `+0x54` = 0.1
-//! a target-weighted gain. `+0x30/0x34/0x38` are the accumulator, and the
-//! `+0x24/0x28/0x2c` slots the routine also writes are blanked by
-//! `0x651ba8`-`0x651bba` before every call.
+//! from -2 to -3). So `+0x4c` is the `arg1` stiffness, `+0x50` the extra
+//! `arg1` stiffness the shipped build leaves off, and `+0x54` an `arg2` gain.
+//! `+0x30/0x34/0x38` are the accumulator, and the `+0x24/0x28/0x2c` slots the
+//! routine also writes are blanked by `0x651ba8`-`0x651bba` before every call.
+//!
+//! ## The gains do not hold still
+//! `0x6517f0` seeds `+0x48` = 0.1 and `+0x4c` = 2.0, but those are only the
+//! constructor's values. The wind tick `0x6510c0`-`0x6510f1` overwrites them
+//! **before every call** with components of the sampled target:
+//!
+//! ```text
+//! fld [esp+0xc] ; fmul [esi+0x6c]     target.x
+//! fld [esp+0xc] ; fmul [esi+0x70]     target.y  -> +0x48 = target.y
+//! fld [esp+0x10]; fmul [esi+0x74]     target.z  -> +0x4c = target.z
+//! fstp [esi+0x44]                     +0x44 = target.x
+//! ```
+//!
+//! so `0x651960` reads its gain from `+0x48` = target.y and `0x651840` takes its
+//! `arg1` stiffness from `+0x4c` = target.z, neither of which is a constant.
+//! A literal reading then contradicts the arithmetic that is already verified:
+//! with the documented direction `(1,-0.5,0)` the gain would be `-0.5*noise`,
+//! giving `1/+0x48 = 200` as noise passes through zero, which cannot be a stable
+//! step and diverges outright in a closed-loop reuse of the routines.
+//!
+//! So one of two things is still wrong: either `+0x6c/0x70/0x74` are not the
+//! wind direction, or `+0x44/0x48/0x4c` are not the scalars these routines read
+//! (`+0x44` is `target.x`, yet no routine touched here reads `+0x44` as a
+//! gain). Until that is resolved the viewer must not adopt either reading; it
+//! keeps integrating the bounded target-minus-position form.
 //!
 //! The earlier "contradictory probe" result was a bug in
 //! `tools/x87/interp.py`, not in the client: the `mov`/`add`/`sub` handlers
@@ -354,6 +378,9 @@ mod tests {
     }
     #[test]
     fn force_law_matches_the_recovered_831840() {
+        // Pins the *form* of the routine with the constructor's constants. The
+        // live wind tick overwrites +0x48/+0x4c with target components, so this
+        // is the law, not the shipped steady-state gains; see the module docs.
         // Values produced by the corrected interpreter probe.
         let out = client_force([1., 2., 3.], [0.; 3], [0.; 3]);
         assert_eq!(out, [-2., -4., -6.], "proportional term");
