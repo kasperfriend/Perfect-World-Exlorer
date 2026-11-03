@@ -162,17 +162,25 @@ fn compose(
     Ok(map)
 }
 
-/// The client's own full-world map, 11 rows x 8 columns of 1024px tiles
-/// downsampled to 256px: 2048x2816, covering exactly the world's 8192x11264.
+/// The client's full-world map: 11 rows x 8 columns, covering exactly the
+/// world's 8192x11264.
+///
+/// Tiles ship at 1024px (1 unit per texel). Compositing all 88 at native size
+/// would be 8192x11264, which cannot be one GPU texture: wgpu's default
+/// `max_texture_dimension_2d` is 8192, and the height alone is 11264. 512px per
+/// tile keeps 2 units per texel - five times the detail the map page can resolve
+/// at its default size - while staying inside that limit.
 pub fn original_map(element: &Path) -> Result<image::RgbaImage, String> {
-    compose(element, MAP_ROWS, MAP_COLS, 256, map_tile_name)
+    compose(element, MAP_ROWS, MAP_COLS, 512, map_tile_name)
 }
 
-/// The client's own minimap for the main world: 16 x 22 tiles of 256px
-/// downsampled to 128px: 2048x2816, the same extent as `original_map`, so one
-/// world-to-uv transform positions both.
+/// The client's own minimap for the main world, at the archive's native 256px
+/// per tile: 4096x5632 covering 8192x11264, which is 2 world units per texel -
+/// exactly what the game reads. The minimap HUD is sized to match, so the
+/// default view is one texel per screen pixel instead of the upscale the earlier
+/// 128px composite produced.
 pub fn original_minimap(element: &Path) -> Result<image::RgbaImage, String> {
-    compose(element, MINIMAP_ROWS, MINIMAP_COLS, 128, |row, col| {
+    compose(element, MINIMAP_ROWS, MINIMAP_COLS, 256, |row, col| {
         minimap_tile_name(WORLD_MINIMAP_ZONE, row, col)
     })
 }

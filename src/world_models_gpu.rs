@@ -350,6 +350,14 @@ impl World {
     pub fn unregister_dynamic_light(&mut self, identity: u64) {
         self.publications.unregister(identity);
     }
+    /// Roots that could not be read because their container format is not
+    /// implemented. Kept out of [`Self::gfx_failures`] so a known-unread format
+    /// is not reported as a broken asset.
+    pub fn gfx_unsupported(&self) -> Vec<String> {
+        self.owners.unsupported().to_vec()
+    }
+    /// Load problems that are this reader's fault or the asset's: unreadable
+    /// roots, failed world models and rejected alpha queues.
     pub fn gfx_failures(&self) -> Vec<String> {
         let mut failures = self.owners.failures().to_vec();
         failures.extend(self.reported.iter().cloned());
