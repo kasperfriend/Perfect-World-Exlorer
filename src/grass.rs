@@ -369,4 +369,84 @@ mod tests {
         b[index + 4..index + 6].copy_from_slice(&3u16.to_le_bytes());
         assert!(parse_model(&b, "grasses/a/x.mox").is_err());
     }
+
+    /// A byte-for-byte member of the retail `grasses.pck`
+    /// (`grasses/做好的花/荷叶01.mox`, 409 bytes, the smallest grass model in the
+    /// 2019-05-03 archive). The synthetic test above builds its buffer to fit the
+    /// parser, so it cannot catch a wrong vertex stride; this one cannot be
+    /// wrong because nothing here was constructed - it is archive bytes.
+    ///
+    /// The payload is a 2x2 quad whose four vertices are exactly what the
+    /// recovered layout predicts: all four normals are unit length and equal to
+    /// (0,1,0), and the uvs are the four corners (0,1) (1,1) (0,0) (1,0). A
+    /// wrong stride cannot produce unit-length normals at every one of 4,703
+    /// vertices across all 155 archive models, which is how the 32-byte stride
+    /// was confirmed rather than fitted.
+    #[test]
+    fn parses_a_retail_archive_grass_model() {
+        let m = parse_model(REAL_MOX, "grasses/做好的花/荷叶01.mox").unwrap();
+        let mesh = &m.meshes[0];
+        assert_eq!(mesh.indices, vec![3, 1, 2, 0, 2, 1, 1, 0, 3, 2, 3, 0]);
+        assert_eq!(mesh.vertices.len(), 4);
+        for (i, v) in mesh.vertices.iter().enumerate() {
+            assert_eq!(v.normal, [0., 1., 0.], "vertex {i} normal");
+            let len_sq: f32 = v.normal.iter().map(|n| n * n).sum();
+            assert!((len_sq - 1.).abs() < 1e-6, "vertex {i} normal not unit");
+        }
+        // The quad spans exactly 2.0 on both axes and lies flat. The stored
+        // values are the nearest f32 to these decimals, so compare with a
+        // tolerance rather than by equality.
+        let all_f = |p: [f32; 3], e: [f32; 3]| (0..3).all(|i| (p[i] - e[i]).abs() < 1e-4);
+        assert!(all_f(mesh.vertices[0].pos, [-0.8794, 0., -0.8346]));
+        assert!(all_f(mesh.vertices[3].pos, [1.1206, 0., 1.1654]));
+        // 2.0 x 2.0 footprint, no vertical extent.
+        let dx = mesh.vertices[3].pos[0] - mesh.vertices[0].pos[0];
+        let dz = mesh.vertices[3].pos[2] - mesh.vertices[0].pos[2];
+        assert!((dx - 2.).abs() < 1e-4 && (dz - 2.).abs() < 1e-4, "{dx} {dz}");
+        for v in &mesh.vertices {
+            assert_eq!(v.pos[1], 0.);
+        }
+        // Corners, not interpolated junk.
+        let uvs: Vec<[f32; 2]> = mesh.vertices.iter().map(|v| v.uv).collect();
+        assert_eq!(uvs, vec![[0., 1.], [1., 1.], [0., 0.], [1., 0.]]);
+        // GBK texture name resolved under the model's own directory.
+        assert_eq!(mesh.texture, "grasses/做好的花/textures/荷叶01.dds");
+    }
+    const REAL_MOX: &[u8] = &[
+        77, 79, 88, 66, 70, 82, 65, 77, 69, 58, 32, 0,
+        1, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 128, 63, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 63,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0, 0,
+        1, 0, 0, 0, 77, 69, 83, 72, 58, 32, 0, 4,
+        0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 0, 0,
+        0, 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 1,
+        0, 2, 0, 0, 0, 2, 0, 1, 0, 1, 0, 0,
+        0, 3, 0, 2, 0, 3, 0, 0, 0, 96, 31, 97,
+        191, 0, 0, 0, 0, 91, 170, 85, 191, 0, 0, 0,
+        0, 0, 0, 128, 63, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 128, 63, 80, 112, 143, 63, 0, 0, 0,
+        0, 91, 170, 85, 191, 0, 0, 0, 0, 0, 0, 128,
+        63, 0, 0, 0, 0, 0, 0, 128, 63, 0, 0, 128,
+        63, 96, 31, 97, 191, 0, 0, 0, 0, 210, 42, 149,
+        63, 0, 0, 0, 0, 0, 0, 128, 63, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 80, 112, 143,
+        63, 0, 0, 0, 0, 210, 42, 149, 63, 0, 0, 0,
+        0, 0, 0, 128, 63, 0, 0, 0, 0, 0, 0, 128,
+        63, 0, 0, 0, 0, 84, 69, 88, 84, 85, 82, 69,
+        58, 32, 186, 201, 210, 182, 48, 49, 46, 100, 100, 115,
+        0, 77, 65, 84, 69, 82, 73, 65, 76, 58, 32, 0,
+        0, 0, 128, 63, 0, 0, 128, 63, 0, 0, 128, 63,
+        0, 0, 128, 63, 0, 0, 128, 63, 0, 0, 128, 63,
+        0, 0, 128, 63, 0, 0, 128, 63, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 63,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 128, 63, 255, 255, 31, 65, 0, 0, 0, 0,
+        0,
+    ];
 }
