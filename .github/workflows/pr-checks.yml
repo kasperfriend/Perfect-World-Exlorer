@@ -105,8 +105,12 @@ jobs:
           # Name the binary that failed: this step runs ~25 checks and a bare
           # exit code does not say which one broke.
           run_check() {
-            if ! cargo run --locked --bin "$1"; then
+            if ! cargo run --locked --bin "$1" 2>&1 | tee "/tmp/gpu-$1.log"; then
               echo "::error::gpu check failed: $1"
+              # The reason, not just the name: a shader mismatch reports the
+              # expected and actual values on these lines.
+              grep -E "panicked at|assertion|left:|right:|^error" "/tmp/gpu-$1.log" \
+                | head -8 | while IFS= read -r line; do echo "::error::$1: $line"; done
               exit 1
             fi
           }

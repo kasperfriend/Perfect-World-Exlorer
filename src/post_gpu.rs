@@ -91,12 +91,12 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
  //   mad r1.rg, r3, r0.a, r1  ; offset scaled by the normal map's alpha
  //   sub r0.r, r0.a, c2.r     ; c2.r = 0.05
  //   texkill r0
- // So c2.r is a kill threshold on the normal-map alpha, NOT the offset size;
- // the offset scale is supplied per-vertex by the warp stream. The texkill is
- // reproduced here. The 0.005 scale below remains an approximation of that
- // vertex texcoord, which the client builds at run time (0x94ef44).
- if normal.a<0.05 { discard; }
- return vec4<f32>(textureSample(scene,smp,uv+normal.xyz*vec2<f32>(-0.005,0.005)).rgb,1.);
+ // So c2.r is a kill threshold on the normal-map alpha, NOT the offset size.
+ // The viewer has no alpha channel here: `bump_texel` synthesises only the
+ // (cos, sin) pair at 0x410f10, so the texkill cannot be reproduced yet and is
+ // left out rather than guessed. The 0.005 scale below remains an
+ // approximation of the per-vertex texcoord the client builds (0x94ef44).
+ return vec4<f32>(textureSample(scene,smp,uv+normal*vec2<f32>(-0.005,0.005)).rgb,1.);
 }
 fn composite(uv:vec2<f32>)->vec3<f32> {
  let original=textureSample(scene,smp,uv).rgb;
