@@ -84,20 +84,26 @@ impl SkyGpu {
         // the archive proves a filename pattern is unsafe - only 16 of 59 sky
         // folders use the canonical 01/02/roof triple, the rest use names like
         // `roog.bmp`, `wwwww.bmp` or `sky_spire.bmp`. Read the configured set.
-        let configured = {
-            let fallback = SKY_DEFAULTS.map(str::to_string).to_vec();
-            let mut cfg_file =
-                File::open(element.join("configs.pck")).map_err(|e| e.to_string())?;
-            let cfg_entries: HashMap<_, _> = pck::directory(&mut cfg_file)?
-                .into_iter()
-                .map(|e| (e.name.to_lowercase(), e))
-                .collect();
-            match cfg_entries.get("configs/element_client.cfg") {
-                Some(entry) => pck::read_entry(&mut cfg_file, entry)
-                    .map(|b| sky_images_from_config(&String::from_utf8_lossy(&b)))
-                    .unwrap_or_else(|_| SKY_DEFAULTS.map(str::to_string).to_vec()),
-                None => fallback,
+        let defaults = || SKY_DEFAULTS.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let configured: Vec<String> = match File::open(element.join("configs.pck")) {
+            Ok(mut cfg_file) => {
+                let cfg_entries: HashMap<_, _> = match pck::directory(&mut cfg_file) {
+                    Ok(list) => list.into_iter().map(|e| (e.name.to_lowercase(), e)).collect(),
+                    Err(_) => return Err("unreadable configs.pck directory".to_string()),
+                };
+                match cfg_entries.get("configs/element_client.cfg") {
+                    Some(entry) => match pck::read_entry(&mut cfg_file, entry) {
+                        Ok(bytes) => sky_images_from_config(&String::from_utf8_lossy(&bytes))
+                            .into_iter()
+                            .collect(),
+                        Err(_) => defaults(),
+                    },
+                    None => defaults(),
+                }
             }
+            // A missing configs.pck must not stop the world from loading; the
+            // documented defaults are the client's own `[DefEnv]` values.
+            Err(_) => defaults(),
         };
         let mut frames = Vec::new();
         for configured_path in &configured {
