@@ -514,9 +514,6 @@ impl BoxArea {
             (d[0] * a[0] + d[1] * a[1] + d[2] * a[2]).abs() <= self.extents[i]
         })
     }
-    fn distance2(&self, p: [f32; 3]) -> f32 {
-        (0..3).map(|i| (p[i] - self.center[i]).powi(2)).sum()
-    }
 }
 impl Environments {
     pub fn load(scene: &Scene, dir: &Path) -> Result<Self, String> {
@@ -566,25 +563,33 @@ impl Environments {
         self.sample(p, hour, false)
     }
     fn endpoints(&self, p: [f32; 3]) -> Selection {
-        // Selection order is still a heuristic pending the streaming-order trace.
-        let a = self
-            .areas
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| a.contains(p))
-            .min_by(|(_, a), (_, b)| {
-                a.global
-                    .cmp(&b.global)
-                    .then_with(|| a.distance2(p).total_cmp(&b.distance2(p)))
-            });
-        let (key, target, duration_ms) = self.endpoints_for(a.map(|(i, _)| i));
-        // The non-streamed path has one box per position, so it supplies both
-        // the local colours and the direction/flag word.
+        // The non-streamed compatibility path has no active-box hash to supply
+        // native bucket/load order. Keep the last containing local and default
+        // separately in stable EC-BSD export-ID order (areas are loaded from a
+        // BTreeMap). Local fog/colour wins; only the default supplies sky
+        // direction and celestial flags, matching RegionStreaming::endpoints.
+        let mut local = None;
+        let mut default = None;
+        for (i, area) in self.areas.iter().enumerate() {
+            if area.contains(p) {
+                if area.global {
+                    default = Some(i);
+                } else {
+                    local = Some(i);
+                }
+            }
+        }
+        let (key, mut target, duration_ms) = self.endpoints_for(local.or(default));
+        let default_area = default.map(|i| &self.areas[i]);
+        if let Some(area) = default_area {
+            target.celestial_flags = area.celestial_flags;
+            target.sun_direction = area.sun_direction;
+        }
         Selection {
             key,
             target,
             duration_ms,
-            default_present: key.is_some(),
+            default_present: default_area.is_some(),
         }
     }
     fn endpoints_for(&self, index: Option<usize>) -> (Option<usize>, FogEndpoints, u32) {
@@ -701,11 +706,27 @@ mod tests {
         global.day.start = 80.;
         let mut local = e.areas[0].clone();
         local.day.start = 7.;
+        local.celestial_flags = 16;
+        local.sun_direction = [0., 0., 1.];
         let overlap = Environments {
             areas: vec![global, local],
             ..Default::default()
         };
         assert_eq!(overlap.underwater([0.; 3], 12.).start, 7.);
+        let selected = overlap.endpoints([0.; 3]);
+        assert_eq!(selected.key, Some(1)); // local fog/colour has precedence
+        assert!(selected.default_present);
+        assert_eq!(selected.target.celestial_flags, 8); // default, not local
+        assert_eq!(
+            selected.target.sun_direction,
+            [0.1524305, -0.619779, 0.76983047]
+        );
+        let mut locals_only = overlap.clone();
+        locals_only.areas.remove(0);
+        locals_only.id_to_index.clear();
+        let local_selection = locals_only.endpoints([0.; 3]);
+        assert_eq!(local_selection.target.celestial_flags, 0x18);
+        assert!(!local_selection.default_present);
         // A new region's duration governs a linear transition, including a
         // second crossing before the first transition completes.
         let mut second = overlap.areas[1].clone();

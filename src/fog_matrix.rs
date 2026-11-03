@@ -478,6 +478,53 @@ mod tests {
     }
 
     #[test]
+    fn normal_reflected_underwater_and_clipped_views_keep_distinct_regional_fog() {
+        let above = camera_fog(false, true, air(), water());
+        let reflected = camera_fog(false, true, air(), water());
+        assert_eq!(reflected, above); // mirrored camera uses the same active air fog
+        assert_eq!(
+            row(Material::Terrain, Pass::Reflection).range,
+            RangeColor::Camera
+        );
+        assert_eq!(
+            row(Material::Model, Pass::Reflection).range,
+            RangeColor::Camera
+        );
+
+        let submerged = camera_fog(true, false, air(), water());
+        assert_eq!(submerged.color, water().color);
+        assert!(submerged.enabled); // water fog stays on independent of air toggle
+        assert_eq!(row(Material::Terrain, Pass::Main).range, RangeColor::Camera);
+
+        let clipped_refraction = refraction_fog(water(), 7., 66.);
+        assert_eq!(clipped_refraction.color, water().color);
+        assert_eq!(clipped_refraction.range(), [7., 66., 1., 0.]);
+        assert_eq!(
+            row(Material::Terrain, Pass::Refraction).range,
+            RangeColor::WaterRefraction
+        );
+        assert_eq!(
+            row(Material::Grass, Pass::Refraction).quantity,
+            Quantity::EyeRayExponential
+        );
+        assert_eq!(
+            row(Material::Model, Pass::Refraction).range,
+            RangeColor::WaterRefraction
+        );
+
+        let below_surface = below_surface_fog(air());
+        assert_eq!(below_surface.color, air().color); // native pass restores air fog
+        assert_eq!(row(Material::Terrain, Pass::BelowSurface).range, RangeColor::Air);
+
+        // View distance is the camera far clip, not an inferred fog distance.
+        // Disabling atmospheric fog leaves the authored range/color intact.
+        let no_fog = camera_fog(false, false, air(), water());
+        assert!(!no_fog.enabled);
+        assert_eq!((no_fog.start, no_fog.end), (air().start, air().end));
+        assert_eq!(row(Material::Terrain, Pass::Main).quantity, Quantity::TableFogViewZ);
+    }
+
+    #[test]
     fn refraction_and_below_surface_bind_their_own_fog() {
         let clipped = refraction_fog(water(), 3., 77.);
         assert_eq!(clipped.color, water().color);

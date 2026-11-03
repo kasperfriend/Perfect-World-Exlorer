@@ -29,6 +29,8 @@ mod bmd_baked;
 #[cfg(windows)]
 mod client_detect;
 mod client_sun;
+#[allow(dead_code)]
+mod client_weather;
 mod color_chain;
 mod display_gamma;
 mod dxt;
