@@ -354,7 +354,26 @@ fn build(
     cz: f32,
     detail: DetailSettings,
     residency: &mut crate::terrain_residency::Residency,
+    vegetation_authored_mips: bool,
 ) -> Result<MeshData, String> {
+    if vegetation_authored_mips {
+        static WARN: std::sync::Once = std::sync::Once::new();
+        WARN.call_once(|| {
+            let request = crate::vegetation_material::Request {
+                mips: crate::vegetation_material::RequestedMips::Authored,
+                anisotropy: crate::vegetation_material::LEGACY_ANISOTROPY,
+                cutout_reference: Some(crate::vegetation_material::LEGACY_GRASS_ALPHA_REF),
+            };
+            if let Err(rejection) = crate::vegetation_material::validate(
+                crate::vegetation_material::Material::Grass,
+                request,
+            ) {
+                eprintln!(
+                    "P4.07 grass authored-mip experiment: unsupported native pair kept explicit: {rejection:?}; the shared world sampler still uses the approved 16x anisotropy"
+                );
+            }
+        });
+    }
     let rad = detail.radius;
     let gx = cx / t.grid_spacing + t.width as f32 * 0.5;
     let gy = t.height as f32 * 0.5 - cz / t.grid_spacing;
@@ -464,6 +483,7 @@ fn build(
     let mut grass_builder = crate::grass_instances::Builder::default();
     let mut grass_sample = None;
     let mut grass_slots: HashMap<(String, u8), crate::texture_atlas::Slot> = HashMap::new();
+    let mut grass_authored: HashMap<(String, u8), Vec<image::RgbaImage>> = HashMap::new();
     let mut grass_mips = Vec::new();
     // Reserve at least one 128px slot for every distinct nearby material, so
     // a few large textures cannot starve all later grass types.
@@ -526,34 +546,103 @@ fn build(
             let slot = if let Some(&slot) = grass_slots.get(&material_key) {
                 slot
             } else {
-                // Keep the largest source dimension; the square slot keeps the
-                // grass shader's existing per-material alpha threshold intact.
-                let n = (img.width().max(img.height()) as usize)
-                    .next_power_of_two()
-                    .clamp(TEX, ATLAS);
+                let mut authored = if vegetation_authored_mips {
+                    t.grass
+                        .texture_mips
+                        .get(&mesh.texture)
+                        .and_then(|mips| {
+                            if mips.len() > 7 {
+                                eprintln!(
+                                    "P4.07 grass {}: {} authored tail mip(s) beyond atlas LOD 7 retained in cache but not separately uploadable",
+                                    mesh.texture,
+                                    mips.len() - 7
+                                );
+                            }
+                            crate::grass_mips::authored_chain(
+                                mips,
+                                img.width(),
+                                img.height(),
+                                7,
+                            )
+                            .ok()
+                        })
+                } else {
+                    None
+                };
                 grass_pending.remove(&material_key);
                 let reserve = grass_pending.len().min((ATLAS / TEX).pow(2) - 1);
-                let Some(slot) = atlas_allocator.allocate(n, n, reserve, true) else {
-                    eprintln!("Grass atlas full: {}", mesh.texture);
-                    continue;
+                // Exact authored chains reserve a padded power-of-two rectangle
+                // but keep the source pixels at native size in its upper-left
+                // corner. This supports rectangular and non-power-of-two DDS
+                // chains without resampling either level 0 or the lower mips.
+                let authored_slot = authored.as_ref().and_then(|_| {
+                    let w = img.width() as usize;
+                    let h = img.height() as usize;
+                    (w <= ATLAS && h <= ATLAS)
+                        .then(|| atlas_allocator.allocate(w, h, reserve, false))
+                        .flatten()
+                });
+                if authored.is_some() && authored_slot.is_none() {
+                    eprintln!(
+                        "P4.07 grass {}: native-size authored rectangle does not fit; using the approved generated-mip fallback",
+                        mesh.texture
+                    );
+                    authored = None;
+                }
+                let slot = if let Some(slot) = authored_slot {
+                    slot
+                } else {
+                    let n = (img.width().max(img.height()) as usize)
+                        .next_power_of_two()
+                        .clamp(TEX, ATLAS);
+                    let Some(slot) = atlas_allocator.allocate(n, n, reserve, true) else {
+                        eprintln!("Grass atlas full: {}", mesh.texture);
+                        continue;
+                    };
+                    slot
                 };
                 let ox = slot.x;
                 let oy = slot.y;
-                for py in 0..slot.h {
-                    for px in 0..slot.w {
-                        let x = (px as u32 * img.width() / slot.w as u32).min(img.width() - 1);
-                        let y = (py as u32 * img.height() / slot.h as u32).min(img.height() - 1);
-                        let o = ((oy + py) * ATLAS + ox + px) * 4;
-                        atlas[o..o + 4].copy_from_slice(&img.get_pixel(x, y).0);
+                if authored.is_some() {
+                    let source = img.as_raw();
+                    for y in 0..img.height() as usize {
+                        let dst = ((oy + y) * ATLAS + ox) * 4;
+                        let src = y * img.width() as usize * 4;
+                        atlas[dst..dst + img.width() as usize * 4]
+                            .copy_from_slice(&source[src..src + img.width() as usize * 4]);
+                    }
+                } else {
+                    for py in 0..slot.h {
+                        for px in 0..slot.w {
+                            let x = (px as u32 * img.width() / slot.w as u32).min(img.width() - 1);
+                            let y =
+                                (py as u32 * img.height() / slot.h as u32).min(img.height() - 1);
+                            let o = ((oy + py) * ATLAS + ox + px) * 4;
+                            atlas[o..o + 4].copy_from_slice(&img.get_pixel(x, y).0);
+                        }
                     }
                 }
-                grass_slots.insert(material_key, slot);
-                grass_mips.push((slot, alpha_ref));
+                if let Some(chain) = authored {
+                    if !chain.is_empty() {
+                        grass_authored.insert(material_key.clone(), chain.clone());
+                    }
+                    grass_mips.push((slot, alpha_ref, Some(chain)));
+                } else {
+                    grass_mips.push((slot, alpha_ref, None));
+                }
+                grass_slots.insert(material_key.clone(), slot);
                 slot
             };
             let ox = slot.x as f32 / ATLAS as f32;
             let oy = slot.y as f32 / ATLAS as f32;
-            let scale = slot.w as f32 / ATLAS as f32;
+            let (scale_x, scale_y) = if grass_authored.contains_key(&material_key) {
+                (
+                    img.width() as f32 / ATLAS as f32,
+                    img.height() as f32 / ATLAS as f32,
+                )
+            } else {
+                (slot.w as f32 / ATLAS as f32, slot.h as f32 / ATLAS as f32)
+            };
             let alpha = 84. / 255.;
             let key = (area.type_id, mesh_index);
             if !grass_builder.contains(key) {
@@ -571,8 +660,8 @@ fn build(
                     .map(|v| Vertex {
                         pos: v.pos,
                         normal: v.normal,
-                        uv: [ox + v.uv[0] * scale, oy + v.uv[1] * scale],
-                        color: [ox, oy, scale, alpha],
+                        uv: [ox + v.uv[0] * scale_x, oy + v.uv[1] * scale_y],
+                        color: [ox, oy, scale_x, alpha],
                         kind: 3.75,
                         diffuse: if typ.sight_range.is_finite() && typ.sight_range > 0. {
                             typ.sight_range.to_bits()
@@ -583,7 +672,7 @@ fn build(
                             .to_bits(),
                     })
                     .collect();
-                grass_builder.mesh(key, mesh_vertices, mesh.indices.clone());
+                grass_builder.mesh_with_scale_y(key, mesh_vertices, mesh.indices.clone(), scale_y);
             }
             for placement in &area.placements {
                 let x = area.center[0] - half_x
@@ -910,7 +999,7 @@ fn build(
     Ok(MeshData {
         vertices,
         indices,
-        grass_mips: crate::grass_mips::prepare(&atlas, &grass_mips, ATLAS),
+        grass_mips: crate::grass_mips::prepare_with_authored(&atlas, &grass_mips, ATLAS),
         grass,
         atlas,
         center: (bx, by),
@@ -1012,6 +1101,13 @@ struct Renderer {
     frame: FrameSnapshot,
     world_glow: crate::post_gpu::WorldGlow,
     celestial_visibility: crate::client_sun::Visibility,
+    /// Native `A3DSkySphere` swap machine (`+0x5b4`/`+0x5b8`/`+0x5b9`). Stepped
+    /// exactly once per frame from `begin_frame`; reflection, refraction and map
+    /// views only read the resulting snapshot (P5.07/P5.08).
+    sky_transition: crate::sky_transition::Machine,
+    /// Sub-tick remainder of the sky clock in milli-thirty-seconds: the native
+    /// tick is a 1/30 s step and the viewer's frames are not a multiple of it.
+    sky_tick_residual: u64,
     // Native SetLightParam/SetAmbient state persists when a frame selects no
     // environment box (0x41ec65 keeps the in-flight environment). Keeping the
     // last published regional light avoids erasing ordinary model light on an
@@ -1140,6 +1236,7 @@ impl Renderer {
         h: u32,
         m: MeshData,
         t: &mut Terrain,
+        vegetation_authored_mips: bool,
     ) -> Result<Self, String> {
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("camera"),
@@ -1297,6 +1394,7 @@ impl Renderer {
             &t.trees,
             &uniform,
             &reflected_uniform,
+            vegetation_authored_mips,
         );
         let terrain_gpu = crate::terrain_gpu::TerrainGpu::new(
             &device,
@@ -1522,6 +1620,8 @@ impl Renderer {
             frame: FrameSnapshot::default(),
             world_glow: crate::post_gpu::WorldGlow::default(),
             celestial_visibility: crate::client_sun::Visibility::default(),
+            sky_transition: Default::default(),
+            sky_tick_residual: 0,
             retained_regional_light: None,
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
@@ -1594,9 +1694,9 @@ impl Renderer {
             1.,
             1. - 0.18 * twilight,
         ];
-        let authored = camera
-            .regional_light
-            .or(self.retained_regional_light)
+        // The region's authored light, resolved once for every consumer below.
+        let region_light = camera.regional_light.or(self.retained_regional_light);
+        let authored = region_light
             .map(|l| l.material_direction().toward_sun())
             .unwrap_or([0.6, -0.4, 0.8]);
         let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
@@ -1604,17 +1704,49 @@ impl Renderer {
             .map(|x| -x);
         self.celestial_visibility.update(
             camera.logic_delta_ms,
-            camera
-                .regional_light
-                .or(self.retained_regional_light)
-                .map(|l| l.celestial_flags)
-                .unwrap_or(0x18),
+            region_light.map(|l| l.celestial_flags).unwrap_or(0x18),
         );
         let celestial_alpha = if camera.celestial_discs {
             self.celestial_visibility.alpha(camera.time_of_day)
         } else {
             0.
         };
+        // P5.07: the native sky driver (`0x4203f4..0x420807`) returns while a
+        // swap is in flight and otherwise installs the day or night triple for
+        // the clock phase. The viewer's phase is the model day/night factor the
+        // fog channels and the celestial clock already use, so a time-slider
+        // move and a region change reach the sky through the same clock. `drive`
+        // only issues a swap; `step` is the native once-per-frame tick
+        // (`0x79a040`), and nothing else in the frame may call either.
+        let phase = crate::environment::night_factor(camera.time_of_day).clamp(0., 1.);
+        // The byte read at `0x4204db`. The client derives it from the sky clock,
+        // and its two roles (pick the branch, choose the pre-swap) only change
+        // *which* of the two counted swaps runs, so the viewer keys it off the
+        // same clock phase the driver reads. The authored flag word at
+        // `0x420992` gates disc visibility and is NOT used here: nothing in the
+        // driver tests it, and every region box carries one constant word.
+        let day = crate::environment::daylight(camera.time_of_day) >= 0.5;
+        crate::sky_transition::drive(
+            &mut self.sky_transition,
+            phase,
+            day,
+            crate::sky_transition::DAY_CLOCK_MS,
+        );
+        // A native fade is minutes long (up to half a game day), so it is
+        // replayed on elapsed time, not once per rendered frame: `0x8f14bc` says
+        // one tick is 1/30 s and `0x79a040` is the object's per-frame update.
+        self.sky_transition
+            .step_ms(camera.logic_delta_ms, &mut self.sky_tick_residual);
+        let sets = crate::sky_transition::frame_sets(&self.sky_transition);
+        // P5.08: one snapshot, two uploads. The reflected buffer receives the
+        // same hour, sets, blend, celestial direction and alpha; only the ray
+        // basis differs, so the sky cannot disagree between views. `view_sets`
+        // is the documented gate: a view can only read the snapshot, never
+        // re-derive the fade (`0x7cca50` and the reflection target both draw the
+        // same sky object).
+        let main_sets = crate::sky_transition::view_sets(sets, Pass::Main.is_secondary());
+        let reflected_sets =
+            crate::sky_transition::view_sets(sets, Pass::Reflection.is_secondary());
         self.sky.update(
             &self.queue,
             direction,
@@ -1623,6 +1755,7 @@ impl Renderer {
             camera.time_of_day,
             celestial,
             celestial_alpha,
+            main_sets,
             false,
         );
         self.sky.update(
@@ -1633,6 +1766,7 @@ impl Renderer {
             camera.time_of_day,
             celestial,
             celestial_alpha,
+            reflected_sets,
             true,
         );
         self.far_trees.update_lods(
@@ -2776,6 +2910,8 @@ pub fn run(
         .environments
         .atmosphere(camera.pos.to_array(), camera.time_of_day);
     let mut settings = ViewSettings::load();
+    let vegetation_authored_mips = settings.vegetation_authored_mips
+        || std::env::var_os("PW_VEGETATION_AUTHORED_MIPS").is_some();
     let mut residency = crate::terrain_residency::Residency::default();
     let m = build(
         &mut t,
@@ -2783,6 +2919,7 @@ pub fn run(
         camera.pos.z,
         settings.detail,
         &mut residency,
+        vegetation_authored_mips,
     )?;
     let mut renderer = Renderer::new(
         device,
@@ -2792,6 +2929,7 @@ pub fn run(
         config.height,
         m,
         &mut t,
+        vegetation_authored_mips,
     )?;
     // Resolution scaling: the world renders into an offscreen target at a
     // scaled extent and is bilinearly blitted to the full-size composition
@@ -2867,7 +3005,14 @@ pub fn run(
             let mut residency = crate::terrain_residency::Residency::default();
             while let Ok((x, z, detail)) = request_rx.recv() {
                 let started = Instant::now();
-                let result = build(&mut t, x, z, detail, &mut residency);
+                let result = build(
+                    &mut t,
+                    x,
+                    z,
+                    detail,
+                    &mut residency,
+                    vegetation_authored_mips,
+                );
                 eprintln!(
                     "Background terrain build at ({x:.1},{z:.1}) took {:.2}s",
                     started.elapsed().as_secs_f32()
@@ -3316,7 +3461,7 @@ pub fn run(
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
                                                     0=>{ui.heading("Graphics");marked_slider(ui,egui::Slider::new(&mut settings.resolution_scale,10.0..=200.0).integer().suffix("%"),"Resolution scale",defaults.resolution_scale,10.,200.,false,true);ui.label(egui::RichText::new("3D render resolution (10%–200% of the window). UI stays at native resolution.").small().weak());ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
-                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");ui.checkbox(&mut settings.grass_wind_enabled,"Grass wind").on_hover_text("Native wind from the recovered logic clock. The client scales it with authored per-area data (+0x6c..+0x74), not a user setting, so this is an on/off switch.");ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
+                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.vegetation_authored_mips,"Authored vegetation mips (experimental, restart)").on_hover_text("P4.07 opt-in: preserve authored DDS mip chains for vegetation and use SpeedTree PWTREE08 per-LOD branch/frond alpha references plus the verified leaf reference 84. Default off keeps the approved legacy path. Applied at startup; restart after changing. Native sampler parity, grass anisotropy, and deeper-than-LOD-7 tails remain unresolved.");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");ui.checkbox(&mut settings.grass_wind_enabled,"Grass wind").on_hover_text("Native wind from the recovered logic clock. The client scales it with authored per-area data (+0x6c..+0x74), not a user setting, so this is an on/off switch.");ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());ui.label("Music follows the client zone playlists; ambient sounds are not yet implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();egui::ComboBox::from_label("Minimap style").selected_text(settings.minimap_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.minimap_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the world from above each frame; Original shows the client's own minimap tiles (surfaces/minimaps/world) at their native resolution.").small().weak());egui::ComboBox::from_label("Minimap shape").selected_text(settings.minimap_shape.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Square,"Square");ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Circular,"Circular");});egui::ComboBox::from_label("World map style").selected_text(settings.world_map_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.world_map_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.world_map_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the whole world from above; Original shows the client's map tiles (surfaces/maps).").small().weak());ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
                                                 }
@@ -3529,10 +3674,11 @@ pub fn preview(
         cam.pos.z,
         DetailSettings::default(),
         &mut residency,
+        false,
     )?;
     let (width, height) = (960u32, 720u32);
     let fmt = wgpu::TextureFormat::Rgba8UnormSrgb;
-    let mut renderer = Renderer::new(device, queue, fmt, width, height, mesh, &mut t)?;
+    let mut renderer = Renderer::new(device, queue, fmt, width, height, mesh, &mut t, false)?;
     if std::env::var_os("PW_PREVIEW_WORLD_TEST").is_some() {
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         let root = t.element.clone();

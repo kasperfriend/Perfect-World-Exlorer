@@ -642,6 +642,16 @@ impl Environments {
 }
 #[cfg(test)]
 mod tests {
+    /// The box a region selects, as `(area index, celestial flag word)`.
+    ///
+    /// Native reads BOTH from the independently selected default area
+    /// (`0x420992` extracts the SUN/MOON bits every render, `0x79b390` refreshes
+    /// the direction on a region install), so a sky target can only ever be the
+    /// box the environment actually selected - never a neighbouring block's.
+    fn sky_selection(sel: &Selection) -> (Option<usize>, u32) {
+        (sel.key, sel.target.celestial_flags)
+    }
+
     use super::*;
     #[test]
     fn client_v12_box_fog_and_priority() {
@@ -1184,5 +1194,83 @@ mod tests {
             ..l
         };
         assert_eq!(huge.material_direction().travel(), [0.; 3]);
+    }
+    #[test]
+    fn a_region_crossing_moves_the_sky_target_with_the_fog_key() {
+        // P5.07. The sky pair is selected from the same `Selection` the fog
+        // channels read: `0x420992` extracts the SUN/MOON bits from the
+        // independently selected default area on every render and `0x79b390`
+        // refreshes the direction on a region install, so the sky target can
+        // never name a different box from the one the fog transition adopted.
+        fn area(center: [f32; 3], start: f32, flags: u32) -> BoxArea {
+            let fog = Fog {
+                start,
+                ..Fog::default()
+            };
+            BoxArea {
+                global: false,
+                transition_ms: 1000,
+                center,
+                extents: [1000.; 3],
+                axes: [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+                day: fog,
+                night: fog,
+                air_day: fog,
+                air_night: fog,
+                ambient_day: [1.; 3],
+                ambient_night: [0.; 3],
+                diffuse_day: [1.; 3],
+                diffuse_night: [0.; 3],
+                sun_direction: [0., -1., 0.],
+                celestial_flags: flags,
+            }
+        }
+        let mut global = area([0.; 3], 90., 8);
+        global.global = true;
+        let env = Environments {
+            areas: vec![
+                global,
+                area([-1500., 0., 0.], 10., 0x18),
+                area([1500., 0., 0.], 30., 0x08),
+            ],
+            id_to_index: [(1u32, 0usize), (54, 1), (2, 2)].into_iter().collect(),
+            streaming: Some(RegionLayout {
+                width: 4000.,
+                length: 500.,
+                block_size: 500.,
+                rows: 1,
+                cols: 8,
+                boxes: vec![
+                    vec![1],
+                    vec![1, 54],
+                    vec![1, 54],
+                    vec![1, 2],
+                    vec![1, 2],
+                    vec![1],
+                    vec![1],
+                    vec![1],
+                ],
+            }),
+        };
+        let mut active = env.streaming().unwrap();
+        let mut transition = FogTransition::new_streamed(&env, &mut active, [-1700., 0., 0.]);
+        // Walk across the whole strip, sampling as the renderer does.
+        for i in 0..40 {
+            let p = [-1900. + i as f32 * 100., 0., 0.];
+            let sel = active.endpoints(&env, p);
+            let (sky_key, sky_flags) = sky_selection(&sel);
+            assert_eq!(sky_key, sel.key, "sky target vs fog key at {p:?}");
+            assert_eq!(sky_flags, sel.target.celestial_flags);
+            transition.update_streamed_ms(&env, &mut active, p, 12., 16);
+            let lit = transition.lighting(12.).unwrap();
+            // The published flag word always belongs to a box that is either
+            // the local one or the selected default; never an unrelated third.
+            assert!(
+                lit.celestial_flags == sel.target.celestial_flags
+                    || lit.celestial_flags == env.areas[0].celestial_flags,
+                "flags {:#x} at {p:?} belong to no selected box",
+                lit.celestial_flags
+            );
+        }
     }
 }

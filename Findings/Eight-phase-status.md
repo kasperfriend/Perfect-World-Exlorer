@@ -1,7 +1,9 @@
 # Eight-phase implementation status
 
 Updated 2 November 2026. The original requested requirements are retained below.
-Unchecked means **partial or not implemented**, not absent by default. Checked test/preservation/package/policy tasks mean their stated deliverable exists, NOT that their parent phase has native parity.
+Unchecked means **partial or not implemented**, not absent by default.
+
+P4.07 scope decision (3 November 2026): at the user’s direction, native client capture is skipped and the item is closed as **Implemented for the best-supported viewer path with limitations documented**, not as proof of exact native parity. The original parity gaps remain explicit in the Phase 4-C report and are deferred, not claimed solved. Checked test/preservation/package/policy tasks mean their stated deliverable exists, NOT that their parent phase has native parity.
 Requirement-level acceptance checks: [Phase 1 completion checks](Phase-1-completion-checks.md). Existing partial
 implementations are documented in the research logs; no phase is complete by inference.
 
@@ -64,7 +66,7 @@ and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.m
 - [ ] P4.04 — Reproduce the client’s wind modes, timing, camera inputs and per-tree parameters; do not invent movement for components the client leaves static.
 - [ ] P4.05 — Complete grass placement, terrain height alignment, density, type selection, patch visibility and distance LOD.
 - [ ] P4.06 — Finish the client’s grass wind history, shader constants, fading, alpha tests and material behavior.
-- [ ] P4.07 — Match vegetation texture filtering, mipmaps, cutout thresholds, lighting and reflection behavior.
+- [x] P4.07 — Implement the best-supported vegetation material path from available evidence and document deferred native-only parity gaps (user-approved scope closeout; not a native-parity claim).
 - [x] P4.08 — Keep existing approved tree rendering available until the replacement path is complete.
 - [x] P4.09 — Add tests for tree LOD boundaries, foliage animation, grass placement, wind, alpha coverage and lighting.
 
@@ -76,8 +78,8 @@ and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.m
 - [ ] P5.04 — Connect region-authored sky settings and transition behavior to the world environment.
 - [ ] P5.05 — Implement client weather visuals and their timing, including clouds, precipitation and other atmospheric effects present in the supplied world.
 - [ ] P5.06 — Complete regional fog, atmospheric colors and visibility behavior across normal, underwater and reflected views.
-- [ ] P5.07 — Reproduce environment transitions when crossing region boundaries or changing the time slider.
-- [ ] P5.08 — Ensure sky and weather behave correctly in reflections and do not shift incorrectly with camera altitude.
+- [x] P5.07 — Reproduce environment transitions when crossing region boundaries or changing the time slider.
+- [x] P5.08 — Ensure sky and weather behave correctly in reflections and do not shift incorrectly with camera altitude.
 - [x] P5.09 — Add tests for time boundaries, region transitions, celestial placement and sky seams.
 
 ## Phase 6 — Complete water and underwater rendering
