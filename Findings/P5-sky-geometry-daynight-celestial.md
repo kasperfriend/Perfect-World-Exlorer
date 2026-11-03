@@ -31,11 +31,20 @@ but not the trailer:
 | — | directory: per entry an 8-byte header and a zlib stream of one 276-byte record |
 | `-280` | `u32 0xa508bdc4`, `u32 version`, `u32 unknown` (configs `0x21cfb4f6`, shaders `0x21be2dbf`), ASCII `"Angelica File Package, Perfect World..."`, `u32 0x853567c8` at `+268`, entry count at `+272`, version again at `+276` |
 
+`textures.pck` is the same format with a **different guard pair**: `0xfdfdfeee`
+at `-280` and `0xf00dbeef` / entry count / version in the last twelve bytes
+instead of `0xa508bdc4` / `0x853567c8` at `-280`/`-12`. The record layout,
+directory layout and payload layout are otherwise identical, so
+`tools/extract-angelic-pck.py` accepts either pair and now reads the texture
+archive too (1038/1038 entries, `"Angelica File Package, Perfect World."`). The
+directory walk also skips offsets whose zlib header cannot be a deflate stream
+(`CM != 8`), which keeps the 1038-record scan fast.
+
 `tools/extract-angelic-pck.py` validates the trailer, finds each directory record
 by the zlib stream that ends exactly at the running position, and reads entries by
-name — `--list`, `--cat <name>`, `--out <dir>`. Both archives decode completely
-(67/67 and 371/371). `src/pck.rs` is unchanged: it still targets the retail
-archive the viewer loads `textures.pck` from.
+name — `--list`, `--cat <name>`, `--out <dir>`. All three archives decode
+completely (67/67, 371/371, 1038/1038). `src/pck.rs` is unchanged: it still
+targets the retail archive the viewer loads `textures.pck` from.
 
 ---
 
@@ -116,11 +125,15 @@ signed area.
   "separate texture per half space, exact vertex reuse at the mirror plane". The
   previous `u < 0.08` / `u > 0.92` crossfade in `src/sky_gpu.rs` was removed with
   the approximation it propped up.
-* **Viewer addition after the second test round:** the ray projector now samples
-  both texture runs and crossfades them over 3.4° of azimuth around the 90°
-  island join (`1 - smoothstep(0, 0.06, |az - pi/2|)`, 50/50 exactly at the
-  join). The native hard switch left a visible cloud seam in the packed art, so
-  the join is the one place where the viewer deliberately blends.
+* **Viewer additions after the test rounds.** The ray projector samples both
+  texture runs and crossfades them over 3.4° of azimuth around the 90° island
+  join (`1 - smoothstep(0, 0.06, |az - pi/2|)`); with the shipped `clear` art
+  the visible cloud seam turned out to sit on the **mirror plane** instead, so
+  the two panorama textures (`01.bmp`, `02.bmp`, which the curtain draw passes
+  as two stages) now crossfade over 7° of azimuth across `|d.z| -> 0`
+  (`1 - smoothstep(0, 0.12, |d.z|)`, 50/50 exactly on the plane). Each half
+  space keeps one texture as its primary, so the art is still shown at full
+  contrast; only the join blends.
 
 ### 1.5 The band the native buffers leave open
 
@@ -142,25 +155,27 @@ the shipped buffers, not of a program this repository cannot read. What the
 retail game may have drawn *over* it (clouds, fog) is not part of these two
 objects and is not established here.
 
-Two test rounds reported this band as a blue ring around the roof disc, so the
-viewer now fills it instead of leaving it to one fixed colour. The band is drawn
-as a gradient from the pass background at the curtain rim to the **cap's own rim
-colour** at 72.5 degrees:
+Three test rounds shaped the viewer's fill of this band:
 
-* the background is the frame's atmospheric fog colour (`camera.air_fog`), not a
-  hard-coded `0.18, 0.32, 0.48`, so the lower end follows the region and hour;
-* the upper end samples the roof texture on exactly the circle the cap mesh ends
-  on (`0.5 + 0.5 * d.xz / |d.xz|`), so the gradient and the opaque cap meet
-  pixel-for-pixel and no disc edge is visible;
-* the curtain's own rim alpha (zero on the top row) still blends the skirt into
-  the same fog colour, so the lower end joins too.
+1. a single fixed colour read as a **blue ring**;
+2. a gradient to the cap's rim colour sampled on *one circle* read as **radial
+   streaks bleeding outward** (one colour per azimuth, stretched over 34° of
+   elevation);
+3. the current fill continues the cap's own **planar** lookup outward — radius
+   `0.5 + 0.25 * (1 - t)` with `t = smoothstep(sin 38.16°, sin 72.5°, d.y)` — so
+   the radius sweeps from 0.5 on the 72.5° rim (exactly the circle the cap mesh
+   ends on, pixel-continuous with the cap) to 0.75 at the curtain rim, where the
+   sampled art is the roof texture's outer cloud ring. The band's alpha is
+   `smoothstep(sin 38.16°, sin 0.70, d.y)`, so it fades into the same
+   atmospheric fog colour the curtain's own zero-alpha rim row fades into.
 
-The mixer is `smoothstep(sin 38.16 deg, sin 72.5 deg, d.y)` in the WGSL branch
-and `Region::CapEdgeGap` still reports the band, carrying the rim lookup. This is
-a viewer-only composition: retail covers the band with an object this build does
-not draw (`0x799f88` renders something taken from `[A3DSky+0x54]` through vtable
-`+0x1c`, between the cap and the curtain draws) and that object is not
-identified yet.
+Because the radius now varies with elevation the sample is two-dimensional and
+cannot smear radially. `sky_geometry::project` reports the same lookup as
+`Region::CapEdgeGap` (`gap_blend`, `gap_alpha`), so the Rust model and the WGSL
+branch stay in step. This is still a viewer-only composition: retail covers the
+band with an object this build does not draw (`0x799f88` renders something taken
+from `[A3DSky+0x54]` through vtable `+0x1c`, between the cap and the curtain
+draws) and that object is not identified yet.
 
 ---
 
@@ -241,9 +256,44 @@ lighting consumer is missing (section 6 item 5). That substitution put a painted
 motionless moon into the night sky on top of the recovered billboard, so the
 second round dropped it: one authored set now covers both phases, exactly as
 `element_client.cfg` names `Sky\clear` for all three `sky_image` slots, and the
-night look is the recovered regional light colour modulating that set (uniform
-`tint`, filled from `RegionalLight::diffuse`). The switch timer is unchanged; only
-the second art set is gone.
+night look is that set modulated by the uniform `tint`: the recovered regional
+light colour (`max(ambient, diffuse)`) times `1 - 0.72 * night_weight`, where
+`night_weight` is the recovered switch weight of section 2.2. The light colour
+alone was not enough — a region without a lighting record left the night sky at
+full daylight — and the switch weight is the one recovered number that says how
+far into the night the sky clock is. The switch timer is unchanged; only the
+second art set is gone.
+
+---
+
+### 2.4 What the shipped sky art actually contains
+
+Read out of `textures.pck` (all `512x512x24` BMPs, 786 488 bytes, no mip chain):
+
+| File | Content |
+| --- | --- |
+| `textures/sky/clear/01.bmp` | day sky; the **bottom half is a mirror** of the top half (the two 90° islands of the mesh), so the texture is one 180° picture used twice |
+| `textures/sky/clear/02.bmp` | a second day sky with a horizon haze band, same mirrored-halves layout |
+| `textures/sky/clear/roof.bmp` | a square zenith view (clouds), the cap disc samples its inscribed circle |
+| `textures/sky/night2/01.bmp` | night sky **with a painted moon** in its lower half |
+| `textures/sky/trans.tga` | `256x1` white ramp, `RGB = alpha = u * 255` |
+| `textures/nature/sun.bmp` | `256x256`, white disc with glow; the solid disc is ~55 % of the quad |
+| `textures/nature/moon.tga` | `512x512`, moon filling ~75 % of the frame plus a faint glow |
+| `textures/nature/sunshine.bmp` | `256x128` (2:1) streak, the anamorphic part of the flare |
+| `textures/nature/sunflare.bmp`, `moonflare.bmp` | `128x128` and `256x256` flare sprites |
+
+Two consequences that shaped the third round:
+
+* **The painted moon is `night2/01.bmp`.** `element_client.cfg` names
+  `Sky\clear` for all three `sky_image` slots, so a faithful default draws no
+  painted moon at all; the viewer's earlier `night2` substitution is what put a
+  motionless moon next to the billboard. It stays removed.
+* **The billboard is small but the art is not.** `sun.bmp`'s solid disc is
+  `1.146° * 0.55 = 0.63°` and `moon.tga`'s is `1.146° * 0.75 = 0.86°`, so the
+  disc itself is correct and what the retail sun and moon "have" beyond it is the
+  flare pass of section 3.2. The viewer keeps `sky_gpu::DISC_SCALE` as a single
+  labelled constant (shipped at `2.0`) so the disc can read like the flared
+  original until that pass exists; `1.0` is the native size.
 
 ---
 

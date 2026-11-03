@@ -61,6 +61,26 @@ pub const ROW_Y: [f32; 5] = [
 ];
 /// Texture `v` per row for the frontier island (azimuth 90..180 degrees).
 pub const ROW_V_FRONT: [f32; 5] = [0.05, 0.275, 0.424_85, 0.5, 0.5];
+/// Sine of the curtain rim (38.16 degrees) and of the cap rim (72.5 degrees):
+/// the ends of the band the two native buffers leave open.
+pub const GAP_BOTTOM_SIN: f32 = 0.618;
+/// Sine of the cap rim, the top of the same band.
+pub const GAP_TOP_SIN: f32 = 0.9537;
+
+/// Band position from the direction's `y`, `0` on the curtain rim and `1` on the
+/// cap rim. Mirrors the `sample_sky` band branch in the WGSL sky shader.
+pub fn gap_blend(direction_y: f32) -> f32 {
+    let t = ((direction_y - GAP_BOTTOM_SIN) / (GAP_TOP_SIN - GAP_BOTTOM_SIN)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// `0` where the curtain fades out and `1` a few degrees higher, so the band
+/// joins the skirt's own fade instead of starting with an edge.
+pub fn gap_alpha(direction_y: f32) -> f32 {
+    let t = ((direction_y - GAP_BOTTOM_SIN) / (0.70 - GAP_BOTTOM_SIN)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 /// Texture `v` per row for the back island (azimuth 0..90 degrees).
 pub const ROW_V_BACK: [f32; 5] = [0.95, 0.725, 0.575_15, 0.5, 0.5];
 
@@ -309,13 +329,19 @@ pub fn project(direction: [f32; 3]) -> Option<Sample> {
         (false, 1.0 - 2.0 * azimuth / std::f32::consts::PI)
     };
     if y > CURTAIN_TOP_Y {
-        // The band has no native geometry. The shader draws it as a gradient
-        // from the pass background at the curtain rim to the cap's own rim
-        // colour at 72.5 degrees, so the sample carries that rim lookup.
+        // The band has no native geometry. The shader continues the cap's own
+        // planar lookup outward (radius 0.5 on the 72.5 degree rim, 0.75 at the
+        // curtain rim) and fades it into the pass background, so the sample
+        // carries that lookup and the fade as its alpha.
+        let t = gap_blend(d[1]);
+        let radius = 0.5 + 0.25 * (1.0 - t);
         return Some(Sample {
             layer: Layer::Roof,
-            uv: [0.5 + 0.5 * d[0] / horizontal, 0.5 + 0.5 * d[2] / horizontal],
-            alpha: 1.0,
+            uv: [
+                0.5 + d[0] / horizontal * radius,
+                0.5 + d[2] / horizontal * radius,
+            ],
+            alpha: gap_alpha(d[1]),
             region: Region::CapEdgeGap,
         });
     }
@@ -582,18 +608,33 @@ mod tests {
     }
 
     #[test]
-    fn cap_edge_gap_is_reported_and_samples_the_cap_rim() {
-        for elevation in [55.0_f32, 60.0, 70.0] {
+    fn cap_edge_gap_continues_the_cap_lookup_and_fades_in() {
+        for elevation in [50.0_f32, 60.0, 70.0] {
             let (sin, cos) = elevation.to_radians().sin_cos();
             let sample = project([cos, sin, 0.0]).unwrap();
             assert_eq!(sample.region, Region::CapEdgeGap, "elevation {elevation}");
-            // The shader blends the background into this lookup, so the band
-            // joins the curtain's fade below and the opaque cap above.
-            assert_eq!(sample.alpha, 1.0);
             assert_eq!(sample.layer, Layer::Roof);
-            assert!(close(sample.uv[0], 1.0, 1e-6), "outer rim u");
-            assert!(close(sample.uv[1], 0.5, 1e-6), "outer rim v");
+            // The lookup radius sweeps from 0.75 at the curtain rim to 0.5 on
+            // the cap rim, so it never holds one circle (which smeared the art
+            // into radial streaks) and meets the cap exactly.
+            let radius = (sample.uv[0] - 0.5).hypot(sample.uv[1] - 0.5);
+            assert!(radius > 0.4999 && radius < 0.7501, "radius {radius}");
+            assert!(sample.alpha > 0.0 && sample.alpha <= 1.0);
         }
+        // Continuity with both neighbours.
+        let rim: f32 = 72.5_f32.to_radians().sin();
+        let (sin, cos) = 72.4_f32.to_radians().sin_cos();
+        let gap = project([cos, sin, 0.0]).unwrap();
+        assert_eq!(gap.region, Region::CapEdgeGap);
+        assert!(close(gap.alpha, 1.0, 1e-3), "band is opaque at the cap rim");
+        let radius = (gap.uv[0] - 0.5).hypot(gap.uv[1] - 0.5);
+        assert!(close(radius, 0.5, 1e-2), "radius {radius} meets the cap rim");
+        assert!(gap_blend(rim) > 0.99);
+        assert!(close(gap_alpha(rim), 1.0, 1e-6));
+        // And with the curtain, whose top row is fully transparent.
+        assert_eq!(gap_alpha(GAP_BOTTOM_SIN), 0.0);
+        assert_eq!(gap_blend(GAP_BOTTOM_SIN), 0.0);
+    }
         let (sin, cos) = 30.0_f32.to_radians().sin_cos();
         assert_eq!(project([cos, sin, 0.0]).unwrap().region, Region::Curtain);
         let (sin, cos) = 80.0_f32.to_radians().sin_cos();

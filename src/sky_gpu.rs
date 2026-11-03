@@ -22,6 +22,13 @@ use glam::{Mat4, Vec3};
 use std::{collections::HashMap, fs::File, path::Path};
 use wgpu::util::DeviceExt;
 
+/// Viewer disc scale. The recovered billboards subtend 1.146 degrees, which is
+/// what the client draws, but the retail sun and moon read larger because of the
+/// sunshine/flare pass this build does not have (`sunshine.bmp`,
+/// `moonflare.bmp`, `sunflare.bmp`, `ps/solarflare_14`). 1 restores the native
+/// size; the shipped 2 doubles the quad and its glow.
+pub const DISC_SCALE: f32 = 2.0;
+
 /// Per-frame sky inputs, all recovered values.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SkyFrame {
@@ -138,29 +145,44 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  // Curtain: cylinder of radius 50, so the ray meets it at 50*tan(elevation).
  let y=50.0*d.y/flat;
  // 38.16..72.5 degrees has no native geometry. Retail covers that band with an
- // object this build does not draw (0x799f88), so it is a gradient from the
- // pass background at the curtain rim to the cap's own rim colour at 72.5
- // degrees: both ends equal their neighbour exactly, so no ring and no hard
- // disc edge can survive.
+ // object this build does not draw (0x799f88), so the cap's own planar lookup
+ // is continued outward (radius 0.5 on the 72.5 degree rim, 0.75 at the
+ // curtain rim) and faded into the pass background: the band meets the opaque
+ // cap exactly at its top and the curtain's own fade at its bottom, and because
+ // the radius sweeps instead of holding one circle it cannot smear radially.
  if y>39.2700005 {
-  let rim=vec2<f32>(0.5)+0.5*d.xz/flat;
-  let edge=textureSampleLevel(skies,smp,rim,base+2,0.).rgb*tn;
-  return vec4<f32>(mix(bg,edge,smoothstep(0.618,0.9537,d.y)),1.0);
+  let t=smoothstep(0.618,0.9537,d.y);
+  let radius=0.5+0.25*(1.0-t);
+  let uv=vec2<f32>(0.5)+d.xz/flat*radius;
+  let band=textureSampleLevel(skies,smp,uv,base+2,0.).rgb*tn;
+  return vec4<f32>(band,smoothstep(0.618,0.70,d.y));
  }
- // The island split at azimuth 90 runs the texture's other half; the native
- // buffers switch runs without blending, which leaves a visible cloud seam, so
- // the two runs crossfade over 3.4 degrees around the seam.
+ // The curtain draw passes two textures per set (01 and 02), so both cover the
+ // dome and their stage blend is not recovered. The viewer keeps one as the
+ // primary per half space, so each side still shows real art at full contrast,
+ // and crossfades 3.4 degrees of azimuth at the azimuth-90 run switch and 7
+ // degrees at the mirror plane where the two textures would meet in a hard
+ // vertical line.
  let az=atan2(abs(d.z),d.x);
  let quarter=1.5707963;
  let sy=min(y,39.2700005);
- let layer=base+select(1,0,d.z>=0.0);
- let front_uv=vec2<f32>(clamp(2.0-2.0*az/3.14159265,0.0,1.0),curtain_v(sy,true));
- let back_uv=vec2<f32>(clamp(1.0-2.0*az/3.14159265,0.0,1.0),curtain_v(sy,false));
- let a=textureSampleLevel(skies,smp,front_uv,layer,0.);
- let b=textureSampleLevel(skies,smp,back_uv,layer,0.);
  let owns_front=az>=quarter;
  let near=1.0-smoothstep(0.0,0.06,abs(az-quarter));
- let tex=mix(select(b,a,owns_front),select(a,b,owns_front),0.5*near);
+ let uf=clamp(2.0-2.0*az/3.14159265,0.0,1.0);
+ let ub=clamp(1.0-2.0*az/3.14159265,0.0,1.0);
+ let vf=curtain_v(sy,true);
+ let vb=curtain_v(sy,false);
+ let uv_own=vec2<f32>(select(ub,uf,owns_front),select(vb,vf,owns_front));
+ let uv_other=vec2<f32>(select(uf,ub,owns_front),select(vf,vb,owns_front));
+ let a0=textureSampleLevel(skies,smp,uv_own,base,0.);
+ let a1=textureSampleLevel(skies,smp,uv_own,base+1,0.);
+ let b0=textureSampleLevel(skies,smp,uv_other,base,0.);
+ let b1=textureSampleLevel(skies,smp,uv_other,base+1,0.);
+ let run0=mix(a0,b0,0.5*near);
+ let run1=mix(a1,b1,0.5*near);
+ let plane=1.0-smoothstep(0.0,0.12,abs(d.z));
+ let front=d.z>=0.0;
+ let tex=mix(select(run1,run0,front),select(run0,run1,front),0.5*plane);
  return vec4<f32>(tex.rgb*tn,tex.a*curtain_alpha(sy));
 }
 // One native billboard: centre at direction*100, half extent 1.0, so the disc
@@ -173,7 +195,9 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,layer:i32)->vec3<f32>{
  if z<=0.0 {return color;}
  let right=normalize(cross(vec3<f32>(0.,1.,0.),c)+vec3<f32>(0.000001,0.,0.));
  let up=cross(c,right);
- let uv=vec2<f32>(dot(d,right),-dot(d,up))/(2.0*0.01*z)+vec2<f32>(0.5);
+ // p.tint.w is the viewer disc scale (1 is the native 1.146 degree quad).
+ let scale=max(p.tint.w,0.25);
+ let uv=vec2<f32>(dot(d,right),-dot(d,up))/(2.0*0.01*scale*z)+vec2<f32>(0.5);
  if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {return color;}
  let t=textureSampleLevel(skies,smp,uv,layer,0.);
  if layer==9 {return clamp(color+t.rgb*alpha,vec3<f32>(0.),vec3<f32>(1.));}
@@ -447,7 +471,13 @@ impl SkyGpu {
                 frame.background[2],
                 1.,
             ],
-            tint: [frame.tint[0], frame.tint[1], frame.tint[2], 1.],
+            tint: [
+                frame.tint[0],
+                frame.tint[1],
+                frame.tint[2],
+                // `p.tint.w` carries the disc scale into `celestial`.
+                DISC_SCALE,
+            ],
         };
         queue.write_buffer(
             if reflected {

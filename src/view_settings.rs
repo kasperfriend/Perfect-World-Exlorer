@@ -174,7 +174,9 @@ impl Default for ViewSettings {
             streamed_regions: false,
             grass_distance_fade: true,
             area_grass_lightmaps: true,
-            celestial_discs: false,
+            // The client sun and moon are the only discs the shipped
+            // `Sky\clear` set does not paint, so they are on by default.
+            celestial_discs: true,
             world_map_style: MapStyle::Realistic,
             minimap_style: MapStyle::Realistic,
             minimap_shape: MinimapShape::Square,

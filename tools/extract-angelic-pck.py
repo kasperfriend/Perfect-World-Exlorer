@@ -33,7 +33,8 @@ import struct
 import zlib
 
 MAGIC = (0x4DCA23EF, 0x56A089B7)
-GUARD = (0xA508BDC4, 0x853567C8)
+# Two shipped guard pairs: configs/shaders use the first, textures the second.
+GUARDS = ((0xA508BDC4, 0x853567C8), (0xFDFDFEEE, 0xF00DBEEF))
 HEADER = 280
 PREFIX = 12
 RECORD = 276
@@ -49,8 +50,12 @@ def header(blob):
     if version not in VERSIONS:
         raise ValueError("unknown version %08x" % version)
     guard, count = struct.unpack_from("<II", blob, len(blob) - HEADER + 268)
-    if (first, guard) != GUARD:
-        raise ValueError("bad trailer guards %08x / %08x" % (first, guard))
+    if (first, guard) not in GUARDS:
+        # The textures archive carries the same guards at the very end instead:
+        # [-12] guard, [-8] count, [-4] version, and 0xfdfdfeee at [-280].
+        guard, count, version = struct.unpack_from("<III", blob, len(blob) - 12)
+        if first != 0xFDFDFEEE or guard != 0xF00DBEEF or version not in VERSIONS:
+            raise ValueError("bad trailer guards %08x / %08x" % (first, guard))
     magic, size, tag = struct.unpack_from("<III", blob, 0)
     if (magic, tag) != MAGIC or size != len(blob):
         raise ValueError("bad prefix %08x / %d / %08x" % (magic, size, tag))
@@ -69,6 +74,10 @@ def _stream_ending_at(blob, end, limit):
     for span in WINDOWS:
         low = max(end - span, 0)
         for start in range(end - 1, low - 1, -1):
+            # A zlib stream opens with CM=8 (deflate) in the low nibble; skipping
+            # the other 15/16 of the offsets keeps the textures directory fast.
+            if blob[start] & 0x0F != 8 or blob[start] >> 4 > 7:
+                continue
             d = zlib.decompressobj()
             try:
                 out = d.decompress(blob[start:end])

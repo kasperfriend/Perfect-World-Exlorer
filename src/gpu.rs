@@ -1656,9 +1656,28 @@ impl Renderer {
         } else {
             0.
         };
+        let night_weight = crate::sky_time::night_weight(camera.time_of_day).unwrap_or(0.);
+        // One authored sky set covers both phases, so the dusk/night darkening is
+        // the recovered regional light colour instead of a second texture set. It
+        // never falls below the region's ambient level, and the recovered switch
+        // weight drives it too, so a region without a lighting record still gets a
+        // night sky.
+        let light = camera
+            .regional_light
+            .or(self.retained_regional_light)
+            .map(|l| {
+                [
+                    l.ambient[0].max(l.diffuse[0]),
+                    l.ambient[1].max(l.diffuse[1]),
+                    l.ambient[2].max(l.diffuse[2]),
+                ]
+            })
+            .unwrap_or([1.; 3]);
+        let shade = 1.0 - 0.72 * night_weight.clamp(0.0, 1.0);
+        let tint = [light[0] * shade, light[1] * shade, light[2] * shade];
         let frame = crate::sky_gpu::SkyFrame {
             hour: camera.time_of_day,
-            night_weight: crate::sky_time::night_weight(camera.time_of_day).unwrap_or(0.),
+            night_weight,
             sun,
             moon,
             // The 38.16-72.5 degree band has no native mesh; the client covers
@@ -1666,21 +1685,7 @@ impl Renderer {
             // the viewer blends the frame's atmospheric fog into the cap's own
             // rim colour across that band.
             background: camera.air_fog.color,
-            // One authored sky set covers both phases; the regional light
-            // colour carries the dusk/night darkening instead of a second set.
-            // The sky never falls below the region's ambient level, so a dark
-            // night diffuse cannot black out the panorama.
-            tint: camera
-                .regional_light
-                .or(self.retained_regional_light)
-                .map(|l| {
-                    [
-                        l.ambient[0].max(l.diffuse[0]),
-                        l.ambient[1].max(l.diffuse[1]),
-                        l.ambient[2].max(l.diffuse[2]),
-                    ]
-                })
-                .unwrap_or([1.; 3]),
+            tint,
         };
         self.sky.update(&self.queue, direction, w, h, frame, false);
         self.sky.update(&self.queue, direction, w, h, frame, true);
