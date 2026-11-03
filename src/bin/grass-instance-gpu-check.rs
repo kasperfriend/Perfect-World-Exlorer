@@ -642,8 +642,7 @@ fn main() {
         // Do not re-derive the formula here: call the shipped evaluator, so a
         // change to the retail sequence (for example the base of the
         // exponential, which is `e` and not `2`) cannot leave this oracle
-        // behind. The reference expander below already applies the lit-model
-        // above-plane clamp that `bmd_transmittance` documents.
+        // behind.
         let mut factor = 0.;
         for (pos, displaced_y, w) in [
             ([-0.8f32, -0.3, 0.5], -0.3, 1. - u - v),
@@ -654,11 +653,12 @@ fn main() {
             // reads it off the pixel probe: (-3, 2, 1).
             let eye = [-3., 2., 1.];
             let displaced = [pos[0], displaced_y, pos[2]];
-            factor += if bmd {
-                refraction_fog::bmd_transmittance(pos, eye, plane) * w
-            } else {
-                refraction_fog::grass_transmittance(pos, displaced, eye, plane) * w
-            };
+            // Both fixtures draw the grass vertex stage; `kind` only steers the
+            // fragment blend, so the above-plane clamp in `bmd_transmittance`
+            // (which belongs to the lit-model shader) does not apply here. The
+            // reference expansion keeps the vertex height as authored, and the
+            // grass shader takes the original Y unclamped.
+            factor += refraction_fog::grass_transmittance(pos, displaced, eye, plane) * w;
         }
         factor = factor.clamp(0., 1.);
         let pixel = &bytes[(py * 128 + px) * 4..][..3];
