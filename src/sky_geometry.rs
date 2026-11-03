@@ -265,10 +265,9 @@ pub fn curtain_alpha(y: f32) -> f32 {
 /// band is reported instead of being blended away, so callers can show the
 /// uncovered band rather than hide it.
 pub fn project(direction: [f32; 3]) -> Option<Sample> {
-    let len = (direction[0] * direction[0]
-        + direction[1] * direction[1]
-        + direction[2] * direction[2])
-        .sqrt();
+    let len =
+        (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2])
+            .sqrt();
     if !(len.is_finite() && len > 0.0) {
         return None;
     }
@@ -330,13 +329,23 @@ mod tests {
         // A3DSkySphere::Init 0x79a330).
         let cases = [
             (0, [-0.000_002_2, 39.27, 50.0], 0x00ff_ffff, [1.0, 0.05]),
-            (1, [-12.940_955, 39.27, 48.296_291], 0x00ff_ffff, [0.833_333_3, 0.05]),
+            (
+                1,
+                [-12.940_955, 39.27, 48.296_291],
+                0x00ff_ffff,
+                [0.833_333_3, 0.05],
+            ),
             (6, [-50.0, 39.27, -0.000_004_4], 0x00ff_ffff, [0.0, 0.05]),
             (7, [50.0, 39.27, 0.0], 0x00ff_ffff, [1.0, 0.95]),
             (13, [-0.000_002_2, 39.27, 50.0], 0x00ff_ffff, [0.0, 0.95]),
             (14, [-0.000_002_2, 19.635, 50.0], 0xffff_ffff, [1.0, 0.275]),
             (27, [-0.000_002_2, 19.635, 50.0], 0xffff_ffff, [0.0, 0.725]),
-            (41, [-0.000_002_2, 6.558_09, 50.0], 0xffff_ffff, [0.0, 0.575_15]),
+            (
+                41,
+                [-0.000_002_2, 6.558_09, 50.0],
+                0xffff_ffff,
+                [0.0, 0.575_15],
+            ),
             (55, [-0.000_002_2, 0.0, 50.0], 0xffff_ffff, [0.0, 0.5]),
             (69, [-0.000_002_2, -10.602_9, 50.0], 0xffff_ffff, [0.0, 0.5]),
         ];
@@ -364,14 +373,29 @@ mod tests {
         let cases = [
             (0, [0.0, 50.0, 0.0], [0.5, 0.5]),
             (1, [2.544_170_4, 49.935_230, 0.0], [0.584_606_6, 0.5]),
-            (2, [2.457_48, 49.935_230, 0.658_479_8], [0.581_723_7, 0.521_897_8]),
-            (13, [-2.544_170_4, 49.935_230, -0.000_000_2], [0.415_393_4, 0.5]),
-            (144, [14.522_973, 47.685_848, -3.891_416_3], [0.982_962_8, 0.370_590_6]),
+            (
+                2,
+                [2.457_48, 49.935_230, 0.658_479_8],
+                [0.581_723_7, 0.521_897_8],
+            ),
+            (
+                13,
+                [-2.544_170_4, 49.935_230, -0.000_000_2],
+                [0.415_393_4, 0.5],
+            ),
+            (
+                144,
+                [14.522_973, 47.685_848, -3.891_416_3],
+                [0.982_962_8, 0.370_590_6],
+            ),
         ];
         for (index, position, uv) in cases {
             let v = mesh.vertices[index];
             for k in 0..3 {
-                assert!(close(v.position[k], position[k], 1e-4), "cap vertex {index}");
+                assert!(
+                    close(v.position[k], position[k], 1e-4),
+                    "cap vertex {index}"
+                );
             }
             assert_eq!(v.diffuse, OPAQUE_DIFFUSE);
             assert!(close(v.uv[0], uv[0], 1e-5), "cap u {index}");

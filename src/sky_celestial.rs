@@ -78,7 +78,10 @@ impl std::fmt::Display for CelestialError {
             CelestialError::BelowHorizon {
                 kind,
                 elevation_degrees,
-            } => write!(f, "{kind} is below the horizon ({elevation_degrees:.3} deg)"),
+            } => write!(
+                f,
+                "{kind} is below the horizon ({elevation_degrees:.3} deg)"
+            ),
             CelestialError::Hidden { kind, fade } => {
                 write!(f, "{kind} is switched off (fade {fade:.3})")
             }
@@ -186,9 +189,8 @@ pub fn disc(
         .enumerate()
     {
         for axis in 0..3 {
-            corners[index][axis] = center[axis]
-                + right[axis] * rs * HALF_EXTENT
-                + up[axis] * us * HALF_EXTENT;
+            corners[index][axis] =
+                center[axis] + right[axis] * rs * HALF_EXTENT + up[axis] * us * HALF_EXTENT;
         }
     }
     Ok(Disc {
@@ -237,8 +239,8 @@ mod tests {
         // 70 degrees elevation, azimuth from the authored vector.
         let up = sun.center[1] / DISTANCE;
         assert!((up - 70_f32.to_radians().sin()).abs() < 1e-5);
-        let horizontal = (sun.center[0] * sun.center[0] + sun.center[2] * sun.center[2]).sqrt()
-            / DISTANCE;
+        let horizontal =
+            (sun.center[0] * sun.center[0] + sun.center[2] * sun.center[2]).sqrt() / DISTANCE;
         assert!((horizontal - 70_f32.to_radians().cos()).abs() < 1e-5);
         assert_eq!(
             disc(DiscKind::Moon, &noon, 1.0, true),
@@ -264,14 +266,12 @@ mod tests {
             for axis in 0..3 {
                 offset[axis] = corner[axis] - sun.center[axis];
             }
-            let distance = (offset[0] * offset[0]
-                + offset[1] * offset[1]
-                + offset[2] * offset[2])
-                .sqrt();
+            let distance =
+                (offset[0] * offset[0] + offset[1] * offset[1] + offset[2] * offset[2]).sqrt();
             assert!((distance - std::f32::consts::SQRT_2).abs() < 1e-4);
             // Every corner lies in the tangent plane of the disc direction.
-            let dot = offset[0] * sun.center[0] + offset[1] * sun.center[1]
-                + offset[2] * sun.center[2];
+            let dot =
+                offset[0] * sun.center[0] + offset[1] * sun.center[1] + offset[2] * sun.center[2];
             assert!(dot.abs() < 1e-3);
         }
     }
