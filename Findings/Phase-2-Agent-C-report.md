@@ -304,27 +304,59 @@ fit into a square slot (one 256x512 source in the archive).
 Task: implement holes, visibility flags and special surface cases from client
 data, plus maximum-quality road and city detail including Archosaur's
 high-resolution surfaces.
-Finished **No**.
-Production integration **Partly** — layer selection, mask channels, mask sizes and
-the four source dimensions are driven from real archive and T2MK data; no hole or
-visibility-flag path exists to wire up.
-Native evidence **Yes for the negatives** (they are what blocks the point):
-`0x7a1520`/`0x7a178c` (T2MK), `0x7a255e`/`0x7a2776` (consumers), `0x77f180`
-(layer record hand-off).
-Tests executed and results: the `.trn2` files were decoded in full to find the
-special-surface records the point needs. A `.trn2` is
-`{magic "2NRT", version 1, x_size f32, z_size f32, region_width f32, ...}` with two
-offset/count pairs naming a **texture table** (162 entries in `world.trn2`, 88
-regions) and a **region-name table** (`world_1`..`world_88`), and the name tables end
-exactly at EOF with **no trailer**. `tools/material-check.rs` already reads those same
-fields (36/52/72/80), which corroborates the layout.
-**There is no hole, visibility-flag or special-surface record anywhere in it.** The
-`.t2bk` block header was also re-examined for the `block+0x74` visibility byte; its
-six-float prefix is not yet decoded and is registered rather than guessed.
-Remaining gaps: holes and `block+0x74` visibility are **not invented** — no record in
-the client data examined so far describes them, and this register entry stands until
-one is found. Archosaur high-resolution surfaces are not claimed: the census shows
-only four source dimensions, with a single 1024x1024 source in the whole terrain set.
+Finished **Yes** for the part of the point that exists in the 1.4.2 data; **No**
+for "holes" as a feature, because the client has none to implement.
+Production integration **Yes** — `src/terrain_block.rs` (new) + the loader in
+`src/main.rs`.
+Native evidence **Yes** — `0x77e2cf..0x77e308` (block walk, cull result stored),
+`0x77e430..0x77e443` (consumer), `0x7a1520`/`0x7a178c` (T2MK), `0x77f180`
+(texture refcount acquire/release — **not** a flag test, correcting the previous
+entry).
+
+### What was actually implemented
+
+**The per-vertex colour section of every terrain block.** `world_39.t2bk` is v5,
+256 blocks, flags `0x35`. Reading only heights and normals leaves **1.7-1.9 kB
+unaccounted for in every block** and reads 930 bytes past the end of the file on
+the last one. The remainder is a third zlib section that inflates to exactly
+`(grid+1)^2 * 4` bytes of per-vertex RGBA. With it included, the block spans sum
+to **1,760,110 = file length minus the offset table, exactly, in all 256 blocks**.
+That makes bit `0x1` the section's flag — the only set bit in `0x35` that no
+reader honoured — and `src/terrain_block.rs` now validates the whole layout in one
+place and rejects any undefined flag bit instead of misreading the block.
+
+This is maximum-quality terrain colour, and it is data the client shipped that the
+viewer was silently discarding.
+
+### What the point asked for that does not exist
+
+Three independent checks, all on real client data, agree that the 1.4.2 client has
+**no data-driven terrain holes and no authored visibility flags**:
+
+1. `.trn2` decoded in full: region configuration plus a texture-name table (162
+   entries) and a region-name table (`world_1`..`world_88`), both ending **exactly
+   at EOF with no trailer**.
+2. The `.t2bk` colour section's alpha is **uniformly 255** across all 256 blocks
+   (278,784 vertices) — a tint, not a hole mask.
+3. No terrain-hole vocabulary in the executable: `hole` occurs only as
+   `Txt_EquipHole` and `AVCGMCommandInvisible`.
+
+`block+0x74`, which the previous register called "unimplemented visibility", is
+**runtime culling state**: `0x77e2f8`/`0x77e308` store a virtual cull test's result
+into it, and `0x77e430` reads it to skip a block before computing camera distance.
+Reproducing that is frustum-culling work in the LOD lane, not a data flag.
+
+Tests executed and results: `src/terrain_block.rs` **10 tests passed**; the full
+production algorithm was run over the real `world_39.t2bk` and all 256 blocks
+decode exactly (heights 4356 B, polar normals 2186 B with count 1089, colour
+4356 B); core suite green (29 modules); CI green.
+Remaining gaps: holes stay unimplemented because no record describes them — an
+invented hole mask would be worse than the honest gap. Archosaur high-resolution
+surfaces are not separately claimed: the census found four source dimensions with a
+single 1024x1024 source across all 363 terrain sources. Real-data surprise worth
+recording: zlib output can be **larger** than its input (blocks 152 and 168 carry
+4678/4709 compressed bytes for 4356 bytes of colour), so no input-size bound is
+asserted anywhere.
 
 **P2.09 — multi-view consistency and CI regressions.**
 Task: keep terrain consistent across main, reflection, clipped refraction, minimap
