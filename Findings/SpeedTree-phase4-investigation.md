@@ -345,3 +345,57 @@ PYTHONPATH=.cache/py python3 -m unittest discover -s tools/speedtree -p 'test_*.
 Both cross-compiles succeeded; both surveys completed with the counts above;
 18 Python tests passed. Full Cargo/GPU and native Windows validation remain
 unavailable. P4.01–P4.03 remain incomplete.
+
+### Experimental independent-component archive (PWCOMP01)
+
+`tools/speedtree/component-cache-probe.cpp` now writes a **diagnostic**, not
+production-ready, independent-component archive. After the runtime `Compute`,
+it requests each branch, frond, and leaf index independently using the
+GetGeometry short overrides. It writes the DLL and SPT FNV-1a identities and
+tree type, raw branch and composite texture names, then each component's
+separate ordered LOD records. Branch/frond records reuse the strict checked
+indexed-geometry serializer (positions, normals, UVs and triangle-list indices).
+Leaf records store centers, normals, clusters, UVs and the DLL's four 4-float
+card entries for the fixed +X camera at rest. The file deliberately has a
+separate `PWCOMP01` magic: it must not be mistaken for a PWTREE07/08 file.
+
+`src/tree_component_cache.rs` is a standalone, bounded reader with identity,
+count, finite-value, index, truncation, and trailing-byte checks. It is not
+connected to viewer startup. This archive omits material state, alpha-reference
+transition parameters, general-camera leaf transforms and wind evolution;
+its fixed-camera cards cannot be rendered correctly for arbitrary cameras.
+It is a building block for a real cache, not an implementation of P4.01–P4.03.
+The shipped helper, startup key, and snapshot renderer remain unchanged.
+
+With wibo/Wine-derived CRT, 56 of 59 type archives were emitted and parsed by
+the Rust reader with component counts matching the runtime survey. The 115
+leaf LODs in those 56 archives have fixed-camera field hashes matching the
+independent automatic-LOD traces described above. This hash comparison covers
+the listed leaf fields only; it does not independently verify indexed topology,
+materials, other camera directions, wind, or native Windows execution. Types
+34, 47 and 48 did not emit archives: as previously investigated, strict
+nonfinite branch-normal errors cause wibo's missing `K32EnumProcessModules`
+exception-unwind failure. The survey records these failures and exits nonzero;
+no replacement normals are invented. Per-type counts and errors are in
+`Findings/SpeedTree-wibo-component-cache-survey.tsv`.
+
+Reproduction (the trace directory comes from the earlier explicit-LOD probe):
+
+```sh
+.cache/zig/ziglang/zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/lod-explicit-probe.cpp -o .cache/lod-explicit-probe.exe
+mkdir -p .cache/lod-explicit-traces
+seq 0 58 | xargs -P 4 -I '{}' sh -c 'id=$(printf "%03d" "$1"); .cache/wibo-build/wibo .cache/lod-explicit-probe.exe "$PWD/google_drive/speedtreert.dll" "$PWD/.cache/tree-source/tree-$id.spt" > .cache/lod-explicit-traces/$id.tsv' sh '{}'
+.cache/zig/ziglang/zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/component-cache-probe.cpp -o .cache/component-cache-probe.exe
+.cache/rust/bin/rustc --edition=2021 --test src/tree_component_cache.rs -o .cache/tree-component-cache-tests
+.cache/tree-component-cache-tests
+.cache/rust/bin/rustc --edition=2021 tools/speedtree/check-component-cache.rs -o .cache/check-component-cache
+python3 tools/speedtree/survey_component_cache.py .cache/wibo-build/wibo .cache/component-cache-probe.exe .cache/check-component-cache google_drive/speedtreert.dll .cache/tree-source .cache/lod-explicit-traces Findings/SpeedTree-wibo-lod-counts.tsv .cache/component-survey Findings/SpeedTree-wibo-component-cache-survey.tsv
+python3 tools/speedtree/compare_component_leaves.py .cache/component-survey .cache/lod-explicit-traces Findings/SpeedTree-wibo-lod-counts.tsv --missing 34 47 48
+PYTHONPATH=.cache/py python3 -m unittest discover -s tools/speedtree -p 'test_*.py'
+```
+
+The survey intentionally exited 1 for the three failed types; the leaf
+comparison checked 56 types and 115 levels; three standalone Rust tests and
+20 Python tests passed. The Rust tests include all truncated prefixes of a
+synthetic cache and invalid normal/index rejection. Full Cargo, GPU, and native
+Windows tests remain unavailable.
