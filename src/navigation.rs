@@ -103,24 +103,56 @@ impl MapSpace {
         }
     }
 }
-/// Client map tiles are named ROW then COLUMN: 000..107, 11 rows x 8 columns.
-/// Downsample each 1024px image for a practical single atlas in the map UI.
-pub fn original_map(element: &Path) -> Result<image::RgbaImage, String> {
+/// Client world-map tile name: ROW then COLUMN, `%03d` of `row * 10 + col`,
+/// which is why the retail archive runs 000..107 for 11 rows x 8 columns. The
+/// two-digit names in the same folder (74, 84, ...) are duplicates of 074, 084
+/// and are not needed.
+pub fn map_tile_name(row: u32, col: u32) -> String {
+    format!("surfaces/maps/{:03}.dds", row * 10 + col)
+}
+/// Client minimap tile name: `%02d%02d` of ROW then COLUMN, the format string at
+/// `0x565220` after `Surfaces\\MiniMaps\\`. Each tile is 256x256 DXT1.
+pub fn minimap_tile_name(zone: &str, row: u32, col: u32) -> String {
+    format!("surfaces/minimaps/{zone}/{row:02}{col:02}.dds")
+}
+
+/// The world is 8192x11264 units: 8x11 regions of 1024. A minimap row covers
+/// 512 units, so the world spans exactly 16 x 22 tiles. The archive ships 23
+/// rows (368 tiles); the 23rd lies past the southern edge and is not part of the
+/// world, so it is not composited.
+const MAP_ROWS: u32 = 11;
+const MAP_COLS: u32 = 8;
+const MINIMAP_ROWS: u32 = 22;
+const MINIMAP_COLS: u32 = 16;
+/// The main world's own minimap set; other zones (a01, b03, ...) are separate
+/// instances with their own coordinate space.
+pub const WORLD_MINIMAP_ZONE: &str = "world";
+
+/// Composite a row-major tile grid from `surfaces.pck` into one image.
+///
+/// `side` is the per-tile output size: the client ships 1024px map tiles and
+/// 256px minimap tiles, which at full size would be a 368 MB texture.
+fn compose(
+    element: &Path,
+    rows: u32,
+    cols: u32,
+    side: u32,
+    name: impl Fn(u32, u32) -> String,
+) -> Result<image::RgbaImage, String> {
     let path = element.join("surfaces.pck");
     let mut f = fs::File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
     let entries = pck::directory(&mut f)?;
-    let side = 256u32;
-    let mut map = image::RgbaImage::new(8 * side, 11 * side);
-    for row in 0..11 {
-        for col in 0..8 {
-            let name = format!("surfaces/maps/{row:02}{col}.dds");
+    let mut map = image::RgbaImage::new(cols * side, rows * side);
+    for row in 0..rows {
+        for col in 0..cols {
+            let tile_name = name(row, col);
             let entry = entries
                 .iter()
-                .find(|e| e.name.eq_ignore_ascii_case(&name))
-                .ok_or_else(|| format!("missing map tile {name}"))?;
+                .find(|e| e.name.eq_ignore_ascii_case(&tile_name))
+                .ok_or_else(|| format!("missing map tile {tile_name}"))?;
             let data = pck::read_entry(&mut f, entry)?;
             let tile = image::load_from_memory_with_format(&data, image::ImageFormat::Dds)
-                .map_err(|e| format!("{name}: {e}"))?
+                .map_err(|e| format!("{tile_name}: {e}"))?
                 .to_rgba8();
             let tile =
                 image::imageops::resize(&tile, side, side, image::imageops::FilterType::Triangle);
@@ -129,9 +161,55 @@ pub fn original_map(element: &Path) -> Result<image::RgbaImage, String> {
     }
     Ok(map)
 }
+
+/// The client's own full-world map, 11 rows x 8 columns of 1024px tiles
+/// downsampled to 256px: 2048x2816, covering exactly the world's 8192x11264.
+pub fn original_map(element: &Path) -> Result<image::RgbaImage, String> {
+    compose(element, MAP_ROWS, MAP_COLS, 256, map_tile_name)
+}
+
+/// The client's own minimap for the main world: 16 x 22 tiles of 256px
+/// downsampled to 128px: 2048x2816, the same extent as `original_map`, so one
+/// world-to-uv transform positions both.
+pub fn original_minimap(element: &Path) -> Result<image::RgbaImage, String> {
+    compose(element, MINIMAP_ROWS, MINIMAP_COLS, 128, |row, col| {
+        minimap_tile_name(WORLD_MINIMAP_ZONE, row, col)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_map_tile_names_follow_the_archive() {
+        // Row then column, `%03d` of row*10+col: the retail folder holds
+        // 000..107 for 11 rows x 8 columns plus a duplicate two-digit set.
+        assert_eq!(map_tile_name(0, 0), "surfaces/maps/000.dds");
+        assert_eq!(map_tile_name(0, 7), "surfaces/maps/007.dds");
+        assert_eq!(map_tile_name(1, 0), "surfaces/maps/010.dds");
+        assert_eq!(map_tile_name(6, 4), "surfaces/maps/064.dds");
+        assert_eq!(map_tile_name(10, 7), "surfaces/maps/107.dds");
+        // The minimap is `%02d%02d`, matching the `Surfaces\MiniMaps\%02d%02d`
+        // format string at 0x565220.
+        assert_eq!(
+            minimap_tile_name("world", 0, 0),
+            "surfaces/minimaps/world/0000.dds"
+        );
+        assert_eq!(
+            minimap_tile_name("world", 21, 15),
+            "surfaces/minimaps/world/2115.dds"
+        );
+    }
+
+    #[test]
+    fn minimap_grid_covers_the_world_exactly() {
+        // 16 tiles of 512 units across 8192, 22 rows of 512 down 11264.
+        assert_eq!(MINIMAP_COLS * 512, 8 * 1024);
+        assert_eq!(MINIMAP_ROWS * 512, 11 * 1024);
+        // The shipped 23rd row is outside the world and must not be composited.
+        assert_eq!(MINIMAP_ROWS + 1, 23);
+    }
     #[test]
     fn client_targets() {
         let d=parse_destinations("3801\t\"Archosaur, North District\"\t1\t\"1470.490,219.608,1180.864\"\t23\n1\t\"Other\"\t2\t\"1,2,3\"\t0").unwrap();

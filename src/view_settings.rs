@@ -17,6 +17,37 @@ pub fn post_required(bloom: bool, sharpen: bool, underwater: bool, gamma: bool) 
     })
 }
 
+/// Which artwork a map surface shows.
+///
+/// `Realistic` renders the world from above with the live scene. `Original`
+/// shows the client's own map textures, read from `surfaces.pck`:
+/// `surfaces/maps/` for the world map and `surfaces/minimaps/<zone>/` for the
+/// minimap (`Surfaces\\MiniMaps\\%02d%02d`, `0x565220`). The two surfaces select
+/// independently because the client draws them from different asset sets.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum MapStyle {
+    #[default]
+    Realistic,
+    Original,
+}
+impl MapStyle {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Realistic => "Realistic",
+            Self::Original => "Original",
+        }
+    }
+    /// Persisted spelling; anything unrecognised keeps the default rather than
+    /// silently becoming a different style.
+    fn parse(text: &str) -> Option<Self> {
+        match text {
+            "Realistic" => Some(Self::Realistic),
+            "Original" => Some(Self::Original),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct DetailSettings {
     /// Terrain block window half-size in blocks (`world+0x1bc / block size`,
@@ -68,6 +99,10 @@ pub struct ViewSettings {
     pub grass_distance_fade: bool,
     pub area_grass_lightmaps: bool,
     pub celestial_discs: bool,
+    /// World map artwork (the full-world page).
+    pub world_map_style: MapStyle,
+    /// Minimap artwork, chosen separately from the world map.
+    pub minimap_style: MapStyle,
     /// Internal 3D render resolution as a percentage of the window size.
     /// 100 is native; the Graphics tab exposes 10 (fast/blurry) to 200
     /// (supersampled). UI and presentation always stay at native resolution.
@@ -109,6 +144,8 @@ impl Default for ViewSettings {
             grass_distance_fade: true,
             area_grass_lightmaps: true,
             celestial_discs: false,
+            world_map_style: MapStyle::Realistic,
+            minimap_style: MapStyle::Realistic,
             resolution_scale: 100.,
         }
     }
@@ -190,6 +227,16 @@ impl ViewSettings {
                 "fullscreen" => flag!(s.fullscreen),
                 "show_zone_entry" => flag!(s.show_zone_entry),
                 "show_minimap" => flag!(s.show_minimap),
+                "world_map_style" => {
+                    if let Some(style) = MapStyle::parse(v) {
+                        s.world_map_style = style;
+                    }
+                }
+                "minimap_style" => {
+                    if let Some(style) = MapStyle::parse(v) {
+                        s.minimap_style = style;
+                    }
+                }
                 _ => {}
             }
         }
@@ -200,11 +247,12 @@ impl ViewSettings {
             "radius={}\ntree_lod_scale={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen,self.resolution_scale)
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen,self.resolution_scale,
+            self.world_map_style.label(),self.minimap_style.label())
     }
     fn file() -> Option<std::path::PathBuf> {
         #[cfg(windows)]
@@ -262,6 +310,34 @@ mod tests {
         assert_eq!(s, ViewSettings::decode(&s.encode()));
         assert!(!ViewSettings::decode("sharpen=invalid").sharpen);
     }
+    #[test]
+    fn map_styles_default_to_realistic_and_persist_independently() {
+        let d = ViewSettings::default();
+        assert_eq!(d.world_map_style, MapStyle::Realistic);
+        assert_eq!(d.minimap_style, MapStyle::Realistic);
+        // The two surfaces are independent: an original minimap does not drag the
+        // world map off the live render, and vice versa.
+        let s = ViewSettings::decode("minimap_style=Original");
+        assert_eq!(s.minimap_style, MapStyle::Original);
+        assert_eq!(s.world_map_style, MapStyle::Realistic);
+        let back = ViewSettings::decode(&s.encode());
+        assert_eq!(back.minimap_style, MapStyle::Original);
+        assert_eq!(back.world_map_style, MapStyle::Realistic);
+        let both = ViewSettings::decode("world_map_style=Original\nminimap_style=Original");
+        assert_eq!(both.world_map_style, MapStyle::Original);
+        assert_eq!(both.minimap_style, MapStyle::Original);
+        assert_eq!(ViewSettings::decode(&both.encode()), both);
+    }
+
+    #[test]
+    fn an_unrecognised_map_style_keeps_the_default_instead_of_switching() {
+        // Falling back to the live render is the safe direction: a typo must not
+        // silently select a style the user did not ask for.
+        let s = ViewSettings::decode("world_map_style=Photorealistic\nminimap_style=original");
+        assert_eq!(s.world_map_style, MapStyle::Realistic);
+        assert_eq!(s.minimap_style, MapStyle::Realistic);
+    }
+
     #[test]
     fn round_trip_all_settings() {
         let mut s = ViewSettings::default();
