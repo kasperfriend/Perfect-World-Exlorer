@@ -184,7 +184,7 @@ impl ModelAsset {
             // the stored asset names its real source rather than the first
             // guess.
             let mut path = primary.clone();
-            let data = match read(&path) {
+            let data = match bytes(&path) {
                 Ok(b) => skin::Skin::parse(&b).map_err(|e| format!("{path}: {e}"))?,
                 Err(first) => {
                     // Try the same name relative to the `.smd`, then the
@@ -195,7 +195,10 @@ impl ModelAsset {
                         .iter()
                         .filter(|c| !c.is_empty() && **c != *primary)
                     {
-                        if let Ok(b) = read(candidate) {
+                        // Go through `bytes`, not the raw `read`: `read` is
+                        // already mutably borrowed by that wrapper, and it also
+                        // adds the failing path to the error.
+                        if let Ok(b) = bytes(candidate) {
                             parsed = Some(
                                 skin::Skin::parse(&b)
                                     .map_err(|e| format!("{candidate}: {e}"))?,
