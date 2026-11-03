@@ -263,6 +263,25 @@ pub fn curtain_alpha(y: f32) -> f32 {
     (ROW_Y[0] - y) / (ROW_Y[0] - ROW_Y[1])
 }
 
+/// Fraction of the cap's rim-to-pole span the viewer softens. The native disc
+/// is opaque all the way to its 72.5 degree rim, where the mesh stops and the
+/// 38.16-72.5 degree band begins; retail covers that hard circle with an
+/// object drawn at `0x799f88` from `[A3DSky+0x54]` that this build does not
+/// render, so the rim fades into the pass background instead. Zero restores the
+/// hard native edge.
+pub const CAP_RIM_FADE: f32 = 0.45;
+
+/// Coverage of the recovered cap disc, `0` on the 72.5 degree rim and `1` well
+/// inside it. Mirrors the `sample_sky` disc branch in the WGSL sky shader.
+pub fn cap_alpha(y_axis: f32) -> f32 {
+    let rim = ((y_axis - CAP_EDGE_Y) / (RADIUS - CAP_EDGE_Y)).clamp(0.0, 1.0);
+    if CAP_RIM_FADE <= 0.0 {
+        return 1.0;
+    }
+    let t = (rim / CAP_RIM_FADE).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
 /// Project a unit view direction onto the recovered sky textures.
 ///
 /// Returns `None` only for a direction that is not finite. The `CapEdgeGap`
@@ -284,7 +303,7 @@ pub fn project(direction: [f32; 3]) -> Option<Sample> {
         return Some(Sample {
             layer: Layer::Roof,
             uv: [0.5 + d[0] * RADIUS / disc, 0.5 + d[2] * RADIUS / disc],
-            alpha: 1.0,
+            alpha: cap_alpha(d[1] * RADIUS),
             region: Region::Cap,
         });
     }
@@ -597,6 +616,21 @@ mod tests {
         assert_eq!(curtain_alpha(-30.0), 1.0);
         // Halfway up the opaque part of the skirt.
         assert!((curtain_alpha(29.45) - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn cap_rim_fades_into_the_uncovered_band_without_a_hard_circle() {
+        // The disc is fully opaque only away from its 72.5 degree rim.
+        assert_eq!(cap_alpha(CAP_EDGE_Y), 0.0);
+        assert!((cap_alpha(RADIUS) - 1.0).abs() < 1e-6);
+        assert!(cap_alpha(CAP_EDGE_Y + 0.5) < 0.05);
+        // The two neighbours agree at the seam: the band is transparent and the
+        // disc starts transparent, so no visible ring survives.
+        let (sin, cos) = 73.5_f32.to_radians().sin_cos();
+        let rim = project([cos, sin, 0.0]).unwrap();
+        assert_eq!(rim.region, Region::Cap);
+        assert!(rim.alpha < 0.1, "rim alpha {}", rim.alpha);
+        assert!(project([0.0, 1.0, 0.0]).unwrap().alpha > 0.99);
     }
 
     #[test]

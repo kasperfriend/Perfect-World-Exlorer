@@ -566,25 +566,40 @@ impl Environments {
         self.sample(p, hour, false)
     }
     fn endpoints(&self, p: [f32; 3]) -> Selection {
-        // Selection order is still a heuristic pending the streaming-order trace.
-        let a = self
-            .areas
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| a.contains(p))
-            .min_by(|(_, a), (_, b)| {
-                a.global
-                    .cmp(&b.global)
-                    .then_with(|| a.distance2(p).total_cmp(&b.distance2(p)))
-            });
-        let (key, target, duration_ms) = self.endpoints_for(a.map(|(i, _)| i));
-        // The non-streamed path has one box per position, so it supplies both
-        // the local colours and the direction/flag word.
+        // Selection order is still a heuristic pending the streaming-order
+        // trace, but the two native selections stay separate here exactly as in
+        // `RegionStreaming::endpoints`: the nearest containing non-global box
+        // owns colour and fog, while the containing GLOBAL box owns the sun/moon
+        // flag word and the authored direction. `0x41ebe2` retains the default
+        // independently of the local box and `0x420992` reads its `+0x80` word
+        // on every render, so a local box can never switch the discs off.
+        let mut local: Option<(usize, f32)> = None;
+        let mut default: Option<(usize, f32)> = None;
+        for (i, a) in self.areas.iter().enumerate() {
+            if !a.contains(p) {
+                continue;
+            }
+            let slot = if a.global { &mut default } else { &mut local };
+            let d = a.distance2(p);
+            let nearer = match *slot {
+                Some((_, best)) => d < best,
+                None => true,
+            };
+            if nearer {
+                *slot = Some((i, d));
+            }
+        }
+        let index = local.or(default).map(|(i, _)| i);
+        let (key, mut target, duration_ms) = self.endpoints_for(index);
+        if let Some((i, _)) = default {
+            target.celestial_flags = self.areas[i].celestial_flags;
+            target.sun_direction = self.areas[i].sun_direction;
+        }
         Selection {
             key,
             target,
             duration_ms,
-            default_present: key.is_some(),
+            default_present: default.is_some(),
         }
     }
     fn endpoints_for(&self, index: Option<usize>) -> (Option<usize>, FogEndpoints, u32) {
@@ -715,8 +730,13 @@ mod tests {
         second.ambient_day = [1., 0.5, 0.25];
         second.diffuse_day = [0.4, 0.3, 0.2];
         second.transition_ms = 5000;
+        // The authored direction and flag word belong to the containing GLOBAL
+        // box only (0x41f244/0x420992), so this fixture marks the box that owns
+        // the origin as the default one.
+        let mut base = overlap.areas[1].clone();
+        base.global = true;
         let mut env = Environments {
-            areas: vec![overlap.areas[1].clone(), second],
+            areas: vec![base, second],
             ..Default::default()
         };
         let mut transition = FogTransition::new(&env, [0.; 3]);
@@ -745,6 +765,55 @@ mod tests {
         env.areas[0].transition_ms = 0;
         let (_, instant) = transition.update(&env, [0.; 3], 12., 0.);
         assert!((instant.start - 7.).abs() < 1e-5);
+    }
+    #[test]
+    fn non_streamed_selection_reads_the_sun_moon_word_from_the_global_box() {
+        let fog = Fog::default();
+        let area = BoxArea {
+            global: false,
+            transition_ms: 5000,
+            center: [0.; 3],
+            extents: [10000.; 3],
+            axes: [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+            day: fog,
+            night: fog,
+            air_day: fog,
+            air_night: fog,
+            ambient_day: [1.; 3],
+            ambient_night: [0.; 3],
+            diffuse_day: [1.; 3],
+            diffuse_night: [0.; 3],
+            sun_direction: [0., -1., 0.],
+            celestial_flags: 0,
+        };
+        let mut global = area.clone();
+        global.global = true;
+        global.celestial_flags = 0x18;
+        global.sun_direction = [1., 0., 0.];
+        let mut local = area.clone();
+        local.day.start = 7.;
+        local.sun_direction = [0., 0., 1.];
+        let env = Environments {
+            areas: vec![global, local.clone()],
+            ..Default::default()
+        };
+        // The local box still owns colour, exactly as before.
+        assert_eq!(env.underwater([0.; 3], 12.).start, 7.);
+        let transition = FogTransition::new(&env, [0.; 3]);
+        let light = transition.lighting(12.).unwrap();
+        // ...but never the flag word or the authored direction (0x420992).
+        assert_eq!(light.celestial_flags, 0x18);
+        assert_eq!(light.toward_sun, [-1., 0., 0.]);
+        assert!(transition.default_present());
+        // A world without a containing global box keeps the recovered
+        // constructor default instead of borrowing the local box's word.
+        let only_local = Environments {
+            areas: vec![local],
+            ..Default::default()
+        };
+        let bare = FogTransition::new(&only_local, [0.; 3]);
+        assert_eq!(bare.lighting(12.).unwrap().celestial_flags, 0x18);
+        assert!(!bare.default_present());
     }
     #[test]
     fn streamed_region_selection_tracks_blocks_references_and_transitions() {

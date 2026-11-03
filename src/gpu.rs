@@ -1530,6 +1530,13 @@ impl Renderer {
             if state.night_flag { "on" } else { "off" },
             state.night_strength
         );
+        let flag_word = self.celestial_visibility.flags();
+        let flag_note = if flag_word & 0x18 == 0 {
+            " (default area disables both discs)"
+        } else {
+            ""
+        };
+        out.push_str(&format!("; disc flags 0x{flag_word:02x}{flag_note}"));
         for disc in crate::sky_celestial::discs(
             &state,
             self.celestial_visibility.fade(true),
@@ -1648,6 +1655,11 @@ impl Renderer {
             night_weight: crate::sky_time::night_weight(camera.time_of_day).unwrap_or(0.),
             sun,
             moon,
+            // The 38.16-72.5 degree band has no native mesh; the client covers
+            // it with something drawn at 0x799f88 that this build does not, so
+            // the viewer shows the frame's atmospheric fog there and the disc
+            // rim fades into it.
+            background: camera.air_fog.color,
         };
         self.sky.update(&self.queue, direction, w, h, frame, false);
         self.sky.update(&self.queue, direction, w, h, frame, true);

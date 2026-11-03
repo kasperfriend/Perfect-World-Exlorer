@@ -76,6 +76,11 @@ impl Visibility {
         }
         self.flags = flags;
     }
+    /// The flag word the last `update` latched (`+0x84`/`+0x85` sources): the
+    /// default area's `+0x80` word, bit 3 sun and bit 4 moon.
+    pub fn flags(&self) -> u32 {
+        self.flags
+    }
     /// Per-object fade: `+0x7c` for the sun, `+0x80` for the moon.
     pub fn fade(&self, sun: bool) -> f32 {
         self.values[if sun { 0 } else { 1 }]

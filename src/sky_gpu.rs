@@ -5,8 +5,13 @@
 //! [`crate::sky_time`] and [`crate::sky_celestial`]; this module only uploads
 //! them. Nothing here invents a blend: the panorama seam is a hard switch
 //! between the front and back texture, the band the native buffers leave open
-//! is filled with the pass background at the client's own rim alpha, and the
-//! day/night change is the client's linear switch timer.
+//! (38.16-72.5 degrees) is filled with the pass background at the client's own
+//! rim alpha, and the day/night change is the client's linear switch timer.
+//! Two viewer-only compositions keep that open band from reading as a ring: the
+//! background is the frame's atmospheric fog colour rather than a fixed blue,
+//! and the roof disc's rim fades into it over [`crate::sky_geometry::CAP_RIM_FADE`]
+//! because retail draws an unidentified object from `[A3DSky+0x54]`
+//! (`0x799f88`, vtable `+0x1c`) over that edge and this build does not.
 use crate::pck;
 use glam::{Mat4, Vec3};
 use std::{collections::HashMap, fs::File, path::Path};
@@ -23,6 +28,11 @@ pub struct SkyFrame {
     pub sun: [f32; 4],
     /// Moon: `[fade, elevation, azimuth, unused]`.
     pub moon: [f32; 4],
+    /// Colour the pass shows where neither native buffer covers the sky: the
+    /// 38.16-72.5 degree band the two meshes leave open. The retail client fills
+    /// that band with an object this build does not draw (0x799f88), so the
+    /// frame's own atmospheric fog colour is used instead of a fixed blue.
+    pub background: [f32; 3],
 }
 
 impl Default for SkyFrame {
@@ -32,6 +42,7 @@ impl Default for SkyFrame {
             night_weight: 0.0,
             sun: [0.0; 4],
             moon: [0.0; 4],
+            background: [0.18, 0.32, 0.48],
         }
     }
 }
@@ -43,6 +54,7 @@ struct Uniform {
     time: [f32; 4],
     celestial: [f32; 4],
     celestial2: [f32; 4],
+    background: [f32; 4],
 }
 
 pub struct SkyGpu {
@@ -54,7 +66,7 @@ pub struct SkyGpu {
 }
 
 pub(crate) const SHADER: &str = r#"
-struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>};
+struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>};
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
@@ -101,7 +113,12 @@ fn sample_sky(d:vec3<f32>,base:i32)->vec4<f32>{
  // (A3DSkySphere::Init 0x79a810).
  if d.y*50.0>=47.685848 {
   let uv=vec2<f32>(0.5,0.5)+vec2<f32>(d.x,d.z)*1.66275358;
-  return vec4<f32>(textureSampleLevel(skies,smp,uv,base+2,0.).rgb,1.0);
+  // Viewer-only rim softening: the native disc is opaque up to its 72.5 degree
+  // rim, where the mesh stops and the open band begins. Retail covers that hard
+  // circle with an object drawn at 0x799f88 that this build does not render, so
+  // the rim fades into the pass background over its outermost degrees instead.
+  let rim=clamp((d.y*50.0-47.685848)/2.314152,0.,1.);
+  return vec4<f32>(textureSampleLevel(skies,smp,uv,base+2,0.).rgb,smoothstep(0.,0.45,rim));
  }
  // Curtain: cylinder of radius 50, so the ray meets it at 50*tan(elevation).
  // One 180 degree half per draw, the second draw mirrors z; the island split
@@ -140,7 +157,7 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,layer:i32)->vec3<f32>{
  var color=mix(day.rgb,night.rgb,w);
  // The pass clears to this background and the sky rim alpha fades into it,
  // which is how the client hides the band its two buffers leave open.
- color=mix(vec3<f32>(0.18,0.32,0.48),color,clamp(mix(day.a,night.a,w),0.,1.));
+ color=mix(p.background.rgb,color,clamp(mix(day.a,night.a,w),0.,1.));
  color=celestial(color,d,p.celestial,9);
  color=celestial(color,d,p.celestial2,10);
  return vec4<f32>(color,1.);
@@ -388,6 +405,7 @@ impl SkyGpu {
             time: [frame.hour, frame.night_weight, 0., 0.],
             celestial: frame.sun,
             celestial2: frame.moon,
+            background: [frame.background[0], frame.background[1], frame.background[2], 1.],
         };
         queue.write_buffer(
             if reflected {

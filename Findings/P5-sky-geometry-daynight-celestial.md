@@ -137,6 +137,24 @@ the shipped buffers, not of a program this repository cannot read. What the
 retail game may have drawn *over* it (clouds, fog) is not part of these two
 objects and is not established here.
 
+The first test round reported the band as a blue blur ring around the roof disc,
+so the viewer now composes that gap explicitly instead of showing one fixed
+colour:
+
+* the pass background is the frame's atmospheric fog colour
+  (`camera.air_fog`), not a hard-coded `0.18, 0.32, 0.48`, so the band follows
+  the region and the hour;
+* the roof disc's rim fades into that background over
+  `sky_geometry::CAP_RIM_FADE` (45 % of the rim-to-pole span, `smoothstep` in
+  both `cap_alpha` and the WGSL disc branch), because retail hides the hard
+  72.5 degree edge under something this build does not draw: `0x799f88` renders
+  an object taken from `[A3DSky+0x54]` through vtable `+0x1c`, between the cap
+  and the curtain draws. That object is not identified yet, so the viewer only
+  softens the edge instead of claiming to reproduce it.
+
+Both are viewer-only compositions. `CAP_RIM_FADE = 0` restores the raw native
+edge, and the band is still reported as `Region::CapEdgeGap` either way.
+
 ---
 
 ## 2. Day/night rule (P5.02)
@@ -244,6 +262,19 @@ Two native quirks are reproduced rather than "fixed":
   `+0x54/+0x58/+0x5c` direction (`client_sun::sky_object_direction`, which negates
   the horizontal components and uses the day fraction as an angle). The old
   shader used that curve, which is why the discs sat in the wrong place.
+
+The first test round reported the status line claiming the sun was switched off
+at every hour, and no moon at night. Both had one cause: `Environments::endpoints`
+(the non-streamed selector) took the flag word and the authored direction from
+the same box it picked for fog — the nearest containing box, which is a *local*
+one whenever the player stands inside one. `0x420992` reads that word from the
+independently selected **global** box instead (`+0x80`; the loader maps record
+`+4` to area `+0x80` at `0x48a983..0x48a98e`), so a local box carrying 0 zeroed
+both fades and no disc was ever submitted. The selector now keeps the two
+selections apart exactly like `RegionStreaming::endpoints`, and a world with no
+containing global box keeps the recovered constructor default `0x18` rather than
+borrowing a local word. `Renderer::celestial_status` also prints the latched flag
+word so the state is visible in the settings tab.
 
 Unsupported states are explicit: `sky_celestial::disc` returns
 `BelowHorizon { elevation_degrees }`, `Hidden { fade }`, `MissingAsset(path)` or
@@ -372,8 +403,9 @@ Time boundaries covered: 00:00, 01:30, 03:30, 12:00, 18:00, 20:00, 21:00, 24:00.
    path selects one, so the two recovered buffers are the whole sky object and
    the band is empty in the client too. What the retail scene layers over that
    band — clouds or fog from other objects — is outside these two classes and is
-   not established here. The viewer renders the same coverage and reports the
-   band as `Region::CapEdgeGap`.
+   not established here. The viewer renders the same coverage, reports the band
+   as `Region::CapEdgeGap`, and fills it with the atmospheric fog colour while
+   softening the roof rim (section 1.5) so the open band does not read as a ring.
 2. **Sky set identity.** Resolved: `TransSky` (`0x79ac30`) receives the three
    paths from configuration and prefixes `Textures\Sky\`; the default
    environment in `element_client.cfg` names `clear` for all three images and
