@@ -1,6 +1,11 @@
 //! Incremental whole-world BMD preload. Each chunk has its own texture atlas;
 //! geometry is retained on the GPU rather than rebuilt with nearby terrain.
-use crate::{gpu::Vertex, objects::Objects, scene::Ornament};
+use crate::{
+    gpu::Vertex,
+    objects::Objects,
+    scene::Ornament,
+    scenery_visibility::{allows_with_context, Pass, RenderContext, Visibility},
+};
 use glam::Vec3;
 use std::{
     collections::HashMap,
@@ -13,6 +18,18 @@ use std::{
 };
 const SIDE: usize = 4096;
 const MAX_VERTICES: usize = 1_000_000;
+
+/// One ornament's index range inside a page. The two EC-BSD flags decide
+/// whether this range is submitted in reflection/refraction; the main and map
+/// passes always submit it. `start`/`end` are indices into `Page::indices`.
+#[derive(Clone, Debug)]
+pub struct PlacementRange {
+    pub start: u32,
+    pub end: u32,
+    pub export_id: u32,
+    pub visibility: Visibility,
+}
+
 pub struct Page {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
@@ -20,6 +37,7 @@ pub struct Page {
     pub processed: usize,
     pub used_height: usize,
     pub mips: Vec<Vec<u8>>,
+    pub placements: Vec<PlacementRange>,
 }
 impl Page {
     pub fn finish(mut self) -> Self {
@@ -102,6 +120,7 @@ struct Builder {
     slots: HashMap<String, crate::texture_atlas::Slot>,
     packing: crate::texture_atlas::Atlas,
     used_height: usize,
+    placements: Vec<PlacementRange>,
 }
 impl Builder {
     fn new() -> Self {
@@ -112,6 +131,7 @@ impl Builder {
             slots: HashMap::new(),
             packing: crate::texture_atlas::Atlas::new(),
             used_height: 0,
+            placements: Vec::new(),
         }
     }
     fn page(self, processed: usize) -> Page {
@@ -122,6 +142,7 @@ impl Builder {
             processed,
             used_height: self.used_height,
             mips: Vec::new(),
+            placements: self.placements,
         }
         .finish()
     }
@@ -217,6 +238,10 @@ fn run(
             let Some(model) = objects.get(id) else {
                 continue;
             };
+            // EC-BSD record +36 low bytes, recovered at 0x489f0b/0x489f12.
+            // Keep the flags with every index range so a hidden placement is
+            // never submitted just because its page is resident.
+            let visibility = Visibility::from_extra(objects.ornaments[id].extra);
             let z = basis(model.direction);
             let y = basis(model.up);
             let x = y.cross(z).normalize_or_zero();
@@ -230,8 +255,11 @@ fn run(
                 ) {
                     Ok(state) => state.kind,
                     Err(e) => {
-                        eprintln!("Skipping baked mesh {}: {e}", mesh.name);
-                        continue;
+                        // No silent skip: an unrepresentable mesh is an explicit
+                        // error for the whole-world builder, not a dropped
+                        // triangle. The BMD parser already rejects unsupported
+                        // versions by name before this point.
+                        return Err(format!("unsupported baked mesh {}: {e}", mesh.name));
                     }
                 };
                 // Content-keyed slot sharing (P3.08 cross-name dedup):
@@ -264,6 +292,7 @@ fn run(
                     }
                 }
                 let base = page.vertices.len() as u32;
+                let range_start = page.indices.len() as u32;
                 let ox = slot.x as f32 / SIDE as f32;
                 let oy = slot.y as f32 / SIDE as f32;
                 let sx = slot.w as f32 / SIDE as f32;
@@ -287,6 +316,15 @@ fn run(
                 }
                 page.indices
                     .extend(mesh.indices.iter().map(|&n| base + n as u32));
+                let range_end = page.indices.len() as u32;
+                if range_end > range_start {
+                    page.placements.push(PlacementRange {
+                        start: range_start,
+                        end: range_end,
+                        export_id: objects.ornaments[id].export_id,
+                        visibility,
+                    });
+                }
             }
         }
     }
@@ -314,6 +352,7 @@ pub struct GpuPage {
     count: u32,
     normal: wgpu::BindGroup,
     reflected: wgpu::BindGroup,
+    placements: Vec<PlacementRange>,
 }
 impl GpuPage {
     pub fn upload(
@@ -412,9 +451,18 @@ impl GpuPage {
             count: page.indices.len() as u32,
             normal,
             reflected,
+            placements: page.placements,
         }
     }
-    pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, reflected: bool) {
+    /// Submits only the placements the recovered EC-BSD flags admit in this
+    /// view. A page built without per-placement ranges is a diagnostic page:
+    /// draw it in full, but say so instead of silently dropping it.
+    pub fn draw_selected<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        reflected: bool,
+        view: Pass,
+    ) {
         pass.set_bind_group(
             0,
             if reflected {
@@ -426,7 +474,19 @@ impl GpuPage {
         );
         pass.set_vertex_buffer(0, self.vertex.slice(..));
         pass.set_index_buffer(self.index.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..self.count, 0, 0..1);
+        if self.placements.is_empty() {
+            eprintln!("scenery page has no placement visibility ranges; drawing all indices");
+            pass.draw_indexed(0..self.count, 0, 0..1);
+            return;
+        }
+        for r in &self.placements {
+            if allows_with_context(view, r.visibility, RenderContext::default()) {
+                pass.draw_indexed(r.start..r.end, 0, 0..1);
+            }
+        }
+    }
+    pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, reflected: bool) {
+        self.draw_selected(pass, reflected, Pass::Main);
     }
 }
 
@@ -507,6 +567,7 @@ mod page_tests {
             processed: 0,
             used_height: 256,
             mips: Vec::new(),
+            placements: Vec::new(),
         }
         .finish();
         assert_eq!(page.mips.len(), 7);
