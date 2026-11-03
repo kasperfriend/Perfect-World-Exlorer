@@ -47,6 +47,11 @@ jobs:
           # instead of only failing the viewer's test binary (P5.07).
           rustc --edition=2021 --test src/sky_transition.rs -o /tmp/sky-transition-tests
           /tmp/sky-transition-tests
+          # Phase 5 sky panorama seam (P5.09): the two meridian bands of the
+          # production `sky_gpu::sky` mapping, the layer-index group integrity and
+          # both sides of a meridian, as pure arithmetic with no GPU and no assets.
+          rustc --edition=2021 -O -o /tmp/phase5-sky-seam-check src/bin/phase5-sky-seam-check.rs
+          /tmp/phase5-sky-seam-check
       - name: Check all binary targets
         run: |
           # Keep the plain command so a non-zero exit still fails the job, but

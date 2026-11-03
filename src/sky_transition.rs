@@ -85,13 +85,34 @@
 //! `0x420706`..`0x42071f`).
 //!
 //! `0x4b6250` returns `0x249f00` (2 400 000) or `0x1b7740` (1 800 000),
-//! switching on a float at `+0x74` — a 40- or 30-minute game day expressed in
-//! milliseconds. The driver divides that number straight into the counter, while
-//! `0x79a040` moves the counter by a flat 33 per call. The two units therefore do
-//! not line up on their own: how often the tick is called decides how long a
-//! swap really takes, and that cadence was not recovered. [`VIEWER_CLOCK_MS`]
-//! records the one place where the viewer substitutes its own clock instead of
-//! running a multi-minute crossfade it cannot verify.
+//! switching on the float at `config+0x74` (`fcomps 0x8d58a0`, i.e. against
+//! zero): a 40- or 30-minute game day expressed in milliseconds.
+//!
+//! # Why the count is a duration (the cadence that used to be missing)
+//!
+//! The driver divides that day length straight into the counter, and `0x79a040`
+//! moves the counter by a flat 33 per call, so the two units only line up if the
+//! tick runs once per rendered frame and 33 is a millisecond step. That is what
+//! the object says: `0x8f14bc` holds `1/30` (`0x3d088889`), the factor
+//! `0x79a0e0` applies to both interpolation blocks, i.e. exactly one Voodoo-3
+//! era frame. And `0x79a040` is reached *only* from its own vtable slot
+//! `0x8f14b0` (vtable base `0x8f1490`), so it is the object's owned per-frame
+//! update — there is no other caller and no config-sourced cadence (the binary
+//! has no frame-rate string at all).
+//!
+//! So: one tick = one frame = 33 ms of fade, and a transition lasts `count`
+//! milliseconds. With `count = clock/2 * phase * 1.25` on the day set and
+//! `clock/2 * (1 - phase) * 2` on the night set, the counted bands
+//! (`0.5..0.8` on the day branch, `0.5..1` on the night one) give a supremum of
+//! half a game day: 900 000 ms of fade on the 30-minute setting, i.e. 15 game
+//! minutes and **900 seconds of real time**. (The remaining half of the day is
+//! covered by the uncounted endpoint switch at `phase <= 0` / `phase >= 1`, not
+//! by a longer fade.)
+//!
+//! The fades are therefore minutes of wall time, not milliseconds, so
+//! [`Machine::step`] has to be driven by elapsed time rather than called once per
+//! rendered frame: [`Machine::step_ms`] is what the viewer uses, and it replaces
+//! the stand-in clock constant this module used to carry.
 //!
 //! # Deliberately not invented
 //!
@@ -109,7 +130,9 @@
 /// `add $0x21`, `0x79a0b5`).
 pub const SLICE_MS: u32 = 33;
 /// `0x8f14bc`: one slice in seconds, the factor `0x79a0e0` applies to both
-/// interpolation blocks.
+/// interpolation blocks. Read back as `1/30` it is the frame interval, which is
+/// what makes the counter a millisecond counter (see [`TICKS_PER_SECOND`]).
+#[cfg(test)]
 pub const SLICE_SECONDS: f32 = f32::from_bits(0x3d088889);
 /// `0x8d6808`: the `1.25` factor in the day count (`0x42056a`).
 pub const DAY_COUNT_SCALE: f32 = 1.25;
@@ -117,18 +140,32 @@ pub const DAY_COUNT_SCALE: f32 = 1.25;
 pub const DAY_LATE_PHASE: f32 = 0.8;
 pub const NIGHT_ONSET_PHASE: f32 = 0.5;
 
-/// The clock the viewer feeds to [`drive`], in the same unit `0x4b6250` returns.
+/// `0x4b6250`: the length of a game day in milliseconds, 40-minute setting
+/// (`config+0x74 != 0`).
+pub const DAY_MS_LONG: i32 = 0x249f00;
+/// `0x4b6250`: the same for the 30-minute setting (`config+0x74 == 0`).
+pub const DAY_MS_SHORT: i32 = 0x1b7740;
+/// The clock value the viewer feeds to [`drive`]: the 30-minute day, the one the
+/// recovered default configuration selects. This is the real unit again —
+/// a count from [`slice_count`] is a number of milliseconds, not a stand-in.
+pub const DAY_CLOCK_MS: i32 = DAY_MS_SHORT;
+/// Ticks per second of wall time: the frame interval `0x8f14bc` holds is `1/30` s.
+pub const TICKS_PER_SECOND: u64 = 30;
+/// Upper bound on the ticks one [`Machine::step_ms`] call may take, so a stalled
+/// frame cannot replay a whole fade synchronously.
+pub const MAX_TICKS_PER_STEP: u64 = 4096;
+
+/// The clock in the unit `0x4b6250` returns, from a game-day length in minutes.
 ///
-/// This is **not** a recovered constant. `0x4b6250` answers with the length of a
-/// game day in milliseconds (2 400 000 for the 40-minute setting, 1 800 000 for
-/// the 30-minute one), and the counts the driver derives from it are hundreds of
-/// thousands of 33-unit ticks. The viewer does not run a several-minute sky
-/// crossfade it cannot verify, so it substitutes its own clock value here and
-/// keeps every recovered expression intact; the resulting fade stays under about
-/// a second. The value is the one that makes `2*count - clock/2`, the counter the
-/// driver leaves behind after its hurry, land in the tens of ticks across the
-/// counted phase bands.
-pub const VIEWER_CLOCK_MS: i32 = 240;
+/// The client has exactly two settings (`+0x74` against zero), so this snaps to
+/// the nearer of them rather than pretending a day length is continuous.
+pub fn clock_for_minutes(minutes: f32) -> i32 {
+    if minutes >= 35. {
+        DAY_MS_LONG
+    } else {
+        DAY_MS_SHORT
+    }
+}
 
 /// One authored three-image sky set. The viewer's loader holds three groups of
 /// three client images (`textures/sky/{clear,evening,night2}/{01,02,roof}.bmp`),
@@ -362,6 +399,38 @@ impl Machine {
         }
     }
 
+    /// The same tick, driven by elapsed wall time instead of by a frame count.
+    ///
+    /// One native tick is one frame and `0x8f14bc` says a frame is `1/30` s, so a
+    /// second of real time is 30 ticks. `residual` carries the sub-tick remainder
+    /// in **milli-thirty-seconds** (`0..999`), so the accounting is exact integer
+    /// arithmetic: thirty ticks are exactly 1000 units. A float accumulator would
+    /// floor `1000 / (1000/30)` to 29 and lose a tick per second, which over a
+    /// several-minute fade is a visible lag behind the game clock. Returns how
+    /// many ticks were taken.
+    ///
+    /// This exists because a native fade is 15–100 % of a game day: replaying it
+    /// once per rendered frame would make the duration depend on the frame rate.
+    pub fn step_ms(&mut self, elapsed_ms: u32, residual: &mut u64) -> u32 {
+        if elapsed_ms == 0 {
+            return 0;
+        }
+        *residual += elapsed_ms as u64 * TICKS_PER_SECOND;
+        let ticks = *residual / 1000;
+        *residual %= 1000;
+        // A fade never needs more ticks than its own counter, and a long stall (a
+        // loading screen, a debugger break) must not spin here for minutes; the
+        // excess is dropped, and `0x79b16f`-like clamping is not needed because a
+        // commit clears the counter.
+        let ticks = ticks.min(MAX_TICKS_PER_STEP) as u32;
+        for _ in 0..ticks {
+            if self.step() {
+                break;
+            }
+        }
+        ticks
+    }
+
     /// `0x79b150(delta)`.
     pub fn hurry(&mut self, delta: u32) {
         if self.counter == 0 {
@@ -421,8 +490,8 @@ pub fn view_sets(frame: (i32, i32, f32), secondary: bool) -> (i32, i32, f32) {
 /// One step of the native selection driver `0x4203f4..0x420807`.
 ///
 /// `phase` is the scalar at `config+0x70`, `day` the byte read at `0x4204db`,
-/// `clock` what `0x4b6250` returns (a day length in ms; see
-/// [`VIEWER_CLOCK_MS`] for the viewer's stand-in). Returns the request that was
+/// `clock` what `0x4b6250` returns (a game-day length in ms, [`DAY_CLOCK_MS`] by
+/// default). Returns the request that was
 /// issued, if any, for diagnostics.
 pub fn drive(machine: &mut Machine, phase: f32, day: bool, clock: i32) -> Option<Request> {
     // The driver's own guard: nothing is re-issued while a swap runs.
@@ -757,17 +826,203 @@ mod tests {
         let mut m = Machine::new(Triple::NIGHT);
         drive(&mut m, 0.5, true, 624);
         assert_eq!(m.counter(), 78);
-        // A real game-day clock leaves hundreds of thousands of ticks; the
-        // viewer's own clock keeps the same expressions to tens.
+        // A real game-day clock leaves hundreds of thousands of slices.
         let mut m = Machine::new(Triple::NIGHT);
         drive(&mut m, 0.5, true, 1_800_000);
         assert_eq!(m.bound(), 562_500);
         assert_eq!(m.counter(), 225_000);
+        // The real clock: a 30-minute day, so the day-set count at phase 0.5 is
+        // 900 000 * 0.5 * 1.25 = 562 500 ms of fade, and the driver's hurry takes
+        // the counter down to 225 000 ms.
         let mut m = Machine::new(Triple::NIGHT);
-        let r = drive(&mut m, 0.5, true, VIEWER_CLOCK_MS).unwrap();
-        assert_eq!(r.slices, 75, "240/2 * 0.5 * 1.25");
-        assert_eq!(m.counter(), 30, "2*75 - 240/2");
+        let r = drive(&mut m, 0.5, true, DAY_CLOCK_MS).unwrap();
+        assert_eq!(r.slices, 562_500, "900000 * 0.5 * 1.25");
+        assert_eq!(m.counter(), 225_000, "2*562500 - 900000");
         assert!(m.running());
+    }
+
+    #[test]
+    fn the_clock_settings_are_the_two_the_client_ships() {
+        // `0x4b6250` has exactly two answers, selected by `config+0x74`.
+        assert_eq!(DAY_CLOCK_MS, DAY_MS_SHORT);
+        assert_eq!(clock_for_minutes(30.), DAY_MS_SHORT);
+        assert_eq!(clock_for_minutes(40.), DAY_MS_LONG);
+        assert_eq!(clock_for_minutes(35.), DAY_MS_LONG, "snaps to the nearer");
+        assert_eq!(clock_for_minutes(0.), DAY_MS_SHORT);
+        // A day-set fade at full phase is 62.5 % of the day, a night-set fade at
+        // phase 0 is a whole day: both are minutes, not milliseconds.
+        assert_eq!(slice_count(DAY_MS_LONG, 1.) * 100 / DAY_MS_LONG as u32, 62);
+        assert_eq!(slice_count_night(DAY_MS_LONG, 0.), DAY_MS_LONG as u32 / 2 * 2);
+    }
+
+    #[test]
+    fn elapsed_time_advances_the_fade_in_thirtieths_of_a_second() {
+        // `0x8f14bc` is `1/30`, so a second of wall time is 30 ticks, exactly:
+        // the residual is milli-thirty-seconds, not a float, because a float
+        // accumulator floors `1000 / (1000/30)` to 29 and loses a tick per
+        // second.
+        assert_eq!(TICKS_PER_SECOND, 30);
+        assert!(
+            (SLICE_SECONDS - 1. / 30.).abs() < 1e-7,
+            "0x8f14bc must be the 1/30 s frame interval, got {SLICE_SECONDS}"
+        );
+        let mut m = Machine::new(Triple::DAY);
+        m.request(Request::over(Triple::NIGHT, 600_000)).unwrap();
+        m.resources_ready();
+        let mut residual = 0u64;
+        assert_eq!(m.step_ms(1000, &mut residual), 30);
+        assert_eq!(residual, 0);
+        assert_eq!(m.counter(), 600_000 - 30 * SLICE_MS);
+        assert_eq!(m.step_ms(2000, &mut residual), 60);
+        assert_eq!(residual, 0);
+        // Sub-tick frames accumulate and cross the tick boundary on time.
+        let mut residual = 0u64;
+        let mut ticks = 0;
+        for _ in 0..30 {
+            ticks += m.step_ms(1, &mut residual);
+        }
+        assert_eq!(ticks, 0, "30 ms is less than one 33.3 ms tick");
+        assert_eq!(residual, 900);
+        for _ in 0..4 {
+            ticks += m.step_ms(1, &mut residual);
+        }
+        assert_eq!(ticks, 1, "34 ms is one tick");
+        assert_eq!(residual, 20);
+        // A zero-length frame can never advance the state.
+        assert_eq!(m.step_ms(0, &mut residual), 0);
+        assert_eq!(residual, 20);
+    }
+
+    #[test]
+    fn a_fade_duration_does_not_depend_on_the_frame_size() {
+        // The native fade is minutes long, so replaying it once per rendered
+        // frame would tie its duration to the frame rate. The same elapsed time
+        // must commit in the same number of ticks whatever the frame size is.
+        let run = |frame_ms: u32| {
+            let mut m = Machine::new(Triple::DAY);
+            m.request(Request::over(Triple::NIGHT, 60_000)).unwrap();
+            m.resources_ready();
+            let mut residual = 0u64;
+            let mut elapsed = 0u32;
+            while elapsed < 200_000 && m.running() {
+                let taken = m.step_ms(frame_ms, &mut residual);
+                assert!(taken <= MAX_TICKS_PER_STEP);
+                elapsed = elapsed.saturating_add(frame_ms);
+            }
+            (elapsed, m.commits(), m.current())
+        };
+        let (fast_ms, fast_commits, fast_set) = run(7);
+        let (slow_ms, slow_commits, slow_set) = run(250);
+        assert_eq!((fast_commits, fast_set), (1, Triple::NIGHT));
+        assert_eq!((slow_commits, slow_set), (1, Triple::NIGHT));
+        // Both land on the same tick count; only the frame quantisation of the
+        // *last* frame differs, which is one frame, not one fade.
+        let fast_ticks = fast_ms as f32 * TICKS_PER_SECOND as f32 / 1000.;
+        let slow_ticks = slow_ms as f32 * TICKS_PER_SECOND as f32 / 1000.;
+        assert!(
+            (fast_ticks - slow_ticks).abs() <= 1.0 + TICKS_PER_SECOND as f32 * 250. / 1000.,
+            "fade lasted {fast_ms} ms at 7 ms frames and {slow_ms} ms at 250 ms frames"
+        );
+        // And the duration is the counted fade, not the frame size: 60 000 ms of
+        // counter is 1 818 ticks, i.e. about 60.6 s.
+        assert!(
+            (59_000..62_000).contains(&fast_ms),
+            "60 000 ms of fade took {fast_ms} ms"
+        );
+    }
+
+    #[test]
+    fn the_whole_model_day_sweeps_through_the_ladder_on_the_real_clock() {
+        // One minute per model hour, as the renderer does it, with the real
+        // game-day clock and the real tick. A fade legitimately spans several
+        // minutes of model time, so the ladder is only obliged to act at a
+        // minute it finds the machine idle; whatever it does must settle on the
+        // set that hour names.
+        let clock = DAY_CLOCK_MS;
+        let mut m = Machine::new(Triple::DAY);
+        let mut residual = 0u64;
+        let (mut swaps, mut repeated, mut busy) = (0u32, 0u32, 0u32);
+        let mut longest = 0;
+        for minute in 0..(24 * 60) {
+            let hour = minute as f32 / 60.;
+            let phase = crate::environment::night_factor(hour);
+            assert!((0.0..=1.0).contains(&phase), "{hour}h: phase {phase}");
+            let day = crate::environment::daylight(hour) >= 0.5;
+            // The ladder's target for this hour: `None` for a silent band.
+            let target = if phase <= 0. {
+                Some(Triple::DAY)
+            } else if phase >= 1. {
+                Some(Triple::NIGHT)
+            } else if day {
+                (phase < DAY_LATE_PHASE).then_some(Triple::DAY)
+            } else {
+                (phase >= NIGHT_ONSET_PHASE).then_some(Triple::NIGHT)
+            };
+            let issued = drive(&mut m, phase, day, clock);
+            match target {
+                Some(t) if m.running() || m.waiting() || issued.is_some() => {
+                    // Either this minute issued the swap, or an earlier one is
+                    // still in flight and the driver correctly left it alone.
+                    if let Some(r) = issued {
+                        assert_eq!(r.to, t, "{hour}h issued the wrong set");
+                    }
+                    let settled = if m.running() || m.waiting() {
+                        m.pending()
+                    } else {
+                        m.current()
+                    };
+                    assert_eq!(settled, t, "{hour}h is not heading to its set");
+                    if issued.is_some() {
+                        swaps += 1;
+                        longest = longest.max(m.bound());
+                    } else {
+                        busy += 1;
+                    }
+                }
+                Some(t) => {
+                    // Idle and nothing issued: only the same-set guard (0x79ad7d)
+                    // can refuse that, so the machine must already stand on it.
+                    assert_eq!(m.current(), t, "{hour}h refused while not on target");
+                    repeated += 1;
+                }
+                None => {
+                    assert!(issued.is_none(), "{hour}h issued inside a silent band");
+                }
+            }
+            if m.running() && m.counts_down() {
+                assert!(m.on_commit_boundary() || m.counter() >= SLICE_MS);
+            }
+            // A minute of wall time is far longer than one frame.
+            m.step_ms(60_000, &mut residual);
+        }
+        assert!(swaps > 0, "the sweep must issue swaps");
+        assert_eq!(swaps + busy + repeated, 24 * 60, "every minute is accounted for");
+        // The counted bands' supremum is half a game day; the rest of the day is
+        // the uncounted endpoint switch. With one sample per model minute the
+        // longest observed fade sits just under that ceiling.
+        let half_day = slice_count_night(clock, 0.5);
+        assert_eq!(half_day, clock as u32 / 2);
+        assert!(
+            longest <= half_day && longest + clock as u32 / 1440 * 2 >= half_day,
+            "longest fade {longest} should approach half a day ({half_day});              {swaps} swaps, {busy} minutes spent mid-fade, {repeated} repeats"
+        );
+    }
+
+    #[test]
+    fn both_silent_bands_still_suppress_a_swap_when_the_byte_disagrees() {
+        // The bands are in the ladder (`0x420738`, `0x4207aa`) even though the
+        // viewer's byte makes them unreachable from the clock; this keeps them
+        // from being silently deleted by a future refactor.
+        let mut m = Machine::new(Triple::NIGHT);
+        assert!(drive(&mut m, 0.9, true, DAY_CLOCK_MS).is_none(), "0.8..1 day");
+        assert!(drive(&mut m, 0.1, false, DAY_CLOCK_MS).is_none(), "< 0.5 night");
+        assert!(!m.running() && !m.waiting());
+        assert_eq!(m.current(), Triple::NIGHT);
+        // Just outside each band the same inputs do issue, so the guard is the
+        // threshold itself and not something earlier in the ladder.
+        assert!(drive(&mut m, 0.799, true, DAY_CLOCK_MS).is_some());
+        let mut m = Machine::new(Triple::NIGHT);
+        assert!(drive(&mut m, 0.5, false, DAY_CLOCK_MS).is_some());
     }
 
     #[test]

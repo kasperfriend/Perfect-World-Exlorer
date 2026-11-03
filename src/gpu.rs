@@ -983,6 +983,9 @@ struct Renderer {
     /// exactly once per frame from `begin_frame`; reflection, refraction and map
     /// views only read the resulting snapshot (P5.07/P5.08).
     sky_transition: crate::sky_transition::Machine,
+    /// Sub-tick remainder of the sky clock in milli-thirty-seconds: the native
+    /// tick is a 1/30 s step and the viewer's frames are not a multiple of it.
+    sky_tick_residual: u64,
     // Native SetLightParam/SetAmbient state persists when a frame selects no
     // environment box (0x41ec65 keeps the in-flight environment). Keeping the
     // last published regional light avoids erasing ordinary model light on an
@@ -1495,6 +1498,7 @@ impl Renderer {
             world_glow: crate::post_gpu::WorldGlow::default(),
             celestial_visibility: crate::client_sun::Visibility::default(),
             sky_transition: Default::default(),
+            sky_tick_residual: 0,
             retained_regional_light: None,
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
@@ -1600,9 +1604,13 @@ impl Renderer {
             &mut self.sky_transition,
             phase,
             day,
-            crate::sky_transition::VIEWER_CLOCK_MS,
+            crate::sky_transition::DAY_CLOCK_MS,
         );
-        self.sky_transition.step();
+        // The native fade is 15-100 % of a game day long (see
+        // `sky_transition`'s module notes), so it is replayed on elapsed time,
+        // not once per rendered frame: `0x8f14bc` says a tick is 1/30 s.
+        self.sky_transition
+            .step_ms(camera.logic_delta_ms, &mut self.sky_tick_residual);
         let sets = crate::sky_transition::frame_sets(&self.sky_transition);
         // P5.08: one snapshot, two uploads. The reflected buffer receives the
         // same hour, sets, blend, celestial direction and alpha; only the ray
