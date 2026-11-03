@@ -601,6 +601,7 @@ mod reflection_tests {
         assert_eq!(frame.hour, 12.0);
         assert_eq!(frame.night_weight, 0.0);
         assert_eq!(crate::sky_time::night_weight(frame.hour), Some(0.0));
+    }
     fn ray(projection: Mat4, view: Mat4, clip: glam::Vec2, reflected: bool) -> Vec3 {
         let v = sky_inverse(projection, view, reflected) * glam::Vec4::new(clip.x, clip.y, 1., 1.);
         (v.truncate() / v.w).normalize()
