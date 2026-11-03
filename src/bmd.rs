@@ -378,13 +378,15 @@ mod tests {
                 b.extend_from_slice(&vec![0u8; (n * 4) as usize]);
                 b.extend_from_slice(&vec![0u8; (n * 4) as usize]);
             }
-            // v5 alone carries a material tail: a NUL-terminated name followed
-            // by 4x16 bytes of colours, a float and a two-sided flag.
+            // The 48-byte block comes first; v5 then adds a material tail of a
+            // NUL-terminated name plus 4x16 bytes of colours, a float and a
+            // two-sided flag. Order matters: the parser advances past the 48
+            // bytes before it looks for a name.
+            b.extend_from_slice(&[0; 48]);
             if mesh_version >= 0x10000005 {
                 b.extend_from_slice(b"mat\0");
                 b.extend_from_slice(&[0u8; 69]);
             }
-            b.extend_from_slice(&[0; 48]);
             b
         };
         for v in [0x10000002u32, 0x10000003] {
