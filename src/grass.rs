@@ -66,6 +66,85 @@ fn u(b: &[u8], p: usize) -> Result<u32, String> {
 fn f(b: &[u8], p: usize) -> Result<f32, String> {
     water::f(b, p)
 }
+/// The `.mod` members of `grasses.pck` carry no geometry. Each is a small text
+/// container that names the real `.mox` child:
+///
+/// ```text
+/// MOXTMODEL: <name>
+/// {
+/// CHILDFRAME: 1
+/// {
+/// <name>.mox
+/// }
+/// CHILDMODEL: 0
+/// ACTIONS: 0
+/// GROUPACTIONS: 0
+/// }
+/// GFXEVENT: 0
+/// SFXEVENT: 0
+/// USER_PROPERTY DO NOT EDIT
+/// ```
+///
+/// All 144 in the retail archive have exactly this shape: one `CHILDFRAME`
+/// child and every other counter zero. This parser accepts only that shape, so a
+/// richer container fails loudly rather than being half-read, and it returns the
+/// child name for the caller to resolve inside the same pack and directory.
+pub fn mox_wrapper_child(b: &[u8]) -> Result<String, String> {
+    let end = b.iter().position(|&c| c == 0).unwrap_or(b.len());
+    let text = encoding_rs::GBK
+        .decode(&b[..end])
+        .0
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
+    if !text.starts_with("MOXTMODEL: ") {
+        return Err("unsupported MOXTMODEL header".into());
+    }
+    let line_value = |key: &str| -> Option<String> {
+        text.lines()
+            .find_map(|l| l.trim().strip_prefix(key).map(|v| v.trim().to_string()))
+    };
+    for (key, want) in [
+        ("CHILDFRAME: ", "1"),
+        ("CHILDMODEL: ", "0"),
+        ("ACTIONS: ", "0"),
+        ("GROUPACTIONS: ", "0"),
+        ("GFXEVENT: ", "0"),
+        ("SFXEVENT: ", "0"),
+    ] {
+        match line_value(key) {
+            // CHILDFRAME's value names the child count in the block that follows.
+            Some(v) if v == want => {}
+            Some(v) => return Err(format!("unsupported MOXTMODEL {key}{v}")),
+            None => return Err(format!("missing MOXTMODEL {key}")),
+        }
+    }
+    // The child name sits inside `CHILDFRAME`'s own braces, i.e. at depth 2:
+    //   MOXTMODEL: x   {   CHILDFRAME: 1   {   x.mox   }   CHILDMODEL: 0 ...
+    // Reading at depth 1 instead would pick up `CHILDMODEL: 0` as the name.
+    let mut depth = 0i32;
+    let mut in_childframe = false;
+    for line in text.lines() {
+        let l = line.trim();
+        if l == "{" {
+            depth += 1;
+        } else if l == "}" {
+            depth -= 1;
+        } else if l.starts_with("CHILDFRAME") {
+            in_childframe = true;
+        } else if in_childframe && depth == 2 && !l.is_empty() {
+            let child = l.to_lowercase();
+            if !child.ends_with(".mox")
+                || child.contains("..")
+                || child.contains('/')
+                || child.contains('\\')
+            {
+                return Err("unsafe MOXTMODEL child name".into());
+            }
+            return Ok(child);
+        }
+    }
+    Err("MOXTMODEL names no child".into())
+}
 fn parse_model(b: &[u8], name: &str) -> Result<Model, String> {
     if !b.starts_with(b"MOXB") {
         return Err("unsupported MOXB header".into());
@@ -276,7 +355,30 @@ impl Grass {
         let mut warnings = HashSet::new();
         for t in &scene.grass_types {
             let name = t.path.to_lowercase();
-            let model = match entries.get(&name) {
+            // A grass type may name either the `.mox` geometry directly or the
+            // `.mod` text container that wraps it. The archive ships both (155
+            // `.mox` and 144 `.mod`); the `.mod` is a one-child manifest, so
+            // resolving it here keeps the rest of the loader unchanged.
+            let mut name = name;
+            let mut model = None;
+            let mut skip = false;
+            if name.ends_with(".mod") {
+                match entries
+                    .get(&name)
+                    .ok_or_else(|| "missing MOXTMODEL".to_string())
+                    .and_then(|e| pck::read_entry(&mut archive, e))
+                    .and_then(|b| mox_wrapper_child(&b))
+                {
+                    Ok(child) => {
+                        name = format!("{}/{child}", name.rsplit_once('/').map(|x| x.0).unwrap_or(""));
+                    }
+                    Err(error) => {
+                        eprintln!("Unsupported grass model wrapper {name}: {error}");
+                        skip = true;
+                    }
+                }
+            }
+            let model = if skip { None } else { match entries.get(&name) {
                 Some(e) => match pck::read_entry(&mut archive, e)
                     .and_then(|bytes| parse_model(&bytes, &name))
                 {
@@ -290,7 +392,7 @@ impl Grass {
                     eprintln!("Missing grass model {name}");
                     None
                 }
-            };
+            } };
             if let Some(m) = &model {
                 for mesh in &m.meshes {
                     if !textures.contains_key(&mesh.texture) {
@@ -448,5 +550,61 @@ mod tests {
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 128, 63, 255, 255, 31, 65, 0, 0, 0, 0,
         0,
+    ];
+
+    /// A real `.mod` member of `grasses.pck` (`grasses/水草/水草01.mod`), copied
+    /// byte for byte. Its child name is GBK-encoded Chinese, which is the case
+    /// that breaks a naive ASCII/UTF-8 walk.
+    #[test]
+    fn mox_wrapper_resolves_a_retail_mod_to_its_child() {
+        assert_eq!(mox_wrapper_child(REAL_MOD).unwrap(), "水草01.mox");
+    }
+    /// The grammar is fixed and every archive member has exactly one child and
+    /// all other counters zero; anything else must fail rather than half-read.
+    #[test]
+    fn mox_wrapper_rejects_containers_it_does_not_fully_understand() {
+        let good = "MOXTMODEL: a\r\n{\r\nCHILDFRAME: 1\r\n{\r\na.mox\r\n}\r\n\
+                    CHILDMODEL: 0\r\nACTIONS: 0\r\nGROUPACTIONS: 0\r\n}\r\n\
+                    GFXEVENT: 0\r\nSFXEVENT: 0\r\nUSER_PROPERTY DO NOT EDIT\r\n";
+        assert_eq!(mox_wrapper_child(good.as_bytes()).unwrap(), "a.mox");
+        // Two children: not a shape the client ships, refuse it.
+        assert!(mox_wrapper_child(
+            good.replace("CHILDFRAME: 1", "CHILDFRAME: 2").as_bytes()
+        )
+        .is_err());
+        // A nested model or actions table means the wrapper is not a pure
+        // manifest, so the single-child assumption no longer holds.
+        assert!(mox_wrapper_child(
+            good.replace("CHILDMODEL: 0", "CHILDMODEL: 1").as_bytes()
+        )
+        .is_err());
+        assert!(mox_wrapper_child(good.replace("ACTIONS: 0", "ACTIONS: 3").as_bytes()).is_err());
+        // Path traversal and subdirectories are not valid child names.
+        assert!(mox_wrapper_child(
+            good.replace("a.mox", "../a.mox").as_bytes()
+        )
+        .is_err());
+        assert!(mox_wrapper_child(good.replace("a.mox", "sub/a.mox").as_bytes()).is_err());
+        // Wrong container entirely.
+        assert!(mox_wrapper_child(b"MOXBVERSION: 2\0").is_err());
+        assert!(mox_wrapper_child(b"").is_err());
+    }
+    const REAL_MOD: &[u8] = &[
+        77, 79, 88, 84, 77, 79, 68, 69, 76, 58, 32, 203,
+        174, 178, 221, 48, 49, 13, 10, 123, 13, 10, 67, 72,
+        73, 76, 68, 70, 82, 65, 77, 69, 58, 32, 49, 13,
+        10, 123, 13, 10, 203, 174, 178, 221, 48, 49, 46, 109,
+        111, 120, 13, 10, 125, 13, 10, 67, 72, 73, 76, 68,
+        77, 79, 68, 69, 76, 58, 32, 48, 13, 10, 65, 67,
+        84, 73, 79, 78, 83, 58, 32, 48, 13, 10, 71, 82,
+        79, 85, 80, 65, 67, 84, 73, 79, 78, 83, 58, 32,
+        48, 13, 10, 125, 13, 10, 71, 70, 88, 69, 86, 69,
+        78, 84, 58, 32, 48, 13, 10, 83, 70, 88, 69, 86,
+        69, 78, 84, 58, 32, 48, 13, 10, 85, 83, 69, 82,
+        95, 80, 82, 79, 80, 69, 82, 84, 89, 32, 68, 79,
+        32, 78, 79, 84, 32, 69, 68, 73, 84, 13, 10, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0,
     ];
 }

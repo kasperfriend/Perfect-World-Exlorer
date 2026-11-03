@@ -46,7 +46,7 @@ Nine work points (re-cut 2 November 2026; the Phase 3 scope is unchanged, only i
 boundaries are now non-overlapping and independently verifiable). Execution order
 and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.md).
 
-- [ ] P3.01 — Finish BMD container and format coverage: every model and mesh version, chunk layout, transforms, texture references, baked arrays, per-mesh and per-material flags, with explicit errors for unsupported versions and truncation.
+- [x] P3.01 — Finish BMD container and format coverage: every model and mesh version, chunk layout, transforms, texture references, baked arrays, per-mesh and per-material flags, with explicit errors for unsupported versions and truncation.
 - [ ] P3.02 — Reproduce every static-model material and texture-stage state: stage setups, alpha test, blending, transparency, material colors, two-sided flags and the baked-light combination, as a recovered table rather than per-asset special cases.
 - [ ] P3.03 — Handle missing, shared and animated texture references with the client's original lookup rules, page sharing and fallbacks, and explicit dependency errors.
 - [ ] P3.04 — Trace and implement the client's actual culling, winding and two-sided-material rules instead of a global approximation, including mirrored or negative-scale placements.
@@ -99,7 +99,7 @@ and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.m
 - [ ] P7.03 — Connect the scene-light system from Phase 1 to the model classes confirmed to receive it.
 - [ ] P7.04 — Implement world effects and their dependent resources: particles, sprites, trails, animated textures and other client effect types.
 - [ ] P7.05 — Reproduce effect attachment points, timing, blending, depth behavior and region-based activation.
-- [ ] P7.06 — Add any remaining world-object formats or specialized shaders discovered during the client-file census.
+- [x] P7.06 — Add any remaining world-object formats or specialized shaders discovered during the client-file census.
 - [ ] P7.07 — Integrate animated models and effects into normal views, reflections and fog as the client does.
 - [x] P7.08 — Keep gameplay systems out of scope: render world content without adding combat, quests, networking or player simulation.
 - [x] P7.09 — Add tests for animation sampling, effect lifetimes, resource loading and material blending.
