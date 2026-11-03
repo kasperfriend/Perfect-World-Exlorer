@@ -618,7 +618,7 @@ mod tests {
             // the cap rim, so it never holds one circle (which smeared the art
             // into radial streaks) and meets the cap exactly.
             let radius = (sample.uv[0] - 0.5).hypot(sample.uv[1] - 0.5);
-            assert!(radius > 0.4999 && radius < 0.7501, "radius {radius}");
+            assert!((0.4999..0.7501).contains(&radius), "radius {radius}");
             assert!(sample.alpha > 0.0 && sample.alpha <= 1.0);
         }
         // Continuity with both neighbours.
@@ -635,6 +635,9 @@ mod tests {
         assert_eq!(gap_alpha(GAP_BOTTOM_SIN), 0.0);
         assert_eq!(gap_blend(GAP_BOTTOM_SIN), 0.0);
     }
+
+    #[test]
+    fn regions_follow_the_recovered_rims() {
         let (sin, cos) = 30.0_f32.to_radians().sin_cos();
         assert_eq!(project([cos, sin, 0.0]).unwrap().region, Region::Curtain);
         let (sin, cos) = 80.0_f32.to_radians().sin_cos();
