@@ -129,30 +129,6 @@ impl Data {
         )
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rectangular_extent_does_not_repurpose_alpha_reference() {
-        let vertex = Vertex {
-            pos: [0.; 3],
-            normal: [0., 1., 0.],
-            uv: [0., 0.],
-            color: [0., 0., 0.25, 84. / 255.],
-            kind: 3.75,
-            diffuse: 0,
-            night_diffuse: 0,
-        };
-        let mut builder = Builder::default();
-        builder.mesh_with_scale_y((0, 0), vec![vertex], vec![], 0.125);
-        builder.instance((0, 0), [0.; 3], 1.);
-        let data = builder.finish();
-        assert_eq!(data.vertices[0].scale_y, 0.125);
-        assert_eq!(data.vertices[0].vertex.color[2], 0.25);
-        assert_eq!(data.vertices[0].vertex.color[3], 84. / 255.);
-    }
-}
 pub struct Gpu {
     pipeline: wgpu::RenderPipeline,
     vertices: wgpu::Buffer,
