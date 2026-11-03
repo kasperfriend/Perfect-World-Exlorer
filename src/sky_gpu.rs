@@ -38,13 +38,15 @@ use wgpu::util::DeviceExt;
 /// size; the shipped 2 doubles the quad and its glow.
 pub const DISC_SCALE: f32 = 2.0;
 
-/// Viewer shine/moonflare quad, as a multiple of the native billboard's half
+/// Viewer shine quad for the sun, as a multiple of the native billboard's half
 /// extent. `CECSunMoon::Init` builds a separate sun-shine stream over
 /// `sunshine.bmp` and a flare chain over `moonflare.bmp` / `sunflare.bmp`, and
-/// that chain is what makes the retail sun and moon read large; its quad sizes
-/// are not recovered (P5.03 section 3.2), so the viewer draws those two shipped
-/// textures on a quad this many times the recovered billboard. The billed disc
-/// itself stays at [`DISC_SCALE`] x 1.146 degrees.
+/// that chain is what makes the retail sun and moon haloes read large; neither
+/// quad size is recovered (P5.03 section 3.2), so the viewer draws the sun's
+/// `sunshine.bmp` on a quad this many times the recovered billboard. The moon
+/// has no shine in the client's render block, so `moonflare.bmp` is loaded and
+/// left for the flare chain (`moon.w` is 0). The disc itself stays at
+/// [`DISC_SCALE`] x 1.146 degrees.
 pub const GLOW_SCALE: f32 = 12.0;
 
 /// Per-frame sky inputs, all recovered values.
@@ -61,9 +63,10 @@ pub struct SkyFrame {
     /// (`sky_celestial::glow_texture_factor`, full strength 5), normalised by
     /// that full strength.
     pub sun: [f32; 4],
-    /// Moon: `[fade, elevation, azimuth, shine strength 0..1]`. The moon's block
-    /// halves its own colour instead of scaling, so its shine sits at half the
-    /// sun's strength.
+    /// Moon: `[fade, elevation, azimuth, shine strength 0..1]`. The client's
+    /// moon block (`0x4b4049`) halves its `+0x48` colour and scales nothing, so
+    /// the moon has no shine quad: the field is carried for the shader's shared
+    /// path and stays 0 until the flare chain exists.
     pub moon: [f32; 4],
     /// The pass clear colour. The roof sheet now covers every direction above
     /// the curtain, so this only shows through a partly transparent sample; it
@@ -114,9 +117,10 @@ pub struct SkyGpu {
     /// and still invisible; the settings tab reports that instead of the disc
     /// silently disappearing.
     disc_layers: [bool; 2],
-    /// Whether `sunshine.bmp` and `moonflare.bmp` decoded out of the package.
-    /// Without them the disc is still submitted at its native size, and the
-    /// settings tab says the shine quad is the part that is missing.
+    /// Whether `sunshine.bmp` (the sun's shine quad) and `moonflare.bmp` (held
+    /// for the flare chain) decoded out of the package. Without `sunshine.bmp`
+    /// the sun is still submitted at its native size, and the settings tab says
+    /// the shine quad is the part that is missing.
     glow_layers: [bool; 2],
 }
 
@@ -216,8 +220,9 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  return vec4<f32>(mix(roof,tex.rgb*tn,curtain_alpha(sy)),1.0);
 }
 // One native billboard: centre at direction*100, half extent 1.0, so the disc
-// subtends 1.146 degrees, plus the shine quad the retail sun and moon carry.
-// Gated on elevation and fade exactly like 0x4b3e00.
+// subtends 1.146 degrees, plus the sun's additive shine quad (the moon's weight
+// is 0 until the flare chain exists). Gated on elevation and fade exactly like
+// 0x4b3e00.
 fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->vec3<f32>{
  let alpha=params.x;let el=params.y;let az=params.z;
  // Recovered stage-1 texture factor of `sunshine.sdr`, normalised by its full
@@ -231,8 +236,9 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->ve
  let up=cross(c,right);
  let axis=vec2<f32>(dot(d,right),-dot(d,up));
  var out=color;
- // Shine quad: `sunshine.bmp` for the sun, `moonflare.bmp` for the moon, on a
- // quad GLOW_SCALE times the billboard. Viewer-only size (see GLOW_SCALE).
+ // Shine quad: `sunshine.bmp`, on a quad GLOW_SCALE times the billboard.
+ // Viewer-only size (see GLOW_SCALE). `shine` is 0 for the moon, whose
+ // `moonflare.bmp` belongs to the flare chain rather than to this quad.
  let guv=axis/(2.0*0.01*GLOW_SCALE*z)+vec2<f32>(0.5);
  if guv.x>=0.0 && guv.x<=1.0 && guv.y>=0.0 && guv.y<=1.0 {
   out=clamp(out+textureSampleLevel(skies,smp,guv,glow,0.).rgb*(alpha*shine),vec3<f32>(0.),vec3<f32>(1.));
@@ -334,10 +340,13 @@ impl SkyGpu {
             disc_layers[i] = decoded.is_some();
             frames.push(decoded.unwrap_or_else(|| image::RgbaImage::new(512, 512)));
         }
-        // Layers 11 and 12 are the shine quads of the same two objects: the sun
-        // shines with `sunshine.bmp`, the moon with `moonflare.bmp`. The flare
-        // chain that sizes them in retail is not recovered, so the quad's size
-        // is the viewer's `GLOW_SCALE` and only the textures are the client's.
+        // Layer 11 is the sun's shine quad and layer 12 the moon's
+        // `moonflare.bmp`, which the client only uses inside the screen-space
+        // flare chain (`0x4b374b..`). That chain is not implemented and the
+        // client's moon block scales nothing, so the moon's shine weight is 0;
+        // the texture is still decoded and bound so the layer exists when the
+        // chain is built. The quad's size is the viewer's `GLOW_SCALE`, and only
+        // the texture is the client's.
         let glow_textures = [
             ("textures/nature/sunshine.bmp", image::ImageFormat::Bmp),
             ("textures/nature/moonflare.bmp", image::ImageFormat::Bmp),

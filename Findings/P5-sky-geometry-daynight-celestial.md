@@ -394,9 +394,18 @@ the night strength, `factor = (1.0 - [+0x70]) * 5.0` (`ds:0x8d5c28` = 1.0,
 `ds:0x8db0f8` = 5.0), times `0.8` (`ds:0x8d62dc`) while `[+0x74]` selects the
 night set, and multiplies the `+0x44` light colour by it before submission; a
 non-finite strength takes the literal `1.0` branch at `0x4b3e09`. The moon's
-block (`0x4b4049`) instead halves its `+0x48` colour and scales nothing. That
-rule is reproduced by `sky_celestial::glow_texture_factor`, which is tested but
-not yet consumed by the shader.
+block (`0x4b4049`) instead halves its `+0x48` colour and scales nothing.
+
+That rule is consumed by the shader, and the asymmetry matters. The sun's `.w`
+carries `sky_celestial::glow_texture_factor / 5` and scales an additive quad
+over `sunshine.bmp`; on the day set it is full strength while `+0x70` is 0 and it
+falls to 0 as the night strength reaches 1, which is why the viewer's sun shows
+its orange `sunshine.bmp` glow by day. The **moon's `.w` is 0**: the client
+scales nothing for the moon, so no shine quad is drawn for it and
+`moonflare.bmp` (decoded and bound as layer 12) is held for the flare chain of
+section 3.2 instead. A moon with no halo in the viewer is therefore the expected
+result of this path, not a defect: every moon halo in retail comes from that
+chain, which is documented and not implemented.
 
 No render-state call exists in the celestial render: `0x77bd00` is the only
 `SetRenderState` wrapper (`vtable+0xc8`) and nothing in `0x4b3e00`–`0x4b41ee`
@@ -511,19 +520,23 @@ Time boundaries covered: 00:00, 01:30, 03:30, 12:00, 18:00, 20:00, 21:00, 24:00.
    identified, so the viewer holds rotation at 0 instead of inventing a drift.
 4. **Disc blending and the flare pipeline.** `sun.sdr` / `moon.sdr` /
    `sunshine.sdr` are recovered (section 3.1) and match the viewer's texture ×
-   fade alpha. The glow factor expression is now consumed: `.w` of each
-   `SkyFrame` object carries `glow_texture_factor / 5`, the shader uses it to
-   scale an additive shine quad over `sunshine.bmp` (sun) and `moonflare.bmp`
-   (moon). The quad's **size** is not recovered, so it is the viewer's
-   `sky_gpu::GLOW_SCALE` (12 × the 1.146° billboard, ≈ 13.7° across) and the
-   settings status says `+ shine x12 (viewer size)` next to the disc; the
-   billboard itself stays at its recovered size. The celestial render issues no
-   `SetRenderState` call at all (`0x77bd00` is the only wrapper and it is not
-   reached from `0x4b3e00`–`0x4b41ee`), so the blend state is inherited and
-   additive-versus-alpha for `sun.bmp` is still unproven. The whole flare
-   pipeline of section 3.2 — three buffers, an off-screen alpha accumulation
-   target, three flare textures and the `ps.1.4` program — is documented but not
-   implemented. This is the remaining P5.03 work.
+   fade alpha. The glow factor expression is consumed for the **sun only**:
+   `SkyFrame.sun.w` carries `glow_texture_factor / 5` and scales an additive quad
+   over `sunshine.bmp`, while `SkyFrame.moon.w` is 0 because the client's moon
+   block halves its colour and scales nothing (section 3.1). The quad's **size**
+   is not recovered, so it is the viewer's `sky_gpu::GLOW_SCALE` (12 × the
+   1.146° billboard, ≈ 13.7° across) and the settings status says
+   `+ sunshine.bmp x12 at N% (viewer size)` next to the sun and
+   `no shine quad` next to the moon; the billboard itself stays at its recovered
+   size. The celestial render issues no `SetRenderState` call at all (`0x77bd00`
+   is the only wrapper and it is not reached from `0x4b3e00`–`0x4b41ee`), so the
+   blend state is inherited and additive-versus-alpha for `sun.bmp` is still
+   unproven. The whole flare pipeline of section 3.2 — three buffers, an
+   off-screen alpha accumulation target, three flare textures and the `ps.1.4`
+   program — is documented but not implemented, which is exactly why the retail
+   moon halo is absent. Render check, 4 November 2026: the delivered build shows
+   the correct sky, an orange `sunshine.bmp` glow on the sun and no halo on the
+   moon, i.e. the behaviour this section predicts.
 5. **Night strength consumer.** `+0x70` (up to 1.75 before 03:00) feeds the
    lighting record path (`0x79aeb0`), not the texture weights. The viewer's
    lighting is owned elsewhere and is not wired to it yet; this is also why the
