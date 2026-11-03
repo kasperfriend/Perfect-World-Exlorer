@@ -80,6 +80,22 @@ def f32(x):
     return struct.unpack("<f", struct.pack("<f", x))[0]
 
 
+SIZE_PREFIXES = ("dword ptr ", "byte ptr ", "word ptr ", "qword ptr ")
+
+
+def strip_size(op):
+    """Drop objdump's storage-size prefix: 'dword ptr [esp+4]' -> '[esp+4]'."""
+    op = op.strip()
+    for pre in SIZE_PREFIXES:
+        if op.startswith(pre):
+            return op[len(pre):].strip()
+    return op
+
+
+def is_mem(op):
+    return strip_size(op).startswith("[")
+
+
 class Machine:
     """Flat memory + integer registers + x87 stack."""
 
@@ -161,11 +177,7 @@ class Machine:
 
     def src_i(self, op):
         """Integer view of an operand."""
-        op = op.strip()
-        for pre in ("dword ptr ", "byte ptr ", "word ptr ", "qword ptr "):
-            if op.startswith(pre):
-                op = op[len(pre):].strip()
-                break
+        op = strip_size(op)
         if op.startswith("["):
             return self.load_i(self.addr(op[1:-1]))
         return self.reg_of(op)
@@ -263,11 +275,11 @@ class Machine:
         if mn == "mov":
             dst, src = [x.strip() for x in op.split(",")]
             v = self.src_i(src)
-            if dst.startswith("["):
+            if is_mem(dst):
                 # integer move: keep the raw word, do not reinterpret as float
                 self.store_i(self.dst_va(dst), v)
             else:
-                self.reg[dst] = v & 0xFFFFFFFF
+                self.reg[strip_size(dst)] = v & 0xFFFFFFFF
         elif mn == "lea":
             dst, src = [x.strip() for x in op.split(",")]
             self.reg[dst] = self.addr(src[1:-1])
@@ -277,17 +289,19 @@ class Machine:
             self.reg[op.strip()] = int(self.pop())
         elif mn == "add":
             dst, src = [x.strip() for x in op.split(",")]
-            if dst.startswith("["):
+            if is_mem(dst):
                 va = self.dst_va(dst)
                 self.store_i(va, self.load_i(va) + self.src_i(src))
             else:
+                dst = strip_size(dst)
                 self.reg[dst] = (self.reg[dst] + self.src_i(src)) & 0xFFFFFFFF
         elif mn == "sub":
             dst, src = [x.strip() for x in op.split(",")]
-            if dst.startswith("["):
+            if is_mem(dst):
                 va = self.dst_va(dst)
                 self.store_i(va, self.load_i(va) - self.src_i(src))
             else:
+                dst = strip_size(dst)
                 self.reg[dst] = (self.reg[dst] - self.src_i(src)) & 0xFFFFFFFF
         elif mn == "imul":
             parts = [x.strip() for x in op.split(",")]
@@ -444,3 +458,71 @@ class Machine:
                 self.st[i] = f32(fn(self.st[i], self.src_f(b)))
         else:
             self.st[0] = f32(fn(self.st[0], self.src_f(op)))
+
+
+# ---------------------------------------------------------------------------
+# Self-check. These run without the client binary: they exercise the operand
+# decoding that the earlier hand-probes depended on.
+# ---------------------------------------------------------------------------
+def _self_check(verbose=False):
+    failures = []
+
+    def check(name, got, want):
+        ok = got == want
+        if not ok:
+            failures.append("%s: got %r want %r" % (name, got, want))
+        if verbose or not ok:
+            print(("  ok   " if ok else "  FAIL ") + name)
+        return ok
+
+    ok = check("strip_size dword", strip_size("dword ptr [esp + 4]"), "[esp + 4]")
+    ok &= check("strip_size plain", strip_size("[esp + 4]"), "[esp + 4]")
+    ok &= check("is_mem prefixed", is_mem("dword ptr [ecx + 0x54]"), True)
+    ok &= check("is_mem register", is_mem("eax"), False)
+
+    # Regression: `mov dword ptr [mem], reg` used to test `dst.startswith("[")`
+    # on the *unstripped* operand, so it wrote a register literally named
+    # "dword ptr [esp + 0x3c]" and the store to memory never happened. Every
+    # routine that spills through a sized memory operand (0x651840 among them)
+    # then computed from stale stack slots.
+    m = Machine()
+    m.reg["esp"] = 0x1FFFCC
+    m.store_i(0x200008, 0xDEADBEEF)
+    m.reg["eax"] = 0x12345678
+    m.exec_insn("mov", "dword ptr [esp + 0x3c], eax")
+    ok &= check("mov dword ptr [m],reg stores", m.word(0x200008), 0x12345678)
+    ok &= check("mov dword ptr [m],reg no fake reg", "dword ptr [esp + 0x3c]" in m.reg, False)
+
+    # Same class for the read-modify-write integer forms.
+    m.reg["eax"] = 5
+    m.exec_insn("add", "dword ptr [esp + 0x3c], eax")
+    ok &= check("add dword ptr [m],reg", m.word(0x200008), 0x1234567D)
+    m.exec_insn("sub", "dword ptr [esp + 0x3c], eax")
+    ok &= check("sub dword ptr [m],reg", m.word(0x200008), 0x12345678)
+
+    # A plain register destination must still work and must strip the prefix.
+    m.reg["ebx"] = 0
+    m.exec_insn("mov", "ebx, eax")
+    ok &= check("mov reg,reg", m.reg["ebx"], 5)
+
+    # Float spill through a sized operand: 0x1FFFCC + 0x134 = 0x200100.
+    m.store(0x200100, 0.0)
+    m.push_f(0.1)
+    m.exec_insn("fstp", "dword ptr [esp + 0x134]")
+    # 0.1 is not exact in binary32, so compare the stored word, not a float.
+    ok &= check("fstp dword ptr [m]", m.word(0x200100), 0x3DCCCCCD)
+
+    if failures:
+        print("\n%d self-check failure(s):" % len(failures))
+        for f in failures:
+            print("  " + f)
+        return 1
+    if verbose:
+        print("\nall self-checks passed")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys as _sys
+
+    raise SystemExit(_self_check(verbose="-v" in _sys.argv))

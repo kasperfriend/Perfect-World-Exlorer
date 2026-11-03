@@ -37,13 +37,32 @@
 //! `(pos[0], vel[0])` exactly, so the algebra is settled; whether the driver
 //! hands the routine seconds or milliseconds is not.
 //!
-//! The full V3 closure inside `0x651840` is still not read out, and probing it
-//! with `tools/x87/interp.py` gives contradictory answers: `0x651888` stores the
-//! `+0x50` gain over its own argument slot, `+0x24`/`+0x2c` are relative to
-//! `ecx`, and `+0x3c` reads back through stack slots that the routine itself
-//! rewrites (`0x6518b8`). A basis probe therefore reports a different map
-//! depending on which fields are pre-seeded. Do not trust a single-variable
-//! probe of `0x651840` without re-deriving which base each load uses first.
+//! `0x651840` is now read out. It is 81 straight-line instructions with
+//! `ret 8`, so it is an affine map of its two float3 arguments, and a basis
+//! probe of `tools/x87/interp.py` identifies it exactly:
+//!
+//! ```text
+//! force = -( +0x4c + +0x50 ) * arg1 - +0x54 * arg2
+//! acc   = ( +0x30, +0x34, +0x38 ) + force        // stored to +0x3c/0x40/0x44
+//! ```
+//!
+//! Isolating each constant confirms the roles: zeroing `+0x4c` removes the
+//! whole `arg1` term, zeroing `+0x54` removes the whole `arg2` term, and
+//! raising `+0x50` from 0.0 to 1.0 adds a third `arg1` (that derivative goes
+//! from -2 to -3). So `+0x4c` = 2.0 is the proportional stiffness, `+0x50` =
+//! 0.0 the derivative stiffness the shipped build leaves off, and `+0x54` = 0.1
+//! a target-weighted gain. `+0x30/0x34/0x38` are the accumulator, and the
+//! `+0x24/0x28/0x2c` slots the routine also writes are blanked by
+//! `0x651ba8`-`0x651bba` before every call.
+//!
+//! The earlier "contradictory probe" result was a bug in
+//! `tools/x87/interp.py`, not in the client: the `mov`/`add`/`sub` handlers
+//! tested `dst.startswith("[")` on the *unstripped* operand, so every
+//! `mov dword ptr [esp+N], eax` wrote a register literally named
+//! `"dword ptr [esp + N]"` and the spill never reached memory. `0x651840`
+//! spills every intermediate through such operands, which is exactly why
+//! single-variable probes disagreed. The fix and its self-check are in
+//! `tools/x87/interp.py` (`python3 tools/x87/interp.py -v`).
 //!
 //! ## Density (`0x653a30`)
 //! `CELGrassBlock::Build` recomputes the resident cell set with
@@ -208,11 +227,14 @@ impl GrassWind {
     ///
     /// `disp` is the wind tick's `noise * (+0x6c,+0x70,+0x74)` target, which
     /// `0x6510c0`–`0x6510f1` stores at `+0x3c..+0x44` immediately before the
-    /// driver runs. `0x651840` then rewrites those three lanes together with
-    /// `+0x18..+0x2c` and `+0x00..+0x08`, and its symbolic closure is still not
-    /// fully read out; the recovered integrator consumes the *difference*
-    /// between that target and the position, which is the only form that stays
-    /// bounded over a long session, so that is what the viewer integrates.
+    /// driver runs. `0x651840` now reads out exactly as
+    /// `force = -(+0x4c + +0x50)*arg1 - +0x54*arg2` with
+    /// `acc = (+0x30,+0x34,+0x38) + force`, so the force is affine and has no
+    /// cross-axis coupling (the basis probe is purely diagonal). Which two
+    /// float3 values the driver puts in `arg1`/`arg2` is still not established,
+    /// so the viewer keeps integrating the *difference* between the recovered
+    /// target and the position - the only form that stays bounded over a long
+    /// session - rather than inventing driver arguments.
     fn integrate(&mut self, seconds: f32, target: [f32; 3]) {
         let stiffness = 1.0 / SPRING_STIFFNESS;
         let mut accel = [0.; 3];
@@ -316,6 +338,35 @@ mod tests {
     /// The viewer pulls towards the target instead of using the displacement
     /// verbatim, so from the same state the step is 51 units lower on X
     /// (`disp - pos = -6.5` rather than `+0.5`):
+    /// `0x651840` in isolation, transcribed from the disassembly and confirmed
+    /// with the fixed `tools/x87/interp.py`. Kept here so the recovered law can
+    /// not drift while `integrate` still has to guess the driver's arguments.
+    fn client_force(arg1: [f32; 3], arg2: [f32; 3], acc0: [f32; 3]) -> [f32; 3] {
+        // ctor 0x6517f0: +0x4c = 2.0, +0x50 = 0.0, +0x54 = 0.1 (0x651800 zeroes +0x50)
+        const PROPORTIONAL: f32 = 2.0;
+        const DERIVATIVE: f32 = 0.0;
+        const TARGET: f32 = 0.1;
+        let mut acc = acc0;
+        for i in 0..3 {
+            acc[i] += -(PROPORTIONAL + DERIVATIVE) * arg1[i] - TARGET * arg2[i];
+        }
+        acc
+    }
+    #[test]
+    fn force_law_matches_the_recovered_831840() {
+        // Values produced by the corrected interpreter probe.
+        let out = client_force([1., 2., 3.], [0.; 3], [0.; 3]);
+        assert_eq!(out, [-2., -4., -6.], "proportional term");
+        let out = client_force([0.; 3], [1., 2., 3.], [0.; 3]);
+        for (got, want) in out.iter().zip([-0.1, -0.2, -0.3]) {
+            assert!((got - want).abs() < 1e-6, "target term {got} != {want}");
+        }
+        let out = client_force([1., 2., 3.], [0.; 3], [10., 20., 30.]);
+        assert_eq!(out, [8., 16., 24.], "accumulator is additive");
+        // No cross-axis coupling: x input moves only x.
+        let out = client_force([1., 0., 0.], [0.; 3], [0.; 3]);
+        assert_eq!(out, [-2., 0., 0.], "diagonal only");
+    }
     #[test]
     fn integrate_matches_the_recovered_client_step() {
         for (h, want_pos, want_vel) in [
