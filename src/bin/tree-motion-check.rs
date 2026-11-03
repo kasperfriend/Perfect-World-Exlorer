@@ -1,15 +1,15 @@
 //! Audit client-runtime sampled leaf animation across every cached type and LOD.
 #![allow(dead_code)]
+#[path = "../dxt.rs"]
+mod dxt;
+#[path = "../model_dds.rs"]
+mod model_dds;
 #[path = "../pck.rs"]
 mod pck;
 #[path = "../scene.rs"]
 mod scene;
 #[path = "../trees.rs"]
 mod trees;
-#[path = "../dxt.rs"]
-mod dxt;
-#[path = "../model_dds.rs"]
-mod model_dds;
 #[path = "../vegetation_textures.rs"]
 mod vegetation_textures;
 fn main() {
