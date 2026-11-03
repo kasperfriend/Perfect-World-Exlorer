@@ -52,7 +52,7 @@ jobs:
           # Keep the plain command so a non-zero exit still fails the job, but
           # also re-echo the compiler diagnostics as check annotations: the raw
           # step log is not always retrievable from the API.
-          cargo check --locked --bins --message-format short 2>&1 | tee /tmp/cargo-check.log
+          CARGO_TERM_COLOR=never cargo check --locked --bins --message-format short 2>&1 | tee /tmp/cargo-check.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
             grep -E "(^error|: error)" /tmp/cargo-check.log | head -40 | while IFS= read -r line; do
