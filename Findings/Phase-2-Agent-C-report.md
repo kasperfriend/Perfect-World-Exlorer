@@ -405,6 +405,22 @@ default instead of switching). `src/navigation.rs` 2 new tests pin the tile-name
 formats and the 16x22 grid arithmetic. Core suite 39 tests. CI green on Linux and
 Windows, run `41608528227`.
 
+**Native resolution and shape.** The minimap composite is now built at the
+archive's own 256px per tile and the HUD is 256px, so the default view is one
+texel per screen pixel (2 world units per texel) instead of the upscale the first
+128px composite produced. The world map moved from 256px to 512px per tile:
+native 1024 would be 8192x11264, and wgpu's default `max_texture_dimension_2d`
+is 8192, so the native world map cannot exist as a single texture. A `minimap_shape`
+setting (Square, the default, or Circular) rounds the HUD frame and image.
+
+**FX light failure count (fixed).** The settings line computed
+`failed_owners + gfx_failures().len()`, which is the same roots counted twice, and
+`gfx_failures()` also carries world-model load and alpha-queue errors, so
+unrelated problems were displayed as FX light failures. FX failures are now
+reported alone, and binary GFX containers - valid assets in a container this
+reader cannot parse - are counted as `unsupported` with a register entry rather
+than as failures.
+
 **Remaining gaps.** Only the main world's minimap set is composited; the other 40
 zone folders (`a01`..`b30`) are separate instances with their own local coordinate
 spaces and no world transform in their `.trn2`, so placing them in this
