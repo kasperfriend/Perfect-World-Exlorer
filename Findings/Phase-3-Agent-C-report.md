@@ -286,7 +286,7 @@ P3.07 | Yes for WaterEffect==0 and six inspected BMD states; No for all quality/
 
 ```text
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P3.09 | Yes for CI wiring of the static-model diagnostic set; No for exhaustive native acceptance | .github/workflows/pr-checks.yml, tools/static-model-gpu-programs.txt, tools/audit-static-model-gpu-programs.py, tools/check-phase1-core.sh, two new bins | 0x7a9808..0x7a99bc ZFUNC/ZBIAS absence; 0x429786/0x4297d9/0x4297ed tile paths; EC-BSD flag writes | 19 GPU program runs, 7 wired/17 excluded with reasons, bmd-depth and scenery-pass GPU checks, cargo check --bins, cargo test bins, Linux+Windows CI 41591299405 (historical) and 41629090684 (current) success | cross-page depth order, live-client comparison, whole-world GPU benchmark, full archive survey
+P3.09 | Yes for CI wiring of the static-model diagnostic set; No for exhaustive native acceptance | .github/workflows/pr-checks.yml, tools/static-model-gpu-programs.txt, tools/audit-static-model-gpu-programs.py, tools/check-phase1-core.sh, two new bins | 0x7a9808..0x7a99bc ZFUNC/ZBIAS absence; 0x429786/0x4297d9/0x4297ed tile paths; EC-BSD flag writes | 19 GPU program runs, 7 wired/17 excluded with reasons, bmd-depth and scenery-pass GPU checks, cargo check --bins, cargo test bins, Linux+Windows CI 41591299405 (historical), 41629090684 and 41629531457 (current) success | cross-page depth order, live-client comparison, whole-world GPU benchmark, full archive survey
 ```
 
 ## 10. Files changed since base `5a1d8cf`

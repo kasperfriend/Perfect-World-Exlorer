@@ -54,14 +54,14 @@ Tree-sitter parse of 14 changed Rust files               → errors []
 
 ## CI acceptance
 
-The `pr-checks.yml` workflow for the code merge (`bd5c8e9`) completed
-successfully. PR #12 is `mergeable: true` / `mergeable_state: clean` and its
-head is `bd5c8e9a6db1918d28d743a043ec64b31f4bde51`.
+The `pr-checks.yml` workflow passed for both the code merge (`bd5c8e9`) and the
+documentation update (`09dace7`). PR #12 is `mergeable: true` /
+`mergeable_state: clean`; its head is
+`09dace709641b526f81ca357f7eb626f00fc7e5f`.
 
-- Run: `41629090684` (`https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41629090684`)
-- Linux job: `125893771507` — `Rust checks and tests (Linux)`, success in 1m41s
-- Windows job: `125893771251` — `Windows executable (x64)`, success in 1m32s
-- Conclusion: `success`
+- Code merge run: `41629090684` — Linux `125893771507` (success, 1m41s), Windows `125893771251` (success, 1m32s)
+- Documentation run: `41629531457` — Linux `125895258174` (success, 1m18s), Windows `125895258547` (success, 2m5s)
+- Conclusion: `success` (both runs)
 - `gh pr checks 12`: `Rust checks and tests (Linux) pass; Windows executable (x64) pass`
 
 Workflow steps include `cargo fmt --all -- --check`,
