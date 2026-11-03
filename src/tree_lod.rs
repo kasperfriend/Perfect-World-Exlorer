@@ -33,6 +33,27 @@ pub fn client_level(position: [f32; 3], camera: [f32; 3], near: f32, far: f32) -
     let level = 1.0 - (f64::from(estimate) - f64::from(near)) / (f64::from(far) - f64::from(near));
     Some(level.clamp(0.0, 1.0) as f32)
 }
+/// Translate the DLL's discrete LOD getters (0x10022260, 0x100222b0,
+/// 0x10022300) for explicitly supplied levels in the range 0..=1. For leaf
+/// geometry, `billboard_slot` must only be true when both the global drop flag
+/// and the per-tree billboard prerequisite are set. If true, index `count`
+/// denotes the billboard slot; otherwise `None` means no geometry levels.
+///
+/// Counts above i16::MAX and the DLL's negative-level sentinel are deliberately
+/// unsupported. This helper is not wired to rendering: PWTREE07 does not carry
+/// per-component geometry levels or enough data to apply the result faithfully.
+pub fn client_discrete_level(level: f32, count: u16, billboard_slot: bool) -> Option<u16> {
+    if !level.is_finite() || !(0.0..=1.0).contains(&level) || count > i16::MAX as u16 {
+        return None;
+    }
+    let slots = u32::from(count) + u32::from(billboard_slot);
+    if slots == 0 {
+        return None;
+    }
+    let index = ((1.0 - f64::from(level)) * f64::from(slots)) as u32;
+    Some(index.min(slots - 1) as u16)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Selection {
     pub primary: usize,
@@ -105,6 +126,20 @@ mod tests {
         assert_eq!(client_level([f32::NAN, 0., 0.], [0.; 3], 50., 160.), None);
         assert_eq!(client_level([f32::MAX, 0., 0.], [0.; 3], 50., 160.), None);
         assert_eq!(client_level([0.; 3], [0.; 3], 160., 50.), None);
+    }
+    #[test]
+    fn client_discrete_boundaries_and_empty_levels() {
+        for (level, index) in [(1., 0), (0.7, 0), (0.6, 1), (0.5, 1), (0.3, 2), (0., 2)] {
+            assert_eq!(client_discrete_level(level, 3, false), Some(index));
+        }
+        for (level, index) in [(1., 0), (0.8, 0), (0.75, 1), (0.5, 2), (0.25, 3), (0., 3)] {
+            assert_eq!(client_discrete_level(level, 3, true), Some(index));
+        }
+        assert_eq!(client_discrete_level(0.5, 0, false), None);
+        assert_eq!(client_discrete_level(0.5, 0, true), Some(0));
+        assert_eq!(client_discrete_level(-1., 3, false), None);
+        assert_eq!(client_discrete_level(f32::NAN, 3, false), None);
+        assert_eq!(client_discrete_level(1., 32768, false), None);
     }
     #[test]
     fn distance_and_scale_change_selection() {

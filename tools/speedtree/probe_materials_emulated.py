@@ -164,7 +164,9 @@ def run(world, archive, dll, type_id, compute_lod_counts=False):
         call('?SetNumLeafRockingGroups@CSpeedTreeRT@@QAEXI@Z', [1])
         call('?SetTreeSize@CSpeedTreeRT@@QAEXMM@Z', [bits(size * .3048), bits(0)])
         if not (call('?Compute@CSpeedTreeRT@@QAE_NPBMI_N@Z', [0, 1, 1]) & 255):
-            raise RuntimeError(f'type {type_id}: Compute returned false')
+            error_ptr = call('?GetCurrentError@CSpeedTreeRT@@SAPBDXZ')
+            message = em.emu.read_mem_string(error_ptr, 1) if error_ptr else '(no DLL error)'
+            raise RuntimeError(f'type {type_id}: Compute returned false: {message}')
         counts = {kind.lower(): call(f'?GetNum{kind}LodLevels@CSpeedTreeRT@@QBEGXZ') & 65535
                   for kind in ('Branch', 'Frond', 'Leaf')}
         geometry_probe = {'source_size': size, 'source_variation': variation,

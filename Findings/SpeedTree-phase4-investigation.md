@@ -199,3 +199,17 @@ Local validation:
 - `g++ -std=c++17 -Wall -Wextra -Werror tools/speedtree/test_bake_geometry.cpp -o .cache/test_bake_geometry && .cache/test_bake_geometry`: passed valid strip/serialization and missing/nonfinite-normal, invalid-index and empty-geometry checks.
 - `python3 -m pip install --target .cache/zig ziglang==0.13.0` and `.cache/zig/ziglang/zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/bake.cpp -o .cache/speedtree-bake-test.exe`: cross-compile succeeded. The result links UCRT API-set DLLs unlike the existing helper's `msvcrt.dll`, and it has **not** been run on Windows. It is not committed or used as the embedded executable.
 - `PYTHONPATH=.cache/py python3 -m unittest discover -s tools/speedtree -p 'test_*.py'`: 9 passed with Unicorn 1.0.2 and Speakeasy.
+
+### Discrete LOD translation and 59-type emulated Compute attempts
+
+`src/tree_lod.rs::client_discrete_level` translates the discrete branch/frond/leaf getters for explicit finite levels in `[0,1]` and counts up to 32767. With the extra leaf billboard slot enabled it returns the slot index as `count`; with no component levels and no billboard it returns `None`. The DLL's negative-level sentinel is not translated. It remains **not wired into the viewer**: selecting a component index is not sufficient while PWTREE07 contains only three combined snapshots, no individual component-level geometry, and no verified transition metadata. No approximate fades have been removed from rendering and P4.02 is still **No**.
+
+`PATH="$PWD/.cache/rust/bin:$PATH" rustc --edition=2021 --test src/tree_lod.rs -o .cache/tree-lod-tests && .cache/tree-lod-tests` passed 4 tests. `PATH="$PWD/.cache/rust/bin:$PATH" PYTHONPATH=.cache/py python3 tools/speedtree/compare_discrete_lod_rust.py google_drive/speedtreert.dll` matched 2,090 synthetic inputs against the emulated DLL getters, with FPCW set to the assumed MSVC default `0x027f` and the substituted `_ftol`. This does not test all cases, generated geometry, transitions, or actual renderer behavior.
+
+`Findings/SpeedTree-emulated-lod-counts.tsv` records all 59 attempted types from the optional Compute probe. 51 finished and eight failed in the emulated environment: types 18, 27, 28, 30, 35, 44 and 54 returned false from Compute; type 33 hit Speakeasy's default 10,000 API call limit. This is not a native count survey, a claim that the client cannot load those trees, or a reason to exclude them. Successful results group into branch/frond/leaf counts `(2,2,2)` 38 times, `(2,0,2)` 7 times, `(1,1,1)` 3 times, and `(6,4,3)`, `(6,0,3)`, `(5,5,6)` once each. The successful duplicate SPT pair (types 6 and 43) had matching outputs. The sample computation's uncertain bounding boxes and emulated CRT/PRNG remain unresolved. A false Compute result now reports the DLL's current error string when available; empty strings are possible. The parallel run used:
+
+```
+seq 0 58 | xargs -P 6 -I '{}' sh -c 'PYTHONPATH=.cache/py python3 tools/speedtree/probe_materials_emulated.py google_drive/world.ecwld google_drive/trees.pck google_drive/speedtreert.dll --type "$1" --compute-lod-counts > .cache/lod-survey/$1.json 2>.cache/lod-survey/$1.err' sh '{}'
+```
+
+P4.01, P4.02 and P4.03 are all within this agent's scope and remain **No**; no visual comparison is required under the user's revised instruction, but executable implementation and sufficient code/data-based verification are still required.
