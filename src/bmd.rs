@@ -387,8 +387,9 @@ mod tests {
             assert_eq!(m.meshes[0].version, v);
             assert_eq!(m.meshes[0].vertices.len(), 4);
             assert_eq!(m.meshes[0].indices.len(), 6);
-            // v2/v3 carry no material tail.
-            assert!(m.meshes[0].material.is_empty(), "v{v:#x}");
+            // v2/v3 carry no material tail; `material` is an Option, so absence
+            // is None rather than an empty value.
+            assert!(m.meshes[0].material.is_none(), "v{v:#x}");
         }
         // v4/v5 must be untouched by the v2/v3 handling: same input shape
         // still parses and still records the version it read.

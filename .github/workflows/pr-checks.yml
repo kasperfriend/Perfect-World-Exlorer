@@ -53,10 +53,10 @@ jobs:
       - name: Check all binary targets
         run: |
           # Keep the plain command so a non-zero exit still fails the job, but
-          # also re-echo the compiler diagnostics as check annotations: the raw
+          # also echo the compiler diagnostics as check annotations: the raw
           # step log is not always retrievable from the API.
-          # No `--message-format short` here: the short form drops the file:line
-          # that a later `is_empty`-class error needs to be located at all.
+          # No `--message-format short` here: the short form drops the `-->`
+          # file:line line, which is what actually locates a type error.
           CARGO_TERM_COLOR=never cargo check --locked --bins 2>&1 | tee /tmp/cargo-check.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
