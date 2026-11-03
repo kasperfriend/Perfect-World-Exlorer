@@ -106,6 +106,8 @@ mod tree_lod;
 #[cfg(windows)]
 mod tree_source;
 mod trees;
+mod vegetation_material;
+mod vegetation_textures;
 mod view_settings;
 mod water;
 mod water_gpu;

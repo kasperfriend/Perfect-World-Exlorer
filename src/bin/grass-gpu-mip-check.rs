@@ -141,7 +141,137 @@ fn main() {
         drop(bytes);
         buffer.unmap();
     }
+    // Upload a deliberately distinctive authored chain and read back its 1x1
+    // tail at atlas LOD 7. This proves the authored payload is not regenerated.
+    let authored: Vec<_> = (1..=7)
+        .map(|level| {
+            image::RgbaImage::from_pixel(
+                128 >> level,
+                128 >> level,
+                image::Rgba([11 * level as u8, 7 * level as u8, 3 * level as u8, 200]),
+            )
+        })
+        .collect();
+    let slot = texture_atlas::Slot {
+        x: 0,
+        y: 0,
+        w: 128,
+        h: 128,
+    };
+    let tiles = grass_mips::prepare_with_authored(
+        &vec![0; side * side * 4],
+        &[(slot, 84, Some(authored.clone()))],
+        side,
+    );
+    grass_mips::upload(&queue, &image, &vec![0; side * side * 4], &tiles, side);
+    let tail = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("authored grass mip tail"),
+        size: 256,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
+        wgpu::ImageCopyTexture {
+            texture: &image,
+            mip_level: 7,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::ImageCopyBuffer {
+            buffer: &tail,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(256),
+                rows_per_image: Some(1),
+            },
+        },
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+    let slice = tail.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
+    device.poll(wgpu::Maintain::Wait);
+    rx.recv().unwrap().unwrap();
+    let bytes = slice.get_mapped_range();
+    let expected = authored[6].get_pixel(0, 0).0;
+    for channel in 0..4 {
+        assert_eq!(bytes[channel], expected[channel]);
+    }
+    drop(bytes);
+    tail.unmap();
+
+    // Rectangular non-power-of-two grass textures keep their authored aspect
+    // and exact LOD-7 tail instead of being stretched into a square slot.
+    let rectangular: Vec<_> = (1..=7)
+        .map(|level| {
+            image::RgbaImage::from_pixel(
+                (192 >> level).max(1),
+                (96 >> level).max(1),
+                image::Rgba([9 * level as u8, 5 * level as u8, 2 * level as u8, 180]),
+            )
+        })
+        .collect();
+    let slot = texture_atlas::Slot {
+        x: 0,
+        y: 0,
+        w: 256,
+        h: 128,
+    };
+    let chain = grass_mips::authored_chain(&rectangular, 192, 96, 7).unwrap();
+    let tiles = grass_mips::prepare_with_authored(
+        &vec![0; side * side * 4],
+        &[(slot, 84, Some(chain))],
+        side,
+    );
+    grass_mips::upload(&queue, &image, &vec![0; side * side * 4], &tiles, side);
+    let rectangular_tail = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("rectangular authored grass mip tail"),
+        size: 256,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("rectangular grass tail readback"),
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::ImageCopyTexture {
+            texture: &image,
+            mip_level: 7,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::ImageCopyBuffer {
+            buffer: &rectangular_tail,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(256),
+                rows_per_image: Some(1),
+            },
+        },
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+    let slice = rectangular_tail.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
+    device.poll(wgpu::Maintain::Wait);
+    rx.recv().unwrap().unwrap();
+    let bytes = slice.get_mapped_range();
+    let expected = rectangular[6].as_raw();
+    assert_eq!(&bytes[..4], expected.as_slice());
+    drop(bytes);
+    rectangular_tail.unmap();
     println!(
-        "Passed: seven isolated mip levels, distinct alpha references, re-upload after repacking"
+        "Passed: seven isolated mip levels, distinct alpha references, re-upload after repacking, and exact square plus rectangular non-power-of-two authored LOD-7 payloads"
     );
 }

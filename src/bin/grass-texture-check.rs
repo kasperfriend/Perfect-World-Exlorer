@@ -1,10 +1,16 @@
 #![allow(dead_code)]
+#[path = "../dxt.rs"]
+mod dxt;
 #[path = "../grass.rs"]
 mod grass;
+#[path = "../model_dds.rs"]
+mod model_dds;
 #[path = "../pck.rs"]
 mod pck;
 #[path = "../scene.rs"]
 mod scene;
+#[path = "../vegetation_textures.rs"]
+mod vegetation_textures;
 #[path = "../water.rs"]
 mod water;
 fn main() {
