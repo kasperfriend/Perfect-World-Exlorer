@@ -43,7 +43,13 @@ def main() -> int:
     for name in names:
         if not (ROOT / "src/bin" / f"{name}.rs").is_file():
             errors.append(f"missing diagnostic source: {name}")
-        if not re.search(rf"cargo run --locked --bin {re.escape(name)}\b", workflow):
+        # Two accepted shapes: a direct `cargo run --locked --bin NAME`, or the
+        # `run_check NAME` helper the shader step uses so a failure names the
+        # binary. Both are literal names, so this stays an exact check.
+        wired = re.search(
+            rf"cargo run --locked --bin {re.escape(name)}\b", workflow
+        ) or re.search(rf"^\s*run_check {re.escape(name)}\s*$", workflow, re.M)
+        if not wired:
             errors.append(f"not wired into CI: {name}")
     gpu_bins = sorted(p.stem for p in (ROOT / "src/bin").glob("*gpu*.rs"))
     excluded = [name for name in gpu_bins if name not in names]
