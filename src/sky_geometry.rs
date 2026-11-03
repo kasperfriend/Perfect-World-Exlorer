@@ -608,8 +608,16 @@ mod tests {
         // whole tile at the low end — which is why the roof sheet is sampled
         // with the repeat sampler.
         assert!(radii.windows(2).all(|w| w[1] > w[0]), "radii {radii:?}");
-        assert!(radii[0] > 1.28 && radii[0] < 1.32, "curtain rim {}", radii[0]);
-        assert!(radii[3] > 0.5 && radii[3] < 0.6, "near the cap {}", radii[3]);
+        assert!(
+            radii[0] > 1.28 && radii[0] < 1.32,
+            "curtain rim {}",
+            radii[0]
+        );
+        assert!(
+            radii[3] > 0.5 && radii[3] < 0.6,
+            "near the cap {}",
+            radii[3]
+        );
         // Continuity with the cap: 72.4 and 72.6 degrees are the same texel.
         let (sin, cos) = 72.4_f32.to_radians().sin_cos();
         let below = project([cos, sin, 0.0]).unwrap();

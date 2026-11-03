@@ -1685,7 +1685,12 @@ impl Renderer {
                 let shine = (shine / 5.).clamp(0., 1.);
                 (
                     [fade(true), state.sun_elevation, state.azimuth, shine],
-                    [fade(false), state.moon_elevation, state.azimuth, shine * 0.5],
+                    [
+                        fade(false),
+                        state.moon_elevation,
+                        state.azimuth,
+                        shine * 0.5,
+                    ],
                 )
             }
             None => ([0.; 4], [0.; 4]),
