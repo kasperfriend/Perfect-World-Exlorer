@@ -41,7 +41,7 @@ class X87Stubs(unittest.TestCase):
             self.assertAlmostEqual(self.eval(0x190f, x), math.asin(x), places=12)
 
     def test_pow_positive_bases(self):
-        for base, power in ((2, 3), (2, 2.5), (4, .2), (.4, 2.5)):
+        for base, power in ((0, 1.5), (2, 3), (2, 2.5), (4, .2), (.4, 2.5)):
             self.assertAlmostEqual(self.eval(0x1a00, base, power), base ** power, places=12)
 
     def test_ftol_truncates_toward_zero(self):

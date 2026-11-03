@@ -34,7 +34,9 @@ from probe_lod_unicorn import DLL_SHA256
 # base pow; these are substitutes, not MSVCRT implementation bytes.
 FTOL = bytes.fromhex('83ec0cd97c24080fb74424080d000c0000668944240ad96c240adf3c24d96c24088b04248b54240483c40cc3')
 TRIG = bytes.fromhex('d9c0d8c8d9e8dee1d9fad9c9d9f3c3d9c0d8c8d9e8dee1d9fad9f3c3')
-POW = bytes.fromhex('d9c9d9f1d9c0d9fcdce9d9c9d9f0d9e8dec1d9fdddd9c3')
+# Zero base with positive exponent is used by the LOD transition path.
+# Negative bases, zero/negative exponents and NaNs remain unsupported.
+POW = bytes.fromhex('d9eedbeaddd87507ddd8ddd8d9eec3d9c9d9f1d9c0d9fcdce9d9c9d9f0d9e8dec1d9fdddd9c3')
 
 
 def run(world, archive, dll, type_id):
@@ -137,8 +139,19 @@ def run(world, archive, dll, type_id):
         if not all(map(math.isfinite, values)):
             raise RuntimeError(f'type {type_id}: nonfinite {kind} material')
         materials[kind.lower()] = values
+    # ParseLodInfo writes the mode and three floats into these object slots.
+    # +0x28 and +0x44 are also read by GetTransitionValues callers. The raw
+    # offsets are retained until their precise semantics are independently
+    # validated; LoadTree alone does not establish the generated LOD counts.
+    lod_mode = struct.unpack('<I', em.mem_read(obj + 0x18, 4))[0]
+    lod_values = struct.unpack('<4f', em.mem_read(obj + 0x1c, 16))
+    alpha_reference = bytes(em.mem_read(obj + 0x44, 1))[0]
+    if not all(map(math.isfinite, lod_values)):
+        raise RuntimeError(f'type {type_id}: nonfinite LOD parameter')
     return {'type_id': type_id, 'spt_path': path,
-            'spt_sha256': hashlib.sha256(data).hexdigest(), 'materials': materials}
+            'spt_sha256': hashlib.sha256(data).hexdigest(), 'materials': materials,
+            'lod_raw': {'mode_18': lod_mode, 'floats_1c_20_24_28': lod_values,
+                        'byte_44': alpha_reference}}
 
 
 def main():

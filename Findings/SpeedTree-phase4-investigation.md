@@ -4,9 +4,10 @@ This is an asset inventory and emulation/static-disassembly investigation,
 **not** an implementation of P4.01–P4.03. The existing viewer still uses
 approximate LOD transition widths and sampled leaf motion. The companion
 `SpeedTree-world-asset-survey.tsv` inventories all 59 *world type records*.
-`SpeedTree-emulated-materials.jsonl` records DLL material getter results for
-all 59 after emulated SPT loading; these are experimental and are not a survey
-of client-applied material state, LODs, billboards, or animation.
+`SpeedTree-emulated-materials.jsonl` records DLL material getter results and
+raw transition-related object fields for all 59 after emulated SPT loading;
+these are experimental and are not a survey of client-applied material state,
+generated LOD geometry, billboards, or animation.
 
 ## Reproduction and evidence
 
@@ -40,7 +41,16 @@ A follow-up executes DLL initialization, constructor, `LoadTree`, and the
 branch, frond and leaf material getters for each world SPT under Speakeasy /
 Unicorn. The resulting `SpeedTree-emulated-materials.jsonl` has 59 records;
 all processes returned success and duplicate SPT hashes yielded identical
-arrays. The 13 raw floats contain 5, 11 and 13 distinct branch, frond and
+arrays. A second full run of all 59 reproduced the original material arrays.
+The raw fields `+0x18`, `+0x1c`, `+0x20`, `+0x24`, `+0x28` and `+0x44`
+show 24 distinct tuples; 58 types have mode 0 and type 39 (`Palm1.spt`)
+has mode 1. At `GetLeafGeometry` `0x10024e74`, mode 1 enters the two-leaf
+`GetTransitionValues` path; mode 0 follows the discrete-leaf path at
+`0x10024fce`, which disables the second leaf set at `0x1002501a`. These are
+post-LoadTree emulated fields and static branch analysis, not a complete
+end-to-end client rendering test. Three of these floats are populated by `ParseLodInfo` at `0x10022e1c`, `0x10022e28`
+and `0x10022e34`. They are *inputs*, not independently measured LOD bounds
+or proof of component geometry. The 13 raw floats contain 5, 11 and 13 distinct branch, frond and
 leaf arrays respectively. Some leaves have non-zero values in slots 6–8,
 9–11, or 12, so assuming one uniform material is not justified.
 
@@ -62,8 +72,9 @@ mkdir -p google_drive/research/materials
 seq 0 58 | xargs -P 4 -I '{}' sh -c 'PYTHONPATH=.cache/py python3 tools/speedtree/probe_materials_emulated.py google_drive/world.ecwld google_drive/trees.pck google_drive/speedtreert.dll --type "$1" > "google_drive/research/materials/$1.json" 2> "google_drive/research/materials/$1.err"' _ '{}'
 ```
 
-Result: exit 0, 59 JSON files, no stderr; one independent rerun of type 0
-matched its recorded output. `PYTHONPATH=.cache/py python3 -m unittest discover
+Result: exit 0, 59 JSON files, no stderr; an additional full 59-type run
+with the corrected `_CIpow` substitute reproduced the recorded material and
+raw LOD fields exactly. `PYTHONPATH=.cache/py python3 -m unittest discover
 -s tools/speedtree -p 'test*.py' -v` passed seven tests, including ordinary
 finite-input checks of the substituted x87 arithmetic. Those tests do not
 validate MSVCRT edge cases or geometry. World SHA-256 is
@@ -92,6 +103,17 @@ validate MSVCRT edge cases or geometry. World SHA-256 is
   (`0x10022300`) has a separate drop-to-billboard branch. This is not yet a
   proof of alpha transitions, hysteresis or what the client actually draws.
   `GetTransitionValues` is at `0x100254f0`, `GetGeometry` at `0x10024680`.
+  `PYTHONPATH=.cache/py python3 tools/speedtree/probe_transitions_unicorn.py
+  google_drive/speedtreert.dll` checks ten synthetic transition cases using
+  three levels, width 0.07, bias 0.2, exponent 1.5 and alpha reference 84.
+  For example, at continuous level 0.736 the export returns LODs 0 and 1
+  with alpha thresholds 84 and 253.475; at 0.596 it returns LOD 1 alone.
+  This is alpha-threshold evolution, not evidence for the viewer's ordered
+  dither crossfade. These fixtures use substituted CRT `_ftol` and `_CIpow`;
+  the pow stub was corrected for zero-base, positive-exponent inputs after
+  an initial implementation produced invalid values at transition endpoints.
+  Only ordinary finite inputs are tested, and the transition call sites and
+  actual generated geometry counts still require end-to-end validation.
   The isolated getters were subsequently emulated using synthetic structures:
   `PYTHONPATH=.cache/py python3 tools/speedtree/probe_discrete_lod_unicorn.py google_drive/speedtreert.dll`.
   For three levels with drop-to-billboard disabled, branch, frond and leaf
