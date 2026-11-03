@@ -338,7 +338,11 @@ both fades and no disc was ever submitted. The selector now keeps the two
 selections apart exactly like `RegionStreaming::endpoints`, and a world with no
 containing global box keeps the recovered constructor default `0x18` rather than
 borrowing a local word. `Renderer::celestial_status` also prints the latched flag
-word so the state is visible in the settings tab.
+word so the state is visible in the settings tab. The latch stays native —
+`client_sun::Visibility::update` stores exactly the word it is handed — and the
+unknown-word fallback lives in `Renderer`, which feeds `0x18` and prints
+`source 0x00 has no disc bit; viewer latches 0x18` rather than claiming the
+area switched the discs off.
 
 Unsupported states are explicit: `sky_celestial::disc` returns
 `BelowHorizon { elevation_degrees }`, `Hidden { fade }`, `MissingAsset(path)` or

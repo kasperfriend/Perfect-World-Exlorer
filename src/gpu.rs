@@ -979,6 +979,9 @@ struct Renderer {
     frame: FrameSnapshot,
     world_glow: crate::post_gpu::WorldGlow,
     celestial_visibility: crate::client_sun::Visibility,
+    /// Raw `+0x80` disc-flag word from the default area, before the viewer's
+    /// unknown-word fallback, so the status line can say what the source said.
+    celestial_flags: u32,
     /// Native `A3DSkySphere` swap machine (`+0x5b4`/`+0x5b8`/`+0x5b9`). Stepped
     /// exactly once per frame from `begin_frame`; reflection, refraction and map
     /// views only read the resulting snapshot (P5.07/P5.08).
@@ -1497,6 +1500,7 @@ impl Renderer {
             frame: FrameSnapshot::default(),
             world_glow: crate::post_gpu::WorldGlow::default(),
             celestial_visibility: crate::client_sun::Visibility::default(),
+            celestial_flags: 0x18,
             sky_transition: Default::default(),
             sky_tick_residual: 0,
             retained_regional_light: None,
@@ -1539,11 +1543,16 @@ impl Renderer {
             if state.night_flag { "on" } else { "off" },
             state.night_strength
         );
-        let flag_word = self.celestial_visibility.flags();
-        let flag_note = if flag_word & 0x18 == 0 {
-            " (default area disables both discs)"
+        let flag_word = self.celestial_flags;
+        let latched = self.celestial_visibility.flags();
+        let flag_note = if latched & 0x18 == 0 {
+            " (latched word has neither disc bit)".to_string()
+        } else if flag_word & 0x18 == 0 {
+            // `+0x80` is unpinned: the viewer keeps both discs visible instead of
+            // hiding them on a word whose producer is not identified, and says so.
+            format!(" (source 0x{flag_word:02x} has no disc bit; viewer latches 0x{latched:02x})")
         } else {
-            ""
+            String::new()
         };
         out.push_str(&format!("; disc flags 0x{flag_word:02x}{flag_note}"));
         for disc in crate::sky_celestial::discs(
@@ -1628,9 +1637,18 @@ impl Renderer {
         let authored = region_light
             .map(|l| l.material_direction().toward_sun())
             .unwrap_or([0.6, -0.4, 0.8]);
+        // The raw word is kept for the status line; `+0x80` is not pinned, so a
+        // word with neither disc bit never reaches the native latch (the sun
+        // would silently disappear) and the viewer feeds `0x18` instead.
+        let source_flags = region_light.map(|l| l.celestial_flags).unwrap_or(0x18);
+        self.celestial_flags = source_flags;
         self.celestial_visibility.update(
             camera.logic_delta_ms,
-            region_light.map(|l| l.celestial_flags).unwrap_or(0x18),
+            if source_flags & 0x18 == 0 {
+                0x18
+            } else {
+                source_flags
+            },
         );
         // Disc placement follows the render path 0x4b3e00: each object uses its
         // own recovered elevation curve and the shared regional azimuth.

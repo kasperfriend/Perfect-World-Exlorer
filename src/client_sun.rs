@@ -74,12 +74,11 @@ impl Visibility {
             })
             .clamp(0., 1.);
         }
-        // A word with neither disc bit set means the box field this build reads
-        // is not the flag word retail latches (`0x421f50` is not the EC-BSD box
-        // constructor and `+0x80` is still unpinned): the sun would silently
-        // disappear. Fall back to both visible instead of hiding an object on a
-        // value that is not understood.
-        self.flags = if flags & 0x18 == 0 { 0x18 } else { flags };
+        // Latched exactly as the client latches it. A word without either disc
+        // bit is passed in as `0x18` by the viewer when the `+0x80` source has
+        // not been pinned (`0x421f50` is not the EC-BSD box constructor), so
+        // the recovered step below stays untouched.
+        self.flags = flags;
     }
     /// The flag word the last `update` latched (`+0x84`/`+0x85` sources): the
     /// default area's `+0x80` word, bit 3 sun and bit 4 moon.
