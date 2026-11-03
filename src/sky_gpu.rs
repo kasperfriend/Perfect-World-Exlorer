@@ -486,6 +486,9 @@ mod reflection_tests {
         // not sample anything for weather until that exists.
         let shader = &src[src.find("pub(crate) const SHADER").expect("shader")..];
         let shader = &shader[..shader.find("\"#;").expect("shader end")];
-        assert!(!shader.contains("weather"), "no weather lane until P5.05");
+        assert!(
+            !shader.contains("p.weather"),
+            "no weather uniform until an authored runtime exists (P5.05)"
+        );
     }
 }

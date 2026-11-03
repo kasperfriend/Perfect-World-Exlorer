@@ -63,7 +63,15 @@ jobs:
       - name: Test GFX light dependency audit
         run: cargo test --locked --bin gfx-light-audit
       - name: Run viewer unit tests
-        run: cargo test --locked --bin perfect-world-explorer
+        run: |
+          CARGO_TERM_COLOR=never cargo test --locked --bin perfect-world-explorer 2>&1 | tee /tmp/cargo-test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "(^error|: error|panicked at|assertion)" /tmp/cargo-test.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+          exit "$status"
       - name: Install software Vulkan for Phase 1 shader checks
         run: sudo apt-get install -y mesa-vulkan-drivers
       - name: Run Phase 1 production shader regressions
