@@ -331,12 +331,228 @@ impl SkyGpu {
     }
 }
 
+/// Pan-orama mapping used by `sky()` in the shader, reproduced on the CPU so the
+/// azimuth wrap and the seam blend can be tested without a GPU.
+///
+/// The shader maps a direction to `az = atan2(x, -z)/2pi + 0.5`, then samples
+/// panorama `floor(az*2) % 2` at `u = fract(az*2)`. Two panoramas therefore
+/// cover 180 degrees each and together tile the full circle. A panorama's own
+/// left/right edges are the two places where the neighbouring panorama takes
+/// over, which is what the border crossfade exists for.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct SkySample {
+    /// Panorama index within the time-of-day triple (0 = `01.bmp`, 1 = `02.bmp`).
+    pub side: u32,
+    /// Horizontal coordinate inside that panorama.
+    pub u: f32,
+    /// Vertical coordinate; 0 at the zenith edge, 1 at the nadir edge.
+    pub v: f32,
+}
+pub(crate) fn sky_sample(dir: Vec3) -> SkySample {
+    let d = dir.normalize_or_zero();
+    let az = d.x.atan2(-d.z) / std::f32::consts::TAU + 0.5;
+    let scaled = az * 2.;
+    SkySample {
+        side: (scaled.floor() as i32).rem_euclid(2) as u32,
+        u: scaled - scaled.floor(),
+        v: (0.5 - d.y.clamp(-1., 1.).asin() / std::f32::consts::PI).clamp(0., 1.),
+    }
+}
+/// Celestial disc placement, mirroring the `p.celestial` block in `fs`.
+///
+/// The shader builds a basis around the celestial direction `c`
+/// (`x = normalize(cross(up, c))`, `y = cross(c, x)`), projects the view ray
+/// into it and divides by `z = dot(d, c)` so the billboard stays planar on the
+/// sphere. Returns `None` when the ray misses the disc, which is what the
+/// `if z > 0.98 && uv in [0,1]` guards test.
+pub(crate) struct Celestial {
+    pub direction: Vec3,
+    pub day_size: f32,
+    pub night_size: f32,
+}
+impl Celestial {
+    /// Whether the body is drawn at all. The shader gates on
+    /// `c.y > 0.0` alone; the hour only decides which of the two textures is
+    /// sampled, so it does not enter this test.
+    pub fn visible(&self) -> bool {
+        self.direction.y > 0. && self.direction.length() > 0.
+    }
+    pub fn is_day(&self, hour: f32) -> bool {
+        (3.5..21.).contains(&hour)
+    }
+    /// `uv` in [0,1]^2 when the ray hits the disc, else `None`.
+    pub fn project(&self, ray: Vec3, hour: f32) -> Option<[f32; 2]> {
+        let c = self.direction.normalize_or_zero();
+        if c == Vec3::ZERO {
+            return None;
+        }
+        let up = Vec3::Y;
+        let mut x = up.cross(c);
+        // The shader adds (1e-5,0,0) because `cross(up, c)` degenerates when
+        // the body is exactly overhead; keep that so behaviour matches.
+        x += Vec3::new(0.00001, 0., 0.);
+        let x = x.normalize_or_zero();
+        let y = c.cross(x);
+        let d = ray.normalize_or_zero();
+        let z = d.dot(c);
+        if z <= 0.98 {
+            return None;
+        }
+        let size = if self.is_day(hour) { self.day_size } else { self.night_size };
+        let uv = [
+            d.dot(x) / (2. * size * z) + 0.5,
+            -d.dot(y) / (2. * size * z) + 0.5,
+        ];
+        if uv[0] < 0. || uv[0] > 1. || uv[1] < 0. || uv[1] > 1. {
+            None
+        } else {
+            Some(uv)
+        }
+    }
+}
+/// The border crossfade in `sky()`. Returns the weight of the *own* panorama;
+/// the remainder comes from the neighbour sampled at the opposite edge.
+pub(crate) fn seam_weight(u: f32) -> f32 {
+    const BORDER: f32 = 0.08;
+    if u < BORDER {
+        0.5 + 0.5 * u / BORDER
+    } else if u > 1. - BORDER {
+        1. - 0.5 * (u - (1. - BORDER)) / BORDER
+    } else {
+        1.
+    }
+}
 fn sky_inverse(projection: Mat4, view: Mat4, reflected: bool) -> Mat4 {
     let inv = (projection * view).inverse();
     if reflected {
         Mat4::from_scale(Vec3::new(1., -1., 1.)) * inv
     } else {
         inv
+    }
+}
+#[cfg(test)]
+mod sky_seam_tests {
+    use super::*;
+    /// Azimuth 0 (north) sits exactly on the boundary between the two
+    /// panoramas, so it must resolve deterministically even though `floor` of a
+    /// value constructed as exactly 1.0 is fragile in float.
+    #[test]
+    fn cardinal_directions_land_on_the_expected_panorama_and_u() {
+        let north = sky_sample(Vec3::new(0., 0., -1.));
+        assert_eq!(north.side, 1, "azimuth 0 is the boundary; side 1 is the wrap side");
+        assert!(north.u < 1e-6, "u={}", north.u);
+        // `az = atan2(x, -z)/2pi + 0.5`, so +x gives az = 0.75 and -x gives
+        // az = 0.25; with `floor(2*az) % 2` that puts +x on side 1 and -x on
+        // side 0, both at the panorama's horizontal middle.
+        let east = sky_sample(Vec3::new(1., 0., 0.));
+        assert_eq!(east.side, 1, "az=0.75 -> floor(1.5)%2 = 1");
+        assert!((east.u - 0.5).abs() < 1e-6, "u={}", east.u);
+        let south = sky_sample(Vec3::new(0., 0., 1.));
+        assert_eq!(south.side, 0);
+        assert!(south.u < 1e-6, "u={}", south.u);
+        let west = sky_sample(Vec3::new(-1., 0., 0.));
+        assert_eq!(west.side, 0, "az=0.25 -> floor(0.5)%2 = 0");
+        assert!((west.u - 0.5).abs() < 1e-6, "u={}", west.u);
+    }
+    /// Sweeping the full circle must never produce an out-of-range u, and the
+    /// two panoramas must each be used for exactly half of it.
+    #[test]
+    fn azimuth_sweep_stays_in_range_and_splits_the_circle_evenly() {
+        let (mut a, mut b) = (0, 0);
+        for i in 0..3600 {
+            let t = i as f32 / 3600. * std::f32::consts::TAU;
+            let s = sky_sample(Vec3::new(t.sin(), 0., -t.cos()));
+            assert!((0. ..1.).contains(&s.u), "u out of range at {t}: {}", s.u);
+            match s.side {
+                0 => a += 1,
+                1 => b += 1,
+                other => panic!("unexpected side {other}"),
+            }
+        }
+        assert_eq!(a + b, 3600);
+        assert!((a as i32 - b as i32).abs() <= 2, "uneven split: {a} vs {b}");
+    }
+    /// The seam weight is 1 away from the borders, halves at the seam, and is
+    /// monotone in between; the two borders must agree with each other.
+    #[test]
+    fn seam_weight_peaks_in_the_middle_and_halves_at_both_edges() {
+        assert_eq!(seam_weight(0.5), 1.);
+        assert!((seam_weight(0.) - 0.5).abs() < 1e-6);
+        assert!((seam_weight(1.) - 0.5).abs() < 1e-6);
+        // Symmetric: the left border at u and the right border at 1-u match.
+        for k in 0..8 {
+            let u = k as f32 * 0.01;
+            assert!((seam_weight(u) - seam_weight(1. - u)).abs() < 1e-5, "u={u}");
+        }
+        // Monotone towards the middle on both sides.
+        let mut prev = seam_weight(0.);
+        for k in 1..=8 {
+            let w = seam_weight(k as f32 * 0.01);
+            assert!(w >= prev, "not monotone at {k}");
+            prev = w;
+        }
+    }
+    fn body(direction: Vec3) -> Celestial {
+        Celestial { direction, day_size: 0.035, night_size: 0.028 }
+    }
+    /// Looking straight at the body puts the sample at the disc centre, and
+    /// off-axis rays stay inside the disc while the disc is small.
+    #[test]
+    fn celestial_disc_centres_on_the_body_direction() {
+        let c = body(Vec3::new(0., 1., 0.));
+        let uv = c.project(Vec3::new(0., 1., 0.), 12.).expect("centre ray must hit");
+        assert!((uv[0] - 0.5).abs() < 1e-3 && (uv[1] - 0.5).abs() < 1e-3, "{uv:?}");
+        // A ray 0.9 degree off axis is inside a 1.75 degree half-angle disc.
+        let off = Vec3::new(0.9f32.to_radians().sin(), 0.9f32.to_radians().cos(), 0.);
+        assert!(c.project(off, 12.).is_some());
+        // A ray 5 degrees off axis is well outside it.
+        let far = Vec3::new(5f32.to_radians().sin(), 5f32.to_radians().cos(), 0.);
+        assert!(c.project(far, 12.).is_none());
+    }
+    /// The disc must not appear when the body is below the horizon.
+    #[test]
+    fn celestial_body_below_horizon_is_never_visible() {
+        let c = body(Vec3::new(0., -0.5, -1.));
+        assert!(!c.visible());
+        // A body exactly on the horizon is not drawn either.
+        assert!(!body(Vec3::new(0., 0., -1.)).visible());
+        let up = body(Vec3::new(0., 0.5, -1.));
+        assert!(up.visible());
+    }
+    /// Day body is drawn from 03:30 to 21:00 and the night body outside it.
+    #[test]
+    fn celestial_day_window_bounds_the_sun_disc() {
+        let c = body(Vec3::new(0., 0.5, -1.));
+        assert!(!c.is_day(3.0));
+        assert!(c.is_day(3.5));
+        assert!(c.is_day(20.9));
+        assert!(!c.is_day(21.0));
+        // The size swaps with the window, which is what selects the sun vs moon
+        // texture layer (9 vs 10).
+        assert!(c.day_size > c.night_size);
+    }
+    /// The +1e-5 basis nudge exists because `cross(up, c)` collapses when the
+    /// body is exactly overhead. The projection must still be finite there.
+    #[test]
+    fn celestial_projection_survives_a_body_exactly_overhead() {
+        let c = body(Vec3::new(0., 1., 0.));
+        let uv = c.project(Vec3::new(0., 1., 0.), 12.).expect("overhead must not divide by zero");
+        assert!(uv[0].is_finite() && uv[1].is_finite(), "{uv:?}");
+    }
+    /// Vertical mapping: horizon at the middle, zenith at 0, nadir at 1.
+    #[test]
+    fn vertical_mapping_puts_the_horizon_at_the_middle() {
+        assert!((sky_sample(Vec3::new(0., 0., -1.)).v - 0.5).abs() < 1e-6);
+        assert!(sky_sample(Vec3::new(0., 1., 0.)).v < 1e-6);
+        assert!(sky_sample(Vec3::new(0., -1., 0.)).v > 1. - 1e-6);
+        // Monotone from zenith to nadir.
+        let mut prev = -1.;
+        for k in 0..=10 {
+            let y = 1. - k as f32 * 0.2;
+            let v = sky_sample(Vec3::new(0., y, -1.)).v;
+            assert!(v > prev, "v not monotone at y={y}");
+            prev = v;
+        }
     }
 }
 #[cfg(test)]
