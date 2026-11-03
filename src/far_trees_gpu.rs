@@ -54,7 +54,7 @@ struct Out {@builtin(position) pos:vec4<f32>,@location(0) normal:vec3<f32>,@loca
  o.pos=camera.matrix*vec4<f32>(pos,1.);o.world=pos;o.normal=norm;o.uv=i.uv;o.color=i.color;o.kind=i.kind;o.tree=i.instance;o.tex_h=f32(i.tex_h & 127u)*select(128./8192.,128./2048.,(i.tex_h & 128u)!=0u);o.fade=i.info;o.alpha_ref=i.alpha_ref;return o;}
 @fragment fn fs(i:Out)->@location(0) vec4<f32>{if camera.clip.y!=0. && (i.world.y-camera.clip.x)*camera.clip.y<0. {discard;}
 
- let scale=vec2<f32>(i.color.z,i.tex_h);let dx=dpdx(i.uv);let dy=dpdy(i.uv);let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(dx*dims),length(dy*dims)),1.)),0.,7.);let halfpixel=min(vec2<f32>(0.5*exp2(mip))/dims,scale*0.499);let uv=i.color.xy+clamp(fract((i.uv-i.color.xy)/scale)*scale,halfpixel,scale-halfpixel);let tex=textureSampleGrad(atlas,atlas_sampler,uv,dx,dy);if i.alpha_ref!=0xffffffffu {let threshold=bitcast<f32>(i.alpha_ref);if tex.a<=threshold {discard;}}else if i.kind>4.5 && tex.a<0.5 {discard;}
+ let scale=vec2<f32>(i.color.z,i.tex_h);let dx=dpdx(i.uv);let dy=dpdy(i.uv);let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(dx*dims),length(dy*dims)),1.)),0.,7.);let halfpixel=min(vec2<f32>(0.5*exp2(mip))/dims,scale*0.499);let uv=i.color.xy+clamp(fract((i.uv-i.color.xy)/scale)*scale,halfpixel,scale-halfpixel);let tex=textureSampleGrad(atlas,atlas_sampler,uv,dx,dy);if i.alpha_ref!=0xffffffffu {let threshold=bitcast<f32>(i.alpha_ref);if tex.a<=threshold {discard;}}else if i.kind>3.5 && tex.a<0.5 {discard;}
  // Complementary ordered coverage: old and new snapshots never both draw
  // at the same pixel, while the tree is fully visible at the endpoints.
  if i.fade.y>0.5 {let xy=vec2<u32>(i.pos.xy)%vec2<u32>(4u);let b=(((xy.x&1u)^(xy.y&1u))*8u)+((xy.y&1u)*4u)+((((xy.x>>1u)&1u)^((xy.y>>1u)&1u))*2u)+((xy.y>>1u)&1u);let d=(f32(b)+0.5)/16.;if (i.fade.y<1.5 && d<i.fade.x)||(i.fade.y>1.5 && d>=i.fade.x){discard;}}
@@ -667,5 +667,15 @@ impl FarTrees {
         for b in &self.batches {
             p.draw_indexed(b.indices.clone(), 0, b.instances.clone());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn legacy_cutout_still_covers_fronds_and_leaves_without_native_refs() {
+        assert!(super::SHADER.contains(
+            "else if i.kind>3.5 && tex.a<0.5 {discard;}"
+        ));
     }
 }
