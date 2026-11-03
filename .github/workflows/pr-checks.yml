@@ -48,7 +48,18 @@ jobs:
           rustc --edition=2021 --test src/sky_transition.rs -o /tmp/sky-transition-tests
           /tmp/sky-transition-tests
       - name: Check all binary targets
-        run: cargo check --locked --bins
+        run: |
+          # Keep the plain command so a non-zero exit still fails the job, but
+          # also re-echo the compiler diagnostics as check annotations: the raw
+          # step log is not always retrievable from the API.
+          cargo check --locked --bins --message-format short 2>&1 | tee /tmp/cargo-check.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            head -40 /tmp/cargo-check.log | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+          exit "$status"
       - name: Test GFX light dependency audit
         run: cargo test --locked --bin gfx-light-audit
       - name: Run viewer unit tests
