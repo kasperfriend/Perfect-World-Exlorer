@@ -358,6 +358,64 @@ recording: zlib output can be **larger** than its input (blocks 152 and 168 carr
 4678/4709 compressed bytes for 4356 bytes of colour), so no input-size bound is
 asserted anywhere.
 
+### Map artwork: world map and minimap styles
+
+This work sits outside P2.07-P2.09 (it changes UI and asset loading, not terrain
+sampling), but it touched the same archive reader and it fixed a defect, so it is
+recorded here.
+
+**Changed files and call sites.** `src/view_settings.rs` gains `MapStyle`
+(`Realistic`, `Original`) and two persisted fields, `world_map_style` and
+`minimap_style`, on the Interface tab. `src/navigation.rs` gains
+`map_tile_name`, `minimap_tile_name`, a shared `compose` tile compositor,
+`original_map` (rewritten) and `original_minimap` (new). `src/gpu.rs` drops the
+per-page Realistic/Original buttons from the World Map toolbar, keeps each
+surface's choice in settings, loads the two artwork sets on their own worker
+threads, and branches the minimap HUD.
+
+**Native evidence.** The client builds its minimap path from two literals:
+`Surfaces\MiniMaps\` followed by `%02d%02d` at `0x565220`. That is a different
+asset set from the world map, so "Original" minimap cannot be a crop of the world
+map.
+
+Measured on the retail `surfaces.pck` (93,542,325 bytes, 3,724 entries, version
+`0x20002`), read entry by entry:
+
+| set | path | tiles | tile | grid | cover |
+| --- | --- | --- | --- | --- | --- |
+| world map | `surfaces/maps/%03d` of `row*10+col` | 88 needed (folder holds 100, incl. a duplicate 2-digit set) | 1024x1024 DXT1 | 11 rows x 8 cols | 8192x11264 |
+| minimap | `surfaces/minimaps/world/%02d%02d` | 352 used of 368 shipped | 256x256 DXT1 | 22 rows x 16 cols | 8192x11264 at 512 units/tile |
+
+**Defect found and fixed.** The existing `original_map` asked for
+`surfaces/maps/%02d%02d.dds` - four-digit names - with 256px tiles. The archive
+has no such names, so the World Map page's Original style could never load and
+always reported "Original map unavailable". It now uses the real names and all
+**88/88** map tiles and **352/352** minimap tiles resolve.
+
+**Implemented behaviour.** Realistic minimap is the previous live top-down
+render, and its offscreen pass is now skipped when the style is Original instead
+of being rendered and hidden. Original minimap crops the composited client
+artwork around the camera at a fixed scale (it slides at the world edge rather
+than stretching) and keeps the heading marker and north label. Missing artwork is
+an explicit message, never a silent switch back to the live render.
+
+**Tests executed and results.** `src/view_settings.rs` 21 tests (2 new: styles
+default to Realistic and persist independently; an unrecognised spelling keeps the
+default instead of switching). `src/navigation.rs` 2 new tests pin the tile-name
+formats and the 16x22 grid arithmetic. Core suite 39 tests. CI green on Linux and
+Windows, run `41608528227`.
+
+**Remaining gaps.** Only the main world's minimap set is composited; the other 40
+zone folders (`a01`..`b30`) are separate instances with their own local coordinate
+spaces and no world transform in their `.trn2`, so placing them in this
+whole-world view would require a mapping the client data does not carry. The
+archive's 23rd minimap row lies outside the 8192x11264 world bounds and is
+deliberately not composited. Both composited atlases are downsampled (256px and
+128px per tile) rather than shipped at 1024px/256px, which at full size would be a
+368 MB texture.
+
+Task | Finished Yes | Production integration Yes | Native evidence Yes | Tests executed and results Yes | Remaining gaps: non-world zone minimaps, downsampled atlases
+
 **P2.09 — multi-view consistency and CI regressions.**
 Task: keep terrain consistent across main, reflection, clipped refraction, minimap
 and full-world map with one per-frame snapshot; keep boundary/variant/
