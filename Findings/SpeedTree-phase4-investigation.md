@@ -1,11 +1,12 @@
 # SpeedTree Phase 4 investigation (partial)
 
-This is an asset inventory and static-disassembly investigation, **not** a
-runtime validation or implementation of P4.01–P4.03. The existing viewer still
-uses approximate LOD transition widths and sampled leaf motion. The companion
-`SpeedTree-world-asset-survey.tsv` inventories all 59 *world type records*,
-but does not survey their runtime materials, LODs, billboards, or animation.
-Those must not be inferred from the asset hashes.
+This is an asset inventory and emulation/static-disassembly investigation,
+**not** an implementation of P4.01–P4.03. The existing viewer still uses
+approximate LOD transition widths and sampled leaf motion. The companion
+`SpeedTree-world-asset-survey.tsv` inventories all 59 *world type records*.
+`SpeedTree-emulated-materials.jsonl` records DLL material getter results for
+all 59 after emulated SPT loading; these are experimental and are not a survey
+of client-applied material state, LODs, billboards, or animation.
 
 ## Reproduction and evidence
 
@@ -32,6 +33,41 @@ The inventory reports 59 rows, 57 distinct SPT content hashes and 37 distinct
 composite content hashes; it verifies each referenced PCK record exists and
 its decompressed length matches the directory. Paths preserve the ECWLD type
 order, which is the cache type ID. This is not an enumeration of instances.
+
+## Experimental material getter survey
+
+A follow-up executes DLL initialization, constructor, `LoadTree`, and the
+branch, frond and leaf material getters for each world SPT under Speakeasy /
+Unicorn. The resulting `SpeedTree-emulated-materials.jsonl` has 59 records;
+all processes returned success and duplicate SPT hashes yielded identical
+arrays. The 13 raw floats contain 5, 11 and 13 distinct branch, frond and
+leaf arrays respectively. Some leaves have non-zero values in slots 6–8,
+9–11, or 12, so assuming one uniform material is not justified.
+
+This is **not verified Windows output**: the emulator substitutes CRT
+allocation, string scanning, `_ftol`, `atof`, trigonometric and pow routines,
+uses fake file-descriptor responses, and explicitly runs the DLL's initializer
+array because Speakeasy's `_initterm` is a no-op. Only SPT loading and getters
+are measured, not Compute or the renderer, and array slots have not been
+independently mapped to client-applied material state. Do not use these raw
+values as a production fix without validating ABI, client call paths and the
+substitutes against an independent native run. For example, an experimental
+Compute attempt produced a questionable type-0 height and has deliberately
+not been used as evidence.
+
+To reproduce (requires `pefile`, `speakeasy-emulator` and `unicorn`):
+
+```sh
+mkdir -p google_drive/research/materials
+seq 0 58 | xargs -P 4 -I '{}' sh -c 'PYTHONPATH=.cache/py python3 tools/speedtree/probe_materials_emulated.py google_drive/world.ecwld google_drive/trees.pck google_drive/speedtreert.dll --type "$1" > "google_drive/research/materials/$1.json" 2> "google_drive/research/materials/$1.err"' _ '{}'
+```
+
+Result: exit 0, 59 JSON files, no stderr; one independent rerun of type 0
+matched its recorded output. `PYTHONPATH=.cache/py python3 -m unittest discover
+-s tools/speedtree -p 'test*.py' -v` passed seven tests, including ordinary
+finite-input checks of the substituted x87 arithmetic. Those tests do not
+validate MSVCRT edge cases or geometry. World SHA-256 is
+`6a763c0ea0ac5717adf0a806cc2d2c09e86a4e4a809df60fc8ed0f9a5c319fc8`.
 
 ## Static observations
 
@@ -65,9 +101,13 @@ order, which is the cache type ID. This is not an enumeration of instances.
   prerequisite restores index 2 at 0.25. The probe substitutes a small x87
   `_ftol` CRT routine and has not been independently checked on Windows.
   An index 3 here is not proof the client renders a billboard: the client
-  still needs to be traced through its visibility and draw paths. The client
-  calls `SetDropToBillboard` at `0x6562db` with EDI; determining its value
-  and all other call-site conditions remains necessary.
+  still needs to be traced through its visibility and draw paths. At client
+  `0x656084`, EDI is zeroed and is not reassigned before the call to
+  `SetDropToBillboard` at `0x6562db`, so this initialization path passes
+  false (subject to normal x86 callee-saved register conventions). The two
+  branch, leaf and frond lighting setters at `0x6561b4`, `0x6561c0`,
+  `0x6561cc` receive the same zero. The full draw-path and any
+  later state changes remain to be traced.
 * At `0x6561d9`, `0x6561e6`, `0x6561f3` the client sets all three wind
   methods to enum 2, and at `0x656200` sets one leaf rocking group. This
   alone does not prove that branch/frond vertices move at runtime. The
@@ -87,9 +127,10 @@ No production tree path was changed: incomplete static evidence is not a
 safe basis for replacing the current approximations or claiming exactness.
 The PWTREE07 cache has only three geometry snapshots and sampled motion; exact
 runtime LOD and wind require additional data and/or a runtime implementation.
-Only the isolated DLL LOD routine was emulated; the full DLL initialization,
-asset loading and rendering were not successfully executed. The split texture
-archive was not extracted, and no visual or GPU comparison was made. The environment had no Rust toolchain,
+DLL SPT loading and isolated LOD routines were emulated with CRT substitutes,
+but the client renderer and reliable computed geometry were not validated. The
+split texture archive was not extracted, and no visual or GPU comparison was
+made. The environment had no Rust toolchain,
 Wine or Windows cross compiler, so Rust builds and native probes were not run.
 A native 32-bit client/DLL probe or a verified emulator should capture every
 type's material arrays, actual geometry, alpha, LOD transition behavior and
