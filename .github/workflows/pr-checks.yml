@@ -162,7 +162,13 @@ jobs:
           # `--check` only names the file; `--diff` shows what rustfmt wants, and
           # the step log is not always retrievable, so echo the hunks directly.
           if ! cargo fmt --all -- --check; then
-            cargo fmt --all -- --diff | head -200
+            cargo fmt --all -- --diff > /tmp/fmt.diff || true
+            # Echo the hunks as annotations: raw step output is not always
+            # retrievable, and only annotations survive in the API.
+            grep -E "^(Diff in |[-+][^-+])" /tmp/fmt.diff | head -60 \
+              | fold -w 400 | while IFS= read -r line; do
+              echo "::error::fmt: $line"
+            done
             exit 1
           fi
   windows:
