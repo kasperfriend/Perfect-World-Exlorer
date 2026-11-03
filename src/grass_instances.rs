@@ -130,7 +130,7 @@ impl Data {
     }
 }
 #[cfg(test)]
-mod tests {
+mod scale_y_tests {
     use super::*;
 
     #[test]
