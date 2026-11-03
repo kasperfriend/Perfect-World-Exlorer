@@ -477,7 +477,8 @@ mod reflection_tests {
         let update = &src[src.find("pub fn update(").expect("update")..];
         let update = &update[..update.find("pub fn draw<").expect("draw")];
         assert_eq!(update.matches("sets: [sets.0 as f32").count(), 1);
-        assert!(update.contains("rotation.w_axis = glam::Vec4::W"));
+        // The translation drop lives in `sky_inverse`, not in `update`.
+        assert!(src.contains("rotation.w_axis = glam::Vec4::W"));
         assert!(
             src.contains("p.sets.z"),
             "the shader must read the sets lane"
