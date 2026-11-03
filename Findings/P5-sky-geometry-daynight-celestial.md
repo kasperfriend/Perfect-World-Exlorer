@@ -145,15 +145,16 @@ colour:
   (`camera.air_fog`), not a hard-coded `0.18, 0.32, 0.48`, so the band follows
   the region and the hour;
 * the roof disc's rim fades into that background over
-  `sky_geometry::CAP_RIM_FADE` (45 % of the rim-to-pole span, `smoothstep` in
-  both `cap_alpha` and the WGSL disc branch), because retail hides the hard
+  `sky_geometry::CAP_RIM_FADE_DEGREES` (72.5 to 82 degrees, `smoothstep` in both
+  `cap_alpha` and the WGSL disc branch, whose edges are the sine of those two
+  elevations), because retail hides the hard
   72.5 degree edge under something this build does not draw: `0x799f88` renders
   an object taken from `[A3DSky+0x54]` through vtable `+0x1c`, between the cap
   and the curtain draws. That object is not identified yet, so the viewer only
   softens the edge instead of claiming to reproduce it.
 
-Both are viewer-only compositions. `CAP_RIM_FADE = 0` restores the raw native
-edge, and the band is still reported as `Region::CapEdgeGap` either way.
+Both are viewer-only compositions. Collapsing `CAP_RIM_FADE_DEGREES` restores
+the raw native edge, and the band is still reported as `Region::CapEdgeGap` either way.
 
 ---
 

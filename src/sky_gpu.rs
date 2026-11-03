@@ -9,7 +9,8 @@
 //! rim alpha, and the day/night change is the client's linear switch timer.
 //! Two viewer-only compositions keep that open band from reading as a ring: the
 //! background is the frame's atmospheric fog colour rather than a fixed blue,
-//! and the roof disc's rim fades into it over [`crate::sky_geometry::CAP_RIM_FADE`]
+//! and the roof disc's rim fades into it over
+//! [`crate::sky_geometry::CAP_RIM_FADE_DEGREES`]
 //! because retail draws an unidentified object from `[A3DSky+0x54]`
 //! (`0x799f88`, vtable `+0x1c`) over that edge and this build does not.
 use crate::pck;
@@ -121,9 +122,9 @@ fn sample_sky(d:vec3<f32>,base:i32)->vec4<f32>{
   // Viewer-only rim softening: the native disc is opaque up to its 72.5 degree
   // rim, where the mesh stops and the open band begins. Retail covers that hard
   // circle with an object drawn at 0x799f88 that this build does not render, so
-  // the rim fades into the pass background over its outermost degrees instead.
-  let rim=clamp((d.y*50.0-47.685848)/2.314152,0.,1.);
-  return vec4<f32>(textureSampleLevel(skies,smp,uv,base+2,0.).rgb,smoothstep(0.,0.45,rim));
+  // the rim fades into the pass background from 72.5 to 82 degrees instead
+  // (sin of both, matching sky_geometry::cap_alpha).
+  return vec4<f32>(textureSampleLevel(skies,smp,uv,base+2,0.).rgb,smoothstep(0.953717,0.990268,d.y));
  }
  // Curtain: cylinder of radius 50, so the ray meets it at 50*tan(elevation).
  // One 180 degree half per draw, the second draw mirrors z; the island split
