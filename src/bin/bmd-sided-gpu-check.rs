@@ -1,21 +1,25 @@
 //! Raster regression using the production BMD fragment shader and real face
 //! winding: single-sided, two-sided and mirrored-placement quads, plus the
-//! stage-0 alpha rule — `MODULATE(TEXTURE, DIFFUSE)` under the pass's
-//! `SRCALPHA`/`INVSRCALPHA` blend, so half-alpha scenery lands halfway and
-//! zero-alpha scenery writes nothing.
+//! alpha-test cutout for baked scenery. Texels below the cutout threshold are
+//! discarded, so they write neither colour nor depth (water shows through a
+//! lily pad card and a canopy behind stays visible through the gaps); texels
+//! above it render opaque. The scenery pipeline stays unblended.
 use wgpu::util::DeviceExt;
 
 /// One case: `flip` is the projection winding parity (`camera.clip.z`),
 /// `disable` the culling-disabled flag (`camera.clip.w`), `alpha` the alpha
 /// channel of the bound 1x1 texture. The first four cases sweep culling with an
-/// opaque atlas; the last two probe the stage-0 alpha at half and zero.
+/// opaque atlas; the last two probe the cutout on both sides of the 0.5
+/// threshold (`192` above, `64` below). A nonzero below-threshold alpha is used
+/// deliberately: under the old depth-writing SRCALPHA blend it wrote a faint
+/// colour, while the cutout discards it entirely.
 const CASES: [(f32, f32, u8); 6] = [
     (0., 0., 255),
     (1., 0., 255),
     (0., 1., 255),
     (1., 1., 255),
-    (0., 1., 128),
-    (0., 1., 0),
+    (0., 1., 192),
+    (0., 1., 64),
 ];
 
 fn main() {
@@ -74,22 +78,13 @@ fn main() {
         fragment: Some(wgpu::FragmentState {
             module: &module,
             entry_point: "fs",
-            // The production `scenery_pipeline` blend: the client's
-            // `ALPHABLENDENABLE(1)` with `SRCALPHA`/`INVSRCALPHA`.
+            // The production `scenery_pipeline` is unblended: baked scenery is
+            // an alpha-test cutout, not a SRCALPHA blend (see gpu.rs). A blend
+            // here let transparent texels write depth and broke the water pass
+            // and stacked canopies.
             targets: &[Some(wgpu::ColorTargetState {
                 format: wgpu::TextureFormat::Rgba8Unorm,
-                blend: Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::SrcAlpha,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                    alpha: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::SrcAlpha,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                }),
+                blend: None,
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
@@ -242,21 +237,23 @@ fn main() {
                 pixels, expected,
                 "flip {flip}, culling disabled {disable}, opaque atlas {alpha}"
             );
-        } else if alpha == 128 {
-            // `ALPHAOP(4)` is MODULATE of TEXTURE and DIFFUSE (`0x7a9785`,
-            // `0x7a9792`) over the pass's SRCALPHA/INVSRCALPHA blend, so a
-            // half-transparent texel must land halfway to the cleared target.
-            // An opaque shader would write 255 here.
+        } else if alpha == 192 {
+            // Above the 0.5 cutout threshold the texel survives and is written
+            // opaque (culling is disabled, so all six quads must appear). A
+            // SRCALPHA blend would have landed below 255 here instead.
             assert!(
-                reds.iter().all(|&red| (110..=145).contains(&red)),
-                "half-alpha scenery did not blend: {reds:?}"
+                reds.iter().all(|&red| red > 200),
+                "above-cutout scenery did not render opaque: {reds:?}"
             );
         } else {
-            // Alpha 0 contributes nothing: this is the canopy case that used to
-            // render as a solid card under an opaque shader.
+            // Below the cutout threshold the fragment is discarded: it writes
+            // no colour and, crucially, no depth. This nonzero alpha (64) is
+            // the lily-pad/canopy case — under the old depth-writing SRCALPHA
+            // blend it left a faint square over the water and hid the canopy
+            // behind, and would have shown up here as a nonzero red.
             assert!(
                 reds.iter().all(|&red| red == 0),
-                "zero-alpha scenery still wrote the surface: {reds:?}"
+                "below-cutout scenery still wrote the surface: {reds:?}"
             );
         }
         println!("flip {flip} culled {disable} alpha {alpha}: {reds:?}");
