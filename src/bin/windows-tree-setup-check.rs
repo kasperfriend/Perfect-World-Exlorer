@@ -4,8 +4,14 @@
 #[path = "../client_detect.rs"]
 mod client_detect;
 #[cfg(windows)]
+#[path = "../dxt.rs"]
+mod dxt;
+#[cfg(windows)]
 #[path = "../launcher_ui.rs"]
 mod launcher_ui;
+#[cfg(windows)]
+#[path = "../model_dds.rs"]
+mod model_dds;
 #[cfg(windows)]
 #[path = "../pck.rs"]
 mod pck;
@@ -18,6 +24,9 @@ mod tree_source;
 #[cfg(windows)]
 #[path = "../trees.rs"]
 mod trees;
+#[cfg(windows)]
+#[path = "../vegetation_textures.rs"]
+mod vegetation_textures;
 #[cfg(windows)]
 #[path = "../windows_setup.rs"]
 mod windows_setup;

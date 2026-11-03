@@ -6,9 +6,17 @@ use crate::gpu::Vertex;
 use std::{collections::BTreeMap, ops::Range};
 use wgpu::util::DeviceExt;
 
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GrassVertex {
+    pub vertex: Vertex,
+    /// Per-material Y atlas extent; kept separate from `Vertex::color[3]`,
+    /// which remains the grass alpha reference for diagnostics and the shader.
+    pub scale_y: f32,
+}
 #[derive(Default)]
 struct Group {
-    vertices: Vec<Vertex>,
+    vertices: Vec<GrassVertex>,
     indices: Vec<u32>,
     instances: Vec<[f32; 12]>,
 }
@@ -22,7 +30,7 @@ pub struct Batch {
 }
 #[derive(Default)]
 pub struct Data {
-    vertices: Vec<Vertex>,
+    vertices: Vec<GrassVertex>,
     indices: Vec<u32>,
     instances: Vec<[f32; 12]>,
     batches: Vec<Batch>,
@@ -32,6 +40,20 @@ impl Builder {
         self.groups.contains_key(&key)
     }
     pub fn mesh(&mut self, key: (usize, usize), vertices: Vec<Vertex>, indices: Vec<u32>) {
+        let scale_y = vertices.first().map_or(0., |v| v.color[2]);
+        self.mesh_with_scale_y(key, vertices, indices, scale_y);
+    }
+    pub fn mesh_with_scale_y(
+        &mut self,
+        key: (usize, usize),
+        vertices: Vec<Vertex>,
+        indices: Vec<u32>,
+        scale_y: f32,
+    ) {
+        let vertices = vertices
+            .into_iter()
+            .map(|vertex| GrassVertex { vertex, scale_y })
+            .collect();
         self.groups.entry(key).or_insert(Group {
             vertices,
             indices,
@@ -107,6 +129,30 @@ impl Data {
         )
     }
 }
+#[cfg(test)]
+mod scale_y_tests {
+    use super::*;
+
+    #[test]
+    fn rectangular_extent_does_not_repurpose_alpha_reference() {
+        let vertex = Vertex {
+            pos: [0.; 3],
+            normal: [0., 1., 0.],
+            uv: [0., 0.],
+            color: [0., 0., 0.25, 84. / 255.],
+            kind: 3.75,
+            diffuse: 0,
+            night_diffuse: 0,
+        };
+        let mut builder = Builder::default();
+        builder.mesh_with_scale_y((0, 0), vec![vertex], vec![], 0.125);
+        builder.instance((0, 0), [0.; 3], 1.);
+        let data = builder.finish();
+        assert_eq!(data.vertices[0].scale_y, 0.125);
+        assert_eq!(data.vertices[0].vertex.color[2], 0.25);
+        assert_eq!(data.vertices[0].vertex.color[3], 84. / 255.);
+    }
+}
 pub struct Gpu {
     pipeline: wgpu::RenderPipeline,
     vertices: wgpu::Buffer,
@@ -129,6 +175,13 @@ impl Gpu {
             "world shader changed; grass transform must be updated"
         );
         let mut source=shader.replacen(marker,"@vertex fn vs(i:VIn, @location(6) instance:vec4<f32>, @location(8) extra:vec4<f32>, @location(9) area_center:vec2<f32>)->VOut { var o:VOut; var local=vec3<f32>(i.pos.x*extra.x+i.pos.z*extra.y,i.pos.y,-i.pos.x*extra.y+i.pos.z*extra.x); var pos=local*instance.w+instance.xyz;",1);
+        let marker = "@location(7) night_diffuse:u32 };";
+        assert!(source.contains(marker));
+        source = source.replacen(
+            marker,
+            "@location(7) night_diffuse:u32, @location(10) grass_scale_y:f32 };",
+            1,
+        );
         let marker = "var norm=i.normal;";
         assert!(source.contains(marker));
         source = source.replacen(marker, "var norm=vec3<f32>(i.normal.x*extra.x+i.normal.z*extra.y,i.normal.y,-i.normal.x*extra.y+i.normal.z*extra.x);", 1);
@@ -139,17 +192,24 @@ impl Gpu {
         assert!(source.contains(marker));
         source = source.replacen(
             marker,
-            "@location(5) diffuse:vec3<f32>, @location(6) grass_fade:f32, @location(7) @interpolate(flat) grass_area:vec2<f32>, @location(8) grass_refraction:f32 };",
+            "@location(5) diffuse:vec3<f32>, @location(6) grass_fade:f32, @location(7) @interpolate(flat) grass_area:vec2<f32>, @location(8) grass_refraction:f32, @location(10) @interpolate(flat) grass_scale_y:f32 };",
             1,
         );
         let marker = "o.pos=camera.matrix*vec4<f32>(pos,1.);";
         assert!(source.contains(marker));
-        source = source.replacen(marker,"o.grass_area=area_center; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0. && weight>=0. && weight<100. {let history_index=u32(clamp(extra.z,0.,79.)); pos+=camera.grass_history[history_index].xyz*weight*camera.grass_wind.y;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
+        source = source.replacen(marker,"o.grass_area=area_center; o.grass_scale_y=i.grass_scale_y; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0. && weight>=0. && weight<100. {let history_index=u32(clamp(extra.z,0.,79.)); pos+=camera.grass_history[history_index].xyz*weight*camera.grass_wind.y;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
         let marker = "tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)";
         assert!(source.contains(marker));
         source = source.replacen(
             marker,
             "tex.a*i.grass_fade<=select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)",
+            1,
+        );
+        let marker = "let scale=vec2<f32>(i.color.z,select(i.color.z,i.color.w,i.kind<2.5));";
+        assert!(source.contains(marker));
+        source = source.replacen(
+            marker,
+            "let scale=vec2<f32>(i.color.z,select(select(i.color.z,i.color.w,i.kind<2.5),i.grass_scale_y,i.kind>3.5 && i.kind<3.9));",
             1,
         );
         // Retail 0x652e84: without a complete day/night pair, stage 0
@@ -191,7 +251,7 @@ impl Gpu {
             bind_group_layouts: &layouts,
             push_constant_ranges: &[],
         });
-        const ATTR: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4,4=>Float32,5=>Uint32,7=>Uint32];
+        const ATTR: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4,4=>Float32,5=>Uint32,7=>Uint32,10=>Float32];
         const INSTANCE: [wgpu::VertexAttribute; 3] =
             wgpu::vertex_attr_array![6=>Float32x4,8=>Float32x4,9=>Float32x2];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -202,7 +262,7 @@ impl Gpu {
                 entry_point: "vs",
                 buffers: &[
                     wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Vertex>() as u64,
+                        array_stride: std::mem::size_of::<GrassVertex>() as u64,
                         step_mode: wgpu::VertexStepMode::Vertex,
                         attributes: &ATTR,
                     },
