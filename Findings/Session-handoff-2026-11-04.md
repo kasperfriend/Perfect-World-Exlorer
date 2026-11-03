@@ -1,96 +1,62 @@
 # Session handoff — 2026-11-04
 
-Written when the sandbox shell stopped responding. Everything below is
-already committed and pushed; nothing is in flight.
+Both CI jobs are green on this branch. This note records what was wrong,
+what fixed it, and the one piece of work that is deliberately not done.
 
-## Where the branch stands
-
-`arena/1aa49fc2-perfect-world-exlorer`, PR #18, based on `main`.
-
-CI (`PR checks and Windows build`) on the last run:
+## CI state
 
 | job | result |
 |---|---|
+| Rust checks and tests (Linux) | **pass** — all steps |
 | Windows executable (x64) | **pass** |
-| Rust checks and tests (Linux) | steps 6–13 **pass**, step 14 `Check formatting` **fail** |
 
-Passing on Linux, in order: x87 regional arithmetic, requirement status
-audits, `cargo check --bins`, gfx-light audit, **viewer unit tests**, the
-Vulkan install, **all 22 Phase-1 shader checks**, and the terrain per-view
-GPU check. Only the cosmetic `cargo fmt` step is red.
+Linux steps 6–14 all pass: x87 regional arithmetic, requirement status
+audits, `cargo check --bins`, gfx-light audit, viewer unit tests, Vulkan
+install, all 22 Phase-1 shader checks, terrain per-view GPU, and
+`cargo fmt`. PR #18 reports `MERGEABLE` / `CLEAN`.
 
-The status checker reports **39 Implemented / 36 Partial / 1 Not
-implemented, consistent, 0 errors, phase 1 complete**.
+Status checker: **39 Implemented / 36 Partial / 1 Not implemented,
+consistent, 0 errors, phase 1 complete.**
 
-## The one open item: formatting
+## Why the branch had never actually been tested
 
-`cargo fmt --all -- --check` fails and the names of the files are not
-readable from here — GitHub's check-run annotations are capped per run and
-the GPU checks fill the cap with notices, and the raw step log lives on a
-blob host outside this sandbox's network allowlist.
+`Check formatting` was the **second** step of the Linux job, so every run
+died there and `cargo check`, the unit tests and the whole shader suite
+were **skipped on every commit**. Moving formatting to the end exposed a
+real backlog:
 
-The last commit ("ci: make the formatting diff self-reporting") makes the
-step write `/tmp/fmt.check` and `/tmp/fmt.diff`, print their sizes and
-heads, and post both as a PR comment. **The next CI run on this branch
-will publish the formatter's exact diff as a comment on PR #18.** Read
-that comment, apply the hunks, and the job should go green.
+| defect | file |
+|---|---|
+| double mutable borrow in the skin fallback loop (E0499) | `model_asset.rs` |
+| `EcModel` fixture missing `additional_skins` (E0063) | `tools/fixtures/model_draw.rs` |
+| `y` not in scope in the grass emitter (E0425) | `gpu.rs` |
+| `is_empty()` on `Option<Material>` (E0599) | `bmd.rs` |
+| v5 material fixture on the wrong side of the 48-byte block | `bmd.rs` |
+| retail-shader test cut at the wrong `#[cfg(test)]` | `grass_instances.rs` |
+| UTF-8 fixture fed to a GBK parser | `ecmodel.rs` |
+| `GrassWind::update` missing after the module merge | `gpu.rs` |
+| texkill keyed on an alpha the bump map does not have | `post_gpu.rs` |
 
-If the comment does not appear, the fallback is to run, on a machine with
-a Rust toolchain:
+## Getting the diagnosis out of CI
 
-```
-cargo fmt --all
-git diff --stat     # review: should be whitespace only
-```
+Raw step logs live on a blob host this sandbox cannot reach, and check-run
+annotations are capped per run (the GPU checks fill the cap with
+notices). Two things made failures readable:
 
-then commit. This branch historically carried hand-edited one-line
-`view_settings.rs` `format!` calls and a few WGSL-in-string edits, and
-those are exactly the kind of thing `rustfmt` rewrites.
+- `cargo check` keeps its full message format and echoes `error` plus its
+  own `-->` line; the test steps echo `test result` and the failing names.
+- `cargo fmt --check` **already prints the "Diff in ..." hunks** —
+  `rustfmt --diff` is not an option (`Unrecognized option: 'diff'`), which
+  is why an earlier attempt posted an empty diff. The check output is now
+  captured and posted as a PR comment.
 
-## What the merge work of this session fixed
-
-Three rounds of `main` divergence, then this:
-
-1. **23-file unrelated-history merge** against `281673f` as the base (git
-   had no common ancestor with the orphan `6d3745d` snapshot). 20 files
-   merged cleanly, 3 needed judgement.
-2. `src/model_asset.rs` — double mutable borrow (E0499) in the skin
-   fallback loop; the loop now goes through the `bytes` closure.
-3. `tools/fixtures/model_draw.rs` — `EcModel` initializer missing
-   `additional_skins` (E0063).
-4. `src/gpu.rs` — `y` is not in scope in the grass emitter (E0425); the
-   placement height there is `ground`.
-5. `src/bmd.rs` — `material.is_empty()` on an `Option` (E0599) → `is_none()`;
-   and the v5 material fixture had its tail before the 48-byte block
-   instead of after it.
-6. `src/grass_instances.rs` — the retail-shader test cut the file at the
-   first `#[cfg(test)]`, but main had added `scale_y_tests` above the
-   shader; it now cuts only at its own `mod tests`.
-7. `src/ecmodel.rs` — the skin-list fixture was UTF-8 fed to a GBK
-   parser; it now encodes with `encoding_rs::GBK`.
-8. `src/gpu.rs` — `GrassWind::update` did not exist (my module won the
-   text merge); added a seconds-based adapter that clamps to 100 ms, and
-   restored `wind_last` / `celestial_flags` in the `Renderer` literal.
-9. `src/post_gpu.rs` — I had added `if normal.a<0.05 { discard; }`, but
-   `bump_texel` returns a `vec2` with no alpha. Reverted to main's warp
-   arithmetic and recorded the `c2.r` semantics as a limitation instead.
-
-## CI instrumentation added (worth keeping)
-
-The first run of this branch died at `Check formatting`, which sat second
-in the job, so **`cargo check` and every test had never run**. `cargo fmt`
-now runs last, and these steps echo machine-readable `::error::`
-annotations: `cargo check --bins`, gfx-light-audit, viewer unit tests, each
-of the 22 named GPU checks, and the Windows build.
-
-## Known outstanding work, not started
+## Outstanding, deliberately not done
 
 `sky_gpu.rs` was taken from `main` wholesale after its rewrite, which
-**dropped the `sky_image01..03` config reader**. `SkyGpu::new` now
-hardcodes the `clear` texture set. The recovered config path
-(`configs/element_client.cfg` `[DefEnv]`) needs re-threading onto the new
-9-layer geometry atlas. This is a regression against earlier work on this
-branch and should be the next substantive commit.
+**dropped the `sky_image01..03` config reader**; `SkyGpu::new` hardcodes
+the `clear` set. Retreading it onto the new 9-layer geometry atlas is the
+next substantive commit. It is a regression against earlier work on this
+branch, not a CI failure.
 
-P3.01 (mesh v2/v3) remains `Implemented` on spec + synthetic evidence; it
-has **zero corpus occurrences**, and that caveat is written in the row.
+P3.01 (mesh v2/v3) stays `Implemented` on spec + synthetic evidence; it
+has **zero corpus occurrences**, and that caveat is written into the row.
