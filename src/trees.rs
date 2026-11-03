@@ -18,6 +18,9 @@ pub struct Part {
 }
 pub struct Leaf {
     pub center: [f32; 3],
+    // PWTREE08 records the per-leaf runtime normal used by the client.
+    // Older caches do not contain normals and retain the legacy fallback.
+    pub normal: Option<[f32; 3]>,
     pub rho: f32,
     pub corners: [[f32; 3]; 4],
     pub uv: [[f32; 2]; 4],
@@ -98,9 +101,10 @@ impl<'a> Reader<'a> {
 fn parse(d: &[u8], source: &[u8], dll_hash: u32) -> Result<(String, Vec<TreeLod>), String> {
     let mut r = Reader { d, p: 0 };
     let magic = r.take(8)?;
-    let animated = match magic {
-        b"PWTREE05" => false,
-        b"PWTREE06" | b"PWTREE07" => true,
+    let (animated, leaf_normals) = match magic {
+        b"PWTREE05" => (false, false),
+        b"PWTREE06" | b"PWTREE07" => (true, false),
+        b"PWTREE08" => (true, true),
         _ => return Err("unknown tree cache version".into()),
     };
     if r.u()? != dll_hash {
@@ -136,6 +140,7 @@ fn parse(d: &[u8], source: &[u8], dll_hash: u32) -> Result<(String, Vec<TreeLod>
         let mut leaves = Vec::with_capacity(n);
         for _ in 0..n {
             let center = r.vec3()?;
+            let normal = if leaf_normals { Some(r.vec3()?) } else { None };
             let rho = r.f()?;
             let mut corners = [[0.; 3]; 4];
             let mut uv = [[0.; 2]; 4];
@@ -146,6 +151,7 @@ fn parse(d: &[u8], source: &[u8], dll_hash: u32) -> Result<(String, Vec<TreeLod>
             let cluster = if animated { r.u()? } else { 0 };
             leaves.push(Leaf {
                 center,
+                normal,
                 rho,
                 corners,
                 uv,
@@ -326,6 +332,55 @@ mod tests {
         invalid[cluster_offset..cluster_offset + 4].copy_from_slice(&2u32.to_le_bytes());
         assert!(parse(&invalid, source, 42).is_err());
         assert!(parse(&b[..b.len() - 4], source, 42).is_err());
+    }
+    #[test]
+    fn reads_per_leaf_normals_only_from_version_08() {
+        let source = b"x";
+        let hash = (2166136261u32 ^ u32::from(source[0])).wrapping_mul(16777619);
+        for version in [b"PWTREE07", b"PWTREE08"] {
+            let mut b = version.to_vec();
+            for value in [42u32, hash, 0, 3] {
+                b.extend_from_slice(&value.to_le_bytes());
+            }
+            for _ in 0..3 {
+                for value in [0u32, 0, 0, 0, 1] {
+                    b.extend_from_slice(&value.to_le_bytes());
+                }
+                for v in [1f32, 2., 3.] {
+                    b.extend_from_slice(&v.to_le_bytes());
+                }
+                if version == b"PWTREE08" {
+                    for v in [0.25f32, -0.5, 0.75] {
+                        b.extend_from_slice(&v.to_le_bytes());
+                    }
+                }
+                for _ in 0..21 {
+                    b.extend_from_slice(&0f32.to_le_bytes());
+                }
+                for value in [0u32, 1, 64] {
+                    b.extend_from_slice(&value.to_le_bytes());
+                }
+                for _ in 0..4 * 64 * 3 {
+                    b.extend_from_slice(&0f32.to_le_bytes());
+                }
+            }
+            let lods = parse(&b, source, 42).unwrap().1;
+            assert_eq!(lods[0].leaves[0].center, [1., 2., 3.]);
+            assert_eq!(
+                lods[0].leaves[0].normal,
+                if version == b"PWTREE08" {
+                    Some([0.25, -0.5, 0.75])
+                } else {
+                    None
+                }
+            );
+            assert!(parse(&b[..b.len() - 1], source, 42).is_err());
+            if version == b"PWTREE08" {
+                let normal_offset = 8 + 4 * 4 + 5 * 4 + 3 * 4;
+                b[normal_offset..normal_offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
+                assert!(parse(&b, source, 42).is_err());
+            }
+        }
     }
     #[test]
     fn reject_invalid() {

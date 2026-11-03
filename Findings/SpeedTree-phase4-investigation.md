@@ -274,3 +274,27 @@ PATH="$PWD/.cache/rust/bin:$PATH" python3 tools/speedtree/compare_geometry_lod_r
 Neither the per-component selection nor the alpha references are yet used in production. The cache still lacks all component LODs, real bounds and full transition state; current shader state and leaf animation remain approximate. P4.01–P4.03 are still **No**.
 
 `src/tree_lod.rs::client_components` now combines the checked discrete and transition translations into branch, frond and up-to-two leaf slots with individual cutout references for drop-to-billboard disabled and leaf modes 0/1. Unsupported modes and invalid inputs return `None`; it does not invent geometry or implement billboard transitions. The 5,959-trace comparison now exercises this combined function. It remains unwired until the cache supplies independent component geometry and metadata; it does not change the switches.
+
+### Experimental PWTREE08 leaf normals
+
+The client leaf draw at `0x65714b–0x6571c5` reads one normal per leaf card
+from `Leaf+0x28` (three floats per card) for all four vertices. The unshipped
+baker source now writes these three floats after each leaf center under magic
+`PWTREE08`, and rejects missing or nonfinite leaf normals with a tree type and
+leaf-material diagnostic. The reader accepts 05–07 unchanged, with no recorded
+leaf normal, and accepts 08 with the extra normal. The far-tree vertex shader
+can consume an 08 normal (with the same Y/Z coordinate swap as indexed geometry);
+legacy caches retain the previous up-normal fallback. This is **not** a material
+or lighting recovery: fragment lighting is still an estimate, and normals have
+not been proven invariant under all runtime wind/timing states.
+
+The embedded helper and setup cache key remain PWTREE07, so ordinary production
+setup does not currently generate 08 caches. The source baker still stores three
+joint snapshots, not independent component levels; this does not complete P4.02.
+Do not replace the embedded helper based on the compatibility run below.
+
+Validation on the current sandbox:
+
+* `.cache/zig/ziglang/zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/bake.cpp -o .cache/speedtree-bake-08.exe` succeeded; `g++ -std=c++17 -O2 tools/speedtree/test_bake_geometry.cpp -o .cache/test-bake-geometry && .cache/test-bake-geometry` passed.
+* Running one SPT at a time with `.cache/wibo-build/wibo .cache/speedtree-bake-08.exe google_drive/speedtreert.dll <single-file-directory>` produced 56 caches; 34, 47 and 48 still abort during strict branch-normal checks because Wibo cannot unwind the exception. The helper exits 1 for the single-file runs because the other 58 input files are absent.
+* An isolated `rustc --test` extraction of the actual reader and its tests, with a stub GBK decoder, parsed all 56 outputs (11,263 leaf records with finite normals), and passed the 05/06/07/08, truncation and nonfinite-normal tests. This does not test real GBK decoding, full Cargo compilation, or GPU shader/pipeline validation. Full Cargo tests remain blocked by unavailable crates.io dependencies. The first normal for type 0 was `[0.7135655, 0.2773056, 0.6433707]`.
