@@ -399,3 +399,52 @@ comparison checked 56 types and 115 levels; three standalone Rust tests and
 20 Python tests passed. The Rust tests include all truncated prefixes of a
 synthetic cache and invalid normal/index rejection. Full Cargo, GPU, and native
 Windows tests remain unavailable.
+
+### DLL wind-phase update and first leaf rotation angle
+
+Further disassembly identified part of the runtime leaf-rocking path, but not
+an end-to-end animation implementation. `SetTime` (`0x100210e0`) stores the
+f32 global time at `0x100652e8`. `SetWindStrength` (`0x10021930`) passes the
+new strength and, for the client's `-1, -1` arguments, the prior strength and
+phase from the wind object into `0x1002bc00`. That routine stores the new
+strength, computes rate `8 * strength * field[0x1c]` and amplitude in degrees
+`180 * strength * field[0x18]`, and adjusts the f32 phase so the old and new
+rates meet at the current global time. It also clears fields `+0x30` and
+`+0x34`; their complete lifetime and alternative wind paths require further
+investigation. Values at `+0x18` and `+0x1c` are required per-tree runtime
+inputs, not yet extracted into a usable production cache.
+
+The leaf-table caller at `0x10018543–0x10018583` selects either
+`0x1002bd00` or `0x1002bee0` depending on field `+0x30`. For the former,
+`0x1002bd0a–0x1002bd94` calculates one rotation angle: when rocking is active,
+the extent is the derived degree amplitude and the phase is global time times
+rate plus the stored phase plus a caller-supplied per-table phase. When it is
+inactive, the extent is `field[0x18] * 0.15f` and only that caller-supplied
+phase is used. The interpolation maps the sine from 0..1 into `[-extent,
+extent]`. The caller forms that phase from table data and the group index;
+it is **not** proven to be an instance-position phase. The remainder of
+`0x1002bd00` builds a matrix, and the alternative `0x1002bee0`, table inputs,
+other rotations, global camera state, and per-tree runtime state are not yet
+translated. In particular, the new code cannot replace the sampled loop.
+
+`src/tree_wind.rs::RuntimeWindPhase` contains an **experimental, unwired**
+translation of the update and this first angle. An isolated Unicorn probe sets
+x87 control word `0x027f`, resets the FPU between calls, verifies the intended
+return/capture instruction was reached, and executes the actual DLL code with
+synthetic memory. It does not run the client or Windows. Comparison results:
+
+```sh
+.cache/rust/bin/rustc --edition=2021 --test src/tree_wind.rs -o .cache/tree-wind-tests && .cache/tree-wind-tests
+PATH="$PWD/.cache/rust/bin:$PATH" PYTHONPATH=.cache/py:tools/speedtree python3 tools/speedtree/compare_wind_phase_rust.py google_drive/speedtreert.dll
+PATH="$PWD/.cache/rust/bin:$PATH" PYTHONPATH=.cache/py:tools/speedtree python3 tools/speedtree/compare_rock_angle_rust.py google_drive/speedtreert.dll
+PYTHONPATH=.cache/py python3 -m unittest discover -s tools/speedtree -p 'test_*.py'
+```
+
+Two Rust tests passed; 5,403 synthetic state updates (including 20 sequences
+of 120 updates with prior DLL state fed back) matched bitwise, and 4,000
+scalar-angle cases matched within 0.0001 degree (maximum observed error
+`5.0e-10` in printed decimal comparison). The Python suite passed all 20 tests
+after installing the optional Speakeasy dependencies. These results assume the selected
+FPU control word and sampled finite inputs; Rust f64/libm is not a guarantee of
+x87 equivalence at all boundaries. Full Cargo/GPU, native Windows, and complete
+leaf-motion validation remain outstanding. P4.03 remains **No**.

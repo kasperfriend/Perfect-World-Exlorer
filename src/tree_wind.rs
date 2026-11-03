@@ -67,6 +67,64 @@ impl ClientWind {
     }
 }
 
+/// Experimental translation of SpeedTreeRT's internal wind-state update at
+/// 0x1002bc00. This is only one part of the leaf-rocking path; it does not
+/// calculate leaf card positions and is not connected to rendering.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RuntimeWindPhase {
+    pub strength: f32,
+    pub phase: f32,
+    pub angular_rate: f32,
+    pub amplitude_degrees: f32,
+}
+
+impl RuntimeWindPhase {
+    /// Mirrors the client's SetWindStrength call with both optional parameters
+    /// set to -1 (reuse the previous strength and phase). `time` is the
+    /// DLL-global SetTime value. The two object fields at +0x30/+0x34 are
+    /// cleared by the original routine; they are not represented here.
+    ///
+    /// Returns None for nonfinite, negative-strength or overflowed inputs.
+    /// f64 arithmetic approximates x87 and may differ at rounding boundaries.
+    pub fn update(self, time: f32, strength: f32, amplitude: f32, frequency: f32) -> Option<Self> {
+        if ![time, strength, self.strength, self.phase, amplitude, frequency]
+            .into_iter().all(f32::is_finite) || strength < 0.0
+        {
+            return None;
+        }
+        let old_rate = 8.0 * f64::from(self.strength) * f64::from(frequency);
+        let angular_rate = (8.0 * f64::from(strength) * f64::from(frequency)) as f32;
+        let amplitude_degrees = (180.0 * f64::from(amplitude) * f64::from(strength)) as f32;
+        let phase = (f64::from(time) * old_rate + f64::from(self.phase)
+            - f64::from(time) * f64::from(angular_rate)) as f32;
+        if ![angular_rate, amplitude_degrees, phase].into_iter().all(f32::is_finite) {
+            return None;
+        }
+        Some(Self { strength, phase, angular_rate, amplitude_degrees })
+    }
+
+    /// The first scalar rotation angle at 0x1002bd00, before the DLL builds
+    /// its matrix. `local_phase` is supplied by the leaf-table caller; it is
+    /// not a per-instance world position. This is not a complete card transform.
+    pub fn rock_angle(self, time: f32, local_phase: f32, base_amplitude: f32, rocking: bool) -> Option<f32> {
+        if ![time, local_phase, base_amplitude, self.phase, self.angular_rate, self.amplitude_degrees]
+            .into_iter().all(f32::is_finite) {
+            return None;
+        }
+        let (phase, extent) = if rocking {
+            (f64::from(time) * f64::from(self.angular_rate) + f64::from(self.phase)
+                + f64::from(local_phase), f64::from(self.amplitude_degrees))
+        } else {
+            (f64::from(local_phase), f64::from(base_amplitude) * f64::from(0.15_f32))
+        };
+        // The x87 FSIN result and libm's sin may diverge in precision; avoid
+        // claiming support for huge arguments or nonfinite results.
+        if phase.abs() > 1_000_000.0 { return None; }
+        let angle = (-extent + (phase.sin() + 1.0) * 0.5 * (extent * 2.0)) as f32;
+        angle.is_finite().then_some(angle)
+    }
+}
+
 fn next_random(seed: &mut u32) -> u32 {
     *seed = (u64::from(*seed) * 16807 % 2_147_483_647) as u32;
     *seed
@@ -75,6 +133,23 @@ fn next_random(seed: &mut u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_phase_and_angle_fixtures() {
+        // Isolated synthetic x87 fixtures, not an end-to-end client capture.
+        let initial = RuntimeWindPhase { strength: 0.25, phase: 1.0, angular_rate: 0.25, amplitude_degrees: 0.0 };
+        let state = initial.update(10.0, 0.5, 0.75, 0.125).unwrap();
+        assert_eq!(state.phase, -1.5);
+        assert_eq!(state.angular_rate, 0.5);
+        assert_eq!(state.amplitude_degrees, 67.5);
+        assert_eq!(state.phase + 10.0 * state.angular_rate, initial.phase + 10.0 * initial.angular_rate);
+        let probe_state = RuntimeWindPhase { phase: 1.0, ..state };
+        assert!((probe_state.rock_angle(1.0, 0.2, 0.75, true).unwrap() - 66.9373779).abs() < 0.0001);
+        assert!((probe_state.rock_angle(1.0, 0.2, 0.75, false).unwrap() - 0.0223503).abs() < 0.000001);
+        assert!(initial.update(1.0, -1.0, 1.0, 1.0).is_none());
+        assert!(initial.update(f32::NAN, 1.0, 1.0, 1.0).is_none());
+        assert!(probe_state.rock_angle(1.0e10, 0.0, 1.0, true).is_none());
+    }
 
     #[test]
     fn emulator_fixtures_and_period() {
