@@ -159,6 +159,31 @@ fn bezier(a: f32, b: f32, c: f32, d: f32, t: f32) -> f32 {
     let u = 1. - t;
     u * u * u * a + 3. * u * u * t * b + 3. * u * t * t * c + t * t * t * d
 }
+/// `wavevs.txt` takes its fade radius from `c0.w = 1/(vSightRange*vSightRange)`
+/// and the recovered client value is a sight range of 400, i.e. 1/160000.
+pub(crate) const WAVE_SIGHT_RANGE: f32 = 400.;
+
+/// Shoreline wave distance fade, transcribed from `shaders/vs/wavevs.txt`:
+///
+/// ```text
+/// sub r1, v0, c21        ; to camera
+/// mov r1.y, c0.y         ; height difference deliberately ignored
+/// dp3 r0, r1, r1
+/// mul r1.w, r0.w, c0.w   ; 0~1 out to sight range
+/// sub r1.w, c0.x, r1.w   ; 1~0 out to sight range
+/// max r0.w, r1.w, c0.y   ; clamp below zero
+/// ```
+///
+/// The vertical term is zeroed before the dot product, so this is a
+/// horizontal-only falloff: a tall waterfall fades exactly as fast as a
+/// puddle at the same xz offset. Using a full 3D distance here would fade
+/// the tops of waterfalls out early.
+pub(crate) fn wave_fade(position: [f32; 3], eye: [f32; 3]) -> f32 {
+    let dx = position[0] - eye[0];
+    let dz = position[2] - eye[2];
+    (1. - (dx * dx + dz * dz) / (WAVE_SIGHT_RANGE * WAVE_SIGHT_RANGE)).max(0.)
+}
+
 fn wave_offset(seconds: f32, phase: f32, half: bool) -> f32 {
     let t = (seconds + phase).rem_euclid(10.);
     let p = if half {
@@ -188,7 +213,7 @@ struct Out { @builtin(position) p:vec4<f32>, @location(0) uv:vec2<f32>, @locatio
  var o:Out; o.p=u.matrix*vec4<f32>(i.p,1.); o.uv=i.uv;
  let n=u32(clamp(u.eye_night.w,0.,1.)*255.); let d=unpack4x8unorm(i.day).bgr*255.; let q=unpack4x8unorm(i.night).bgr*255.;
  let color=floor((d*f32(255u-n)+q*f32(n))/256.)/255.;
- let dist=i.p.xz-u.eye_night.xz; let fade=max(1.-dot(dist,dist)/160000.,0.);
+ let dist=i.p.xz-u.eye_night.xz; let fade=max(1.-dot(dist,dist)/(u.flags.y*u.flags.y),0.);
  o.color=vec4<f32>(color,i.alpha*fade); return o;
 }
 fn linear(c:vec3<f32>)->vec3<f32> {let v=max(c,vec3<f32>(0.));return select(v/12.92,pow((v+0.055)/1.055,vec3<f32>(2.4)),v>vec3<f32>(0.04045));}
@@ -435,7 +460,9 @@ impl ShoreGpu {
                 wave_offset(seconds, 0.4, true),
                 0.,
             ],
-            flags: [0.; 4],
+            // flags.y is the wave sight range: wavevs takes it as c0.w =
+            // 1/(range*range) rather than hard-coding the radius in the shader.
+            flags: [0., WAVE_SIGHT_RANGE, 0., 0.],
         };
         queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&u));
         let mut e = device.create_command_encoder(&Default::default());
@@ -474,6 +501,21 @@ impl ShoreGpu {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn wave_fade_matches_the_retail_vertex_shader() {
+        let eye = [0., 100., 0.];
+        // Full strength at the eye, zero at and beyond the sight range.
+        assert_eq!(wave_fade(eye, eye), 1.);
+        assert_eq!(wave_fade([400., 100., 0.], eye), 0.);
+        assert_eq!(wave_fade([900., 100., 0.], eye), 0.);
+        // Half way out the squared term is a quarter.
+        assert!((wave_fade([200., 100., 0.], eye) - 0.75).abs() < 1e-6);
+        // `mov r1.y, c0.y` zeroes the vertical term, so height cannot fade it.
+        assert_eq!(wave_fade([120., -900., 0.], eye), wave_fade([120., 100., 0.], eye));
+        assert!((wave_fade([120., -900., 0.], eye) - (1. - 14400. / 160000.)).abs() < 1e-6);
+        // A 3D distance would have faded this one to nothing; the shader does not.
+        assert!(wave_fade([120., -900., 0.], eye) > 0.5);
+    }
     #[test]
     fn curve_uses_client_phases_and_repeats() {
         assert!((wave_offset(0., 0., false) - 0.3).abs() < 0.00001);

@@ -64,6 +64,34 @@ Remaining open items above are unchanged. This table closes the "recover the
 water shader constants" gate for the four surface/refraction pixel shaders; it
 does not close target sizing, pass order or authored shoreline waves.
 
+### Shader pack coverage audit
+
+`tools/survey-shader-pack.py` cross-references every `shaders\...` path in
+`elementclient.exe` against the pack. Current result: **52 of 60 literal
+references resolve**; the pack has 166 entries.
+
+The eight unresolvable names are not a pack defect — the shipped client asks
+for them and has no fallback, so those paths are inert in the 1.4.2 build:
+
+| missing program | client evidence |
+|---|---|
+| `ps/water_alpha_simple.txt` | `A3DTerrainWater::SetWaterType, failed to load water_alpha_simple.txt` |
+| `ps/simple_alpha_edge_ps.txt`, `vs/simple_alpha_edge_vs.txt` | edge-mask pair, named after `textures\water\waternormal\water_normal%02d.dds` |
+| `ps/water_areas_rt_ps.txt`, `vs/water_areas_rt_vs.txt` | area render-target pass (the "areas" path, distinct from the surface pass) |
+| `ps/t2_tex_merger.txt`, `ps/t2_tm_lm.txt` | terrain pass, referenced next to `Shaders\vs\terrain_vs.txt` |
+| `vs/stereo_vs.txt` | stereo/palette path, referenced next to `gfx_pallete_vs.txt` |
+
+Two consequences for this checklist: the simple-water and area-RT programs the
+viewer approximates cannot be matched against shipped source (there is none),
+and the real edge-mask shaders being absent explains why `0x7ccfb0`'s edge pass
+had to be reconstructed from depth — the original pair simply was not shipped
+in this client build.
+
+`treebranch.txt`/`treebranchvs.txt` exist in the pack but are referenced by
+nothing in the executable (no `treebranch` string at all), and no tree `.sdr`
+exists either, so they are unused leftovers and cannot be treated as the tree
+material the client actually runs. Tree draws remain open.
+
 ## Open issues
 The edge mask is currently a terrain-depth approximation, underwater surface/refraction paths are incomplete, some water mode/target semantics remain unidentified, and shoreline noise/global RNG phase and complete client asset coverage have not been proven. The current build is experimental and these issues remain open.
 
