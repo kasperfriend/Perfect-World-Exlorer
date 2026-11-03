@@ -354,13 +354,11 @@ impl Grass {
         let mut textures = HashMap::new();
         let mut warnings = HashSet::new();
         for t in &scene.grass_types {
-            let name = t.path.to_lowercase();
             // A grass type may name either the `.mox` geometry directly or the
             // `.mod` text container that wraps it. The archive ships both (155
             // `.mox` and 144 `.mod`); the `.mod` is a one-child manifest, so
             // resolving it here keeps the rest of the loader unchanged.
-            let mut name = name;
-            let mut model = None;
+            let mut name = t.path.to_lowercase();
             let mut skip = false;
             if name.ends_with(".mod") {
                 match entries
@@ -370,7 +368,8 @@ impl Grass {
                     .and_then(|b| mox_wrapper_child(&b))
                 {
                     Ok(child) => {
-                        name = format!("{}/{child}", name.rsplit_once('/').map(|x| x.0).unwrap_or(""));
+                        let dir = name.rsplit_once('/').map(|x| x.0).unwrap_or("");
+                        name = format!("{dir}/{child}");
                     }
                     Err(error) => {
                         eprintln!("Unsupported grass model wrapper {name}: {error}");
@@ -378,21 +377,25 @@ impl Grass {
                     }
                 }
             }
-            let model = if skip { None } else { match entries.get(&name) {
-                Some(e) => match pck::read_entry(&mut archive, e)
-                    .and_then(|bytes| parse_model(&bytes, &name))
-                {
-                    Ok(model) => Some(model),
-                    Err(error) => {
-                        eprintln!("Unsupported grass model {name}: {error}");
+            let model = if skip {
+                None
+            } else {
+                match entries.get(&name) {
+                    Some(e) => match pck::read_entry(&mut archive, e)
+                        .and_then(|bytes| parse_model(&bytes, &name))
+                    {
+                        Ok(model) => Some(model),
+                        Err(error) => {
+                            eprintln!("Unsupported grass model {name}: {error}");
+                            None
+                        }
+                    },
+                    None => {
+                        eprintln!("Missing grass model {name}");
                         None
                     }
-                },
-                None => {
-                    eprintln!("Missing grass model {name}");
-                    None
                 }
-            } };
+            };
             if let Some(m) = &model {
                 for mesh in &m.meshes {
                     if !textures.contains_key(&mesh.texture) {
