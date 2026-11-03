@@ -80,6 +80,7 @@ impl FarTrees {
         trees: &Trees,
         uniform: &wgpu::Buffer,
         reflected: &wgpu::Buffer,
+        authored_mips: bool,
     ) -> Self {
         // Real composite/bark textures are mostly 512 and some 1024px.
         // Pack rectangular native-size tiles into an 8192² atlas instead of
@@ -97,7 +98,33 @@ impl FarTrees {
         let mut batches = Vec::new();
         let mut groups = Vec::new();
         let mut packed_count = 0usize;
-        let mut mip_slots: Vec<(usize, usize, usize, usize, bool)> = Vec::new();
+        let mut mip_slots: Vec<(usize, usize, usize, usize, bool, Option<Vec<image::RgbaImage>>)> =
+            Vec::new();
+        if authored_mips {
+            let request = crate::vegetation_material::Request {
+                mips: crate::vegetation_material::RequestedMips::Authored,
+                anisotropy: crate::vegetation_material::policy(crate::vegetation_material::Material::TreeLeaf)
+                    .renderer_sampler
+                    .anisotropy,
+                cutout_reference: Some(crate::vegetation_material::LEGACY_TREE_ALPHA_REF),
+            };
+            if let Err(rejection) = crate::vegetation_material::validate(
+                crate::vegetation_material::Material::TreeLeaf,
+                request,
+            ) {
+                eprintln!(
+                    "P4.07 tree authored-mip experiment: unsupported native sampler pair kept explicit: {rejection:?}; retaining the viewer's approved sampler"
+                );
+            }
+            if let Err(rejection) = crate::vegetation_material::validate_cutout(
+                crate::vegetation_material::Material::TreeLeaf,
+                Some(crate::vegetation_material::LEGACY_TREE_ALPHA_REF),
+            ) {
+                eprintln!(
+                    "P4.07 tree authored-mip experiment: tree alpha threshold remains unsupported: {rejection:?}; retaining the approved legacy shader cutout"
+                );
+            }
+        }
         for (id, maybe) in trees.types.iter().enumerate() {
             let Some(tree) = maybe else { continue };
             let positions: Vec<_> = trees
@@ -158,7 +185,35 @@ impl FarTrees {
                     }
                 }
                 slots.push((ox, oy, w, h));
-                mip_slots.push((ox, oy, w, h, part_index == 1));
+                let authored = if authored_mips {
+                    let mips = if part_index == 0 {
+                        &tree.bark_mips
+                    } else {
+                        &tree.composite_mips
+                    };
+                    if crate::vegetation_textures::chain_fits(
+                        mips,
+                        w as u32,
+                        h as u32,
+                        7,
+                    ) {
+                        if mips.len() > 7 {
+                            eprintln!(
+                                "P4.07 tree type {id} part {part_index}: {} authored tail mip(s) beyond atlas LOD 7 retained in cache but not separately uploadable",
+                                mips.len() - 7
+                            );
+                        }
+                        Some(mips[..7].to_vec())
+                    } else {
+                        eprintln!(
+                            "P4.07 tree type {id} part {part_index}: authored mip chain does not fit {w}x{h} atlas slot; keeping generated mips for this tile"
+                        );
+                        None
+                    }
+                } else {
+                    None
+                };
+                mip_slots.push((ox, oy, w, h, part_index == 1, authored));
                 packed_count += 1;
             }
             if slots.len() != 2 {
@@ -286,7 +341,36 @@ impl FarTrees {
         // Generate each rectangle separately so lower mip levels cannot blend
         // neighboring trees. Keep unadjusted alpha for the next reduction;
         // preserve approximate cutout coverage only in the uploaded copy.
-        for (ox, oy, w, h, cutout) in mip_slots {
+        for (ox, oy, w, h, cutout, authored) in mip_slots {
+            if let Some(chain) = authored {
+                for (index, img) in chain.iter().enumerate() {
+                    let level = index as u32 + 1;
+                    queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture: &image,
+                            mip_level: level,
+                            origin: wgpu::Origin3d {
+                                x: (ox >> level) as u32,
+                                y: (oy >> level) as u32,
+                                z: 0,
+                            },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        img.as_raw(),
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(img.width() * 4),
+                            rows_per_image: Some(img.height()),
+                        },
+                        wgpu::Extent3d {
+                            width: img.width(),
+                            height: img.height(),
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+                continue;
+            }
             let mut raw = vec![0u8; w * h * 4];
             for y in 0..h {
                 let src = ((oy + y) * side + ox) * 4;
@@ -330,11 +414,14 @@ impl FarTrees {
         }
         drop(atlas);
         let view = image.create_view(&Default::default());
+        // The authored-mip experiment changes mip sources only. Keep the
+        // already-approved renderer sampler (including 16x anisotropy) intact.
+        let anisotropy_clamp = crate::vegetation_material::LEGACY_ANISOTROPY;
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             mipmap_filter: wgpu::FilterMode::Linear,
-            anisotropy_clamp: 16,
+            anisotropy_clamp,
             ..Default::default()
         });
         if rocking_samples.is_empty() {

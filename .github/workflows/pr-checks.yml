@@ -80,6 +80,11 @@ jobs:
           # (`vs`, `vs_far`) on identical geometry and compares the interpolated
           # normal in RGB plus the packed LOD flag in alpha.
           cargo run --locked --bin terrain-lod-gpu-check
+          # Phase 4 vegetation diagnostics: tree LOD/lighting preservation,
+          # grass mip coverage/upload, and synthetic authored tree mip upload.
+          cargo run --locked --bin tree-lod-gpu-check
+          cargo run --locked --bin grass-gpu-mip-check
+          cargo run --locked --bin tree-authored-mip-gpu-check
       - name: Run terrain per-view GPU check
         env:
           WGPU_BACKEND: vulkan
@@ -127,7 +132,7 @@ jobs:
       - name: Verify native gamma and glow CPU references on Windows
         shell: pwsh
         run: |
-          foreach ($module in @("gamma_curve", "glow_state", "post_plan", "color_chain", "fog_matrix", "client_region_shade", "client_region_stream", "client_regional_light", "gfx_color_track")) {
+          foreach ($module in @("gamma_curve", "glow_state", "post_plan", "color_chain", "fog_matrix", "client_region_shade", "client_region_stream", "client_regional_light", "gfx_color_track", "vegetation_material")) {
             $exe = Join-Path $env:RUNNER_TEMP "$module-tests.exe"
             rustc --edition=2021 --test "src/$module.rs" -o $exe
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

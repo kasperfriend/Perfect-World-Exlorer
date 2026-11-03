@@ -1,6 +1,8 @@
 # Static-model GPU diagnostics that must be wired into the CI program set.
-# These exercise the production world WGSL, BMD baked state, culling, depth,
-# pass visibility or static-model texture stages. Each name is a src/bin/*.rs.
+# These exercise production world WGSL, BMD state, pass visibility or texture
+# stages. The Phase 4 vegetation entries cover tree LOD/lighting, grass mip
+# coverage and authored tree mip upload; grass-instance also covers placement/wind.
+# Each name is a src/bin/*.rs.
 bmd-baked-gpu-check
 bmd-sided-gpu-check
 bmd-depth-gpu-check
@@ -8,3 +10,6 @@ scenery-pass-gpu-check
 phase1-fog-gpu-check
 grass-instance-gpu-check
 model-texture-gpu-check
+tree-lod-gpu-check
+grass-gpu-mip-check
+tree-authored-mip-gpu-check

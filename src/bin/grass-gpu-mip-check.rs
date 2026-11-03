@@ -141,7 +141,71 @@ fn main() {
         drop(bytes);
         buffer.unmap();
     }
+    // Upload a deliberately distinctive authored chain and read back its 1x1
+    // tail at atlas LOD 7. This proves the authored payload is not regenerated.
+    let authored: Vec<_> = (1..=7)
+        .map(|level| {
+            image::RgbaImage::from_pixel(
+                128 >> level,
+                128 >> level,
+                image::Rgba([11 * level as u8, 7 * level as u8, 3 * level as u8, 200]),
+            )
+        })
+        .collect();
+    let slot = texture_atlas::Slot {
+        x: 0,
+        y: 0,
+        w: 128,
+        h: 128,
+    };
+    let tiles = grass_mips::prepare_with_authored(
+        &vec![0; side * side * 4],
+        &[(slot, 84, Some(authored.clone()))],
+        side,
+    );
+    grass_mips::upload(&queue, &image, &vec![0; side * side * 4], &tiles, side);
+    let tail = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("authored grass mip tail"),
+        size: 256,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.copy_texture_to_buffer(
+        wgpu::ImageCopyTexture {
+            texture: &image,
+            mip_level: 7,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::ImageCopyBuffer {
+            buffer: &tail,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(256),
+                rows_per_image: Some(1),
+            },
+        },
+        wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+    let slice = tail.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
+    device.poll(wgpu::Maintain::Wait);
+    rx.recv().unwrap().unwrap();
+    let bytes = slice.get_mapped_range();
+    let expected = authored[6].get_pixel(0, 0).0;
+    for channel in 0..4 {
+        assert_eq!(bytes[channel], expected[channel]);
+    }
+    drop(bytes);
+    tail.unmap();
     println!(
-        "Passed: seven isolated mip levels, distinct alpha references, re-upload after repacking"
+        "Passed: seven isolated mip levels, distinct alpha references, re-upload after repacking, and exact authored LOD-7 payload"
     );
 }

@@ -12,6 +12,14 @@ mod scene;
 mod tree_lod;
 #[path = "../trees.rs"]
 mod trees;
+#[path = "../dxt.rs"]
+mod dxt;
+#[path = "../model_dds.rs"]
+mod model_dds;
+#[path = "../vegetation_material.rs"]
+mod vegetation_material;
+#[path = "../vegetation_textures.rs"]
+mod vegetation_textures;
 mod gpu {
     use bytemuck::{Pod, Zeroable};
     #[repr(C)]
@@ -93,6 +101,7 @@ fn main() {
         &trees,
         &uniform,
         &uniform,
+        false,
     );
     renderer.update_lods(&queue, eye.to_array(), 1.);
     let size = wgpu::Extent3d {

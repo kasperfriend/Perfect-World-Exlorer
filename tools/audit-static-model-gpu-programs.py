@@ -26,11 +26,10 @@ EXCLUDED = {
     "terrain-lod-gpu-check": "terrain LOD",
     "terrain-view-gpu-check": "terrain per-view pass state / LOD continuity, not static BMD scenery",
     "terrain-refraction-gpu-check": "terrain refraction/fog, not static BMD",
-    "tree-lod-gpu-check": "tree LOD",
+    "tree-gpu-mip-check": "asset-dependent viewer check requires user trees.pck and baked PWTREE cache; the synthetic authored-chain check is wired in CI",
     "water-fog-gpu-check": "water fog",
     "water-pass-gpu-check": "overlapping water-plane depth ordering, not static BMD",
-    "grass-gpu-mip-check": "grass texture mip chain",
-    "tree-gpu-mip-check": "tree texture mip chain",
+
 }
 
 def main() -> int:

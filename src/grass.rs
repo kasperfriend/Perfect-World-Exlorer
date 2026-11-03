@@ -41,6 +41,9 @@ pub struct Grass {
     pub types: Vec<scene::GrassType>,
     pub models: Vec<Option<Model>>,
     pub textures: HashMap<String, image::RgbaImage>,
+    /// Authored lower mip levels keyed by the same texture path as `textures`.
+    /// The default world path ignores these; P4.07 opt-in uploads them verbatim.
+    pub texture_mips: HashMap<String, Vec<image::RgbaImage>>,
 }
 fn cstr<'a>(b: &'a [u8], start: usize) -> Result<(&'a [u8], usize), String> {
     let bytes = b.get(start..).ok_or("invalid MOXB string")?;
@@ -273,6 +276,7 @@ impl Grass {
             .collect();
         let mut models = Vec::new();
         let mut textures = HashMap::new();
+        let mut texture_mips = HashMap::new();
         let mut warnings = HashSet::new();
         for t in &scene.grass_types {
             let name = t.path.to_lowercase();
@@ -306,6 +310,15 @@ impl Grass {
                             if let Ok(bytes) = pck::read_entry(&mut archive, entry) {
                                 if let Ok(img) = image::load_from_memory(&bytes) {
                                     textures.insert(mesh.texture.clone(), img.to_rgba8());
+                                    match crate::vegetation_textures::authored_lower_mips(&bytes) {
+                                        Ok(mips) => {
+                                            texture_mips.insert(mesh.texture.clone(), mips);
+                                        }
+                                        Err(e) => eprintln!(
+                                            "Grass texture {} authored mips unavailable: {e}",
+                                            mesh.texture
+                                        ),
+                                    }
                                     continue;
                                 }
                             }
@@ -325,6 +338,7 @@ impl Grass {
             types: scene.grass_types.clone(),
             models,
             textures,
+            texture_mips,
         })
     }
 }

@@ -35,6 +35,10 @@ pub struct TreeMesh {
     pub lods: Vec<TreeLod>,
     pub bark: image::RgbaImage,
     pub composite: image::RgbaImage,
+    /// Authored lower mip levels (1..N) retained for the opt-in P4.07 path.
+    /// Empty when the source chain is unavailable; the default path ignores them.
+    pub bark_mips: Vec<image::RgbaImage>,
+    pub composite_mips: Vec<image::RgbaImage>,
 }
 pub struct Trees {
     pub types: Vec<Option<TreeMesh>>,
@@ -241,10 +245,22 @@ impl Trees {
                     image::load_from_memory_with_format(&tex_bytes, image::ImageFormat::Dds)
                         .map_err(|e| e.to_string())?
                         .to_rgba8();
+                let bark_mips = crate::vegetation_textures::authored_lower_mips(&bark_bytes)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Tree type {i} bark authored mips unavailable: {e}");
+                        Vec::new()
+                    });
+                let composite_mips = crate::vegetation_textures::authored_lower_mips(&tex_bytes)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Tree type {i} composite authored mips unavailable: {e}");
+                        Vec::new()
+                    });
                 Ok(TreeMesh {
                     lods,
                     bark,
                     composite,
+                    bark_mips,
+                    composite_mips,
                 })
             })();
             match result {

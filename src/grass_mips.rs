@@ -38,6 +38,72 @@ pub fn prepare(
     }
     tiles
 }
+/// Validate an authored lower-mip chain for a square atlas slot. Rectangular
+/// sources packed into the legacy square grass slot are rejected rather than
+/// stretched into a different authored chain (P4.07 explicit unsupported pair).
+pub fn authored_chain(
+    mips: &[image::RgbaImage],
+    width: u32,
+    height: u32,
+    levels: u32,
+) -> Result<Vec<image::RgbaImage>, String> {
+    if width != height {
+        return Err("grass authored mips require a square native-size slot".into());
+    }
+    if mips.len() < levels as usize {
+        return Err(format!(
+            "grass authored chain has {} lower levels, need {levels}",
+            mips.len()
+        ));
+    }
+    for level in 1..=levels {
+        let w = (width >> level).max(1);
+        let h = (height >> level).max(1);
+        let img = &mips[(level - 1) as usize];
+        if img.width() != w || img.height() != h {
+            return Err(format!(
+                "grass authored mip {level} is {}x{}, expected {w}x{h}",
+                img.width(),
+                img.height()
+            ));
+        }
+    }
+    Ok(mips[..levels as usize].to_vec())
+}
+
+/// Prepare grass atlas tiles, preferring an exact authored chain when supplied.
+/// Slots without a supported authored chain fall back to the approved generated
+/// coverage-preserving chain; the caller logs the unsupported material.
+pub fn prepare_with_authored(
+    pixels: &[u8],
+    slots: &[(crate::texture_atlas::Slot, u8, Option<Vec<image::RgbaImage>>)],
+    side: usize,
+) -> Vec<Tile> {
+    let mut tiles = Vec::new();
+    for (slot, alpha_ref, authored) in slots {
+        if let Some(chain) = authored {
+            let (mut w, mut h) = (slot.w, slot.h);
+            for (level, img) in chain.iter().enumerate() {
+                let level = level as u32 + 1;
+                w /= 2;
+                h /= 2;
+                debug_assert_eq!((img.width() as usize, img.height() as usize), (w, h));
+                tiles.push(Tile {
+                    level,
+                    x: (slot.x >> level) as u32,
+                    y: (slot.y >> level) as u32,
+                    width: w as u32,
+                    height: h as u32,
+                    pixels: img.as_raw().clone(),
+                });
+            }
+        } else {
+            tiles.extend(prepare(pixels, &[(*slot, *alpha_ref)], side));
+        }
+    }
+    tiles
+}
+
 pub fn upload(
     queue: &wgpu::Queue,
     atlas: &wgpu::Texture,

@@ -98,6 +98,8 @@ mod terrain_sampling;
 mod terrain_shading;
 mod texture_atlas;
 mod texture_resolution;
+mod vegetation_material;
+mod vegetation_textures;
 mod tree_lod;
 #[cfg(windows)]
 mod tree_source;
