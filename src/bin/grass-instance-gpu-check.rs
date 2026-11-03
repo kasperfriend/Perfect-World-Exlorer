@@ -8,6 +8,8 @@ mod environment;
 mod grass_instances;
 #[path = "../pck.rs"]
 mod pck;
+#[path = "../refraction_fog.rs"]
+mod refraction_fog;
 #[path = "../scene.rs"]
 mod scene;
 mod gpu {
@@ -637,20 +639,24 @@ fn main() {
         let u = (x + 0.8) / 0.6;
         let v = (y + 0.3) / (0.6 + wind);
         assert!(u > 0. && v > 0. && u + v < 1.);
+        // Do not re-derive the formula here: call the shipped evaluator, so a
+        // change to the retail sequence (for example the base of the
+        // exponential, which is `e` and not `2`) cannot leave this oracle
+        // behind. The reference expander below already applies the lit-model
+        // above-plane clamp that `bmd_transmittance` documents.
         let mut factor = 0.;
         for (pos, displaced_y, w) in [
             ([-0.8f32, -0.3, 0.5], -0.3, 1. - u - v),
             ([-0.2, -0.3, 0.5], -0.3, u),
             ([-0.8, 0.3, 0.5], 0.3 + wind, v),
         ] {
-            let d = [-3. - pos[0], 2. - pos[1], 1. - pos[2]];
-            let distance = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-            let depth = if bmd {
-                (plane - displaced_y).max(0.)
+            let eye = [3., 2., 1.];
+            let displaced = [pos[0], displaced_y, pos[2]];
+            factor += if bmd {
+                refraction_fog::bmd_transmittance(pos, eye, plane) * w
             } else {
-                plane - displaced_y
+                refraction_fog::grass_transmittance(pos, displaced, eye, plane) * w
             };
-            factor += (-0.075 * depth * distance / d[1]).exp2() * w;
         }
         factor = factor.clamp(0., 1.);
         let pixel = &bytes[(py * 128 + px) * 4..][..3];
