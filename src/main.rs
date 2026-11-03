@@ -108,6 +108,8 @@ mod texture_resolution;
 mod tree_lod;
 #[cfg(windows)]
 mod tree_source;
+#[allow(dead_code)]
+mod tree_wind;
 mod trees;
 mod vegetation_material;
 mod vegetation_textures;

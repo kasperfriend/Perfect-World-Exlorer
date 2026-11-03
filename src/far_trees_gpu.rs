@@ -32,6 +32,7 @@ const SHADER: &str = r#"
 struct Camera {matrix:mat4x4<f32>,direction:vec4<f32>,clip:vec4<f32>,bounds:vec4<f32>,tree_bounds:vec4<f32>,sun:vec4<f32>,light:vec4<f32>,region_ambient:vec4<f32>,region_diffuse:vec4<f32>,region_direction:vec4<f32>,grass_eye:vec4<f32>,grass_wind:vec4<f32>,grass_history:array<vec4<f32>,80>,fog_range:vec4<f32>,fog_color:vec4<f32>};
 @group(0) @binding(0) var<uniform> camera:Camera; @group(0) @binding(1) var atlas:texture_2d<f32>; @group(0) @binding(2) var atlas_sampler:sampler;
 @group(0) @binding(3) var<storage,read> rocking:array<vec4<f32>>;
+@group(0) @binding(4) var<storage,read> leaf_normals:array<vec4<f32>>;
 fn rock_sample(corner:u32,time:f32)->vec3<f32>{
  let phase=fract(time/16.)*64.;let idx=u32(floor(phase));let next=(idx+1u)%64u;let f=fract(phase);let p=corner*64u;
  var result=mix(rocking[p+idx].xyz,rocking[p+next].xyz,f);
@@ -47,10 +48,10 @@ fn fogged(linear:vec3<f32>, reciprocal_w:f32)->vec3<f32> {
  let v=mix(encoded,camera.fog_color.rgb,f);
  return select(v/12.92,pow((max(v,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),v>vec3<f32>(0.04045));
 }
-struct In {@location(0) pos:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) uv:vec2<f32>,@location(3) color:vec4<f32>,@location(4) kind:f32,@location(5) instance:vec3<f32>,@location(6) info:vec2<f32>,@location(7) tex_h:u32,@location(8) alpha_ref:u32};
+struct In {@builtin(vertex_index) vertex_id:u32,@location(0) pos:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) uv:vec2<f32>,@location(3) color:vec4<f32>,@location(4) kind:f32,@location(5) instance:vec3<f32>,@location(6) info:vec2<f32>,@location(7) tex_h:u32,@location(8) alpha_ref:u32};
 struct Out {@builtin(position) pos:vec4<f32>,@location(0) normal:vec3<f32>,@location(1) uv:vec2<f32>,@location(2) color:vec4<f32>,@location(3) @interpolate(flat) kind:f32,@location(4) world:vec3<f32>,@location(5) @interpolate(flat) tree:vec3<f32>,@location(6) @interpolate(flat) tex_h:f32,@location(7) @interpolate(flat) fade:vec2<f32>,@location(8) @interpolate(flat) alpha_ref:u32};
 @vertex fn vs(i:In)->Out {var o:Out;var pos=i.pos+i.instance;var norm=i.normal;
- if i.kind>4.5 {let d=normalize(camera.direction.xyz);let az=atan2(d.z,d.x);let el=asin(clamp(d.y,-1.,1.));let rho=i.color.w;var corner=i.normal;let rock_index=i.tex_h>>8u;if rock_index>0u {corner=mix(corner,rock_sample(rock_index-1u,camera.tree_bounds.w),clamp(camera.tree_bounds.z,0.,1.));}let q=vec3<f32>(cos(el)*corner.x-sin(el)*corner.z,corner.y,sin(el)*corner.x+cos(el)*corner.z);let a=az+rho;var v=vec3<f32>(cos(a)*q.x-sin(a)*q.y,sin(a)*q.x+cos(a)*q.y,q.z);if rho>1000. {v=corner;}pos+=vec3<f32>(v.x,v.z,v.y);norm=vec3<f32>(0.,1.,0.);}
+ if i.kind>4.5 {let d=normalize(camera.direction.xyz);let az=atan2(d.z,d.x);let el=asin(clamp(d.y,-1.,1.));let rho=i.color.w;var corner=i.normal;let rock_index=i.tex_h>>8u;if rock_index>0u {corner=mix(corner,rock_sample(rock_index-1u,camera.tree_bounds.w),clamp(camera.tree_bounds.z,0.,1.));}let q=vec3<f32>(cos(el)*corner.x-sin(el)*corner.z,corner.y,sin(el)*corner.x+cos(el)*corner.z);let a=az+rho;var v=vec3<f32>(cos(a)*q.x-sin(a)*q.y,sin(a)*q.x+cos(a)*q.y,q.z);if rho>1000. {v=corner;}pos+=vec3<f32>(v.x,v.z,v.y);norm=vec3<f32>(0.,1.,0.);if i.vertex_id<arrayLength(&leaf_normals) {let n=leaf_normals[i.vertex_id];if n.w>0.5 {norm=n.xyz;}}}
  o.pos=camera.matrix*vec4<f32>(pos,1.);o.world=pos;o.normal=norm;o.uv=i.uv;o.color=i.color;o.kind=i.kind;o.tree=i.instance;o.tex_h=f32(i.tex_h & 127u)*select(128./8192.,128./2048.,(i.tex_h & 128u)!=0u);o.fade=i.info;o.alpha_ref=i.alpha_ref;return o;}
 @fragment fn fs(i:Out)->@location(0) vec4<f32>{if camera.clip.y!=0. && (i.world.y-camera.clip.x)*camera.clip.y<0. {discard;}
 
@@ -93,6 +94,7 @@ impl FarTrees {
         let mut atlas = vec![0u8; side * side * 4];
         let mut vertices = Vec::new();
         let mut rocking_samples: Vec<[f32; 4]> = Vec::new();
+        let mut leaf_normals: Vec<[f32; 4]> = Vec::new();
         let mut indices = Vec::new();
         let mut instances = Vec::new();
         let mut batches = Vec::new();
@@ -273,6 +275,12 @@ impl FarTrees {
                 let sy = slot_id.3 as f32 / side as f32;
                 for leaf in &lod.leaves {
                     let base = vertices.len() as u32;
+                    if let Some(normal) = leaf.normal {
+                        leaf_normals.resize(vertices.len() + 4, [0.; 4]);
+                        for value in &mut leaf_normals[vertices.len()..vertices.len() + 4] {
+                            *value = [normal[0], normal[2], normal[1], 1.];
+                        }
+                    }
                     for j in 0..4 {
                         vertices.push(Vertex {
                             pos: [leaf.center[0], leaf.center[2], leaf.center[1]],
@@ -451,6 +459,14 @@ impl FarTrees {
             contents: bytemuck::cast_slice(&rocking_samples),
             usage: wgpu::BufferUsages::STORAGE,
         });
+        if leaf_normals.is_empty() {
+            leaf_normals.push([0.; 4]);
+        }
+        let leaf_normal_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("SpeedTree leaf normals"),
+            contents: bytemuck::cast_slice(&leaf_normals),
+            usage: wgpu::BufferUsages::STORAGE,
+        });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("far trees"),
             entries: &[
@@ -490,6 +506,16 @@ impl FarTrees {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
             ],
         });
         let make_bind = |b: &wgpu::Buffer| {
@@ -512,6 +538,10 @@ impl FarTrees {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: rocking_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: leaf_normal_buffer.as_entire_binding(),
                     },
                 ],
             })
@@ -615,9 +645,13 @@ impl FarTrees {
         for group in &self.groups {
             let mut counts = [0u32; 3];
             for &p in &group.positions {
-                let dx = p[0] - camera[0];
-                let dz = p[2] - camera[2];
-                let dist = (dx * dx + dz * dz).sqrt();
+                // Match the runtime's 3D distance estimate rather than
+                // ignoring elevation. Snapshot thresholds and fades below
+                // are still approximate until the cache stores every native
+                // component LOD and its transition parameters.
+                let Some(dist) = crate::tree_lod::client_distance(p, camera) else {
+                    continue;
+                };
                 let selection = crate::tree_lod::select(dist, group.height, scale);
                 let choices = [
                     (

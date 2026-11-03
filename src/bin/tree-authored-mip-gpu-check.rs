@@ -64,6 +64,7 @@ fn lod() -> trees::TreeLod {
         frond_alpha_ref: Some(255.),
         leaves: vec![trees::Leaf {
             center: [0., 2., 2.5],
+            normal: None,
             rho: 0.,
             corners,
             uv: [[0., 0.], [1., 0.], [1., 1.], [0., 1.]],

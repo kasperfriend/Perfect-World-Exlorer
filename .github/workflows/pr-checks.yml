@@ -125,10 +125,20 @@ jobs:
           run_check model-receiver-gpu-check
           run_check model-draw-gpu-check
           run_check phase1-fog-gpu-check
+          # Phase 5: native sky resource swap (`0x4203f4..0x420807` / `0x79aeb0`)
+          # plus reflection and altitude invariants (P5.07, P5.08). Compiles the
+          # production sky WGSL, proves the two-set crossfade changes pixels,
+          # proves camera altitude cannot move a sky ray, and proves every view
+          # reuses one snapshot without advancing the transition.
           run_check phase5-sky-transition-gpu-check
           run_check terrain-refraction-gpu-check
           run_check water-fog-gpu-check
+          # Near/far LOD continuity: runs both real terrain vertex entry points
+          # (`vs`, `vs_far`) on identical geometry and compares the interpolated
+          # normal in RGB plus the packed LOD flag in alpha.
           run_check terrain-lod-gpu-check
+          # Phase 4 vegetation diagnostics: tree LOD/lighting preservation,
+          # grass mip coverage/upload, and synthetic authored tree mip upload.
           run_check tree-lod-gpu-check
           run_check grass-gpu-mip-check
           run_check tree-authored-mip-gpu-check
