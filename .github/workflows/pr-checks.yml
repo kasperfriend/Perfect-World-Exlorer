@@ -29,7 +29,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: |
+          cargo fmt --all
+          if ! git diff --quiet; then
+            git diff --binary > "$RUNNER_TEMP/rustfmt.patch"
+            payload="$(gzip -c "$RUNNER_TEMP/rustfmt.patch" | base64 -w0)"
+            echo "::error title=Rustfmt patch::$payload"
+            exit 1
+          fi
       - name: Verify recovered regional arithmetic on x87
         run: |
           cc -O0 tools/check-native-region-reference.c -o /tmp/native-region-reference
