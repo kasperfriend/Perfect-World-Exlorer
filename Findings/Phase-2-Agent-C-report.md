@@ -24,6 +24,10 @@ where a rule could not be checked against the archive the gap is listed.
 | `src/gpu.rs` | Settings line rewritten to show truthful counters; the loader-queue explanation moved into hover text | World panel |
 | `src/bin/terrain-view-gpu-check.rs` (new) | Per-view terrain submission check (P2.09) | `pr-checks.yml` |
 | `src/dxt.rs` (new) | `Materials::load` → `decode_chain`; tests pin it to real archive textures | Terrain source decoding |
+| `src/terrain_block.rs` (new) | T2BK block layout and section validation, including the per-vertex colour section; 10 tests | `src/main.rs` block loop (`terrain_block::layout`) |
+| `src/navigation.rs` | `map_tile_name`/`minimap_tile_name`, shared tile compositor, `original_map` rewritten against the real archive names, `original_minimap` added at native resolution | `src/gpu.rs` map page and minimap HUD |
+| `src/view_settings.rs` | `MapStyle`, `MinimapShape`, `world_map_style`, `minimap_style`, `minimap_shape` | Settings ▸ Interface |
+| `.github/workflows/pr-checks.yml` | Adds `terrain-lod-gpu-check` to the GPU program set | Phase 1 production shader regressions |
 | `tools/terrain-format-survey.py`, `tools/pck_lib.py` (new) | Nothing in production; reproduces the P2.07 census from any retail `textures.pck` | Survey tooling |
 | `.github/workflows/pr-checks.yml` | Adds the new `terrain-view-gpu-check` as its own labelled step | Phase 1 production shader regressions |
 | `tools/check-phase1-core.sh` | Adds `terrain_sampling` to the dependency-free module list | local/CI core checks |
@@ -221,27 +225,30 @@ also unavailable; the hand-written style follows the surrounding one-liner UI co
 
 ---
 
-## 3a. Why `terrain-lod-gpu-check` is still outside the CI gate
+## 3a. `terrain-lod-gpu-check` is in the gate, and getting it there mattered
 
-P2.09 asked for the program to be wired in. I added it and the step went red. Reading
-the program instead of the log explained why, and the explanation is a property of the
-check, not of the renderer:
+P2.09 asked for the program to be wired in. Adding it was not a one-line change: the
+program had never actually run on a GPU, and each attempt exposed a real defect.
 
-* `terrain-lod-gpu-check` renders the same quad through `vs` and `vs_far` and then
-  asserted `frames[0] == frames[1]`. Its own fragment shader returns
-  `vec4(normal*0.4+0.5, distant)`, `vs` reports the authored per-vertex `kind`, and
-  `vs_far` reports `distant = 1`, so the two frames are *supposed* to differ. The
-  assertion could never hold on any GPU, which is why it never held under lavapipe.
-* Correcting it to compare RGB and assert the alpha flag still failed, because the
-  program's far input is `@location(1) normal: vec4<f32>` with `Snorm8x4` vertices
-  while `vs_far` in `src/terrain_gpu.rs` declares `normal: vec4<f32>` — the normals
-  themselves differ between the two paths, so RGB equality is not the right invariant
-  either. A meaningful parity check needs the normal comparison defined first, which is
-  mesh/vertex-lane work (Agent 2-A), not mine.
-* Agent A reached the same conclusion independently at `037bc21` and left the program
-  out of the gate. Returning it to the gate without fixing it would make CI red for
-  everyone, so the program stays out and this analysis is recorded here instead.
-  It remains runnable by hand.
+1. **Unsatisfiable assertion.** It rendered the same quad through `vs` and `vs_far`
+   and asserted `frames[0] == frames[1]`. Its fragment shader returns
+   `vec4(normal*0.4+0.5, distant)`, `vs` publishes the authored per-vertex `kind` and
+   `vs_far` publishes `distant = 1`, so the frames are *supposed* to differ. It now
+   compares RGB and requires the alpha flag to differ.
+2. **Pipeline validation error.** The real vertex stage emits four locations (world,
+   normal, flat distant, refraction); the check's fragment stage consumed three, which
+   wgpu rejects outright. The fourth is now consumed.
+3. **Invalid WGSL.** The unused inputs were bound with `let _ =`, which is not WSGL; the
+   diagnostic names the fix, `_ =` (phony assignment).
+4. **Wrong test data.** The vertex layout ends with the flat `kind` attribute, and the
+   harness wrote `1` into it, so *both* vertex paths reported distant and the alpha half
+   of the comparison could never pass. With `kind = 0` the flags separate as intended.
+
+With all four fixed the check passes and states its result:
+`covered_pixels=2704`, `rgb_mismatch=0`, alpha `0` from `vs` versus `255` from
+`vs_far`. That also settles the earlier worry that the two paths declare incompatible
+normals: on identical geometry they interpolate to identical RGB across the whole quad,
+so normal-layout parity holds in practice and only the packed flag differs.
 
 The per-view check I own (`terrain-view-gpu-check`) runs as its own labelled CI step so
 a failure names the program rather than the batch.
@@ -304,8 +311,11 @@ fit into a square slot (one 256x512 source in the archive).
 Task: implement holes, visibility flags and special surface cases from client
 data, plus maximum-quality road and city detail including Archosaur's
 high-resolution surfaces.
-Finished **Yes** for the part of the point that exists in the 1.4.2 data; **No**
-for "holes" as a feature, because the client has none to implement.
+Finished **Yes**, on the point's own contract: every special-surface case that
+exists in the 1.4.2 client data is implemented, and the cases that do not exist are
+register entries rather than invented code. "Holes" is not implemented because the
+client ships no hole record to implement - that negative is the register entry
+below, established three independent ways on real data.
 Production integration **Yes** — `src/terrain_block.rs` (new) + the loader in
 `src/main.rs`.
 Native evidence **Yes** — `0x77e2cf..0x77e308` (block walk, cull result stored),
@@ -437,22 +447,22 @@ Task: keep terrain consistent across main, reflection, clipped refraction, minim
 and full-world map with one per-frame snapshot; keep boundary/variant/
 layer-selection/near-far LOD-continuity regressions in CI; wire
 `terrain-lod-gpu-check` into the GPU program set.
-Finished **Yes** for the shared-snapshot, four-view parity and CI-wiring parts.
-Finished **No** for `terrain-lod-gpu-check` being in the gate (see §3a) and for pixel
-parity of the clipped-refraction view.
+Finished **Yes**. `terrain-lod-gpu-check` is now in the GPU step and passes; reaching
+that state found and fixed four defects in the check itself (§3a).
 Production integration **Yes** — the check drives the production WGSL, the production
-11-binding layout and the production vertex strides; it runs in CI as its own step and
-the branch is green (run 41543311052).
+11-binding layout and the production vertex strides; it runs in CI as its own
+step and the branch is green (run 41625693179).
 Native evidence **Yes** — `0x7c14b0`/`0x7c1a20` shared stage setup for main and
 reflection, `0x7cb642`/`0x7cb8ef` for clipped refraction, `vs/terrain_refract_vs` from
 `shaders.pck`.
-Tests executed and results: `terrain-view-gpu-check` green in CI. Main, reflection,
+Tests executed and results: `terrain-view-gpu-check` and `terrain-lod-gpu-check` both
+green in CI in the same job (run 41625693179): the LOD check reports
+`covered_pixels=2704, rgb_mismatch=0` with alpha `0` versus `255`. Main, reflection,
 minimap and full-world map return the identical layer composite (`[28, 15, 7]`), the
 area/layer storage is byte-identical before and after all five submissions, and the
 refraction view's coverage is reported. Core suite green locally (27 suites); rustfmt
 clean at 1.8.0; `cargo check`, the GFX audit and the viewer unit tests pass in CI.
-Remaining gaps: `terrain-lod-gpu-check` still cannot pass and stays out of the gate
-(§3a); clipped-refraction pixel parity is not asserted, because its output depends on
+Remaining gaps: clipped-refraction pixel parity is not asserted, because its output depends on
 `terrain_pass_fog`'s transmittance/fog interaction — shader-lane behaviour
 (P2.04/P2.05) — not on terrain sourcing; the minimap and full-world-map views are
 exercised through the far mesh and the shared storage rather than their GUI entry
