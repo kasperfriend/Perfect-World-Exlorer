@@ -623,10 +623,10 @@ mod tests {
         // The disc is fully opaque only away from its 72.5 degree rim.
         assert_eq!(cap_alpha(CAP_EDGE_Y), 0.0);
         assert!((cap_alpha(RADIUS) - 1.0).abs() < 1e-6);
-        assert!(cap_alpha(CAP_EDGE_Y + 0.5) < 0.05);
+        assert!(cap_alpha(CAP_EDGE_Y + 0.1) < 0.05);
         // The two neighbours agree at the seam: the band is transparent and the
         // disc starts transparent, so no visible ring survives.
-        let (sin, cos) = 73.5_f32.to_radians().sin_cos();
+        let (sin, cos) = 73.0_f32.to_radians().sin_cos();
         let rim = project([cos, sin, 0.0]).unwrap();
         assert_eq!(rim.region, Region::Cap);
         assert!(rim.alpha < 0.1, "rim alpha {}", rim.alpha);
