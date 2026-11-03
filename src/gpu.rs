@@ -1726,8 +1726,10 @@ impl Renderer {
             background: camera.air_fog.color,
             tint,
         };
-        self.sky.update(&self.queue, direction, w, h, frame, main_sets, false);
-        self.sky.update(&self.queue, direction, w, h, frame, reflected_sets, true);
+        self.sky
+            .update(&self.queue, direction, w, h, frame, main_sets, false);
+        self.sky
+            .update(&self.queue, direction, w, h, frame, reflected_sets, true);
         self.far_trees.update_lods(
             &self.queue,
             camera.pos.to_array(),

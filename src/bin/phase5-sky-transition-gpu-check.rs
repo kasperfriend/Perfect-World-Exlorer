@@ -344,8 +344,7 @@ fn main() {
         u[20] = 0.3; // celestial direction
         u[21] = 0.4;
         u[22] = -0.5;
-        u[23] = 0.; // no discs: this probe is about sets and altitude
-        // celestial2 stays zero for the same reason.
+        u[23] = 0.; // no discs, and celestial2 stays zero, for the same reason
         u[28] = 0.2; // pass background the open band blends with
         u[29] = 0.3;
         u[30] = 0.4;
