@@ -77,3 +77,32 @@ the archive carries 59 alternative sets, but which region selects which set is
 in the region environment data, not in this file, and that mapping has not been
 recovered. The viewer therefore renders the configured default set everywhere.
 That is a real remaining gap and is recorded as such rather than implied closed.
+
+## Open: what `roof.bmp` actually projects onto
+
+`sky_image01` is named "Roof" and the viewer treats it as a zenith cap: it maps
+the ray's `xz` direction into a disc and fades it in above `smoothstep(0.70,
+0.97, dir.y)`. The archive suggests the client does something more specific, and
+this is **not** settled here.
+
+Every one of the 223 sky BMPs is 512x512 (201 in 24-bit, 22 in 32-bit), so
+nothing distinguishes roof from the halves by shape. But `clear/roof.bmp` is not
+the radially symmetric image a naive top-down cap would be:
+
+* corner samples are all essentially identical, `(92-93, 129-130, 190-191)`;
+* a 32x32 centre patch averages `(178, 204, 230)` against `(119, 151, 201)` for
+  the top strip, so it is bright in the middle and dark at the rim - consistent
+  with a dome;
+* yet the four quadrants differ materially: TL `(141,169,211)`, TR
+  `(133,162,207)`, BL `(166,187,220)`, BR `(149,174,214)`.
+
+A radially symmetric cap cannot have quadrant means that differ by 33 levels in
+red. So `roof.bmp` carries directional structure, and the true projection is not
+a plain disc map. Candidates are a cubemap face, an equirectangular continuation
+of the two halves, or a dome cap whose u is still tied to the panorama's
+azimuth. Choosing between them needs the client's roof sampler, which has not
+been located, so the viewer keeps the disc approximation and this stays open.
+
+Recorded as a limitation rather than quietly left in: the roof path currently
+uses the right texture for the wrong reason - it is configured correctly now,
+but how it is projected is still an approximation.
