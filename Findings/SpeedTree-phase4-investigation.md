@@ -183,3 +183,19 @@ Commands/results:
 - `PYTHONPATH=.cache/py python3 -m unittest discover -s tools/speedtree -p 'test_*.py'`: 9 passed (requires Unicorn 1.0.2 for Speakeasy compatibility).
 
 Earlier DLL probes did not explicitly set the Unicorn x87 control word, so their default `0x0000` should not be assumed to represent the native client. A 3,000-input exploratory comparison of the isolated continuous-LOD routine under `0x0000` and `0x027f` found no differences, but that does not establish equivalence for all inputs or for material, transition, and wind routines. Those results retain their stated emulation-only limitations.
+
+### Geometry count probe and strict baker checks (2026-11-03, continued)
+
+An optional `--compute-lod-counts` flag was added to `probe_materials_emulated.py`. After the existing LoadTree path it applies the baker's lighting/wind settings, one rocking group, source size times 0.3048, and Compute arguments `(null, 1, true)`, then calls the three `GetNum*LodLevels` DLL exports. This is **experimental emulation**, not evidence that generated geometry or size is correct: the previously observed questionable bounding box, emulated CRT and PRNG are unresolved. The first 18 world types completed in an interrupted exploratory run: 15 returned `(2,2,2)` branch/frond/leaf counts; type 11 returned `(2,0,2)`, type 12 `(6,4,3)`, type 16 `(1,1,1)`. Type 12 was rerun with the checked-in probe and reproduced `(6,4,3)`. These outputs show why a fixed three-snapshot cache cannot be presumed to represent every component LOD, but are not a complete 59-type native count survey. Reproduction for type 12:
+
+```
+PYTHONPATH=.cache/py python3 tools/speedtree/probe_materials_emulated.py google_drive/world.ecwld google_drive/trees.pck google_drive/speedtreert.dll --type 12 --compute-lod-counts
+```
+
+The **source** for the Windows baker now rejects missing/nonfinite branch or frond normals with a tree type and material in its error instead of fabricating an up normal. It also rejects the previously silent fixed-camera leaf fallback and invalid rocking camera transform. This intentionally makes unsupported data fail rather than silently producing estimated geometry. It does not recover normals, tangents, material constants, or leaf motion, and the existing viewer still uses the old embedded helper `tools/speedtree/speedtree-bake.exe`; that binary has **not** been replaced because the newly cross-compiled helper cannot be run or validated here. Thus these checks are not active in existing viewer builds. Old cache versions also remain accepted. P4.01–P4.03 remain **No**.
+
+Local validation:
+
+- `g++ -std=c++17 -Wall -Wextra -Werror tools/speedtree/test_bake_geometry.cpp -o .cache/test_bake_geometry && .cache/test_bake_geometry`: passed valid strip/serialization and missing/nonfinite-normal, invalid-index and empty-geometry checks.
+- `python3 -m pip install --target .cache/zig ziglang==0.13.0` and `.cache/zig/ziglang/zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/bake.cpp -o .cache/speedtree-bake-test.exe`: cross-compile succeeded. The result links UCRT API-set DLLs unlike the existing helper's `msvcrt.dll`, and it has **not** been run on Windows. It is not committed or used as the embedded executable.
+- `PYTHONPATH=.cache/py python3 -m unittest discover -s tools/speedtree -p 'test_*.py'`: 9 passed with Unicorn 1.0.2 and Speakeasy.
