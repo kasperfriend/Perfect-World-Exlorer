@@ -60,7 +60,10 @@ jobs:
           CARGO_TERM_COLOR=never cargo check --locked --bins 2>&1 | tee /tmp/cargo-check.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            grep -E "(^error|: error|^  --> )" /tmp/cargo-check.log | head -40 | while IFS= read -r line; do
+            # Only real errors and the one `-->` line that belongs to each:
+            # warning arrows would otherwise crowd out the failure.
+            awk '/^error(\[|:)/{print; want=1; next} want && /^[[:space:]]*--> /{print; want=0}' /tmp/cargo-check.log \
+              | head -40 | while IFS= read -r line; do
               echo "::error::$line"
             done
           fi
@@ -70,9 +73,10 @@ jobs:
           CARGO_TERM_COLOR=never cargo test --locked --bin gfx-light-audit 2>&1 | tee /tmp/gfx-audit.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            grep -E "(^error|: error|panicked at|assertion|test result|^  --> )" /tmp/gfx-audit.log | head -40 | while IFS= read -r line; do
-              echo "::error::$line"
-            done
+            grep -E "^test result:|^error(\[|:)|panicked at" /tmp/gfx-audit.log | head -5 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            sed -n '/^failures:$/,/^test result:/p' /tmp/gfx-audit.log | head -20 \
+              | while IFS= read -r line; do [ -n "$line" ] && echo "::error::$line"; done
           fi
           exit "$status"
       - name: Run viewer unit tests
@@ -80,9 +84,11 @@ jobs:
           CARGO_TERM_COLOR=never cargo test --locked --bin perfect-world-explorer 2>&1 | tee /tmp/cargo-test.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            grep -E "(^error|: error|panicked at|assertion|^  --> )" /tmp/cargo-test.log | head -40 | while IFS= read -r line; do
-              echo "::error::$line"
-            done
+            grep -E "^test result:|^error(\[|:)|panicked at" /tmp/cargo-test.log | head -5 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            # The failing test names, which is what actually needs naming.
+            sed -n '/^failures:$/,/^test result:/p' /tmp/cargo-test.log | head -30 \
+              | while IFS= read -r line; do [ -n "$line" ] && echo "::error::$line"; done
           fi
           exit "$status"
       - name: Install software Vulkan for Phase 1 shader checks
