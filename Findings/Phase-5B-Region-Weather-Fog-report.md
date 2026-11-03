@@ -98,7 +98,7 @@ git diff --check
   PASS.
 ```
 
-Rust unit tests were **not executed in this sandbox**. An earlier formatting run with Rust 1.99.0/rustfmt 1.10.0 passed `cargo fmt --all -- --check`, but the temporary toolchain is no longer present after the environment reset, so the latest atlas edits could not be run through rustfmt or cargo tests here. Tree-sitter parses all 91 Rust source files and `wgsl_reflect` accepts the cloud, weather and sky shaders. The Rust tests still to run in the configured CI/toolchain are:
+Rust unit tests were **not executed in this sandbox**: `cargo test --locked --bin perfect-world-explorer` could not reach crates.io (TLS connection failures), and the standalone `rustc` test lacks a usable system linker here. After the atlas edits, `cargo fmt --all -- --check` passed with Rust 1.99.0/rustfmt 1.10.0. Tree-sitter parses all 91 Rust source files and `wgsl_reflect` accepts the cloud, weather and sky shaders. The Rust tests still to run in the configured CI/toolchain are:
 
 ```text
 cargo fmt --all -- --check
