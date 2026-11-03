@@ -45,7 +45,7 @@ int main() {
     expect_failure("branch", "normal");
     part.normals = normals;
     normals[5] = std::numeric_limits<float>::quiet_NaN();
-    expect_failure("frond", "normal");
+    expect_failure("frond", "normal at vertex 1, component 2");
     normals[5] = 1;
     const uint16_t bad_strip[] = {0,1,9};
     const uint16_t* bad_strips[] = {bad_strip};

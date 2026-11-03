@@ -236,3 +236,21 @@ seq 0 58 | xargs -P 3 -I '{}' sh -c 'PYTHONPATH=.cache/py python3 tools/speedtre
 The GPU tree submission now uses `tree_lod::client_distance` for the 3D DLL-style bit estimate instead of XZ Euclidean distance; non-finite/overflowed positions are skipped. This is a partial correction, not an implementation of the native component transitions: the old three combined snapshots, estimated heights, fades and billboard policy still remain. `Trees::open` now includes the tree path and branch or frond/leaf material texture in texture read/decode diagnostics, but it does not yet reject every unsupported material combination. P4.01, P4.02 and P4.03 remain **No**.
 
 Checks: the standalone Rust LOD tests pass 6/6; 2,000 seeded isolated DLL distance/level cases match bitwise in Unicorn; the SpeedTree Python tests pass 10/10. Full Cargo testing remains blocked here: offline resolution lacks `egui`, and online crates.io index access fails TLS. The GPU renderer and Windows helper were not run.
+
+### Compatibility-layer execution of the DLL (2026-11-03)
+
+A separate **x86 CPU execution** check is now possible without Windows: wibo `74517de90dc92855571c8fb76941b1051bc41d8e` x86-64 compatibility mode, using locally built Wine-derived CRTs from `encounter/winedll` commit `efdce88535159ae9d527a0c3c47c81778a3860fd`. The wibo build used GCC 12 with a local dependent-static-assert workaround and GNU ld text-base option; the CRT build used Zig 0.13 x86 Windows target, an explicit DLL entry point and patched SafeSEH metadata on three compiler-runtime assembly objects. This is **not Windows**: both the compatibility layer and modified CRT may affect results. These tools and proprietary inputs remain untracked. No visual comparison was performed.
+
+The *existing* embedded baker ran against all 59 SPTs and the selected DLL in this environment and returned `Done: 0 failures`. The independent diagnostic `tools/speedtree/lod-count-probe.cpp` performs LoadTree, the baker's same lighting/wind/group/size setup, Compute and the three count getters, and records bounds. The resulting `Findings/SpeedTree-wibo-lod-counts.tsv` agrees with the completion-checked Speakeasy survey for all 59 records (`python3 tools/speedtree/compare_lod_counts.py Findings/SpeedTree-emulated-lod-counts.tsv Findings/SpeedTree-wibo-lod-counts.tsv`). Type 0 has `max_z=124.927773`, independently reproduced from the earlier emulated `124.92775` under this compatibility environment. This corroborates the observed size but does not establish the client's intended size, scale or bounds behavior.
+
+The stricter source baker also ran under wibo in an instrumented abort-on-error build on each type. It completed 56/59; types 34, 47 and 48 had nonfinite branch normals at vertex 0, and that vertex was referenced by a strip. This is not evidence that Windows generates the same values, and it is not safe to fabricate a normal. The unmodified newly compiled baker could not report the exception under wibo because its C++ unwinder requested the unsupported `K32EnumProcessModules` API. It remains unshipped; this check does not justify replacing the embedded helper. Production P4.01–P4.03 remain incomplete.
+
+Reproduction after preparing `tree-000.spt` through `tree-058.spt` and the described compatibility toolchain:
+
+```
+.cache/zig/ziglang/zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/lod-count-probe.cpp -o .cache/lod-count-probe.exe
+.cache/wibo-build/wibo .cache/lod-count-probe.exe "$PWD/google_drive/speedtreert.dll" "$PWD/.cache/tree-source" > .cache/wibo-counts.tsv
+python3 tools/speedtree/compare_lod_counts.py Findings/SpeedTree-emulated-lod-counts.tsv .cache/wibo-counts.tsv
+```
+
+The source baker's nonfinite-normal diagnostic now additionally reports the vertex and vector component. `g++ -std=c++17 -Wall -Wextra -Werror tools/speedtree/test_bake_geometry.cpp -o .cache/test_bake_geometry && .cache/test_bake_geometry` passes, including the specific location in the error; the Zig cross-compile succeeds, but this is still not the embedded helper. The SpeedTree Python suite now passes 12 tests, including matching, missing, duplicate and mismatched LOD survey checks.

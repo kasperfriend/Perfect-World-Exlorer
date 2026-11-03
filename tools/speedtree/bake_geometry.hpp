@@ -51,7 +51,9 @@ static void indexed(Writer& w, const Indexed& s, const char* material) {
     for (unsigned i = 0; i < n; ++i) {
         for (int j = 0; j < 3; ++j) {
             if (!std::isfinite(s.coords[3*i+j])) fail("nonfinite vertex position");
-            if (!std::isfinite(s.normals[3*i+j])) fail("nonfinite vertex normal; no fallback is supported");
+            if (!std::isfinite(s.normals[3*i+j]))
+                throw std::string(material) + " material: nonfinite vertex normal at vertex " +
+                    std::to_string(i) + ", component " + std::to_string(j) + "; no fallback is supported";
         }
         for (int j = 0; j < 2; ++j)
             if (!std::isfinite(s.uv0[2*i+j])) fail("nonfinite vertex UV");
