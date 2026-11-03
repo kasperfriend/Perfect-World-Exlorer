@@ -170,8 +170,7 @@ impl ModelAsset {
                 })
                 .collect()
         };
-        for (path, smd_fallback) in &references {
-            let path = path.clone();
+        for (primary, smd_fallback) in &references {
             let smd_fallback = smd_fallback.clone();
             // Some authored model variants are skin-less siblings: an `amd`
             // folder carries its own .ecm/.smd/.bon but reuses the base
@@ -181,6 +180,10 @@ impl ModelAsset {
             // character set. Retry against the base folder before giving up,
             // and still fail loudly if neither resolves - the client has no
             // placeholder geometry either.
+            // `path` is reassigned to whichever candidate actually loaded, so
+            // the stored asset names its real source rather than the first
+            // guess.
+            let mut path = primary.clone();
             let data = match read(&path) {
                 Ok(b) => skin::Skin::parse(&b).map_err(|e| format!("{path}: {e}"))?,
                 Err(first) => {
@@ -188,12 +191,16 @@ impl ModelAsset {
                     // skin-less `amd` sibling folder, and only then give up.
                     let candidates = [smd_fallback.clone(), without_variant_suffix(&path)];
                     let mut parsed = None;
-                    for candidate in candidates.iter().filter(|c| !c.is_empty() && **c != path) {
+                    for candidate in candidates
+                        .iter()
+                        .filter(|c| !c.is_empty() && **c != *primary)
+                    {
                         if let Ok(b) = read(candidate) {
                             parsed = Some(
                                 skin::Skin::parse(&b)
                                     .map_err(|e| format!("{candidate}: {e}"))?,
                             );
+                            path = candidate.clone();
                             break;
                         }
                     }
