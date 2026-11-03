@@ -138,6 +138,7 @@ fn render(
     layout: &wgpu::BindGroupLayout,
     sky: &wgpu::TextureView,
     sampler: &wgpu::Sampler,
+    roof_sampler: &wgpu::Sampler,
     t: &Target,
     params: &[f32; 40],
 ) -> Vec<u8> {
@@ -397,6 +398,7 @@ fn main() {
             &layout,
             &sky_view,
             &sampler,
+            &roof_sampler,
             &t,
             &uniform(inv, sets),
         )
