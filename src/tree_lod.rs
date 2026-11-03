@@ -54,6 +54,53 @@ pub fn client_discrete_level(level: f32, count: u16, billboard_slot: bool) -> Op
     Some(index.min(slots - 1) as u16)
 }
 
+/// Experimental translation of SpeedTreeRT's two-level alpha-reference
+/// transition routine at 0x100254f0. Alpha is in the client's 0..255 units;
+/// it is a cutout threshold, not opacity or ordered-dither coverage. This is
+/// not connected to the old combined-snapshot renderer.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClientTransition {
+    pub primary: u16,
+    pub secondary: Option<u16>,
+    pub alpha_primary: f32,
+    pub alpha_secondary: f32,
+}
+
+/// Unsupported input combinations return `None`; callers must provide the
+/// original per-tree parameters and the actual number of component levels.
+/// f64 intermediates approximate the x87 arithmetic and pow is not guaranteed
+/// to match the client's imported CRT at every rounding boundary.
+pub fn client_transition(
+    level: f32, count: u16, half_width: f32, bias: f32, exponent: f32, alpha: f32,
+) -> Option<ClientTransition> {
+    if !level.is_finite() || !(0.0..=1.0).contains(&level)
+        || count == 0 || count > i16::MAX as u16
+        || !half_width.is_finite() || half_width <= 0.0
+        || !bias.is_finite() || !(0.0..1.0).contains(&bias)
+        || !exponent.is_finite() || exponent <= 0.0
+        || !alpha.is_finite() || !(0.0..=255.0).contains(&alpha)
+    {
+        return None;
+    }
+    let inverted = (1.0_f64 - f64::from(level)) as f32;
+    let normalized = f64::from(inverted) * f64::from(count);
+    let nearest = (normalized + 0.5).trunc() as u16;
+    let delta = (f64::from(inverted) - f64::from(nearest) / f64::from(count)) as f32;
+    if nearest == 0 || nearest == count || delta.abs() >= half_width {
+        let primary = ((f64::from(inverted) * f64::from(count)) as u16).min(count - 1);
+        return Some(ClientTransition { primary, secondary: None, alpha_primary: alpha, alpha_secondary: 255.0 });
+    }
+    let phase = (1.0 - (f64::from(half_width) - f64::from(delta))
+        / (2.0 * f64::from(half_width))) as f32;
+    let remaining = (1.0_f64 - f64::from(bias)) as f32;
+    let a = (1.0 - (f64::from(phase) - f64::from(bias)) / f64::from(remaining)).min(1.0) as f32;
+    let b = (f64::from(phase) / f64::from(remaining)).min(1.0) as f32;
+    let span = (255.0_f64 - f64::from(alpha)) as f32;
+    let alpha_primary = (f64::from(alpha) + f64::from(span) * (1.0 - f64::from(a)).powf(f64::from(exponent))) as f32;
+    let alpha_secondary = (f64::from(alpha) + f64::from(span) * (1.0 - f64::from(b)).powf(f64::from(exponent))) as f32;
+    Some(ClientTransition { primary: nearest - 1, secondary: Some(nearest), alpha_primary, alpha_secondary })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Selection {
     pub primary: usize,
@@ -140,6 +187,24 @@ mod tests {
         assert_eq!(client_discrete_level(-1., 3, false), None);
         assert_eq!(client_discrete_level(f32::NAN, 3, false), None);
         assert_eq!(client_discrete_level(1., 32768, false), None);
+    }
+    #[test]
+    fn client_two_level_transition_emulated_dll_fixtures() {
+        for (level, primary, secondary, alpha_a, alpha_b) in [
+            (0.738, 0, None, 84., 255.), (0.736, 0, Some(1), 84., 253.475494),
+            (0.700, 0, Some(1), 87.680840, 178.330017), (0.600, 0, Some(1), 247.423080, 84.),
+            (0.596, 1, None, 84., 255.), (0.404, 1, None, 84., 255.),
+            (0.402, 1, Some(2), 84., 251.955597), (0.300, 1, Some(2), 178.329956, 87.680862),
+            (0.264, 1, Some(2), 253.475449, 84.), (0.263, 2, None, 84., 255.),
+        ] {
+            let result = client_transition(level, 3, 0.07, 0.2, 1.5, 84.).unwrap();
+            assert_eq!((result.primary, result.secondary), (primary, secondary));
+            assert!((result.alpha_primary - alpha_a).abs() < 0.001, "{level}: {result:?}");
+            assert!((result.alpha_secondary - alpha_b).abs() < 0.001, "{level}: {result:?}");
+        }
+        assert!(client_transition(0.5, 0, 0.07, 0.2, 1.5, 84.).is_none());
+        assert!(client_transition(0.5, 3, 0.0, 0.2, 1.5, 84.).is_none());
+        assert!(client_transition(0.5, 3, 0.07, 1., 1.5, 84.).is_none());
     }
     #[test]
     fn distance_and_scale_change_selection() {

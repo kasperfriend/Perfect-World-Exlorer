@@ -213,3 +213,11 @@ seq 0 58 | xargs -P 6 -I '{}' sh -c 'PYTHONPATH=.cache/py python3 tools/speedtre
 ```
 
 P4.01, P4.02 and P4.03 are all within this agent's scope and remain **No**; no visual comparison is required under the user's revised instruction, but executable implementation and sufficient code/data-based verification are still required.
+
+### Transition-function translation and expanded Compute budget
+
+`src/tree_lod.rs::client_transition` translates `speedtreert.dll:0x100254f0` for valid finite parameters and returns up to two component-level indices and their client alpha-reference thresholds in 0–255 units. These thresholds are **cutout thresholds**, not the opacity/ordered-dither fades currently used by the viewer. The function is **not connected to rendering**, because the old cache lacks separate component-level geometry and the full per-type runtime state. It therefore does not complete P4.02.
+
+- `PATH="$PWD/.cache/rust/bin:$PATH" rustc --edition=2021 --test src/tree_lod.rs -o .cache/tree-lod-tests && .cache/tree-lod-tests`: 5 passed, including the earlier 10 transition fixtures.
+- `PATH="$PWD/.cache/rust/bin:$PATH" PYTHONPATH=.cache/py python3 tools/speedtree/compare_transition_rust.py google_drive/speedtreert.dll`: 2,077 synthetic inputs matched indices and alpha values within 0.002 units, maximum observed error below `5e-10`; assumes x87 control word `0x027f`, and substitutes CRT `_ftol` and `_CIpow`. This does not prove real client behavior or equivalence for all inputs.
+- After adding `--max-api-count` to the emulated Compute probe, type 33 completed at 100,000: `PYTHONPATH=.cache/py python3 tools/speedtree/probe_materials_emulated.py google_drive/world.ecwld google_drive/trees.pck google_drive/speedtreert.dll --type 33 --compute-lod-counts --max-api-count 100000`. Its counts were `(2,2,2)`; the TSV records the retry. In total 52 of 59 now produce counts in the emulator; the other seven still return false. This does not resolve the uncertain Compute output or validate the generated geometry.

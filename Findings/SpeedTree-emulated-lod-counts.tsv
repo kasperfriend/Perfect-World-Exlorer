@@ -32,7 +32,7 @@ type_id	spt_path	emulated_compute_status	branch_count	frond_count	leaf_count	err
 30	Trees/精简树木/白杨/Baiyang2.spt	failed				RuntimeError: type 30: Compute returned false:
 31	Trees/精简树木/歪脖枯树/waibo2.spt	ok	1	1	1	
 32	Trees/精简树木/桑树/LondonPlane_RT5.spt	ok	2	2	2	
-33	Trees/精简树木/东北当归/ManchurianAngelicaTree.spt	failed				RuntimeError: ?Compute@CSpeedTreeRT@@QAE_NPBMI_N@Z: {'type': 'max_api_count', 'count': 10000, 'pc': '0x10031fb8', 'last_api': 'KERNEL32.InterlockedExchange'}
+33	Trees/精简树木/东北当归/ManchurianAngelicaTree.spt	ok (retry, max-api-count=100000)	2	2	2	-
 34	Trees/精简树木/竹林/Bamboos2.spt	ok	2	2	2	
 35	Trees/精简树木/大像树/绿色像树2/ColumnarBig9.spt	failed				RuntimeError: type 35: Compute returned false:
 36	trees/精简树木/桃树/桃树小/taoshu3small3.spt	ok	2	2	2	

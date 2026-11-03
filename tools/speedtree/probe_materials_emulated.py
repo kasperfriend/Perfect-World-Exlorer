@@ -41,7 +41,7 @@ TRIG = bytes.fromhex('d9c0d8c8d9e8dee1d9fad9c9d9f3c3d9c0d8c8d9e8dee1d9fad9f3c3')
 POW = bytes.fromhex('d9eedbeaddd87507ddd8ddd8d9eec3d9c9d9f1d9c0d9fcdce9d9c9d9f0d9e8dec1d9fdddd9c3')
 
 
-def run(world, archive, dll, type_id, compute_lod_counts=False):
+def run(world, archive, dll, type_id, compute_lod_counts=False, max_api_count=10000):
     if hashlib.sha256(dll.read_bytes()).hexdigest() != DLL_SHA256:
         raise ValueError('unexpected DLL hash')
     types = tree_types(world.read_bytes())
@@ -58,6 +58,7 @@ def run(world, archive, dll, type_id, compute_lod_counts=False):
 
     em = speakeasy.Speakeasy()
     mod = em.load_module(path=str(dll))
+    em.emu.max_api_count = max_api_count
     em.run_module(mod)
     if em.emu.runs[-1].error:
         raise RuntimeError(f'DLL entry failed: {em.emu.runs[-1].error}')
@@ -185,8 +186,13 @@ def main():
     parser.add_argument('dll', type=Path)
     parser.add_argument('--type', required=True, type=int)
     parser.add_argument('--compute-lod-counts', action='store_true')
+    parser.add_argument('--max-api-count', type=int, default=10000,
+                        help='Speakeasy API-call budget per run (default: 10000)')
     args = parser.parse_args()
-    print(json.dumps(run(args.world, args.trees, args.dll, args.type, args.compute_lod_counts), ensure_ascii=False))
+    if args.max_api_count < 1:
+        parser.error('--max-api-count must be positive')
+    print(json.dumps(run(args.world, args.trees, args.dll, args.type, args.compute_lod_counts,
+                         args.max_api_count), ensure_ascii=False))
 
 
 if __name__ == '__main__':
