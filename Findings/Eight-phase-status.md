@@ -46,7 +46,7 @@ Nine work points (re-cut 2 November 2026; the Phase 3 scope is unchanged, only i
 boundaries are now non-overlapping and independently verifiable). Execution order
 and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.md).
 
-- [x] P3.01 — Finish BMD container and format coverage: every model and mesh version, chunk layout, transforms, texture references, baked arrays, per-mesh and per-material flags, with explicit errors for unsupported versions and truncation.
+- [ ] P3.01 — Finish BMD container and format coverage: every model and mesh version, chunk layout, transforms, texture references, baked arrays, per-mesh and per-material flags, with explicit errors for unsupported versions and truncation.
 - [ ] P3.02 — Reproduce every static-model material and texture-stage state: stage setups, alpha test, blending, transparency, material colors, two-sided flags and the baked-light combination, as a recovered table rather than per-asset special cases.
 - [ ] P3.03 — Handle missing, shared and animated texture references with the client's original lookup rules, page sharing and fallbacks, and explicit dependency errors.
 - [ ] P3.04 — Trace and implement the client's actual culling, winding and two-sided-material rules instead of a global approximation, including mirrored or negative-scale placements.
