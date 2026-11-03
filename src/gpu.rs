@@ -1003,6 +1003,85 @@ pub(crate) fn depth(device: &wgpu::Device, w: u32, h: u32) -> wgpu::Texture {
         view_formats: &[],
     })
 }
+/// Build one placement per native `CECSceneBlock` class (0x424020). ECWLD's
+/// block arrays are mapped to the native class order: trees, water, ornaments,
+/// box areas, grass areas, effects, EC models, critters, bezier routes, sounds.
+/// Ornament indices are the `Objects::load_ids` indices; other classes get
+/// disjoint synthetic indices so the same resident-bit set can cover all ten.
+pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Placement> {
+    use crate::scenery_visibility::{Placement, Visibility};
+    let mut out = Vec::new();
+    let by_export: HashMap<u32, usize> = t
+        .objects
+        .ornaments
+        .iter()
+        .enumerate()
+        .map(|(i, o)| (o.export_id, i))
+        .collect();
+    let mut next = t.objects.ornaments.len();
+    let hidden = Visibility {
+        reflect: false,
+        refract: false,
+    };
+    let center_of = |b: &crate::scene::Block| -> [f32; 2] {
+        [
+            (b.col as f32 + 0.5) * t.scene.block_size - t.scene.width * 0.5,
+            t.scene.length * 0.5 - (b.row as f32 + 0.5) * t.scene.block_size,
+        ]
+    };
+    let mut push = |out: &mut Vec<Placement>, center: [f32; 2], class: Class| {
+        out.push(Placement {
+            index: next,
+            center,
+            visibility: hidden,
+            class,
+        });
+        next += 1;
+    };
+    for b in &t.scene.blocks {
+        let center = center_of(b);
+        for tree in &b.trees {
+            push(&mut out, [tree.position[0], tree.position[2]], Class::Trees);
+        }
+        for _ in &b.water {
+            push(&mut out, center, Class::Water);
+        }
+        for r in &b.ornaments {
+            if let Some(&i) = by_export.get(&r.export_id) {
+                let o = &t.objects.ornaments[i];
+                out.push(Placement {
+                    index: i,
+                    center: [o.position[0], o.position[2]],
+                    visibility: Visibility::from_extra(o.extra),
+                    class: Class::Ornaments,
+                });
+            }
+        }
+        for _ in &b.boxes {
+            push(&mut out, center, Class::BoxAreas);
+        }
+        for _ in &b.grass {
+            push(&mut out, center, Class::GrassAreas);
+        }
+        for e in &b.effects {
+            push(&mut out, [e.position[0], e.position[2]], Class::Effects);
+        }
+        for m in &b.models {
+            push(&mut out, [m.position[0], m.position[2]], Class::EcModels);
+        }
+        for _ in &b.critters {
+            push(&mut out, center, Class::Critters);
+        }
+        for _ in &b.beziers {
+            push(&mut out, center, Class::Beziers);
+        }
+        for snd in &b.sounds {
+            push(&mut out, [snd.position[0], snd.position[2]], Class::Sounds);
+        }
+    }
+    out
+}
+
 impl Renderer {
     fn new(
         device: wgpu::Device,
