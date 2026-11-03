@@ -146,6 +146,13 @@ pub struct RegionalLight {
     pub celestial_flags: u32,
 }
 impl RegionalLight {
+    /// Precipitation bits share the default area's authored flags with the
+    /// celestial visibility bits. The native client independently consumes
+    /// bit 1 for rain and bit 2 for snow (`0x421520`).
+    pub fn weather_selection(&self) -> crate::client_weather::WeatherSelection {
+        crate::client_weather::WeatherSelection::from_area_flags(self.celestial_flags)
+    }
+
     /// Authored region direction, normalized exactly like the previous inline
     /// renderer code (glam `normalize_or_zero`, i.e. reciprocal multiply).
     /// Hidden celestial flags never alter this value: they hide discs
@@ -342,6 +349,7 @@ pub struct Environments {
     areas: Vec<BoxArea>,
     id_to_index: BTreeMap<u32, usize>,
     streaming: Option<RegionLayout>,
+    auto_fog: Option<crate::sky_config::AutoFogConfig>,
 }
 /// Block references retained for runtime regional environment selection.
 #[derive(Clone)]
@@ -482,11 +490,10 @@ impl BoxArea {
             transition_ms: word(bytes, 0x9c)?,
             celestial_flags: word(bytes, 4)?,
             center: vec3(bytes, 8)?,
-            extents: if global {
-                [1000.; 3]
-            } else {
-                vec3(bytes, 0x14)?
-            },
+            // Native `774d40` tests all three serialized half-extents for
+            // both local and default areas. The default flag controls
+            // precedence, not an infinite/world-sized bound.
+            extents: vec3(bytes, 0x14)?,
             axes: [vec3(bytes, 0x20)?, vec3(bytes, 0x2c)?, vec3(bytes, 0x38)?],
             day: fog(bytes, 0x54)?,
             night: fog(bytes, 0xd0)?,
@@ -546,11 +553,30 @@ impl Environments {
             cols: scene.cols,
             boxes,
         });
+        // AutoFamily Fog is a scene-level fallback, not a replacement for an
+        // EC-BSD region. Keep loading tolerant for survey tools that operate
+        // on an EC-BSD-only fixture; the normal renderer validates the same
+        // required AutoFamily config while constructing SkyGpu.
+        let auto_fog = (|| -> Result<crate::sky_config::AutoFogConfig, String> {
+            let mut file = fs::File::open(dir.join("configs.pck")).map_err(|e| e.to_string())?;
+            let entries = crate::pck::directory(&mut file)?;
+            let entry = entries
+                .iter()
+                .find(|entry| {
+                    entry
+                        .name
+                        .eq_ignore_ascii_case("configs/autofamilyconfigs/autoscene.cfg")
+                })
+                .ok_or("missing AutoFamily autoscene.cfg in configs.pck")?;
+            crate::sky_config::parse_autofog(&crate::pck::read_entry(&mut file, entry)?)
+        })()
+        .ok();
         eprintln!("Loaded {} client environment boxes", areas.len());
         Ok(Self {
             areas,
             id_to_index,
             streaming,
+            auto_fog,
         })
     }
     pub fn streaming(&self) -> Option<RegionStreaming> {
@@ -612,20 +638,46 @@ impl Environments {
                 a.transition_ms,
             );
         }
-        let air = Fog {
-            start: 60.,
-            end: 400.,
-            density: 1.,
-            color: [70. / 255., 77. / 255., 91. / 255.],
+        let (air_day, air_night, water_day, water_night) = if let Some(fog) = self.auto_fog {
+            (
+                Fog {
+                    start: fog.day_start,
+                    end: fog.day_end,
+                    density: 1.,
+                    color: fog.day_color,
+                },
+                Fog {
+                    start: fog.night_start,
+                    end: fog.night_end,
+                    density: 1.,
+                    color: fog.night_color,
+                },
+                Fog {
+                    color: fog.water_color,
+                    ..Fog::default()
+                },
+                Fog {
+                    color: fog.water_color,
+                    ..Fog::default()
+                },
+            )
+        } else {
+            let air = Fog {
+                start: 60.,
+                end: 400.,
+                density: 1.,
+                color: [70. / 255., 77. / 255., 91. / 255.],
+            };
+            let water = Fog::default();
+            (air, air, water, water)
         };
-        let water = Fog::default();
         (
             None,
             FogEndpoints {
-                air_day: air,
-                air_night: air,
-                water_day: water,
-                water_night: water,
+                air_day,
+                air_night,
+                water_day,
+                water_night,
                 ambient_day: [0.; 3],
                 ambient_night: [0.; 3],
                 diffuse_day: [0.; 3],
@@ -648,6 +700,28 @@ impl Environments {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn autofamily_fog_is_used_only_as_the_no_area_fallback() {
+        let mut env = Environments::default();
+        env.auto_fog = Some(crate::sky_config::AutoFogConfig {
+            enabled: true,
+            day_start: 2500.,
+            day_end: 12000.,
+            day_color: [0.1, 0.2, 0.3],
+            night_start: 1800.,
+            night_end: 8000.,
+            night_color: [0.4, 0.5, 0.6],
+            water_color: [0.02, 0.04, 0.08],
+        });
+        let (_, fallback, _) = env.endpoints_for(None);
+        assert_eq!(fallback.air_day.start, 2500.);
+        assert_eq!(fallback.air_day.end, 12000.);
+        assert_eq!(fallback.air_day.color, [0.1, 0.2, 0.3]);
+        assert_eq!(fallback.air_night.color, [0.4, 0.5, 0.6]);
+        assert_eq!(fallback.water_day.color, [0.02, 0.04, 0.08]);
+        assert_eq!(fallback.water_night.color, [0.02, 0.04, 0.08]);
+    }
+
     #[test]
     fn client_v12_box_fog_and_priority() {
         let mut b = vec![0u8; 224];
@@ -684,7 +758,15 @@ mod tests {
         put(&mut b, 0x78, -0.619779);
         put(&mut b, 0x7c, 0.76983047);
         let a = BoxArea::parse(&b, 0).unwrap();
+        assert_eq!(a.extents, [50.; 3]);
         assert_eq!(a.celestial_flags, 8);
+        // The default/global bit affects selection precedence, but native
+        // containment still uses the serialized bounds at +0x54/+0x58/+0x5c.
+        b[0..4].copy_from_slice(&1u32.to_le_bytes());
+        let default_box = BoxArea::parse(&b, 0).unwrap();
+        assert!(default_box.global);
+        assert_eq!(default_box.extents, [50.; 3]);
+        assert!(!default_box.contains([51., 0., 0.]));
         assert!((a.ambient_day[0] - 89. / 255.).abs() < 1e-6);
         assert!((a.diffuse_night[1] - 0.5 * 61. / 255.).abs() < 1e-6);
         assert!((a.sun_direction[1] + 0.619779).abs() < 1e-6);
@@ -1011,6 +1093,17 @@ mod tests {
         let source = transition.lighting(12.).unwrap();
         assert_eq!(source.celestial_flags, 8);
         assert_eq!(source.material_direction().travel(), [1., 0., 0.]);
+        assert_eq!(
+            source.weather_selection(),
+            crate::client_weather::WeatherSelection::default()
+        );
+        // Precipitation reads the independently selected default's flags, not
+        // the local color/fog box's flag word.
+        s.env.areas[0].celestial_flags = 8 | crate::client_weather::WeatherSelection::RAIN_FLAG;
+        transition.update_streamed_ms(&s.env, &mut s.active, inside_local, 12., 0);
+        let rain_only = transition.lighting(12.).unwrap().weather_selection();
+        assert!(rain_only.rain);
+        assert!(!rain_only.snow);
 
         // A frame that selects a local box but no default box has nothing to
         // read, so the last ratified direction/flags are retained: the second
@@ -1020,7 +1113,11 @@ mod tests {
         assert!(!s.active.endpoints(&s.env, without_default).default_present);
         transition.update_streamed_ms(&s.env, &mut s.active, without_default, 12., 0);
         let retained = transition.lighting(12.).unwrap();
-        assert_eq!(retained.celestial_flags, 8);
+        assert_eq!(
+            retained.celestial_flags,
+            8 | crate::client_weather::WeatherSelection::RAIN_FLAG
+        );
+        assert!(retained.weather_selection().rain);
         assert_eq!(retained.material_direction().travel(), [1., 0., 0.]);
     }
     #[test]

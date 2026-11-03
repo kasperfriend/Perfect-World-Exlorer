@@ -128,6 +128,8 @@ pub struct ViewSettings {
     pub grass_distance_fade: bool,
     pub area_grass_lightmaps: bool,
     pub celestial_discs: bool,
+    /// Client `CloudDetail` gate for the world `.cld` cloud surface.
+    pub cloud_detail: bool,
     /// World map artwork (the full-world page).
     pub world_map_style: MapStyle,
     /// Minimap artwork, chosen separately from the world map.
@@ -171,10 +173,12 @@ impl Default for ViewSettings {
             tree_wind_strength: 0.2,
             grass_wind_strength: 0.,
             regional_tree_lighting: false,
-            streamed_regions: false,
+            // Regional environment selection is now native-path behavior by default.
+            streamed_regions: true,
             grass_distance_fade: true,
             area_grass_lightmaps: true,
             celestial_discs: false,
+            cloud_detail: true,
             world_map_style: MapStyle::Realistic,
             minimap_style: MapStyle::Realistic,
             minimap_shape: MinimapShape::Square,
@@ -185,7 +189,11 @@ impl Default for ViewSettings {
 
 impl ViewSettings {
     fn decode(text: &str) -> Self {
+        Self::decode_with_fog_default(text, false)
+    }
+    fn decode_with_fog_default(text: &str, fog_default: bool) -> Self {
         let mut s = Self::default();
+        s.atmospheric_fog = fog_default;
         for line in text.lines().take(100) {
             let Some((k, v)) = line.split_once('=') else {
                 continue;
@@ -254,6 +262,7 @@ impl ViewSettings {
                 "grass_distance_fade" => flag!(s.grass_distance_fade),
                 "area_grass_lightmaps" => flag!(s.area_grass_lightmaps),
                 "celestial_discs" => flag!(s.celestial_discs),
+                "cloud_detail" => flag!(s.cloud_detail),
                 "whole_world" => flag!(s.whole_world),
                 "water_reflections" => flag!(s.water_reflections),
                 "atmospheric_fog" => flag!(s.atmospheric_fog),
@@ -289,11 +298,11 @@ impl ViewSettings {
             "radius={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen,self.resolution_scale,
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.cloud_detail,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
             self.minimap_shape.label())
     }
@@ -315,12 +324,19 @@ impl ViewSettings {
         }
     }
     pub fn load() -> Self {
+        Self::load_with_default_fog(false)
+    }
+    /// Load saved controls while using the active world's AutoFamily fog bit
+    /// only as the default for a missing setting; an explicit user choice wins.
+    pub fn load_with_default_fog(fog_enabled: bool) -> Self {
+        let mut defaults = Self::default();
+        defaults.atmospheric_fog = fog_enabled;
         Self::file()
             .and_then(|p| std::fs::read(p).ok())
             .filter(|b| b.len() <= 16384)
             .and_then(|b| String::from_utf8(b).ok())
-            .map(|s| Self::decode(&s))
-            .unwrap_or_default()
+            .map(|s| Self::decode_with_fog_default(&s, fog_enabled))
+            .unwrap_or(defaults)
     }
     pub fn save(&self) -> Result<(), String> {
         let Some(path) = Self::file() else {
@@ -346,6 +362,17 @@ impl ViewSettings {
 mod tests {
     use super::*;
     #[test]
+    fn scene_fog_default_respects_an_explicit_saved_choice() {
+        assert!(ViewSettings::decode_with_fog_default("", true).atmospheric_fog);
+        assert!(!ViewSettings::decode_with_fog_default("", false).atmospheric_fog);
+        assert!(
+            !ViewSettings::decode_with_fog_default("atmospheric_fog=false", true).atmospheric_fog
+        );
+        assert!(
+            ViewSettings::decode_with_fog_default("atmospheric_fog=true", false).atmospheric_fog
+        );
+    }
+    #[test]
     fn authored_sharpen_toggle_round_trips_without_changing_defaults() {
         assert!(!ViewSettings::default().sharpen);
         let s = ViewSettings::decode("sharpen=true");
@@ -370,6 +397,15 @@ mod tests {
         assert_eq!(both.world_map_style, MapStyle::Original);
         assert_eq!(both.minimap_style, MapStyle::Original);
         assert_eq!(ViewSettings::decode(&both.encode()), both);
+    }
+
+    #[test]
+    fn cloud_detail_gate_defaults_on_and_round_trips() {
+        assert!(ViewSettings::default().cloud_detail);
+        let settings = ViewSettings::decode("cloud_detail=false");
+        assert!(!settings.cloud_detail);
+        assert!(!ViewSettings::decode(&settings.encode()).cloud_detail);
+        assert!(ViewSettings::decode("cloud_detail=invalid").cloud_detail);
     }
 
     #[test]

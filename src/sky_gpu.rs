@@ -1,5 +1,10 @@
-//! Experimental day/night sky using actual client BMP sky textures.
-use crate::pck;
+//! AutoFamily day/night sky sets and client BMP sky textures. Panorama projection
+//! and celestial-disc geometry remain approximations, while set selection and
+//! the one-second day/night resource transition follow the supplied client data.
+use crate::{
+    pck,
+    sky_config::{AutoFogConfig, SkyMix, SkyTransition},
+};
 use glam::{Mat4, Vec3};
 use std::{collections::HashMap, fs::File, path::Path};
 use wgpu::util::DeviceExt;
@@ -16,6 +21,8 @@ pub struct SkyGpu {
     reflected: wgpu::BindGroup,
     normal_buf: wgpu::Buffer,
     reflected_buf: wgpu::Buffer,
+    transition: SkyTransition,
+    auto_fog: Option<AutoFogConfig>,
 }
 pub(crate) const SHADER: &str = r#"
 struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>};
@@ -40,10 +47,11 @@ fn sky(dir:vec3<f32>, layer:i32)->vec3<f32>{
 }
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
- let hour=p.time.x;let day=smoothstep(5.,8.,hour)*(1.-smoothstep(17.,20.,hour));
- let evening=(smoothstep(4.,6.,hour)*(1.-smoothstep(7.,9.,hour))) + (smoothstep(16.,18.,hour)*(1.-smoothstep(19.,21.,hour)));
- let e=clamp(evening,0.,1.); let night=sky(d,2);let dusk=sky(d,1);let noon=sky(d,0);
- var color=mix(mix(night,dusk,e),noon,day);
+ let hour=p.time.x;
+ // `time.y/z/w` are the source set, destination set and native one-second
+ // A3DSkySphere transition amount, resolved from AutoFamily sky.lst IDs.
+ let color_from=sky(d,i32(p.time.y));let color_to=sky(d,i32(p.time.z));
+ var color=mix(color_from,color_to,clamp(p.time.w,0.,1.));
  // Experimental sky-only celestial disc using client textures. Direction
  // follows the recovered sky clock and authored regional azimuth. Sizes and
  // exposure are provisional; material lighting and foliage are untouched.
@@ -57,7 +65,7 @@ fn sky(dir:vec3<f32>, layer:i32)->vec3<f32>{
    let size=select(0.028,0.035,is_day);
    let uv=vec2<f32>(dot(d,x),-dot(d,y))/(2.*size*z)+vec2<f32>(0.5);
    if all(uv>=vec2<f32>(0.)) && all(uv<=vec2<f32>(1.)) {
-    let disc=textureSampleLevel(skies,smp,uv,select(10,9,is_day),0.);
+    let disc=textureSampleLevel(skies,smp,uv,select(7,6,is_day),0.);
     let visibility=smoothstep(0.0,0.04,c.y)*p.celestial.w;
     if is_day {color=clamp(color+disc.rgb*visibility,vec3<f32>(0.),vec3<f32>(1.));}
     else {color=mix(color,disc.rgb,disc.a*visibility);}
@@ -74,19 +82,59 @@ impl SkyGpu {
         format: wgpu::TextureFormat,
         element: &Path,
     ) -> Result<Self, String> {
+        let mut config_file = File::open(element.join("configs.pck")).map_err(|e| e.to_string())?;
+        let config_entries: HashMap<_, _> = pck::directory(&mut config_file)?
+            .into_iter()
+            .map(|e| (e.name.to_lowercase(), e))
+            .collect();
+        let autoscene = config_entries
+            .get("configs/autofamilyconfigs/autoscene.cfg")
+            .ok_or("missing AutoFamily autoscene.cfg in configs.pck")?;
+        let auto_bytes = pck::read_entry(&mut config_file, autoscene)?;
+        let auto_config = crate::sky_config::parse_autoscene(&auto_bytes)?;
+        let auto_fog = crate::sky_config::parse_autofog(&auto_bytes).ok();
+        if auto_fog.is_none() {
+            eprintln!("AutoFamily fog config could not be parsed; keeping viewer fog defaults");
+        }
+        let sky_list_key = auto_config.sky_list.to_ascii_lowercase();
+        let sky_list = config_entries
+            .get(&sky_list_key)
+            .ok_or_else(|| format!("AutoFamily sky_list resource is missing: {sky_list_key}"))?;
+        let sets =
+            crate::sky_config::parse_sky_list(&pck::read_entry(&mut config_file, sky_list)?)?;
+        let day = sets
+            .iter()
+            .find(|set| set.id == auto_config.day)
+            .ok_or_else(|| {
+                format!(
+                    "AutoFamily day sky ID {} is absent from sky.lst",
+                    auto_config.day
+                )
+            })?;
+        let night = sets
+            .iter()
+            .find(|set| set.id == auto_config.night)
+            .ok_or_else(|| {
+                format!(
+                    "AutoFamily night sky ID {} is absent from sky.lst",
+                    auto_config.night
+                )
+            })?;
+
         let mut file = File::open(element.join("textures.pck")).map_err(|e| e.to_string())?;
         let entries: HashMap<_, _> = pck::directory(&mut file)?
             .into_iter()
             .map(|e| (e.name.to_lowercase(), e))
             .collect();
-        let names = ["clear", "evening", "night2"];
         let mut frames = Vec::new();
-        for folder in names {
-            for name in ["01.bmp", "02.bmp", "roof.bmp"] {
-                let key = format!("textures/sky/{folder}/{name}");
+        // The three list paths are roof, panorama 01 and panorama 02. Keep the
+        // GPU layer order expected by `sky()`: panorama 01, panorama 02, roof.
+        for set in [day, night] {
+            for relative in [&set.panorama_01, &set.panorama_02, &set.roof] {
+                let key = format!("textures/sky/{}", relative.to_lowercase());
                 let entry = entries
                     .get(&key)
-                    .ok_or_else(|| format!("missing client sky texture {key}"))?;
+                    .ok_or_else(|| format!("missing AutoFamily sky texture {key}"))?;
                 let bytes = pck::read_entry(&mut file, entry)?;
                 let img = image::load_from_memory(&bytes)
                     .map_err(|e| format!("{key}: {e}"))?
@@ -125,7 +173,7 @@ impl SkyGpu {
             size: wgpu::Extent3d {
                 width: 512,
                 height: 512,
-                depth_or_array_layers: 11,
+                depth_or_array_layers: 8,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -277,8 +325,17 @@ impl SkyGpu {
             reflected,
             normal_buf,
             reflected_buf,
+            transition: SkyTransition::default(),
+            auto_fog,
         })
     }
+    pub fn auto_fog(&self) -> Option<AutoFogConfig> {
+        self.auto_fog
+    }
+    pub fn update_transition(&mut self, night_factor: f32, delta_ms: u32) -> SkyMix {
+        self.transition.update(night_factor, delta_ms)
+    }
+
     pub fn update(
         &self,
         queue: &wgpu::Queue,
@@ -288,6 +345,7 @@ impl SkyGpu {
         hour: f32,
         celestial_direction: [f32; 3],
         celestial_alpha: f32,
+        mix: SkyMix,
         reflected: bool,
     ) {
         let view = Mat4::look_to_rh(Vec3::ZERO, direction, Vec3::Y);
@@ -298,7 +356,7 @@ impl SkyGpu {
         let inv = sky_inverse(projection, view, reflected);
         let uniform = Uniform {
             inv: inv.to_cols_array_2d(),
-            time: [hour, 0., 0., 0.],
+            time: [hour, mix.from as f32, mix.to as f32, mix.amount],
             celestial: [
                 celestial_direction[0],
                 celestial_direction[1],

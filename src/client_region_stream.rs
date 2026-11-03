@@ -1,7 +1,9 @@
 //! Native scene block admission order (0x41c5b0 / 0x41c900 / 0x41cb20).
 //! Initial/teleported windows load synchronously in row-major order. Overlap
 //! appends newly exposed blocks to a persistent FIFO; each frame consumes a
-//! bounded number of ATTEMPTS, including stale/duplicate candidates.
+//! bounded number of ATTEMPTS, including stale/duplicate candidates. The current
+//! fixed budget is a compatibility approximation: native scene `+0x534` is a
+//! dynamic fractional quota derived in `0x42ae60..0x42af64`.
 use std::collections::VecDeque;
 pub type Rect = (usize, usize, usize, usize); // x0,x1,y0,y1, exclusive ends
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

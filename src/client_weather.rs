@@ -3,8 +3,33 @@
 //! `CECWorld` accumulates its frame delta in `0x9b3ed4` at `0x429378..0x42939d`.
 //! It advances both optional weather objects through vtable `+0x48` while the
 //! accumulator is strictly greater than `0x21` milliseconds, subtracting 33 ms
-//! after each update (`0x4293a2..0x4293c7`). This is timing only; it does not
-//! choose weather, create sprites, or implement their visual simulation.
+//! after each update (`0x4293a2..0x4293c7`). The region weather selector is
+//! recovered separately: `0x421520` reads the current area's flags at runtime
+//! offset `+0x80`, enables rain for bit 1 and snow for bit 2, and disables each
+//! missing effect (`0x421533..0x42156f`). Those are EC-BSD flag-word bits 1 and
+//! 2 (`world.ecbsd` record offset `+0x04`). `weather_gpu` consumes this
+//! selection for depth-tested world-space precipitation in main, reflection,
+//! and above-water-view passes. The deterministic camera-centred particle
+//! model still differs from native RNG, lifetimes, collisions and transitions.
+
+/// Precipitation choices encoded in the currently selected EC-BSD area's
+/// flags. Native `0x421520` applies rain and snow independently.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct WeatherSelection {
+    pub rain: bool,
+    pub snow: bool,
+}
+impl WeatherSelection {
+    pub const RAIN_FLAG: u32 = 1 << 1;
+    pub const SNOW_FLAG: u32 = 1 << 2;
+
+    pub fn from_area_flags(flags: u32) -> Self {
+        Self {
+            rain: flags & Self::RAIN_FLAG != 0,
+            snow: flags & Self::SNOW_FLAG != 0,
+        }
+    }
+}
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WeatherClock {
     accumulator_ms: u32,
@@ -28,6 +53,37 @@ impl WeatherClock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_area_bits_select_rain_and_snow_independently() {
+        assert_eq!(
+            WeatherSelection::from_area_flags(0x18),
+            WeatherSelection::default()
+        );
+        assert_eq!(
+            WeatherSelection::from_area_flags(WeatherSelection::RAIN_FLAG),
+            WeatherSelection {
+                rain: true,
+                snow: false
+            }
+        );
+        assert_eq!(
+            WeatherSelection::from_area_flags(WeatherSelection::SNOW_FLAG),
+            WeatherSelection {
+                rain: false,
+                snow: true
+            }
+        );
+        assert_eq!(
+            WeatherSelection::from_area_flags(
+                WeatherSelection::RAIN_FLAG | WeatherSelection::SNOW_FLAG | 0x18
+            ),
+            WeatherSelection {
+                rain: true,
+                snow: true
+            }
+        );
+    }
 
     #[test]
     fn native_weather_tick_uses_strict_33_millisecond_threshold() {

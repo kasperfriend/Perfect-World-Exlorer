@@ -103,6 +103,37 @@ mod tests {
         assert!(!m.unload(1));
     }
     #[test]
+    fn overlapping_default_boxes_keep_the_last_native_bucket_match() {
+        let mut m = ActiveBoxMap::default();
+        // 5 and 58 collide in bucket 5. Head insertion visits 58 then 5;
+        // bucket 6 is visited afterward, so default 6 must win the tie.
+        for id in [5, 58, 6] {
+            m.load(id);
+        }
+        assert_eq!(m.select_pair(|_| Some(true)), (None, Some(6)));
+    }
+
+    #[test]
+    fn supplied_world_local_overlap_uses_native_bucket_precedence() {
+        // Surveyed 17x17 window at the intersection of local boxes 37906 and
+        // 38176 contains seven unique areas. In the native 53-bucket table,
+        // 37906 lands in bucket 11 and 38176 in bucket 16, so the latter is
+        // the last matching local box regardless of their within-cell order.
+        let mut m = ActiveBoxMap::default();
+        for id in [35755, 37447, 37904, 37906, 38176, 39053, 39986] {
+            m.load(id);
+        }
+        assert_eq!(
+            m.select_pair(|id| match id {
+                37906 | 38176 => Some(false),
+                37904 => Some(true),
+                _ => None,
+            }),
+            (Some(38176), Some(37904))
+        );
+    }
+
+    #[test]
     fn resize_rehash_reverses_collisions() {
         let mut m = ActiveBoxMap::default();
         for id in 0..54 {

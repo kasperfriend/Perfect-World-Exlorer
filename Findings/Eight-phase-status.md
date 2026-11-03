@@ -1,6 +1,6 @@
 # Eight-phase implementation status
 
-Updated 2 November 2026. The original requested requirements are retained below.
+Updated 4 November 2026. The original requested requirements are retained below.
 Unchecked means **partial or not implemented**, not absent by default. Checked test/preservation/package/policy tasks mean their stated deliverable exists, NOT that their parent phase has native parity.
 Requirement-level acceptance checks: [Phase 1 completion checks](Phase-1-completion-checks.md). Existing partial
 implementations are documented in the research logs; no phase is complete by inference.

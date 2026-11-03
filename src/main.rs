@@ -31,6 +31,9 @@ mod client_detect;
 mod client_sun;
 #[allow(dead_code)]
 mod client_weather;
+mod cloud_gpu;
+#[allow(dead_code)]
+mod cloud_surface;
 mod color_chain;
 mod display_gamma;
 mod dxt;
@@ -88,6 +91,7 @@ mod skeleton;
 mod skeleton_pose;
 mod skin;
 mod skin_pose;
+mod sky_config;
 mod sky_gpu;
 mod terrain_block;
 mod terrain_gpu;
@@ -107,6 +111,7 @@ mod trees;
 mod view_settings;
 mod water;
 mod water_gpu;
+mod weather_gpu;
 #[cfg(windows)]
 mod windows_setup;
 mod world_models;
@@ -146,6 +151,8 @@ struct Terrain {
     water_simple_frames: Vec<Vec<image::RgbaImage>>,
     trees: trees::Trees,
     grass: grass::Grass,
+    /// Parsed native world cloud grid, if this map ships `world.cld` loose.
+    cloud_surface: Option<std::sync::Arc<cloud_surface::CloudSurface>>,
 }
 fn terrain(root: &Path) -> Result<Terrain, String> {
     let dir = if root.join("element/maps/world/world.trn2").is_file() {
@@ -389,6 +396,30 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     #[cfg(windows)]
     windows_setup::loading_progress("Loading world scenery and water...".into());
     let world_scene = scene::Scene::load(&dir.join("world.ecwld"))?;
+    let cloud_surface = match fs::read(dir.join("world.cld")) {
+        Ok(bytes) => {
+            let cloud = cloud_surface::parse(&bytes).map_err(|e| format!("world.cld: {e}"))?;
+            let populated = cloud.cells.iter().flatten();
+            let (cell_count, vertex_count, group_count, index_count) = populated.fold(
+                (0usize, 0usize, 0usize, 0usize),
+                |(cells, vertices, groups, indices), cell| {
+                    (
+                        cells + if cell.vertices.is_empty() { 0 } else { 1 },
+                        vertices + cell.vertices.len(),
+                        groups + cell.groups.len(),
+                        indices + cell.groups.iter().map(|g| g.indices.len()).sum::<usize>(),
+                    )
+                },
+            );
+            eprintln!("Loaded native MOXB cloud grid {}x{}: {cell_count} populated cells, {vertex_count} vertices, {group_count} groups, {index_count} indices", cloud.width, cloud.height);
+            Some(std::sync::Arc::new(cloud))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("world.cld unavailable; native cloud surface omitted");
+            None
+        }
+        Err(e) => return Err(format!("world.cld: {e}")),
+    };
     if (world_scene.width - w as f32 * grid_spacing).abs() > 0.1
         || (world_scene.length - h as f32 * grid_spacing).abs() > 0.1
     {
@@ -482,6 +513,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         water_normals,
         water_simple_frames,
         trees,
+        cloud_surface,
         water,
         objects,
         materials,

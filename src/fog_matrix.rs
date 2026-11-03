@@ -135,6 +135,10 @@ pub enum Material {
     Sky,
     /// The water surface itself (see the module note: known gap).
     WaterSurface,
+    /// Client rain/snow particles, drawn separately with view-specific fog.
+    Precipitation,
+    /// Indexed `world.cld` cumulus surfaces, drawn with per-view fog.
+    CloudSurface,
 }
 
 /// Pass in which a material is submitted.
@@ -204,7 +208,8 @@ const fn row_of(
 pub fn row(material: Material, pass: Pass) -> Row {
     // Fully qualified on purpose: `None` exists in both enums.
     use Material::{
-        BakedModel, Grass, Model, Shore, Sky, Terrain, TransparentModel, Tree, WaterSurface,
+        BakedModel, CloudSurface, Grass, Model, Precipitation, Shore, Sky, Terrain,
+        TransparentModel, Tree, WaterSurface,
     };
     use Pass::{BelowSurface, Main, Reflection, Refraction};
     use Quantity::{EyeRayExponential, TableFogViewZ};
@@ -217,6 +222,51 @@ pub fn row(material: Material, pass: Pass) -> Row {
             false,
             true,
             "sky panorama pass has no fog constants",
+        ),
+        (Precipitation, Main) | (Precipitation, Reflection) => row_of(
+            TableFogViewZ,
+            Camera,
+            false,
+            true,
+            "weather_gpu fogged() with the active camera/region table fog",
+        ),
+        // The clipped underwater refraction excludes above-water precipitation.
+        (Precipitation, Refraction) => row_of(
+            Quantity::None,
+            RangeColor::None,
+            false,
+            true,
+            "water clip and pass admission omit above-water precipitation",
+        ),
+        // From an underwater camera, the secondary view renders the scene above
+        // the surface with air fog; precipitation follows that same state.
+        (Precipitation, BelowSurface) => row_of(
+            TableFogViewZ,
+            Air,
+            false,
+            true,
+            "weather_gpu receives the below-surface view's air-fog binding",
+        ),
+        (CloudSurface, Main) | (CloudSurface, Reflection) => row_of(
+            TableFogViewZ,
+            Camera,
+            false,
+            true,
+            "cloud_gpu receives the active camera/region table fog",
+        ),
+        (CloudSurface, Refraction) => row_of(
+            Quantity::None,
+            RangeColor::None,
+            false,
+            true,
+            "underwater refraction omits clouds above its water clip plane",
+        ),
+        (CloudSurface, BelowSurface) => row_of(
+            TableFogViewZ,
+            Air,
+            false,
+            true,
+            "cloud_gpu receives the above-water secondary view's air fog",
         ),
         // The water surface gap is described in the module documentation.
         // The surface rebinds the object's fog fields right before its draw
@@ -354,7 +404,7 @@ pub const MODEL_VERTEX_FOG: f32 = 1.;
 mod tests {
     use super::*;
 
-    const MATERIALS: [Material; 9] = [
+    const MATERIALS: [Material; 11] = [
         Material::Terrain,
         Material::Grass,
         Material::BakedModel,
@@ -364,6 +414,8 @@ mod tests {
         Material::Shore,
         Material::Sky,
         Material::WaterSurface,
+        Material::Precipitation,
+        Material::CloudSurface,
     ];
     const PASSES: [Pass; 4] = [
         Pass::Main,
@@ -403,6 +455,46 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn precipitation_inherits_each_render_views_fog_and_water_admission() {
+        for pass in [Pass::Main, Pass::Reflection] {
+            assert_eq!(row(Material::Precipitation, pass).range, RangeColor::Camera);
+            assert_eq!(
+                row(Material::Precipitation, pass).quantity,
+                Quantity::TableFogViewZ
+            );
+        }
+        assert_eq!(
+            row(Material::Precipitation, Pass::Refraction).quantity,
+            Quantity::None
+        );
+        assert_eq!(
+            row(Material::Precipitation, Pass::BelowSurface).range,
+            RangeColor::Air
+        );
+        assert!(row(Material::Precipitation, Pass::BelowSurface).implemented);
+    }
+
+    #[test]
+    fn cloud_surfaces_receive_main_reflection_and_secondary_air_fog() {
+        for pass in [Pass::Main, Pass::Reflection] {
+            assert_eq!(row(Material::CloudSurface, pass).range, RangeColor::Camera);
+            assert_eq!(
+                row(Material::CloudSurface, pass).quantity,
+                Quantity::TableFogViewZ
+            );
+        }
+        assert_eq!(
+            row(Material::CloudSurface, Pass::Refraction).quantity,
+            Quantity::None
+        );
+        assert_eq!(
+            row(Material::CloudSurface, Pass::BelowSurface).range,
+            RangeColor::Air
+        );
+        assert!(row(Material::CloudSurface, Pass::BelowSurface).implemented);
     }
 
     #[test]
@@ -514,14 +606,20 @@ mod tests {
 
         let below_surface = below_surface_fog(air());
         assert_eq!(below_surface.color, air().color); // native pass restores air fog
-        assert_eq!(row(Material::Terrain, Pass::BelowSurface).range, RangeColor::Air);
+        assert_eq!(
+            row(Material::Terrain, Pass::BelowSurface).range,
+            RangeColor::Air
+        );
 
         // View distance is the camera far clip, not an inferred fog distance.
         // Disabling atmospheric fog leaves the authored range/color intact.
         let no_fog = camera_fog(false, false, air(), water());
         assert!(!no_fog.enabled);
         assert_eq!((no_fog.start, no_fog.end), (air().start, air().end));
-        assert_eq!(row(Material::Terrain, Pass::Main).quantity, Quantity::TableFogViewZ);
+        assert_eq!(
+            row(Material::Terrain, Pass::Main).quantity,
+            Quantity::TableFogViewZ
+        );
     }
 
     #[test]
