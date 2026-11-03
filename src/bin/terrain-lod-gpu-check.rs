@@ -81,7 +81,7 @@ fn main() {
             near.extend_from_slice(&f.to_le_bytes());
             far.extend_from_slice(&f.to_le_bytes());
         }
-        for f in [0f32, 1., 0., 0., 0., 0., 0., 0., 0., 1.] {
+        for f in [0f32, 1., 0., 0., 0., 0., 0., 0., 1., 0.] {
             near.extend_from_slice(&f.to_le_bytes());
         }
         near.extend_from_slice(&[0u8; 8]);
