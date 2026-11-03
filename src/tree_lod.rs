@@ -1,10 +1,10 @@
 //! Stable cross-fades between the three client-runtime geometry snapshots.
 //! The 10% transition widths are an approximation, not a SpeedTreeRT fade port.
 //!
-//! `client_level` is an experimental translation of the DLL's continuous
-//! distance-to-level calculation. It is not yet wired into snapshot selection:
-//! the existing cache lacks the per-component LODs and transition metadata
-//! required to use it without silently choosing incorrect geometry.
+//! `client_distance` supplies the renderer's 3D DLL-style distance estimate.
+//! `client_level` and component selectors are experimental translations not
+//! yet wired into snapshot selection: the existing cache lacks per-component
+//! LODs and transition metadata required to choose the right geometry.
 
 /// SpeedTreeRT 0x100282b0: calculate the continuous level from camera and
 /// tree positions and client-provided near/far limits. The DLL computes a
@@ -17,9 +17,19 @@
 /// intermediates approximate x87 extended precision and are not guaranteed to
 /// be bit-identical at rounding boundaries.
 pub fn client_level(position: [f32; 3], camera: [f32; 3], near: f32, far: f32) -> Option<f32> {
-    if !position.into_iter().chain(camera).all(f32::is_finite)
-        || !near.is_finite() || !far.is_finite() || near < 0.0 || near >= far
-    {
+    if !near.is_finite() || !far.is_finite() || near < 0.0 || near >= far {
+        return None;
+    }
+    let estimate = client_distance(position, camera)?;
+    let level = 1.0 - (f64::from(estimate) - f64::from(near)) / (f64::from(far) - f64::from(near));
+    Some(level.clamp(0.0, 1.0) as f32)
+}
+
+/// SpeedTreeRT's 3D distance estimate before applying near/far limits.
+/// Finite f32 values use f64 intermediates to approximate the DLL's x87
+/// arithmetic; see `client_level` for the precision limitation.
+pub fn client_distance(position: [f32; 3], camera: [f32; 3]) -> Option<f32> {
+    if !position.into_iter().chain(camera).all(f32::is_finite) {
         return None;
     }
     let dx = f64::from(position[0]) - f64::from(camera[0]);
@@ -29,9 +39,7 @@ pub fn client_level(position: [f32; 3], camera: [f32; 3], near: f32, far: f32) -
     if !distance_squared.is_finite() {
         return None;
     }
-    let estimate = f32::from_bits((distance_squared.to_bits() >> 1) + 0x1fc0_0000);
-    let level = 1.0 - (f64::from(estimate) - f64::from(near)) / (f64::from(far) - f64::from(near));
-    Some(level.clamp(0.0, 1.0) as f32)
+    Some(f32::from_bits((distance_squared.to_bits() >> 1) + 0x1fc0_0000))
 }
 /// Translate the DLL's discrete LOD getters (0x10022260, 0x100222b0,
 /// 0x10022300) for explicitly supplied levels in the range 0..=1. For leaf
@@ -173,6 +181,17 @@ mod tests {
         assert_eq!(client_level([f32::NAN, 0., 0.], [0.; 3], 50., 160.), None);
         assert_eq!(client_level([f32::MAX, 0., 0.], [0.; 3], 50., 160.), None);
         assert_eq!(client_level([0.; 3], [0.; 3], 160., 50.), None);
+    }
+    #[test]
+    fn distance_estimate_includes_altitude_and_rejects_invalid_values() {
+        let origin = [0.0, 0.0, 0.0];
+        let horizontal = client_distance([100.0, 0.0, 0.0], origin).unwrap();
+        let vertical = client_distance([0.0, 100.0, 0.0], origin).unwrap();
+        assert_eq!(horizontal, vertical);
+        // The DLL deliberately uses a bit approximation, not sqrt(10000).
+        assert_ne!(horizontal, 100.0);
+        assert_eq!(client_distance([f32::NAN, 0.0, 0.0], origin), None);
+        assert_eq!(client_distance([f32::MAX, 0.0, 0.0], origin), None);
     }
     #[test]
     fn client_discrete_boundaries_and_empty_levels() {

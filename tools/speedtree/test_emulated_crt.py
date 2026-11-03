@@ -6,13 +6,30 @@ MSVCRT equivalence, special-value behavior, or full DLL/client fidelity.
 import math
 import struct
 import unittest
+from types import SimpleNamespace
 
 try:
     import unicorn
     from unicorn.x86_const import UC_X86_REG_ESP
-    from probe_materials_emulated import FTOL, TRIG, POW
+    from probe_materials_emulated import FTOL, TRIG, POW, ensure_completed
 except ImportError:
     unicorn = None
+
+
+@unittest.skipIf(unicorn is None, 'requires pefile, speakeasy-emulator and unicorn')
+class CompletionCheck(unittest.TestCase):
+    def test_stopped_call_is_not_mistaken_for_a_return(self):
+        em = SimpleNamespace(
+            emu=SimpleNamespace(runs=[SimpleNamespace(error=None)], run_complete=False),
+            reg_read=lambda reg: 0x1234,
+        )
+        with self.assertRaisesRegex(RuntimeError, 'stopped before return at 0x1234'):
+            ensure_completed(em, 'Compute')
+        em.emu.run_complete = True
+        ensure_completed(em, 'Compute')
+        em.emu.runs[-1].error = 'bad memory'
+        with self.assertRaisesRegex(RuntimeError, 'Compute: bad memory'):
+            ensure_completed(em, 'Compute')
 
 
 @unittest.skipIf(unicorn is None, 'requires pefile, speakeasy-emulator and unicorn')

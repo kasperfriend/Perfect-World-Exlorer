@@ -509,9 +509,13 @@ impl FarTrees {
         for group in &self.groups {
             let mut counts = [0u32; 3];
             for &p in &group.positions {
-                let dx = p[0] - camera[0];
-                let dz = p[2] - camera[2];
-                let dist = (dx * dx + dz * dz).sqrt();
+                // Match the runtime's 3D distance estimate rather than
+                // ignoring elevation. Snapshot thresholds and fades below
+                // are still approximate until the cache stores every native
+                // component LOD and its transition parameters.
+                let Some(dist) = crate::tree_lod::client_distance(p, camera) else {
+                    continue;
+                };
                 let selection = crate::tree_lod::select(dist, group.height, scale);
                 let choices = [
                     (

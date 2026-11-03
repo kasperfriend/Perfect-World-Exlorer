@@ -41,7 +41,16 @@ TRIG = bytes.fromhex('d9c0d8c8d9e8dee1d9fad9c9d9f3c3d9c0d8c8d9e8dee1d9fad9f3c3')
 POW = bytes.fromhex('d9eedbeaddd87507ddd8ddd8d9eec3d9c9d9f1d9c0d9fcdce9d9c9d9f0d9e8dec1d9fdddd9c3')
 
 
-def run(world, archive, dll, type_id, compute_lod_counts=False, max_api_count=10000):
+def ensure_completed(em, name):
+    """Do not interpret registers after Speakeasy stops without returning."""
+    error = em.emu.runs[-1].error
+    if error:
+        raise RuntimeError(f'{name}: {error}')
+    if not em.emu.run_complete:
+        raise RuntimeError(f'{name}: emulation stopped before return at {em.reg_read("eip"):#x}')
+
+
+def run(world, archive, dll, type_id, compute_lod_counts=False, max_api_count=10000, fpcw=None, timeout=60):
     if hashlib.sha256(dll.read_bytes()).hexdigest() != DLL_SHA256:
         raise ValueError('unexpected DLL hash')
     types = tree_types(world.read_bytes())
@@ -59,9 +68,12 @@ def run(world, archive, dll, type_id, compute_lod_counts=False, max_api_count=10
     em = speakeasy.Speakeasy()
     mod = em.load_module(path=str(dll))
     em.emu.max_api_count = max_api_count
+    em.emu.timeout = timeout
     em.run_module(mod)
-    if em.emu.runs[-1].error:
-        raise RuntimeError(f'DLL entry failed: {em.emu.runs[-1].error}')
+    ensure_completed(em, 'DLL entry')
+    if fpcw is not None:
+        from unicorn.x86_const import UC_X86_REG_FPCW
+        em.emu.emu_eng.emu.reg_write(UC_X86_REG_FPCW, fpcw)
 
     # Speakeasy 1.5.11's C++ allocation stub has an incorrect argc; get the
     # argument from the cdecl stack rather than the empty hook argument list.
@@ -114,8 +126,7 @@ def run(world, archive, dll, type_id, compute_lod_counts=False, max_api_count=10
     for (fn,) in struct.iter_unpack('<I', bytes(em.mem_read(0x10062000, 0x278))):
         if fn:
             em.call(fn)
-            if em.emu.runs[-1].error:
-                raise RuntimeError(f'initializer {fn:#x}: {em.emu.runs[-1].error}')
+            ensure_completed(em, f'initializer {fn:#x}')
 
     obj = em.mem_alloc(0x9c)
     source = em.mem_alloc(len(data))
@@ -125,9 +136,7 @@ def run(world, archive, dll, type_id, compute_lod_counts=False, max_api_count=10
     def call(name, args=()):
         em.reg_write('ecx', obj)
         em.call(exports[name], list(args))
-        error = em.emu.runs[-1].error
-        if error:
-            raise RuntimeError(f'{name}: {error}')
+        ensure_completed(em, name)
         return em.reg_read('eax')
 
     call('??0CSpeedTreeRT@@QAE@XZ')
@@ -188,11 +197,19 @@ def main():
     parser.add_argument('--compute-lod-counts', action='store_true')
     parser.add_argument('--max-api-count', type=int, default=10000,
                         help='Speakeasy API-call budget per run (default: 10000)')
+    parser.add_argument('--fpcw', type=lambda value: int(value, 0),
+                        help='override x87 control word after DLL entry, e.g. 0x27f')
+    parser.add_argument('--timeout', type=int, default=60,
+                        help='seconds allowed per emulated call (default: 60)')
     args = parser.parse_args()
     if args.max_api_count < 1:
         parser.error('--max-api-count must be positive')
+    if args.timeout < 1:
+        parser.error('--timeout must be positive')
+    if args.fpcw is not None and not 0 <= args.fpcw <= 0xffff:
+        parser.error('--fpcw must be a 16-bit value')
     print(json.dumps(run(args.world, args.trees, args.dll, args.type, args.compute_lod_counts,
-                         args.max_api_count), ensure_ascii=False))
+                         args.max_api_count, args.fpcw, args.timeout), ensure_ascii=False))
 
 
 if __name__ == '__main__':

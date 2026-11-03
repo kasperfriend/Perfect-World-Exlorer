@@ -227,19 +227,26 @@ impl Trees {
                 let bark_entry = entries
                     .get(&bark_path)
                     .or_else(|| entries.get(&fallback))
-                    .ok_or_else(|| format!("missing bark texture {bark_path}"))?;
-                let tex_entry = entries
-                    .get(&ty.composite.to_lowercase())
-                    .ok_or("missing composite")?;
-                let bark_bytes = pck::read_entry(&mut file, bark_entry)?;
-                let tex_bytes = pck::read_entry(&mut file, tex_entry)?;
+                    .ok_or_else(|| format!("branch material: missing bark texture {bark_path}"))?;
+                let tex_entry = entries.get(&ty.composite.to_lowercase()).ok_or_else(|| {
+                    format!(
+                        "frond/leaf material: missing composite texture {}",
+                        ty.composite
+                    )
+                })?;
+                let bark_bytes = pck::read_entry(&mut file, bark_entry)
+                    .map_err(|e| format!("branch material texture {}: {e}", bark_entry.name))?;
+                let tex_bytes = pck::read_entry(&mut file, tex_entry)
+                    .map_err(|e| format!("frond/leaf material texture {}: {e}", tex_entry.name))?;
                 let bark =
                     image::load_from_memory_with_format(&bark_bytes, image::ImageFormat::Dds)
-                        .map_err(|e| e.to_string())?
+                        .map_err(|e| format!("branch material texture {}: {e}", bark_entry.name))?
                         .to_rgba8();
                 let composite =
                     image::load_from_memory_with_format(&tex_bytes, image::ImageFormat::Dds)
-                        .map_err(|e| e.to_string())?
+                        .map_err(|e| {
+                            format!("frond/leaf material texture {}: {e}", tex_entry.name)
+                        })?
                         .to_rgba8();
                 Ok(TreeMesh {
                     lods,
@@ -252,7 +259,7 @@ impl Trees {
                     types[i] = Some(mesh);
                     count += 1
                 }
-                Err(e) => eprintln!("Tree type {i}: {e}"),
+                Err(e) => eprintln!("Tree type {i} ({}): {e}", ty.tree),
             }
         }
         eprintln!(
