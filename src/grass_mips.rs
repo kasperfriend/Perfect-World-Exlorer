@@ -71,6 +71,51 @@ pub fn authored_chain(
     Ok(mips[..levels as usize].to_vec())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn img(w: u32, h: u32, value: u8) -> image::RgbaImage {
+        image::RgbaImage::from_pixel(w, h, image::Rgba([value, 2, 3, 255]))
+    }
+
+    #[test]
+    fn authored_chain_accepts_native_rectangular_mips_without_resampling() {
+        let authored = vec![img(128, 64, 1), img(64, 32, 2), img(32, 16, 3)];
+        let chain = authored_chain(&authored, 256, 128, 3).unwrap();
+        assert_eq!(
+            chain
+                .iter()
+                .map(|m| (m.width(), m.height()))
+                .collect::<Vec<_>>(),
+            vec![(128, 64), (64, 32), (32, 16)]
+        );
+        assert_eq!(chain[0].get_pixel(0, 0).0[0], 1);
+    }
+
+    #[test]
+    fn authored_chain_accepts_non_power_of_two_dimensions_when_levels_match() {
+        let authored = vec![
+            img(96, 48, 1),
+            img(48, 24, 2),
+            img(24, 12, 3),
+            img(12, 6, 4),
+            img(6, 3, 5),
+            img(3, 1, 6),
+            img(1, 1, 7),
+        ];
+        assert!(authored_chain(&authored, 192, 96, 7).is_ok());
+    }
+
+    #[test]
+    fn authored_chain_rejects_resampled_or_truncated_rectangular_levels() {
+        let authored = vec![img(128, 64, 1), img(64, 32, 2), img(32, 32, 3)];
+        assert!(authored_chain(&authored, 256, 128, 3).is_err());
+        assert!(authored_chain(&authored[..2], 256, 128, 3).is_err());
+        assert!(authored_chain(&[], 0, 128, 0).is_err());
+    }
+}
+
 /// Prepare grass atlas tiles, preferring an exact authored chain when supplied.
 /// Slots without a supported authored chain fall back to the approved generated
 /// coverage-preserving chain; the caller logs the unsupported material.
