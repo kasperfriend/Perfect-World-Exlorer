@@ -41,10 +41,10 @@ by CI, not by this sandbox.
 
 ```
 rustc --edition=2021 --test src/scenery_visibility.rs   → 10 passed; 0 failed
-rustc --edition=2021 --test src/view_settings.rs        → 20 passed; 0 failed
-sh tools/check-phase1-core.sh                            → 30 standalone module test binaries + 1 multi-module harness, all ok
+rustc --edition=2021 --test src/view_settings.rs        → 23 passed; 0 failed
+sh tools/check-phase1-core.sh                            → 33 standalone module test binaries + 1 multi-module harness, all ok
 python3 tools/check-eight-phase-status.py                → consistent true, 26 / 1 / 49, errors []
-python3 tools/audit-static-model-gpu-programs.py         → OK: 7 wired, 16 excluded with reasons, 23 total
+python3 tools/audit-static-model-gpu-programs.py         → OK: 7 wired, 17 excluded with reasons, 24 total
 python3 tools/test_phase1_ready.py                      → 7 OK
 python3 tools/test_eight_phase_status.py                → 5 OK
 rustfmt --edition 2021 --config skip_children=true --check <14 changed Rust files> → exit 0
@@ -65,8 +65,8 @@ run completes:
 
 Workflow steps include `cargo fmt --all -- --check`,
 `cargo check --locked --bins`, `cargo test --locked --bin gfx-light-audit`,
-`cargo test --locked --bin perfect-world-explorer`, all 17 GPU diagnostic
-programs under software Vulkan, the eight-phase and static-model audits, the
+`cargo test --locked --bin perfect-world-explorer`, 19 GPU diagnostic runs (24 diagnostics
+total, 7 wired static-model + 17 excluded with reasons) under software Vulkan, the eight-phase and static-model audits, the
 standalone `rustc --test src/scenery_visibility.rs` run, and the Windows release
 build. Relevant GPU evidence: `scenery-pass-gpu-check` enumerates 6 passes x 6
 recovered BMD states (36 rows) plus hidden/reflect-only/refract-only raster

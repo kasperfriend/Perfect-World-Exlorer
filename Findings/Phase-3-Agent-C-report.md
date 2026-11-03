@@ -11,7 +11,7 @@ fixed branch. The nine official Phase 3 rows and checkboxes were left untouched.
 |---|---|---|---|
 | P3.06 | Partial | EC-BSD low-byte flags, six native quality presets, regional load/evict hysteresis, hidden model-class gate | Yes for baked EC-BSD scenery at the shipped default; No for all ten native classes and LOD detail reduction |
 | P3.07 | Partial | One snapshot per frame, six passes, per-placement pass gate, 36 pass/material rows, shared secondary views | Yes for `WaterEffect == 0` and six inspected BMD states; No for level-2/underwater/home/EC/birdview variants |
-| P3.09 | Partial | 17 CI GPU programs, 7 wired static-model diagnostics, 16 exclusions with reasons, two new GPU regressions | Yes for CI wiring of the static-model diagnostic set; No for exhaustive native acceptance |
+| P3.09 | Partial | 19 CI GPU program runs (24 diagnostics total), 7 wired static-model diagnostics, 17 exclusions with reasons, two new GPU regressions | Yes for CI wiring of the static-model diagnostic set; No for exhaustive native acceptance |
 
 `tools/check-eight-phase-status.py` still reports `consistent true`,
 `Implemented 20`, `Not implemented 1`, `Partial 55`, `complete_phases []`,
@@ -193,7 +193,7 @@ from prebuilt npm packages in `/tmp`, not committed):
 python3 tools/test_phase1_ready.py                 -> 7 tests OK
 python3 tools/test_eight_phase_status.py           -> 5 tests OK
 python3 tools/check-eight-phase-status.py         -> consistent true; Implemented 20, Not implemented 1, Partial 55; complete_phases []; errors []
-python3 tools/audit-static-model-gpu-programs.py   -> OK: 7 static-model GPU diagnostics wired; 16 excluded with reasons; 23 GPU diagnostics total
+python3 tools/audit-static-model-gpu-programs.py   -> OK: 7 static-model GPU diagnostics wired; 17 excluded with reasons; 24 GPU diagnostics total
 LD_LIBRARY_PATH=... RUSTC=... sh tools/check-phase1-core.sh -> exit 0; 27 standalone module test binaries, all "test result: ok"
 rustc --edition=2021 --test src/scenery_visibility.rs -> 8 passed; 0 failed
 rustc --edition=2021 --test src/view_settings.rs     -> 19 passed; 0 failed
@@ -220,7 +220,7 @@ CI (GitHub Actions PR #12, workflow `PR checks and Windows build`):
   `cc -O0 tools/check-native-region-reference.c ...`; the four Python/status
   audits plus standalone `rustc --test src/scenery_visibility.rs`;
   `cargo check --locked --bins`; `cargo test --locked --bin gfx-light-audit`;
-  `cargo test --locked --bin perfect-world-explorer`; and all 17 GPU programs
+  `cargo test --locked --bin perfect-world-explorer`; and 19 GPU diagnostic runs (24 diagnostics total)
   under software Vulkan.
 - GPU notices included:
   `hidden, reflect-only and refract-only placements are gated in all six passes`,
@@ -272,7 +272,7 @@ skipped:
 
 ```text
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P3.06 | Yes for the designated ten-class/LOD scope; full live-client parity is not claimed | src/scenery_visibility.rs (`Class::ALL`, `Placement.class`, `RenderContext`, `lod_scale`, per-class `RegionResidency::select`), src/gpu.rs::ten_class_placements/build/draw_models, src/world_objects.rs, src/viewer.rs, src/view_settings.rs | 0x422390, 0x424020..0x4241dd, 0x4241e0, 0x424208, 0x422f00, six presets 0x424248..0x424a5e, 0x489e70/0x489f0b/0x489f12, 0x5b1eaf/0x5b21d0 | 10 scenery_visibility tests, 20 view_settings tests, core script, scenery-pass GPU matrix, CI 41591299405 success (historical) | Level-2 object-state flags, authored birdview tiles, live-client whole-world comparison
+P3.06 | Yes for the designated ten-class/LOD scope; full live-client parity is not claimed | src/scenery_visibility.rs (`Class::ALL`, `Placement.class`, `RenderContext`, `lod_scale`, per-class `RegionResidency::select`), src/gpu.rs::ten_class_placements/build/draw_models, src/world_objects.rs, src/viewer.rs, src/view_settings.rs | 0x422390, 0x424020..0x4241dd, 0x4241e0, 0x424208, 0x422f00, six presets 0x424248..0x424a5e, 0x489e70/0x489f0b/0x489f12, 0x5b1eaf/0x5b21d0 | 10 scenery_visibility tests, 23 view_settings tests, core script, scenery-pass GPU matrix, CI 41591299405 success (historical) | Level-2 object-state flags, authored birdview tiles, live-client whole-world comparison
 ```
 
 ## 8. Confirmation block (P3.07)
@@ -286,7 +286,7 @@ P3.07 | Yes for WaterEffect==0 and six inspected BMD states; No for all quality/
 
 ```text
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P3.09 | Yes for CI wiring of the static-model diagnostic set; No for exhaustive native acceptance | .github/workflows/pr-checks.yml, tools/static-model-gpu-programs.txt, tools/audit-static-model-gpu-programs.py, tools/check-phase1-core.sh, two new bins | 0x7a9808..0x7a99bc ZFUNC/ZBIAS absence; 0x429786/0x4297d9/0x4297ed tile paths; EC-BSD flag writes | 17 GPU programs, 7 wired/16 excluded with reasons, bmd-depth and scenery-pass GPU checks, cargo check --bins, cargo test bins, Linux+Windows CI 41591299405 success | cross-page depth order, live-client comparison, whole-world GPU benchmark, full archive survey
+P3.09 | Yes for CI wiring of the static-model diagnostic set; No for exhaustive native acceptance | .github/workflows/pr-checks.yml, tools/static-model-gpu-programs.txt, tools/audit-static-model-gpu-programs.py, tools/check-phase1-core.sh, two new bins | 0x7a9808..0x7a99bc ZFUNC/ZBIAS absence; 0x429786/0x4297d9/0x4297ed tile paths; EC-BSD flag writes | 19 GPU program runs, 7 wired/17 excluded with reasons, bmd-depth and scenery-pass GPU checks, cargo check --bins, cargo test bins, Linux+Windows CI 41591299405 success | cross-page depth order, live-client comparison, whole-world GPU benchmark, full archive survey
 ```
 
 ## 10. Files changed since base `5a1d8cf`

@@ -24,6 +24,7 @@ EXCLUDED = {
     "skin-palette-gpu-check": "animated skin palette",
     "skin-pose-gpu-check": "animated skin pose",
     "terrain-lod-gpu-check": "terrain LOD",
+    "terrain-view-gpu-check": "terrain per-view pass state / LOD continuity, not static BMD scenery",
     "terrain-refraction-gpu-check": "terrain refraction/fog, not static BMD",
     "tree-lod-gpu-check": "tree LOD",
     "water-fog-gpu-check": "water fog",

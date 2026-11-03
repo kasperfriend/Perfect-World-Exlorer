@@ -50,6 +50,23 @@ struct Slot {
     posed: Option<Result<SlotPose, String>>,
 }
 
+/// Per-frame alpha-pass diagnostics; see [`World::alpha_status`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AlphaStatus {
+    /// Models in this frame's alpha insertion order.
+    pub ordered: usize,
+    /// Alpha meshes the loaded models actually declare.
+    pub alpha_meshes: usize,
+    /// Alpha meshes skipped because their model published no bounds.
+    pub without_bounds: usize,
+    /// Slots with a live draw.
+    pub drawable: usize,
+    /// Slots that failed to load.
+    pub failed: usize,
+    /// Slots tracked in total.
+    pub slots: usize,
+}
+
 pub struct World {
     assets: Assets,
     slots: Vec<Slot>,
@@ -333,6 +350,14 @@ impl World {
     pub fn unregister_dynamic_light(&mut self, identity: u64) {
         self.publications.unregister(identity);
     }
+    /// Roots that could not be read because their container format is not
+    /// implemented. Kept out of [`Self::gfx_failures`] so a known-unread format
+    /// is not reported as a broken asset.
+    pub fn gfx_unsupported(&self) -> Vec<String> {
+        self.owners.unsupported().to_vec()
+    }
+    /// Load problems that are this reader's fault or the asset's: unreadable
+    /// roots, failed world models and rejected alpha queues.
     pub fn gfx_failures(&self) -> Vec<String> {
         let mut failures = self.owners.failures().to_vec();
         failures.extend(self.reported.iter().cloned());
@@ -615,6 +640,41 @@ impl World {
     }
     pub fn alpha_order(&self) -> Vec<(usize, usize)> {
         self.alpha.iter().map(|c| (c.slot, c.mesh)).collect()
+    }
+
+    /// Why the alpha pass does or does not have anything to order.
+    ///
+    /// An alpha queue of zero is a *plausible* steady state in this build: the
+    /// pass only orders meshes a model declares as alpha-blended, and retail
+    /// monsters/props are mostly opaque. The line was unreadable because it
+    /// printed the ordered count alone, so "0" could mean "no alpha meshes",
+    /// "no model meshes have bounds" or "every slot failed to load" — all
+    /// visibly different problems. These counters separate them without
+    /// inventing geometry.
+    pub fn alpha_status(&self) -> AlphaStatus {
+        let mut status = AlphaStatus {
+            ordered: self.alpha.len(),
+            slots: self.slots.len(),
+            ..Default::default()
+        };
+        for entry in &self.slots {
+            if entry.draw.is_some() {
+                status.drawable += 1;
+            }
+            if entry.failed {
+                status.failed += 1;
+            }
+            let Some(draw) = &entry.draw else {
+                continue;
+            };
+            for &mesh in draw.alpha_meshes() {
+                status.alpha_meshes += 1;
+                if draw.mesh_bounds(mesh).is_none() {
+                    status.without_bounds += 1;
+                }
+            }
+        }
+        status
     }
 }
 
