@@ -100,12 +100,12 @@ fn terrain_pass_fog(linear:vec3<f32>,reciprocal_w:f32,transmittance:f32)->vec3<f
  let wx=dpdx(i.world);let wy=dpdy(i.world);
  let ax=u32(floor(coord.x));let ay=u32(floor(coord.y));let a=area_data[ay*settings.areas.x+ax];
  // `camera.sun.w >= 0` is the viewer switch for "the authored day/night pair is
- // bound" (the client's `t2_3layer_batch_14` path). It is not a native value:
- // the native blend factor is `env+0x198` -> PS c3.a, one lane of the raw
- // light-matrix product `0x7b4b00` writes (see src/terrain_shading.rs), whose
- // sign is not recoverable without that matrix's caller. The same app scalar is
- // therefore inverted here to stand in for it. Register row: "terrain
- // day/night factor".
+ // bound" (the client's `t2_3layer_batch_14` path). The blend factor is a
+ // separate quantity and arrives in `camera.fog_range.w`, which
+ // `gpu.rs` fills from `camera.terrain_day_night`; that is the one place the
+ // viewer's stand-in for the native `ps c3.a` (`env+0x198`, a lane of the light
+ // matrix `0x7b4b00` writes) is produced. Register row: "terrain day/night
+ // factor".
  let lightmapped=camera.sun.w>=0.;
  var color=vec3<f32>(0.);
  var baked=vec3<f32>(1.);
@@ -113,7 +113,7 @@ fn terrain_pass_fog(linear:vec3<f32>,reciprocal_w:f32,transmittance:f32)->vec3<f
   // t2_3layer_batch_14: `lrp_sat r5, c3.a, r5, r4` with t4 = day (r4), t5 = night
   // (r5): factor 0 selects the day map and 1 the night map, then `mul_x2` doubles
   // the encoded result into the 8-bit target.
-  let factor=clamp(1.-camera.sun.w,0.,1.);
+  let factor=clamp(camera.fog_range.w,0.,1.);
   baked=mix(day,night,factor)*2.;}
  for(var k=0u;k<a.count;k=k+1u){let l=layers[a.start+k];var v=vec2<f32>(i.world.x,-i.world.z);if l.axis==0u {v=vec2<f32>(i.world.z,-i.world.y);}else if l.axis==2u {v=vec2<f32>(i.world.x,-i.world.y);}
  var dx=vec2<f32>(wx.x,-wx.z);var dy=vec2<f32>(wy.x,-wy.z);
@@ -544,7 +544,7 @@ impl TerrainGpu {
         // Variant selection and pass state come from the recovered native
         // switch (`src/terrain_shading.rs`, 0x7c1450) instead of being restated
         // here. `Caps::default()` is the stock 1.4.2 state: a device with a pixel
-        // pipeline and neither GDebugKey flag set, i.e. `Variant::Batch3Layer`.
+        // pipeline and neither terrain-env mode flag set, i.e. `Variant::Batch3Layer`.
         let variant = crate::terrain_shading::select(crate::terrain_shading::Caps::default())
             .map_err(|e| format!("terrain variant {e:?} is unreachable in the client"))?;
         debug_assert_eq!(variant, crate::terrain_shading::Variant::Batch3Layer);
@@ -553,9 +553,15 @@ impl TerrainGpu {
         // value explicit so the mapping cannot drift silently.
         debug_assert!(matches!(state.cull, crate::terrain_shading::Cull::None));
         // Both the near and the far pipeline are built from this one state
-        // record, so the far path cannot drift back to a restated guess.
+        // record, so the far path cannot drift back to a restated guess. The
+        // match is exhaustive over `Cull` on purpose: adding a second native
+        // cull mode has to fail to compile here instead of silently keeping no
+        // culling.
+        let cull_mode = match state.cull {
+            crate::terrain_shading::Cull::None => None,
+        };
         let primitive_state = || wgpu::PrimitiveState {
-            cull_mode: None,
+            cull_mode,
             ..Default::default()
         };
         let colour_targets = || {

@@ -47,7 +47,10 @@ pub(crate) struct Uniform {
     grass_eye: [f32; 4],
     grass_wind: [f32; 4],
     grass_history: [[f32; 4]; 80],
-    fog_range: [f32; 4], // start, end, enabled, reserved
+    /// `start`, `end`, `enabled`, and the terrain day/night blend factor - the
+    /// last lane carries `camera.terrain_day_night` so the terrain shader can run
+    /// the native blend instead of inverting the lightmap-availability flag.
+    fog_range: [f32; 4],
     fog_color: [f32; 4], // encoded client ARGB
 }
 fn minimap_matrix(x: f32, z: f32, range: f32) -> Mat4 {
@@ -1825,7 +1828,14 @@ impl Renderer {
                 0.,
             ],
             grass_history: self.grass_wind_state.history(),
-            fog_range: camera.fog_uniform().0,
+            fog_range: {
+                let mut range = camera.fog_uniform().0;
+                // Lane 3 is `fog_matrix::Fog::range`'s unused fourth slot; put the
+                // terrain day/night blend there instead of in `sun`, whose `w`
+                // already means "the authored lightmap pair is bound".
+                range[3] = camera.terrain_day_night;
+                range
+            },
             fog_color: camera.fog_uniform().1,
         };
         self.queue
@@ -2267,6 +2277,13 @@ struct Camera {
     underwater_fog: crate::environment::Fog,
     air_fog: crate::environment::Fog,
     terrain_lightmaps: bool,
+    /// Terrain day/night blend, published as `fog_range.w` for the terrain
+    /// shader. This is the viewer's stand-in for the client's `ps c3.a`
+    /// (`env+0x198`): the client derives it from a light matrix the viewer has no
+    /// analogue for, so it follows the app clock instead. Kept as its own field
+    /// so the native factor can replace the *source* without touching the
+    /// shader, the uniform layout or the availability flag in `sun.w`.
+    terrain_day_night: f32,
     model_backface_culling: bool,
     tree_wind_strength: f32,
     grass_wind_strength: f32,
@@ -2302,6 +2319,7 @@ impl Camera {
             underwater_fog: Default::default(),
             air_fog: Default::default(),
             terrain_lightmaps: true,
+            terrain_day_night: 0.,
             model_backface_culling: true,
             tree_wind_strength: 0.2,
             grass_wind_strength: 0.,
@@ -2840,6 +2858,11 @@ pub fn run(
                     camera.client_gamma=crate::color_chain::scene_chain_ramp(false,whole_frame_gamma);
                     camera.gamma_setting=settings.gamma_setting;
                     camera.terrain_lightmaps=settings.terrain_lightmaps;
+                    // The blend source is the app clock until the client's light
+                    // matrix is reconstructed: full daylight is the day endpoint
+                    // (factor 0) and full night the night endpoint (factor 1).
+                    camera.terrain_day_night=crate::terrain_shading::viewer_day_night_factor(
+                        crate::environment::daylight(camera.time_of_day));
                     camera.model_backface_culling=settings.model_backface_culling;
                     camera.underwater_depth=water_depth(&water_areas,camera.pos);
                     let region_tick = renderer.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -3074,6 +3097,7 @@ pub fn preview(
             underwater_fog: Default::default(),
             air_fog: Default::default(),
             terrain_lightmaps: true,
+            terrain_day_night: 0.,
             model_backface_culling: true,
             tree_wind_strength: 0.2,
             grass_wind_strength: 0.,

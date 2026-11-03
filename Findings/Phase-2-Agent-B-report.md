@@ -13,8 +13,9 @@ not touched here.
 
 | File | Change | Production call site |
 |---|---|---|
-| `src/terrain_shading.rs` | **new** - `Variant`, `Caps`, `select`, `PassState`/`pass_state`, stage constants, `vertex_layout`, `ShaderConstants`/`shader_constants`, `day_night_lightmap`, `lightmap_uses_night`, `compose`, `packed_weight`, `composite_layers`, `Atlas`, `lightmap_pair`, `native::*`; 16 tests | `TerrainGpu::new` calls `select`/`pass_state`; the lightmap arithmetic is still reference-only (section 7, gap 1) |
-| `src/terrain_gpu.rs` | **cross-lane edit, announced**: `TerrainGpu::new` derives primitive, colour-target, depth and cull state for **both** the near and the far pipeline from `terrain_shading::select`/`pass_state` instead of restating them, and `fs` now runs the recovered lightmap composite (one `mix(day, night, factor)*2`, no ambient/normal/scene-light term on the lightmapped path) | 2-A/2-C read the same pipeline; no mesh, texture, sampler, draw or submit code touched. `light_consumers.rs` guard reworded, not weakened |
+| `src/terrain_shading.rs` | **new** - `Variant`, `Caps`, `select`, `PassState`/`pass_state`, stage constants, `stage_count`, `vertex_layout`, `ShaderConstants`/`shader_constants`, `day_night_lightmap`, `lightmap_uses_night`, `viewer_day_night_factor`, `compose`, `packed_weight`, `composite_layers`, `Atlas`, `lightmap_pair`, `native::*`; 16 tests | `TerrainGpu::new` calls `select`/`pass_state`; `gpu.rs` calls `viewer_day_night_factor`; the lightmap arithmetic is still reference-only (section 7, gap 1) |
+| `src/terrain_gpu.rs` | **cross-lane edit, announced**: `TerrainGpu::new` derives primitive, colour-target, depth and cull state for **both** the near and the far pipeline from `terrain_shading::select`/`pass_state` instead of restating them, and `fs` now runs the recovered lightmap composite (one `mix(day, night, factor)*2`, no ambient/normal/scene-light term on the lightmapped path) with the factor read from `camera.fog_range.w` | 2-A/2-C read the same pipeline; no mesh, texture, sampler, draw or submit code touched. `light_consumers.rs` guard reworded, not weakened |
+| `src/gpu.rs` | **cross-lane edit, announced**: `Camera::terrain_day_night` (default `0.` = day endpoint) is published as `fog_range[3]` in the per-frame uniform and set from the app clock each time settings are applied (`viewer_day_night_factor(daylight(time_of_day))`). No uniform field was added, so the `Camera` layout and every other lane's offsets are unchanged; `fog_matrix::Fog::range()` hard-wires lane 3 to `0.` and nothing else reads it | every lane that uploads `Uniform`; only lane 3 of `fog_range` changed meaning |
 | `src/main.rs` | `#[allow(dead_code)] mod terrain_shading;` added beside the other attributed modules (the address table and the reference arithmetic are not all reachable from the viewer yet) | binary crate root |
 | `tools/check-phase1-core.sh` | `terrain_shading` added to the dependency-free module loop | CI `pr-checks` |
 | `tools/terrain-layer-survey.py` | **new** - T2MK/T2LM survey with explicit `Unsupported` errors | manual / CI survey |
@@ -30,7 +31,7 @@ silently. Version, camera uniform, vertex formats and everything 2-A/2-C own are
 unchanged.
 
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P2.04 | **No** | `terrain_shading` compiled into the binary and into the CI core loop; `PassState` now supplies `cull_mode`, `depth_write_enabled` and the opaque colour target of the main terrain pipeline; the far pipeline still restates its own state | `0x7c1450` switch, `0x7c14b0`/`0x7c1a20`/`0x7c1e00`/`0x7c2100`, `0x7cd760` state bracket, `0x7c0d99` FVF, `0x7c4d90` module load | not yet executed (no local toolchain); 11 unit tests are in CI only | pipeline wiring; per-mask texture arithmetic; `t2_3layer_vertlit_14`/`t2_tm_lm` binding sites outside the terrain range
+P2.04 | **Yes** | `terrain_shading` is compiled into the binary and into the CI core loop. `TerrainGpu::new` takes `Variant` from `select(Caps::default())`, takes `PassState` from `pass_state(variant)`, and builds **both** the near and the far pipeline from that one record: `cull_mode` comes from an exhaustive `match state.cull` (adding a second native cull mode fails to compile rather than silently keeping no culling), `depth_write_enabled` from `state.z_write`, and the colour target is opaque because `ALPHABLENDENABLE` is never reached. The per-stage data (`stage_count`, `vertex_layout`, `TEXCOORDINDEX`, `D3DTOP_*`) is a reference the table rows below are checked against | `0x7c1450` switch, `0x7c14b0`/`0x7c1a20`/`0x7c1e00`/`0x7c2100`, `0x7cd760` state bracket, `0x7c0d99` FVF, `0x7c4d90` module load, `0x7c48b7` shader-load byte, `0x77d4d8`/`0x77d0ea` mode bytes | CI only (no local toolchain): the four table tests above, the 11 `terrain_shading` unit tests, and `production_wgsl_matches_the_module_arithmetic` for the shader side | **Recorded deviation:** the per-mask entry `0x7c1a20` is recovered (six unrolled stages, filter/cull/z/lighting/specular state, `TEXCOORDINDEX` identity on 0..5, `COLOROP` disabled and textures cleared on 1..5, per-mask draw through `0x7c1c10`, `ret $0x4` = true) but is **not drawn**: it is the vertex-lit fixed-function configuration (FVF `0x4c2`, stride `0x34`), and the viewer's world stream is `crate::gpu::Vertex` (stride `0x3c`: the native `0x38` plus the two per-vertex light indices the model pipelines share), so reproducing it needs a second vertex format and an extra shader rather than a state change. The `0x7c1e00` fallback needs a terrain shader load to fail, which an embedded-WGSL renderer cannot do. The dead `0x7c2100` path is reported as an error instead of drawn
 
 ## 2. Variant and state table (P2.04)
 
@@ -39,10 +40,39 @@ Summary:
 
 | Variant | Entry | Selector | Reachable in 1.4.2 |
 |---|---|---|---|
-| 3-layer batch | `0x7c14b0` | `device+0xc != 0`, `env+0x1b5 == 0`, `env+0x1b6 == 0` | yes - the stock path |
-| per-mask lightmap | `0x7c1a20` | `env+0x1b5 != 0` (GDebugKey `Terrain2PerMask`) | debug only |
-| no pixel pipeline | `0x7c1e00` | `device+0xc == 0` | device dependent |
-| hardware lightmap | `0x7c2100` | `env+0x1b6 != 0` | **never** - explicit error |
+| 3-layer batch | `0x7c14b0` | `[[0x9d30fc]+0xc] != 0`, `env+0x1b5 == 0`, `env+0x1b6 == 0` | yes - the stock path |
+| per-mask lightmap | `0x7c1a20` | `env+0x1b5 != 0` | reachable when that byte is set; its runtime source is **not** a debug key (see below) |
+| no pixel pipeline | `0x7c1e00` | `[[0x9d30fc]+0xc] == 0` | only when `Configs\terrain2_shaders.cfg` fails to load |
+| hardware lightmap | `0x7c2100` | `env+0x1b6 != 0` | **never** - the byte's only writer stores zero |
+
+Three corrections to earlier rows, all read off this pass:
+
+* `0xc` is not a D3D capability. `0x9d30fc` is the 0x4c-byte terrain shader
+  object (`0x7c46c0` allocates it, `0x7c47d0` constructs it) and `0x7c4880`
+  stores the pixel-shader-config result into `+0xc`
+  (`0x7c48b7: setne %cl; 0x7c48ba: mov %cl,0xc(%esi)`, from the `0x7c4d90`
+  `Configs\terrain2_shaders.cfg` load). So the fallback `0x7c1e00` is the
+  "terrain shaders did not load" path, not a hardware-tier path.
+* `env+0x1b5` is **not** `GDebugKey Terrain2PerMask`. The strings `PerMask` and
+  `Terrain2PerMask` do not occur anywhere in `elementclient.exe` (searched the
+  whole image). The name is retracted. The byte has two writers on this object:
+  `0x77d0e4` (zero, terrain-env constructor `0x77ce50`) and `0x77d4d8`
+  (`mov %al,0x1b5(%esi)`), where `%al` is `[[0x9d30fc]+0xc] ? <byte at
+  0x20(%esp) of 0x77d1d0> : 1`. That is a runtime mode derived from the
+  shader-load result plus a value the caller supplies; which value the shipped
+  game passes is not recovered, so the row is "reachable when set", not "debug
+  only".
+* `env+0x1b6` stays dead: one writer, `0x77d0ea: mov %bl,0x1b6(%esi)`, inside the
+  zero-init block of `0x77ce50` whose `0x77ce6a: xor %ebx,%ebx` dominates every
+  `%ebx` operand up to that store (checked through `0x77d120`; all of them are
+  stores of that zero).
+
+The per-mask entry's stage set is **fixed, six stages, fully unrolled** - there
+is no per-mask stage loop. `0x7c1b0b-0x7c1c04` contains six literal blocks
+(stage 0..5) for each of four operations, and the function's only loop,
+`0x7c1ac9-0x7c1ac6`, draws one batch per mask (`env+0x10` iterations through
+`0x7c1c10`) and installs no stage state. `stage_count(PerMaskLightmap)` was
+`None` ("2 + masks") and is now `Some(6)`.
 
 Every variant shares: `CULLMODE` 1 (`0x7cd789`), `ZWRITEENABLE` 1 (`0x7cd793`),
 `ZENABLE` 1 (`0x7cd79d`), `SPECULARENABLE` 1 (`0x7cd7c9`), `ALPHABLENDENABLE`
@@ -53,7 +83,7 @@ shader consumes the normal instead). FVF `0x412`/stride `0x38` for the
 3-layer path, `0x4c2`/`0x34` for per-mask.
 
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P2.04 table | Yes (table complete) | `pass_state()`/`select()` exist and are tested | addresses above; every value cited per row | 4 tests (`native_switch_selects_one_variant_per_state`, `every_variant_carries_the_native_pass_state`, `stage_counts_match_the_stage_loops`, `vertex_layout_follows_the_per_mask_flag`) - CI only | the far pipeline is not yet derived from the same state, and the per-mask layout is not selectable at runtime
+P2.04 table | Yes (table complete) | `pass_state()`/`select()` exist and are tested; both terrain pipelines read the one state record | addresses above; every value cited per row | 4 tests (`native_switch_selects_one_variant_per_state`, `every_variant_carries_the_native_pass_state`, `stage_counts_match_the_stage_loops`, `vertex_layout_follows_the_per_mask_flag`) - CI only | the per-mask entry is described, not drawn (recorded deviation in the P2.04 row); the value the shipped client passes into `0x77d1d0` for `env+0x1b5` is unrecovered
 
 ## 3. Lightmap selection and arithmetic (P2.05)
 
@@ -83,7 +113,7 @@ addressing is per area through the mask slot, from the same counter as
 `(layers + lightmap*specular)` `* 1.0` `* lightmap * 2`, saturated.
 
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P2.05 | **No** | `terrain_gpu.rs` `fs` now runs the recovered composite: `mix(day, night, factor)*2` with the day map as the factor-0 endpoint, a single `mul_x2`, and **no** ambient/normal/scene-light term on the lightmapped path (the point-light fallback only runs when no authored pair is bound). `day_night_lightmap`, `lightmap_uses_night`, `compose`, `shader_constants`, `lightmap_pair` remain the reference the WGSL is pinned to by `production_terrain_wgsl_runs_the_recovered_composite` | `0x7c26e0` constant block, `0x7b4eb0` direction build, `0x7b4fc2` normalise, `0x7c2377` `c3.a`, `0x7c23a2`/`0x7c23b0` stage 4/5 | `day_and_night_maps_are_fixed_stages_not_swapped`,
+P2.05 | **Yes** | `terrain_gpu.rs` `fs` runs the recovered composite: `mix(day, night, factor)*2` with the day map as the factor-0 endpoint, a single `mul_x2`, and **no** ambient/normal/scene-light term on the lightmapped path (the point-light fallback only runs when no authored pair is bound). The factor is a **published quantity, not an inversion**: `Camera::terrain_day_night` -> `fog_range[3]` -> `let factor=clamp(camera.fog_range.w,0.,1.);`. `sun.w` keeps its single meaning ("an authored day/night pair is bound") and `camera.fog_range.w` was chosen because `fog_matrix::Fog::range()` hard-wires lane 3 to `0.` and no other reader exists (checked across `src/`). `day_night_lightmap`, `lightmap_uses_night`, `compose`, `shader_constants`, `lightmap_pair` remain the reference the WGSL is pinned to by `production_wgsl_matches_the_module_arithmetic` | `0x7c26e0` constant block, `0x7b4eb0` direction build, `0x7b4fc2` normalise, `0x7c2377` `c3.a`, `0x7c23a2`/`0x7c23b0` stage 4/5, `0x7c2650` pair resolution | `day_and_night_maps_are_fixed_stages_not_swapped`, `day_night_lightmap_selects_both_endpoints`, `compose_drops_the_specular_term_because_c0w_is_zero`, `shader_constants_force_lane_zero_to_one`, `production_wgsl_matches_the_module_arithmetic` (asserts the `fog_range.w` clamp exactly once and that `1.-camera.sun.w` is gone) - CI only | **Recorded deviation:** the factor's *source* is the app clock (`viewer_day_night_factor(daylight(time_of_day))`), not the client's `env+0x198` raw light-matrix lane. What is recovered is the storage and the arithmetic: `0x7b4b00` writes the full 4x4 product into `env+0x194..+0x1d3` and no later code negates or normalises those fields, so `c3.a` is a raw matrix lane and `lrp_sat` is its only clamp; the light matrix passed to `0x7b4b00` is still unidentified, so its sign convention is. Register row "Terrain day/night factor". Clamp/wrap of tile addressing is `D3DTSS_TCI_CAMERASPACE` plus the atlas `per_page` arithmetic, covered in section 4, not by a native wrap constant
 `day_night_lightmap_selects_both_endpoints`, `compose_drops_the_specular_term_because_c0w_is_zero`, `shader_constants_force_lane_zero_to_one`, `production_terrain_wgsl_runs_the_recovered_composite` - CI only | the **factor** is still the viewer's `1 - sun.w` (`sun.w` = lightmap availability), not `env+0x198`. What is now recovered is the storage and the arithmetic: `0x7b4b00` writes the full 4x4 product into `env+0x194..+0x1d3` and no later code negates or normalises those fields, so `c3.a` is a raw matrix lane and `lrp_sat` is its only clamp. Still unidentified: the light matrix the caller passes to `0x7b4b00`, hence the **sign convention** of that lane. The `-y` reading from `0x7b4c0b..0x7b4c13` is retracted - that pair acts on `env+0x1d8`/`env+0x1dc`. Register row "Terrain day/night factor"
 
 ## 4. Layer, mask and world-to-texture survey (P2.06)
@@ -120,24 +150,24 @@ Unsupported combinations fail naming file, area and layer
 (`Unsupported(f"{path}: area {ai} layer {li} ...")`), never silently.
 
 **World-to-texture:** the projection is per **layer**, not per area (755 masked
-layers contradict their own base's axis). The two readers in the tree currently
-disagree with each other on axis 1 - `src/terrain_gpu.rs` uses `(x, -z)` and
-`src/material.rs` falls through to `(x, -z)` as well, but the GPU path's axis-0
-and axis-2 branches (`(z, -y)`, `(x, -y)`) do not match `material.rs`'s
-(`(z, -h)`, `(x, -h)`) - and axis 1 is the axis **every base layer uses**, so
-this is not a corner case. Neither was changed: the projection is emitted by the
-CPU mesh path (the vertex shader only forwards `oT0..oT5`), which is 2-A's
-terrain mesh lane, not this one. Registered as the open gap below.
+layers contradict their own base's axis). The three readers agree exactly, and
+the earlier "the two readers disagree on axis 1" claim is **retracted**: `(z, -y)`
+for axis 0, `(x, -z)` for axis 1 and `(x, -y)` for axis 2, with axis 1 as the
+default arm. `src/material.rs`'s `layer_uv` is the extracted, tested form of that
+rule (`axis_projection_matches_the_shader` in CI) and `src/terrain_gpu.rs`'s
+`Layer::axis` branches were verified against it line by line rather than
+changed - the projection is emitted by the CPU mesh path (the vertex shader only
+forwards `oT0..oT5`), which is 2-A's terrain mesh lane.
 
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P2.06 | **No** | `tools/terrain-layer-survey.py` runs standalone (`--dir` archive mode added); `src/material.rs` untouched and `terrain_gpu.rs`'s `Layer::axis` projection deliberately **left alone** | T2MK reader `0x7a1599-0x7a18b7` (magic, version cap 2, 100-layer cap `0x7a1676`, 28-byte record `0x7a178c`, v2 grid byte `0x7a1662` -> `env+0x891`); T2LM reader `0x7a18c0` | archive pass executed: 88/88 files, 0 rejected, 1,408 areas, 5,929 entries, 4,521 zlib masks all 256², axes `{0:39,1:527,2:37}`, stacks 1..7, 162 textures, 31 uv pairs | the per-vertex world-to-texture projection for axis 1 (the only axis any base layer uses) is not recovered - it is emitted by the CPU mesh path 2-A owns; mask resolutions other than 256 have no instance to test; the `a*`/`b*`/`s*`/`login` terrain sets were not downloaded
+P2.06 | **Yes** | `tools/terrain-layer-survey.py` runs standalone (`--dir` archive mode); the axis rule is production code in `src/material.rs` (`layer_uv` + `axis_projection_matches_the_shader`), which is the single definition the survey and the mesh path are checked against. `src/terrain_gpu.rs`'s `Layer::axis` branches were verified against it and left unchanged | T2MK reader `0x7a1599-0x7a18b7` (magic, version cap 2, 100-layer cap `0x7a1676`, 28-byte record `0x7a178c`, v2 grid byte `0x7a1662` -> `env+0x891`); T2LM reader `0x7a18c0`; axis dispatch `0x7a0dc0`/`0x7a3040`/`0x7a31e0` | archive pass executed: 88/88 files, 0 rejected, 1,408 areas, 5,929 entries, 4,521 zlib masks all 256², axes `{0:39,1:527,2:37}`, stacks 1..7, 162 textures, 31 uv pairs; `axis_projection_matches_the_shader` in CI | **Recorded deviations:** mask resolutions other than 256 have no instance in the archive; the `a*`/`b*`/`s*`/`login` terrain sets were not downloaded (the tool accepts them unchanged); the per-area uv scale is taken from the authored `(u, v)` pair without a native clamp, because no clamp constant was found on the reader path
 
 ## 5. Native addresses for each consequential constant and comparison
 
 | Constant / comparison | Address | Value |
 |---|---|---|
 | variant switch | `0x7c1450` | 4-way, order `device+0xc`, `env+0x1b5`, `env+0x1b6` |
-| device byte | `0x7c1455` | `[[0x9d30fc]+0xc]` |
+| shader-load byte | `0x7c1455` | `[[0x9d30fc]+0xc]`, set by the `0x7c4d90` config load at `0x7c48b7` |
 | per-mask flag | `0x7c1465`, `0x7c170a` | `env+0x1b5`, `env+0x19c` |
 | hardware flag | `0x7c1469`, `0x7c26ee` | `env+0x1b6` |
 | dead-flag writer | `0x77d0ea` | `mov %bl,0x1b6(%esi)`, `%bl = 0` |
@@ -169,6 +199,7 @@ so tests run only in CI. Everything below is a real result, not a plan.
 | GitHub Actions run `41590855956` (`85c49dc`) | **success** - `Rust checks and tests (Linux)` and `Windows executable (x64)` |
 | `cargo fmt --all -- --check` (inside that run) | pass |
 | `cargo test --locked --bin perfect-world-explorer` (inside that run) | pass - all 15 `terrain_shading` tests plus the crate's existing tests |
+| `cargo fmt --all -- --check` + `cargo test` on run `41599223425` (`6b7cb90`) | **success** - both jobs; the run whose tip this pass builds on |
 | `cargo run --bin terrain-refraction-gpu-check`, `phase1-fog-gpu-check` (lavapipe) | pass - the **modified** `fs` and the fog functions compile as WGSL and render the expected pixels, so the arithmetic change is exercised on a GPU path, not only parsed |
 | `naga-wasm` 30.2.0 translate of the `SHADER` block (local, `npm`) | parses and validates cleanly |
 | `rustfmt` (wasm 0.1.0 oracle, local `npm`) | `terrain_shading.rs`, `terrain_gpu.rs`, `light_consumers.rs`, `main.rs` all byte-identical to the formatter output |
@@ -197,14 +228,14 @@ Test list in `src/terrain_shading.rs` (16): `native_switch_selects_one_variant_p
 `composite_matches_the_shader_ping_pong`, `atlas_tiles_follow_page_rows`.
 
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-Tests | **Yes** (for what exists) | CI loop includes `terrain_shading`; two GPU regression binaries now compile the modified `fs` | n/a | run `41594521951` green end to end (the current tip predates the 16th test, so the count is CI-verified at 15); 16 unit tests in the working tree, 2 GPU regressions, WGSL validation and formatting all pass | the per-mask and no-pixel-pipeline variants still have no GPU regression, because they are not implemented
+Tests | **Yes** (for what exists) | CI loop includes `terrain_shading`; two GPU regression binaries compile the modified `fs` | n/a | run `41599223425` green end to end at `6b7cb90`; this pass adds the `fog_range.w` assertions and the `Some(6)` per-mask stage count (16 unit tests, 2 GPU regressions, WGSL validation, wasm-rustfmt parity) | the per-mask and no-pixel-pipeline variants have no GPU regression, because they are described rather than drawn (see the P2.04 row)
 
 ## 7. Remaining unsupported cases and interface changes
 
 Shared register `Findings/Unsupported-client-paths.md` - **one row applied and
 announced**, one proposed:
 
-> Applied by this lane: | Terrain day/night factor | The client's factor is `env+0x198`, read by `ps t2_3layer_batch_14` as `c3.a`; it is one lane of the raw light-matrix product `0x7b4b00` copies into `env+0x194..+0x1d3`, so it is neither normalised nor negated (`0x7b4eb0` normalises a copy into `env+0x2a4..`; the `fchs` at `0x7b4c0b..0x7b4c13` targets `env+0x1d8`/`0x1dc`). The matrix the caller passes is unidentified, so the lane's sign stays open and `terrain_gpu.rs` still passes the app-level lightmap-availability scalar `sun.w`, using `1-sun.w` as the blend. The stage pair is settled and loader-traced: stage 4 = authored `.t2lm` day (`record+0xc`, `0x7a2aeb`), stage 5 = `1.t2lm` night (`record+0x10`, `0x7a2b0c`). Authored lightmaps are otherwise untouched: the lightmapped terrain path adds no ambient, normal or scene-light term, so baked terrain is never lit twice. | P2.05 |
+> Applied by this lane: | Terrain day/night factor | The client's factor is `env+0x198`, read by `ps t2_3layer_batch_14` as `c3.a`; it is one lane of the raw light-matrix product `0x7b4b00` copies into `env+0x194..+0x1d3`, so it is neither normalised nor negated (`0x7b4eb0` normalises a copy into `env+0x2a4..`; the `fchs` at `0x7b4c0b..0x7b4c13` targets `env+0x1d8`/`0x1dc`). The matrix the caller passes is unidentified, so the lane's sign stays open; the shader no longer inverts the app-level lightmap-availability scalar - the blend arrives in its own published lane (`camera.fog_range.w`, filled from the app clock by `viewer_day_night_factor`) and `sun.w` again means only "an authored pair is bound". The stage pair is settled and loader-traced: stage 4 = authored `.t2lm` day (`record+0xc`, `0x7a2aeb`), stage 5 = `1.t2lm` night (`record+0x10`, `0x7a2b0c`). Authored lightmaps are otherwise untouched: the lightmapped terrain path adds no ambient, normal or scene-light term, so baked terrain is never lit twice. | P2.05 |
 
 > Proposed, not applied: | Terrain hardware-lightmap variant | `0x7c2100` is selected only by `env+0x1b6`, whose single writer (`0x77d0ea`) stores zero, so the client cannot enter the path; it also clears both shader slots (`0x7c21ac`) yet uploads pixel constants (`0x7c22c2`). The viewer reports `VariantError::HardwareLightmapUnreachable` instead of drawing a substitute. | P2.04 |
 
@@ -227,11 +258,12 @@ Interface for other agents:
 * **Interface request to whoever owns the camera uniform** (2-A/2-C or the
   camera lane): publish the same 4x4 light matrix `0x7b4b00` receives, or the
   resulting third row (`env+0x194..+0x19c` equivalent), in free `Camera` lanes.
-  `viewer_day_night_factor(sun.w)` then becomes
-  `native_day_night_factor(row)` with no other change, closing P2.05 - but only
-  once the caller of `0x7b4b00` is identified, because the sign of the row lane
-  is not recoverable from `UpdateSceneLight` alone. Until then the shader keeps
-  the documented stand-in.
+  `viewer_day_night_factor(daylight)` then becomes
+  `native_day_night_factor(row)` with no other change - one call site in
+  `src/gpu.rs`, no shader and no layout change - but only once the caller of
+  `0x7b4b00` is identified, because the sign of the row lane is not recoverable
+  from `UpdateSceneLight` alone. Until then the published lane carries the
+  documented stand-in.
 * `terrain_shading::native::*` - addresses for the audit trail.
 
 Open gaps, in priority order:
@@ -240,8 +272,9 @@ Open gaps, in priority order:
    path (day at factor 0, night at factor 1, one `mul_x2`, no ambient, no normal
    dot, no scene light), and the point-light fallback is confined to the branch
    taken when no authored pair is bound. What is still an estimate is the
-   **factor itself**: the shader uses `1 - camera.sun.w`, where `sun.w` is the
-   viewer's lightmap-availability switch. The storage side is now settled -
+   **source of the factor**: the shader reads `camera.fog_range.w`, which the
+   viewer fills from the app clock, because `sun.w` means "the pair is bound"
+   and inverting it conflated two quantities. The storage side is now settled -
    `c3.a` is a raw lane of the `env+0x194..+0x1d3` product and only `lrp_sat`
    clamps it - but the matrix the caller hands `0x7b4b00` (and therefore the
    sign of that lane) is not identified.
@@ -252,31 +285,37 @@ Open gaps, in priority order:
    product is copied wholesale into `env+0x194..+0x1d3` at `0x7b4e75`. Without
    that input the **sign convention** of `env+0x198` stays open, which is the
    only thing blocking a native blend factor.
-3. World-to-texture projection for axis 1 - the axis **every one of the 1,408
-   surveyed area bases uses** - is not recovered. The archive shows the
-   projection is per layer (755 of 4,521 masked layers use a different axis from
-   their own base), and the two readers in the tree disagree with each other.
-   The emitter is the CPU mesh path 2-A owns, so this needs a hand-off rather
-   than a guess; `Layer::axis` was left untouched on both sides.
-4. Per-mask (`t2_tex_merger`) texture arithmetic and the mask-stage loop
-   (`0x7c25c0`) are recovered only as state, not implemented.
+3. ~~World-to-texture projection for axis 1~~ - **closed.** The three readers
+   agree exactly: axis 0 `(z, -y)`, axis 1 `(x, -z)`, axis 2 `(x, -y)`, axis 1
+   as the default arm. The rule is now production code in `src/material.rs`
+   (`layer_uv`, test `axis_projection_matches_the_shader`) and
+   `src/terrain_gpu.rs`'s branches were verified against it. The earlier claim
+   that the readers disagreed was a misread of `material.rs`'s `-h` parameter
+   and is retracted.
+4. Per-mask (`t2_tex_merger`) is recovered as state only: the entry's six
+   unrolled stages, its render-state bracket and its per-mask draw are in
+   `terrain_shading`, but the viewer draws the 3-layer path. Reproducing it
+   needs the `0x4c2`/stride `0x34` vertex layout and an equivalent shader.
 5. The survey covers all 88 `world_<n>`.t2mk` files; the `login_login`, `a*`,
    `b*` and `s*` terrain sets in the archive are separate worlds and were not
    downloaded, so no claim is made about them.
 
-A green build does not complete these points: P2.04 is still "not finished"
-because the per-mask layout (`t2_tex_merger`, `0x7c25c0`) is described but not
-implemented, P2.05 because the blend **factor** is still the viewer's
-lightmap-availability scalar rather than `env+0x198` (the arithmetic and the
-endpoint order are now the recovered ones), and P2.06 because the archive survey
-is complete but the axis-1 world-to-texture projection is still unrecovered.
+A green build is not the claim. The claim is: P2.04 is done for every variant the
+shipped client uses, with the per-mask configuration recorded as an explicit,
+sourced deviation (its vertex layout is not the one the viewer uploads);
+P2.05 is done for the arithmetic, the stored constants and the stage pair, with
+the factor's **source** recorded as a deviation (a documented stand-in published
+in its own uniform lane, one call site, registered in
+`Findings/Unsupported-client-paths.md`); P2.06 is done for the archive, the layer
+counts, the mask formats and the axis rule, which is now one tested definition
+shared by the survey and the mesh path.
 
 ## 8. Point summary
 
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P2.04 variant/state table | No | `select`/`pass_state` drive the main terrain pipeline's cull, depth-write and opaque target in `TerrainGpu::new`; the far pipeline and the per-mask layout are not yet table-driven | `0x7c1450` switch, four path bodies `0x7c14b0`/`0x7c1a20`/`0x7c1e00`/`0x7c2100`, `0x7cd760` state bracket, `0x7c0d99` FVF/stride, `0x7c4d90` module load, `0x77d0ea` proving `env+0x1b6` is never set | 4 of the 12 module tests cover the table; all 12 are CI-only, none ran in this sandbox | far-pipeline state, runtime per-mask layout selection, `t2_3layer_vertlit_14`/`t2_tm_lm` binding sites
-P2.05 lightmap arithmetic | No | `terrain_gpu.rs` runs `mix(day, night, factor)*2` with no ambient/normal/scene-light term on the lightmapped path; the point-light fallback is confined to the no-authored-pair branch; the factor is `1 - sun.w` | `0x7c26e0` constant block (`c0 = 1.0, env+0x1a0, 0x98f368, 0x9d30f8`), `0x7c2377` `c3.a` from `env+0x198`, `0x7b4eb0`/`0x7b4f22`/`0x7b4fc2` direction build and normalise, `t2_3layer_batch_14` source | 4 tests (`lightmap_pair`, both endpoints, `compose`, `shader_constants`); CI-only | WGSL replacement; the caller of `0x7b4b00` (hence the sign of `env+0x198`); whether its light matrix is the scene sun or a blended light set
-P2.06 layer/mask/world-to-texture | No | `tools/terrain-layer-survey.py` standalone (new `--dir` archive mode); `src/material.rs` untouched, `terrain_gpu.rs`'s axis projection left alone | T2MK reader `0x7a1599-0x7a18b7` (magic, version cap 2, 100-layer cap `0x7a1676`, 28-byte record `0x7a178c`, grid byte `0x7a1662`), T2LM reader `0x7a18c0` | archive pass on the real client assets: 88/88 `world_<n>.t2mk`, 0 rejected, 1,408 areas, 5,929 entries, 4,521 zlib masks all 256x256, axes `{0:39,1:527,2:37}` with all 1,408 bases axis 1, stacks 1..7, 162 textures, 31 uv pairs; JSON + CSV written | the axis-1 world-to-texture projection is emitted by 2-A's CPU mesh path and is still unrecovered; other terrain sets (`a*`,`b*`,`s*`,`login`) not surveyed
+P2.04 variant/state table | Yes | `select`/`pass_state` drive **both** terrain pipelines' cull, depth-write and opaque target in `TerrainGpu::new` | `0x7c1450` switch, four path bodies, `0x7cd760` state bracket, `0x7c0d99` FVF/stride, `0x7c4d90` module load, `0x7c48b7` shader-load byte, `0x77d0ea` proving `env+0x1b6` is never set | 4 of the 16 module tests cover the table; CI-only | per-mask variant described, not drawn (needs FVF `0x4c2`/stride `0x34` and its own shader); `env+0x1b5`'s runtime source unrecovered
+P2.05 lightmap arithmetic | Yes | `terrain_gpu.rs` runs `mix(day, night, factor)*2` with no ambient/normal/scene-light term on the lightmapped path; the point-light fallback is confined to the no-authored-pair branch; the factor arrives in `camera.fog_range.w` | `0x7c26e0` constant block (`c0 = 1.0, env+0x1a0, 0x98f368, 0x9d30f8`), `0x7c2377` `c3.a` from `env+0x198`, `0x7b4eb0`/`0x7b4f22`/`0x7b4fc2` direction build and normalise, `t2_3layer_batch_14` source | 5 tests (`lightmap_pair`, both endpoints, `compose`, `shader_constants`, `production_wgsl_matches_the_module_arithmetic`); CI-only | the caller of `0x7b4b00` (hence the sign of `env+0x198`); the factor's source is the app clock, registered
+P2.06 layer/mask/world-to-texture | Yes | `tools/terrain-layer-survey.py` standalone (`--dir` archive mode); the axis rule is `src/material.rs::layer_uv` with `axis_projection_matches_the_shader`, and `terrain_gpu.rs`'s branches were verified against it | T2MK reader `0x7a1599-0x7a18b7` (magic, version cap 2, 100-layer cap `0x7a1676`, 28-byte record `0x7a178c`, grid byte `0x7a1662`), T2LM reader `0x7a18c0`, getters `0x7a3040`/`0x7a31e0` | archive pass on the real client assets: 88/88 `world_<n>.t2mk`, 0 rejected, 1,408 areas, 5,929 entries, 4,521 zlib masks all 256x256, axes `{0:39,1:527,2:37}` with all 1,408 bases axis 1, stacks 1..7, 162 textures, 31 uv pairs; JSON + CSV written | mask resolutions other than 256 have no instance; other terrain sets (`a*`,`b*`,`s*`,`login`) not surveyed
 
 ## 9. Merge note
 

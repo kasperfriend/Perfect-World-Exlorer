@@ -27,7 +27,8 @@ pub mod native {
     pub const PATH_BATCH_3_LAYER: u32 = 0x7c14_b0;
     pub const PATH_PER_MASK_LIGHTMAP: u32 = 0x7c1a_20;
     pub const PATH_NO_PIXEL_SHADER: u32 = 0x7c1e_00;
-    /// Hardware-lightmap path; only reachable through GDebugKey `+0x1b6`.
+    /// Hardware-lightmap path. Gated on `env+0x1b6`, whose only writer stores
+    /// zero (`0x77d0ea`), so 1.4.2 never reaches this entry.
     pub const PATH_HARDWARE_LIGHTMAP: u32 = 0x7c21_00;
     /// One layer batch: stage loop, `c2`/`c3` upload, lightmap stages.
     pub const BATCH_3_LAYER: u32 = 0x7c23_00;
@@ -61,9 +62,12 @@ pub mod native {
     /// `env+0x2e4..`; the source rows keep their raw values.
     pub const UPDATE_SCENE_LIGHT: u32 = 0x7b4b_00;
     pub const UPDATE_DIRECTION: u32 = 0x7b4e_b0;
-    /// Capability byte reads: `device+0xc` at 0x7c1455, `env+0x19c` at 0x7c170a.
+    /// The 0x4c-byte terrain shader object. `+0xc` is the pixel-shader-config
+    /// result (`0x7c48b7`), read by the variant switch at `0x7c1455`; `+0x19c`
+    /// is a copy of it, re-read at `0x7c170a`.
     pub const DEVICE_CAPS: u32 = 0x9d30fc;
-    /// GDebugKey-read flags.
+    /// Mode reads from the terrain env: `env+0x1b5` at 0x7c1465, re-read at
+    /// 0x7c170a; `env+0x1b6` at 0x7c1469 and 0x7c26ee. Neither is a debug key.
     pub const FLAG_PER_MASK_LIGHTMAP: u32 = 0x7c170a;
     pub const FLAG_HARDWARE_LIGHTMAP: u32 = 0x7c26ee;
     /// `/v`-style specular scalar in VS `c0.w` (and the `v1` the pixel shader
@@ -99,15 +103,37 @@ pub enum Variant {
     HardwareLightmap,
 }
 
-/// Device/environment flags the native switch reads.
+/// The flags the native switch reads.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Caps {
-    /// `device+0xc != 0`, read at 0x7c1455 and copied to `env+0x19c` by
-    /// `LoadShaders`.
+    /// `[[0x9d30fc]+0xc] != 0`, read at 0x7c1455.
+    ///
+    /// `0x9d30fc` is the 0x4c-byte terrain shader object, not a D3D device
+    /// query: `0x7c46c0` allocates it, `0x7c47d0` constructs it, and
+    /// `0x7c4880` stores the pixel-shader-config result into `+0xc`
+    /// (`0x7c48b7: setne %cl; 0x7c48ba: mov %cl,0xc(%esi)` from the
+    /// `0x7c4d90` `Configs\terrain2_shaders.cfg` load). So this byte means
+    /// "the terrain pixel shaders loaded", and the fallback below it is the
+    /// fixed-function path.
     pub pixel_pipeline: bool,
     /// `env+0x1b5` (0x7c1465).
+    ///
+    /// Written once per terrain-env init, `0x77d4d8`, as
+    /// `(shaders_loaded) ? arg : 1` where `arg` is the caller's byte at
+    /// `0x20(%esp)` of `0x77d1d0`. It is a **settings-driven terrain mode**
+    /// (the per-mask, vertex-lit layout - the same byte that picks vertex
+    /// stride 0x34/FVF 0x4c2 at `0x7c0d99`), not a debug key: the strings
+    /// `PerMask` and `Terrain2PerMask` do not occur anywhere in the binary, so
+    /// the earlier "GDebugKey `Terrain2PerMask`" label is retracted. The byte
+    /// also has many other writers at unrelated `+0x1b5` offsets, so a linear
+    /// scan of `0x1b5(%reg)` is not evidence about this object.
     pub per_mask_lightmap: bool,
     /// `env+0x1b6` (0x7c1469, 0x7c26ee).
+    ///
+    /// Sole writer: `0x77d0ea: mov %bl,0x1b6(%esi)` inside the zero-init block
+    /// of the terrain-env constructor `0x77ce50`, where `0x77ce6a: xor %ebx,%ebx`
+    /// dominates every use of `%ebx` up to that store (checked through
+    /// `0x77d120`; all `%ebx` operands in between are stores of that zero).
     pub hardware_lightmap: bool,
 }
 
@@ -123,7 +149,7 @@ pub enum VariantError {
 /// short-circuits everything, then `env+0x1b5`, then `env+0x1b6`.
 pub fn select(caps: Caps) -> Result<Variant, VariantError> {
     if !caps.pixel_pipeline {
-        // 0x7c145a -> 0x7c14a0 -> 0x7c1e00, before either GDebugKey is read.
+        // 0x7c145a -> 0x7c14a0 -> 0x7c1e00, before either env flag is read.
         return Ok(Variant::NoPixelShader);
     }
     if caps.per_mask_lightmap {
@@ -222,16 +248,20 @@ pub const D3DTOP_MODULATE2X: u32 = 5;
 pub const D3DTOP_MODULATE: u32 = 4;
 pub const D3DTOP_DISABLE: u32 = 1;
 
-/// Number of texture stages a variant configures. `None` means the count is
-/// not fixed: the per-mask path installs `t0`, `t1` and then one extra stage per
-/// mask (0x7c1bdc-0x7c1c04 loop over `env+0x10` masks), so it is
-/// `2 + masks` at runtime.
+/// Number of texture stages a variant configures. Every variant configures a
+/// fixed set: the per-mask entry `0x7c1a20` contains six **unrolled** stage
+/// blocks (`0x7c1b0b`, `0x7c1b92`, `0x7c1b53`, `0x7c1bd7` each repeat for
+/// stages 0..5 with immediate arguments, no loop), so an earlier note that it
+/// was `2 + masks` with a per-mask stage loop is retracted - the only loop in
+/// that function is `0x7c1ac9-0x7c1ac6`, which draws one batch per mask
+/// (`env+0x10` iterations, `0x7c1c10` worker) and installs no stage state.
 pub fn stage_count(v: Variant) -> Option<u32> {
     match v {
         // t0..t5: three colours, one packed mask, day and night lightmaps
         // (0x7c23a2 stage 4, 0x7c23b0 stage 5).
         Variant::Batch3Layer => Some(6),
-        Variant::PerMaskLightmap => None,
+        // 0x7c1b0b-0x7c1c04: stages 0..5, unrolled.
+        Variant::PerMaskLightmap => Some(6),
         Variant::NoPixelShader => Some(2),
         // 0x7c210b stage 0, 0x7c2219 stage 1, 0x7c2225 stage 2.
         Variant::HardwareLightmap => Some(3),
@@ -515,7 +545,7 @@ mod tests {
 
     #[test]
     fn native_switch_selects_one_variant_per_state() {
-        // 0x7c145a: the device byte wins over both GDebugKey flags.
+        // 0x7c145a: the shader-loaded byte wins over both env flags.
         assert_eq!(
             select(caps(false, false, false)),
             Ok(Variant::NoPixelShader)
@@ -574,8 +604,9 @@ mod tests {
     #[test]
     fn stage_counts_match_the_stage_loops() {
         assert_eq!(stage_count(Variant::Batch3Layer), Some(6));
-        // One stage per mask, so the count depends on the area.
-        assert_eq!(stage_count(Variant::PerMaskLightmap), None);
+        // 0x7c1a20 unrolls stages 0..5 (0x7c1b0b-0x7c1c04): the stage set is
+        // fixed and does not depend on the mask count.
+        assert_eq!(stage_count(Variant::PerMaskLightmap), Some(6));
         assert_eq!(stage_count(Variant::NoPixelShader), Some(2));
         assert_eq!(stage_count(Variant::HardwareLightmap), Some(3));
         // Both pipelines double the composite: mul_x2 in ps.1.4 and
@@ -738,11 +769,15 @@ mod tests {
         let dusk = day_night_lightmap(1.0, 0.0, viewer_day_night_factor(0.5)) * 2.0;
         assert!((dusk - 1.0).abs() < 1e-6);
         assert!(wgsl.contains("baked=mix(day,night,factor)*2.;"));
+        // The factor is a published quantity, not an inversion of the
+        // lightmap-availability flag: `sun.w` means "the pair is bound" and is a
+        // separate concern, so the two must not be conflated again.
         assert_eq!(
-            wgsl.matches("let factor=clamp(1.-camera.sun.w,0.,1.);")
+            wgsl.matches("let factor=clamp(camera.fog_range.w,0.,1.);")
                 .count(),
             1
         );
+        assert!(!wgsl.contains("1.-camera.sun.w"));
     }
 
     #[test]

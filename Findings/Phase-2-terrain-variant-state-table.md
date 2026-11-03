@@ -46,9 +46,9 @@ re-reads `env+0x1b6` inside `0x7c26e0`. Neither is an independent flag.
 
 | Variant | Reachable | Evidence |
 |---|---|---|
-| 3-layer batch | **yes**, the stock path | the only writer of `env+0x1b5` is `0x77d4d8`, `mov %bl,0x1b5(%esi)` with `%bl = (device+0xc == 0) \|\| arg`; the only writer of `env+0x1b6` is `0x77d0ea`, `mov %bl,0x1b6(%esi)` inside a `xor %ebx,%ebx` prologue, so it is always 0 |
-| per-mask lightmap | only with GDebugKey `Terrain2PerMask` | same writer, driven by the debug argument |
-| no pixel pipeline | only when the device reports no pixel pipeline | `0x7c1455` |
+| 3-layer batch | **yes**, the stock path | `env+0x1b5` has two writers on this object: `0x77d0e4` (zero, in the terrain-env constructor `0x77ce50`) and `0x77d4d8`, `mov %al,0x1b5(%esi)` with `%al = ([[0x9d30fc]+0xc] != 0) ? <byte at 0x20(%esp) of 0x77d1d0> : 1`; `env+0x1b6`'s only writer is `0x77d0ea`, `mov %bl,0x1b6(%esi)`, and `xor %ebx,%ebx` dominates it, so it is always 0 |
+| per-mask lightmap | reachable whenever `env+0x1b5` is set | same writer. **Not a debug key:** the strings `PerMask` and `Terrain2PerMask` do not occur in `elementclient.exe`, so the earlier label is retracted. Which value the shipped game supplies is unrecovered, so "reachable", not "default", is the honest word |
+| no pixel pipeline | only when the terrain pixel shaders fail to load | `0x7c1455` reads `[[0x9d30fc]+0xc]`, which `0x7c48b7` sets from the `0x7c4d90` `Configs\terrain2_shaders.cfg` load; it is not a device capability query |
 | hardware lightmap | **never** | gate `env+0x1b6` cannot be set; the path also clears both shader slots (`0x7c21ac` -> `0x77baf0`/`0x77bad0`) and then uploads `c0..` pixel constants at `0x7c22c2` |
 
 `select()` returns `Err(VariantError::HardwareLightmapUnreachable)` instead of

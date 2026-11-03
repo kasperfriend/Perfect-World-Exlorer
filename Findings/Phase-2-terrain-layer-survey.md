@@ -115,15 +115,26 @@ The authored uv scales confirm that: 1,193 of 4,521 masked layers reuse their
 base's scale and the rest do not, and 7 of the 31 scale pairs are non-square
 (`u != v`), e.g. `(0.005, 0.003333)` 37 times and `(0.04, 0.045455)`.
 
-`axis` is the record byte at `+0x0c`. `src/terrain_gpu.rs` currently maps
-`0 -> (z,-y)`, `1 -> (x,-z)`, `2 -> (x,-y)`; `src/material.rs` maps
-`0 -> (z,-h)`, `2 -> (x,-h)`, else `(x,-z)`. Those two disagree with each other
-for axis 1 - which is the axis **every base layer uses** - and the survey cannot
-settle which is right without the native per-vertex texture-coordinate emitter.
-That emitter is not in the terrain range this lane owns (the vertex shader is
-`terrain_vs`, which writes `oT0..oT5` from pre-built texcoords, so the projection
-happens on the CPU in the mesh path). It is registered as an open gap, and the
-byte is left untouched in both readers rather than silently reconciled.
+`axis` is the record byte at `+0x0c`. Three readers consume it - the WGSL in
+`src/terrain_gpu.rs`, the CPU sampler in `src/material.rs`, and the mesh emitter
+in `src/gpu.rs` - and **they agree**. The earlier note in this section claimed
+the first two disagreed for axis 1; that was wrong, and the arithmetic shows why:
+
+`material.rs` reads a grid cell `(gx, gy)` plus a height `h` and forms
+`world_x = (gx - w/2)*s`, `world_z = (h/2 - gy)*s`, then maps
+`0 -> (world_z, -h)`, `2 -> (world_x, -h)`, else `(world_x, -world_z)`. Its `-h`
+*is* the WGSL's `-world.y`: the height `h` is the Y coordinate of the vertex at
+that cell, which `gpu.rs` builds as `pos = [(x - w/2)*s, height, (h/2 - y)*s]`.
+Substituting gives `0 -> (z, -y)`, `1 -> (x, -z)`, `2 -> (x, -y)` in both, and
+`material.rs`'s catch-all arm is exactly the axis-1 case written as the default.
+
+So the axis contract is settled and consistent across the viewer, and axis 1 -
+the axis **every one of the 1,408 area bases uses** - is `(world.x, -world.z)`.
+
+What is *not* recovered is the **native** projection: whether the client's
+per-vertex texcoords use that same mapping, mirror, and scale. The vertex shader
+`terrain_vs` writes `oT0..oT5` from pre-built texcoords, so the projection
+happens on the CPU mesh path, and no address in the surveyed range emits it.
 
 ## 5. Lightmap pairing
 
