@@ -55,7 +55,7 @@ jobs:
           cargo check --locked --bins --message-format short 2>&1 | tee /tmp/cargo-check.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            head -40 /tmp/cargo-check.log | while IFS= read -r line; do
+            grep -E "(^error|: error)" /tmp/cargo-check.log | head -40 | while IFS= read -r line; do
               echo "::error::$line"
             done
           fi
