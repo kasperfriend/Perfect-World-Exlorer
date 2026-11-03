@@ -476,9 +476,13 @@ mod tests {
         // Values copied from models/宠物/精灵/冬/冬1.ecm: a full pack path with
         // Windows separators and no leading `models/`, which is how the retail
         // descriptors store it.
+        // The descriptor is GBK, not UTF-8: `parse_ecm` rejects bytes GBK cannot
+        // decode, so the fixture has to be encoded the way the client ships it.
         let src = "MOXTVersion: 21\r\nSkinModelPath: Models\\NPCs\\宠物\\精灵\\冬\\冬.SMD\r\n\
                    AddiSkinCount: 1\r\nAddiSkinPath: NPCs\\宠物\\精灵\\冬\\冬1.SKI\r\n";
-        let x = parse_ecm(src.as_bytes()).unwrap();
+        let (bytes, _, unmappable) = encoding_rs::GBK.encode(src);
+        assert!(!unmappable, "the fixture must be representable in GBK");
+        let x = parse_ecm(&bytes).unwrap();
         assert_eq!(x.additional_skins, ["NPCs\\宠物\\精灵\\冬\\冬1.SKI"]);
     }
     #[test]
