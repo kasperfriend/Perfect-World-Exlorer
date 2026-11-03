@@ -158,7 +158,13 @@ jobs:
       # Formatting is cosmetic: run it after the compile and test steps so a
       # whitespace diff can never hide a real compiler error behind it.
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: |
+          # `--check` only names the file; `--diff` shows what rustfmt wants, and
+          # the step log is not always retrievable, so echo the hunks directly.
+          if ! cargo fmt --all -- --check; then
+            cargo fmt --all -- --diff | head -200
+            exit 1
+          fi
   windows:
     name: Windows executable (x64)
     runs-on: windows-latest
