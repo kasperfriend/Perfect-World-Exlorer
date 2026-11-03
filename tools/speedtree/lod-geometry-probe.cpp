@@ -2,7 +2,7 @@
 // zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/lod-geometry-probe.cpp -o lod-geometry-probe.exe
 // Usage: lod-geometry-probe.exe <SpeedTreeRT.dll> <one SPT file> <steps>
 #define wmain unused_baker_main
-#include "bake.cpp"
+#include "bake_experimental.cpp"
 #undef wmain
 
 int wmain(int argc, wchar_t** argv) {

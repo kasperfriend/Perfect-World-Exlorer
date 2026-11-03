@@ -4,7 +4,7 @@
 // Build: zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/component-cache-probe.cpp -o component-cache-probe.exe
 // Usage: component-cache-probe.exe <SpeedTreeRT.dll> <one SPT> <output> <tree-type-id>
 #define wmain unused_baker_main
-#include "bake.cpp"
+#include "bake_experimental.cpp"
 #undef wmain
 using Count = unsigned short(METHOD*)(void*);
 

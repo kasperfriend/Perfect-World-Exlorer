@@ -1,6 +1,6 @@
 // Experimental measurement of the supplied client SpeedTreeRT leaf rocking.
 #define wmain old_bake_main
-#include "bake.cpp"
+#include "bake_experimental.cpp"
 #undef wmain
 using Clock=void(*)(float);
 using Strength=float(METHOD*)(void*,float,float,float);

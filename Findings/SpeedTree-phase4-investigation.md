@@ -490,6 +490,11 @@ not describe main's PWTREE08 or establish validation of the new PWTREE09.
 The far-tree vertex shader retains main's authored-mip alpha references and
 reads optional PWTREE09 normals from a separate vertex-indexed buffer, so the
 same packed vertex field is not used for both purposes. Legacy caches retain
-up-normal fallback. The new combination and helper have not been GPU-tested
+up-normal fallback. The experimental PWTREE09 source is now in
+`tools/speedtree/bake_experimental.cpp`; diagnostics include that file. The
+production `tools/speedtree/bake.cpp` remains main's PWTREE08 source because
+main's Windows build rebuilds and embeds it; using the strict unvalidated
+experimental helper there could prevent the viewer from starting for types 34,
+47 and 48. The new combination and experimental helper have not been GPU-tested
 or validated on Windows here. The viewer wind preview remains opt-in. The
 merge does not complete P4.01–P4.03.

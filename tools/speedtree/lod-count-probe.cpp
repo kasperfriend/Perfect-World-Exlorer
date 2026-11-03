@@ -4,7 +4,7 @@
 // Usage: lod-count-probe.exe <SpeedTreeRT.dll> <tree-source directory>
 // The directory contains tree-000.spt through tree-058.spt.
 #define wmain unused_baker_main
-#include "bake.cpp"
+#include "bake_experimental.cpp"
 #undef wmain
 
 using Count = unsigned short(METHOD*)(void*);

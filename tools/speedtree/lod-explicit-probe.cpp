@@ -5,7 +5,7 @@
 // In combinations mode, every explicit branch/frond/leaf index combination
 // is compared to the corresponding individually requested component.
 #define wmain unused_baker_main
-#include "bake.cpp"
+#include "bake_experimental.cpp"
 #undef wmain
 using Count = unsigned short(METHOD*)(void*);
 

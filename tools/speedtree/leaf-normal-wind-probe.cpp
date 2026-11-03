@@ -3,7 +3,7 @@
 // zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/leaf-normal-wind-probe.cpp -o leaf-normal-wind-probe.exe
 // Usage: leaf-normal-wind-probe.exe <SpeedTreeRT.dll> <one SPT file>
 #define wmain unused_baker_main
-#include "bake.cpp"
+#include "bake_experimental.cpp"
 #undef wmain
 using Count = unsigned short(METHOD*)(void*);
 
