@@ -674,8 +674,6 @@ impl FarTrees {
 mod tests {
     #[test]
     fn legacy_cutout_still_covers_fronds_and_leaves_without_native_refs() {
-        assert!(super::SHADER.contains(
-            "else if i.kind>3.5 && tex.a<0.5 {discard;}"
-        ));
+        assert!(super::SHADER.contains("else if i.kind>3.5 && tex.a<0.5 {discard;}"));
     }
 }
