@@ -122,7 +122,9 @@ pub struct ViewSettings {
     pub show_minimap: bool,
     pub minimap_range: f32,
     pub tree_wind_strength: f32,
-    pub grass_wind_strength: f32,
+    /// Native wind has no user scale: `+0x6c/+0x70/+0x74` are authored data
+    /// (`0x650b40`) and nothing else writes them, so this is an on/off switch.
+    pub grass_wind_enabled: bool,
     pub regional_tree_lighting: bool,
     pub streamed_regions: bool,
     pub grass_distance_fade: bool,
@@ -169,7 +171,7 @@ impl Default for ViewSettings {
             show_minimap: true,
             minimap_range: 256.,
             tree_wind_strength: 0.2,
-            grass_wind_strength: 0.,
+            grass_wind_enabled: true,
             regional_tree_lighting: false,
             streamed_regions: false,
             grass_distance_fade: true,
@@ -226,7 +228,16 @@ impl ViewSettings {
                 "sensitivity" => number!(s.sensitivity, 0.0005, 0.01),
                 "far" => number!(s.far, 2000., 24000.),
                 "time_of_day" => number!(s.time_of_day, 0., 24.),
-                "grass_wind_strength" => number!(s.grass_wind_strength, 0., 1.),
+                "grass_wind_enabled" => flag!(s.grass_wind_enabled),
+                // Older files stored the removed strength slider: any value
+                // above the old gate keeps the wind on.
+                "grass_wind_strength" => {
+                    if let Ok(x) = v.parse::<f32>() {
+                        if x.is_finite() {
+                            s.grass_wind_enabled = x > 0.5
+                        }
+                    }
+                },
                 "tree_wind_strength" => number!(s.tree_wind_strength, 0., 1.),
                 "bloom_strength" => number!(s.bloom_strength, 0., 4.),
                 "bloom_tint" => {
@@ -289,11 +300,11 @@ impl ViewSettings {
             "radius={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen,self.resolution_scale,
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
             self.minimap_shape.label())
     }
@@ -443,6 +454,22 @@ mod tests {
         assert_eq!(s.boost, 1.);
         assert_eq!(s.sensitivity, 0.0025);
         assert!(!s.bloom);
+    }
+    /// The strength slider is gone because native wind has no user scale, but
+    /// files written by older builds must still load.
+    #[test]
+    fn grass_wind_is_a_switch_and_legacy_strength_still_loads() {
+        assert!(ViewSettings::default().grass_wind_enabled);
+        assert!(!ViewSettings::decode("grass_wind_enabled=false").grass_wind_enabled);
+        assert!(ViewSettings::decode("grass_wind_enabled=true").grass_wind_enabled);
+        assert!(ViewSettings::decode("grass_wind_strength=0.8").grass_wind_enabled);
+        assert!(!ViewSettings::decode("grass_wind_strength=0").grass_wind_enabled);
+        // An unparsable legacy value leaves the default (on) alone.
+        assert!(ViewSettings::decode("grass_wind_strength=bogus").grass_wind_enabled);
+        let off = ViewSettings::decode("grass_wind_enabled=false");
+        assert!(!ViewSettings::decode(&off.encode()).grass_wind_enabled);
+        let on = ViewSettings::decode("grass_wind_enabled=true");
+        assert!(ViewSettings::decode(&on.encode()).grass_wind_enabled);
     }
     #[test]
     fn area_center_lightmaps_default_on_but_explicit_legacy_setting_is_preserved() {
