@@ -37,8 +37,13 @@
 //! `(pos[0], vel[0])` exactly, so the algebra is settled; whether the driver
 //! hands the routine seconds or milliseconds is not.
 //!
-//! The full V3 closure inside `0x651840` is still not read out: the recovered
-//! per-axis result is exact, but the symbolic form of its free term is open.
+//! The full V3 closure inside `0x651840` is still not read out, and probing it
+//! with `tools/x87/interp.py` gives contradictory answers: `0x651888` stores the
+//! `+0x50` gain over its own argument slot, `+0x24`/`+0x2c` are relative to
+//! `ecx`, and `+0x3c` reads back through stack slots that the routine itself
+//! rewrites (`0x6518b8`). A basis probe therefore reports a different map
+//! depending on which fields are pre-seeded. Do not trust a single-variable
+//! probe of `0x651840` without re-deriving which base each load uses first.
 //!
 //! ## Density (`0x653a30`)
 //! `CELGrassBlock::Build` recomputes the resident cell set with
@@ -51,9 +56,21 @@
 //! those lanes, so the viewer must not substitute its camera depth for it.
 //!
 //! ## Wind slot (`0x653e93`)
-//! The per-vertex emitter stores `ftol(2*|y - 10000| + rand(0,10)) % 80` as the
-//! wind-history slot of every vertex (`0x8d6aa8` = 10000, `0x50` = 80), which is
-//! the `c[10+a0.x]` lookup the retail `grass_wave` shader performs.
+//! The emitter stores `ftol(2*|y - 10000| + rand(0,10)) % 80` as the
+//! wind-history slot of a placement (`0x8d6aa8` = 10000, `0x50` = 80 for the
+//! `idiv` at `0x653ec1`). The retail vertex shader confirms the per-placement
+//! reading: `shaders/vs/grass_wave.txt` in the client's shaders.pck is
+//!
+//! ```text
+//! mov a0.x, v1.x            ; slot, one per vertex attribute
+//! mul r1, v1.y, c[10+a0.x]  ; history vector scaled by the vertex weight
+//! add r0, v0, r1            ; apply before the view-projection
+//! ```
+//!
+//! so the index is constant per placement and only the scale varies per vertex.
+//! The same file gives the alpha formula (`1 - d^2/sight^2`, clamped at 0) and
+//! the pixel shader `grassrender.txt` gives `lrp(c0.a, night, day)` followed by
+//! `mul_x2`, which is the `mix(...)*2` the viewer already applies.
 //!
 //! The viewer therefore drives the history from the logic clock, hashes each
 //! displaced vertex height into the same slot, and strides the grass grid by the
@@ -238,8 +255,14 @@ pub fn density_step(scene_colour: Option<f32>) -> Option<i32> {
 ///
 /// The emitter draws `rand(0, 10)` (`0x653ea1`), then computes
 /// `ftol(2*|y - 10000| + rand)` (`0x8d6aa8` = 10000, doubled at `0x653eb2`)
-/// and divides by 80 for the remainder. `jitter` is the per-placement selector
-/// the recovered RANMAR stream already produced.
+/// and takes the remainder by 80 at `0x653ebc`-`0x653ec1`. `jitter` is the
+/// per-placement selector the recovered RANMAR stream already produced.
+///
+/// The result is the placement's `v1.x`, i.e. the index into the 80-entry wind
+/// history that `grass_wave` reads as `c[10 + v1.x]`. The native emitter runs
+/// this once per placement, so it belongs on the CPU rather than in the vertex
+/// stage. `ftol` truncates and `2*|y-10000|` is never negative, so the native
+/// `idiv` remainder is always already in `[0, 80)`.
 pub fn history_index(y: f32, jitter: f32) -> usize {
     let v = (2.0 * (y - WIND_ORIGIN).abs() + jitter).trunc() as i64;
     (v.rem_euclid(HISTORY as i64)) as usize

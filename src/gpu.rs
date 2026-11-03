@@ -623,13 +623,13 @@ fn build(
                 if grass_sample.is_none() {
                     grass_sample = Some([x, ground, z]);
                 }
-                // `0x653e93`: the emitter stores
+                // `0x653e93`-`0x653ec1`: the emitter stores
                 // `ftol(2*|y - 10000| + rand(0,10)) % 80` as the placement's
-                // history slot, using the placement's own RANMAR selector. The
-                // instance carries the selector, so the vertex stage applies
-                // the recovered hash against the displaced vertex height and a
-                // later terrain rebuild cannot freeze the slot.
-                let wind_index = placement.wind_selector;
+                // wind-history slot, from that placement's own height and its
+                // RANMAR selector. The retail `grass_wave` vertex shader then
+                // reads `c[10 + v1.x]`, so the slot is per placement and only
+                // the scale `v1.y` varies per vertex.
+                let wind_index = crate::grass_wind::history_index(y, placement.wind_selector) as f32;
                 grass_builder.instance_for_area(
                     key,
                     [x, ground - 0.02, z],

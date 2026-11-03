@@ -70,8 +70,9 @@ pub struct Placement {
     pub yaw: f32,
     pub scale: f32,
     /// The client's fifth random value, `rand(0, 10)` at `0x653ea1`. The
-    /// emitter adds it to `2*|y - 10000|` before taking the history remainder,
-    /// so this is the per-placement wind phase offset.
+    /// emitter adds it to `2*|y - 10000|` and takes the remainder by 80
+    /// (`0x653ea6`-`0x653ec1`), so this is the wind-history slot of the whole
+    /// placement rather than a phase offset.
     pub wind_selector: f32,
 }
 /// Generates retail patch randomization for every masked cell. The client's

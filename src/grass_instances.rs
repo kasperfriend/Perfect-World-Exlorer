@@ -60,6 +60,8 @@ impl Builder {
         wind_index: f32,
         area_center: [f32; 3],
     ) {
+        // `wind_index` is the placement's history slot (`0x653e93`), which the
+        // retail vertex shader consumes as `v1.x`.
         if let Some(g) = self.groups.get_mut(&key) {
             let (sn, cs) = yaw.sin_cos();
             g.instances.push([
@@ -144,14 +146,19 @@ impl Gpu {
         );
         let marker = "o.pos=camera.matrix*vec4<f32>(pos,1.);";
         assert!(source.contains(marker));
-        // The retail `grass_wave` vertex shader displaces every vertex by
-        // `c[10+a0.x]` (the 80-entry history) scaled by that vertex's own
-        // weight; the emitter's `ftol(2*|y-10000| + rand(0,10)) % 80`
-        // (`0x653e93`) picks the entry from the emitted vertex height, exactly
-        // as the native attribute does. The instance carries the placement's
-        // RANMAR selector in `extra.z`, so the slot follows the displaced
-        // height instead of a value frozen at build time.
-        source = source.replacen(marker,"o.grass_area=area_center; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0.5 && weight>=0. && weight<100. {let slot=i32(floor(2.*abs(pos.y-10000.)+extra.z))%80; let history_index=u32(slot<0?slot+80:slot); pos+=camera.grass_history[history_index].xyz*weight;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
+        // The retail `grass_wave` vertex shader, verbatim from
+        // `shaders/vs/grass_wave.txt` in the client's shaders.pck:
+        //
+        //     mov a0.x, v1.x
+        //     mul r1, v1.y, c[10+a0.x]
+        //     add r0, v0, r1
+        //
+        // so the slot is a per-vertex attribute (`v1.x`) and the applied vector
+        // is scaled by `v1.y`. The emitter computes `ftol(2*|y-10000| +
+        // rand(0,10)) % 80` once per placement (`0x653e93`-`0x653ec1`) from the
+        // placement's own height, so the instance carries that slot and the
+        // mesh vertex keeps its weight.
+        source = source.replacen(marker,"o.grass_area=area_center; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0.5 && weight>=0. && weight<100. {let slot=i32(round(extra.z))%80; let history_index=u32(slot<0?slot+80:slot); pos+=camera.grass_history[history_index].xyz*weight;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
         let marker = "tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)";
         assert!(source.contains(marker));
         source = source.replacen(
@@ -376,6 +383,27 @@ mod tests {
         ));
     }
 
+    /// `shaders/vs/grass_wave.txt` (client shaders.pck) is
+    /// `mov a0.x, v1.x` / `mul r1, v1.y, c[10+a0.x]` / `add r0, v0, r1`: the
+    /// slot is per placement and only the scale is per vertex, so the injected
+    /// vertex stage must read the instance slot once and multiply by the vertex
+    /// weight, not hash the vertex height again.
+    #[test]
+    fn wind_stage_matches_the_retail_grass_wave_shader() {
+        // `include_str!` also captures this test, so cut it off before looking
+        // for strings the test itself has to spell out.
+        let source = include_str!("grass_instances.rs");
+        let injected = source.split("#[cfg(test)]").next().unwrap();
+        assert!(injected.contains("let slot=i32(round(extra.z))%80;"));
+        assert!(injected.contains("let weight=bitcast<f32>(i.night_diffuse);"));
+        assert!(injected.contains("pos+=camera.grass_history[history_index].xyz*weight;"));
+        // The frozen per-vertex hash must be gone: the native emitter computes
+        // the slot on the CPU and passes it as `v1.x`.
+        assert!(
+            !injected.contains("pos.y-10000."),
+            "the vertex stage must not re-hash the vertex height"
+        );
+    }
     #[test]
     fn area_center_is_preserved_per_instance() {
         let mut builder = Builder::default();
