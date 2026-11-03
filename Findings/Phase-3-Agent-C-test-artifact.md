@@ -54,14 +54,15 @@ Tree-sitter parse of 14 changed Rust files               → errors []
 
 ## CI acceptance
 
-The `pr-checks.yml` workflow passed for both the code merge (`bd5c8e9`) and the
-documentation update (`09dace7`). PR #12 is `mergeable: true` /
+The `pr-checks.yml` workflow passed for the code merge (`bd5c8e9`) and both
+documentation updates (`09dace7`, `17b8061`). PR #12 is `mergeable: true` /
 `mergeable_state: clean`; its head is
-`09dace709641b526f81ca357f7eb626f00fc7e5f`.
+`17b8061d5eefbe69cfa5ad00655ff577a2955b93`.
 
 - Code merge run: `41629090684` — Linux `125893771507` (success, 1m41s), Windows `125893771251` (success, 1m32s)
-- Documentation run: `41629531457` — Linux `125895258174` (success, 1m18s), Windows `125895258547` (success, 2m5s)
-- Conclusion: `success` (both runs)
+- First documentation run: `41629531457` — Linux `125895258174` (success, 1m18s), Windows `125895258547` (success, 2m5s)
+- Final documentation run: `41629943149` — Linux `125896651543` (success, 1m32s), Windows `125896652229` (success, 3m43s)
+- Conclusion: `success` (all three runs)
 - `gh pr checks 12`: `Rust checks and tests (Linux) pass; Windows executable (x64) pass`
 
 Workflow steps include `cargo fmt --all -- --check`,
