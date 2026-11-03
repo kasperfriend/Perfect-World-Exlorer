@@ -63,6 +63,11 @@ pub struct SkyGpu {
     reflected: wgpu::BindGroup,
     normal_buf: wgpu::Buffer,
     reflected_buf: wgpu::Buffer,
+    /// Whether `sun.bmp` and `moon.tga` decoded out of the package. A missing
+    /// disc texture leaves the layer transparent, so the billboard is submitted
+    /// and still invisible; the settings tab reports that instead of the disc
+    /// silently disappearing.
+    disc_layers: [bool; 2],
 }
 
 pub(crate) const SHADER: &str = r#"
@@ -200,11 +205,13 @@ impl SkyGpu {
         }
         // Extra layers are the client sun and moon discs; absent optional assets
         // stay transparent so the world still loads.
-        for (name, format) in [
+        let disc_textures = [
             ("textures/nature/sun.bmp", image::ImageFormat::Bmp),
             ("textures/nature/moon.tga", image::ImageFormat::Tga),
-        ] {
-            let image = entries
+        ];
+        let mut disc_layers = [false; 2];
+        for (i, (name, format)) in disc_textures.into_iter().enumerate() {
+            let decoded = entries
                 .get(name)
                 .and_then(|entry| pck::read_entry(&mut file, entry).ok())
                 .and_then(|bytes| image::load_from_memory_with_format(&bytes, format).ok())
@@ -215,9 +222,9 @@ impl SkyGpu {
                         512,
                         image::imageops::FilterType::Triangle,
                     )
-                })
-                .unwrap_or_else(|| image::RgbaImage::new(512, 512));
-            frames.push(image);
+                });
+            disc_layers[i] = decoded.is_some();
+            frames.push(decoded.unwrap_or_else(|| image::RgbaImage::new(512, 512)));
         }
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("client sky images"),
@@ -383,6 +390,7 @@ impl SkyGpu {
             reflected,
             normal_buf,
             reflected_buf,
+            disc_layers,
         })
     }
     pub fn update(
@@ -416,6 +424,10 @@ impl SkyGpu {
             0,
             bytemuck::bytes_of(&uniform),
         );
+    }
+    /// Whether the client disc texture for `sun` decoded from `textures.pck`.
+    pub fn disc_texture_present(&self, sun: bool) -> bool {
+        self.disc_layers[usize::from(!sun)]
     }
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, reflected: bool) {
         pass.set_pipeline(&self.pipeline);

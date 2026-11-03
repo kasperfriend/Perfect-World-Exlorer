@@ -1545,12 +1545,18 @@ impl Renderer {
             true,
         ) {
             match disc {
-                Ok(disc) => out.push_str(&format!(
-                    "; {} {:.2} deg disc, alpha {}",
-                    disc.kind.name(),
-                    disc.angular_radius.to_degrees() * 2.,
-                    disc.alpha
-                )),
+                Ok(disc) => {
+                    out.push_str(&format!(
+                        "; {} {:.2} deg disc, alpha {}",
+                        disc.kind.name(),
+                        disc.angular_radius.to_degrees() * 2.,
+                        disc.alpha
+                    ));
+                    let sun = disc.kind == crate::sky_celestial::DiscKind::Sun;
+                    if !self.sky.disc_texture_present(sun) {
+                        out.push_str(" (client texture missing)");
+                    }
+                }
                 Err(error) => out.push_str(&format!("; {error}")),
             }
         }
