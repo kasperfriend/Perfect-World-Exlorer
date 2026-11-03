@@ -77,6 +77,7 @@ mod present_encode;
 mod scene;
 #[allow(dead_code)]
 mod scene_lights;
+mod scenery_visibility;
 mod shore_gpu;
 mod simple_water_gpu;
 mod skeleton;
@@ -120,6 +121,9 @@ struct Terrain {
     scene_lights: std::sync::Arc<scene_lights::SceneLights>,
     /// Retained ECWLD so the renderer can own its effect light producers.
     scene: std::sync::Arc<scene::Scene>,
+    /// Native `CECSceneBlock` regional load/evict bits for the ornament class
+    /// (`0x424020`). Owned here because `Terrain` lives on the streaming worker.
+    scenery_residency: scenery_visibility::RegionResidency,
     models: world_models::Assets,
     water_normals: Vec<Vec<image::RgbaImage>>,
     water_simple_frames: Vec<Vec<image::RgbaImage>>,
@@ -424,6 +428,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         environments,
         scene_lights: std::sync::Arc::new(scene_lights),
         scene: std::sync::Arc::new(world_scene),
+        scenery_residency: scenery_visibility::RegionResidency::default(),
         element: element.to_path_buf(),
         grass,
         water_normals,

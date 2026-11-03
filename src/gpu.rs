@@ -1,6 +1,7 @@
 //! Experimental GPU world renderer: actual client terrain, static BMDs and water masks.
 //! Baked terrain material atlas, fixed lighting and flat water are not client parity.
 use crate::Terrain;
+use crate::scenery_visibility::{allows_class, ModelClass, Pass, Visibility};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use std::{
@@ -49,6 +50,105 @@ pub(crate) struct Uniform {
     grass_history: [[f32; 4]; 80],
     fog_range: [f32; 4], // start, end, enabled, reserved
     fog_color: [f32; 4], // encoded client ARGB
+}
+
+/// One lighting/playback snapshot per rendered frame. `render()` samples wall
+/// time, ticks wind/glow/celestial/model playback and publishes scene lights
+/// exactly once; reflection, refraction, minimap and full-map views reuse this
+/// snapshot instead of advancing time or consuming a second publication.
+#[derive(Clone, Copy)]
+struct FrameSnapshot {
+    elapsed: f32,
+    elapsed64: f64,
+    logic_delta_ms: u32,
+    direction: Vec3,
+    daylight: f32,
+    twilight: f32,
+    sun: [f32; 4],
+    light: [f32; 4],
+    bounds: [f32; 4],
+    tree_bounds: [f32; 4],
+    region_ambient: [f32; 4],
+    region_diffuse: [f32; 4],
+    region_direction: [f32; 4],
+    grass_eye: [f32; 4],
+    grass_wind: [f32; 4],
+    grass_history: [[f32; 4]; 80],
+    fog_range: [f32; 4],
+    fog_color: [f32; 4],
+    active_fog_range: [f32; 4],
+    active_fog_color: [f32; 4],
+    clip: [f32; 4],
+    glow_parameters: [f32; 6],
+    celestial_alpha: f32,
+    authored: [f32; 3],
+    celestial: [f32; 3],
+    time_advances: u32,
+    light_publications: u32,
+}
+impl Default for FrameSnapshot {
+    fn default() -> Self {
+        Self {
+            elapsed: 0.,
+            elapsed64: 0.,
+            logic_delta_ms: 0,
+            direction: Vec3::ZERO,
+            daylight: 0.,
+            twilight: 0.,
+            sun: [0.; 4],
+            light: [0.; 4],
+            bounds: [0.; 4],
+            tree_bounds: [0.; 4],
+            region_ambient: [0.; 4],
+            region_diffuse: [0.; 4],
+            region_direction: [0.; 4],
+            grass_eye: [0.; 4],
+            grass_wind: [0.; 4],
+            grass_history: [[0.; 4]; 80],
+            fog_range: [0.; 4],
+            fog_color: [0.; 4],
+            active_fog_range: [0.; 4],
+            active_fog_color: [0.; 4],
+            clip: [0.; 4],
+            glow_parameters: [0.; 6],
+            celestial_alpha: 0.,
+            authored: [0.; 3],
+            celestial: [0.; 3],
+            time_advances: 0,
+            light_publications: 0,
+        }
+    }
+}
+impl FrameSnapshot {
+    fn uniform(
+        &self,
+        matrix: Mat4,
+        direction: [f32; 4],
+        clip: [f32; 4],
+        fog_range: [f32; 4],
+        fog_color: [f32; 4],
+    ) -> Uniform {
+        Uniform {
+            matrix: matrix.to_cols_array_2d(),
+            direction,
+            clip,
+            bounds: self.bounds,
+            tree_bounds: self.tree_bounds,
+            sun: self.sun,
+            light: self.light,
+            region_ambient: self.region_ambient,
+            region_diffuse: self.region_diffuse,
+            region_direction: self.region_direction,
+            grass_eye: self.grass_eye,
+            grass_wind: self.grass_wind,
+            grass_history: self.grass_history,
+            fog_range,
+            fog_color,
+        }
+    }
+    fn secondary(&self, pass: Pass) -> crate::scenery_visibility::SecondaryView {
+        crate::scenery_visibility::secondary_view(pass, self.elapsed)
+    }
 }
 fn minimap_matrix(x: f32, z: f32, range: f32) -> Mat4 {
     let eye = Vec3::new(x, 10000., z);
@@ -506,11 +606,39 @@ fn build(
         let (v, i, b) = grass.counts();
         eprintln!("Grass instancing: {v} mesh vertices, {i} placements, {b} batches; first position {grass_sample:?}");
     }
-    // Stream placed static scenery near the camera; original transforms, geometry and UVs.
+    // Recovered regional residency (0x424020): select the ornament class by
+    // the native quality table with a half-block hysteresis margin, then let
+    // Objects retire models/textures for ids that left the resident set.
+    // The terrain window above is independent of this scenery selection.
     let object_start = indices.len() as u32;
-    let nearby = t
+    let scenery_placements: Vec<crate::scenery_visibility::Placement> = t
         .objects
-        .update(cx, cz, (rad as f32 - 1.0) * TILE as f32 * t.grid_spacing)?;
+        .ornaments
+        .iter()
+        .enumerate()
+        .map(|(index, o)| crate::scenery_visibility::Placement {
+            index,
+            center: [o.position[0], o.position[2]],
+            visibility: Visibility::from_extra(o.extra),
+        })
+        .collect();
+    let scenery_margin = 0.5 * t.scene.block_size.max(0.);
+    let nearby = t.scenery_residency.select(
+        &scenery_placements,
+        [cx, cz],
+        detail.scenery_quality,
+        scenery_margin,
+    );
+    t.objects.load_ids(&nearby)?;
+    eprintln!(
+        "Scenery residency: quality {} (ornament distance {:.1}), {} resident, {} loads, {} evictions, {} distance culls",
+        detail.scenery_quality,
+        crate::scenery_visibility::ornament_distance(detail.scenery_quality),
+        nearby.len(),
+        t.scenery_residency.loads,
+        t.scenery_residency.evictions,
+        t.scenery_residency.distance_culls
+    );
     // Sort largest rectangles first, then use as many atlas pages as needed.
     // Unlike the legacy 128px atlas, local BMDs keep their source dimensions.
     let mut requested: HashMap<String, (usize, usize)> = HashMap::new();
@@ -518,9 +646,15 @@ fn build(
         if let Some(model) = t.objects.get(id) {
             for mesh in &model.meshes {
                 let key = mesh.texture.to_lowercase();
-                if let Some(tex) = t.objects.texture(&key) {
-                    requested.insert(key, (tex.width, tex.height));
-                }
+                // A reference the client resolves nowhere is an explicit
+                // registered row (texture_resolution), not a skipped mesh: give
+                // it a 1x1 white atlas slot and draw the actual geometry.
+                let dims = t
+                    .objects
+                    .texture(&key)
+                    .map(|tex| (tex.width, tex.height))
+                    .unwrap_or((1, 1));
+                requested.insert(key, dims);
             }
         }
     }
@@ -555,18 +689,23 @@ fn build(
                     processed: 0,
                     used_height: 0,
                     mips: Vec::new(),
+                    placements: Vec::new(),
                 },
             ));
             (i, slot)
         };
         pages[i].1.used_height = pages[i].1.used_height.max(slot.y + slot.h);
-        let tex = t.objects.texture(key).unwrap();
+        let tex = t.objects.texture(key);
         for py in 0..slot.h {
             for px in 0..slot.w {
-                let sample = tex.sample_rgba(
-                    (px as f32 + 0.5) / slot.w as f32,
-                    (py as f32 + 0.5) / slot.h as f32,
-                );
+                let sample = if let Some(tex) = tex {
+                    tex.sample_rgba(
+                        (px as f32 + 0.5) / slot.w as f32,
+                        (py as f32 + 0.5) / slot.h as f32,
+                    )
+                } else {
+                    [255, 255, 255, 255]
+                };
                 let o = ((slot.y + py) * ATLAS + slot.x + px) * 4;
                 pages[i].1.atlas[o..o + 4].copy_from_slice(&sample);
             }
@@ -582,6 +721,10 @@ fn build(
         let Some(model) = t.objects.get(id) else {
             continue;
         };
+        // EC-BSD +36 flags, recovered at 0x489f0b/0x489f12. Keep them on the
+        // page's index ranges; a hidden placement must not be submitted in a
+        // secondary view just because the page itself is resident.
+        let visibility = Visibility::from_extra(t.objects.ornaments[id].extra);
         let z = basis(model.direction);
         let y = basis(model.up);
         let x = y.cross(z).normalize_or_zero();
@@ -599,12 +742,14 @@ fn build(
             ) {
                 Ok(state) => state.kind,
                 Err(e) => {
-                    eprintln!("Skipping baked mesh {}: {e}", mesh.name);
-                    continue;
+                    // Explicit error, not a silently dropped mesh: the BMD
+                    // parser names every unrecovered version before this point.
+                    return Err(format!("unsupported baked mesh {}: {e}", mesh.name));
                 }
             };
             let page = &mut pages[page_id].1;
             let base = page.vertices.len() as u32;
+            let range_start = page.indices.len() as u32;
             let ox = slot.x as f32 / ATLAS as f32;
             let oy = slot.y as f32 / ATLAS as f32;
             let sx = slot.w as f32 / ATLAS as f32;
@@ -628,6 +773,15 @@ fn build(
             }
             page.indices
                 .extend(mesh.indices.iter().map(|n| base + *n as u32));
+            let range_end = page.indices.len() as u32;
+            if range_end > range_start {
+                page.placements.push(crate::world_objects::PlacementRange {
+                    start: range_start,
+                    end: range_end,
+                    export_id: t.objects.ornaments[id].export_id,
+                    visibility,
+                });
+            }
         }
     }
     let local_pages = pages
@@ -815,6 +969,8 @@ struct Renderer {
     water_batches: Vec<WaterBatch>,
     started: Instant,
     wind_last: Instant,
+    /// Snapshot computed once by `render()`; secondary views reuse it.
+    frame: FrameSnapshot,
     world_glow: crate::post_gpu::WorldGlow,
     celestial_visibility: crate::client_sun::Visibility,
     // Native SetLightParam/SetAmbient state persists when a frame selects no
@@ -1239,6 +1395,7 @@ impl Renderer {
             water_batches: m.water_batches,
             started: Instant::now(),
             wind_last: Instant::now(),
+            frame: FrameSnapshot::default(),
             world_glow: crate::post_gpu::WorldGlow::default(),
             celestial_visibility: crate::client_sun::Visibility::default(),
             retained_regional_light: None,
@@ -1254,6 +1411,183 @@ impl Renderer {
             spans: m.spans,
             terrain_runs: Vec::new(),
         })
+    }
+    /// Sample time and publish the frame's lighting/playback state exactly
+    /// once. Every secondary view reuses the returned snapshot with a zero
+    /// logic delta; no secondary submission calls this method.
+    fn begin_frame(&mut self, camera: &Camera, w: u32, h: u32) -> FrameSnapshot {
+        let now = Instant::now();
+        let dt = now.duration_since(self.wind_last).as_secs_f32();
+        self.grass_wind_state.update(dt);
+        self.wind_last = now;
+        self.post.set_sharpen(camera.sharpen);
+        self.world_glow.select(
+            camera.bloom,
+            crate::environment::daylight(camera.time_of_day),
+            camera.underwater_depth > 0.,
+            camera.bloom_mode,
+            camera.bloom_tint,
+        );
+        if camera.bloom && self.glow_requested_fade != Some(camera.bloom_brightness_fade) {
+            self.world_glow.set_fade(
+                self.world_glow.brightness_fade(),
+                camera.bloom_brightness_fade,
+                1000,
+            );
+            self.glow_requested_fade = Some(camera.bloom_brightness_fade);
+        }
+        // AdjustEnvironment passes the frozen +0x490 logic tick to glow
+        // (0x4214dc); do not resample wall time here or in any secondary view.
+        self.world_glow.tick(camera.logic_delta_ms as i32);
+        let glow_parameters = frame.glow_parameters;
+        self.post.set_glow_color(
+            camera.bloom_tint,
+            self.world_glow.brightness_fade(),
+            camera.bloom_opacity_fade,
+        );
+        let elapsed = frame.elapsed;
+        let elapsed64 = frame.elapsed64;
+        let direction = camera.direction();
+        let daylight = crate::environment::daylight(camera.time_of_day);
+        let angle = (camera.time_of_day - 6.0) * std::f32::consts::PI / 12.0;
+        let twilight = (1. - ((angle.sin().abs()) / 0.35).clamp(0., 1.)) * daylight;
+        let sun = [
+            angle.cos() * 0.8,
+            angle.sin().max(0.05),
+            0.46,
+            if camera.terrain_lightmaps {
+                daylight
+            } else {
+                -1.
+            },
+        ];
+        let light = [
+            0.17 + 0.38 * daylight,
+            0.07 + 0.38 * daylight,
+            1.,
+            1. - 0.18 * twilight,
+        ];
+        let authored = camera
+            .regional_light
+            .or(self.retained_regional_light)
+            .map(|l| l.material_direction().toward_sun())
+            .unwrap_or([0.6, -0.4, 0.8]);
+        let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
+            .unwrap_or([0., -1., 0.])
+            .map(|x| -x);
+        self.celestial_visibility.update(
+            camera.logic_delta_ms,
+            camera
+                .regional_light
+                .or(self.retained_regional_light)
+                .map(|l| l.celestial_flags)
+                .unwrap_or(0x18),
+        );
+        let celestial_alpha = if camera.celestial_discs {
+            self.celestial_visibility.alpha(camera.time_of_day)
+        } else {
+            0.
+        };
+        self.sky.update(
+            &self.queue,
+            direction,
+            w,
+            h,
+            camera.time_of_day,
+            celestial,
+            celestial_alpha,
+            false,
+        );
+        self.sky.update(
+            &self.queue,
+            direction,
+            w,
+            h,
+            camera.time_of_day,
+            celestial,
+            celestial_alpha,
+            true,
+        );
+        self.far_trees.update_lods(
+            &self.queue,
+            camera.pos.to_array(),
+            self.detail.tree_lod_scale,
+        );
+        let (bx, by) = self.center;
+        let rad = self.detail.radius;
+        let maxx = ((self.world_width - 1) / TILE * TILE) as isize;
+        let maxy = ((self.world_height - 1) / TILE * TILE) as isize;
+        let x0 = ((bx - rad) * TILE as isize).clamp(0, maxx);
+        let x1 = ((bx + rad + 1) * TILE as isize).clamp(0, maxx);
+        let y0 = ((by - rad) * TILE as isize).clamp(0, maxy);
+        let y1 = ((by + rad + 1) * TILE as isize).clamp(0, maxy);
+        let bounds = [
+            (x0 as f32 - self.world_width as f32 * 0.5) * self.world_spacing,
+            (x1 as f32 - self.world_width as f32 * 0.5) * self.world_spacing,
+            (self.world_height as f32 * 0.5 - y1 as f32) * self.world_spacing,
+            (self.world_height as f32 * 0.5 - y0 as f32) * self.world_spacing,
+        ];
+        let tree_bounds = [
+            camera.pos.x,
+            camera.pos.z,
+            camera.tree_wind_strength,
+            elapsed,
+        ];
+        let (region_ambient, region_diffuse, region_direction) = camera.region_uniform();
+        let grass_eye = [
+            camera.pos.x,
+            camera.pos.y,
+            camera.pos.z,
+            if camera.grass_distance_fade { 1. } else { 0. },
+        ];
+        let grass_wind = [
+            elapsed,
+            camera.grass_wind_strength,
+            if camera.area_grass_lightmaps { 1. } else { 0. },
+            0.,
+        ];
+        let grass_history = frame.grass_history;
+        let (fog_range, fog_color) = camera.fog_uniform();
+        let active_fog = camera.active_fog();
+        let active_fog_range = active_fog.range();
+        let active_fog_color = active_fog.color4();
+        let clip = [
+            0.,
+            0.,
+            1., // horizontal projection flip reverses winding
+            if camera.model_backface_culling { 0. } else { 1. },
+        ];
+        let snapshot = FrameSnapshot {
+            elapsed,
+            elapsed64,
+            logic_delta_ms: camera.logic_delta_ms,
+            direction,
+            daylight,
+            twilight,
+            sun,
+            light,
+            bounds,
+            tree_bounds,
+            region_ambient,
+            region_diffuse,
+            region_direction,
+            grass_eye,
+            grass_wind,
+            grass_history,
+            fog_range,
+            fog_color,
+            active_fog_range,
+            active_fog_color,
+            clip,
+            glow_parameters,
+            celestial_alpha,
+            authored,
+            celestial,
+            time_advances: 1,
+            light_publications: 1,
+        };
+        self.frame = snapshot;
+        snapshot
     }
     fn update_mesh(&mut self, m: MeshData) {
         self.grass.update(&self.device, m.grass);
@@ -1308,6 +1642,7 @@ impl Renderer {
         bind: &wgpu::BindGroup,
         reflected: bool,
         sky_reflected: bool,
+        pass_kind: Pass,
         terrain_depth_source: Option<&wgpu::Texture>,
         clear_color: Option<wgpu::Color>,
     ) {
@@ -1400,7 +1735,7 @@ impl Renderer {
         p.draw_indexed(self.terrain_end..local_end, 0, 0..1);
         if !self.world_done {
             for page in &self.local_pages {
-                page.draw(&mut p, reflected);
+                page.draw_selected(&mut p, reflected, pass_kind);
             }
         }
         // Do not submit world pages on top of the same locally streamed
@@ -1408,7 +1743,7 @@ impl Renderer {
         // caused depth flicker. Switch atomically only after all pages arrive.
         if self.world_done {
             for page in &self.world_pages {
-                page.draw(&mut p, reflected);
+                page.draw_selected(&mut p, reflected, pass_kind);
             }
         }
     }
@@ -1419,8 +1754,15 @@ impl Renderer {
         depth: &wgpu::TextureView,
         uniform: &Uniform,
         camera: &Camera,
+        view: Pass,
         advance: bool,
     ) {
+        // WaterEffect 0 (shipped default) hides EC models and home ornaments
+        // in reflection/refraction (0x5b2015, 0x5b2336). Baked scenery is
+        // gated per placement by world_objects::GpuPage::draw_selected.
+        if !allows_class(view, ModelClass::EcModel) {
+            return;
+        }
         // Effects outside this radius are unloaded and publish no lights. The
         // radius is in ECWLD blocks, using the scene's authored block size.
         let world_radius = self.detail.radius.max(1) as f32 * self.model_scene.block_size.max(1.);
@@ -1518,78 +1860,15 @@ impl Renderer {
         } else {
             minimap_matrix(camera.pos.x, camera.pos.z, range)
         };
-        let (bx, by) = self.center;
-        let rad = self.detail.radius;
-        let maxx = ((self.world_width - 1) / TILE * TILE) as isize;
-        let maxy = ((self.world_height - 1) / TILE * TILE) as isize;
-        let x0 = ((bx - rad) * TILE as isize).clamp(0, maxx);
-        let x1 = ((bx + rad + 1) * TILE as isize).clamp(0, maxx);
-        let y0 = ((by - rad) * TILE as isize).clamp(0, maxy);
-        let y1 = ((by + rad + 1) * TILE as isize).clamp(0, maxy);
-        let bounds = [
-            (x0 as f32 - self.world_width as f32 * 0.5) * self.world_spacing,
-            (x1 as f32 - self.world_width as f32 * 0.5) * self.world_spacing,
-            (self.world_height as f32 * 0.5 - y1 as f32) * self.world_spacing,
-            (self.world_height as f32 * 0.5 - y0 as f32) * self.world_spacing,
-        ];
-        let angle = (camera.time_of_day - 6.) * std::f32::consts::PI / 12.;
-        let daylight = crate::environment::daylight(camera.time_of_day);
-        let twilight = (1. - (angle.sin().abs() / 0.35).clamp(0., 1.)) * daylight;
-        let uniform = Uniform {
-            matrix: matrix.to_cols_array_2d(),
-            direction: [0., -1., 0., daylight],
-            region_ambient: camera.region_uniform().0,
-            region_diffuse: camera.region_uniform().1,
-            region_direction: camera.region_uniform().2,
-            grass_eye: [
-                camera.pos.x,
-                camera.pos.y,
-                camera.pos.z,
-                if camera.grass_distance_fade { 1. } else { 0. },
-            ],
-            grass_wind: [
-                self.started.elapsed().as_secs_f32(),
-                camera.grass_wind_strength,
-                if camera.area_grass_lightmaps { 1. } else { 0. },
-                0.,
-            ],
-            grass_history: self.grass_wind_state.history(),
-            fog_range: [0.; 4],
-            fog_color: [0.; 4],
-            clip: [
-                0.,
-                0.,
-                1., // horizontal projection flip reverses winding
-                if camera.model_backface_culling {
-                    0.
-                } else {
-                    1.
-                },
-            ],
-            bounds,
-            tree_bounds: [
-                camera.pos.x,
-                camera.pos.z,
-                camera.tree_wind_strength,
-                self.started.elapsed().as_secs_f32(),
-            ],
-            sun: [
-                angle.cos() * 0.8,
-                angle.sin().max(0.05),
-                0.46,
-                if camera.terrain_lightmaps {
-                    daylight
-                } else {
-                    -1.
-                },
-            ],
-            light: [
-                0.17 + 0.38 * daylight,
-                0.07 + 0.38 * daylight,
-                1.,
-                1. - 0.18 * twilight,
-            ],
-        };
+        let frame = self.frame;
+        debug_assert!(frame.time_advances > 0, "minimap needs a main-frame snapshot");
+        let uniform = frame.uniform(
+            matrix,
+            [0., -1., 0., frame.daylight],
+            frame.clip,
+            [0.; 4],
+            [0.; 4],
+        );
         self.queue
             .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&uniform));
         let mut e = self
@@ -1605,6 +1884,7 @@ impl Renderer {
             &self.bind,
             false,
             false,
+            if full_world { Pass::FullMap } else { Pass::Minimap },
             None,
             None,
         );
@@ -1650,38 +1930,14 @@ impl Renderer {
         // Per-frame, per-view visibility of the resident terrain (`0x77e250`):
         // the same block walk the client runs before the level rule.
         self.terrain_runs = crate::terrain_residency::visible_runs(&self.spans, matrix);
-        let now = Instant::now();
-        let dt = now.duration_since(self.wind_last).as_secs_f32();
-        self.grass_wind_state.update(dt);
-        self.wind_last = now;
-        self.post.set_sharpen(camera.sharpen);
-        self.world_glow.select(
-            camera.bloom,
-            crate::environment::daylight(camera.time_of_day),
-            camera.underwater_depth > 0.,
-            camera.bloom_mode,
-            camera.bloom_tint,
-        );
-        // Viewer fade-control changes are explicit SetFade requests, not a
-        // permanently forced value that defeats native mode-triggered StopFade.
-        if camera.bloom && self.glow_requested_fade != Some(camera.bloom_brightness_fade) {
-            self.world_glow.set_fade(
-                self.world_glow.brightness_fade(),
-                camera.bloom_brightness_fade,
-                1000,
-            );
-            self.glow_requested_fade = Some(camera.bloom_brightness_fade);
-        }
-        // AdjustEnvironment passes the frozen +0x490 logic tick to glow
-        // (0x4214dc), including its 250ms cap; do not resample wall time here.
-        self.world_glow.tick(camera.logic_delta_ms as i32);
-        let glow_parameters = self.world_glow.parameters();
-        self.post.set_glow_color(
-            camera.bloom_tint,
-            self.world_glow.brightness_fade(),
-            camera.bloom_opacity_fade,
-        );
-        let direction = camera.direction();
+        let frame = self.begin_frame(camera, w, h);
+        let glow_parameters = frame.glow_parameters;
+        let direction = frame.direction;
+        let daylight = frame.daylight;
+        let bounds = frame.bounds;
+        let tree_bounds = frame.tree_bounds;
+        let sun = frame.sun;
+        let light = frame.light;
         // Only real scene effects allocate the chain; the retained screen-space
         // fog diagnostic is not an input (production fog is per material).
         let use_post = crate::view_settings::post_required(
@@ -1702,132 +1958,19 @@ impl Renderer {
             None
         };
         let scene_target_raw = post_raw.as_ref().unwrap_or(target_raw);
-        // Disc azimuth comes from the authored region direction; elevation is
-        // the recovered sky clock. Only the celestial rows read the curve.
-        let authored = camera
-            .regional_light
-            .or(self.retained_regional_light)
-            .map(|l| l.material_direction().toward_sun())
-            .unwrap_or([0.6, -0.4, 0.8]);
-        let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
-            .unwrap_or([0., -1., 0.])
-            .map(|x| -x);
-        // The same retained light that feeds the discs' azimuth also keeps the
-        // published default-area flag word stable across frames with no region.
-        self.celestial_visibility.update(
-            camera.logic_delta_ms,
-            camera
-                .regional_light
-                .or(self.retained_regional_light)
-                .map(|l| l.celestial_flags)
-                .unwrap_or(0x18),
-        );
-        let celestial_alpha = if camera.celestial_discs {
-            self.celestial_visibility.alpha(camera.time_of_day)
+        // Fog is a uniform state of the main scene pass, not a separate view.
+        let main_pass = if camera.active_fog().enabled {
+            Pass::Fog
         } else {
-            0.
+            Pass::Main
         };
-        self.sky.update(
-            &self.queue,
-            direction,
-            w,
-            h,
-            camera.time_of_day,
-            celestial,
-            celestial_alpha,
-            false,
+        let normal = frame.uniform(
+            matrix,
+            [direction.x, direction.y, direction.z, daylight],
+            frame.clip,
+            frame.fog_range,
+            frame.fog_color,
         );
-        self.sky.update(
-            &self.queue,
-            direction,
-            w,
-            h,
-            camera.time_of_day,
-            celestial,
-            celestial_alpha,
-            true,
-        );
-        self.far_trees.update_lods(
-            &self.queue,
-            camera.pos.to_array(),
-            self.detail.tree_lod_scale,
-        );
-        let (bx, by) = self.center;
-        let rad = self.detail.radius;
-        let maxx = ((self.world_width - 1) / TILE * TILE) as isize;
-        let maxy = ((self.world_height - 1) / TILE * TILE) as isize;
-        let x0 = ((bx - rad) * TILE as isize).clamp(0, maxx);
-        let x1 = ((bx + rad + 1) * TILE as isize).clamp(0, maxx);
-        let y0 = ((by - rad) * TILE as isize).clamp(0, maxy);
-        let y1 = ((by + rad + 1) * TILE as isize).clamp(0, maxy);
-        let bounds = [
-            (x0 as f32 - self.world_width as f32 * 0.5) * self.world_spacing,
-            (x1 as f32 - self.world_width as f32 * 0.5) * self.world_spacing,
-            (self.world_height as f32 * 0.5 - y1 as f32) * self.world_spacing,
-            (self.world_height as f32 * 0.5 - y0 as f32) * self.world_spacing,
-        ];
-        // Tree LODs are selected per instance on the GPU, not by the streamer.
-        let tree_bounds = [
-            camera.pos.x,
-            camera.pos.z,
-            camera.tree_wind_strength,
-            self.started.elapsed().as_secs_f32(),
-        ];
-        let angle = (camera.time_of_day - 6.0) * std::f32::consts::PI / 12.0;
-        let daylight = crate::environment::daylight(camera.time_of_day);
-        let twilight = (1. - ((angle.sin().abs()) / 0.35).clamp(0., 1.)) * daylight;
-        let sun = [
-            angle.cos() * 0.8,
-            angle.sin().max(0.05),
-            0.46,
-            if camera.terrain_lightmaps {
-                daylight
-            } else {
-                -1.
-            },
-        ];
-        let light = [
-            0.17 + 0.38 * daylight,
-            0.07 + 0.38 * daylight,
-            1.,
-            1. - 0.18 * twilight,
-        ];
-        let normal = Uniform {
-            matrix: matrix.to_cols_array_2d(),
-            direction: [direction.x, direction.y, direction.z, daylight],
-            clip: [
-                0.,
-                0.,
-                1., // horizontal projection flip reverses winding
-                if camera.model_backface_culling {
-                    0.
-                } else {
-                    1.
-                },
-            ],
-            bounds,
-            tree_bounds,
-            sun,
-            light,
-            region_ambient: camera.region_uniform().0,
-            region_diffuse: camera.region_uniform().1,
-            region_direction: camera.region_uniform().2,
-            grass_eye: [
-                camera.pos.x,
-                camera.pos.y,
-                camera.pos.z,
-                if camera.grass_distance_fade { 1. } else { 0. },
-            ],
-            grass_wind: [
-                self.started.elapsed().as_secs_f32(),
-                camera.grass_wind_strength,
-                if camera.area_grass_lightmaps { 1. } else { 0. },
-                0.,
-            ],
-            grass_history: self.grass_wind_state.history(),
-            fog_range: camera.fog_uniform().0,
-            fog_color: camera.fog_uniform().1,
-        };
         self.queue
             .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&normal));
         self.water.update(
@@ -1839,7 +1982,7 @@ impl Renderer {
                     camera.pos.x,
                     camera.pos.y,
                     camera.pos.z,
-                    self.started.elapsed().as_secs_f32(),
+                    frame.elapsed,
                 ],
                 size: [
                     w as f32,
@@ -1848,20 +1991,20 @@ impl Renderer {
                     if camera.water_reflections { 1. } else { 0. },
                 ],
                 animation: [
-                    crate::water_gpu::normal_phase(self.started.elapsed().as_secs_f64()),
+                    crate::water_gpu::normal_phase(frame.elapsed64),
                     camera.underwater_fog.end,
                     0.,
-                    crate::water_gpu::normal_offset_angle(self.started.elapsed().as_secs_f64()),
+                    crate::water_gpu::normal_offset_angle(frame.elapsed64),
                 ],
                 edge_mode: [if camera.water_reflections { 1. } else { 0. }, 0., 0., 0.],
                 // Water-surface fog: the client binds the region's own triple
                 // (white 100..400 above water, blue 10..60 below).
-                fog: camera.active_fog().range(),
-                fog_color: camera.active_fog().color4(),
+                fog: frame.active_fog_range,
+                fog_color: frame.active_fog_color,
             },
         );
         self.simple_water
-            .update(&self.queue, matrix, self.started.elapsed().as_secs_f64());
+            .update(&self.queue, matrix, frame.elapsed64);
         let reflection = self.water.reflection();
         let reflect_depth = self.water.depth();
         let refraction = self.water.refraction();
@@ -1876,11 +2019,12 @@ impl Renderer {
             &self.bind,
             false,
             false,
+            main_pass,
             Some(&self.depth),
             None,
         );
         let model_target = self.water.scene_raw();
-        self.draw_models(&mut e, &model_target, &scene_depth, &normal, camera, true);
+        self.draw_models(&mut e, &model_target, &scene_depth, &normal, camera, Pass::Main, true);
         self.water.copy_scene_to_refraction(&mut e);
         self.water.copy_depth(&mut e, &self.depth);
         self.water.blit(&mut e, scene_target);
@@ -1895,7 +2039,7 @@ impl Renderer {
                     &self.water.sample_depth(),
                     w,
                     h,
-                    self.started.elapsed().as_secs_f32(),
+                    frame.elapsed,
                     camera.far,
                     camera.underwater_depth,
                     if camera.underwater_depth > 0. {
@@ -1971,7 +2115,7 @@ impl Renderer {
                     matrix,
                     camera.pos,
                     1. - daylight,
-                    self.started.elapsed().as_secs_f32(),
+                    frame.elapsed,
                 );
             }
             if use_post {
@@ -1982,7 +2126,7 @@ impl Renderer {
                     &self.water.sample_depth(),
                     w,
                     h,
-                    self.started.elapsed().as_secs_f32(),
+                    frame.elapsed,
                     camera.far,
                     camera.underwater_depth,
                     if camera.underwater_depth > 0. {
@@ -2066,6 +2210,7 @@ impl Renderer {
                     &self.reflected_bind,
                     true,
                     false,
+                    Pass::Refraction,
                     None,
                     Some(wgpu::Color {
                         r: linear(fog[0]),
@@ -2111,13 +2256,22 @@ impl Renderer {
                     &self.reflected_bind,
                     true,
                     false,
+                    Pass::Refraction,
                     None,
                     None,
                 );
                 // Ornamental EC models enter refraction only from underwater.
                 if camera.underwater_depth > 0. {
                     let raw = self.water.refraction_raw();
-                    self.draw_models(&mut re, &raw, &reflect_depth, &above, camera, false);
+                    self.draw_models(
+                        &mut re,
+                        &raw,
+                        &reflect_depth,
+                        &above,
+                        camera,
+                        Pass::Refraction,
+                        false,
+                    );
                 }
                 self.water.draw_water(
                     &mut re,
@@ -2152,9 +2306,9 @@ impl Renderer {
                 tree_bounds,
                 sun,
                 light,
-                region_ambient: camera.region_uniform().0,
-                region_diffuse: camera.region_uniform().1,
-                region_direction: camera.region_uniform().2,
+                region_ambient: frame.region_ambient,
+                region_diffuse: frame.region_diffuse,
+                region_direction: frame.region_direction,
                 grass_eye: [
                     camera.pos.x,
                     camera.pos.y,
@@ -2162,14 +2316,14 @@ impl Renderer {
                     if camera.grass_distance_fade { 1. } else { 0. },
                 ],
                 grass_wind: [
-                    self.started.elapsed().as_secs_f32(),
+                    frame.elapsed,
                     camera.grass_wind_strength,
                     if camera.area_grass_lightmaps { 1. } else { 0. },
                     0.,
                 ],
-                grass_history: self.grass_wind_state.history(),
-                fog_range: camera.fog_uniform().0,
-                fog_color: camera.fog_uniform().1,
+                grass_history: frame.grass_history,
+                fog_range: frame.fog_range,
+                fog_color: frame.fog_color,
             };
             self.queue
                 .write_buffer(&self.reflected_uniform, 0, bytemuck::bytes_of(&reflected));
@@ -2182,11 +2336,20 @@ impl Renderer {
                 &self.reflected_bind,
                 true,
                 true,
+                Pass::Reflection,
                 None,
                 None,
             );
             let raw = self.water.reflection_raw();
-            self.draw_models(&mut e, &raw, &reflect_depth, &reflected, camera, false);
+            self.draw_models(
+                &mut e,
+                &raw,
+                &reflect_depth,
+                &reflected,
+                camera,
+                Pass::Reflection,
+                false,
+            );
             self.water.draw_water(
                 &mut e,
                 scene_target,
@@ -2207,7 +2370,7 @@ impl Renderer {
                 matrix,
                 camera.pos,
                 1. - daylight,
-                self.started.elapsed().as_secs_f32(),
+                frame.elapsed,
             );
         }
         if use_post {
@@ -2218,7 +2381,7 @@ impl Renderer {
                 &self.water.sample_depth(),
                 w,
                 h,
-                self.started.elapsed().as_secs_f32(),
+                frame.elapsed,
                 camera.far,
                 camera.underwater_depth,
                 if camera.underwater_depth > 0. {
@@ -2934,7 +3097,7 @@ pub fn run(
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
                                                     0=>{ui.heading("Graphics");ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
-                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} failed; alpha meshes ordered {}",g.live,g.pending,g.emitters,g.failed_owners+models.gfx_failures().len(),models.alpha_order().len()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
+                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} failed; alpha meshes ordered {}",g.live,g.pending,g.emitters,g.failed_owners+models.gfx_failures().len(),models.alpha_order().len()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());ui.label("Music follows the client zone playlists; ambient sounds are not yet implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
                                                 }
@@ -3413,5 +3576,92 @@ mod water_batch_tests {
             batch([-2., 2., -3., 3.], 4.).distance_squared(Vec3::new(5., 4., 0.)),
             9.
         );
+    }
+}
+
+#[cfg(test)]
+mod frame_snapshot_tests {
+    use super::*;
+
+    fn source() -> &'static str {
+        include_str!("gpu.rs")
+    }
+    fn function(name: &str, src: &str) -> String {
+        let start = src
+            .find(&format!("fn {name}("))
+            .unwrap_or_else(|| panic!("missing {name}"));
+        let tail = &src[start..];
+        // The next top-level `fn` at four-space indentation ends this method.
+        let end = tail[4..]
+            .find("\n    fn ")
+            .map(|i| i + 4)
+            .unwrap_or(tail.len());
+        tail[..end].to_string()
+    }
+
+    #[test]
+    fn one_snapshot_is_computed_per_frame_and_secondary_views_reuse_it() {
+        let src = source();
+        let render = function("render", src);
+        assert_eq!(
+            render.matches("self.begin_frame(camera, w, h)").count(),
+            1,
+            "render must sample time and publish lights exactly once"
+        );
+        let minimap = function("render_minimap", src);
+        assert!(minimap.contains("let frame = self.frame;"));
+        assert!(minimap.contains("frame.uniform("));
+        assert!(
+            !minimap.contains("self.started.elapsed()"),
+            "minimap must not resample wall time"
+        );
+        assert!(
+            !minimap.contains("begin_frame("),
+            "minimap must not advance the frame"
+        );
+        assert!(
+            !minimap.contains("draw_models("),
+            "minimap must not consume a second model/light publication"
+        );
+        assert!(src.contains("if !allows_class(view, ModelClass::EcModel)"));
+        assert!(
+            src.matches("page.draw_selected(&mut p, reflected, pass_kind)")
+                .count()
+                >= 2,
+            "local and whole-world pages must use the data-driven pass gate"
+        );
+    }
+
+    #[test]
+    fn every_secondary_view_gets_zero_logic_delta_and_the_same_elapsed() {
+        let mut frame = FrameSnapshot::default();
+        frame.elapsed = 12.5;
+        frame.time_advances = 1;
+        frame.light_publications = 1;
+        for pass in Pass::ALL {
+            let view = frame.secondary(pass);
+            assert_eq!(view.elapsed, 12.5);
+            assert_eq!(view.logic_delta_ms, 0);
+            assert!(!view.advances_time);
+            assert!(!view.consumes_light_publications);
+        }
+        assert_eq!(frame.time_advances, 1);
+        assert_eq!(frame.light_publications, 1);
+    }
+
+    #[test]
+    fn pass_kinds_are_submitted_from_production_call_sites() {
+        let src = source();
+        for needle in [
+            "            main_pass,\n            Some(&self.depth),",
+            "                    Pass::Refraction,\n                    None,",
+            "                Pass::Reflection,\n                None,",
+            "            if full_world { Pass::FullMap } else { Pass::Minimap },",
+            "&normal, camera, Pass::Main, true);",
+            "                        &above,\n                        camera,\n                        Pass::Refraction,",
+            "                &reflected,\n                camera,\n                Pass::Reflection,",
+        ] {
+            assert!(src.contains(needle), "missing production wiring: {needle}");
+        }
     }
 }

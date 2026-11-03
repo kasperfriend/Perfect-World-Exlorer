@@ -40,6 +40,22 @@ in the [76-point reassessment](Eight-phase-reassessment-2026-11-02.md).
 | Native audio and environmental sound | Zone music exists; original priority/randomization/crossfades, ambient sounds, remaining codecs and physical-device behavior remain open. | P8.05 |
 | Every setting and Windows runtime acceptance | Persistence/launcher/CI executable exist; all launcher controls, secondary-pass behavior, DPI/device/recovery and fresh-PC launch require further acceptance. | P8.06–07, P8.09 runtime follow-up |
 
+## Additional named Phase 3 gaps (Agent 3-C, 3 November 2026)
+
+These rows are additive; the earlier register remains authoritative. They name
+the exact pass/material/runtime combinations this change deliberately does not
+reproduce, so none of them is a silent skip or an assumed parity claim.
+
+| Path / behavior | Remaining limitation | Requirements |
+|---|---|---|
+| `WaterEffect == 2` reflection / refraction | The 1.4.2 pass vtables use ornament `+0x46` for reflection (`0x5b1ea3`), `+0x47` for refraction with a non-underwater camera (`0x5b21bd`) and `+0x46` with an underwater camera (`0x5b21c4`), plus separate home/EC-model gates. The shipped config default is `WaterEffect == 0` (`0x40d16c`); `src/scenery_visibility.rs` implements only the default `+0x44`/`+0x45` gates. The level-2 blend gate at `0x42c5f3` and the underwater-camera state are not wired. | P3.07, P6 |
+| Home ornaments and EC models in secondary views | `CECOrnamentMan` reflection (`0x5b1f32..0x5b20fd`) and refraction (`0x5b2254..0x5b2407`) skip home ornaments unless `WaterEffect == 2`; EC models enter reflection only at level 2 (`0x5b2022`) and refraction only when underwater at level 2 (`0x5b233f`). The viewer loads baked EC-BSD ornaments, not the home-ornament class, and intentionally hides ordinary EC models in reflection/refraction at the shipped default. No level-2 home/EC path is implemented. | P3.06–07 |
+| Birdview map tiles | Native minimap/full-map paths use `loddata\%s\olm\` (`0x429786`), `birdviews\1024\` (`0x4297d9`) and `birdviews\256\` (`0x4297ed`). The viewer re-renders geometry with the north-up orthographic world shader and a shared frame snapshot; it does not load or blend the authored birdview LOD tiles. | P3.07, P8.01 |
+| Cross-page coincident depth order | `bmd_baked::overlap_outcome` returns `Unresolved` when two coincident triangles can land in different draw calls (a locally streamed page and a whole-world page), because no client order is proved for that case. The production renderer avoids duplicate submission while preload is in progress, but the full cross-page queue order is not reconstructed. | P3.05, P3.08 |
+| Other nine `CECSceneBlock` classes | `0x424020` walks ten classes. Only class 2 (`LoadOrnamentData`, `0x422f00`) is wired into the viewer's regional residency and quality presets. The other class tables, their far/unload callbacks and per-class LOD detail reduction remain outside this lane. | P3.06, P8.02–03 |
+| Experimental software viewer | `src/viewer.rs` now shares the recovered ornament residency and turns missing models/textures into explicit errors, but it is not the Angelica pipeline: it has no reflection/refraction/minimap passes, no baked material/culling/alpha table and no `ALPHABLENDENABLE` pass states. | P3.02–07 |
+| Whole-world GPU residency benchmark | `Objects::load_ids` retires models and the texture cache evicts unpinned LRU content; regional load/evict/distance-cull counters are logged. A measured full-world GPU page/VRAM residency benchmark and live-client screenshot comparison were not run. | P3.08, P8.09 |
+
 ## Completion policy
 
 P8.10's **tracking/policy deliverable** is implemented by maintaining this register;

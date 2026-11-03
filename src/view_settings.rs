@@ -24,12 +24,17 @@ pub struct DetailSettings {
     /// quality presets (`0x40e41f`), i.e. 7 blocks of 64 units.
     pub radius: isize,
     pub tree_lod_scale: f32,
+    /// Native `CECSceneBlock` quality preset (`0x424230`, `Sight+1` at
+    /// `0x40e155`). Preset 2 is the shipped `detail_scene = 1` default and
+    /// loads the ornament class within 120 world units (`0x42449c`).
+    pub scenery_quality: u8,
 }
 impl Default for DetailSettings {
     fn default() -> Self {
         Self {
             radius: 7,
             tree_lod_scale: 1.0,
+            scenery_quality: 2,
         }
     }
 }
@@ -142,6 +147,11 @@ impl ViewSettings {
                     }
                 }
                 "tree_lod_scale" => number!(s.detail.tree_lod_scale, 0.25, 4.),
+                "scenery_quality" => {
+                    if let Ok(x) = v.parse::<u8>() {
+                        s.detail.scenery_quality = x.min(5)
+                    }
+                }
                 "camera_speed" => number!(s.camera_speed, 10., 3000.),
                 "boost" => number!(s.boost, 1., 10.),
                 "sensitivity" => number!(s.sensitivity, 0.0005, 0.01),
@@ -191,11 +201,11 @@ impl ViewSettings {
     }
     fn encode(&self) -> String {
         format!(concat!("# Perfect World Explorer settings, version 1\n",
-            "radius={}\ntree_lod_scale={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
+            "radius={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
             "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\n"),
-            self.detail.radius,self.detail.tree_lod_scale,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
+            self.detail.radius,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen)
@@ -271,6 +281,26 @@ mod tests {
         s.grass_distance_fade = false;
         assert_eq!(s, ViewSettings::decode(&s.encode()));
     }
+    #[test]
+    fn scenery_quality_preset_round_trips_and_is_bounded() {
+        assert_eq!(ViewSettings::default().detail.scenery_quality, 2);
+        let s = ViewSettings::decode("scenery_quality=4");
+        assert_eq!(s.detail.scenery_quality, 4);
+        assert_eq!(ViewSettings::decode(&s.encode()).detail.scenery_quality, 4);
+        assert_eq!(
+            ViewSettings::decode("scenery_quality=99")
+                .detail
+                .scenery_quality,
+            5
+        );
+        assert_eq!(
+            ViewSettings::decode("scenery_quality=nan")
+                .detail
+                .scenery_quality,
+            2
+        );
+    }
+
     #[test]
     fn bad_values_are_safe() {
         let s = ViewSettings::decode(

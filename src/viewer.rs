@@ -1,4 +1,7 @@
 //! Experimental first-person software terrain viewer; not the Angelica rendering pipeline.
+//! It still shares the recovered regional scenery residency, but it has no
+//! secondary views, so EC-BSD reflection/refraction flags do not apply here.
+use crate::scenery_visibility::{Placement, Visibility};
 use crate::Terrain;
 use minifb::{Key, Window, WindowOptions};
 use std::time::Instant;
@@ -353,15 +356,42 @@ fn render(
 ) -> Result<(), String> {
     let wx = (cam.x - t.width as f32 * 0.5) * t.grid_spacing;
     let wz = (t.height as f32 * 0.5 - cam.y) * t.grid_spacing;
-    let nearby = t.objects.update(wx, wz, 800.)?;
+    // Same recovered `CECSceneBlock` ornament-class selection as the GPU
+    // renderer (0x424020). Preset 2 is the shipped `detail_scene = 1` default.
+    let placements: Vec<Placement> = t
+        .objects
+        .ornaments
+        .iter()
+        .enumerate()
+        .map(|(index, o)| Placement {
+            index,
+            center: [o.position[0], o.position[2]],
+            visibility: Visibility::from_extra(o.extra),
+        })
+        .collect();
+    let margin = 0.5 * t.scene.block_size.max(0.);
+    let nearby = t
+        .scenery_residency
+        .select(&placements, [wx, wz], 2, margin);
+    t.objects.load_ids(&nearby)?;
+    eprintln!(
+        "Software viewer scenery residency: {} resident, {} loads, {} evictions, {} distance culls",
+        nearby.len(),
+        t.scenery_residency.loads,
+        t.scenery_residency.evictions,
+        t.scenery_residency.distance_culls
+    );
     draw(t, cam, frame, depth);
     for id in nearby {
         let Some(model) = t.objects.get(id) else {
-            continue;
+            return Err(format!("missing resident scenery model {id}"));
         };
         for mesh in &model.meshes {
             let Some(texture) = t.objects.texture(&mesh.texture) else {
-                continue;
+                return Err(format!(
+                    "missing scenery texture {} for ornament {}",
+                    mesh.texture, id
+                ));
             };
             let vertices: Vec<Vertex> = mesh
                 .vertices

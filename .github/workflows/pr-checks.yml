@@ -39,6 +39,9 @@ jobs:
           python3 tools/test_phase1_ready.py
           python3 tools/test_eight_phase_status.py
           python3 tools/check-eight-phase-status.py
+          python3 tools/audit-static-model-gpu-programs.py
+          rustc --edition=2021 --test src/scenery_visibility.rs -o /tmp/scenery-visibility-tests
+          /tmp/scenery-visibility-tests
       - name: Check all binary targets
         run: cargo check --locked --bins
       - name: Test GFX light dependency audit
@@ -61,6 +64,8 @@ jobs:
           cargo run --locked --bin bloom-gpu-check
           cargo run --locked --bin bmd-baked-gpu-check
           cargo run --locked --bin bmd-sided-gpu-check
+          cargo run --locked --bin bmd-depth-gpu-check
+          cargo run --locked --bin scenery-pass-gpu-check
           cargo run --locked --bin grass-instance-gpu-check
           cargo run --locked --bin model-light-gpu-check
           cargo run --locked --bin skin-pose-gpu-check
