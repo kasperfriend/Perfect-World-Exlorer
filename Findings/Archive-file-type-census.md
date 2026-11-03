@@ -27,7 +27,14 @@ Packs surveyed are the four retail packs matching this client build
 | `trees.pck` | 325 | 127 | 198 | **0** |
 | `configs.pck` | 72 | 19 | 53 | **0** |
 | `shaders.pck` | 166 | 162 | 4 | **0** |
-| **total** | **2264** | **715** | **1549** | **0** |
+| `textures.pck` | 1038 | 1037 | 0 | **1** |
+| **total** | **3302** | **1752** | **1549** | **1** |
+
+`textures.pck` (117,047,648 B, 2019-05-03) is 636 DDS, 236 BMP, 165 TGA and one
+JPG. The single unsupported member is `textures/sky/夕阳/未标题-2副本.jpg`, an
+authored stray in the sunset sky folder - nothing references it and it is not
+part of the `sky_image01..03` set. It is left unread rather than silently
+converted, which is the point of listing it by name.
 
 ## Per-extension verdicts
 

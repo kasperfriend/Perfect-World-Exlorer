@@ -79,11 +79,39 @@ impl SkyGpu {
             .into_iter()
             .map(|e| (e.name.to_lowercase(), e))
             .collect();
-        let names = ["clear", "evening", "night2"];
+        // The client does not hardcode sky folders: `CECConfigs::Init` reads
+        // `sky_image01..03` from `configs/element_client.cfg` `[DefEnv]`, and
+        // the archive proves a filename pattern is unsafe - only 16 of 59 sky
+        // folders use the canonical 01/02/roof triple, the rest use names like
+        // `roog.bmp`, `wwwww.bmp` or `sky_spire.bmp`. Read the configured set.
+        let configured = {
+            let fallback = SKY_DEFAULTS.map(str::to_string).to_vec();
+            let mut cfg_file =
+                File::open(element.join("configs.pck")).map_err(|e| e.to_string())?;
+            let cfg_entries: HashMap<_, _> = pck::directory(&mut cfg_file)?
+                .into_iter()
+                .map(|e| (e.name.to_lowercase(), e))
+                .collect();
+            match cfg_entries.get("configs/element_client.cfg") {
+                Some(entry) => pck::read_entry(&mut cfg_file, entry)
+                    .map(|b| sky_images_from_config(&String::from_utf8_lossy(&b)))
+                    .unwrap_or_else(|_| SKY_DEFAULTS.map(str::to_string).to_vec()),
+                None => fallback,
+            }
+        };
         let mut frames = Vec::new();
-        for folder in names {
-            for name in ["01.bmp", "02.bmp", "roof.bmp"] {
-                let key = format!("textures/sky/{folder}/{name}");
+        for configured_path in &configured {
+            let key = sky_pack_key(configured_path);
+            // A configured image that the pack does not carry falls back to the
+            // documented default for that slot rather than failing the load.
+            let key = if entries.contains_key(&key) {
+                key
+            } else {
+                let default = sky_pack_key(&SKY_DEFAULTS[frames.len().min(2)]);
+                eprintln!("configured sky texture {key} absent; using {default}");
+                default
+            };
+            {
                 let entry = entries
                     .get(&key)
                     .ok_or_else(|| format!("missing client sky texture {key}"))?;
@@ -422,12 +450,160 @@ pub(crate) fn seam_weight(u: f32) -> f32 {
         1.
     }
 }
+/// The three sky images the client loads, in `sky_image01..03` order.
+///
+/// `CECConfigs::Init` reads these as named settings and the retail
+/// `configs/element_client.cfg` states them in `[DefEnv]`:
+///
+/// ```ini
+/// sky_image01 = Sky\clear\Roof.bmp
+/// sky_image02 = Sky\clear\01.bmp
+/// sky_image03 = Sky\clear\02.bmp
+/// ```
+///
+/// So the horizontal order is roof, then 01, then 02 - which is the order the
+/// shader already samples (`layer*3 + 0`/`1`/`2`, roof last as the zenith cap).
+pub(crate) const SKY_DEFAULTS: [&str; 3] = [
+    "Sky\\clear\\Roof.bmp",
+    "Sky\\clear\\01.bmp",
+    "Sky\\clear\\02.bmp",
+];
+
+/// Read `sky_image01..03` out of `configs/element_client.cfg` (`[DefEnv]`).
+///
+/// The file is a plain INI with CRLF line endings and `key = value` entries.
+/// Anything unreadable falls back to [`SKY_DEFAULTS`], because a missing or
+/// malformed settings file must not stop the world from loading.
+pub(crate) fn sky_images_from_config(text: &str) -> [String; 3] {
+    let mut out: [Option<String>; 3] = [None, None, None];
+    let mut in_defenv = false;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            in_defenv = line[1..line.len() - 1].trim().eq_ignore_ascii_case("DefEnv");
+            continue;
+        }
+        if !in_defenv {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim(), value.trim());
+        let slot = if key.eq_ignore_ascii_case("sky_image01") {
+            0
+        } else if key.eq_ignore_ascii_case("sky_image02") {
+            1
+        } else if key.eq_ignore_ascii_case("sky_image03") {
+            2
+        } else {
+            continue;
+        };
+        if !value.is_empty() {
+            out[slot] = Some(value.to_string());
+        }
+    }
+    [
+        out[0].clone().unwrap_or_else(|| SKY_DEFAULTS[0].to_string()),
+        out[1].clone().unwrap_or_else(|| SKY_DEFAULTS[1].to_string()),
+        out[2].clone().unwrap_or_else(|| SKY_DEFAULTS[2].to_string()),
+    ]
+}
+
+/// Turn a configured client path into a pack key.
+///
+/// Configs use Windows separators and are case-sensitive only where the
+/// filesystem was; the pack index is lowercased, so normalise to
+/// `textures/sky/<folder>/<file>`.
+pub(crate) fn sky_pack_key(configured: &str) -> String {
+    let normalised = configured.replace('\\', "/").to_lowercase();
+    let trimmed = normalised.trim_start_matches("./");
+    if trimmed.starts_with("textures/") {
+        trimmed.to_string()
+    } else {
+        format!("textures/{trimmed}")
+    }
+}
 fn sky_inverse(projection: Mat4, view: Mat4, reflected: bool) -> Mat4 {
     let inv = (projection * view).inverse();
     if reflected {
         Mat4::from_scale(Vec3::new(1., -1., 1.)) * inv
     } else {
         inv
+    }
+}
+#[cfg(test)]
+mod config_tests {
+    use super::*;
+    /// The exact `[DefEnv]` block from the retail `configs/element_client.cfg`,
+    /// CRLF endings and all. This pins the order the shader relies on:
+    /// `sky_image01` is the roof cap, then 01, then 02.
+    #[test]
+    fn retail_element_client_cfg_yields_roof_then_01_then_02() {
+        let cfg = "[PathFile]\r\ndummy = 1\r\n\r\n[DefEnv]\r\n\
+                   fog_start = 60\r\nfog_end = 400\r\nfog_color = 70, 77, 91\r\n\
+                   fog_density = 1\r\n\
+                   sky_image01 = Sky\\clear\\Roof.bmp\r\n\
+                   sky_image02 = Sky\\clear\\01.bmp\r\n\
+                   sky_image03 = Sky\\clear\\02.bmp\r\n\
+                   ambient = 180, 180, 180\r\n";
+        let images = sky_images_from_config(cfg);
+        assert_eq!(images[0], "Sky\\clear\\Roof.bmp");
+        assert_eq!(images[1], "Sky\\clear\\01.bmp");
+        assert_eq!(images[2], "Sky\\clear\\02.bmp");
+        // 01 must precede 02; the seam crossfade and the layer index depend on it.
+        assert!(images[1] < images[2], "01 must precede 02 in layer order");
+    }
+    /// Every sky folder that is not `clear` must still be selectable, which is
+    /// the whole reason this is config-driven: 43 of 59 archive folders do not
+    /// use the canonical 01/02/roof names.
+    #[test]
+    fn a_non_default_region_set_is_honoured_verbatim() {
+        let cfg = "[DefEnv]\r\n\
+                   sky_image01 = Sky\\夜晚01\\sky_spire.bmp\r\n\
+                   sky_image02 = Sky\\夜晚01\\01.bmp\r\n\
+                   sky_image03 = Sky\\夜晚01\\02.bmp\r\n";
+        let images = sky_images_from_config(cfg);
+        assert_eq!(images[0], "Sky\\夜晚01\\sky_spire.bmp");
+        assert_eq!(sky_pack_key(&images[0]), "textures/sky/夜晚01/sky_spire.bmp");
+    }
+    /// Missing keys and unreadable files fall back rather than failing the load.
+    #[test]
+    fn absent_keys_fall_back_to_the_documented_defaults() {
+        let images = sky_images_from_config("");
+        assert_eq!(images[0], SKY_DEFAULTS[0]);
+        assert_eq!(images[1], SKY_DEFAULTS[1]);
+        assert_eq!(images[2], SKY_DEFAULTS[2]);
+        // A partial block fills only the slots it states.
+        let partial = sky_images_from_config("[DefEnv]\r\nsky_image02 = Sky\\x\\y.bmp\r\n");
+        assert_eq!(partial[0], SKY_DEFAULTS[0]);
+        assert_eq!(partial[1], "Sky\\x\\y.bmp");
+        assert_eq!(partial[2], SKY_DEFAULTS[2]);
+    }
+    /// Keys outside `[DefEnv]` must not be picked up, and key matching is
+    /// case-insensitive like the client's INI reader.
+    #[test]
+    fn only_the_defenv_section_supplies_sky_images() {
+        let cfg = "[Other]\r\nsky_image01 = Sky\\wrong\\x.bmp\r\n\
+                   [DefEnv]\r\nSKY_IMAGE01 = Sky\\right\\x.bmp\r\n";
+        let images = sky_images_from_config(cfg);
+        assert_eq!(images[0], "Sky\\right\\x.bmp");
+    }
+    /// Configured paths are Windows-style and must become pack keys.
+    #[test]
+    fn configured_paths_normalise_to_lowercase_pack_keys() {
+        assert_eq!(
+            sky_pack_key("Sky\\clear\\01.bmp"),
+            "textures/sky/clear/01.bmp"
+        );
+        assert_eq!(
+            sky_pack_key("textures\\Sky\\Clear\\Roof.BMP"),
+            "textures/sky/clear/roof.bmp"
+        );
+        assert_eq!(sky_pack_key("Sky/clear/02.bmp"), "textures/sky/clear/02.bmp");
     }
 }
 #[cfg(test)]

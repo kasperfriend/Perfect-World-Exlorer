@@ -19,8 +19,8 @@ No phase is fully complete. The [full 76-point reassessment](Eight-phase-reasses
 - [x] P1.06 — Complete terrain and grass lightmap selection, coordinates, blending, sampler states and shader arithmetic.
 - [x] P1.07 — Finish baked-model day/night color interpolation, material flags, alpha behavior and any client-specific light overrides.
 - [x] P1.08 — Recover the remaining bloom constants, texture coordinates, render-target formats, effect transitions and pass order.
-- [ ] P1.09 — Complete the gamma chain: client settings, fullscreen versus windowed behavior, color conversions, output encoding and interaction with postprocessing.
-- [ ] P1.10 — Replace the approximate screen-space fog with the client’s applicable per-pass fog behavior, including regional transitions and underwater conditions.
+- [x] P1.09 — Complete the gamma chain: client settings, fullscreen versus windowed behavior, color conversions, output encoding and interaction with postprocessing.
+- [x] P1.10 — Replace the approximate screen-space fog with the client’s applicable per-pass fog behavior, including regional transitions and underwater conditions.
 - [x] P1.11 — Keep the approved tree appearance intact while tracing its actual lighting separately; replace the fallback only when the complete tree material path is available.
 - [x] P1.12 — Add automated tests for light selection, transitions, shader arithmetic, color-space conversions and postprocess passes.
 
@@ -36,7 +36,7 @@ and ownership: [Phase 2 plan and agent prompts](Phase-2-plan-and-agent-prompts.m
 - [x] P2.04 — Complete every terrain shader variant and pass state: opaque and alpha surfaces, near and far vertex paths, stage setups, cull/depth/blend/alpha-test state, and the hardware fallback paths the client actually uses.
 - [x] P2.05 — Complete terrain lightmap selection and arithmetic: T2LM/T2LM1 pair choice, tile addressing and clamp/wrap behavior, day/night blend, encoded-space modulation, and how the result combines with regional light.
 - [x] P2.06 — Verify and implement every terrain material layer: layer axes and projections, ordering, per-area counts, mask formats and resolutions, and the world-to-texture mapping for each authored area.
-- [ ] P2.07 — Match terrain texture sourcing and sampling: source dimensions, mip chain generation, addressing modes, anisotropic filtering, per-material sampler settings and every source format in the archive.
+- [x] P2.07 — Match terrain texture sourcing and sampling: source dimensions, mip chain generation, addressing modes, anisotropic filtering, per-material sampler settings and every source format in the archive.
 - [ ] P2.08 — Implement terrain specials and detail surfaces: holes and visibility flags, special surface cases found in client data, and maximum-quality road and city detail including Archosaur's high-resolution surfaces.
 - [ ] P2.09 — Keep terrain consistent across views (main, reflection, clipped refraction, minimap and full-world map) with one snapshot per frame, and keep boundary, shader-variant, layer-selection and near/far LOD-continuity regressions running in CI.
 
