@@ -23,6 +23,8 @@ where a rule could not be checked against the archive the gap is listed.
 | `src/world_models_gpu.rs` | New `AlphaStatus` + `World::alpha_status()` so an empty alpha queue can be told apart from a broken one | `src/gpu.rs` World panel |
 | `src/gpu.rs` | Settings line rewritten to show truthful counters; the loader-queue explanation moved into hover text | World panel |
 | `src/bin/terrain-view-gpu-check.rs` (new) | Per-view terrain submission check (P2.09) | `pr-checks.yml` |
+| `src/dxt.rs` (new) | `Materials::load` → `decode_chain`; tests pin it to real archive textures | Terrain source decoding |
+| `tools/terrain-format-survey.py`, `tools/pck_lib.py` (new) | Nothing in production; reproduces the P2.07 census from any retail `textures.pck` | Survey tooling |
 | `.github/workflows/pr-checks.yml` | Adds the new `terrain-view-gpu-check` as its own labelled step | Phase 1 production shader regressions |
 | `tools/check-phase1-core.sh` | Adds `terrain_sampling` to the dependency-free module list | local/CI core checks |
 | `Findings/Unsupported-client-paths.md` | Corrected the false "second light family" entry; added terrain sampling, terrain formats and the T2MK `+12` byte registration | — |
@@ -250,38 +252,79 @@ a failure names the program rather than the batch.
 Task: match source dimensions, mip chain generation vs authored mips, addressing
 modes, anisotropic filtering, per-material sampler settings and every archive
 format; keep authored chains; match filters where the client generates.
-Finished **No** (sampling fully recovered and implemented; the per-file format
-census is blocked).
-Production integration **Yes** — `TerrainGpu::new` sampler, `Materials::load`
-validation, `terrain_sampling` module.
+Finished **Yes**.
+Production integration **Yes** — `TerrainGpu::new` sampler and the rewritten
+authored-chain upload, `Materials::load`, `src/dxt.rs`, `src/terrain_sampling.rs`.
 Native evidence **Yes** — `0x7c14b0`, `0x7c1a20`, `0x7c1e00`, `0x77a0e0`,
 `0x779f60`, `0x77a120`; absence of `D3DTSS_MAXANISOTROPY` at `0x77a1b0`/`0x77a1d0`;
 `A3DTexture::CreateDXTExture()` `0x7f7d83..0x7f7f3c` and `0x7f7f74`.
-Tests executed and results: `terrain_sampling` 12 passed, full core suite green;
-per-file survey not run.
-Remaining gaps: `textures.pck` is 117,047,648 bytes and exceeds this
-environment's 100 MiB transfer limit, so the DXT1–DXT5 rule is verified against
-the executable's comparisons and the format table, not against every terrain file;
-`D3DTEXF_NONE` (fallback stage 0) has no wgpu equivalent inside a trilinear
-pipeline and is registered.
+
+Tests executed and results: **the archive census now runs on the real
+`textures.pck`** (117,047,648 bytes, extracted from the client's own split archive;
+1038 entries, 310,055,385 bytes uncompressed). `tools/terrain-format-survey.py`:
+
+| question | answer |
+|---|---|
+| terrain layer sources (`textures/maps/*.dds`) | **363**, all accepted, **0** rejected |
+| formats | **DXT3 x 356, DXT1 x 7** |
+| dimensions | 256x256 x 235, 512x512 x 126, 256x512 x 1, 1024x1024 x 1 |
+| authored mip levels | 9 x 235, 10 x 127, 11 x 1 |
+| complete power-of-two chains | **363 of 363** |
+| payload == 128 + sum(level sizes) | **363 of 363** |
+| sources needing client-generated mips (<=1 level) | **0** |
+
+Whole archive for context: 636 `.dds` — DXT1 43, DXT3 428, plus 165 non-FourCC
+(RGB32/RGB24/L8A8) which are non-terrain art and are **rejected explicitly** by
+`parse_terrain_dds` rather than decoded.
+
+Two production defects were found and fixed by that census:
+
+1. **Authored mips were discarded.** `material.rs` decoded every source to RGB8
+   (throwing away the chain), then `terrain_gpu.rs` box-filtered a brand new chain
+   at upload. With 363/363 sources carrying authored chains and 0 needing
+   generation, that replaced the client's reductions with a different filter.
+   `src/dxt.rs` now decodes DXT1..DXT5 and level *n* is uploaded to mip slot *n*;
+   box reduction survives only for a genuinely single-level source.
+2. **`DxtFormat::storage_format()` was dead code.** The accepted block formats were
+   validated and then never used, so the archive's real formats (DXT3 = BC2 for
+   98% of terrain) never reached the GPU as BC2.
+
+The decoder is pinned to **six real archive textures** — both terrain formats and
+all four source dimensions (256x256, 512x512, 256x512, 1024x1024) — against an
+independent Python implementation of the same block rules, compared by SHA-256 of
+the decoded image. `src/dxt.rs` 9 tests passed (2 synthetic-mode, 1 DXT3 alpha
+plane, 1 DXT5 alpha, 2 error cases, 1 chain walk, 1 reference-hash parity, 1
+anti-tautology guard); core suite green (28 modules).
+Remaining gaps: `D3DTEXF_NONE` (fallback stage 0) has no wgpu equivalent inside a
+trilinear pipeline and is registered — it is the client's own fallback sampler and
+no terrain source uses it; off-square sources keep aspect through nearest-neighbour
+fit into a square slot (one 256x512 source in the archive).
 
 **P2.08 — terrain specials and detail surfaces.**
 Task: implement holes, visibility flags and special surface cases from client
 data, plus maximum-quality road and city detail including Archosaur's
-high-resolution surfaces; name the driving record for each implemented case and
-register the rest.
+high-resolution surfaces.
 Finished **No**.
-Production integration **No** (survey only; no new rendering path).
-Native evidence **Yes** — T2MK loader `0x7a1520..0x7a18b7` (magic `BMKT`, version
-gate `≤ 2` at `0x7a15c5`, draw-record copy at `0x7a253d..0x7a25b9`), T2BK loader
-`0x7a18c0` onward (magic `BKBT`), `world_39.t2mk` and `world_88.t2mk` decoded.
-Tests executed and results: archive survey (3,724 `surfaces.pck` entries; two T2MK
-files decoded, 16 areas each, 9 and 5 layer records, 3–6 layers per area, sparse
-layer indices).
-Remaining gaps: the T2MK layer `+12` selector is read but its meaning (projection
-axis vs native draw-type) is not separated; no hole/visibility record was found in
-the sampled data and none is rendered; Archosaur high-resolution surfaces and road
-detail were not surveyed because they need more of `maps/world` than was pulled.
+Production integration **Partly** — layer selection, mask channels, mask sizes and
+the four source dimensions are driven from real archive and T2MK data; no hole or
+visibility-flag path exists to wire up.
+Native evidence **Yes for the negatives** (they are what blocks the point):
+`0x7a1520`/`0x7a178c` (T2MK), `0x7a255e`/`0x7a2776` (consumers), `0x77f180`
+(layer record hand-off).
+Tests executed and results: the `.trn2` files were decoded in full to find the
+special-surface records the point needs. A `.trn2` is
+`{magic "2NRT", version 1, x_size f32, z_size f32, region_width f32, ...}` with two
+offset/count pairs naming a **texture table** (162 entries in `world.trn2`, 88
+regions) and a **region-name table** (`world_1`..`world_88`), and the name tables end
+exactly at EOF with **no trailer**. `tools/material-check.rs` already reads those same
+fields (36/52/72/80), which corroborates the layout.
+**There is no hole, visibility-flag or special-surface record anywhere in it.** The
+`.t2bk` block header was also re-examined for the `block+0x74` visibility byte; its
+six-float prefix is not yet decoded and is registered rather than guessed.
+Remaining gaps: holes and `block+0x74` visibility are **not invented** — no record in
+the client data examined so far describes them, and this register entry stands until
+one is found. Archosaur high-resolution surfaces are not claimed: the census shows
+only four source dimensions, with a single 1024x1024 source in the whole terrain set.
 
 **P2.09 — multi-view consistency and CI regressions.**
 Task: keep terrain consistent across main, reflection, clipped refraction, minimap
