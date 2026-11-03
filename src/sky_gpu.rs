@@ -413,7 +413,12 @@ impl SkyGpu {
             time: [frame.hour, frame.night_weight, 0., 0.],
             celestial: frame.sun,
             celestial2: frame.moon,
-            background: [frame.background[0], frame.background[1], frame.background[2], 1.],
+            background: [
+                frame.background[0],
+                frame.background[1],
+                frame.background[2],
+                1.,
+            ],
         };
         queue.write_buffer(
             if reflected {
