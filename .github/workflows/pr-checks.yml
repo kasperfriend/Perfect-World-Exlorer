@@ -48,7 +48,7 @@ jobs:
           cargo check --locked --bins --message-format short > "$RUNNER_TEMP/build.log" 2>&1
           status=$?
           if [ "$status" -ne 0 ]; then
-            summary="$(grep -E '(^[^ ]+\\.rs:[0-9]+:[0-9]+: (error|warning)|^error|^warning:)' "$RUNNER_TEMP/build.log" | head -80 | tr '\\n' ';' | cut -c1-3000)"
+            summary="$(grep -E '(^[^ ]+\.rs:[0-9]+:[0-9]+: (error|warning)|^error|^warning:)' "$RUNNER_TEMP/build.log" | head -80 | tr '\n' ';' | cut -c1-3000)"
             echo "::error title=Rust build diagnostics::$summary"
             cat "$RUNNER_TEMP/build.log"
             exit "$status"
