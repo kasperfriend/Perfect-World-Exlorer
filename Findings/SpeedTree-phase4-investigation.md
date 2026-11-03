@@ -56,6 +56,18 @@ order, which is the cache type ID. This is not an enumeration of instances.
   (`0x10022300`) has a separate drop-to-billboard branch. This is not yet a
   proof of alpha transitions, hysteresis or what the client actually draws.
   `GetTransitionValues` is at `0x100254f0`, `GetGeometry` at `0x10024680`.
+  The isolated getters were subsequently emulated using synthetic structures:
+  `PYTHONPATH=.cache/py python3 tools/speedtree/probe_discrete_lod_unicorn.py google_drive/speedtreert.dll`.
+  For three levels with drop-to-billboard disabled, branch, frond and leaf
+  produce indices 0 at level 0.7, 1 at 0.6, and 2 at 0.3. With leaf
+  drop-to-billboard enabled **and** a positive billboard count, the leaf
+  getter uses an extra slot: level 0.25 and 0 return index 3; clearing either
+  prerequisite restores index 2 at 0.25. The probe substitutes a small x87
+  `_ftol` CRT routine and has not been independently checked on Windows.
+  An index 3 here is not proof the client renders a billboard: the client
+  still needs to be traced through its visibility and draw paths. The client
+  calls `SetDropToBillboard` at `0x6562db` with EDI; determining its value
+  and all other call-site conditions remains necessary.
 * At `0x6561d9`, `0x6561e6`, `0x6561f3` the client sets all three wind
   methods to enum 2, and at `0x656200` sets one leaf rocking group. This
   alone does not prove that branch/frond vertices move at runtime. The
