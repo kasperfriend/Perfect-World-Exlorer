@@ -264,10 +264,20 @@ with `texture TEX_NORMAL 0 Textures\nature\sun.bmp`, `...\moon.tga` and
 `...\sunshine.bmp`. So each quad is texture × vertex-diffuse × texture-factor,
 exactly the `fade << 24` alpha the render code packs: the disc's coverage comes
 from the texture's alpha times the fade, and the texture factor provides the
-per-state tint. `sunshine.sdr` is a **third quad** the client draws (the glow
-around the disc) which this viewer does not draw yet; the discs' blend mode is a
-render state from the abstraction layer at `0x77bdb0`, not part of the effect
-file, so additive-versus-alpha for `sun.bmp` is still the viewer's choice.
+per-state tint. The glow is not a separate size: `0x4b3e00` builds the sun's stage-1 factor from
+the night strength, `factor = (1.0 - [+0x70]) * 5.0` (`ds:0x8d5c28` = 1.0,
+`ds:0x8db0f8` = 5.0), times `0.8` (`ds:0x8d62dc`) while `[+0x74]` selects the
+night set, and multiplies the `+0x44` light colour by it before submission; a
+non-finite strength takes the literal `1.0` branch at `0x4b3e09`. The moon's
+block (`0x4b4049`) instead halves its `+0x48` colour and scales nothing. That
+rule is reproduced by `sky_celestial::glow_texture_factor`, which is tested but
+not yet consumed by the shader.
+
+No render-state call exists in the celestial render: `0x77bd00` is the only
+`SetRenderState` wrapper (`vtable+0xc8`) and nothing in `0x4b3e00`–`0x4b41ee`
+calls it, so the discs inherit the enclosing pass's blend state. Additive versus
+alpha for `sun.bmp` therefore still rests on the asset formats, not on recovered
+state.
 
 ### 3.2 The solar-flare pipeline (`CECSunMoon::Init`) — not implemented
 
@@ -277,12 +287,18 @@ The Sun/Moon object owns far more than two quads. Its init strings (`0x95a900`�
 *flare alpha accumulation target*, the pixel shader `shaders\ps\solarflare_14.txt`
 and the textures `flares.bmp`, `sunflare.bmp`, `moonflare.bmp`.
 
-`shaders.pck` holds that program: a `ps.1.4` shader (467 bytes) that samples six
-flare-alpha textures `t0..t5`, accumulates their alpha with weight `0.4` each,
+`shaders.pck` holds that program (`ps/solarflare_14.txt`, 467 bytes): it samples
+six flare-alpha textures `t0..t5`, adds their alphas with weight `0.4` each,
 `saturate`s, multiplies the sum into `c0.rgb` and passes `c0.a` through — the fade
-constant the render code supplies. Combined with the accumulation target this is a
-screen-space bloom-flare, and it is entirely absent from the viewer. Section 6
-item 4 lists it as the remaining P5.03 work rather than an approximation.
+constant the render code supplies. Init also builds the streams the pass feeds
+(`0x4b37d1`/`0x4b383b`/`0x4b38ac` create buffers with `0x36`, `0x5a` and `0x44`
+element counts, the last through the index-buffer helper `0x784f10`), and creates
+the accumulation target at `0x4b374b`–`0x4b3777` (`0x786960` on a `0x786840`
+object; the descriptor carries `1, 1, 1, 0x15, 0x4d`). The semantics of the
+individual create arguments are not yet pinned down, so the pass is documented
+rather than approximated: combined with `flares.bmp`/`sunflare.bmp`/
+`moonflare.bmp` this is a screen-space bloom-flare and it is entirely absent from
+the viewer. Section 6 item 4 lists it as the remaining P5.03 work.
 
 ---
 
@@ -369,13 +385,16 @@ Time boundaries covered: 00:00, 01:30, 03:30, 12:00, 18:00, 20:00, 21:00, 24:00.
    frame and rebuilds the texture transform through `0x789ec0`/`0x789f20`
    (half-angle 0.5). The rate is set from a config/region value that is not yet
    identified, so the viewer holds rotation at 0 instead of inventing a drift.
-4. **Disc blending, the sun-shine quad and the flare pipeline.** `sun.sdr` /
-   `moon.sdr` / `sunshine.sdr` are recovered (section 3.1) and match the viewer's
-   texture × fade alpha, but their blend mode lives in the render-state
-   abstraction (`0x77bdb0`) and is still the viewer's choice, `sunshine.sdr` has no
-   quad in the viewer, and the whole flare pipeline of section 3.2 — three extra
-   streams, an off-screen alpha accumulation target and the `ps.1.4` flare shader
-   — is unimplemented. This is the remaining P5.03 work.
+4. **Disc blending and the flare pipeline.** `sun.sdr` / `moon.sdr` /
+   `sunshine.sdr` are recovered (section 3.1) and match the viewer's texture ×
+   fade alpha; the glow factor expression is reproduced and tested, but the
+   shader does not consume it yet. The celestial render issues no
+   `SetRenderState` call at all (`0x77bd00` is the only wrapper and it is not
+   reached from `0x4b3e00`–`0x4b41ee`), so the blend state is inherited and
+   additive-versus-alpha for `sun.bmp` is still unproven. The whole flare
+   pipeline of section 3.2 — three buffers, an off-screen alpha accumulation
+   target, three flare textures and the `ps.1.4` program — is documented but not
+   implemented. This is the remaining P5.03 work.
 5. **Night strength consumer.** `+0x70` (up to 1.75 before 03:00) feeds the
    lighting record path (`0x79aeb0`), not the texture weights. The viewer's
    lighting is owned elsewhere and is not wired to it yet; this is also why the

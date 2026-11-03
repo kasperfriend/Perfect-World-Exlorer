@@ -117,6 +117,38 @@ pub fn angular_radius() -> f32 {
     (HALF_EXTENT / DISTANCE).atan()
 }
 
+/// Gain the native path multiplies the sun's `+0x44` light colour by
+/// (`ds:0x8db0f8` = 5.0).
+pub const GLOW_GAIN: f32 = 5.0;
+/// Reference value the night strength `+0x70` is subtracted from
+/// (`ds:0x8d5c28` = 1.0).
+pub const GLOW_REFERENCE: f32 = 1.0;
+/// Scale applied to the factor while the night flag `+0x74` selects the night
+/// set (`ds:0x8d62dc` = 0.8).
+pub const GLOW_NIGHT_SCALE: f32 = 0.8;
+
+/// Texture factor the native path hands to the effect's stage-1 `TA_TFACTOR`
+/// modulation (`0x4b3e00`–`0x4b3e39`).
+///
+/// The code tests the strength for unordered (NaN) first and falls back to the
+/// literal `1.0` (`mov dword [esp+0x10], 0x3f800000`); otherwise it computes
+/// `(1.0 - strength) * 5.0` and, when `[+0x74] == 1.0`, multiplies by `0.8`.
+/// The client does not clamp the result: at the 1.75 midnight strength the
+/// factor is negative and the hardware saturates it away when the colour is
+/// modulated, which is why the glow is invisible while the sun is down.
+#[allow(dead_code)]
+pub fn glow_texture_factor(night_strength: f32, night_set: bool) -> f32 {
+    if !night_strength.is_finite() {
+        return 1.0;
+    }
+    let factor = (GLOW_REFERENCE - night_strength) * GLOW_GAIN;
+    if night_set {
+        factor * GLOW_NIGHT_SCALE
+    } else {
+        factor
+    }
+}
+
 /// Unit direction of a disc from its elevation and the shared azimuth.
 pub fn direction(elevation: f32, azimuth: f32) -> [f32; 3] {
     let (sin_e, cos_e) = elevation.sin_cos();
@@ -288,6 +320,23 @@ mod tests {
                 fade: 0.0
             })
         );
+    }
+
+    #[test]
+    fn glow_texture_factor_follows_the_native_expression() {
+        // Daytime: strength 0, day set -> the full 5x gain.
+        assert_eq!(glow_texture_factor(0.0, false), 5.0);
+        // Same clock with the night set selected -> 80 percent of it.
+        assert!((glow_texture_factor(0.0, true) - 4.0).abs() < 1e-6);
+        // 18:00: strength 0 -> 5.0; 21:00: strength 1 -> 0.
+        assert!(glow_texture_factor(0.5, false) > 0.0);
+        assert_eq!(glow_texture_factor(1.0, false), 0.0);
+        // Midnight strength 1.75 overdrives it negative; the native code leaves
+        // that to the modulator saturating, and so does this function.
+        assert!((glow_texture_factor(1.75, false) + 3.75).abs() < 1e-6);
+        // A non-finite strength takes the literal 1.0 branch.
+        assert_eq!(glow_texture_factor(f32::NAN, true), 1.0);
+        assert_eq!(glow_texture_factor(f32::INFINITY, false), 1.0);
     }
 
     #[test]
