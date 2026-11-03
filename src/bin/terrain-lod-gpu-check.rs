@@ -34,7 +34,7 @@ fn main() {
         label: Some("actual terrain vertex shaders"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
-    let fragment=device.create_shader_module(wgpu::ShaderModuleDescriptor{label:None,source:wgpu::ShaderSource::Wgsl("@fragment fn fs(@location(0) world:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) @interpolate(flat) distant:f32,@location(3) refraction:vec2<f32>)->@location(0) vec4<f32>{let _=world+vec3<f32>(refraction,0.);return vec4<f32>(normal*0.4+vec3<f32>(0.5),distant);}".into())});
+    let fragment=device.create_shader_module(wgpu::ShaderModuleDescriptor{label:None,source:wgpu::ShaderSource::Wgsl("@fragment fn fs(@location(0) world:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) @interpolate(flat) distant:f32,@location(3) refraction:vec2<f32>)->@location(0) vec4<f32>{_ = world+vec3<f32>(refraction,0.);return vec4<f32>(normal*0.4+vec3<f32>(0.5),distant);}".into())});
     const NEAR: [wgpu::VertexAttribute; 5] =
         wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4,4=>Float32];
     const FAR: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0=>Float32x3,1=>Snorm8x4];
