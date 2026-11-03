@@ -667,9 +667,9 @@ const ATLAS_ORDER: [&str; 3] = ["01.bmp", "02.bmp", "roof.bmp"];
 /// The three `sky_image` values the retail client ships, used when
 /// `configs/element_client.cfg` is absent or unreadable.
 pub(crate) const SKY_DEFAULTS: [&str; 3] = [
-    "Sky\clear\Roof.bmp",
-    "Sky\clear\01.bmp",
-    "Sky\clear\02.bmp",
+    "Sky\\clear\\Roof.bmp",
+    "Sky\\clear\\01.bmp",
+    "Sky\\clear\\02.bmp",
 ];
 
 /// Read `sky_image01..03` out of `configs/element_client.cfg` (`[DefEnv]`).
