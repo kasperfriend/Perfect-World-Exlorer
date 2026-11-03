@@ -650,7 +650,9 @@ fn main() {
             ([-0.2, -0.3, 0.5], -0.3, u),
             ([-0.8, 0.3, 0.5], 0.3 + wind, v),
         ] {
-            let eye = [3., 2., 1.];
+            // The fixture eye, exactly as the original reference expansion
+            // reads it off the pixel probe: (-3, 2, 1).
+            let eye = [-3., 2., 1.];
             let displaced = [pos[0], displaced_y, pos[2]];
             factor += if bmd {
                 refraction_fog::bmd_transmittance(pos, eye, plane) * w
