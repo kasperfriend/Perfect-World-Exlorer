@@ -179,12 +179,7 @@ impl RenderScale {
     /// Bilinearly present the scaled world into the full-resolution composition
     /// view. Runs after `Renderer::render` and before the UI pass, which loads
     /// this result with `LoadOp::Load`.
-    pub fn blit(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        target: &wgpu::TextureView,
-    ) {
+    pub fn blit(&self, device: &wgpu::Device, queue: &wgpu::Queue, target: &wgpu::TextureView) {
         let source = self.view();
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("resolution scale source"),

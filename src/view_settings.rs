@@ -348,9 +348,18 @@ mod tests {
                 s.resolution_scale
             );
         }
-        assert_eq!(ViewSettings::decode("resolution_scale=0").resolution_scale, 10.);
-        assert_eq!(ViewSettings::decode("resolution_scale=999").resolution_scale, 200.);
-        assert_eq!(ViewSettings::decode("resolution_scale=NaN").resolution_scale, 100.);
+        assert_eq!(
+            ViewSettings::decode("resolution_scale=0").resolution_scale,
+            10.
+        );
+        assert_eq!(
+            ViewSettings::decode("resolution_scale=999").resolution_scale,
+            200.
+        );
+        assert_eq!(
+            ViewSettings::decode("resolution_scale=NaN").resolution_scale,
+            100.
+        );
     }
     #[test]
     fn every_independent_post_effect_activates_the_renderer_chain() {
