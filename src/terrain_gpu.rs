@@ -278,7 +278,7 @@ impl TerrainGpu {
                     break;
                 }
                 let next = side / 2;
-                level = match img.levels.get(mip + 1) {
+                level = match img.levels.get(mip as usize + 1) {
                     // Authored level: use it as-is when it matches the slot size.
                     Some(authored)
                         if authored.width as usize == next && authored.height as usize == next =>
