@@ -132,7 +132,10 @@ Workflow: `.github/workflows/pr-checks.yml` (`PR checks and Windows build`).
 
 | Run | Head | Result | Jobs |
 |---|---|---|---|
-| [41650307251](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41650307251) | `078fe69` (final, this report) | **success** | both jobs success |
+| [41713431807](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41713431807) | `14a9237` (final: recovered clock, seam check, decision) | **success** | `Rust checks and tests (Linux)` job `126187151390` success (all steps, including the new seam check and 18 standalone tests); `Windows executable (x64)` job `126187151770` success |
+| [41712740918](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41712740918) | `1bdaeb5` | **success** | both jobs success (first run with the recovered clock) |
+| [41690781849](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41690781849) | `b86bbd3` | failure | `Check formatting` only; the new tests also failed to compile standalone (fixed in `1bdaeb5`) |
+| [41650307251](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41650307251) | `078fe69` | **success** | both jobs success |
 | [41649717773](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41649717773) | `0d6be4f` | **success** | both jobs success |
 | [41649136848](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41649136848) | `a78c698` (includes this report) | **success** | both jobs success |
 | [41648372049](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41648372049) | `28472c8` | **success** | `Rust checks and tests (Linux)` job `125959650883` success; `Windows executable (x64)` success |
