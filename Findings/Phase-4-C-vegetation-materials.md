@@ -1,5 +1,7 @@
 # Phase 4-C — vegetation materials, authored mips, and CI
 
+Updated: 3 November 2026.
+
 ## Scope and preservation decision
 
 This change is limited to vegetation texture materials and regression wiring. It does not change tree geometry, leaf animation, grass placement, or grass-wind internals. The existing tree render path remains available and is still the default.
@@ -16,7 +18,7 @@ The opt-in experiment uploads authored lower mip levels where the atlas can isol
 | Branch | Same explicit unknown sampler tuple as bark. | Linear mag/min/mip; clamp; anisotropy 16. | Same as bark. | Runtime threshold from SGeometry `+0x38` (`0x656bf5..0x656c01`); legacy 0.5 retained, native pair unsupported. |
 | Frond | Same explicit unknown sampler tuple as bark. | Linear mag/min/mip; clamp; anisotropy 16. | Same as bark. | Runtime threshold from SGeometry `+0x38` (`0x656bf5..0x656c01`); legacy 0.5 retained, native pair unsupported. |
 | Leaf/composite | Same explicit unknown sampler tuple as bark. | Linear mag/min/mip; clamp; anisotropy 16. | Same as bark. | Runtime threshold from SGeometry `+0x74` (`0x656d3e..0x656d4a`); legacy 0.5 retained, native pair unsupported. |
-| Grass | MAG/MIN/MIP and anisotropy descriptor unknown. Native addressing evidence: stage 0 U/V WRAP, stages 1/2 CLAMP (`0x65127a..0x65129c`). Current world atlas uses the shared clamped 16x sampler, so the native-vs-viewer address/sampler combination remains explicitly unsupported. | Shared world sampler: linear mag/min/mip; clamp; anisotropy 16. | Upload authored levels 1–7 only for a square, exact-size atlas slot; rectangular or resampled chains fall back to the existing coverage-preserving generator and emit a warning. | **GREATER, alpha reference 84** (`0x652129`, `0x652361..0x652371`), confirmed exact. The shader's existing alpha value remains 84/255. |
+| Grass | MAG/MIN/MIP and anisotropy descriptor unknown. Native addressing evidence: stage 0 U/V WRAP, stages 1/2 CLAMP (`0x65127a..0x65129c`). Current world atlas uses the shared clamped 16x sampler, so the native-vs-viewer address/sampler combination remains explicitly unsupported. | Shared world sampler: linear mag/min/mip; clamp; anisotropy 16. | Opt-in path uploads authored levels 1–7 for square or rectangular native-size content, including non-power-of-two dimensions when the DDS chain matches the expected floor-halved sizes. It reserves a padded rectangle, preserves level 0 without resampling, and uses independent X/Y UV extents. Truncated/malformed, atlas-reduced, or deeper-tail chains still fall back or warn. | **GREATER, alpha reference 84** (`0x652129`, `0x652361..0x652371`), confirmed exact. The shader's alpha test remains exactly 84/255; a separate grass vertex field carries the Y extent so the alpha-reference value remains unchanged. |
 
 **Atlas limit:** tree and grass atlas textures expose LODs 0–7. Levels deeper than LOD 7 are retained in the decoded cache but cannot be isolated per packed tile because the minimum 128-pixel tile reaches one texel at LOD 7. The current atlas cannot preserve those tail levels without cross-tile collisions. Any such tail is logged, not silently described as uploaded.
 
@@ -25,11 +27,11 @@ The opt-in experiment uploads authored lower mip levels where the atlas can isol
 ## Preservation proof and diagnostics
 
 - Default setting is false and has a round-trip/default test in `src/view_settings.rs`.
-- The default tree path continues to generate the atlas mips and use the existing 16x sampler. The default grass path uses the same existing alpha-coverage generator. The viewer's legacy tree alpha threshold stays 0.5; grass stays 84/255.
+- The default tree path continues to generate the atlas mips and use the existing 16x sampler. The default grass path keeps its square slots and the same alpha-coverage generator; the authored-mip opt-in may use exact rectangular/native-size slots. Its shader keeps the exact GREATER/84 test (84 fails, 85 passes); a separate grass vertex field carries the Y extent without repurposing the alpha-reference value.
 - The regional tree-lighting switch and reflection submission are untouched by this change.
 - `tree-lod-gpu-check` remains the baseline synthetic regression for LOD transitions, wind/time variation, regional RGB, and default-lighting preservation.
 - `grass-instance-gpu-check` remains wired for the integrated grass instance path (including placement/wind behavior).
-- `grass-gpu-mip-check` is extended to read back and compare the exact authored LOD-7 payload in addition to its existing independent-tile/coverage checks.
+- `grass-gpu-mip-check` reads back and compares exact square and rectangular/non-power-of-two authored LOD-7 payloads in addition to its independent-tile/coverage checks.
 - `tree-authored-mip-gpu-check` exercises the opt-in `FarTrees::new(..., authored_mips=true)` upload path with synthetic authored chains. The asset-dependent `tree-gpu-mip-check` remains excluded with a named reason because CI has no user `trees.pck` and baked PWTREE cache.
 - `vegetation_material.rs` tests the GREATER/84 boundary, default sampler/cutout values, generated-vs-authored distinction, runtime tree-cutout rejection, and explicit sampler gaps. The module is included in both dependency-free core-test loops.
 
@@ -54,6 +56,7 @@ The sandbox has no local `cargo`, `rustc`, or `rustfmt`; Rust compilation, Rust 
 ## Exact changed files
 
 - `.github/workflows/pr-checks.yml`
+- `Findings/Eight-phase-reassessment-2026-11-02.md`
 - `Findings/Phase-4-C-vegetation-materials.md`
 - `src/bin/grass-check.rs`
 - `src/bin/grass-gpu-mip-check.rs`
@@ -67,6 +70,7 @@ The sandbox has no local `cargo`, `rustc`, or `rustfmt`; Rust compilation, Rust 
 - `src/far_trees_gpu.rs`
 - `src/gpu.rs`
 - `src/grass.rs`
+- `src/grass_instances.rs`
 - `src/grass_mips.rs`
 - `src/main.rs`
 - `src/trees.rs`
@@ -81,6 +85,5 @@ The sandbox has no local `cargo`, `rustc`, or `rustfmt`; Rust compilation, Rust 
 
 1. Native material sampler tuples (MAG/MIN/MIP, per-stage addressing, anisotropy) are not retained in the vegetation code path; the viewer sampler is preserved rather than claimed as an exact match.
 2. Tree alpha references are runtime SpeedTreeRT SGeometry fields and were not serialized by PWTREE05/06/07. The corresponding DLL bake/probe cannot be run in this sandbox (no Wine or MinGW toolchain), so tree thresholds remain explicitly unsupported.
-3. Grass is packed into square atlas tiles and shares the world sampler. Rectangular/resampled grass authored chains cannot be represented faithfully in this atlas and use generated fallback mips.
-4. Atlas LODs beyond 7 cannot be kept isolated per tile; deeper authored tail levels remain cached but are not uploaded.
-5. Tree regional lighting remains the existing opt-in approximation; native per-material lighting constants are not recovered. Reflection submission was left unchanged and has no new standalone vegetation-reflection GPU diagnostic.
+3. Authored tree/grass mip tails beyond atlas LOD 7 cannot be isolated per packed tile; deeper levels remain cached but are not uploaded. Grass chains whose native-size rectangle cannot fit the current atlas still take the logged generated fallback.
+4. Tree regional lighting remains the existing opt-in approximation; native per-material lighting constants are not recovered. Reflection submission remains in the production reflection/refraction path, but it lacks a standalone vegetation reflection readback comparison against client output.

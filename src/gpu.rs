@@ -483,6 +483,7 @@ fn build(
     let mut grass_builder = crate::grass_instances::Builder::default();
     let mut grass_sample = None;
     let mut grass_slots: HashMap<(String, u8), crate::texture_atlas::Slot> = HashMap::new();
+    let mut grass_authored: HashMap<(String, u8), Vec<image::RgbaImage>> = HashMap::new();
     let mut grass_mips = Vec::new();
     // Reserve at least one 128px slot for every distinct nearby material, so
     // a few large textures cannot starve all later grass types.
@@ -526,29 +527,7 @@ fn build(
             let slot = if let Some(&slot) = grass_slots.get(&material_key) {
                 slot
             } else {
-                // Keep the largest source dimension; the square slot keeps the
-                // grass shader's existing per-material alpha threshold intact.
-                let n = (img.width().max(img.height()) as usize)
-                    .next_power_of_two()
-                    .clamp(TEX, ATLAS);
-                grass_pending.remove(&material_key);
-                let reserve = grass_pending.len().min((ATLAS / TEX).pow(2) - 1);
-                let Some(slot) = atlas_allocator.allocate(n, n, reserve, true) else {
-                    eprintln!("Grass atlas full: {}", mesh.texture);
-                    continue;
-                };
-                let ox = slot.x;
-                let oy = slot.y;
-                for py in 0..slot.h {
-                    for px in 0..slot.w {
-                        let x = (px as u32 * img.width() / slot.w as u32).min(img.width() - 1);
-                        let y = (py as u32 * img.height() / slot.h as u32).min(img.height() - 1);
-                        let o = ((oy + py) * ATLAS + ox + px) * 4;
-                        atlas[o..o + 4].copy_from_slice(&img.get_pixel(x, y).0);
-                    }
-                }
-                grass_slots.insert(material_key, slot);
-                let authored = if vegetation_authored_mips {
+                let mut authored = if vegetation_authored_mips {
                     t.grass
                         .texture_mips
                         .get(&mesh.texture)
@@ -562,8 +541,8 @@ fn build(
                             }
                             crate::grass_mips::authored_chain(
                                 mips,
-                                slot.w as u32,
-                                slot.h as u32,
+                                img.width(),
+                                img.height(),
                                 7,
                             )
                             .ok()
@@ -571,18 +550,84 @@ fn build(
                 } else {
                     None
                 };
-                if vegetation_authored_mips && authored.is_none() {
+                grass_pending.remove(&material_key);
+                let reserve = grass_pending.len().min((ATLAS / TEX).pow(2) - 1);
+                // Exact authored chains reserve a padded power-of-two rectangle
+                // but keep the source pixels at native size in its upper-left
+                // corner. This supports rectangular and non-power-of-two DDS
+                // chains without resampling either level 0 or the lower mips.
+                let authored_slot = authored.as_ref().and_then(|_| {
+                    let w = img.width() as usize;
+                    let h = img.height() as usize;
+                    (w <= ATLAS && h <= ATLAS)
+                        .then(|| atlas_allocator.allocate(w, h, reserve, false))
+                        .flatten()
+                });
+                if authored.is_some() && authored_slot.is_none() {
                     eprintln!(
-                        "P4.07 grass {}: authored mip chain does not fit the square {}x{} atlas slot; keeping generated mips for this tile",
-                        mesh.texture, slot.w, slot.h
+                        "P4.07 grass {}: native-size authored rectangle does not fit; using the approved generated-mip fallback",
+                        mesh.texture
                     );
+                    authored = None;
                 }
-                grass_mips.push((slot, alpha_ref, authored));
+                let slot = if let Some(slot) = authored_slot {
+                    slot
+                } else {
+                    let n = (img.width().max(img.height()) as usize)
+                        .next_power_of_two()
+                        .clamp(TEX, ATLAS);
+                    let Some(slot) = atlas_allocator.allocate(n, n, reserve, true) else {
+                        eprintln!("Grass atlas full: {}", mesh.texture);
+                        continue;
+                    };
+                    slot
+                };
+                let ox = slot.x;
+                let oy = slot.y;
+                if authored.is_some() {
+                    let source = img.as_raw();
+                    for y in 0..img.height() as usize {
+                        let dst = ((oy + y) * ATLAS + ox) * 4;
+                        let src = y * img.width() as usize * 4;
+                        atlas[dst..dst + img.width() as usize * 4]
+                            .copy_from_slice(&source[src..src + img.width() as usize * 4]);
+                    }
+                } else {
+                    for py in 0..slot.h {
+                        for px in 0..slot.w {
+                            let x = (px as u32 * img.width() / slot.w as u32)
+                                .min(img.width() - 1);
+                            let y = (py as u32 * img.height() / slot.h as u32)
+                                .min(img.height() - 1);
+                            let o = ((oy + py) * ATLAS + ox + px) * 4;
+                            atlas[o..o + 4].copy_from_slice(&img.get_pixel(x, y).0);
+                        }
+                    }
+                }
+                if let Some(chain) = authored {
+                    if !chain.is_empty() {
+                        grass_authored.insert(material_key.clone(), chain.clone());
+                    }
+                    grass_mips.push((slot, alpha_ref, Some(chain)));
+                } else {
+                    grass_mips.push((slot, alpha_ref, None));
+                }
+                grass_slots.insert(material_key.clone(), slot);
                 slot
             };
             let ox = slot.x as f32 / ATLAS as f32;
             let oy = slot.y as f32 / ATLAS as f32;
-            let scale = slot.w as f32 / ATLAS as f32;
+            let (scale_x, scale_y) = if grass_authored.contains_key(&material_key) {
+                (
+                    img.width() as f32 / ATLAS as f32,
+                    img.height() as f32 / ATLAS as f32,
+                )
+            } else {
+                (
+                    slot.w as f32 / ATLAS as f32,
+                    slot.h as f32 / ATLAS as f32,
+                )
+            };
             let alpha = 84. / 255.;
             let key = (area.type_id, mesh_index);
             if !grass_builder.contains(key) {
@@ -600,8 +645,8 @@ fn build(
                     .map(|v| Vertex {
                         pos: v.pos,
                         normal: v.normal,
-                        uv: [ox + v.uv[0] * scale, oy + v.uv[1] * scale],
-                        color: [ox, oy, scale, alpha],
+                        uv: [ox + v.uv[0] * scale_x, oy + v.uv[1] * scale_y],
+                        color: [ox, oy, scale_x, alpha],
                         kind: 3.75,
                         diffuse: if typ.sight_range.is_finite() && typ.sight_range > 0. {
                             typ.sight_range.to_bits()
@@ -612,7 +657,7 @@ fn build(
                             .to_bits(),
                     })
                     .collect();
-                grass_builder.mesh(key, mesh_vertices, mesh.indices.clone());
+                grass_builder.mesh_with_scale_y(key, mesh_vertices, mesh.indices.clone(), scale_y);
             }
             for placement in &area.placements {
                 let x = area.center[0] - half_x
