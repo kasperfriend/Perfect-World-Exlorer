@@ -288,6 +288,7 @@ impl SkyGpu {
                     time: [12., 0., 0., 0.],
                     celestial: [0.; 4],
                     celestial2: [0.; 4],
+                    background: [0.18, 0.32, 0.48, 1.],
                 }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             })
