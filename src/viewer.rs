@@ -370,9 +370,7 @@ fn render(
         })
         .collect();
     let margin = 0.5 * t.scene.block_size.max(0.);
-    let nearby = t
-        .scenery_residency
-        .select(&placements, [wx, wz], 2, margin);
+    let nearby = t.scenery_residency.select(&placements, [wx, wz], 2, margin);
     t.objects.load_ids(&nearby)?;
     eprintln!(
         "Software viewer scenery residency: {} resident, {} loads, {} evictions, {} distance culls",

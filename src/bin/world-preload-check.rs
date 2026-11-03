@@ -10,12 +10,12 @@ mod objects;
 mod pck;
 #[path = "../scene.rs"]
 mod scene;
+#[path = "../scenery_visibility.rs"]
+mod scenery_visibility;
 #[path = "../texture_atlas.rs"]
 mod texture_atlas;
 #[path = "../texture_resolution.rs"]
 mod texture_resolution;
-#[path = "../scenery_visibility.rs"]
-mod scenery_visibility;
 #[path = "../world_objects.rs"]
 mod world_objects;
 mod gpu {

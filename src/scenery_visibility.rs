@@ -193,11 +193,21 @@ pub const PRESETS: [[f32; 10]; 6] = [
     [
         1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0,
     ],
-    [140.0, 600.0, 80.0, 300.0, 40.0, 60.0, 60.0, 60.0, 300.0, 30.0],
-    [160.0, 600.0, 120.0, 300.0, 80.0, 120.0, 120.0, 120.0, 300.0, 30.0],
-    [200.0, 600.0, 140.0, 300.0, 40.0, 150.0, 150.0, 150.0, 300.0, 60.0],
-    [300.0, 600.0, 180.0, 300.0, 40.0, 220.0, 220.0, 220.0, 300.0, 60.0],
-    [400.0, 1000.0, 260.0, 500.0, 55.0, 260.0, 260.0, 260.0, 600.0, 80.0],
+    [
+        140.0, 600.0, 80.0, 300.0, 40.0, 60.0, 60.0, 60.0, 300.0, 30.0,
+    ],
+    [
+        160.0, 600.0, 120.0, 300.0, 80.0, 120.0, 120.0, 120.0, 300.0, 30.0,
+    ],
+    [
+        200.0, 600.0, 140.0, 300.0, 40.0, 150.0, 150.0, 150.0, 300.0, 60.0,
+    ],
+    [
+        300.0, 600.0, 180.0, 300.0, 40.0, 220.0, 220.0, 220.0, 300.0, 60.0,
+    ],
+    [
+        400.0, 1000.0, 260.0, 500.0, 55.0, 260.0, 260.0, 260.0, 600.0, 80.0,
+    ],
 ];
 
 pub fn ornament_distance(quality: u8) -> f32 {
@@ -291,7 +301,7 @@ impl RegionResidency {
 /// wind, celestial state and model playback once, then every secondary view
 /// (reflection, refraction, minimap, full map) reuses `elapsed` and a zero
 /// logic delta. The counters make an accidental extra tick visible in a test.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameSnapshot {
     pub elapsed: f32,
     pub logic_delta_ms: u32,
@@ -549,6 +559,9 @@ mod tests {
         assert_eq!(PRESETS[3][ORNAMENT_CLASS], 140.0);
         assert_eq!(PRESETS[4][ORNAMENT_CLASS], 180.0);
         assert_eq!(PRESETS[5][ORNAMENT_CLASS], 260.0);
-        assert_eq!(native::CLASS_DISTANCE_BASE + 4 * ORNAMENT_CLASS as u32, 0x951160);
+        assert_eq!(
+            native::CLASS_DISTANCE_BASE + 4 * ORNAMENT_CLASS as u32,
+            0x951160
+        );
     }
 }

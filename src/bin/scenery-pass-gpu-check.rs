@@ -59,11 +59,9 @@ fn expected(pass: Pass) -> [[u8; 4]; 3] {
     match pass {
         Pass::Reflection => [hidden, [0, 255, 0, 255], hidden],
         Pass::Refraction => [hidden, hidden, [0, 0, 255, 255]],
-        Pass::Main | Pass::Fog | Pass::Minimap | Pass::FullMap => [
-            [255, 0, 0, 255],
-            [0, 255, 0, 255],
-            [0, 0, 255, 255],
-        ],
+        Pass::Main | Pass::Fog | Pass::Minimap | Pass::FullMap => {
+            [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]]
+        }
     }
 }
 
@@ -127,10 +125,13 @@ fn cpu_regressions(production: &str) {
                 .unwrap_or_else(|e| panic!("unsupported recovered material: {e}"));
             assert!(state.kind > 0., "classified kind");
             assert!(
-                allows(pass, Visibility {
-                    reflect: true,
-                    refract: true
-                }),
+                allows(
+                    pass,
+                    Visibility {
+                        reflect: true,
+                        refract: true
+                    }
+                ),
                 "a fully visible placement must be admitted in {pass:?}"
             );
             rows += 1;
@@ -204,11 +205,7 @@ fn main() {
         multiview: None,
     });
 
-    let colors = [
-        [1.0f32, 0., 0., 1.],
-        [0., 1., 0., 1.],
-        [0., 0., 1., 1.],
-    ];
+    let colors = [[1.0f32, 0., 0., 1.], [0., 1., 0., 1.], [0., 0., 1., 1.]];
     let mut vertices = Vec::new();
     let mut indices = Vec::new();
     let mut ranges = Vec::new();
@@ -323,5 +320,7 @@ fn main() {
         drop(bytes);
         read.unmap();
     }
-    println!("::notice::hidden, reflect-only and refract-only placements are gated in all six passes");
+    println!(
+        "::notice::hidden, reflect-only and refract-only placements are gated in all six passes"
+    );
 }

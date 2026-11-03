@@ -1,7 +1,7 @@
 //! Experimental GPU world renderer: actual client terrain, static BMDs and water masks.
 //! Baked terrain material atlas, fixed lighting and flat water are not client parity.
-use crate::Terrain;
 use crate::scenery_visibility::{allows_class, ModelClass, Pass, Visibility};
+use crate::Terrain;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use std::{
@@ -1439,14 +1439,14 @@ impl Renderer {
         // AdjustEnvironment passes the frozen +0x490 logic tick to glow
         // (0x4214dc); do not resample wall time here or in any secondary view.
         self.world_glow.tick(camera.logic_delta_ms as i32);
-        let glow_parameters = frame.glow_parameters;
+        let glow_parameters = self.world_glow.parameters();
         self.post.set_glow_color(
             camera.bloom_tint,
             self.world_glow.brightness_fade(),
             camera.bloom_opacity_fade,
         );
-        let elapsed = frame.elapsed;
-        let elapsed64 = frame.elapsed64;
+        let elapsed = self.started.elapsed().as_secs_f32();
+        let elapsed64 = self.started.elapsed().as_secs_f64();
         let direction = camera.direction();
         let daylight = crate::environment::daylight(camera.time_of_day);
         let angle = (camera.time_of_day - 6.0) * std::f32::consts::PI / 12.0;
@@ -1546,7 +1546,7 @@ impl Renderer {
             if camera.area_grass_lightmaps { 1. } else { 0. },
             0.,
         ];
-        let grass_history = frame.grass_history;
+        let grass_history = self.grass_wind_state.history();
         let (fog_range, fog_color) = camera.fog_uniform();
         let active_fog = camera.active_fog();
         let active_fog_range = active_fog.range();
@@ -1555,7 +1555,11 @@ impl Renderer {
             0.,
             0.,
             1., // horizontal projection flip reverses winding
-            if camera.model_backface_culling { 0. } else { 1. },
+            if camera.model_backface_culling {
+                0.
+            } else {
+                1.
+            },
         ];
         let snapshot = FrameSnapshot {
             elapsed,
@@ -1861,7 +1865,10 @@ impl Renderer {
             minimap_matrix(camera.pos.x, camera.pos.z, range)
         };
         let frame = self.frame;
-        debug_assert!(frame.time_advances > 0, "minimap needs a main-frame snapshot");
+        debug_assert!(
+            frame.time_advances > 0,
+            "minimap needs a main-frame snapshot"
+        );
         let uniform = frame.uniform(
             matrix,
             [0., -1., 0., frame.daylight],
@@ -1884,7 +1891,11 @@ impl Renderer {
             &self.bind,
             false,
             false,
-            if full_world { Pass::FullMap } else { Pass::Minimap },
+            if full_world {
+                Pass::FullMap
+            } else {
+                Pass::Minimap
+            },
             None,
             None,
         );
@@ -1978,12 +1989,7 @@ impl Renderer {
             &crate::water_gpu::WaterUniform {
                 matrix: matrix.to_cols_array_2d(),
                 inverse_matrix: matrix.inverse().to_cols_array_2d(),
-                eye_time: [
-                    camera.pos.x,
-                    camera.pos.y,
-                    camera.pos.z,
-                    frame.elapsed,
-                ],
+                eye_time: [camera.pos.x, camera.pos.y, camera.pos.z, frame.elapsed],
                 size: [
                     w as f32,
                     h as f32,
@@ -2024,7 +2030,15 @@ impl Renderer {
             None,
         );
         let model_target = self.water.scene_raw();
-        self.draw_models(&mut e, &model_target, &scene_depth, &normal, camera, Pass::Main, true);
+        self.draw_models(
+            &mut e,
+            &model_target,
+            &scene_depth,
+            &normal,
+            camera,
+            Pass::Main,
+            true,
+        );
         self.water.copy_scene_to_refraction(&mut e);
         self.water.copy_depth(&mut e, &self.depth);
         self.water.blit(&mut e, scene_target);
