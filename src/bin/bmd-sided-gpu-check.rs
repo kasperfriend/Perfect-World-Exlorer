@@ -1,5 +1,27 @@
-//! Raster regression using the production BMD fragment shader and real face winding.
+//! Raster regression using the production BMD fragment shader and real face
+//! winding: single-sided, two-sided and mirrored-placement quads, plus the
+//! alpha-test cutout for baked scenery. Texels below the cutout threshold are
+//! discarded, so they write neither colour nor depth (water shows through a
+//! lily pad card and a canopy behind stays visible through the gaps); texels
+//! above it render opaque. The scenery pipeline stays unblended.
 use wgpu::util::DeviceExt;
+
+/// One case: `flip` is the projection winding parity (`camera.clip.z`),
+/// `disable` the culling-disabled flag (`camera.clip.w`), `alpha` the alpha
+/// channel of the bound 1x1 texture. The first four cases sweep culling with an
+/// opaque atlas; the last two probe the cutout on both sides of the 0.5
+/// threshold (`192` above, `64` below). A nonzero below-threshold alpha is used
+/// deliberately: under the old depth-writing SRCALPHA blend it wrote a faint
+/// colour, while the cutout discards it entirely.
+const CASES: [(f32, f32, u8); 6] = [
+    (0., 0., 255),
+    (1., 0., 255),
+    (0., 1., 255),
+    (1., 1., 255),
+    (0., 1., 192),
+    (0., 1., 64),
+];
+
 fn main() {
     let inst = wgpu::Instance::default();
     let adapter = pollster::block_on(inst.request_adapter(&Default::default())).expect("adapter");
@@ -19,16 +41,25 @@ fn main() {
         .split("\"#;")
         .next()
         .unwrap();
+    // Six quads: 0 single-sided CCW, 1 single-sided CW (index order reversed),
+    // 2 two-sided CCW, 3 two-sided CW, 4 single-sided placed by a mirrored
+    // basis (negative determinant: positions mirrored in X), 5 two-sided
+    // mirrored. The mirrored quads emulate `x = y.cross(z)` for an ornament
+    // whose placed basis has a negative determinant.
     let source = format!(
-        "{source}\n{}",
+        "{source}\n{}\n",
         r#"
 @vertex fn test_vs(@builtin(vertex_index) id:u32,@builtin(instance_index) inst:u32)->VOut {
  var o:VOut;
  var base=array<vec2<f32>,6>(vec2<f32>(0.,0.),vec2<f32>(1.,0.),vec2<f32>(0.,1.),vec2<f32>(1.,0.),vec2<f32>(1.,1.),vec2<f32>(0.,1.));
  var idx=id;
- if inst%2u==1u {if id%3u==1u {idx=id+1u;} else if id%3u==2u {idx=id-1u;}}
- let p=base[idx]; o.pos=vec4<f32>(-1.+0.5*(f32(inst)+p.x),-1.+2.*p.y,0.5,1.);
- o.normal=vec3<f32>(0.,1.,0.);o.uv=vec2<f32>(0.5);o.color=vec4<f32>(0.,0.,1.,1.);o.world=vec3<f32>(0.);o.diffuse=vec3<f32>(0.5);o.kind=select(2.,2.1,inst>=2u);return o;
+ if inst==1u || inst==3u {if id%3u==1u {idx=id+1u;} else if id%3u==2u {idx=id-1u;}}
+ var p=base[idx];
+ if inst>=4u {p=vec2<f32>(1.-p.x,p.y);}
+ o.pos=vec4<f32>(-1.+0.25*(f32(inst)+p.x),-1.+2.*p.y,0.5,1.);
+ o.normal=vec3<f32>(0.,1.,0.);o.uv=vec2<f32>(0.5);o.color=vec4<f32>(0.,0.,1.,1.);
+ o.world=vec3<f32>(0.);o.diffuse=vec3<f32>(0.5);
+ o.kind=select(2.,2.1,inst==2u || inst==3u || inst==5u);return o;
 }
 "#
     );
@@ -47,6 +78,10 @@ fn main() {
         fragment: Some(wgpu::FragmentState {
             module: &module,
             entry_point: "fs",
+            // The production `scenery_pipeline` is unblended: baked scenery is
+            // an alpha-test cutout, not a SRCALPHA blend (see gpu.rs). A blend
+            // here let transparent texels write depth and broke the water pass
+            // and stacked canopies.
             targets: &[Some(wgpu::ColorTargetState {
                 format: wgpu::TextureFormat::Rgba8Unorm,
                 blend: None,
@@ -72,24 +107,11 @@ fn main() {
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    q.write_texture(
-        atlas.as_image_copy(),
-        &[255, 255, 255, 255],
-        wgpu::ImageDataLayout {
-            offset: 0,
-            bytes_per_row: Some(4),
-            rows_per_image: Some(1),
-        },
-        wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        },
-    );
     let atlas_view = atlas.create_view(&Default::default());
     let sampler = d.create_sampler(&Default::default());
+    // 16 pixels per case, 128 wide keeps COPY_BYTES_PER_ROW_ALIGNMENT.
     let size = wgpu::Extent3d {
-        width: 64,
+        width: 128,
         height: 16,
         depth_or_array_layers: 1,
     };
@@ -104,7 +126,21 @@ fn main() {
         view_formats: &[],
     });
     let view = target.create_view(&Default::default());
-    for (flip, disable) in [(0., 0.), (1., 0.), (0., 1.), (1., 1.)] {
+    for (flip, disable, alpha) in CASES {
+        q.write_texture(
+            atlas.as_image_copy(),
+            &[255, 255, 255, alpha],
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
         let mut uniform = [0f32; 388];
         uniform[22] = flip;
         uniform[23] = disable;
@@ -133,7 +169,7 @@ fn main() {
         });
         let read = d.create_buffer(&wgpu::BufferDescriptor {
             label: None,
-            size: 4096,
+            size: 8192,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -155,7 +191,7 @@ fn main() {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &bind, &[]);
-            pass.draw(0..6, 0..4);
+            pass.draw(0..6, 0..6);
         }
         enc.copy_texture_to_buffer(
             target.as_image_copy(),
@@ -163,7 +199,7 @@ fn main() {
                 buffer: &read,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(256),
+                    bytes_per_row: Some(512),
                     rows_per_image: Some(16),
                 },
             },
@@ -176,20 +212,51 @@ fn main() {
         d.poll(wgpu::Maintain::Wait);
         rx.recv().unwrap().unwrap();
         let bytes = slice.get_mapped_range();
-        let pixels: Vec<bool> = (0..4)
-            .map(|i| bytes[(8 * 64 + i * 16 + 8) * 4] > 200)
-            .collect();
-        assert!(
-            pixels[2] && pixels[3],
-            "two-sided faces missing: {pixels:?}"
-        );
-        if disable == 1. {
-            assert!(pixels[0] && pixels[1]);
+        let reds: Vec<u8> = (0..6).map(|i| bytes[(8 * 128 + i * 16 + 8) * 4]).collect();
+        let pixels: Vec<bool> = reds.iter().map(|&red| red > 200).collect();
+        if alpha == 255 {
+            // Two-sided meshes are never dropped, mirrored or not (`CULLMODE(1)`
+            // at 0x7a98cf). Single-sided meshes keep only the front facing the
+            // camera; the mirrored placement reverses `front_facing` exactly as
+            // the negative-determinant basis did in the client.
+            let two_sided = [false, false, true, true, false, true];
+            let mut expected = [false; 6];
+            for i in 0..6 {
+                expected[i] = if disable != 0. || two_sided[i] {
+                    true
+                } else {
+                    // CCW quads face the camera when the projection is not
+                    // flipped; the mirrored instance is the opposite of its
+                    // cell neighbour.
+                    let mirrored = i >= 4;
+                    let ccw = !matches!(i, 1 | 3);
+                    (ccw != mirrored) == (flip == 0.)
+                };
+            }
+            assert_eq!(
+                pixels, expected,
+                "flip {flip}, culling disabled {disable}, opaque atlas {alpha}"
+            );
+        } else if alpha == 192 {
+            // Above the 0.5 cutout threshold the texel survives and is written
+            // opaque (culling is disabled, so all six quads must appear). A
+            // SRCALPHA blend would have landed below 255 here instead.
+            assert!(
+                reds.iter().all(|&red| red > 200),
+                "above-cutout scenery did not render opaque: {reds:?}"
+            );
         } else {
-            assert_ne!(pixels[0], pixels[1]);
-            assert_eq!(pixels[0], flip == 0.);
+            // Below the cutout threshold the fragment is discarded: it writes
+            // no colour and, crucially, no depth. This nonzero alpha (64) is
+            // the lily-pad/canopy case — under the old depth-writing SRCALPHA
+            // blend it left a faint square over the water and hid the canopy
+            // behind, and would have shown up here as a nonzero red.
+            assert!(
+                reds.iter().all(|&red| red == 0),
+                "below-cutout scenery still wrote the surface: {reds:?}"
+            );
         }
-        println!("projection flip {flip}, culling disabled {disable}: {pixels:?}");
+        println!("flip {flip} culled {disable} alpha {alpha}: {reds:?}");
         drop(bytes);
         read.unmap();
     }
