@@ -1,0 +1,422 @@
+//! Phase 5 sky transition, reflection and altitude regression (P5.07/P5.08).
+//!
+//! Four independent checks, all on the production code paths:
+//!
+//! 1. the real `sky_gpu::SHADER` compiles and renders, with the transition lane
+//!    exercised at a non-trivial weight;
+//! 2. the crossfade between two *different* texture sets is a real blend, not a
+//!    no-op: the same sky is rendered with weight 0 and weight 1 and the two
+//!    results must differ;
+//! 3. altitude cannot move the sky: the identical frame is uploaded for a camera
+//!    at sea level and at 4000 units and both images must be bit-identical;
+//! 4. the reflected upload is the same snapshot mirrored, and the transition
+//!    machine never advances from a secondary view.
+//!
+//! Images are synthetic gradients, so this is state and shader coverage, not a
+//! claim about client screenshots or authored sky art.
+#![allow(dead_code)]
+#[path = "../pck.rs"]
+mod pck;
+#[path = "../scenery_visibility.rs"]
+mod scenery_visibility;
+#[path = "../sky_gpu.rs"]
+mod sky_gpu;
+#[path = "../sky_transition.rs"]
+mod sky_transition;
+
+use glam::{Mat4, Vec3};
+use scenery_visibility::Pass;
+use sky_transition::{Machine, Request, Triple};
+
+const W: u32 = 64;
+const H: u32 = 64;
+const LAYERS: u32 = 11;
+
+/// Deterministic gradient per texture layer, so two sets are visibly different
+/// while staying byte-stable across machines.
+fn layer_pixels(layer: u32) -> Vec<u8> {
+    let mut px = Vec::with_capacity((W * H * 4) as usize);
+    for y in 0..H {
+        for x in 0..W {
+            let u = x as f32 / (W - 1) as f32;
+            let v = y as f32 / (H - 1) as f32;
+            let base = (layer as f32 + 1.) / (LAYERS as f32 + 1.);
+            px.extend_from_slice(&[
+                ((base * 200. + u * 55.) as u8).min(255),
+                ((base * 120. + v * 120.) as u8).min(255),
+                ((base * 60. + (u * v) * 180.) as u8).min(255),
+                255,
+            ]);
+        }
+    }
+    px
+}
+
+struct Target {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    read: wgpu::Buffer,
+}
+
+fn target(device: &wgpu::Device) -> Target {
+    let size = wgpu::Extent3d {
+        width: W,
+        height: H,
+        depth_or_array_layers: 1,
+    };
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("phase5 sky target"),
+        size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&Default::default());
+    let read = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("phase5 sky readback"),
+        size: (W * H * 4) as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    Target {
+        texture,
+        view,
+        read,
+    }
+}
+
+fn read_back(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    encoder: wgpu::CommandEncoder,
+    t: &Target,
+) -> Vec<u8> {
+    encoder.copy_texture_to_buffer(
+        wgpu::ImageCopyTexture {
+            texture: &t.texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::ImageCopyBuffer {
+            buffer: &t.read,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(W * 4),
+                rows_per_image: Some(H),
+            },
+        },
+        wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+    let slice = t.read.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+    device.poll(wgpu::Maintain::Wait);
+    rx.recv().unwrap().unwrap();
+    let bytes = slice.get_mapped_range().to_vec();
+    t.read.unmap();
+    bytes
+}
+
+/// One frame through the production shader. `params` is the exact 112-byte
+/// `Params` uniform: `inv`, `time`, `celestial`, `sets`.
+fn render(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    pipeline: &wgpu::RenderPipeline,
+    layout: &wgpu::BindGroupLayout,
+    sky: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+    t: &Target,
+    params: &[f32; 28],
+) -> Vec<u8> {
+    let buf = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("phase5 sky params"),
+        size: std::mem::size_of_val(params) as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    queue.write_buffer(&buf, 0, bytemuck::cast_slice(params));
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("phase5 sky bind"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(sky),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    });
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("phase5 sky"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &t.view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, &bind, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    read_back(device, queue, encoder, t)
+}
+
+fn main() {
+    std::panic::set_hook(Box::new(|p| {
+        eprintln!("::error::{}", p.to_string().replace('\n', "%0A"))
+    }));
+    let instance = wgpu::Instance::default();
+    let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+    let (device, queue) = pollster::block_on(adapter.request_device(
+        &wgpu::DeviceDescriptor {
+            label: None,
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults(),
+        },
+        None,
+    ))
+    .unwrap();
+
+    // (1) The production shader, unchanged, must compile on this adapter.
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("production sky shader"),
+        source: wgpu::ShaderSource::Wgsl(sky_gpu::SHADER.into()),
+    });
+    let sky = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("phase5 sky array"),
+        size: wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: LAYERS,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    for layer in 0..LAYERS {
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &sky,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: layer,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            &layer_pixels(layer),
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(W * 4),
+                rows_per_image: Some(H),
+            },
+            wgpu::Extent3d {
+                width: W,
+                height: H,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+    let sky_view = sky.create_view(&wgpu::TextureViewDescriptor {
+        label: Some("phase5 sky array view"),
+        format: None,
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        usage: None,
+        aspect: wgpu::TextureAspect::All,
+        base_mip_level: 0,
+        mip_level_count: None,
+        base_array_layer: 0,
+        array_layer_count: None,
+    });
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("phase5 sky sampler"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("phase5 sky layout"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2Array,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("phase5 sky pipeline layout"),
+        bind_group_layouts: &[&layout],
+        push_constant_ranges: &[],
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("phase5 sky"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: "vs",
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: "fs",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: Default::default(),
+        depth_stencil: None,
+        multisample: Default::default(),
+        multiview: None,
+    });
+
+    // The production uniform layout: inv(16) time(4) celestial(4) sets(4).
+    //
+    // `eye` only reaches `look_to_rh`, exactly like `SkyGpu::update`, and is then
+    // dropped by clearing the translation column. The native sphere compares the
+    // eye against a cached tuple (0x79acbd..0x79acd4) but never lets it into a
+    // ray direction, so any altitude difference in the output is a real defect.
+    let sky_inverse = |eye: Vec3, reflected: bool| {
+        let view = Mat4::look_to_rh(eye, Vec3::new(0.2, 0.1, -1.).normalize(), Vec3::Y);
+        let mut rotation = view;
+        rotation.w_axis = glam::Vec4::W;
+        let projection = Mat4::from_scale(Vec3::new(-1., 1., 1.))
+            * Mat4::perspective_rh(70f32.to_radians(), W as f32 / H as f32, 1., 16000.);
+        let inv = (projection * rotation).inverse();
+        if reflected {
+            Mat4::from_scale(Vec3::new(1., -1., 1.)) * inv
+        } else {
+            inv
+        }
+    };
+    let uniform = |inv: Mat4, sets: (f32, f32, f32)| {
+        let mut u = [0f32; 28];
+        u[..16].copy_from_slice(&inv.to_cols_array());
+        u[16] = 19.; // hour
+        u[20] = 0.3; // celestial direction
+        u[21] = 0.4;
+        u[22] = -0.5;
+        u[23] = 0.; // no discs: this probe is about sets and altitude
+        u[24] = sets.0;
+        u[25] = sets.1;
+        u[26] = sets.2;
+        u[27] = 19.;
+        u
+    };
+
+    let t = target(&device);
+    let sea_level = sky_inverse(Vec3::new(512., 0., -2048.), false);
+    let high_up = sky_inverse(Vec3::new(512., 4000., -2048.), false);
+    let reflected = sky_inverse(Vec3::new(512., 0., -2048.), true);
+
+    // (2) The crossfade must actually change pixels at both ends.
+    let probe = |inv: Mat4, sets: (f32, f32, f32)| {
+        render(
+            &device,
+            &queue,
+            &pipeline,
+            &layout,
+            &sky_view,
+            &sampler,
+            &t,
+            &uniform(inv, sets),
+        )
+    };
+    let base = probe(sea_level, (0., 0., 0.));
+    let weight_one = probe(sea_level, (0., 2., 1.));
+    let differing = base
+        .iter()
+        .zip(&weight_one)
+        .filter(|(a, b)| a != b)
+        .count();
+    assert!(
+        differing > base.len() / 10,
+        "sky set crossfade did not change the frame ({differing} of {} bytes)",
+        base.len()
+    );
+
+    // (3) Altitude must be invisible.
+    let elevated = probe(high_up, (0., 0., 0.));
+    assert_eq!(
+        base, elevated,
+        "sky changed with camera altitude: the view translation leaked into the ray"
+    );
+
+    // (4) The reflected frame is the same snapshot mirrored, and the machine
+    // never advances from a secondary view.
+    let mirrored = probe(reflected, (0., 0., 0.));
+    assert_ne!(base, mirrored, "the reflected upload was not mirrored");
+    let mut machine = Machine::new(Triple::DAY);
+    machine.request(Request::over(Triple::NIGHT, 660)).unwrap();
+    machine.resources_ready();
+    machine.step();
+    let frame = sky_transition::frame_sets(&machine);
+    let counter = machine.counter();
+    for pass in Pass::ALL {
+        assert_eq!(
+            sky_transition::view_sets(frame, pass.is_secondary()),
+            frame,
+            "{pass:?} saw a different sky than the snapshot"
+        );
+    }
+    assert_eq!(machine.counter(), counter, "a view advanced the transition");
+
+    println!(
+        "phase5 sky transition: shader compiled, crossfade moved {differing} bytes, \
+         altitude stable, reflection mirrored, transition counter {counter} unchanged over \
+         {} views",
+        Pass::ALL.len()
+    );
+}

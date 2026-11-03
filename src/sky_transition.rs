@@ -1,0 +1,831 @@
+//! Native sky resource swapping and its transition machine (P5.07 / P5.08).
+//!
+//! Basis: `elementclient.exe`, MD5 `5f02895688fa580506e869156340a664`, PE i386,
+//! image base `0x400000`. Every address, offset and branch below was read from
+//! that image with `objdump -d`; nothing here is inferred from the viewer.
+//!
+//! # Object layout (`A3DSkySphere`)
+//!
+//! | offset | meaning |
+//! |---|---|
+//! | `+0x0c` | owning scene pointer; zero means "not initialised yet" |
+//! | `+0x4cc`, `+0x504` | live interpolation blocks (7 and 16 dwords) |
+//! | `+0x4e8`, `+0x544` | incoming interpolation blocks |
+//! | `+0x5a4`, `+0x5a8`, `+0x5ac` | current picture handles |
+//! | `+0x5ba`, `+0x6be`, `+0x7c2` | the three name blocks (current, and two pending) |
+//! | `+0x8c8`, `+0x8cc`, `+0x8d0` | pending picture handles |
+//! | `+0x5b0` | bound |
+//! | `+0x5b4` | counter |
+//! | `+0x5b8` | direction byte: `0` counts **up**, `1` counts **down** |
+//! | `+0x5b9` | "textures still loading" byte |
+//!
+//! # Entry points
+//!
+//! **`0x79ac30(t0,t1,t2,matrix)` — the guard.** Returns `false` when a swap is
+//! already running (`+0x5b4 != 0`, `0x79ac3a`) or loading (`+0x5b9 != 0`,
+//! `0x79ac48`). Otherwise it formats the three requested names, returns `true`
+//! when any current handle is null (`0x79ac9e`..`0x79ad70`) or when the live
+//! interpolation block differs from the caller's matrix
+//! (`0x79acd6`..`0x79ad13`, four float compares against `+0x4cc`), and returns
+//! `false` at `0x79ad7d` when every requested name already equals the current
+//! handle. It never installs anything: the caller uses the answer to decide
+//! whether the state really changes.
+//!
+//! **`0x79aeb0(t0,t1,t2,matrix,count)` — the swap.** Returns immediately (with
+//! `true`) when the object has no scene (`0x79aebc`) or is still loading
+//! (`0x79aec7`). It sets direction `1` (`0x79aeed`), then:
+//!
+//! * requested names equal the **current** handles (`0x79af24`..`0x79af99`) ->
+//!   copy the interpolation block into `+0x4cc`, set direction **0**
+//!   (`0x79afb4`), return. Counter untouched: a no-op re-request of the live
+//!   set cannot start a fade.
+//! * requested names equal the **pending** handles (`0x79afc9`..`0x79b035`) ->
+//!   copy the block into `+0x4e8`, set direction **1** (`0x79b050`), return.
+//! * otherwise (`0x79b065`) it copies the incoming block into `+0x4e8`, stores
+//!   the three names, sets `+0x5b9 = 1`, masks a non-positive count to zero
+//!   (`setle`/`dec`/`and` at `0x79b0d0`..`0x79b0dd`), writes that value to both
+//!   `+0x5b0` and `+0x5b4` (`0x79b0e1`, `0x79b0e7`), and either schedules the
+//!   loader `0x79ad90` on a timer (`0x79b11f`) or, for a zero count, runs it
+//!   inline and commits straight away (`0x79b0f0`..`0x79b10b`).
+//!
+//! **`0x79a040` — the tick.** Returns at `0x79a0d5` when `+0x5b4 == 0`
+//! (`0x79a069`) or `+0x5b9 != 0` (`0x79a06d`). Both interpolation blocks are
+//! advanced first (`0x79a05e`, `0x79a087`, through `0x79a0e0`). Then, with
+//! direction `0`: `counter += 33` and commit once `counter >= bound`
+//! (`0x79a0a9`..`0x79a0c2`); with direction `1`: `counter -= 33` and commit only
+//! when the result is negative (`0x79a096`..`0x79a0a5`). `0x79a0c6` zeroes the
+//! counter on both commit paths before calling `0x79b180`.
+//!
+//! **`0x79b150(delta)` — hurry.** Inert without a counter (`0x79b156`),
+//! otherwise `counter -= delta`, clamped up to `1` when the result reaches zero
+//! or below (`0x79b15a`..`0x79b16f`), so the next tick commits.
+//!
+//! **`0x79b180` — commit.** Pending handles into `+0x5a4/+0x5a8/+0x5ac`, the
+//! incoming blocks over the live ones, pending slots cleared.
+//!
+//! # Driver `0x4203f4..0x420807`
+//!
+//! Returns while `+0x5b4 != 0` (`0x420404`), then loads the phase scalar at
+//! `config+0x70` (`0x420415`) and the three names of two triples:
+//! `[ebp+0x100/+0x104/+0x108]` (day) and `[ebp+0x10c/+0x110/+0x114]` (night):
+//!
+//! | phase | byte at `0x4204db` | action |
+//! |---|---|---|
+//! | `0` | any | `0x79ac30` then `0x79aeb0(count = 0)` with the day triple (`0x420430`) |
+//! | `1` | any | same with the night triple (`0x420477`) |
+//! | `0` after `0.8` check (`0x8d62dc`) | `0` | day triple, `count = ftol(clock/2 * phase * 1.25)` (`0x42054e`) |
+//! | `>= 0.5` (`0x8d5894`) | `0` | night triple, `count = ftol(clock/2 * (1-phase) * 2)` (`0x420666`) |
+//! | `0.8..1` | `0` | nothing (`0x420738`) |
+//! | `< 0.5` | `0` | nothing (`0x4207aa`) |
+//! | otherwise | `!= 0` | pre-swap the night triple uncounted, then the day/night triple with the clock count (`0x4204f5`, `0x42060d`) |
+//!
+//! Every counted branch then blocks on `+0x5b9` with 10 ms sleeps
+//! (`0x4205c0`..`0x4205e8`, `0x4206dc`..`0x420704`) and finally calls
+//! `0x79b150(hurry)` with `clock/2 - count` (`0x4205ea`..`0x420603`,
+//! `0x420706`..`0x42071f`).
+//!
+//! `0x4b6250` returns `0x249f00` (2 400 000) or `0x1b7740` (1 800 000),
+//! switching on a float at `+0x74` — a 40- or 30-minute game day expressed in
+//! milliseconds. The driver divides that number straight into the counter, while
+//! `0x79a040` moves the counter by a flat 33 per call. The two units therefore do
+//! not line up on their own: how often the tick is called decides how long a
+//! swap really takes, and that cadence was not recovered. [`VIEWER_CLOCK_MS`]
+//! records the one place where the viewer substitutes its own clock instead of
+//! running a multi-minute crossfade it cannot verify.
+//!
+//! # Deliberately not invented
+//!
+//! * What the scalar at `config+0x70` and the byte at `0x4204db` physically are
+//!   in the client. The viewer feeds both from its model day/night state
+//!   ([`drive`] takes them as parameters).
+//! * The native scheduling cadence of `0x79a040`. The viewer calls
+//!   [`Machine::step`] exactly once per rendered frame.
+//! * The per-slice colour weights inside the interpolation blocks.
+//!   [`Machine::blend`] is the viewer's linear reconstruction.
+//! * `TransSky()` (`0x98c0f8`), the debug entry point that logs a failed load.
+//!   The viewer has no console and simply keeps the current set.
+
+/// Slice step of the native counter (`add $0xffffffdf`, `0x79a09c`;
+/// `add $0x21`, `0x79a0b5`).
+pub const SLICE_MS: u32 = 33;
+/// `0x8f14bc`: one slice in seconds, the factor `0x79a0e0` applies to both
+/// interpolation blocks.
+pub const SLICE_SECONDS: f32 = f32::from_bits(0x3d088889);
+/// `0x8d6808`: the `1.25` factor in the day count (`0x42056a`).
+pub const DAY_COUNT_SCALE: f32 = 1.25;
+/// `0x8d62dc` / `0x8d5894`: the two phase thresholds of the byte-`0` branches.
+pub const DAY_LATE_PHASE: f32 = 0.8;
+pub const NIGHT_ONSET_PHASE: f32 = 0.5;
+
+/// The clock the viewer feeds to [`drive`], in the same unit `0x4b6250` returns.
+///
+/// This is **not** a recovered constant. `0x4b6250` answers with the length of a
+/// game day in milliseconds (2 400 000 for the 40-minute setting, 1 800 000 for
+/// the 30-minute one), and the counts the driver derives from it are hundreds of
+/// thousands of 33-unit ticks. The viewer does not run a several-minute sky
+/// crossfade it cannot verify, so it substitutes its own clock value here and
+/// keeps every recovered expression intact; the resulting fade stays under about
+/// a second. The value is the one that makes `2*count - clock/2`, the counter the
+/// driver leaves behind after its hurry, land in the tens of ticks across the
+/// counted phase bands.
+pub const VIEWER_CLOCK_MS: i32 = 240;
+
+/// One authored three-image sky set. The viewer's loader holds three groups of
+/// three client images (`textures/sky/{clear,evening,night2}/{01,02,roof}.bmp`),
+/// which is the viewer's stand-in for the client's day and night triples named
+/// through `Textures\Sky\%s` (`0x98c0e8`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Triple(pub u8);
+
+impl Triple {
+    /// Day set (group 0, the noon panorama) and night set (group 2).
+    pub const DAY: Triple = Triple(0);
+    pub const NIGHT: Triple = Triple(2);
+    pub const ALL: [Triple; 3] = [Triple(0), Triple(1), Triple(2)];
+
+    pub fn valid(self) -> bool {
+        (self.0 as usize) < Self::ALL.len()
+    }
+    /// Texture-set folder for the viewer's own loader.
+    pub fn folder(self) -> &'static str {
+        ["clear", "evening", "night2"][self.0 as usize % Self::ALL.len()]
+    }
+}
+
+/// A swap request in the same units `0x79aeb0` receives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Request {
+    pub to: Triple,
+    /// Native count. `0` is the immediate-commit branch.
+    pub slices: u32,
+}
+
+impl Request {
+    pub fn now(to: Triple) -> Self {
+        Self { to, slices: 0 }
+    }
+    pub fn over(to: Triple, slices: u32) -> Self {
+        Self { to, slices }
+    }
+    /// A fade of `ms`, on the native slice grid and off the exact-multiple
+    /// stall (see [`Machine::on_commit_boundary`]).
+    pub fn duration_ms(to: Triple, ms: u32) -> Self {
+        Self {
+            to,
+            slices: ms / SLICE_MS * SLICE_MS + 1,
+        }
+    }
+}
+
+/// Why a [`Machine::request`] was refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refused {
+    /// Unknown set index; the loader would have no name to load.
+    InvalidSet,
+    /// `+0x5b4 != 0` or `+0x5b9 != 0` (`0x79ac3a`, `0x79ac48`).
+    Busy,
+    /// Requested set is already current (`0x79ad7d`).
+    AlreadyCurrent,
+}
+
+/// The native sky-swap state machine. One instance per sky object; step it
+/// exactly once per frame from the single per-frame snapshot, never from a
+/// reflection, refraction, clipped or map view.
+#[derive(Clone, Debug)]
+pub struct Machine {
+    /// Which loaded set stands in for the client's day triple
+    /// (`[+0x100/+0x104/+0x108]`) and night triple (`[+0x10c/+0x110/+0x114]`).
+    ///
+    /// The client resolves both from `Textures\Sky\%s` and the `sky_id_day` /
+    /// `sky_id_night` keys of `configs.pck`, which re-author per region. The
+    /// viewer's loader currently holds one group of three panoramas and cannot
+    /// read that key (the shipped `configs.pck` is not the retail v2 container
+    /// the reader implements), so both author to the sets the loader has and
+    /// [`Machine::author`] is the single place a region mapping would land.
+    day: Triple,
+    night: Triple,
+    current: Triple,
+    pending: Triple,
+    bound: u32,
+    counter: u32,
+    /// `+0x5b8`: `true` counts down (decrement 33, commit when negative),
+    /// `false` counts up (increment 33, commit at `>= bound`).
+    count_down: bool,
+    /// `+0x5b9`.
+    waiting: bool,
+    commits: u32,
+}
+
+impl Default for Machine {
+    fn default() -> Self {
+        Self::new(Triple::DAY)
+    }
+}
+
+impl Machine {
+    pub fn new(current: Triple) -> Self {
+        Self {
+            day: Triple::DAY,
+            night: Triple::NIGHT,
+            current,
+            pending: current,
+            bound: 0,
+            counter: 0,
+            // Constructor `0x799743` leaves `+0x5b8 = 1`.
+            count_down: true,
+            waiting: false,
+            commits: 0,
+        }
+    }
+
+    /// Install the region-authored day/night pairing. Native only replaces the
+    /// names it will swap to, never the ones already installed, so this refuses
+    /// while a swap runs.
+    pub fn author(&mut self, day: Triple, night: Triple) -> bool {
+        if self.running() || self.waiting || !day.valid() || !night.valid() || day == night {
+            return false;
+        }
+        self.day = day;
+        self.night = night;
+        true
+    }
+
+    pub fn day_set(&self) -> Triple {
+        self.day
+    }
+    pub fn night_set(&self) -> Triple {
+        self.night
+    }
+
+    pub fn current(&self) -> Triple {
+        self.current
+    }
+    pub fn pending(&self) -> Triple {
+        self.pending
+    }
+    /// `+0x5b4 != 0`, the guard at `0x79ac3a`, `0x420404` and `0x79a069`.
+    pub fn running(&self) -> bool {
+        self.counter != 0
+    }
+    pub fn waiting(&self) -> bool {
+        self.waiting
+    }
+    pub fn counter(&self) -> u32 {
+        self.counter
+    }
+    pub fn bound(&self) -> u32 {
+        self.bound
+    }
+    pub fn counts_down(&self) -> bool {
+        self.count_down
+    }
+    pub fn commits(&self) -> u32 {
+        self.commits
+    }
+
+    /// Whether a count-down tick would commit on the next call.
+    ///
+    /// `0x79a09c` subtracts 33 and `0x79a0a5` branches on the sign flag, so the
+    /// commit happens exactly when `counter < 33`. A counter that reaches zero
+    /// exactly is indistinguishable from "no transition" at `0x79a069` and the
+    /// swap then never commits - a real native stall that
+    /// [`Request::duration_ms`] avoids and [`Self::step`] keeps observable
+    /// instead of papering over.
+    pub fn on_commit_boundary(&self) -> bool {
+        self.counter != 0 && self.count_down && self.counter < SLICE_MS
+    }
+
+    /// Finish the outstanding load. `0x79ad90` clears `+0x5b9` on success
+    /// (`0x79ae96`) and leaves the wait pending on failure (`0x79ae86`); the
+    /// viewer's sets are resident, so it resolves on the next frame.
+    pub fn resources_ready(&mut self) -> bool {
+        let was = self.waiting;
+        self.waiting = false;
+        was
+    }
+
+    /// `0x79aeb0`. Returns the refusal reason instead of the native `true`
+    /// no-op, so a caller cannot mistake "busy" for "swapped".
+    pub fn request(&mut self, request: Request) -> Result<(), Refused> {
+        if !request.to.valid() {
+            return Err(Refused::InvalidSet);
+        }
+        if self.running() || self.waiting {
+            return Err(Refused::Busy);
+        }
+        if request.to == self.current {
+            // Requested names equal the current handles (0x79af24..0x79af99):
+            // targets are refreshed, direction becomes 0, no fade starts.
+            self.pending = request.to;
+            self.count_down = false;
+            return Err(Refused::AlreadyCurrent);
+        }
+        self.pending = request.to;
+        // The fallback path keeps the direction written at 0x79aeed.
+        self.count_down = true;
+        // 0x79b0d0: loading; 0x79b0d9: a non-positive count masks to zero.
+        self.waiting = true;
+        self.bound = request.slices;
+        self.counter = request.slices;
+        if request.slices == 0 {
+            // 0x79b0f0: load inline, then commit (0x79b10b).
+            self.waiting = false;
+            self.commit();
+        }
+        Ok(())
+    }
+
+    /// `0x79a040`. Call once per frame; returns `true` when the swap committed.
+    pub fn step(&mut self) -> bool {
+        // 0x79a069 / 0x79a06d: no counter, or still loading.
+        if self.counter == 0 || self.waiting {
+            return false;
+        }
+        if self.count_down {
+            if self.counter < SLICE_MS {
+                // 0x79a096: subtract, then commit on the sign flag.
+                self.commit();
+                return true;
+            }
+            self.counter -= SLICE_MS;
+            // Landing exactly on zero stalls natively; left visible.
+            false
+        } else {
+            // 0x79a0a9: add, compare against the bound.
+            let next = self.counter.saturating_add(SLICE_MS);
+            self.counter = next;
+            if next >= self.bound {
+                self.commit();
+                return true;
+            }
+            false
+        }
+    }
+
+    /// `0x79b150(delta)`.
+    pub fn hurry(&mut self, delta: u32) {
+        if self.counter == 0 {
+            return; // 0x79b156
+        }
+        self.counter = match self.counter.checked_sub(delta) {
+            Some(left) if left > 0 => left,
+            _ => 1, // 0x79b168: clamp so the next tick commits
+        };
+    }
+
+    /// `0x79b180`.
+    pub fn commit(&mut self) {
+        self.current = self.pending;
+        self.counter = 0;
+        self.bound = 0;
+        self.waiting = false;
+        self.commits = self.commits.saturating_add(1);
+    }
+
+    /// Fade weight, `0..=1`. Reconstruction of the interpolation blocks.
+    pub fn blend(&self) -> f32 {
+        if self.bound == 0 || self.counter == 0 {
+            return 0.;
+        }
+        1. - self.counter.min(self.bound) as f32 / self.bound as f32
+    }
+}
+
+/// What the sky shader draws: `(current set, incoming set, weight)`. Without a
+/// running swap both indices are the committed set and the weight is zero.
+pub fn frame_sets(machine: &Machine) -> (i32, i32, f32) {
+    let base = machine.current.0 as i32;
+    if machine.running() && !machine.waiting {
+        (base, machine.pending.0 as i32, machine.blend())
+    } else {
+        (base, base, 0.)
+    }
+}
+
+/// What a view draws, given the frame's published sets.
+///
+/// `0x7cca50` (refraction) and the reflection target are drawn from the same
+/// sky object with a mirrored camera, so they read exactly the snapshot's
+/// values; the orthographic map passes never draw the sky at all. This helper
+/// exists so a call site cannot quietly recompute the fade for one view, and it
+/// never touches the machine.
+///
+/// `secondary` is `scenery_visibility::Pass::is_secondary()`; it is passed as a
+/// value so this module stays free of the renderer's pass enum and can be
+/// compiled and tested on its own (`rustc --test src/sky_transition.rs`).
+pub fn view_sets(frame: (i32, i32, f32), secondary: bool) -> (i32, i32, f32) {
+    let _ = secondary;
+    frame
+}
+
+/// One step of the native selection driver `0x4203f4..0x420807`.
+///
+/// `phase` is the scalar at `config+0x70`, `day` the byte read at `0x4204db`,
+/// `clock` what `0x4b6250` returns (a day length in ms; see
+/// [`VIEWER_CLOCK_MS`] for the viewer's stand-in). Returns the request that was
+/// issued, if any, for diagnostics.
+pub fn drive(machine: &mut Machine, phase: f32, day: bool, clock: i32) -> Option<Request> {
+    // The driver's own guard: nothing is re-issued while a swap runs.
+    if !phase.is_finite() || machine.running() || machine.waiting {
+        return None;
+    }
+    let phase = phase.clamp(0., 1.);
+    let request = if phase <= 0. {
+        // 0x42042e / 0x420430: day triple, uncounted.
+        Request::now(machine.day)
+    } else if phase >= 1. {
+        // 0x420486 / 0x420488: night triple, uncounted.
+        Request::now(machine.night)
+    } else {
+        // 0x4204db takes this branch when the day/night byte is zero; the
+        // non-zero branch reaches the same two counted swaps after an uncounted
+        // pre-swap, so only the counted part changes the visible result.
+        let counted = if day {
+            // 0x420738: the late-day band is a no-op.
+            if phase >= DAY_LATE_PHASE {
+                return None;
+            }
+            (machine.day, slice_count(clock, phase))
+        } else if phase >= NIGHT_ONSET_PHASE {
+            (machine.night, slice_count_night(clock, phase))
+        } else {
+            // 0x4207aa: below the night onset nothing happens.
+            return None;
+        };
+        if counted.1 == 0 {
+            Request::now(counted.0)
+        } else {
+            Request::over(counted.0, counted.1)
+        }
+    };
+    if machine.request(request).is_err() {
+        return None;
+    }
+    // 0x79ad90 runs before the driver returns; the caller then blocks on
+    // `+0x5b9`. The viewer's sets are already resident, so the wait resolves
+    // here instead of in a 10 ms sleep loop.
+    machine.resources_ready();
+    // 0x420600 / 0x42071f: shorten by the slices the clock already covered.
+    let covered = (clock / 2).max(0) as u32;
+    machine.hurry(covered.saturating_sub(request.slices));
+    Some(request)
+}
+
+/// `0x42054e..0x420570`: `ftol((clock / 2) * phase * 1.25)`, with the native
+/// integer halving (`0x420559`..`0x42055c`) and truncating `_ftol`.
+pub fn slice_count(clock: i32, phase: f32) -> u32 {
+    scaled(clock, phase * DAY_COUNT_SCALE)
+}
+
+/// `0x420666..0x42068c`: `ftol((clock / 2) * (1 - phase) * 2)`.
+pub fn slice_count_night(clock: i32, phase: f32) -> u32 {
+    scaled(clock, (1. - phase) * 2.)
+}
+
+fn scaled(clock: i32, factor: f32) -> u32 {
+    if !factor.is_finite() {
+        return 0;
+    }
+    let value = (clock / 2) as f32 * factor;
+    if !value.is_finite() || value <= 0. {
+        return 0;
+    }
+    if value >= u32::MAX as f32 {
+        return u32::MAX;
+    }
+    value as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_uncounted_swap_commits_at_once_and_leaves_no_counter() {
+        let mut m = Machine::new(Triple::DAY);
+        assert_eq!(m.request(Request::now(Triple::NIGHT)), Ok(()));
+        assert_eq!(m.current(), Triple::NIGHT);
+        assert!(!m.running());
+        assert!(!m.waiting());
+        assert_eq!(frame_sets(&m), (2, 2, 0.));
+        assert_eq!(m.commits(), 1);
+        // The same-set guard (0x79ad7d) refuses a repeat and starts no fade.
+        assert_eq!(
+            m.request(Request::now(Triple::NIGHT)),
+            Err(Refused::AlreadyCurrent)
+        );
+        assert!(!m.step());
+        assert_eq!(m.commits(), 1);
+        assert!(!m.counts_down(), "0x79afb4 sets direction 0 on a same-set hit");
+    }
+
+    #[test]
+    fn a_counted_swap_waits_for_the_loader_then_counts_down_in_33_units() {
+        let mut m = Machine::new(Triple::DAY);
+        // 200 is not a multiple of 33, so the count-down commit is reachable.
+        assert_eq!(m.request(Request::over(Triple::NIGHT, 200)), Ok(()));
+        assert!(m.running() && m.waiting() && m.counts_down());
+        assert_eq!(m.counter(), 200);
+        assert_eq!(m.bound(), 200);
+        // Nothing moves while +0x5b9 is set (0x79a06d).
+        for _ in 0..8 {
+            assert!(!m.step());
+        }
+        assert_eq!(m.counter(), 200);
+        assert_eq!(frame_sets(&m), (0, 0, 0.), "no fade until the load lands");
+        m.resources_ready();
+        assert_eq!(frame_sets(&m), (0, 2, 0.));
+        assert!(!m.step());
+        assert_eq!(m.counter(), 167);
+        assert_eq!(m.blend(), 1. - 167. / 200.);
+        for _ in 0..10 {
+            if m.step() {
+                break;
+            }
+        }
+        assert_eq!(m.current(), Triple::NIGHT);
+        assert!(!m.running());
+        assert_eq!(frame_sets(&m), (2, 2, 0.));
+    }
+
+    #[test]
+    fn the_count_down_rule_commits_only_when_the_step_goes_negative() {
+        let mut m = Machine::new(Triple::DAY);
+        m.request(Request::over(Triple(1), 40)).unwrap();
+        m.resources_ready();
+        assert!(!m.step());
+        assert_eq!(m.counter(), 7, "40 - 33");
+        assert!(m.step(), "7 - 33 is negative, so it commits");
+        assert_eq!(m.current(), Triple(1));
+        // The stall: a counter of exactly 33 lands on zero, and the zero counter
+        // is then read as "no transition" forever.
+        let mut stall = Machine::new(Triple::DAY);
+        stall.request(Request::over(Triple(1), 33)).unwrap();
+        stall.resources_ready();
+        assert!(!stall.step());
+        assert_eq!(stall.counter(), 0);
+        for _ in 0..100 {
+            assert!(!stall.step());
+        }
+        assert_eq!(stall.current(), Triple::DAY, "native stall, not a commit");
+        // duration_ms can never produce that value.
+        for ms in [0, 1, 32, 33, 66, 99, 660, 4000, u32::MAX] {
+            let r = Request::duration_ms(Triple(1), ms);
+            assert_ne!(r.slices, 0);
+            assert_ne!(r.slices % SLICE_MS, 0, "ms {ms} -> {}", r.slices);
+        }
+    }
+
+    #[test]
+    fn the_count_up_path_commits_once_it_reaches_the_bound() {
+        // Direction 0 only arises from the same-set branch, which does not touch
+        // the counter; drive it directly to pin the arithmetic.
+        let mut m = Machine::new(Triple::DAY);
+        m.pending = Triple(1);
+        m.count_down = false;
+        m.bound = 100;
+        m.counter = 1;
+        assert!(!m.step());
+        assert_eq!(m.counter(), 34);
+        assert!(!m.step());
+        assert_eq!(m.counter(), 67);
+        assert!(m.step());
+        assert_eq!(m.current(), Triple(1));
+        assert_eq!(m.commits(), 1);
+    }
+
+    #[test]
+    fn a_running_swap_is_never_retargeted() {
+        let mut m = Machine::new(Triple::DAY);
+        assert!(m.request(Request::over(Triple(1), 100)).is_ok());
+        assert_eq!(
+            m.request(Request::now(Triple::NIGHT)),
+            Err(Refused::Busy),
+            "0x79ac48 guards the load"
+        );
+        assert_eq!(m.pending(), Triple(1));
+        m.resources_ready();
+        assert_eq!(
+            m.request(Request::now(Triple::NIGHT)),
+            Err(Refused::Busy),
+            "0x79ac3a guards the counter"
+        );
+        m.hurry(1000);
+        assert!(m.step());
+        assert_eq!(m.current(), Triple(1));
+        assert!(m.request(Request::now(Triple::NIGHT)).is_ok());
+        assert_eq!(m.current(), Triple::NIGHT);
+    }
+
+    #[test]
+    fn hurry_shortens_an_in_flight_fade_and_clamps_to_one_slice() {
+        let mut m = Machine::new(Triple::DAY);
+        m.request(Request::over(Triple::NIGHT, 1000)).unwrap();
+        m.resources_ready();
+        m.step();
+        assert_eq!(m.counter(), 967);
+        m.hurry(900);
+        assert_eq!(m.counter(), 67);
+        assert!(!m.on_commit_boundary());
+        m.hurry(40);
+        assert_eq!(m.counter(), 27);
+        assert!(m.on_commit_boundary());
+        assert!(m.step());
+        assert_eq!(m.current(), Triple::NIGHT);
+        // Hurrying a settled machine is inert (0x79b156).
+        let before = m.commits();
+        m.hurry(500);
+        assert_eq!(m.commits(), before);
+        assert_eq!(m.counter(), 0);
+        // An oversized hurry clamps to one slice (0x79b168).
+        let mut c = Machine::new(Triple::DAY);
+        c.request(Request::over(Triple(1), 500)).unwrap();
+        c.resources_ready();
+        c.hurry(100_000);
+        assert_eq!(c.counter(), 1);
+        assert!(c.step());
+    }
+
+    #[test]
+    fn invalid_and_non_finite_inputs_are_rejected() {
+        let mut m = Machine::new(Triple::DAY);
+        assert_eq!(
+            m.request(Request::now(Triple(9))),
+            Err(Refused::InvalidSet)
+        );
+        assert_eq!(m.current(), Triple::DAY);
+        assert!(!m.running());
+        assert_eq!(slice_count(1000, f32::NAN), 0);
+        assert_eq!(slice_count(1000, -1.), 0);
+        assert_eq!(slice_count_night(1000, f32::INFINITY), 0);
+        assert_eq!(slice_count(i32::MIN, 1.), 0, "negative clock clamp");
+        // A finite product above u32::MAX clamps instead of wrapping, and an
+        // infinite one is refused outright.
+        assert_eq!(scaled(1000, 1e9), u32::MAX);
+        assert_eq!(scaled(1000, f32::MAX), 0);
+        for t in Triple::ALL {
+            assert!(t.valid());
+            assert!(!t.folder().is_empty());
+        }
+        assert!(!Triple(3).valid());
+    }
+
+    #[test]
+    fn slice_counts_follow_the_recovered_expressions() {
+        // (clock/2) * phase * 1.25, integer halving, truncating conversion.
+        assert_eq!(slice_count(1000, 1.), 625);
+        assert_eq!(slice_count(1000, 0.5), 312);
+        assert_eq!(slice_count(999, 1.), 623); // 999/2 = 499
+        assert_eq!(slice_count(0, 1.), 0);
+        assert_eq!(slice_count(-1000, 1.), 0);
+        assert_eq!(slice_count(2_400_000, 0.5), 750_000);
+        assert_eq!(slice_count(1_800_000, 1.), 1_125_000);
+        // (clock/2) * (1 - phase) * 2, truncated.
+        assert_eq!(slice_count_night(1000, 0.), 1000);
+        assert_eq!(slice_count_night(1000, 0.75), 250);
+        assert_eq!(slice_count_night(1001, 0.5), 500);
+        assert_eq!(slice_count_night(1_800_000, 0.5), 900_000);
+        for clock in [0, 1, 2, 3599, 86_400, 2_400_000, i32::MAX] {
+            for phase in [0., 0.25, 0.5, 0.75, 1.] {
+                let _ = slice_count(clock, phase);
+                let _ = slice_count_night(clock, phase);
+            }
+        }
+    }
+
+    #[test]
+    fn the_driver_follows_the_native_ladder() {
+        // Phase 0 and 1 install a whole set, uncounted.
+        let mut m = Machine::new(Triple::NIGHT);
+        assert!(drive(&mut m, 0., true, 1000).is_some());
+        assert_eq!(m.current(), Triple::DAY);
+        assert!(!m.running());
+        let mut m = Machine::new(Triple::DAY);
+        assert!(drive(&mut m, 1., false, 1000).is_some());
+        assert_eq!(m.current(), Triple::NIGHT);
+        assert!(!m.running());
+        // Mid phase, day byte set, below 0.8: counted swap of the day set.
+        let mut m = Machine::new(Triple::NIGHT);
+        let r = drive(&mut m, 0.5, true, 1000).unwrap();
+        assert_eq!(r, Request::over(Triple::DAY, 312));
+        assert_eq!(m.pending(), Triple::DAY);
+        assert_eq!(m.bound(), 312);
+        assert!(m.running() && !m.waiting(), "the viewer never sleeps");
+        // 0.8..1 on the day branch is a no-op (0x420738).
+        let mut m = Machine::new(Triple(1));
+        assert!(drive(&mut m, 0.9, true, 1000).is_none());
+        assert!(!m.running());
+        assert_eq!(m.current(), Triple(1));
+        // The night branch needs 0.5 or more (0x4207aa).
+        let mut m = Machine::new(Triple(1));
+        assert!(drive(&mut m, 0.4, false, 1000).is_none());
+        assert!(!m.running());
+        assert!(drive(&mut m, 0.75, false, 1000).is_some());
+        assert_eq!(m.pending(), Triple::NIGHT);
+        assert_eq!(m.bound(), 250, "1000/2 * (1 - 0.75) * 2");
+        // A running swap makes the driver inert (0x420404).
+        assert!(drive(&mut m, 0., false, 1000).is_none());
+        assert_eq!(m.pending(), Triple::NIGHT);
+        // Hostile phase values install nothing.
+        let mut m = Machine::new(Triple(1));
+        assert!(drive(&mut m, f32::NAN, true, 1000).is_none());
+        assert!(!m.running());
+        assert_eq!(m.current(), Triple(1));
+    }
+
+    #[test]
+    fn the_driver_hurries_by_the_slices_the_clock_already_covered() {
+        // `0x420600` is `clock/2 - count`, subtracted from the counter, so the
+        // remaining counter is `2*count - clock/2`, clamped up to one slice.
+        let mut m = Machine::new(Triple::NIGHT);
+        drive(&mut m, 0.5, true, 1000);
+        assert_eq!(m.bound(), 312);
+        assert_eq!(m.counter(), 124, "624 - 500");
+        // A clock far past the fade collapses to a single slice and commits on
+        // the next tick.
+        let mut m = Machine::new(Triple::NIGHT);
+        drive(&mut m, 0.1, true, 10_000);
+        assert_eq!(m.bound(), 625);
+        assert_eq!(m.counter(), 1);
+        assert!(m.step());
+        assert_eq!(m.current(), Triple::DAY);
+        // A short clock shortens the fade only a little.
+        let mut m = Machine::new(Triple::NIGHT);
+        drive(&mut m, 0.5, true, 40);
+        assert_eq!(m.bound(), 12);
+        assert_eq!(m.counter(), 4);
+        let mut m = Machine::new(Triple::NIGHT);
+        drive(&mut m, 0.5, true, 624);
+        assert_eq!(m.counter(), 78);
+        // A real game-day clock leaves hundreds of thousands of ticks; the
+        // viewer's own clock keeps the same expressions to tens.
+        let mut m = Machine::new(Triple::NIGHT);
+        drive(&mut m, 0.5, true, 1_800_000);
+        assert_eq!(m.bound(), 562_500);
+        assert_eq!(m.counter(), 225_000);
+        let mut m = Machine::new(Triple::NIGHT);
+        let r = drive(&mut m, 0.5, true, VIEWER_CLOCK_MS).unwrap();
+        assert_eq!(r.slices, 150, "240/2 * 0.5 * 1.25");
+        assert_eq!(m.counter(), 30, "2*150 - 120");
+        assert!(m.running());
+    }
+
+    #[test]
+    fn frame_sets_are_the_committed_set_without_a_running_swap() {
+        let mut m = Machine::new(Triple(1));
+        assert_eq!(frame_sets(&m), (1, 1, 0.));
+        m.request(Request::over(Triple::NIGHT, 200)).unwrap();
+        assert_eq!(frame_sets(&m), (1, 1, 0.), "loading is not a fade");
+        m.resources_ready();
+        assert_eq!(frame_sets(&m), (1, 2, 0.));
+        for _ in 0..100 {
+            if m.step() {
+                break;
+            }
+        }
+        assert_eq!(frame_sets(&m), (2, 2, 0.));
+    }
+
+    #[test]
+    fn an_authored_day_night_pair_drives_the_swaps() {
+        let mut m = Machine::new(Triple(1));
+        assert!(m.author(Triple(1), Triple(0)));
+        assert_eq!((m.day_set(), m.night_set()), (Triple(1), Triple(0)));
+        drive(&mut m, 0., true, 1000);
+        assert_eq!(m.current(), Triple(1), "phase 0 selects the day set");
+        drive(&mut m, 1., false, 1000);
+        assert_eq!(m.current(), Triple(0), "phase 1 selects the night set");
+        // Both must be known sets, and a swap of the same set in both roles is
+        // refused rather than producing a silent no-op every clock edge.
+        assert!(!m.author(Triple(9), Triple(0)));
+        assert!(!m.author(Triple(1), Triple(1)));
+        assert!(!m.author(Triple(0), Triple(9)));
+        // Re-authoring is refused while a swap is running.
+        m.request(Request::over(Triple(1), 500)).unwrap();
+        assert!(!m.author(Triple(0), Triple(1)));
+    }
+
+    #[test]
+    fn a_secondary_view_reads_the_same_sets_and_never_steps() {
+        let mut m = Machine::new(Triple::DAY);
+        m.request(Request::over(Triple::NIGHT, 990)).unwrap();
+        m.resources_ready();
+        m.step();
+        let frame = frame_sets(&m);
+        assert_eq!(frame.0, 0);
+        assert_eq!(frame.1, 2);
+        assert!(frame.2 > 0.);
+        let counter = m.counter();
+        for secondary in [false, false, true, true, true, true] {
+            assert_eq!(
+                view_sets(frame, secondary),
+                frame,
+                "every view sees one snapshot"
+            );
+        }
+        assert_eq!(m.counter(), counter, "reading a view must not tick");
+        // And the machine's own view of the frame is what got published.
+        assert_eq!(frame, frame_sets(&m));
+        assert_eq!(counter, m.counter(), "no view advanced the machine");
+    }
+}
