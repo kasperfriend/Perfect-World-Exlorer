@@ -162,9 +162,14 @@ jobs:
         run: |
           # `--check` only names the file; `--diff` shows what rustfmt wants, and
           # the step log is not always retrievable, so echo the hunks directly.
-          if ! cargo fmt --all -- --check; then
-            cargo fmt --all -- --diff > /tmp/fmt.diff || true
-            echo "::error::rustfmt wants changes; the diff is posted as a PR comment"
+          cargo fmt --all -- --check > /tmp/fmt.check 2>&1 || true
+          if [ -s /tmp/fmt.check ]; then
+            cargo fmt --all -- --diff > /tmp/fmt.diff 2>&1 || true
+            echo "check output: $(wc -c < /tmp/fmt.check) bytes"
+            head -40 /tmp/fmt.check
+            echo "diff output: $(wc -c < /tmp/fmt.diff) bytes"
+            head -60 /tmp/fmt.diff
+            echo "::error::rustfmt wants changes; see the posted PR comment"
             exit 1
           fi
       # Annotations are capped per check run and the GPU checks fill it with
@@ -175,9 +180,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          [ -s /tmp/fmt.diff ] || exit 0
           [ -n "$PR" ] || exit 0
-          { echo '```diff'; head -400 /tmp/fmt.diff; echo '```'; } > /tmp/fmt.md
+          { echo 'rustfmt check output:'; echo '```'; cat /tmp/fmt.check 2>/dev/null | head -60; echo '```'; \
+            echo 'rustfmt --diff:'; echo '```diff'; cat /tmp/fmt.diff 2>/dev/null | head -400; echo '```'; } > /tmp/fmt.md
           gh pr comment "$PR" --body-file /tmp/fmt.md
   windows:
     name: Windows executable (x64)
