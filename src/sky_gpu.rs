@@ -135,7 +135,7 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,layer:i32)->vec3<f32>{
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
  let w=clamp(p.time.y,0.,1.);
- // Day set is layers 0..2, night set 6..8 (`5\01.bmp`, `5\02.bmp`, `5\Roof.bmp`).
+ // Day set is layers 0..2, night set 6..8 (`01.bmp`, `02.bmp`, `Roof.bmp`).
  let day=sample_sky(d,0);let night=sample_sky(d,6);
  var color=mix(day.rgb,night.rgb,w);
  // The pass clears to this background and the sky rim alpha fades into it,

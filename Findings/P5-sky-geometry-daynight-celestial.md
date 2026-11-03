@@ -8,6 +8,35 @@ Nothing in this report is inferred from the look of the artwork: geometry comes
 from executing the original builders under Unicorn, and the time rule comes from
 the original update functions.
 
+The client's own `configs.pck` (834,575 bytes, 67 entries) and `shaders.pck`
+(8,225,973 bytes, 371 entries) were also decoded; section 0 records the container
+format and `tools/extract-angelic-pck.py` reproduces the extraction. That closed
+the three questions this report previously listed as blocked on them: which
+shader (if any) covers the empty band, which `Textures\Sky` folders the day and
+night sets name, and what the celestial material states and flare pipeline are.
+
+---
+
+## 0. The shipped config and shader archives
+
+`configs.pck` and `shaders.pck` are **Angelica File Package** (`0x00020002`) files,
+not the retail v2 PCK that `src/pck.rs` reads. They share the 276-byte record
+layout (name, `u32` offset, `u32` size, `u32` compressed size at `+260/+264/+268`)
+but not the trailer:
+
+| Offset | Content |
+| --- | --- |
+| `0x000` | `u32 0x4dca23ef`, file size, `u32 0x56a089b7` |
+| `0x00c` | file payloads; a stored file is raw bytes, a compressed one a bare zlib stream |
+| — | directory: per entry an 8-byte header and a zlib stream of one 276-byte record |
+| `-280` | `u32 0xa508bdc4`, `u32 version`, `u32 unknown` (configs `0x21cfb4f6`, shaders `0x21be2dbf`), ASCII `"Angelica File Package, Perfect World..."`, `u32 0x853567c8` at `+268`, entry count at `+272`, version again at `+276` |
+
+`tools/extract-angelic-pck.py` validates the trailer, finds each directory record
+by the zlib stream that ends exactly at the running position, and reads entries by
+name — `--list`, `--cat <name>`, `--out <dir>`. Both archives decode completely
+(67/67 and 371/371). `src/pck.rs` is unchanged: it still targets the retail
+archive the viewer loads `textures.pck` from.
+
 ---
 
 ## 1. Geometry and projection (P5.01)
@@ -25,9 +54,14 @@ the original update functions.
 | Texture paths | `0x79ac6c`, `0x79ac80`, `0x79ac97`, `0x79aee8`, `0x79af06`, `0x79af1d` | `Textures\Sky\%s` |
 | Texture creation | `0x7997a0` | `+0x5ac`, `+0x5a4`, `+0x5a8`, `+0x54`; early-out if `ds:0x988334 == 4` |
 
-Assets (config `sky_image01..03`): `5\Roof.bmp`, `5\01.bmp`, `5\02.bmp`. Folders
-present in `textures.pck`: `textures/sky/clear|evening|night2/{01.bmp,02.bmp,roof.bmp}`.
-The cap samples `roof.bmp`, the two curtain islands sample `01.bmp` and `02.bmp`.
+Assets: `A3DSkySphere::TransSky(this, roof, 01, 02, 0)` (`0x79ac30`) loads exactly
+the three names the caller supplies through the format string `Textures\Sky\%s`.
+The default environment in `element_client.cfg` (`[DefEnv]`) supplies
+`Sky\clear\Roof.bmp`, `Sky\clear\01.bmp`, `Sky\clear\02.bmp`, which resolve to
+`textures/sky/clear/{roof,01,02}.bmp` — the folders present in the packed
+`textures.pck`. `autofamilyconfigs/sky.lst` holds the same triple for each named
+set (section 2.3). The cap samples `roof.bmp`, the two curtain islands sample
+`01.bmp` and `02.bmp`.
 
 ### 1.2 Curtain — 70 vertices, 288 indices, 96 triangles
 
@@ -88,10 +122,20 @@ signed area.
 The curtain rim is at 38.16° and the cap rim at 72.5°, so **38.16°–72.5° has no
 geometry in either stream**. The native rim vertex carries alpha 0, so the
 client shows the pass background there. The renderer reproduces exactly that:
-`sky_geometry::project` returns `Region::CapEdgeGap` with `alpha = 0` for the
+`sky_geometry::project` returns
+`Region::CapEdgeGap` with `alpha = 0` for the
 band and the shader mixes towards the opaque-pass clear colour
-(`0.18, 0.32, 0.48`, the value `draw_opaque` uses when it draws the sky). This is
-a reported gap, not a hidden blend; see section 6 item 1.
+(`0.18, 0.32, 0.48`, the value `draw_opaque` uses when it draws the sky).
+
+**Nothing in the client fills the band.** The two draw paths
+(`0x799a40` cap, `0x799b40` curtain) bind the transformed stream and set
+fixed-function state; neither selects a vertex program, and the client's only
+shader archive contains no sky program at all — `shaders.pck` holds 371 entries
+(`moon.sdr`, `sun.sdr`, `sunshine.sdr`, `ps/solarflare_14.txt` and effects), and
+`A3DSky`/`A3DSkySphere` never appear in it. The band is therefore a property of
+the shipped buffers, not of a program this repository cannot read. What the
+retail game may have drawn *over* it (clouds, fog) is not part of these two
+objects and is not established here.
 
 ---
 
@@ -142,6 +186,37 @@ filled from `sky_time::night_weight`, and the shader mixes the two recovered
 texture sets with it. The set itself is picked by `+0x74` (18:00 today,
 midnight back), which `night_flag_is_the_texture_set_selector` pins.
 
+### 2.3 Where the texture names come from
+
+`0x4203e0` calls `0x79ac30(this, roof, first, second, 0)` — `TransSky` — with the
+three paths of the set it wants; `TransSky` then loads `Textures\Sky\%s`
+(`0x79ac6c`, error string `A3DSkySphere::TransSky(), Can't load texture [%s]`) and
+`0x79b180` commits the new set at the end of the timer. The paths themselves are
+configuration data:
+
+* `element_client.cfg`, `[DefEnv]` — the default environment:
+  `sky_image01 = Sky\clear\Roof.bmp`, `sky_image02 = Sky\clear\01.bmp`,
+  `sky_image03 = Sky\clear\02.bmp`.
+* `autofamilyconfigs/sky.lst` — the named sets, 3 rows of `index, name, roof, 01, 02`:
+
+| index | name | roof | first island | second island |
+| --- | --- | --- | --- | --- |
+| 0 | 晴天 (clear) | `clear\roof.bmp` | `clear\01.bmp` | `clear\02.bmp` |
+| 1 | 阴天 (overcast) | `阴天01\roof.bmp` | `阴天01\01.bmp` | `阴天01\02.bmp` |
+| 2 | 夕阳 (sunset) | `夕阳\wwwww.bmp` | `夕阳\01.bmp` | `夕阳\02.bmp` |
+
+So a set is three configured paths, `sky_id_day`/`sky_id_night` select which set a
+region asks for, and in this build's default environment both day and night name
+the `clear` folder: what changes at dusk is the lighting (`+0x70` strength, the
+terrain and model day/night switch) and the rim alpha, not the sky image.
+
+**Viewer deviation, stated on purpose:** `sky_gpu` loads the three folders present
+in the packed `textures.pck` (`clear`, `evening`, `night2`) and uses `clear` for
+day and `night2` for night. The night-strength lighting consumer is still missing
+(section 6 item 5), so the faithful "same image, darker scene" combination would
+make night look like day; the shipped `night2` art stands in until that lighting
+is wired. Everything else about the switch is the recovered rule.
+
 ---
 
 ## 3. Sun and moon (P5.03)
@@ -174,6 +249,40 @@ Unsupported states are explicit: `sky_celestial::disc` returns
 `BelowHorizon { elevation_degrees }`, `Hidden { fade }`, `MissingAsset(path)` or
 `NotFinite(..)`, and the World settings tab prints the outcome of both discs via
 `Renderer::celestial_status`.
+
+### 3.1 Material states (`shaders.pck`, `sun.sdr` / `moon.sdr` / `sunshine.sdr`)
+
+All three are `version 5` Angelica effect files with the same two stages and the
+same default `texturefactor 1 1 1 1`:
+
+| Stage | Color | Alpha |
+| --- | --- | --- |
+| 0 | `TOP_MODULATE`, `TA_TEXTURE` × `TA_DIFFUSE` | `TOP_MODULATE`, `TA_TEXTURE` × `TA_DIFFUSE` |
+| 1 | `TOP_MODULATE`, `TA_TFACTOR` × `TA_CURRENT` | `TOP_MODULATE`, `TA_TFACTOR` × `TA_CURRENT` |
+
+with `texture TEX_NORMAL 0 Textures\nature\sun.bmp`, `...\moon.tga` and
+`...\sunshine.bmp`. So each quad is texture × vertex-diffuse × texture-factor,
+exactly the `fade << 24` alpha the render code packs: the disc's coverage comes
+from the texture's alpha times the fade, and the texture factor provides the
+per-state tint. `sunshine.sdr` is a **third quad** the client draws (the glow
+around the disc) which this viewer does not draw yet; the discs' blend mode is a
+render state from the abstraction layer at `0x77bdb0`, not part of the effect
+file, so additive-versus-alpha for `sun.bmp` is still the viewer's choice.
+
+### 3.2 The solar-flare pipeline (`CECSunMoon::Init`) — not implemented
+
+The Sun/Moon object owns far more than two quads. Its init strings (`0x95a900`–
+`0x95ac94`) enumerate: a *sun shine* stream and texture (`sunshine.bmp`), a
+*flares* stream, a *flare alpha* stream, a *sun point* stream, an off-screen
+*flare alpha accumulation target*, the pixel shader `shaders\ps\solarflare_14.txt`
+and the textures `flares.bmp`, `sunflare.bmp`, `moonflare.bmp`.
+
+`shaders.pck` holds that program: a `ps.1.4` shader (467 bytes) that samples six
+flare-alpha textures `t0..t5`, accumulates their alpha with weight `0.4` each,
+`saturate`s, multiplies the sum into `c0.rgb` and passes `c0.a` through — the fade
+constant the render code supplies. Combined with the accumulation target this is a
+screen-space bloom-flare, and it is entirely absent from the viewer. Section 6
+item 4 lists it as the remaining P5.03 work rather than an approximation.
 
 ---
 
@@ -242,36 +351,35 @@ Time boundaries covered: 00:00, 01:30, 03:30, 12:00, 18:00, 20:00, 21:00, 24:00.
 
 ## 6. Remaining gaps
 
-1. **Sky vertex-shader projection.** The recovered buffers leave 38.16°–72.5°
-   empty (curtain seen as a cylinder, cap as a sphere). Whether the client's per-vertex program (`W_TRIANGLE`, or the `W_SIN`
-   used with `solarsky.txt`) stretches one of the two meshes into that band
-   cannot be decided without the shader text: `shaders.pck` (8,225,973 bytes,
-   371 entries) uses a footer key this repository cannot decode —
-   `[end-280] = 0xa508bdc4` (guard expected `0xfdfdfeee`), `[end-268] = 0x853567c8`
-   (expected `0xf00dbeef`), version `0x20002`, no zlib stream anywhere in the file.
-   Until then the band is rendered as the pass background at the native rim alpha,
-   and `Region::CapEdgeGap` reports it.
-2. **Sky set identity.** `Sky/sky_id_day` / `Sky/sky_id_night` (auto-scene keys at
-   `0x97b600`) select which `Textures\Sky\<name>` folders the day and night sets
-   come from. That mapping lives in `configs.pck` (834,575 bytes, 67 entries, same
-   undecoded footer). The viewer therefore uses `clear` for the day set and
-   `night2` for the night set, and the `evening` set has no recovered consumer.
-   The same package also fixes the two-way assignment of `+0x5a4` / `+0x5a8` to
-   `5\01.bmp` / `5\02.bmp` (texture creation order in `0x7997a0`), which decides
-   which panorama half covers the `+z` side; the viewer assumes `+0x5a4` = `01.bmp`
-   following the config order.
+1. **Sky coverage above 38.16°.** Resolved as far as the client is concerned: no
+   vertex program exists for the sky (`shaders.pck` has none) and neither draw
+   path selects one, so the two recovered buffers are the whole sky object and
+   the band is empty in the client too. What the retail scene layers over that
+   band — clouds or fog from other objects — is outside these two classes and is
+   not established here. The viewer renders the same coverage and reports the
+   band as `Region::CapEdgeGap`.
+2. **Sky set identity.** Resolved: `TransSky` (`0x79ac30`) receives the three
+   paths from configuration and prefixes `Textures\Sky\`; the default
+   environment in `element_client.cfg` names `clear` for all three images and
+   `autofamilyconfigs/sky.lst` lists the named sets (section 2.3). What remains is
+   the viewer's documented deviation: it uses the packed `night2` folder for the
+   night set until the `+0x70` lighting consumer exists, because the client's
+   default keeps the same image and darkens the scene instead.
 3. **Sky rotation.** `0x79a0e0` advances an angle at `[+0x504+0xc] * (1/30)` per
    frame and rebuilds the texture transform through `0x789ec0`/`0x789f20`
    (half-angle 0.5). The rate is set from a config/region value that is not yet
    identified, so the viewer holds rotation at 0 instead of inventing a drift.
-4. **Disc blending and halos.** The client's material states for the two discs and
-   the flare effects (`solarflare_14.txt`, `sunflare.bmp`, `moonflare.bmp`) are
-   pixel-shader work held in the same unreadable `shaders.pck`. The viewer adds
-   `sun.bmp` and alpha-blends `moon.tga`, matching the two shipped asset formats,
-   and says so in the settings tooltip.
+4. **Disc blending, the sun-shine quad and the flare pipeline.** `sun.sdr` /
+   `moon.sdr` / `sunshine.sdr` are recovered (section 3.1) and match the viewer's
+   texture × fade alpha, but their blend mode lives in the render-state
+   abstraction (`0x77bdb0`) and is still the viewer's choice, `sunshine.sdr` has no
+   quad in the viewer, and the whole flare pipeline of section 3.2 — three extra
+   streams, an off-screen alpha accumulation target and the `ps.1.4` flare shader
+   — is unimplemented. This is the remaining P5.03 work.
 5. **Night strength consumer.** `+0x70` (up to 1.75 before 03:00) feeds the
    lighting record path (`0x79aeb0`), not the texture weights. The viewer's
-   lighting is owned elsewhere and is not wired to it yet.
+   lighting is owned elsewhere and is not wired to it yet; this is also why the
+   night sky set deviates (item 2).
 6. **Timer units.** The 33-per-frame step is treated as 33 clock-milliseconds
    (consistent with the `1/30` fixed step at `0x8f14bc`), which makes the switch
    lengths pure functions of the hour. No x87 accumulation site proving "ms" over
@@ -295,3 +403,6 @@ Time boundaries covered: 00:00, 01:30, 03:30, 12:00, 18:00, 20:00, 21:00, 24:00.
 * `src/main.rs` — module declarations.
 * `tools/emulate-sky-sphere.py`, `tools/verify-sky-geometry.py` — Unicorn harness and
   the formula cross-check quoted above.
+* `tools/extract-angelic-pck.py` — reads the `configs.pck`/`shaders.pck` container
+  (section 0) so the sky texture table, the celestial effect files and the flare
+  shader can be re-read from the same assets.

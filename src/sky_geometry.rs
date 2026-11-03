@@ -12,10 +12,14 @@
 //! * constructor 0x799610 stores band count `+0x4c0` = 6, angular step
 //!   `+0x4c4` = 0.30543262 rad and radius `+0x4c8` = 50.0.
 //! * `A3DSky::Draw` 0x799b40 draws the whole curtain twice, once with the front
-//!   texture `+0x5a4` (`5\01.bmp`) and once with the back texture `+0x5a8`
-//!   (`5\02.bmp`) under a mirrored world matrix; 0x799a40 draws the cap with
-//!   `+0x54` (`5\Roof.bmp`).
-//! * config keys `sky_image01/02/03` are `5\Roof.bmp`, `5\01.bmp`, `5\02.bmp`.
+//!   texture `+0x5a4` (`clear\01.bmp`) and once with the back texture `+0x5a8`
+//!   (`clear\02.bmp`) under a mirrored world matrix; 0x799a40 draws the cap
+//!   with `+0x54` (`clear\roof.bmp`).
+//! * the names come from configuration: `element_client.cfg` `[DefEnv]`
+//!   `sky_image01/02/03` are `Sky\clear\Roof.bmp`, `Sky\clear\01.bmp` and
+//!   `Sky\clear\02.bmp`, `autofamilyconfigs/sky.lst` lists the named sets, and
+//!   0x79ac30 (`TransSky`) prefixes `Textures\Sky\` to the three paths it is
+//!   given.
 //!
 //! `tools/emulate-sky-sphere.py` runs both builders under Unicorn and
 //! `tools/verify-sky-geometry.py` diffs the resulting buffers against
@@ -90,11 +94,11 @@ impl Mesh {
 /// Which texture of the current sky phase a sample belongs to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layer {
-    /// `5\01.bmp`, drawn for the half space the world matrix does not mirror.
+    /// `clear\01.bmp`, drawn for the half space the world matrix does not mirror.
     Front,
-    /// `5\02.bmp`, drawn mirrored to cover the opposite half space.
+    /// `clear\02.bmp`, drawn mirrored to cover the opposite half space.
     Back,
-    /// `5\Roof.bmp`, the polar cap disc.
+    /// `clear\roof.bmp`, the polar cap disc.
     Roof,
 }
 

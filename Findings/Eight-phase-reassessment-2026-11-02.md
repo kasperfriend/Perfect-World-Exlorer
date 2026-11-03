@@ -111,8 +111,8 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 
 | ID | Decision | Already implemented / evidence | Remaining acceptance / boundary |
 |---|---|---|---|
-| P5.01 | Partial | Client sky texture layers, panorama projection and seam mitigation (`src/sky_gpu.rs`). | Native geometry/projection, complete seams and layered materials. |
-| P5.02 | Partial | Time-dependent sky blend/texture selection (`src/sky_gpu.rs`). | Current smoothstep schedule is still approximate, not native sky transition logic. |
+| P5.01 | Implemented | Native curtain/cap buffers, cylinder/sphere projection, `Textures\Sky\%s` layers and seam handling (`src/sky_geometry.rs`, `src/sky_gpu.rs`). | The band the client's own two buffers leave empty (38.16°–72.5°) is reported, not filled; nothing in the sky object covers it. |
+| P5.02 | Implemented | Recovered clock, elevation and set-selector rule, linear two-hour switch timer, and the decoded set mapping (`src/sky_time.rs`, `src/sky_gpu.rs`). | The viewer's `night2` night set is a stated deviation until the `+0x70` night-strength lighting consumer exists. |
 | P5.03 | Partial | Recovered celestial direction, default-region flags and quantized visibility fades wired to experimental discs (`src/client_sun.rs`, `src/sky_gpu.rs`). | Native sun/moon geometry, sizes, halos, exposure/blending and full material behavior. |
 | P5.04 | Partial | Region-authored environment lighting/fog and independent default-area sun/moon flags (`src/environment.rs`). | Region-selected sky texture sets/settings and actual sky transition resources. |
 | P5.05 | Not implemented | Sky/environment infrastructure exists (`src/sky_gpu.rs`, `src/environment.rs`). | No implemented client precipitation/cloud/weather visual runtime established in the current renderer. |
