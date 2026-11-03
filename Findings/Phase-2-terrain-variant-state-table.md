@@ -83,7 +83,7 @@ contained observation, not a claim that another subsystem never does.
 
 | State | Wrapper | Value | Addresses |
 |---|---|---|---|
-| `CULLMODE` 22 | `0x77a540` | 1 (`D3DCULL_NONE`), saved in `env+0x168` | set `0x7cd789`, restored `0x7cda6c` |
+| `CULLMODE` 22 | `0x77a540` | 1 (`D3DCULL_NONE`); `env+0x168` is the state cache slot the wrapper stores the requested enum in, not a saved previous value | set `0x7cd789`, popped `0x7cda6c` |
 | `ZWRITEENABLE` 14 | `0x77a230` | 1 | `0x7cd793`, restore `0x7cda4b` |
 | `ZENABLE` 7 | `0x77a210` | 1 | `0x7cd79d`, restore `0x7cda55` |
 | `LIGHTING` 137 | `0x77a3c0` | 1 in the bracket (`0x7cd7c1`); 0 for the draw and back to 1 after, but **only** on the per-mask (`0x7c1a65`/`0x7c1ae8`) and no-pixel-pipeline (`0x7c1e15`/`0x7c1ef0`) paths - the stock 3-layer path (`0x7c14f5`/`0x7c1578`) leaves it at 1 | `0x7cd7c1`, `0x7c14f5`, `0x7c1a65`, `0x7c1e15` |

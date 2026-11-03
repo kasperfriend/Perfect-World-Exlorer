@@ -12,8 +12,10 @@
 //! * VS `c0.x` is **1.0** on both constant-block paths (0x7c2872), not the
 //!   regional ambient. `c0.y` is `env+0x1a0`, which only 0x7c4940 ever writes
 //!   (the scene's `lightmap_scene` boolean), and `terrain_vs` never reads it.
-//! * PS `c3.a` is `env+0x198`, the y of the blended scene **light direction**,
-//!   not a daylight fraction, and no app scalar feeds the blend at all.
+//! * PS `c3.a` is `env+0x198`, one lane of the **raw light-matrix product**
+//!   `0x7b4b00` copies into `env+0x194..+0x1d3`, not a daylight fraction;
+//!   `0x7b4eb0` normalises a *copy* into `env+0x2a4..`, so the shipped lane is
+//!   neither normalised nor negated and no app scalar feeds the blend at all.
 //! * The layer weights are the mask texture's **blue, green and red** channels
 //!   in that order (blue = layer 1), and `c2` is a per-channel on/off vector of
 //!   ones and zeros, not a scale.
@@ -29,6 +31,12 @@ pub mod native {
     pub const PATH_HARDWARE_LIGHTMAP: u32 = 0x7c21_00;
     /// One layer batch: stage loop, `c2`/`c3` upload, lightmap stages.
     pub const BATCH_3_LAYER: u32 = 0x7c23_00;
+    /// Where the loader stores the two lightmap records it read: the authored
+    /// `.t2lm` day texture at `record+0xc` (`0x7a2aeb`, gated on `env+0x880`
+    /// set at `0x7a0e84`) and the `1.t2lm` night texture at `record+0x10`
+    /// (`0x7a2b0c`, gated on `env+0x881` set at `0x7a0eec`).
+    pub const LIGHTMAP_RECORD_DAY: u32 = 0x0c;
+    pub const LIGHTMAP_RECORD_NIGHT: u32 = 0x10;
     pub const BATCH_PER_MASK: u32 = 0x7c23_d0;
     pub const MASK_STAGE: u32 = 0x7c25_30;
     pub const OPTIONAL_STAGE: u32 = 0x7c26_50;
@@ -45,9 +53,12 @@ pub mod native {
     pub const ENV_LOAD_SHADERS: u32 = 0x7c48_80;
     /// Side effect of the singleton: the only writer of `env+0x1a0`.
     pub const ENV_INIT_CONSTANTS: u32 = 0x7c49_40;
-    /// `GEnv::UpdateSceneLight`: receives a 4x4 matrix, derives
-    /// `env+0x194..+0x19c` (direction, normalised at 0x7b4f22..0x7b4fbe) and
-    /// `env+0x1a4..+0x1ac` (colour, normalised at 0x7b4fdc..0x7b5073) from it.
+    /// `GEnv::UpdateSceneLight`: receives a 4x4 light matrix, multiplies it
+    /// against the camera basis at `0x7b4e5d` and copies the product into
+    /// `env+0x194..+0x1d3` at `0x7b4e75`. `UpdateDirection` then normalises
+    /// `env+0x194..+0x19c` (0x7b4f22..0x7b4fbe) and `env+0x1a4..+0x1ac`
+    /// (colour, 0x7b4fdc..0x7b5073) into **separate** fields `env+0x2a4..` and
+    /// `env+0x2e4..`; the source rows keep their raw values.
     pub const UPDATE_SCENE_LIGHT: u32 = 0x7b4b_00;
     pub const UPDATE_DIRECTION: u32 = 0x7b4e_b0;
     /// Capability byte reads: `device+0xc` at 0x7c1455, `env+0x19c` at 0x7c170a.
@@ -55,9 +66,12 @@ pub mod native {
     /// GDebugKey-read flags.
     pub const FLAG_PER_MASK_LIGHTMAP: u32 = 0x7c170a;
     pub const FLAG_HARDWARE_LIGHTMAP: u32 = 0x7c26ee;
-    /// App-side scalar in VS `c0.w` (and the `v1` the pixel shader multiplies by):
-    /// `0.0` by default, forced to `1.0` at 0x7c27f9, back to 0 at 0x7c281a when
-    /// the float compare at 0x7c2805 shows it left zero.
+    /// `/v`-style specular scalar in VS `c0.w` (and the `v1` the pixel shader
+    /// multiplies by). Zero in the image (`0x9d30f8` sits in `.data` past the
+    /// raw section end, i.e. BSS). Two debug keys ramp it by `0.001`
+    /// (`0x8effc0`) at `0x7c274e`/`0x7c2768`, but `0x7c27cf..0x7c281a` rewrites
+    /// every value that is neither 0 nor 1 to `1.0` and then, in the same block,
+    /// to `0.0`, so what reaches the device is always exactly 0 or 1.
     pub const GLOBAL_LIGHTMAP_SCENE: u32 = 0x009d_30f8;
     /// `.rdata` anchors used by the lightmap composite.
     pub const FLOAT_HALF: u32 = 0x008e_ff98;
@@ -126,8 +140,13 @@ pub fn select(caps: Caps) -> Result<Variant, VariantError> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cull {
-    /// `D3DCULL_NONE` = 1, pushed at 0x7cd789 and restored at 0x7cda6c from the
-    /// value the bracket saved in `env+0x168`.
+    /// `D3DCULL_NONE` = 1, pushed at 0x7cd789 and popped at 0x7cda6c.
+    ///
+    /// `env+0x168` is **not** a saved previous cull value: it is the
+    /// `D3DRS_CULLMODE` cache slot. `0x77a540` stores the enum it is given into
+    /// `env+0x168` and then pushes `D3DCULL_NONE` (`dec` == 0 at
+    /// `0x77a547..0x77a55a`), so the wrapper's argument is the caller's request
+    /// and the device sees `D3DCULL_NONE` on both sides of the bracket.
     None,
 }
 
@@ -137,7 +156,7 @@ pub enum Cull {
 ///
 /// ```text
 /// 007cd77d: push $0x1
-/// 007cd789: call 0x77a540   ; CULLMODE(22) = 1   (save/restore via 0x168)
+/// 007cd789: call 0x77a540   ; CULLMODE(22), arg 1 -> cache 0x168, device NONE
 /// 007cd793: call 0x77a230   ; ZWRITEENABLE(14) = 1
 /// 007cd79d: call 0x77a210   ; ZENABLE(7) = 1
 /// 007cd7c1: call 0x77a3c0   ; LIGHTING(137) = 1
@@ -262,9 +281,10 @@ pub const fn vertex_layout(per_mask_lightmap: bool) -> (u32, u32) {
 /// The three scalars are stored after two pushes and `c0.x` after the third, so
 /// `c0 = (1.0, lightmap_scene, [0x98f368], [0x9d30f8])`. `terrain_vs` copies
 /// `c0.x` to `oD0` and `c0.w` to `oD1`, so the pixels shader's `v0` is 1.0 and
-/// its `v1` is 0.0: there is **no** regional ambient term and, because
-/// `0x9d30f8` only leaves zero through the debug keys at 0x7c274e-0x7c281a,
-/// no specular term either.
+/// its `v1` is 0.0: there is **no** regional ambient term and, because the
+/// `0x7c27cf..0x7c282a` guard quantises `0x9d30f8` to exactly 0 or 1 before it
+/// is uploaded, the specular term is off in a stock session and can only be
+/// turned fully on.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShaderConstants {
     /// VS c0: (1.0, lightmap_scene as f32, `0x98f368`, `0x9d30f8`).
@@ -272,8 +292,9 @@ pub struct ShaderConstants {
     /// PS c2: per-channel mask selector, 1.0 for a bound layer and 0.0 for an
     /// absent one (0x7c2331 / 0x7c2347).
     pub c2: [f32; 4],
-    /// PS c3: the blended scene light direction, broadcast to all four lanes
-    /// (0x7c2377).
+    /// PS c3: `env+0x198` broadcast to all four lanes (0x7c2377). That field is
+    /// a raw lane of the light-matrix product, not a normalised direction - see
+    /// [`native_day_night_factor`].
     pub c3: [f32; 4],
 }
 
@@ -334,35 +355,53 @@ pub fn lightmap_pair(v: Variant) -> Option<LightmapPair> {
 /// ps.1.4 `lrp d, s0, s1, s2` computes `d = s0*s1 + (1-s0)*s2`, so
 /// `factor == 0` selects the day map and `factor == 1` the night map.
 ///
-/// `c3.a` is `env+0x198`, the **normalised y component of the blended scene
-/// light direction** (`GEnv::UpdateSceneLight`, 0x7b4eb0). World Y points up, so
-/// a light shining downward gives a negative y and the `_sat` clamps it to 0
-/// (full day) and a light pointing straight up gives 1 (full night). Any
-/// intermediate sun height cross-fades the two maps; the factor is a direction
-/// component, not an authored weight, so the blend sweeps the whole range as the
-/// scene light passes the horizon.
+/// `c3.a` is `env+0x198`, one lane of the raw light-matrix product that
+/// `GEnv::UpdateSceneLight` leaves there (see [`native_day_night_factor`] for
+/// what it is and is not). `lrp_sat` saturates that lane, which is the only
+/// clamp in the path, so any value inside `[0, 1]` cross-fades the two maps
+/// instead of switching them.
 pub fn day_night_lightmap(day: f32, night: f32, factor: f32) -> f32 {
     (factor * night + (1.0 - factor) * day).clamp(0.0, 1.0)
 }
 
-/// The native blend factor, `ps c3.a`: the y component of the blended scene
-/// light direction that `GEnv::UpdateSceneLight` leaves in `env+0x198`
-/// (`0x7b4eb0` builds it, `0x7b4fc2..0x7b4fd9` normalises it in place, and
-/// `0x7c2377` broadcasts it to `c3`). World Y points up, so the `_sat` of
-/// `lrp_sat` clamps the range to `[0, 1]`: a light travelling downward (sun
-/// above the horizon) gives 0 and the day map, a light travelling upward gives 1
-/// and the night map.
-pub fn native_day_night_factor(light_direction: [f32; 3]) -> f32 {
-    light_direction[1].clamp(0.0, 1.0)
+/// The native blend factor, `ps c3.a`: `env+0x198`, broadcast to all four lanes
+/// of `c3` by `0x7c2377`.
+///
+/// `GEnv::UpdateSceneLight` (`0x7b4b00`) receives a 4x4 light matrix, multiplies
+/// it against the camera basis at `0x7b4e5d` and copies the 16 dwords straight
+/// into `env+0x194..+0x1d3` (`0x7b4e67..0x7b4e75`). `UpdateDirection`
+/// (`0x7b4eb0`) then reloads `env+0x194..+0x19c`, normalises them with the
+/// `1e-6` degeneracy guard (`0x7b4f22..0x7b4fbe`, constants `0x8f07d0` /
+/// `0x8f07c8`) and writes the result to `env+0x2a4..+0x2ac` - **not** back into
+/// `env+0x194..`. So `c3.a` is a raw row of the product, *not* normalised and
+/// *not* clamped: `lrp_sat` is the only clamp in the path. Those are the matrix
+/// rows: `0x194`/`0x198`/`0x19c` are the first three lanes of the third row.
+///
+/// The `fchs` pair at `0x7b4c0b..0x7b4c13` that flips lanes 1 and 2 does **not**
+/// touch these fields: it acts on `env+0x1d8`/`env+0x1dc`, the second column of
+/// the same matrix, under the `env+0x30 & 2` flag. Reading it as a negation of
+/// the factor was a misread of the displacement and is retracted here.
+///
+/// What is recovered is therefore the storage and the arithmetic, not the sign
+/// convention of the source matrix: `0x7b4e5d` multiplies by the camera basis
+/// and the sign of the resulting row is only determined once the caller's light
+/// matrix is identified. [`viewer_day_night_factor`] is the stand-in until then.
+/// The one ordering fact the user-visible state does settle is the **pair**: the
+/// callers install the authored `.t2lm` on stage 4 (`0x7c23a2` requests
+/// `record+0xc`, which `0x7a2aeb` stores the day texture into) and the
+/// `1.t2lm` night record on stage 5 (`0x7c23b0`, `record+0x10`, `0x7a2b0c`).
+pub fn native_day_night_factor(light_matrix_row: [f32; 3]) -> f32 {
+    // `lrp_sat` saturates, so the raw row lane is clamped here and nowhere else.
+    light_matrix_row[1].clamp(0.0, 1.0)
 }
 
 /// Viewer stand-in for [`native_day_night_factor`] until
-/// `GEnv::UpdateSceneLight` is reconstructed. The viewer has no scene-light
-/// direction, only the app-level clock, so it uses the inverse day fraction:
+/// `GEnv::UpdateSceneLight` is reconstructed. The viewer has no scene light
+/// matrix, only the app-level clock, so it uses the inverse day fraction:
 /// full daylight gives 0 (day map) and full night gives 1 (night map), which is
 /// the same mapping at both endpoints and the same monotonic direction, but not
-/// the same curve: the native factor follows the authored light direction, this
-/// one follows `environment::daylight`.
+/// the same curve: the native factor follows a row of the authoured light
+/// matrix, this one follows `environment::daylight`.
 ///
 /// Registered gap: `Findings/Unsupported-client-paths.md`, "Terrain day/night
 /// factor". Replacing this function with [`native_day_night_factor`] is the
@@ -372,12 +411,12 @@ pub fn viewer_day_night_factor(daylight: f32) -> f32 {
     (1.0 - daylight).clamp(0.0, 1.0)
 }
 
-/// Whether the night map reaches the output at all. The native factor is the
-/// clamped signed y of the light direction, so the two maps cross-fade across
-/// the horizon and the result is only the pure day map when the light points
-/// straight down (`y <= 0`).
-pub fn lightmap_uses_night(scene_direction_y: f32) -> bool {
-    scene_direction_y > 0.0
+/// Whether the night map reaches the output at all. The native factor is one
+/// lane of the light matrix row clamped by `lrp_sat`, so the two maps cross-fade
+/// over the whole non-negative range and the night map is never selected while
+/// that lane is `<= 0`.
+pub fn lightmap_uses_night(light_matrix_row_y: f32) -> bool {
+    light_matrix_row_y > 0.0
 }
 
 /// Complete `t2_3layer_batch_14` radiance:
@@ -570,6 +609,30 @@ mod tests {
         assert_eq!(lightmap_pair(Variant::Batch3Layer), Some(pair));
     }
 
+    /// The stage↔record mapping, traced through the loader rather than the
+    /// shader comments: stage 4 is requested with `flag == 1` (`0x7c23a2`),
+    /// `0x7c2650` maps `flag == 1` to `record+0xc`, and `0x7a2aeb` stores the
+    /// authored `.t2lm` day texture there. Stage 5 is requested with
+    /// `flag == 0` (`0x7c23b0`) -> `record+0x10` -> `0x7a2b0c`, the `1.t2lm`
+    /// night texture. Stacked, that is day on the low stage and night above it.
+    #[test]
+    fn day_stage_binds_the_record_the_loader_fills_with_the_day_file() {
+        let pair = lightmap_pair(Variant::Batch3Layer).expect("batch path has a pair");
+        assert_eq!(pair.day_stage, 4);
+        assert_eq!(pair.night_stage, 5);
+        assert_eq!(native::OPTIONAL_STAGE, 0x7c26_50);
+        assert_eq!(native::LIGHTMAP_RECORD_DAY, 0x0c);
+        assert_eq!(native::LIGHTMAP_RECORD_NIGHT, 0x10);
+        // The two slots are distinct, so swapping the stages is observable.
+        assert_ne!(native::LIGHTMAP_RECORD_DAY, native::LIGHTMAP_RECORD_NIGHT);
+        // A day-tinted map and a night-tinted map must come out differently at
+        // both endpoints, which is the property the loader trace establishes.
+        assert_ne!(
+            day_night_lightmap(1.0, 0.0, 0.0),
+            day_night_lightmap(1.0, 0.0, 1.0)
+        );
+    }
+
     #[test]
     fn day_night_lightmap_selects_both_endpoints() {
         assert_eq!(day_night_lightmap(0.8, 0.2, 0.0), 0.8);
@@ -578,12 +641,12 @@ mod tests {
         // lrp_sat clamps, so a sign-clamped factor cannot overshoot.
         assert_eq!(day_night_lightmap(1.0, 1.0, 7.0), 1.0);
         assert_eq!(day_night_lightmap(0.0, 0.0, -7.0), 0.0);
-        // The real factor is a clamped direction sign.
+        // The real factor is a clamped lane of the light-matrix product.
         assert!(!lightmap_uses_night(-1.0));
         assert!(!lightmap_uses_night(0.0));
         assert!(lightmap_uses_night(0.5));
         assert!(lightmap_uses_night(9.0));
-        // The blend stays continuous: only a downward light is pure day.
+        // The blend stays continuous: a non-positive lane is pure day.
         assert_eq!(day_night_lightmap(0.8, 0.2, 0.0), 0.8);
         assert!(day_night_lightmap(0.8, 0.2, 0.5) < 0.8);
         assert!(day_night_lightmap(0.8, 0.2, 0.5) > 0.2);
@@ -630,16 +693,19 @@ mod tests {
 
     #[test]
     fn native_and_viewer_day_night_factors_agree_on_both_endpoints() {
-        // A light travelling straight down: sun above, pure day map.
+        // `c3.a` is `env+0x198`, one lane of the raw light-matrix product. It is
+        // neither negated nor normalised on the way in: the `fchs` at
+        // 0x7b4c0b..0x7b4c13 acts on `env+0x1d8`/`env+0x1dc` and the normalise at
+        // 0x7b4f22..0x7b4fbe writes `env+0x2a4..`. Only `lrp_sat` clamps.
         assert_eq!(native_day_night_factor([0.0, -1.0, 0.0]), 0.0);
-        // Straight up: the sun is below the horizon, pure night map.
         assert_eq!(native_day_night_factor([0.0, 1.0, 0.0]), 1.0);
-        // Horizontal light: the blend sits on the day map, not halfway.
         assert_eq!(native_day_night_factor([1.0, 0.0, 0.0]), 0.0);
-        // `_sat` clamps anything beyond the unit range.
         assert_eq!(native_day_night_factor([0.0, 4.0, 0.0]), 1.0);
-        // The viewer substitute matches both endpoints and the direction of
-        // travel between them, and is the function the WGSL runs.
+        assert_eq!(native_day_night_factor([0.0, 0.25, 0.0]), 0.25);
+        // The viewer substitute agrees on both endpoints and travels in the same
+        // direction between them; it is the function the WGSL runs.
+        assert_eq!(viewer_day_night_factor(1.0), 0.0);
+        assert_eq!(viewer_day_night_factor(0.0), 1.0);
         assert_eq!(
             viewer_day_night_factor(1.0),
             native_day_night_factor([0.0, -1.0, 0.0])
@@ -658,12 +724,12 @@ mod tests {
     #[test]
     fn production_wgsl_matches_the_module_arithmetic() {
         let wgsl = include_str!("terrain_gpu.rs");
-        // Noon: daylight 1 -> factor 0 -> pure day map, doubled.
+        // Day endpoint: full daylight -> factor 0 -> pure day map, doubled.
         assert_eq!(
             day_night_lightmap(1.0, 0.0, viewer_day_night_factor(1.0)) * 2.0,
             2.0
         );
-        // Midnight: daylight 0 -> factor 1 -> pure night map, doubled.
+        // Night endpoint: no daylight -> factor 1 -> pure night map, doubled.
         assert_eq!(
             day_night_lightmap(1.0, 0.0, viewer_day_night_factor(0.0)) * 2.0,
             0.0

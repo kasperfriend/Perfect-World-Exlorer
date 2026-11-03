@@ -101,10 +101,11 @@ fn terrain_pass_fog(linear:vec3<f32>,reciprocal_w:f32,transmittance:f32)->vec3<f
  let ax=u32(floor(coord.x));let ay=u32(floor(coord.y));let a=area_data[ay*settings.areas.x+ax];
  // `camera.sun.w >= 0` is the viewer switch for "the authored day/night pair is
  // bound" (the client's `t2_3layer_batch_14` path). It is not a native value:
- // the native blend factor is the y of the blended scene light direction
- // (`env+0x198` -> PS c3.a, see src/terrain_shading.rs), which the viewer does
- // not reconstruct yet, so the same app scalar is inverted here to stand in for
- // it. Register row: "terrain day/night factor".
+ // the native blend factor is `env+0x198` -> PS c3.a, one lane of the raw
+ // light-matrix product `0x7b4b00` writes (see src/terrain_shading.rs), whose
+ // sign is not recoverable without that matrix's caller. The same app scalar is
+ // therefore inverted here to stand in for it. Register row: "terrain
+ // day/night factor".
  let lightmapped=camera.sun.w>=0.;
  var color=vec3<f32>(0.);
  var baked=vec3<f32>(1.);
