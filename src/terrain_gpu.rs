@@ -157,6 +157,47 @@ impl TerrainGpu {
             .iter()
             .filter(|t| t.w <= 256 && t.h <= 256)
             .count();
+        // Fit one authored level into a square array slot.
+        //
+        // The archive census (P2.07) found only 256/512/1024 squares plus a single
+        // 256x512 source, and every slot is at least as large as its level, so this
+        // only ever enlarges. Nearest-neighbour keeps authored texel centres, which
+        // is what the device's bilinear filter then interpolates; it is chosen over
+        // a resampling filter so no new detail is invented and no authored texel is
+        // averaged away. An off-square source keeps its aspect by mapping through
+        // its own dimensions, exactly as the previous code did.
+        let fit_level = |lvl: &crate::dxt::Level, slot: usize| -> Vec<u8> {
+            let mut out = vec![0u8; slot * slot * 4];
+            let (lw, lh) = (lvl.width as usize, lvl.height as usize);
+            for y in 0..slot {
+                let sy = y * lh / slot;
+                for x in 0..slot {
+                    let sx = x * lw / slot;
+                    let si = (sy * lw + sx) * 4;
+                    let di = (y * slot + x) * 4;
+                    out[di..di + 4].copy_from_slice(&lvl.rgba[si..si + 4]);
+                }
+            }
+            out
+        };
+        // Box-reduce a level only when the source has no authored level for that
+        // slot (a single-level source, the `generates_mips` case).
+        let box_half = |src: &[u8], next: usize| -> Vec<u8> {
+            let side = next * 2;
+            let mut out = vec![0u8; next * next * 4];
+            for y in 0..next {
+                for x in 0..next {
+                    for k in 0..4 {
+                        let a = src[((2 * y) * side + 2 * x) * 4 + k] as u32;
+                        let b = src[((2 * y) * side + 2 * x + 1) * 4 + k] as u32;
+                        let c = src[((2 * y + 1) * side + 2 * x) * 4 + k] as u32;
+                        let d = src[((2 * y + 1) * side + 2 * x + 1) * 4 + k] as u32;
+                        out[(y * next + x) * 4 + k] = ((a + b + c + d + 2) / 4) as u8;
+                    }
+                }
+            }
+            out
+        };
         let count_large = m
             .textures
             .iter()
@@ -202,17 +243,12 @@ impl TerrainGpu {
                 (&small_tex, 256, i, 0u32)
             };
             tex_map.push(index | (kind << 30));
-            let mut level = vec![0u8; base_side * base_side * 4];
-            for y in 0..base_side {
-                let sy = y * img.h / base_side;
-                for x in 0..base_side {
-                    let sx = x * img.w / base_side;
-                    let si = (sy * img.w + sx) * 3;
-                    let di = (y * base_side + x) * 4;
-                    level[di..di + 3].copy_from_slice(&img.pixels[si..si + 3]);
-                    level[di + 3] = 255;
-                }
-            }
+            // Copy the authored chain level by level. Level 0 is fitted into the
+            // array slot; every later level is taken straight from the file, so the
+            // client's authored reductions survive. The client uploads what the DDS
+            // carries (`0x7f7ef1`) and only generates a chain when the source has a
+            // single level, which is the `generates_mips` case below.
+            let mut level = fit_level(&img.levels[0], base_side);
             let mut side = base_side;
             for mip in 0..=base_side.ilog2() {
                 queue.write_texture(
@@ -238,23 +274,26 @@ impl TerrainGpu {
                         depth_or_array_layers: 1,
                     },
                 );
-                if side > 1 {
-                    let next = side / 2;
-                    let mut reduced = vec![0u8; next * next * 4];
-                    for y in 0..next {
-                        for x in 0..next {
-                            for k in 0..4 {
-                                let a = level[((2 * y) * side + 2 * x) * 4 + k] as u32;
-                                let b = level[((2 * y) * side + 2 * x + 1) * 4 + k] as u32;
-                                let c = level[((2 * y + 1) * side + 2 * x) * 4 + k] as u32;
-                                let d = level[((2 * y + 1) * side + 2 * x + 1) * 4 + k] as u32;
-                                reduced[(y * next + x) * 4 + k] = ((a + b + c + d + 2) / 4) as u8;
-                            }
-                        }
-                    }
-                    level = reduced;
-                    side = next;
+                if side <= 1 {
+                    break;
                 }
+                let next = side / 2;
+                level = match img.levels.get(mip + 1) {
+                    // Authored level: use it as-is when it matches the slot size.
+                    Some(authored)
+                        if authored.width as usize == next && authored.height as usize == next =>
+                    {
+                        authored.rgba.clone()
+                    }
+                    Some(authored) => {
+                        // Authored but non-square or smaller than the slot requests:
+                        // fit it rather than silently box-filter it, and keep the
+                        // authored reduction where the size already matches.
+                        fit_level(authored, next)
+                    }
+                    None => box_half(&level, next),
+                };
+                side = next;
             }
             // wgpu keeps write_texture staging alive until submission. Bound
             // peak memory even when maximum-quality terrain uses 1024px images.

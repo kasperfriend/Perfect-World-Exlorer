@@ -31,6 +31,7 @@ mod client_detect;
 mod client_sun;
 mod color_chain;
 mod display_gamma;
+mod dxt;
 mod ecmodel;
 mod environment;
 mod far_trees_gpu;
