@@ -76,6 +76,12 @@ impl Visibility {
         }
         self.flags = flags;
     }
+    /// Per-object fade: `+0x7c` for the sun, `+0x80` for the moon.
+    pub fn fade(&self, sun: bool) -> f32 {
+        self.values[if sun { 0 } else { 1 }]
+    }
+    /// Legacy hour-selected alpha, still reported in the frame snapshot; the
+    /// sky shader consumes [`Self::fade`] per object instead.
     pub fn alpha(&self, hour: f32) -> f32 {
         let t = hour.rem_euclid(24.) / 24.;
         let sun = t > f32::from_bits(0x3e155555) && t < 0.875;

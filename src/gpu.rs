@@ -1507,6 +1507,48 @@ impl Renderer {
     /// Sample time and publish the frame's lighting/playback state exactly
     /// once. Every secondary view reuses the returned snapshot with a zero
     /// logic delta; no secondary submission calls this method.
+    /// Explicit celestial state report: which disc is drawable and, when it is
+    /// not, which native condition failed. Shown next to the sky settings so an
+    /// unsupported state is visible instead of silently missing.
+    pub fn celestial_status(&self, camera: &Camera) -> String {
+        let authored = camera
+            .regional_light
+            .or(self.retained_regional_light)
+            .map(|l| l.material_direction().toward_sun())
+            .unwrap_or([0.6, -0.4, 0.8]);
+        let state = match crate::sky_time::evaluate(camera.time_of_day, authored) {
+            Some(state) => state,
+            None => return "sky clock: non-finite time or sun direction".to_string(),
+        };
+        let night = crate::sky_time::night_weight(camera.time_of_day).unwrap_or(0.);
+        let mut out = format!(
+            "Sky clock {:.2} h: sun {:.1} deg, moon {:.1} deg, night texture set {:.0}%, night flag {}, night strength {:.2}",
+            camera.time_of_day,
+            state.sun_elevation.to_degrees(),
+            state.moon_elevation.to_degrees(),
+            night * 100.,
+            if state.night_flag { "on" } else { "off" },
+            state.night_strength
+        );
+        for disc in crate::sky_celestial::discs(
+            &state,
+            self.celestial_visibility.fade(true),
+            self.celestial_visibility.fade(false),
+            true,
+            true,
+        ) {
+            match disc {
+                Ok(disc) => out.push_str(&format!(
+                    "; {} {:.2} deg disc, alpha {}",
+                    disc.kind.name(),
+                    disc.angular_radius.to_degrees() * 2.,
+                    disc.alpha
+                )),
+                Err(error) => out.push_str(&format!("; {error}")),
+            }
+        }
+        out
+    }
     fn begin_frame(&mut self, camera: &Camera, w: u32, h: u32) -> FrameSnapshot {
         let now = Instant::now();
         let dt = now.duration_since(self.wind_last).as_secs_f32();
@@ -1564,9 +1606,6 @@ impl Renderer {
             .or(self.retained_regional_light)
             .map(|l| l.material_direction().toward_sun())
             .unwrap_or([0.6, -0.4, 0.8]);
-        let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
-            .unwrap_or([0., -1., 0.])
-            .map(|x| -x);
         self.celestial_visibility.update(
             camera.logic_delta_ms,
             camera
@@ -1575,31 +1614,43 @@ impl Renderer {
                 .map(|l| l.celestial_flags)
                 .unwrap_or(0x18),
         );
+        // Disc placement follows the render path 0x4b3e00: each object uses its
+        // own recovered elevation curve and the shared regional azimuth.
+        // `sun_dir` is a light direction, which 0x4b60b0 stores negated.
+        let (sun, moon) = match crate::sky_time::evaluate(camera.time_of_day, authored) {
+            Some(state) => {
+                let fade = |sun: bool| {
+                    if camera.celestial_discs {
+                        self.celestial_visibility.fade(sun)
+                    } else {
+                        0.
+                    }
+                };
+                (
+                    [fade(true), state.sun_elevation, state.azimuth, 0.],
+                    [fade(false), state.moon_elevation, state.azimuth, 0.],
+                )
+            }
+            None => ([0.; 4], [0.; 4]),
+        };
+        // The frame snapshot keeps the legacy single-disc summary for the
+        // capture tests; the sky itself now consumes the per-object values above.
+        let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
+            .unwrap_or([0., -1., 0.])
+            .map(|x| -x);
         let celestial_alpha = if camera.celestial_discs {
             self.celestial_visibility.alpha(camera.time_of_day)
         } else {
             0.
         };
-        self.sky.update(
-            &self.queue,
-            direction,
-            w,
-            h,
-            camera.time_of_day,
-            celestial,
-            celestial_alpha,
-            false,
-        );
-        self.sky.update(
-            &self.queue,
-            direction,
-            w,
-            h,
-            camera.time_of_day,
-            celestial,
-            celestial_alpha,
-            true,
-        );
+        let frame = crate::sky_gpu::SkyFrame {
+            hour: camera.time_of_day,
+            night_weight: crate::sky_time::night_weight(camera.time_of_day).unwrap_or(0.),
+            sun,
+            moon,
+        };
+        self.sky.update(&self.queue, direction, w, h, frame, false);
+        self.sky.update(&self.queue, direction, w, h, frame, true);
         self.far_trees.update_lods(
             &self.queue,
             camera.pos.to_array(),
@@ -3280,7 +3331,7 @@ pub fn run(
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
                                                     0=>{ui.heading("Graphics");marked_slider(ui,egui::Slider::new(&mut settings.resolution_scale,10.0..=200.0).integer().suffix("%"),"Resolution scale",defaults.resolution_scale,10.,200.,false,true);ui.label(egui::RichText::new("3D render resolution (10%–200% of the window). UI stays at native resolution.").small().weak());ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
-                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
+                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon").on_hover_text("Native billboards: centre at direction*100, half extent 1.0 (1.146 degrees), gated on the recovered elevation curve (sun up to 70 degrees, moon up to 60) and the 0.0003/ms visibility ramps. Sun adds its texture, moon alpha-blends it, matching the two shipped assets; the flare pixel shaders live in shaders.pck, which this build cannot read, so halos are not drawn.");if settings.celestial_discs {ui.label(renderer.celestial_status(&camera));}ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());ui.label("Music follows the client zone playlists; ambient sounds are not yet implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();egui::ComboBox::from_label("Minimap style").selected_text(settings.minimap_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.minimap_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the world from above each frame; Original shows the client's own minimap tiles (surfaces/minimaps/world) at their native resolution.").small().weak());egui::ComboBox::from_label("Minimap shape").selected_text(settings.minimap_shape.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Square,"Square");ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Circular,"Circular");});egui::ComboBox::from_label("World map style").selected_text(settings.world_map_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.world_map_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.world_map_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the whole world from above; Original shows the client's map tiles (surfaces/maps).").small().weak());ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
                                                 }

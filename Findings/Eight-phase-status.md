@@ -71,8 +71,11 @@ and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.m
 ## Phase 5 — Complete sky, weather and atmospheric environment
 
 - [ ] P5.01 — Reproduce the client’s sky geometry, texture layers, panorama mapping and seam handling.
+  - Recovered and harness-verified: curtain 70 vertices/288 indices (`0x79a330`, stream `+0x584`), cap 145/792 (`0x79a810`, `+0x588`), both projections, and hard joins (duplicated column at azimuth 90°, `z`-mirrored second draw at 0°/180°) in `src/sky_geometry.rs`; no crossfade remains. Open: the client's vertex program that may cover the 51.75°–72.5° band its buffers leave empty (shader text is in the undecodable `shaders.pck`). See `Findings/P5-sky-geometry-daynight-celestial.md`.
 - [ ] P5.02 — Implement the actual day/night sky blending and time-dependent texture selection.
+  - Recovered: `CECSunMoon::Update` `0x4b60e0` (elevations, `+0x74` set selector, `+0x70` night strength), switch length `0x4b6250` (2,400,000/1,800,000 halved), timer `0x79b150`/`0x79a040`/`0x79b180`; replaced the smoothstep schedule with the linear timed switch in `src/sky_time.rs`. Open: `sky_id_day`/`sky_id_night` → `Textures\Sky` folder mapping (`configs.pck` footer key unknown).
 - [ ] P5.03 — Complete sun, moon, halos and related celestial geometry, positioning, visibility and blending.
+  - Recovered: billboard render `0x4b3e00`–`0x4b41ee` (distance 100.0, half extent 1.0 → 1.146°, per-object elevation gate, shared azimuth, `fade << 24` alpha), implemented with explicit failures in `src/sky_celestial.rs` and reported in the World tab. Open: material blend states and the flare pixel shaders in `shaders.pck`.
 - [ ] P5.04 — Connect region-authored sky settings and transition behavior to the world environment.
 - [ ] P5.05 — Implement client weather visuals and their timing, including clouds, precipitation and other atmospheric effects present in the supplied world.
 - [ ] P5.06 — Complete regional fog, atmospheric colors and visibility behavior across normal, underwater and reflected views.
