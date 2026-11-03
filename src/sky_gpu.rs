@@ -3,16 +3,20 @@
 //! The mesh tables, the texture-set switch and the celestial billboards all come
 //! from `elementclient.exe` and are unit tested in [`crate::sky_geometry`],
 //! [`crate::sky_time`] and [`crate::sky_celestial`]; this module only uploads
-//! them. Nothing here invents a blend: the panorama seam is a hard switch
-//! between the front and back texture, the band the native buffers leave open
-//! (38.16-72.5 degrees) is filled with the pass background at the client's own
-//! rim alpha, and the day/night change is the client's linear switch timer.
-//! Two viewer-only compositions keep that open band from reading as a ring: the
-//! background is the frame's atmospheric fog colour rather than a fixed blue,
-//! and the roof disc's rim fades into it over
-//! [`crate::sky_geometry::CAP_RIM_FADE_DEGREES`]
-//! because retail draws an unidentified object from `[A3DSky+0x54]`
-//! (`0x799f88`, vtable `+0x1c`) over that edge and this build does not.
+//! them. The recovered parts are the mesh rows and their texture runs, the
+//! planar cap disc, the sun/moon billboards and the sky clock.
+//! Retail covers the band the two native buffers leave open (38.16-72.5
+//! degrees) with an object this build does not draw
+//! (`[A3DSky+0x54]`, `0x799f88`, vtable `+0x1c`), so the band is a gradient from
+//! the frame's atmospheric fog colour to the cap's own rim colour at 72.5
+//! degrees: both ends equal the neighbouring surface exactly, which is why no
+//! ring or disc edge is visible.
+//!
+//! One authored set covers both phases. `element_client.cfg` names `Sky\clear`
+//! for all three `sky_image` slots, so the day/night change is the recovered
+//! regional light colour modulating that one set, not a second texture set.
+//! The two texture runs the island split switches between crossfade over 3.4
+//! degrees instead of meeting at a hard seam.
 use crate::pck;
 use glam::{Mat4, Vec3};
 use std::{collections::HashMap, fs::File, path::Path};
@@ -23,7 +27,9 @@ use wgpu::util::DeviceExt;
 pub struct SkyFrame {
     /// Authored hour, `0..24`. Used for diagnostics only.
     pub hour: f32,
-    /// Day/night texture-set weight from [`crate::sky_time::night_weight`].
+    /// Day/night switch weight from [`crate::sky_time::night_weight`]. Kept for
+    /// diagnostics; the shader uses [`Self::tint`] because one authored set now
+    /// covers both phases.
     pub night_weight: f32,
     /// Sun: `[fade, elevation, azimuth, unused]`.
     pub sun: [f32; 4],
@@ -34,6 +40,10 @@ pub struct SkyFrame {
     /// that band with an object this build does not draw (0x799f88), so the
     /// frame's own atmospheric fog colour is used instead of a fixed blue.
     pub background: [f32; 3],
+    /// Colour multiplier applied to the sky texture samples: the recovered
+    /// regional light colour, so the single authored set darkens through dusk
+    /// and night instead of swapping to a second texture set.
+    pub tint: [f32; 3],
 }
 
 impl Default for SkyFrame {
@@ -44,6 +54,7 @@ impl Default for SkyFrame {
             sun: [0.0; 4],
             moon: [0.0; 4],
             background: [0.18, 0.32, 0.48],
+            tint: [1.0; 3],
         }
     }
 }
@@ -56,6 +67,7 @@ struct Uniform {
     celestial: [f32; 4],
     celestial2: [f32; 4],
     background: [f32; 4],
+    tint: [f32; 4],
 }
 
 pub struct SkyGpu {
@@ -72,7 +84,7 @@ pub struct SkyGpu {
 }
 
 pub(crate) const SHADER: &str = r#"
-struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>};
+struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>};
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
@@ -114,30 +126,42 @@ fn curtain_alpha(y:f32)->f32{
  if y<=19.6350002 {return 1.0;}
  return (39.2700005-y)/19.6350002;
 }
-fn sample_sky(d:vec3<f32>,base:i32)->vec4<f32>{
+fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
+ let tn=clamp(tint,vec3<f32>(0.0),vec3<f32>(1.0));
  // Cap: sphere of radius 50, planar disc over the top 17.5 degrees
  // (A3DSkySphere::Init 0x79a810).
  if d.y*50.0>=47.685848 {
   let uv=vec2<f32>(0.5,0.5)+vec2<f32>(d.x,d.z)*1.66275358;
-  // Viewer-only rim softening: the native disc is opaque up to its 72.5 degree
-  // rim, where the mesh stops and the open band begins. Retail covers that hard
-  // circle with an object drawn at 0x799f88 that this build does not render, so
-  // the rim fades into the pass background from 72.5 to 82 degrees instead
-  // (sin of both, matching sky_geometry::cap_alpha).
-  return vec4<f32>(textureSampleLevel(skies,smp,uv,base+2,0.).rgb,smoothstep(0.953717,0.990268,d.y));
+  return vec4<f32>(textureSampleLevel(skies,smp,uv,base+2,0.).rgb*tn,1.0);
  }
+ let flat=max(length(d.xz),0.000001);
  // Curtain: cylinder of radius 50, so the ray meets it at 50*tan(elevation).
- // One 180 degree half per draw, the second draw mirrors z; the island split
- // at azimuth 90 reverses the texture run, it never blends.
- let y=50.0*d.y/max(length(d.xz),0.000001);
- let front=d.z>=0.0;
+ let y=50.0*d.y/flat;
+ // 38.16..72.5 degrees has no native geometry. Retail covers that band with an
+ // object this build does not draw (0x799f88), so it is a gradient from the
+ // pass background at the curtain rim to the cap's own rim colour at 72.5
+ // degrees: both ends equal their neighbour exactly, so no ring and no hard
+ // disc edge can survive.
+ if y>39.2700005 {
+  let rim=vec2<f32>(0.5)+0.5*d.xz/flat;
+  let edge=textureSampleLevel(skies,smp,rim,base+2,0.).rgb*tn;
+  return vec4<f32>(mix(bg,edge,smoothstep(0.618,0.9537,d.y)),1.0);
+ }
+ // The island split at azimuth 90 runs the texture's other half; the native
+ // buffers switch runs without blending, which leaves a visible cloud seam, so
+ // the two runs crossfade over 3.4 degrees around the seam.
  let az=atan2(abs(d.z),d.x);
  let quarter=1.5707963;
- let u=select(2.0-2.0*az/3.14159265,1.0-2.0*az/3.14159265,az<quarter);
  let sy=min(y,39.2700005);
- let uv=vec2<f32>(clamp(u,0.0,1.0),curtain_v(sy,az>=quarter));
- let tex=textureSampleLevel(skies,smp,uv,base+select(1,0,front),0.);
- return vec4<f32>(tex.rgb,tex.a*curtain_alpha(sy));
+ let layer=base+select(1,0,d.z>=0.0);
+ let front_uv=vec2<f32>(clamp(2.0-2.0*az/3.14159265,0.0,1.0),curtain_v(sy,true));
+ let back_uv=vec2<f32>(clamp(1.0-2.0*az/3.14159265,0.0,1.0),curtain_v(sy,false));
+ let a=textureSampleLevel(skies,smp,front_uv,layer,0.);
+ let b=textureSampleLevel(skies,smp,back_uv,layer,0.);
+ let owns_front=az>=quarter;
+ let near=1.0-smoothstep(0.0,0.06,abs(az-quarter));
+ let tex=mix(select(b,a,owns_front),select(a,b,owns_front),0.5*near);
+ return vec4<f32>(tex.rgb*tn,tex.a*curtain_alpha(sy));
 }
 // One native billboard: centre at direction*100, half extent 1.0, so the disc
 // subtends 1.146 degrees. Gated on elevation and fade exactly like 0x4b3e00.
@@ -157,13 +181,12 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,layer:i32)->vec3<f32>{
 }
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
- let w=clamp(p.time.y,0.,1.);
- // Day set is layers 0..2, night set 6..8 (`01.bmp`, `02.bmp`, `Roof.bmp`).
- let day=sample_sky(d,0);let night=sample_sky(d,6);
- var color=mix(day.rgb,night.rgb,w);
- // The pass clears to this background and the sky rim alpha fades into it,
- // which is how the client hides the band its two buffers leave open.
- color=mix(p.background.rgb,color,clamp(mix(day.a,night.a,w),0.,1.));
+ // One authored set covers both phases (`sky_image01..03` in
+ // element_client.cfg name Sky\clear for all three); the night look is the
+ // recovered regional light colour, not a second texture set. Layers 0..2 are
+ // that set, 9 and 10 the client sun and moon discs.
+ let sky=sample_sky(d,0,p.background.rgb,p.tint.rgb);
+ var color=mix(p.background.rgb,sky.rgb,clamp(sky.a,0.,1.));
  color=celestial(color,d,p.celestial,9);
  color=celestial(color,d,p.celestial2,10);
  return vec4<f32>(color,1.);
@@ -182,8 +205,10 @@ impl SkyGpu {
             .into_iter()
             .map(|e| (e.name.to_lowercase(), e))
             .collect();
-        // Three sky phases ship in the client config (`sky_image01..03`); the
-        // recovered day/night rule switches between the first and the last.
+        // `element_client.cfg` names `Sky\clear` for all three `sky_image`
+        // slots, so the authored set is loaded once and the shader uses it for
+        // both phases. The extra folders stay loaded so the layer indices (0..2
+        // set, 9 sun, 10 moon) do not move.
         let names = ["clear", "evening", "night2"];
         let mut frames = Vec::new();
         for folder in names {
@@ -290,6 +315,7 @@ impl SkyGpu {
                     celestial: [0.; 4],
                     celestial2: [0.; 4],
                     background: [0.18, 0.32, 0.48, 1.],
+                    tint: [1.; 4],
                 }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             })
@@ -421,6 +447,7 @@ impl SkyGpu {
                 frame.background[2],
                 1.,
             ],
+            tint: [frame.tint[0], frame.tint[1], frame.tint[2], 1.],
         };
         queue.write_buffer(
             if reflected {

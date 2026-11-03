@@ -1663,9 +1663,24 @@ impl Renderer {
             moon,
             // The 38.16-72.5 degree band has no native mesh; the client covers
             // it with something drawn at 0x799f88 that this build does not, so
-            // the viewer shows the frame's atmospheric fog there and the disc
-            // rim fades into it.
+            // the viewer blends the frame's atmospheric fog into the cap's own
+            // rim colour across that band.
             background: camera.air_fog.color,
+            // One authored sky set covers both phases; the regional light
+            // colour carries the dusk/night darkening instead of a second set.
+            // The sky never falls below the region's ambient level, so a dark
+            // night diffuse cannot black out the panorama.
+            tint: camera
+                .regional_light
+                .or(self.retained_regional_light)
+                .map(|l| {
+                    [
+                        l.ambient[0].max(l.diffuse[0]),
+                        l.ambient[1].max(l.diffuse[1]),
+                        l.ambient[2].max(l.diffuse[2]),
+                    ]
+                })
+                .unwrap_or([1.; 3]),
         };
         self.sky.update(&self.queue, direction, w, h, frame, false);
         self.sky.update(&self.queue, direction, w, h, frame, true);

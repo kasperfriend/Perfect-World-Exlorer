@@ -122,8 +122,9 @@ pub enum Region {
     /// Horizon skirt, `y <= R * pi / 4`.
     Curtain,
     /// Band between the curtain rim (38.16 degrees) and the cap rim (72.5
-    /// degrees). The client's two buffers leave this band empty; its own rim
-    /// vertex alpha is zero, so the background shows through there.
+    /// degrees). The client's two buffers leave this band empty; the shader
+    /// fills it with a gradient from the pass background to the cap's rim
+    /// colour, which joins both neighbours exactly.
     CapEdgeGap,
 }
 
@@ -263,33 +264,11 @@ pub fn curtain_alpha(y: f32) -> f32 {
     (ROW_Y[0] - y) / (ROW_Y[0] - ROW_Y[1])
 }
 
-/// Elevation range, in degrees, over which the viewer softens the cap rim. The
-/// native disc is opaque all the way to its 72.5 degree rim, where the mesh
-/// stops and the 38.16-72.5 degree band begins; retail covers that hard circle
-/// with an object drawn at `0x799f88` from `[A3DSky+0x54]` that this build does
-/// not render, so the rim fades into the pass background instead. Setting the
-/// range to the same value restores the hard native edge.
-pub const CAP_RIM_FADE_DEGREES: (f32, f32) = (72.5, 82.0);
-
-/// Coverage of the recovered cap disc from the direction's `y` component: `0` on
-/// the 72.5 degree rim and `1` above [`CAP_RIM_FADE_DEGREES`]. Mirrors the
-/// `sample_sky` disc branch in the WGSL sky shader.
-pub fn cap_alpha(direction_y: f32) -> f32 {
-    let (near, far) = CAP_RIM_FADE_DEGREES;
-    let start = near.to_radians().sin();
-    let end = far.to_radians().sin();
-    if end <= start {
-        return 1.0;
-    }
-    let t = ((direction_y - start) / (end - start)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
 /// Project a unit view direction onto the recovered sky textures.
 ///
-/// Returns `None` only for a direction that is not finite. The `CapEdgeGap`
-/// band is reported instead of being blended away, so callers can show the
-/// uncovered band rather than hide it.
+/// Returns `None` only for a direction that is not finite. `CapEdgeGap` rays
+/// carry the cap's rim lookup, which the shader mixes with the pass background
+/// across the band.
 pub fn project(direction: [f32; 3]) -> Option<Sample> {
     let len =
         (direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2])
@@ -306,7 +285,7 @@ pub fn project(direction: [f32; 3]) -> Option<Sample> {
         return Some(Sample {
             layer: Layer::Roof,
             uv: [0.5 + d[0] * RADIUS / disc, 0.5 + d[2] * RADIUS / disc],
-            alpha: cap_alpha(d[1]),
+            alpha: 1.0,
             region: Region::Cap,
         });
     }
@@ -329,17 +308,22 @@ pub fn project(direction: [f32; 3]) -> Option<Sample> {
     } else {
         (false, 1.0 - 2.0 * azimuth / std::f32::consts::PI)
     };
-    let region = if y > CURTAIN_TOP_Y {
-        Region::CapEdgeGap
-    } else {
-        Region::Curtain
-    };
-    let clamped = y.min(CURTAIN_TOP_Y);
+    if y > CURTAIN_TOP_Y {
+        // The band has no native geometry. The shader draws it as a gradient
+        // from the pass background at the curtain rim to the cap's own rim
+        // colour at 72.5 degrees, so the sample carries that rim lookup.
+        return Some(Sample {
+            layer: Layer::Roof,
+            uv: [0.5 + 0.5 * d[0] / horizontal, 0.5 + 0.5 * d[2] / horizontal],
+            alpha: 1.0,
+            region: Region::CapEdgeGap,
+        });
+    }
     Some(Sample {
         layer,
-        uv: [u, curtain_v(clamped, front_island)],
-        alpha: curtain_alpha(clamped),
-        region,
+        uv: [u, curtain_v(y, front_island)],
+        alpha: curtain_alpha(y),
+        region: Region::Curtain,
     })
 }
 
@@ -598,12 +582,17 @@ mod tests {
     }
 
     #[test]
-    fn cap_edge_gap_is_reported_and_invisible() {
+    fn cap_edge_gap_is_reported_and_samples_the_cap_rim() {
         for elevation in [55.0_f32, 60.0, 70.0] {
             let (sin, cos) = elevation.to_radians().sin_cos();
             let sample = project([cos, sin, 0.0]).unwrap();
             assert_eq!(sample.region, Region::CapEdgeGap, "elevation {elevation}");
-            assert_eq!(sample.alpha, 0.0, "gap must stay transparent");
+            // The shader blends the background into this lookup, so the band
+            // joins the curtain's fade below and the opaque cap above.
+            assert_eq!(sample.alpha, 1.0);
+            assert_eq!(sample.layer, Layer::Roof);
+            assert!(close(sample.uv[0], 1.0, 1e-6), "outer rim u");
+            assert!(close(sample.uv[1], 0.5, 1e-6), "outer rim v");
         }
         let (sin, cos) = 30.0_f32.to_radians().sin_cos();
         assert_eq!(project([cos, sin, 0.0]).unwrap().region, Region::Curtain);
@@ -619,22 +608,6 @@ mod tests {
         assert_eq!(curtain_alpha(-30.0), 1.0);
         // Halfway up the opaque part of the skirt.
         assert!((curtain_alpha(29.45) - 0.5).abs() < 1e-3);
-    }
-
-    #[test]
-    fn cap_rim_fades_into_the_uncovered_band_without_a_hard_circle() {
-        // The disc is fully opaque only above the softened rim range.
-        assert!(cap_alpha(CAP_EDGE_Y / RADIUS) < 1e-4);
-        assert!((cap_alpha(1.0) - 1.0).abs() < 1e-6);
-        assert!(cap_alpha(0.955) < 0.05);
-        assert!((0.0..=1.0).contains(&cap_alpha(0.97)));
-        // The two neighbours agree at the seam: the band is transparent and the
-        // disc starts transparent, so no visible ring survives.
-        let (sin, cos) = 73.0_f32.to_radians().sin_cos();
-        let rim = project([cos, sin, 0.0]).unwrap();
-        assert_eq!(rim.region, Region::Cap);
-        assert!(rim.alpha < 0.1, "rim alpha {}", rim.alpha);
-        assert!(project([0.0, 1.0, 0.0]).unwrap().alpha > 0.99);
     }
 
     #[test]

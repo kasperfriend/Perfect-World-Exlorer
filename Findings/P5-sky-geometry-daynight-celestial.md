@@ -112,10 +112,15 @@ signed area.
 * **Meridian at azimuth 0°/180°** — no duplicate column exists. The second draw
   feeds the identical vertex with `z` mirrored, so the ring closes with the same
   `u` on both sides. Verified in `meridian_join_reuses_one_vertex_for_both_draws`.
-* There is **no crossfade anywhere**. The seam handling is "separate texture per
-  half space, exact vertex reuse at the mirror plane". The previous
-  `u < 0.08` / `u > 0.92` crossfade in `src/sky_gpu.rs` was removed with the
-  approximation it propped up.
+* There is **no crossfade in the client anywhere**. The seam handling is
+  "separate texture per half space, exact vertex reuse at the mirror plane". The
+  previous `u < 0.08` / `u > 0.92` crossfade in `src/sky_gpu.rs` was removed with
+  the approximation it propped up.
+* **Viewer addition after the second test round:** the ray projector now samples
+  both texture runs and crossfades them over 3.4° of azimuth around the 90°
+  island join (`1 - smoothstep(0, 0.06, |az - pi/2|)`, 50/50 exactly at the
+  join). The native hard switch left a visible cloud seam in the packed art, so
+  the join is the one place where the viewer deliberately blends.
 
 ### 1.5 The band the native buffers leave open
 
@@ -137,24 +142,25 @@ the shipped buffers, not of a program this repository cannot read. What the
 retail game may have drawn *over* it (clouds, fog) is not part of these two
 objects and is not established here.
 
-The first test round reported the band as a blue blur ring around the roof disc,
-so the viewer now composes that gap explicitly instead of showing one fixed
-colour:
+Two test rounds reported this band as a blue ring around the roof disc, so the
+viewer now fills it instead of leaving it to one fixed colour. The band is drawn
+as a gradient from the pass background at the curtain rim to the **cap's own rim
+colour** at 72.5 degrees:
 
-* the pass background is the frame's atmospheric fog colour
-  (`camera.air_fog`), not a hard-coded `0.18, 0.32, 0.48`, so the band follows
-  the region and the hour;
-* the roof disc's rim fades into that background over
-  `sky_geometry::CAP_RIM_FADE_DEGREES` (72.5 to 82 degrees, `smoothstep` in both
-  `cap_alpha` and the WGSL disc branch, whose edges are the sine of those two
-  elevations), because retail hides the hard
-  72.5 degree edge under something this build does not draw: `0x799f88` renders
-  an object taken from `[A3DSky+0x54]` through vtable `+0x1c`, between the cap
-  and the curtain draws. That object is not identified yet, so the viewer only
-  softens the edge instead of claiming to reproduce it.
+* the background is the frame's atmospheric fog colour (`camera.air_fog`), not a
+  hard-coded `0.18, 0.32, 0.48`, so the lower end follows the region and hour;
+* the upper end samples the roof texture on exactly the circle the cap mesh ends
+  on (`0.5 + 0.5 * d.xz / |d.xz|`), so the gradient and the opaque cap meet
+  pixel-for-pixel and no disc edge is visible;
+* the curtain's own rim alpha (zero on the top row) still blends the skirt into
+  the same fog colour, so the lower end joins too.
 
-Both are viewer-only compositions. Collapsing `CAP_RIM_FADE_DEGREES` restores
-the raw native edge, and the band is still reported as `Region::CapEdgeGap` either way.
+The mixer is `smoothstep(sin 38.16 deg, sin 72.5 deg, d.y)` in the WGSL branch
+and `Region::CapEdgeGap` still reports the band, carrying the rim lookup. This is
+a viewer-only composition: retail covers the band with an object this build does
+not draw (`0x799f88` renders something taken from `[A3DSky+0x54]` through vtable
+`+0x1c`, between the cap and the curtain draws) and that object is not
+identified yet.
 
 ---
 
@@ -229,12 +235,15 @@ region asks for, and in this build's default environment both day and night name
 the `clear` folder: what changes at dusk is the lighting (`+0x70` strength, the
 terrain and model day/night switch) and the rim alpha, not the sky image.
 
-**Viewer deviation, stated on purpose:** `sky_gpu` loads the three folders present
-in the packed `textures.pck` (`clear`, `evening`, `night2`) and uses `clear` for
-day and `night2` for night. The night-strength lighting consumer is still missing
-(section 6 item 5), so the faithful "same image, darker scene" combination would
-make night look like day; the shipped `night2` art stands in until that lighting
-is wired. Everything else about the switch is the recovered rule.
+**Deviation removed after the first test round.** `sky_gpu` used to draw `clear`
+by day and the packed `night2` folder by night, because the night-strength
+lighting consumer is missing (section 6 item 5). That substitution put a painted,
+motionless moon into the night sky on top of the recovered billboard, so the
+second round dropped it: one authored set now covers both phases, exactly as
+`element_client.cfg` names `Sky\clear` for all three `sky_image` slots, and the
+night look is the recovered regional light colour modulating that set (uniform
+`tint`, filled from `RegionalLight::diffuse`). The switch timer is unchanged; only
+the second art set is gone.
 
 ---
 
@@ -251,7 +260,11 @@ is wired. Everything else about the switch is the recovered rule.
 | Fades | `0x4b5f63`–`0x4b6021` | `+0x7c` sun, `+0x80` moon, `± ms * ds:0x8db100` (0.0003), clamped to [0, 1]; targets `+0x84`/`+0x85` |
 | Textures | — | `textures/nature/sun.bmp`, `textures/nature/moon.tga` |
 
-Angular size: `2 * atan(1/100)` = **1.1459°** half-angle 0.01 rad. The previous
+Angular size: `2 * atan(1/100)` = **1.1459°** half-angle 0.01 rad. This is the
+whole recovered quad, so the second test round's "sun and moon are tiny" is the
+native size: what makes the retail sun read larger is the `sunshine.bmp` /
+flare pass of section 3.2, which is still unimplemented and is not faked by
+enlarging the billboard. The previous
 experimental discs used half-angles 0.028/0.035 rad (3.2°/4°) and were gated on
 `3.5 <= hour < 21`; both are replaced.
 
@@ -405,15 +418,14 @@ Time boundaries covered: 00:00, 01:30, 03:30, 12:00, 18:00, 20:00, 21:00, 24:00.
    the band is empty in the client too. What the retail scene layers over that
    band — clouds or fog from other objects — is outside these two classes and is
    not established here. The viewer renders the same coverage, reports the band
-   as `Region::CapEdgeGap`, and fills it with the atmospheric fog colour while
-   softening the roof rim (section 1.5) so the open band does not read as a ring.
+   as `Region::CapEdgeGap`, and fills it with a fog-to-cap-rim gradient
+   (section 1.5) until the object retail draws there is identified.
 2. **Sky set identity.** Resolved: `TransSky` (`0x79ac30`) receives the three
    paths from configuration and prefixes `Textures\Sky\`; the default
    environment in `element_client.cfg` names `clear` for all three images and
-   `autofamilyconfigs/sky.lst` lists the named sets (section 2.3). What remains is
-   the viewer's documented deviation: it uses the packed `night2` folder for the
-   night set until the `+0x70` lighting consumer exists, because the client's
-   default keeps the same image and darkens the scene instead.
+   `autofamilyconfigs/sky.lst` lists the named sets (section 2.3). The viewer now
+   uses that one authored set for both phases (section 2.3); the `evening` and
+   `night2` folders stay loaded but are never sampled.
 3. **Sky rotation.** `0x79a0e0` advances an angle at `[+0x504+0xc] * (1/30)` per
    frame and rebuilds the texture transform through `0x789ec0`/`0x789f20`
    (half-angle 0.5). The rate is set from a config/region value that is not yet
