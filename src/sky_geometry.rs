@@ -604,10 +604,10 @@ mod tests {
             assert_eq!(sample.alpha, 1.0, "the band is opaque at {elevation}");
             radii.push((sample.uv[0] - 0.5).hypot(sample.uv[1] - 0.5));
         }
-        // Radius grows monotonically as the elevation drops, and passes one
+        // Radius shrinks monotonically as the elevation rises, and passes one
         // whole tile at the low end — which is why the roof sheet is sampled
         // with the repeat sampler.
-        assert!(radii.windows(2).all(|w| w[1] > w[0]), "radii {radii:?}");
+        assert!(radii.windows(2).all(|w| w[1] < w[0]), "radii {radii:?}");
         assert!(
             radii[0] > 1.28 && radii[0] < 1.32,
             "curtain rim {}",
