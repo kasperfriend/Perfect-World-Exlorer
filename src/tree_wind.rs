@@ -1,8 +1,8 @@
 //! Experimental translation of the client's tree wind-strength noise.
 //!
-//! This does not reproduce SpeedTree's leaf rocking and is not wired to the
-//! renderer. The existing cache contains sampled positions rather than the
-//! runtime parameters needed to apply this signal faithfully.
+//! The optional viewer preview uses the recovered scalar to modulate the old
+//! sampled leaf loop. It is explicitly approximate: this does not reproduce
+//! SpeedTree's live leaf rocking or replace the runtime parameters.
 
 #[derive(Clone)]
 pub struct ClientWind {
@@ -125,6 +125,18 @@ impl RuntimeWindPhase {
     }
 }
 
+/// Optional viewer preview: apply the recovered client scalar to the old
+/// sampled-animation blend. This modulation is not a port of leaf motion.
+/// Invalid or unsupported time falls back to the unmodulated legacy blend.
+pub fn preview_blend(wind: &ClientWind, time: f32, blend: f32, enabled: bool) -> f32 {
+    let blend = if blend.is_finite() { blend.clamp(0.0, 1.0) } else { 0.0 };
+    if !enabled { return blend; }
+    match wind.sample(time) {
+        Some(strength) => (blend * strength).clamp(0.0, 1.0),
+        None => blend,
+    }
+}
+
 fn next_random(seed: &mut u32) -> u32 {
     *seed = (u64::from(*seed) * 16807 % 2_147_483_647) as u32;
     *seed
@@ -149,6 +161,18 @@ mod tests {
         assert!(initial.update(1.0, -1.0, 1.0, 1.0).is_none());
         assert!(initial.update(f32::NAN, 1.0, 1.0, 1.0).is_none());
         assert!(probe_state.rock_angle(1.0e10, 0.0, 1.0, true).is_none());
+    }
+
+    #[test]
+    fn preview_blend_is_opt_in_bounded_and_uses_time() {
+        let wind = ClientWind::new();
+        assert_eq!(preview_blend(&wind, 5., 0.6, false), 0.6);
+        assert!((preview_blend(&wind, 0., 1., true) - 0.386193573).abs() < 1e-6);
+        assert_ne!(preview_blend(&wind, 0., 1., true), preview_blend(&wind, 16., 1., true));
+        assert_eq!(preview_blend(&wind, 0., 0., true), 0.);
+        assert_eq!(preview_blend(&wind, f32::NAN, 0.6, true), 0.6);
+        assert_eq!(preview_blend(&wind, 1., f32::NAN, true), 0.);
+        assert!((0.0..=1.0).contains(&preview_blend(&wind, 1., 5., true)));
     }
 
     #[test]

@@ -99,6 +99,8 @@ mod terrain_shading;
 mod texture_atlas;
 mod texture_resolution;
 mod tree_lod;
+#[allow(dead_code)]
+mod tree_wind;
 #[cfg(windows)]
 mod tree_source;
 mod trees;

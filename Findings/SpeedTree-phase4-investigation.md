@@ -448,3 +448,30 @@ after installing the optional Speakeasy dependencies. These results assume the s
 FPU control word and sampled finite inputs; Rust f64/libm is not a guarantee of
 x87 equivalence at all boundaries. Full Cargo/GPU, native Windows, and complete
 leaf-motion validation remain outstanding. P4.03 remains **No**.
+
+### Viewer integration: opt-in wind-signal preview
+
+The viewer now offers **World → Client wind signal (preview)**, off by default
+and persisted in settings. When enabled, `src/gpu.rs` samples the recovered
+client scalar at the viewer's elapsed time and multiplies the existing tree
+rocking slider by it before sending the blend to the leaf shader. Disabled
+preserves the previous slider behavior; invalid or unsupported times fall back
+to that legacy blend. A single cached `ClientWind` table is shared across
+frames. This does not change branches, fronds, LOD selection or grass.
+
+This is deliberately labelled an approximation: the shader still blends
+against its existing 16-second sampled loop, its clock is not the fully traced
+client manager clock, and the scalar cannot substitute for the DLL's live
+leaf matrices and strength state. P4.03 remains **No**. The independent-LOD
+archive and runtime phase/angle translations remain unwired because the
+archive lacks general-camera leaf data, material and transition state, while
+those translations alone do not produce complete leaf geometry. P4.01 and
+P4.02 remain **No**. The shipped PWTREE07 helper is unchanged.
+
+Validation: standalone Rust `view_settings.rs` tests passed 24/24 and
+`tree_wind.rs` tests passed 3/3 (including opt-in/default/persistence and
+bounded preview behavior). The prior Unicorn comparisons still pass 5,403
+phase updates and 4,000 scalar angles, and the SpeedTree Python tests pass
+20/20. Full Cargo compilation, GPU pipeline execution and native Windows tests
+were not available, so this integration has not been exercised in the running
+viewer in this environment.
