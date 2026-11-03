@@ -2,7 +2,7 @@
 
 Owner: Agent 5C (environment transitions, sky/weather reflection + altitude,
 Phase 5 CI wiring).
-Branch `arena/e498c5d9-perfect-world-exlorer`, PR #15, head `28472c8`.
+Branch `arena/e498c5d9-perfect-world-exlorer`, PR #15.
 Native basis: `elementclient.exe` 1.4.2, MD5 `5f02895688fa580506e869156340a664`,
 PE i386 image base `0x400000`, read with `objdump -d` (the same MD5 the existing
 `src/*.rs` headers cite).
@@ -115,6 +115,7 @@ Workflow: `.github/workflows/pr-checks.yml` (`PR checks and Windows build`).
 
 | Run | Head | Result | Jobs |
 |---|---|---|---|
+| [41649136848](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41649136848) | `a78c698` (final, includes this report) | **success** | both jobs success |
 | [41648372049](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41648372049) | `28472c8` | **success** | `Rust checks and tests (Linux)` job `125959650883` success; `Windows executable (x64)` success |
 | 41644266211 | `58d1339`+fixes | failure | compile error in the new diagnostic (fixed) |
 | 41643340119 | `58d1339` | failure | `SkyGpu::new` missing the new uniform lane (fixed) |
