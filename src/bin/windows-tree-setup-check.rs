@@ -19,6 +19,15 @@ mod tree_source;
 #[path = "../trees.rs"]
 mod trees;
 #[cfg(windows)]
+#[path = "../dxt.rs"]
+mod dxt;
+#[cfg(windows)]
+#[path = "../model_dds.rs"]
+mod model_dds;
+#[cfg(windows)]
+#[path = "../vegetation_textures.rs"]
+mod vegetation_textures;
+#[cfg(windows)]
 #[path = "../windows_setup.rs"]
 mod windows_setup;
 #[cfg(windows)]

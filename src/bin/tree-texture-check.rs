@@ -5,6 +5,12 @@ mod pck;
 mod scene;
 #[path = "../trees.rs"]
 mod trees;
+#[path = "../dxt.rs"]
+mod dxt;
+#[path = "../model_dds.rs"]
+mod model_dds;
+#[path = "../vegetation_textures.rs"]
+mod vegetation_textures;
 fn main() {
     let root = std::path::PathBuf::from(std::env::args().nth(1).unwrap());
     let cache = std::path::PathBuf::from(std::env::args().nth(2).unwrap());
