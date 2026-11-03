@@ -86,7 +86,10 @@ mod skeleton;
 mod skeleton_pose;
 mod skin;
 mod skin_pose;
+mod sky_celestial;
+mod sky_geometry;
 mod sky_gpu;
+mod sky_time;
 // Accessors that only the Phase 5 diagnostic and the future weather wiring use
 // are kept public and unreferenced here, like `client_sun`.
 #[allow(dead_code)]
