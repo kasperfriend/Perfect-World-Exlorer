@@ -28,8 +28,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
-      - name: Check formatting
-        run: cargo fmt --all -- --check
       - name: Verify recovered regional arithmetic on x87
         run: |
           cc -O0 tools/check-native-region-reference.c -o /tmp/native-region-reference
@@ -129,6 +127,10 @@ jobs:
           test -n "$VK_ICD_FILENAMES"
           cargo run --locked --bin terrain-view-gpu-check
 
+      # Formatting is cosmetic: run it after the compile and test steps so a
+      # whitespace diff can never hide a real compiler error behind it.
+      - name: Check formatting
+        run: cargo fmt --all -- --check
   windows:
     name: Windows executable (x64)
     runs-on: windows-latest
@@ -184,8 +186,18 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       - name: Build standalone viewer
-        run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer
+        shell: bash
+        run: |
+          CARGO_TERM_COLOR=never cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer 2>&1 | tee /tmp/win-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "(^error|: error)" /tmp/win-build.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+          exit "$status"
       - name: Build the shipped survey tool
+        shell: bash
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin bmd-overlap-survey
       - name: Stage artifact and checksum
         shell: pwsh
