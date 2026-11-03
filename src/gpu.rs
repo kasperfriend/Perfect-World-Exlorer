@@ -718,7 +718,10 @@ fn build(
                 // RANMAR selector. The retail `grass_wave` vertex shader then
                 // reads `c[10 + v1.x]`, so the slot is per placement and only
                 // the scale `v1.y` varies per vertex.
-                let wind_index = crate::grass_wind::history_index(y, placement.wind_selector) as f32;
+                // The height the scope has is `ground`, the same value the
+                // instance is placed at (`ground - 0.02`), so the CPU-computed
+                // slot matches the `y` the client hashed at `0x653e93`.
+                let wind_index = crate::grass_wind::history_index(ground, placement.wind_selector) as f32;
                 grass_builder.instance_for_area(
                     key,
                     [x, ground - 0.02, z],
