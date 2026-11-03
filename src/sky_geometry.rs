@@ -628,7 +628,10 @@ mod tests {
         assert_eq!(gap.region, Region::CapEdgeGap);
         assert!(close(gap.alpha, 1.0, 1e-3), "band is opaque at the cap rim");
         let radius = (gap.uv[0] - 0.5).hypot(gap.uv[1] - 0.5);
-        assert!(close(radius, 0.5, 1e-2), "radius {radius} meets the cap rim");
+        assert!(
+            close(radius, 0.5, 1e-2),
+            "radius {radius} meets the cap rim"
+        );
         assert!(gap_blend(rim) > 0.99);
         assert!(close(gap_alpha(rim), 1.0, 1e-6));
         // And with the curtain, whose top row is fully transparent.
