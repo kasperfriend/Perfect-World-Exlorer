@@ -326,8 +326,10 @@ mod tests {
         }
         // The terrain shader shares the renderer's camera uniform, so the
         // region fields are *declared* there. What matters is that the terrain
-        // passes never read them; the lightmapped branch in `terrain_gpu.rs`
-        // uses only `camera.sun.w` as the day/night weight.
+        // passes never read them. The authored lightmap path adds no ambient,
+        // normal or scene-light term at all; its only viewer-side input is the
+        // `camera.sun.w` lightmap-availability switch, which stands in for the
+        // native day/night factor (`env+0x198`) until that is reconstructed.
         let terrain = include_str!("terrain_gpu.rs");
         for forbidden in [
             "camera.region_direction",

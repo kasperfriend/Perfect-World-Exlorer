@@ -93,6 +93,8 @@ mod terrain_lightmaps;
 mod terrain_lod;
 mod terrain_residency;
 mod terrain_sampling;
+#[allow(dead_code)]
+mod terrain_shading;
 mod texture_atlas;
 mod texture_resolution;
 mod tree_lod;

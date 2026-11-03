@@ -53,6 +53,27 @@ fn gbk_string(b: &[u8], p: &mut usize) -> Result<String, String> {
     }
     Ok(s.replace('\\', "/"))
 }
+/// The layer texcoord projection keyed by the record's axis byte (`+0x0c`).
+///
+/// `x`/`z` are the vertex's world X/Z and `y` its world height, i.e. exactly the
+/// `i.world` the terrain fragment shader sees. The mapping is
+/// `0 -> (z, -y)`, `1 -> (x, -z)`, `2 -> (x, -y)`; the WGSL in
+/// `src/terrain_gpu.rs` uses the same three expressions and the same default, so
+/// the CPU sampler and the GPU path cannot drift apart. Axis 1 is what every one
+/// of the 1,408 surveyed area bases uses.
+///
+/// This is the *viewer's* contract, pinned by
+/// `axis_projection_matches_the_shader`. It is not yet evidence that the native
+/// client projects identically: the client builds its texcoords in the CPU mesh
+/// path and no address in the surveyed range emits them.
+pub(crate) fn layer_uv(axis: u8, x: f32, y: f32, z: f32) -> (f32, f32) {
+    match axis {
+        0 => (z, -y),
+        2 => (x, -y),
+        _ => (x, -z),
+    }
+}
+
 impl Materials {
     pub fn load(
         dir: &Path,
@@ -248,11 +269,7 @@ impl Materials {
             let tex = &self.textures[l.texture];
             let world_x = (gx - self.width as f32 * 0.5) * self.spacing;
             let world_z = (self.height as f32 * 0.5 - gy) * self.spacing;
-            let (u, v) = match l.axis {
-                0 => (world_z, -h),
-                2 => (world_x, -h),
-                _ => (world_x, -world_z),
-            };
+            let (u, v) = layer_uv(l.axis, world_x, h, world_z);
             let ux = (u * l.u).rem_euclid(1.) * tex.w as f32 - 0.5;
             let vy = (v * l.v).rem_euclid(1.) * tex.h as f32 - 0.5;
             let x0 = ux.floor() as isize;
@@ -352,5 +369,31 @@ mod tests {
         };
         let v = m.sample(1., 1., 0.);
         assert!((v[0] - 99.6).abs() < 1.0 && v[1] == 0. && (v[2] - 100.4).abs() < 1.0);
+    }
+
+    /// The axis byte's projection, and that the GPU path states the same thing.
+    /// Axis 1 is the one every surveyed area base uses, so it is the case that
+    /// matters most; the shader spells it as the default arm, which is why this
+    /// test also checks the *shape* of the WGSL rather than only the numbers.
+    #[test]
+    fn axis_projection_matches_the_shader() {
+        let (x, y, z) = (3.0f32, -7.0f32, 1.5f32);
+        // 0 -> (z, -y), 1 -> (x, -z), 2 -> (x, -y).
+        assert_eq!(layer_uv(0, x, y, z), (z, -y));
+        assert_eq!(layer_uv(1, x, y, z), (x, -z));
+        assert_eq!(layer_uv(2, x, y, z), (x, -y));
+        // The default arm is axis 1, so an unknown byte cannot silently pick a
+        // third projection that neither reader expresses.
+        assert_eq!(layer_uv(1, x, y, z), layer_uv(9, x, y, z));
+
+        let wgsl = include_str!("terrain_gpu.rs");
+        // The shader's base vector and its per-axis overrides, verbatim.
+        assert!(wgsl.contains("var v=vec2<f32>(i.world.x,-i.world.z);"));
+        assert!(wgsl.contains("if l.axis==0u {v=vec2<f32>(i.world.z,-i.world.y);}"));
+        assert!(wgsl.contains("else if l.axis==2u {v=vec2<f32>(i.world.x,-i.world.y);}"));
+        // `i.world.x` is world X, `i.world.y` the height and `i.world.z` world Z,
+        // matching the (x, y, z) arguments above - so the two agree term for term.
+        assert_eq!(layer_uv(0, x, y, z).0, z);
+        assert_eq!(layer_uv(2, x, y, z).1, -y);
     }
 }
