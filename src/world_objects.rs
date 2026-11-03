@@ -4,7 +4,7 @@ use crate::{
     gpu::Vertex,
     objects::Objects,
     scene::Ornament,
-    scenery_visibility::{allows, Pass, Visibility},
+    scenery_visibility::{allows_with_context, Pass, RenderContext, Visibility},
 };
 use glam::Vec3;
 use std::{
@@ -480,7 +480,7 @@ impl GpuPage {
             return;
         }
         for r in &self.placements {
-            if allows(view, r.visibility) {
+            if allows_with_context(view, r.visibility, RenderContext::default()) {
                 pass.draw_indexed(r.start..r.end, 0, 0..1);
             }
         }

@@ -73,6 +73,10 @@ pub struct ViewSettings {
     pub grass_distance_fade: bool,
     pub area_grass_lightmaps: bool,
     pub celestial_discs: bool,
+    /// Internal 3D render resolution as a percentage of the window size.
+    /// 100 is native; the Graphics tab exposes 10 (fast/blurry) to 200
+    /// (supersampled). UI and presentation always stay at native resolution.
+    pub resolution_scale: f32,
 }
 impl Default for ViewSettings {
     fn default() -> Self {
@@ -110,6 +114,7 @@ impl Default for ViewSettings {
             grass_distance_fade: true,
             area_grass_lightmaps: true,
             celestial_discs: false,
+            resolution_scale: 100.,
         }
     }
 }
@@ -179,6 +184,7 @@ impl ViewSettings {
                 "gamma_setting" => number!(s.gamma_setting, 0., 100.),
                 "music_volume" => number!(s.music_volume, 0., 1.),
                 "minimap_range" => number!(s.minimap_range, 100., 600.),
+                "resolution_scale" => number!(s.resolution_scale, 10., 200.),
                 "regional_tree_lighting" => flag!(s.regional_tree_lighting),
                 "streamed_regions" => flag!(s.streamed_regions),
                 "grass_distance_fade" => flag!(s.grass_distance_fade),
@@ -204,11 +210,11 @@ impl ViewSettings {
             "radius={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen)
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen,self.resolution_scale)
     }
     fn file() -> Option<std::path::PathBuf> {
         #[cfg(windows)]
@@ -350,6 +356,40 @@ mod tests {
         assert_eq!(invalid.bloom_tint, 0xffffffff);
         assert_eq!(invalid.bloom_brightness_fade, 0.);
         assert_eq!(invalid.bloom_opacity_fade, 1.);
+    }
+    #[test]
+    fn render_resolution_scale_is_persisted_and_bounded() {
+        assert_eq!(ViewSettings::default().resolution_scale, 100.);
+        for (text, expected) in [
+            ("resolution_scale=10", 10.),
+            ("resolution_scale=200", 200.),
+            ("resolution_scale=63.5", 63.5),
+        ] {
+            let s = ViewSettings::decode(text);
+            assert_eq!(s.resolution_scale, expected);
+            assert_eq!(ViewSettings::decode(&s.encode()), s);
+        }
+        // Out-of-range, non-numeric and non-finite values are safe.
+        for bad in ["0", "201", "-5", "NaN", "inf", "bogus"] {
+            let s = ViewSettings::decode(&format!("resolution_scale={bad}"));
+            assert!(
+                (10. ..=200.).contains(&s.resolution_scale),
+                "unexpected scale for {bad}: {}",
+                s.resolution_scale
+            );
+        }
+        assert_eq!(
+            ViewSettings::decode("resolution_scale=0").resolution_scale,
+            10.
+        );
+        assert_eq!(
+            ViewSettings::decode("resolution_scale=999").resolution_scale,
+            200.
+        );
+        assert_eq!(
+            ViewSettings::decode("resolution_scale=NaN").resolution_scale,
+            100.
+        );
     }
     #[test]
     fn every_independent_post_effect_activates_the_renderer_chain() {

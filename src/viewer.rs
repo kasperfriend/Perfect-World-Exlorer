@@ -1,7 +1,7 @@
 //! Experimental first-person software terrain viewer; not the Angelica rendering pipeline.
 //! It still shares the recovered regional scenery residency, but it has no
 //! secondary views, so EC-BSD reflection/refraction flags do not apply here.
-use crate::scenery_visibility::{Placement, Visibility};
+use crate::scenery_visibility::Class;
 use crate::Terrain;
 use minifb::{Key, Window, WindowOptions};
 use std::time::Instant;
@@ -356,31 +356,29 @@ fn render(
 ) -> Result<(), String> {
     let wx = (cam.x - t.width as f32 * 0.5) * t.grid_spacing;
     let wz = (t.height as f32 * 0.5 - cam.y) * t.grid_spacing;
-    // Same recovered `CECSceneBlock` ornament-class selection as the GPU
-    // renderer (0x424020). Preset 2 is the shipped `detail_scene = 1` default.
-    let placements: Vec<Placement> = t
-        .objects
-        .ornaments
-        .iter()
-        .enumerate()
-        .map(|(index, o)| Placement {
-            index,
-            center: [o.position[0], o.position[2]],
-            visibility: Visibility::from_extra(o.extra),
-        })
-        .collect();
+    // Same recovered `CECSceneBlock` ten-class selection as the GPU renderer
+    // (0x424020). Preset 2 is the shipped `detail_scene = 1` default.
+    let placements = crate::gpu::ten_class_placements(t);
     let margin = 0.5 * t.scene.block_size.max(0.);
     let nearby = t.scenery_residency.select(&placements, [wx, wz], 2, margin);
-    t.objects.load_ids(&nearby)?;
+    let ornament_count = t.objects.ornaments.len();
+    let ornament_ids: Vec<usize> = nearby
+        .iter()
+        .copied()
+        .filter(|&i| i < ornament_count)
+        .collect();
+    t.objects.load_ids(&ornament_ids)?;
     eprintln!(
-        "Software viewer scenery residency: {} resident, {} loads, {} evictions, {} distance culls",
+        "Software viewer scenery residency: {} native classes, {} resident, {} ornaments retained, {} loads, {} evictions, {} distance culls",
+        Class::ALL.len(),
         nearby.len(),
+        ornament_ids.len(),
         t.scenery_residency.loads,
         t.scenery_residency.evictions,
         t.scenery_residency.distance_culls
     );
     draw(t, cam, frame, depth);
-    for id in nearby {
+    for id in ornament_ids {
         let Some(model) = t.objects.get(id) else {
             return Err(format!("missing resident scenery model {id}"));
         };

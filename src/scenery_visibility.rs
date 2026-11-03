@@ -148,11 +148,36 @@ impl Visibility {
 /// Data-driven pass gate. A placement the client hides is never submitted;
 /// distance is not used here. The water-quality and underwater variants are
 /// named unsupported cases, not guessed booleans.
+/// Default-context wrapper. The shipped `configs/angelica.cfg` has
+/// `WaterEffect = 0`; [`allows_with_context`] carries the level-2 and
+/// underwater variants that need explicit object-state flags we do not author.
 pub fn allows(pass: Pass, v: Visibility) -> bool {
+    allows_with_context(pass, v, RenderContext::default())
+}
+
+/// Context-aware per-placement gate. `+0x44` / `+0x45` are the only flags
+/// recovered from EC-BSD. `WaterEffect == 2` (`0x5b1ea3`) and the underwater
+/// refraction branch (`0x5b21bd`/`0x5b21c4`) read `+0x46` / `+0x47`, which are
+/// runtime object state, not asset bytes. Until those flags are authored the
+/// viewer conservatively admits nothing in those unsupported contexts instead
+/// of silently guessing from the low bytes.
+pub fn allows_with_context(pass: Pass, v: Visibility, ctx: RenderContext) -> bool {
     match pass {
         Pass::Main | Pass::Fog | Pass::Minimap | Pass::FullMap => true,
-        Pass::Reflection => v.reflect,
-        Pass::Refraction => v.refract,
+        Pass::Reflection => {
+            if ctx.water_effect == NATIVE_DEFAULT_WATER_EFFECT {
+                v.reflect
+            } else {
+                false
+            }
+        }
+        Pass::Refraction => {
+            if ctx.water_effect == NATIVE_DEFAULT_WATER_EFFECT && !ctx.underwater {
+                v.refract
+            } else {
+                false
+            }
+        }
     }
 }
 
@@ -173,13 +198,122 @@ pub enum ModelClass {
     EcModel,
 }
 
+/// Default-context wrapper for the shipped `WaterEffect == 0` path.
 pub fn allows_class(pass: Pass, class: ModelClass) -> bool {
+    allows_class_with_context(pass, class, RenderContext::default())
+}
+
+/// Native class admission for secondary views. At level 2 home ornaments enter
+/// reflection/refraction; EC models enter reflection at level 2 and refraction
+/// only when the camera is underwater at level 2 (`0x5b2022`, `0x5b233f`).
+/// The per-placement `+0x46`/`+0x47` flags remain a named unsupported gap.
+pub fn allows_class_with_context(pass: Pass, class: ModelClass, ctx: RenderContext) -> bool {
     match class {
         ModelClass::BakedScenery => true,
         ModelClass::HomeOrnament | ModelClass::EcModel => {
-            !matches!(pass, Pass::Reflection | Pass::Refraction)
+            if !matches!(pass, Pass::Reflection | Pass::Refraction) {
+                return true;
+            }
+            if ctx.water_effect != 2 {
+                return false;
+            }
+            if class == ModelClass::EcModel && pass == Pass::Refraction && !ctx.underwater {
+                return false;
+            }
+            true
         }
     }
+}
+
+/// The ten classes walked by `CECSceneBlock` at `0x424020`, in native table
+/// order. `PRESETS[q][class.index()]` is that class's load distance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Class {
+    Trees,
+    Water,
+    Ornaments,
+    BoxAreas,
+    GrassAreas,
+    Effects,
+    EcModels,
+    Critters,
+    Beziers,
+    Sounds,
+}
+
+impl Class {
+    pub const ALL: [Class; 10] = [
+        Class::Trees,
+        Class::Water,
+        Class::Ornaments,
+        Class::BoxAreas,
+        Class::GrassAreas,
+        Class::Effects,
+        Class::EcModels,
+        Class::Critters,
+        Class::Beziers,
+        Class::Sounds,
+    ];
+    pub fn index(self) -> usize {
+        match self {
+            Class::Trees => 0,
+            Class::Water => 1,
+            Class::Ornaments => 2,
+            Class::BoxAreas => 3,
+            Class::GrassAreas => 4,
+            Class::Effects => 5,
+            Class::EcModels => 6,
+            Class::Critters => 7,
+            Class::Beziers => 8,
+            Class::Sounds => 9,
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Class::Trees => "trees",
+            Class::Water => "water",
+            Class::Ornaments => "ornaments",
+            Class::BoxAreas => "box-areas",
+            Class::GrassAreas => "grass-areas",
+            Class::Effects => "effects",
+            Class::EcModels => "ec-models",
+            Class::Critters => "critters",
+            Class::Beziers => "beziers",
+            Class::Sounds => "sounds",
+        }
+    }
+}
+
+/// Recovered video/camera state for the secondary-view gates. The shipped
+/// default is `WaterEffect == 0`, not the level-2 variant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RenderContext {
+    pub water_effect: u8,
+    pub underwater: bool,
+}
+
+impl Default for RenderContext {
+    fn default() -> Self {
+        Self {
+            water_effect: NATIVE_DEFAULT_WATER_EFFECT,
+            underwater: false,
+        }
+    }
+}
+
+impl RenderContext {
+    pub fn new(water_effect: u8, underwater: bool) -> Self {
+        Self {
+            water_effect,
+            underwater,
+        }
+    }
+}
+
+/// Native detail reduction: preset `quality` relative to the widest preset 5.
+pub fn lod_scale(quality: u8, class: Class) -> f32 {
+    let q = (quality as usize).min(5);
+    PRESETS[q][class.index()] / PRESETS[5][class.index()]
 }
 
 /// Index of the ornament class in `0x424020`'s ten-class walk. Near table
@@ -221,6 +355,7 @@ pub struct Placement {
     pub index: usize,
     pub center: [f32; 2],
     pub visibility: Visibility,
+    pub class: Class,
 }
 
 /// Centre of the ECWLD block that owns an ornament position. `world.ecwld`
@@ -251,7 +386,7 @@ pub struct RegionResidency {
 }
 
 impl RegionResidency {
-    /// Select the placements whose ornament class is resident for this eye.
+    /// Select placements per native class for this eye.
     /// `margin` is the native `+0x10 * 0.5` half-extent (32.0 for a 64-unit
     /// block). The returned indices are passed to `Objects::load_ids`, whose
     /// model/cache retain is the production eviction.
@@ -262,9 +397,11 @@ impl RegionResidency {
         quality: u8,
         margin: f32,
     ) -> Vec<usize> {
-        let threshold = ornament_distance(quality);
+        let q = (quality as usize).min(5);
         let mut selected = Vec::new();
         for p in placements {
+            // 0x424020 uses `0x951158 + 4*class` for each of the ten classes.
+            let threshold = PRESETS[q][p.class.index()];
             let d = distance(eye, p.center);
             let was = self.resident.contains(&p.index);
             if !was && d <= threshold {
@@ -441,6 +578,7 @@ mod tests {
                     reflect: false,
                     refract: false,
                 },
+                class: Class::Ornaments,
             },
             Placement {
                 index: 1,
@@ -449,6 +587,7 @@ mod tests {
                     reflect: false,
                     refract: false,
                 },
+                class: Class::Ornaments,
             },
         ];
         let mut r = RegionResidency::default();
@@ -563,5 +702,78 @@ mod tests {
             native::CLASS_DISTANCE_BASE + 4 * ORNAMENT_CLASS as u32,
             0x951160
         );
+    }
+    #[test]
+    fn ten_classes_and_per_class_thresholds() {
+        assert_eq!(Class::ALL.len(), 10);
+        for (i, c) in Class::ALL.iter().enumerate() {
+            assert_eq!(c.index(), i, "{}", c.name());
+        }
+        assert_eq!(lod_scale(5, Class::Trees), 1.0);
+        assert_eq!(lod_scale(2, Class::Trees), 160.0 / 400.0);
+        assert_eq!(lod_scale(2, Class::Ornaments), 120.0 / 260.0);
+        let hidden = Visibility {
+            reflect: false,
+            refract: false,
+        };
+        let ps = [
+            Placement {
+                index: 0,
+                center: [130.0, 0.0],
+                visibility: hidden,
+                class: Class::Trees,
+            },
+            Placement {
+                index: 1,
+                center: [130.0, 0.0],
+                visibility: hidden,
+                class: Class::Ornaments,
+            },
+        ];
+        let mut r = RegionResidency::default();
+        // Preset 2: trees load at 160, ornaments at 120.
+        assert_eq!(r.select(&ps, [0.0, 0.0], 2, 32.0), vec![0]);
+        assert_eq!(r.loads, 1);
+        assert_eq!(r.distance_culls, 1);
+    }
+
+    #[test]
+    fn render_context_gates_the_recovered_secondary_view_rules() {
+        let default = RenderContext::default();
+        assert_eq!(default.water_effect, NATIVE_DEFAULT_WATER_EFFECT);
+        assert!(!default.underwater);
+        assert!(!allows_class(Pass::Reflection, ModelClass::HomeOrnament));
+        assert!(!allows_class(Pass::Refraction, ModelClass::EcModel));
+        let level2 = RenderContext::new(2, true);
+        assert!(allows_class_with_context(
+            Pass::Reflection,
+            ModelClass::HomeOrnament,
+            level2
+        ));
+        assert!(allows_class_with_context(
+            Pass::Reflection,
+            ModelClass::EcModel,
+            level2
+        ));
+        assert!(allows_class_with_context(
+            Pass::Refraction,
+            ModelClass::EcModel,
+            level2
+        ));
+        let level2_dry = RenderContext::new(2, false);
+        assert!(!allows_class_with_context(
+            Pass::Refraction,
+            ModelClass::EcModel,
+            level2_dry
+        ));
+        let visible = Visibility {
+            reflect: true,
+            refract: true,
+        };
+        assert!(allows(Pass::Reflection, visible));
+        assert!(allows(Pass::Refraction, visible));
+        // +0x46 / +0x47 are unauthored, so non-default contexts fail closed.
+        assert!(!allows_with_context(Pass::Reflection, visible, level2));
+        assert!(!allows_with_context(Pass::Refraction, visible, level2));
     }
 }

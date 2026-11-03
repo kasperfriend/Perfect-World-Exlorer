@@ -73,6 +73,7 @@ mod post_gpu;
 #[cfg(test)]
 mod post_reference;
 mod present_encode;
+mod render_scale;
 #[allow(dead_code)]
 mod scene;
 #[allow(dead_code)]
@@ -90,6 +91,8 @@ mod terrain_lightmaps;
 #[allow(dead_code)]
 mod terrain_lod;
 mod terrain_residency;
+#[allow(dead_code)]
+mod terrain_shading;
 mod texture_atlas;
 mod texture_resolution;
 mod tree_lod;

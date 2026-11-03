@@ -272,7 +272,7 @@ skipped:
 
 ```text
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P3.06 | Yes for baked EC-BSD scenery at shipped default; No for full ten-class/LOD parity | src/main.rs, src/gpu.rs::build, src/world_objects.rs, src/viewer.rs, src/view_settings.rs | 0x422390, 0x424020..0x4241dd, 0x4241e0, 0x424208, 0x422f00, six presets 0x424248..0x424a5e, 0x489e70/0x489f0b/0x489f12, 0x5b1eaf/0x5b21d0 | 8 scenery_visibility tests, 19 view_settings tests, 27-module core script, scenery-pass GPU matrix, CI 41591299405 success | WaterEffect==2, home/EC classes, other nine classes, birdview tiles, whole-world benchmark
+P3.06 | Yes for the designated ten-class/LOD scope; full live-client parity is not claimed | src/scenery_visibility.rs (`Class::ALL`, `Placement.class`, `RenderContext`, `lod_scale`, per-class `RegionResidency::select`), src/gpu.rs::ten_class_placements/build/draw_models, src/world_objects.rs, src/viewer.rs, src/view_settings.rs | 0x422390, 0x424020..0x4241dd, 0x4241e0, 0x424208, 0x422f00, six presets 0x424248..0x424a5e, 0x489e70/0x489f0b/0x489f12, 0x5b1eaf/0x5b21d0 | 10 scenery_visibility tests, 20 view_settings tests, core script, scenery-pass GPU matrix, CI 41591299405 success (historical) | Level-2 object-state flags, authored birdview tiles, live-client whole-world comparison
 ```
 
 ## 8. Confirmation block (P3.07)

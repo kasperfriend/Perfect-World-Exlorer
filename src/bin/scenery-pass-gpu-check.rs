@@ -9,7 +9,10 @@
 mod bmd_baked;
 #[path = "../scenery_visibility.rs"]
 mod scenery_visibility;
-use scenery_visibility::{allows, Pass, RegionResidency, Visibility};
+use scenery_visibility::{
+    allows, allows_class_with_context, allows_with_context, Class, ModelClass, Pass,
+    RegionResidency, RenderContext, Visibility, NATIVE_DEFAULT_WATER_EFFECT,
+};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -90,6 +93,7 @@ fn cpu_regressions(production: &str) {
                 reflect: false,
                 refract: false,
             },
+            class: Class::Ornaments,
         },
         scenery_visibility::Placement {
             index: 1,
@@ -98,6 +102,7 @@ fn cpu_regressions(production: &str) {
                 reflect: false,
                 refract: false,
             },
+            class: Class::Ornaments,
         },
     ];
     let mut residency = RegionResidency::default();
@@ -146,6 +151,37 @@ fn cpu_regressions(production: &str) {
         }
     }
     assert_eq!(rows, 36, "six passes x six inspected material states");
+    // Recovered class / context gates at the shipped default and level 2.
+    let default = RenderContext::default();
+    assert_eq!(default.water_effect, NATIVE_DEFAULT_WATER_EFFECT);
+    assert!(!allows_class_with_context(
+        Pass::Reflection,
+        ModelClass::HomeOrnament,
+        default
+    ));
+    assert!(allows_class_with_context(
+        Pass::Main,
+        ModelClass::HomeOrnament,
+        default
+    ));
+    let level2 = RenderContext::new(2, true);
+    assert!(allows_class_with_context(
+        Pass::Reflection,
+        ModelClass::EcModel,
+        level2
+    ));
+    assert!(allows_class_with_context(
+        Pass::Refraction,
+        ModelClass::EcModel,
+        level2
+    ));
+    let visible = Visibility {
+        reflect: true,
+        refract: true,
+    };
+    assert!(!allows_with_context(Pass::Reflection, visible, level2));
+    assert!(!allows_with_context(Pass::Refraction, visible, level2));
+    println!("context gates: default WaterEffect=0, level-2/underwater encoded");
 }
 
 fn main() {

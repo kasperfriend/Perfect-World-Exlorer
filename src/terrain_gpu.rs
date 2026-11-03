@@ -99,9 +99,22 @@ fn terrain_pass_fog(linear:vec3<f32>,reciprocal_w:f32,transmittance:f32)->vec3<f
  let coord=vec2<f32>(gx,gy)/settings.params.w;
  let wx=dpdx(i.world);let wy=dpdy(i.world);
  let ax=u32(floor(coord.x));let ay=u32(floor(coord.y));let a=area_data[ay*settings.areas.x+ax];
+ // `camera.sun.w >= 0` is the viewer switch for "the authored day/night pair is
+ // bound" (the client's `t2_3layer_batch_14` path). The blend factor is a
+ // separate quantity and arrives in `camera.fog_range.w`, which
+ // `gpu.rs` fills from `camera.terrain_day_night`; that is the one place the
+ // viewer's stand-in for the native `ps c3.a` (`env+0x198`, a lane of the light
+ // matrix `0x7b4b00` writes) is produced. Register row: "terrain day/night
+ // factor".
+ let lightmapped=camera.sun.w>=0.;
  var color=vec3<f32>(0.);
  var baked=vec3<f32>(1.);
- if camera.sun.w>=0. {let id=ay*settings.areas.x+ax;let slot=id%settings.light.z;let page=id/settings.light.z;let side=f32(settings.light.x);let xy=vec2<f32>(f32(slot%settings.light.y),f32(slot/settings.light.y))*side;let loc=clamp(fract(coord)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));let lmuv=(xy+loc)/vec2<f32>(textureDimensions(lightmaps));let day=textureSampleLevel(lightmaps,mask_sampler,lmuv,i32(page),0.).rgb;let night=textureSampleLevel(lightmaps,mask_sampler,lmuv,i32(page+settings.light.w),0.).rgb;baked=mix(night,day,clamp(camera.sun.w,0.,1.))*2.;}
+ if lightmapped {let id=ay*settings.areas.x+ax;let slot=id%settings.light.z;let page=id/settings.light.z;let side=f32(settings.light.x);let xy=vec2<f32>(f32(slot%settings.light.y),f32(slot/settings.light.y))*side;let loc=clamp(fract(coord)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));let lmuv=(xy+loc)/vec2<f32>(textureDimensions(lightmaps));let day=textureSampleLevel(lightmaps,mask_sampler,lmuv,i32(page),0.).rgb;let night=textureSampleLevel(lightmaps,mask_sampler,lmuv,i32(page+settings.light.w),0.).rgb;
+  // t2_3layer_batch_14: `lrp_sat r5, c3.a, r5, r4` with t4 = day (r4), t5 = night
+  // (r5): factor 0 selects the day map and 1 the night map, then `mul_x2` doubles
+  // the encoded result into the 8-bit target.
+  let factor=clamp(camera.fog_range.w,0.,1.);
+  baked=mix(day,night,factor)*2.;}
  for(var k=0u;k<a.count;k=k+1u){let l=layers[a.start+k];var v=vec2<f32>(i.world.x,-i.world.z);if l.axis==0u {v=vec2<f32>(i.world.z,-i.world.y);}else if l.axis==2u {v=vec2<f32>(i.world.x,-i.world.y);}
  var dx=vec2<f32>(wx.x,-wx.z);var dy=vec2<f32>(wy.x,-wy.z);
  if l.axis==0u {dx=vec2<f32>(wx.z,-wx.y);dy=vec2<f32>(wy.z,-wy.y);}else if l.axis==2u {dx=vec2<f32>(wx.x,-wx.y);dy=vec2<f32>(wy.x,-wy.y);}
@@ -110,9 +123,14 @@ fn terrain_pass_fog(linear:vec3<f32>,reciprocal_w:f32,transmittance:f32)->vec3<f
  // The sampler can then preserve detail along the minor axis at grazing angles.
  var tex:vec3<f32>;if kind==2u {tex=textureSampleGrad(terrain_full,terrain_sampler,v*l.uv,index,dx,dy).rgb;}else if kind==1u {tex=textureSampleGrad(terrain,terrain_sampler,v*l.uv,index,dx,dy).rgb;}else {tex=textureSampleGrad(terrain_small,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
  var alpha=1.;if k>0u {let slot=l.mask%settings.areas.w;let page=l.mask/settings.areas.w;let side=f32(settings.areas.y);let xy=vec2<f32>(f32(slot%settings.areas.z),f32(slot/settings.areas.z))*side;let local=clamp(fract(coord)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));alpha=textureSampleLevel(masks,mask_sampler,(xy+local)/4096.,i32(page),0.).r;}
- if camera.sun.w<0. {tex=to_linear(tex);}
+ if !lightmapped {tex=to_linear(tex);}
  color=mix(color,tex,alpha);}
- if camera.sun.w>=0. {return vec4<f32>(terrain_pass_fog(to_linear(clamp(color*baked*i.refraction.y,vec3<f32>(0.),vec3<f32>(1.))),i.pos.w,i.refraction.x),1.);}
+ // t2_3layer_batch_14 composite: `mul r0, r0, v0` with v0 = c0.x = 1.0 and
+ // `mul_x2 r0, r0, r5`. There is no ambient term, no normal term and no scene
+ // light: the lightmap is the only lighting, so terrain is never lit twice.
+ if lightmapped {return vec4<f32>(terrain_pass_fog(to_linear(clamp(color*baked*i.refraction.y,vec3<f32>(0.),vec3<f32>(1.))),i.pos.w,i.refraction.x),1.);}
+ // Viewer-only fallback for a session with no authored pair (the client's
+ // fixed-function paths, which this lane has not integrated). Registered gap.
  let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);
  return vec4<f32>(terrain_pass_fog(color*light*camera.light.zww,i.pos.w,i.refraction.x),1.);
 }
@@ -523,6 +541,46 @@ impl TerrainGpu {
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
         });
+        // Variant selection and pass state come from the recovered native
+        // switch (`src/terrain_shading.rs`, 0x7c1450) instead of being restated
+        // here. `Caps::default()` is the stock 1.4.2 state: a device with a pixel
+        // pipeline and neither terrain-env mode flag set, i.e. `Variant::Batch3Layer`.
+        let variant = crate::terrain_shading::select(crate::terrain_shading::Caps::default())
+            .map_err(|e| format!("terrain variant {e:?} is unreachable in the client"))?;
+        debug_assert_eq!(variant, crate::terrain_shading::Variant::Batch3Layer);
+        let state = crate::terrain_shading::pass_state(variant);
+        // 0x7cd789 pushes D3DCULL_NONE (1); the state type keeps the restored
+        // value explicit so the mapping cannot drift silently.
+        debug_assert!(matches!(state.cull, crate::terrain_shading::Cull::None));
+        // Both the near and the far pipeline are built from this one state
+        // record, so the far path cannot drift back to a restated guess. The
+        // match is exhaustive over `Cull` on purpose: adding a second native
+        // cull mode has to fail to compile here instead of silently keeping no
+        // culling.
+        let cull_mode = match state.cull {
+            crate::terrain_shading::Cull::None => None,
+        };
+        let primitive_state = || wgpu::PrimitiveState {
+            cull_mode,
+            ..Default::default()
+        };
+        let colour_targets = || {
+            [Some(wgpu::ColorTargetState {
+                format,
+                // ALPHABLENDENABLE is never called for terrain (0x77a290 has no
+                // caller in 0x7c1400-0x7d3fff), so terrain is opaque.
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })]
+        };
+        let depth_state = || wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth32Float,
+            depth_write_enabled: state.z_write,
+            depth_compare: wgpu::CompareFunction::Greater,
+            stencil: Default::default(),
+            bias: Default::default(),
+        };
+        let targets = colour_targets();
         const ATTR: [wgpu::VertexAttribute; 5] = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4,4=>Float32];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("layered terrain"),
@@ -539,28 +597,16 @@ impl TerrainGpu {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &targets,
             }),
-            primitive: wgpu::PrimitiveState {
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Greater,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
+            primitive: primitive_state(),
+            depth_stencil: Some(depth_state()),
             multisample: Default::default(),
             multiview: None,
         });
         const FAR_ATTR: [wgpu::VertexAttribute; 2] =
             wgpu::vertex_attr_array![0=>Float32x3,1=>Snorm8x4];
+        let far_targets = colour_targets();
         let far_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("layered terrain"),
             layout: Some(&pl),
@@ -576,23 +622,10 @@ impl TerrainGpu {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &far_targets,
             }),
-            primitive: wgpu::PrimitiveState {
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Greater,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
+            primitive: primitive_state(),
+            depth_stencil: Some(depth_state()),
             multisample: Default::default(),
             multiview: None,
         });

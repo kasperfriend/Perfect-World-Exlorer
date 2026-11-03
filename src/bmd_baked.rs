@@ -53,6 +53,24 @@
 //! projection that stays `GREATER` for the terrain and becomes `GREATER_EQUAL`
 //! for baked scenery, so a coincident duplicate submitted later wins exactly
 //! as it does in the client's single depth buffer.
+//!
+//! Viewer deviation — alpha-test cutout instead of a depth-writing blend.
+//! The recovered client state above is accurate reverse engineering, but the
+//! viewer does *not* reproduce `ALPHABLENDENABLE(1)` with `ZWRITEENABLE` left
+//! on. In the client an alpha-0 texel still occupies the depth buffer; its
+//! scenery passes draw in one ordered depth buffer and its water is composited
+//! differently. In the viewer the water pass is depth-tested against that same
+//! buffer (`water_gpu.rs` reads `scene_depth` for the refraction guard), so a
+//! transparent baked card that writes depth shows up as a solid square over
+//! the water (lily pads) and hides scenery behind its transparent gaps
+//! (stacked tree canopies). Blending that pass (PR #6, `f9adb72`) exposed
+//! exactly those two regressions. The shared world shader therefore treats
+//! textured baked meshes as a cutout: it discards fragments below the alpha
+//! threshold — the same `((i.kind>1.5 && i.kind<2.5) || i.kind>3.5)` band used
+//! for grass/trees — so transparent texels write neither colour nor depth, and
+//! the survivors are written opaque with depth on. `scenery_pipeline` stays
+//! unblended; `Blend`/`AlphaTest` below document the client, while `kind` is
+//! the only field the production renderer consumes.
 
 /// Mesh versions the reader and this draw state were inspected against.
 pub const INSPECTED_MESH_VERSIONS: [u32; 2] = [0x1000_0004, 0x1000_0005];
@@ -94,7 +112,11 @@ pub enum Cull {
     TwoSided,
 }
 
-/// Blend state of the baked mesh draw, i.e. what the fragment alpha does.
+/// Recovered client blend state of the baked mesh draw, i.e. what the client's
+/// fragment alpha does. Documentation of the 1.4.2 passes only: the viewer
+/// deliberately renders textured baked meshes as an alpha-test cutout instead
+/// (see the module note), so these variants describe the client, not the
+/// production pipeline.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Blend {
     /// Textured baked mesh. Every pass enables `ALPHABLENDENABLE(1)` right
@@ -114,8 +136,9 @@ pub enum Blend {
 
 /// Draw state for one baked mesh, including the flat `kind` float the shared
 /// world pipeline carries into the shader. The float encodes `stage` and `cull`
-/// for the shader; the remaining rows document states the pipeline pins rather
-/// than varies.
+/// for the shader; `kind` is the only row production consumes. The `alpha` and
+/// `blend` rows record the recovered client states for traceability — the
+/// viewer implements a cutout for textured meshes regardless (module note).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DrawState {
     pub stage: Stage,
@@ -320,6 +343,9 @@ mod tests {
         assert!(classify(0x1000_0004, true, true).is_err());
     }
 
+    // Pins the recovered *client* `DrawState`, not the production renderer: the
+    // viewer deviates to a cutout for textured meshes (module note). `kind` is
+    // the only field production consumes, so these rows are traceability data.
     #[test]
     fn every_classified_mesh_has_no_alpha_test_and_texture_alpha_coverage() {
         for textured in [false, true] {
@@ -351,7 +377,10 @@ mod tests {
         // with `mesh+0x2cc << 24` (`0x7b9d5e..0x7b9d74`), which the constructor
         // leaves at 0xff (opaque multiplier, `0x7b9408`), so the sampled
         // texture alpha reaches the pass blend unchanged. Rendering this state
-        // as opaque is what turns leaf and canopy cards into solid rectangles.
+        // opaque *without* the cutout is what turns leaf and canopy cards into
+        // solid rectangles; the viewer keeps the cutout (module note) so opaque
+        // survivors are still correct. This test pins the recovered client
+        // classification only.
         let diffuse = 0x0012_3456u32 | (CLIENT_MAX_MESH_ALPHA << 24);
         assert_eq!(diffuse >> 24, u32::from(u8::MAX));
         assert_eq!(
@@ -435,9 +464,9 @@ mod tests {
         assert_eq!(blend([255, 255, 255], [0, 0, 0], 0), [254, 254, 254]);
     }
 
-    /// The production shader must keep this module's states. These strings are
-    /// the exact WGSL in `gpu.rs`; a change here means the draw state above is
-    /// stale.
+    /// The production shader must keep this module's classified kinds and the
+    /// alpha-test cutout deviation. These strings are the exact WGSL/pipeline
+    /// state in `gpu.rs`; a change here means the draw state above is stale.
     #[test]
     fn production_wgsl_implements_the_classified_states() {
         let gpu = include_str!("gpu.rs");
@@ -453,12 +482,27 @@ mod tests {
             gpu.contains(winding) && gpu.contains("&& camera.clip.w == 0."),
             "single-sided winding drop must cover both baked colour kinds"
         );
-        // The alpha test may only survive for the grass/tree bands; baked meshes
-        // are ALPHATEST(0) (0x7a992b).
-        assert!(gpu.contains("if i.kind>3.5 && tex.a<select(0.5,"));
+        // Textured baked meshes must take the alpha-test cutout together with
+        // grass/trees. Transparent texels must be discarded (no colour, no
+        // depth) or the depth-writing scenery pass breaks the water refraction
+        // guard (square lily pads) and hides a canopy behind a nearer card's
+        // transparent gaps. This is the viewer's deliberate deviation from the
+        // client's ALPHATEST(0) + blend state documented above.
         assert!(
-            !gpu.contains("(i.kind>1.5 && i.kind<2.5) || i.kind>3.5"),
-            "baked meshes must not take the alpha test"
+            gpu.contains("if ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select(0.5,"),
+            "textured baked meshes must share the cutout discard"
+        );
+        // Survivors are opaque, not the sampled texture alpha through a
+        // SRCALPHA blend, and the scenery pipeline must stay unblended: a
+        // surviving partial-alpha texel would otherwise still write depth
+        // against the pre-water colour.
+        assert!(
+            gpu.contains("bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),1.);"),
+            "textured baked meshes must render opaque after the cutout"
+        );
+        assert!(
+            !gpu.contains("wgpu::BlendFactor::SrcAlpha"),
+            "scenery pipeline must not blend"
         );
         // The classified kinds must land on the intended side of the shader's
         // single-sided winding band.

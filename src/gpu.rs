@@ -1,6 +1,9 @@
 //! Experimental GPU world renderer: actual client terrain, static BMDs and water masks.
 //! Baked terrain material atlas, fixed lighting and flat water are not client parity.
-use crate::scenery_visibility::{allows_class, ModelClass, Pass, Visibility};
+use crate::scenery_visibility::{
+    allows_class_with_context, lod_scale, Class, ModelClass, Pass, RenderContext, Visibility,
+    NATIVE_DEFAULT_WATER_EFFECT,
+};
 use crate::Terrain;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
@@ -48,7 +51,10 @@ pub(crate) struct Uniform {
     grass_eye: [f32; 4],
     grass_wind: [f32; 4],
     grass_history: [[f32; 4]; 80],
-    fog_range: [f32; 4], // start, end, enabled, reserved
+    /// `start`, `end`, `enabled`, and the terrain day/night blend factor - the
+    /// last lane carries `camera.terrain_day_night` so the terrain shader can run
+    /// the native blend instead of inverting the lightmap-availability flag.
+    fog_range: [f32; 4],
     fog_color: [f32; 4], // encoded client ARGB
 }
 
@@ -606,22 +612,12 @@ fn build(
         let (v, i, b) = grass.counts();
         eprintln!("Grass instancing: {v} mesh vertices, {i} placements, {b} batches; first position {grass_sample:?}");
     }
-    // Recovered regional residency (0x424020): select the ornament class by
-    // the native quality table with a half-block hysteresis margin, then let
-    // Objects retire models/textures for ids that left the resident set.
-    // The terrain window above is independent of this scenery selection.
+    // Recovered regional residency (0x424020): one placement per native
+    // CECSceneBlock class, per-class load distances and half-block hysteresis.
+    // Only the ornament class maps to Objects::load_ids indices; the other
+    // nine classes use disjoint synthetic indices for the resident-bit set.
     let object_start = indices.len() as u32;
-    let scenery_placements: Vec<crate::scenery_visibility::Placement> = t
-        .objects
-        .ornaments
-        .iter()
-        .enumerate()
-        .map(|(index, o)| crate::scenery_visibility::Placement {
-            index,
-            center: [o.position[0], o.position[2]],
-            visibility: Visibility::from_extra(o.extra),
-        })
-        .collect();
+    let scenery_placements = ten_class_placements(t);
     let scenery_margin = 0.5 * t.scene.block_size.max(0.);
     let nearby = t.scenery_residency.select(
         &scenery_placements,
@@ -629,12 +625,22 @@ fn build(
         detail.scenery_quality,
         scenery_margin,
     );
-    t.objects.load_ids(&nearby)?;
+    let ornament_count = t.objects.ornaments.len();
+    let ornament_ids: Vec<usize> = nearby
+        .iter()
+        .copied()
+        .filter(|&i| i < ornament_count)
+        .collect();
+    t.objects.load_ids(&ornament_ids)?;
+    let tree_lod_scale = lod_scale(detail.scenery_quality, Class::Trees);
     eprintln!(
-        "Scenery residency: quality {} (ornament distance {:.1}), {} resident, {} loads, {} evictions, {} distance culls",
+        "Scenery residency: quality {} ({} native classes, tree LOD {:.3}, ornament distance {:.1}), {} resident, {} ornaments retained, {} loads, {} evictions, {} distance culls",
         detail.scenery_quality,
+        Class::ALL.len(),
+        tree_lod_scale,
         crate::scenery_visibility::ornament_distance(detail.scenery_quality),
         nearby.len(),
+        ornament_ids.len(),
         t.scenery_residency.loads,
         t.scenery_residency.evictions,
         t.scenery_residency.distance_culls
@@ -642,7 +648,7 @@ fn build(
     // Sort largest rectangles first, then use as many atlas pages as needed.
     // Unlike the legacy 128px atlas, local BMDs keep their source dimensions.
     let mut requested: HashMap<String, (usize, usize)> = HashMap::new();
-    for &id in &nearby {
+    for &id in &ornament_ids {
         if let Some(model) = t.objects.get(id) {
             for mesh in &model.meshes {
                 let key = mesh.texture.to_lowercase();
@@ -717,7 +723,7 @@ fn build(
         requested.len(),
         pages.len()
     );
-    for id in nearby {
+    for id in ornament_ids {
         let Some(model) = t.objects.get(id) else {
             continue;
         };
@@ -926,7 +932,7 @@ fn bmd_baked_rgb(day:u32, night:u32, night_factor:f32)->vec3<u32> {
 @vertex fn vs(i:VIn)->VOut { var o:VOut; var pos=i.pos; var norm=i.normal;
  if i.kind>4.5 { let d=normalize(camera.direction.xyz); let az=atan2(d.z,d.x); let el=asin(clamp(d.y,-1.,1.)); let rho=i.color.w; let q=vec3<f32>(cos(el)*i.normal.x-sin(el)*i.normal.z,i.normal.y,sin(el)*i.normal.x+cos(el)*i.normal.z); let a=az+rho;var v=vec3<f32>(cos(a)*q.x-sin(a)*q.y,sin(a)*q.x+cos(a)*q.y,q.z);if rho>1000. { v=i.normal; }pos+=vec3<f32>(v.x,v.z,v.y);norm=vec3<f32>(0.,1.,0.); }
  o.pos=camera.matrix*vec4<f32>(pos,1.);o.bmd_refraction=1.;if camera.clip.y<0. && i.kind>1.5 && i.kind<2.5 {o.bmd_refraction=bmd_refraction_transmittance(pos);}o.world=pos;o.normal=norm;o.uv=i.uv;o.color=i.color;o.kind=i.kind;o.diffuse=vec3<f32>(bmd_baked_rgb(i.diffuse,i.night_diffuse,1.-camera.direction.w))/255.;return o; }
-@fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if ((i.kind>1.05 && i.kind<1.15) || (i.kind>1.5 && i.kind<2.05)) && camera.clip.w == 0. && (front == (camera.clip.z != 0.)) {discard;} if camera.clip.y != 0.0 && (i.world.y-camera.clip.x)*camera.clip.y < 0.0 {discard;} if i.kind>0.5 && i.kind<1.05 {return vec4<f32>(fogged(i.color.rgb,i.pos.w),1.);} if i.kind>1.05 && i.kind<1.25 {return vec4<f32>(bmd_pass_fog(clamp(i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.)),i.pos.w,i.bmd_refraction),1.);} let uv_dx=dpdx(i.uv);let uv_dy=dpdy(i.uv);var uv=i.uv; if i.kind>1.5 {let scale=vec2<f32>(i.color.z,select(i.color.z,i.color.w,i.kind<2.5));let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(uv_dx*dims),length(uv_dy*dims)),1.)),0.,7.);let border=0.5*exp2(mip);let half_pixel=min(vec2<f32>(border)/dims,scale*0.499);let local=fract((i.uv-i.color.xy)/scale)*scale;uv=i.color.xy+clamp(local,half_pixel,scale-half_pixel);} let raw_tex=textureSampleGrad(atlas,atlas_sampler,uv,uv_dx,uv_dy);let encoded=raw_tex.rgb;let linear=select(encoded/12.92,pow((encoded+0.055)/1.055,vec3<f32>(2.4)),encoded>vec3<f32>(0.04045));let tex=vec4<f32>(linear,raw_tex.a);if i.kind>3.5 && tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9) {discard;} if i.kind>1.5 && i.kind<2.5 {let c=clamp(raw_tex.rgb*i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.));let rgb=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));return vec4<f32>(bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),raw_tex.a);} let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.);}
+@fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if ((i.kind>1.05 && i.kind<1.15) || (i.kind>1.5 && i.kind<2.05)) && camera.clip.w == 0. && (front == (camera.clip.z != 0.)) {discard;} if camera.clip.y != 0.0 && (i.world.y-camera.clip.x)*camera.clip.y < 0.0 {discard;} if i.kind>0.5 && i.kind<1.05 {return vec4<f32>(fogged(i.color.rgb,i.pos.w),1.);} if i.kind>1.05 && i.kind<1.25 {return vec4<f32>(bmd_pass_fog(clamp(i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.)),i.pos.w,i.bmd_refraction),1.);} let uv_dx=dpdx(i.uv);let uv_dy=dpdy(i.uv);var uv=i.uv; if i.kind>1.5 {let scale=vec2<f32>(i.color.z,select(i.color.z,i.color.w,i.kind<2.5));let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(uv_dx*dims),length(uv_dy*dims)),1.)),0.,7.);let border=0.5*exp2(mip);let half_pixel=min(vec2<f32>(border)/dims,scale*0.499);let local=fract((i.uv-i.color.xy)/scale)*scale;uv=i.color.xy+clamp(local,half_pixel,scale-half_pixel);} let raw_tex=textureSampleGrad(atlas,atlas_sampler,uv,uv_dx,uv_dy);let encoded=raw_tex.rgb;let linear=select(encoded/12.92,pow((encoded+0.055)/1.055,vec3<f32>(2.4)),encoded>vec3<f32>(0.04045));let tex=vec4<f32>(linear,raw_tex.a);if ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9) {discard;} if i.kind>1.5 && i.kind<2.5 {let c=clamp(raw_tex.rgb*i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.));let rgb=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));return vec4<f32>(bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),1.);} let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.);}
 "#;
 struct Renderer {
     models: Option<crate::world_models_gpu::World>,
@@ -1082,6 +1088,16 @@ pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Place
     out
 }
 
+/// Reallocate every size-dependent world render target at the *scaled* render
+/// resolution. The scene depth, water/refraction targets and post chain must
+/// all share one extent: they are combined as attachments in the same render
+/// passes. The swapchain, display-gamma ramp and UNORM present-encode
+/// intermediates stay at the full window size and are resized separately.
+fn resize_world_targets(renderer: &mut Renderer, w: u32, h: u32) {
+    renderer.depth = depth(&renderer.device, w, h);
+    renderer.water.resize(&renderer.device, w, h);
+    renderer.post.resize(&renderer.device, w, h);
+}
 impl Renderer {
     fn new(
         device: wgpu::Device,
@@ -1333,25 +1349,22 @@ impl Renderer {
                 entry_point: "fs",
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    // Every scenery pass enables `ALPHABLENDENABLE(1)`
-                    // (`0x42b5a5`, `0x42bc17`, `0x42c32e`, `0x42c650`) and
-                    // none writes the factors, so the engine's
-                    // `SRCALPHA`/`INVSRCALPHA` pair applies. It is load
-                    // bearing: stage-0 alpha is `MODULATE(TEXTURE, DIFFUSE)`
-                    // (`0x7a9785`/`0x7a9792`), i.e. the texture's own alpha,
-                    // which is how the client cuts leaf and canopy cards.
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
+                    // Baked scenery is an alpha-test cutout, not a blend. The
+                    // 1.4.2 client enables `ALPHABLENDENABLE(1)` in all four
+                    // scenery passes (`0x42b5a5`, `0x42bc17`, `0x42c32e`,
+                    // `0x42c650`) and leaves `ZWRITEENABLE` on, so in the
+                    // client an alpha-0 texel still occupies the depth buffer.
+                    // Reproducing that here broke the viewer: the water pass is
+                    // depth-tested against this buffer, so a transparent lily
+                    // pad card occluded water as a solid square, and a canopy
+                    // card hid the canopy behind it through its transparent
+                    // gaps. The shared shader discards texels below the cutout
+                    // threshold (`tex.a < …`) so they write neither colour nor
+                    // depth; survivors are opaque and write depth as before.
+                    // Keeping a blend here would write depth for the surviving
+                    // partial-alpha texels against the pre-water colour, so the
+                    // pass stays unblended (as it was before the blend change).
+                    blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
@@ -1590,7 +1603,7 @@ impl Renderer {
         self.far_trees.update_lods(
             &self.queue,
             camera.pos.to_array(),
-            self.detail.tree_lod_scale,
+            self.detail.tree_lod_scale * lod_scale(self.detail.scenery_quality, Class::Trees),
         );
         let (bx, by) = self.center;
         let rad = self.detail.radius;
@@ -1626,7 +1639,10 @@ impl Renderer {
             0.,
         ];
         let grass_history = self.grass_wind_state.history();
-        let (fog_range, fog_color) = camera.fog_uniform();
+        let (mut fog_range, fog_color) = camera.fog_uniform();
+        // Uniform fog_range.w is the terrain day/night factor; the shader reads
+        // it instead of overloading sun.w (the lightmap-availability flag).
+        fog_range[3] = camera.terrain_day_night;
         let active_fog = camera.active_fog();
         let active_fog_range = active_fog.range();
         let active_fog_color = active_fog.color4();
@@ -1841,9 +1857,11 @@ impl Renderer {
         advance: bool,
     ) {
         // WaterEffect 0 (shipped default) hides EC models and home ornaments
-        // in reflection/refraction (0x5b2015, 0x5b2336). Baked scenery is
-        // gated per placement by world_objects::GpuPage::draw_selected.
-        if !allows_class(view, ModelClass::EcModel) {
+        // in reflection/refraction (0x5b2015, 0x5b2336). RenderContext carries
+        // the recovered level-2 / underwater class gates; per-placement flags
+        // are applied by world_objects::GpuPage::draw_selected.
+        let context = RenderContext::new(NATIVE_DEFAULT_WATER_EFFECT, camera.underwater_depth > 0.);
+        if !allows_class_with_context(view, ModelClass::EcModel, context) {
             return;
         }
         // Effects outside this radius are unloaded and publish no lights. The
@@ -2523,6 +2541,13 @@ struct Camera {
     underwater_fog: crate::environment::Fog,
     air_fog: crate::environment::Fog,
     terrain_lightmaps: bool,
+    /// Terrain day/night blend, published as `fog_range.w` for the terrain
+    /// shader. This is the viewer's stand-in for the client's `ps c3.a`
+    /// (`env+0x198`): the client derives it from a light matrix the viewer has no
+    /// analogue for, so it follows the app clock instead. Kept as its own field
+    /// so the native factor can replace the *source* without touching the
+    /// shader, the uniform layout or the availability flag in `sun.w`.
+    terrain_day_night: f32,
     model_backface_culling: bool,
     tree_wind_strength: f32,
     grass_wind_strength: f32,
@@ -2558,6 +2583,7 @@ impl Camera {
             underwater_fog: Default::default(),
             air_fog: Default::default(),
             terrain_lightmaps: true,
+            terrain_day_night: 0.,
             model_backface_culling: true,
             tree_wind_strength: 0.2,
             grass_wind_strength: 0.,
@@ -2731,6 +2757,26 @@ pub fn run(
         m,
         &mut t,
     )?;
+    // Resolution scaling: the world renders into an offscreen target at a
+    // scaled extent and is bilinearly blitted to the full-size composition
+    // view each frame. `applied_extent` is tracked so a window resize or a
+    // slider change reallocates the offscreen and world targets exactly once.
+    let max_texture_dimension = renderer.device.limits().max_texture_dimension_2d;
+    let mut applied_extent = crate::render_scale::scaled_extent(
+        config.width,
+        config.height,
+        settings.resolution_scale,
+        max_texture_dimension,
+    );
+    let mut render_scale = crate::render_scale::RenderScale::new(
+        &renderer.device,
+        format,
+        applied_extent.0,
+        applied_extent.1,
+    );
+    if applied_extent != (config.width, config.height) {
+        resize_world_targets(&mut renderer, applied_extent.0, applied_extent.1);
+    }
     let mut display_gamma: Option<crate::display_gamma::DisplayGamma> = None;
     // Only allocated for UNORM-only swapchains; None is the normal sRGB route.
     let mut present_encode: Option<crate::present_encode::PresentEncode> =
@@ -2938,13 +2984,20 @@ pub fn run(
                     config.width = s.width;
                     config.height = s.height;
                     surface.configure(&renderer.device, &config);
-                    renderer.depth = depth(&renderer.device, s.width, s.height);
-                    renderer.water.resize(&renderer.device, s.width, s.height);
-                    renderer.post.resize(&renderer.device,s.width,s.height);
+                    // Scaled world targets are reallocated by the next redraw,
+                    // which notices the new window extent (see below).
                     if let Some(gamma)=display_gamma.as_mut() {gamma.resize(&renderer.device,s.width,s.height);}
                     if let Some(encode)=present_encode.as_mut() {encode.resize(&renderer.device,s.width,s.height);}
                 }
                 WindowEvent::RedrawRequested => {
+                    // One place handles both a window resize and a Graphics-tab
+                    // scale change: reallocate only when the scaled extent moves.
+                    let wanted_extent = crate::render_scale::scaled_extent(config.width, config.height, settings.resolution_scale, max_texture_dimension);
+                    if wanted_extent != applied_extent {
+                        applied_extent = wanted_extent;
+                        resize_world_targets(&mut renderer, wanted_extent.0, wanted_extent.1);
+                        render_scale.resize(&renderer.device, wanted_extent.0, wanted_extent.1);
+                    }
                     if settings != saved_settings && last_settings_save.elapsed().as_secs_f32() >= 1. {
                         if let Err(e)=settings.save(){eprintln!("Settings save: {e}");} else {saved_settings=settings.clone();}
                         last_settings_save=Instant::now();
@@ -3096,6 +3149,11 @@ pub fn run(
                     camera.client_gamma=crate::color_chain::scene_chain_ramp(false,whole_frame_gamma);
                     camera.gamma_setting=settings.gamma_setting;
                     camera.terrain_lightmaps=settings.terrain_lightmaps;
+                    // The blend source is the app clock until the client's light
+                    // matrix is reconstructed: full daylight is the day endpoint
+                    // (factor 0) and full night the night endpoint (factor 1).
+                    camera.terrain_day_night=crate::terrain_shading::viewer_day_night_factor(
+                        crate::environment::daylight(camera.time_of_day));
                     camera.model_backface_culling=settings.model_backface_culling;
                     camera.underwater_depth=water_depth(&water_areas,camera.pos);
                     let region_tick = renderer.started.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -3127,21 +3185,25 @@ pub fn run(
                     match surface.get_current_texture() {
                         Ok(frame) => {
                             let surface_view = frame.texture.create_view(&Default::default());
-                            let surface_raw = frame.texture.create_view(&wgpu::TextureViewDescriptor { format: Some(surface_format.remove_srgb_suffix()), ..Default::default() });
                             // Composition target: the whole-frame gamma intermediate, else the
-                            // present-encode intermediate, else the swapchain itself.
+                            // present-encode intermediate, else the swapchain itself. This is
+                            // always the full window resolution: UI and the final present chain
+                            // stay sharp regardless of the 3D resolution scale.
                             let composed_view=if whole_frame_gamma {Some(display_gamma.as_ref().unwrap().view())} else if let Some(encode)=present_encode.as_ref() {Some(encode.view())} else {None};
-                            let composed_raw=if whole_frame_gamma {Some(display_gamma.as_ref().unwrap().raw_view())} else if let Some(encode)=present_encode.as_ref() {Some(encode.raw_view())} else {None};
                             let scene_view=composed_view.as_ref().unwrap_or(&surface_view);
-                            let scene_raw=composed_raw.as_ref().unwrap_or(&surface_raw);
+                            // Draw the world into the scaled offscreen target, then bilinearly
+                            // present it into `scene_view` before the UI pass loads that result.
+                            let world_view = render_scale.view();
+                            let world_raw_view = render_scale.raw_view();
                             renderer.render(
-                                scene_view,
-                                scene_raw,
+                                &world_view,
+                                &world_raw_view,
                                 camera.matrix(config.width, config.height, camera.far),
                                 &camera,
-                                config.width,
-                                config.height,
+                                applied_extent.0,
+                                applied_extent.1,
                             );
+                            render_scale.blit(&renderer.device, &renderer.queue, scene_view);
                             // Refresh the top-down view on every presented frame. The old
                             // 350ms timer capped minimap motion to fewer than 3 FPS.
                             if settings.show_minimap {
@@ -3189,7 +3251,7 @@ pub fn run(
                                                 let defaults=ViewSettings::default();
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
-                                                    0=>{ui.heading("Graphics");ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
+                                                    0=>{ui.heading("Graphics");marked_slider(ui,egui::Slider::new(&mut settings.resolution_scale,10.0..=200.0).integer().suffix("%"),"Resolution scale",defaults.resolution_scale,10.,200.,false,true);ui.label(egui::RichText::new("3D render resolution (10%–200% of the window). UI stays at native resolution.").small().weak());ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
                                                     1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} failed; alpha meshes ordered {}",g.live,g.pending,g.emitters,g.failed_owners+models.gfx_failures().len(),models.alpha_order().len()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon (experimental)").on_hover_text("Uses the original textures and recovered sky-clock direction. Disc size, visibility, halo and blend remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());ui.label("Music follows the client zone playlists; ambient sounds are not yet implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
@@ -3330,6 +3392,7 @@ pub fn preview(
             underwater_fog: Default::default(),
             air_fog: Default::default(),
             terrain_lightmaps: true,
+            terrain_day_night: 0.,
             model_backface_culling: true,
             tree_wind_strength: 0.2,
             grass_wind_strength: 0.,
@@ -3716,7 +3779,7 @@ mod frame_snapshot_tests {
             !minimap.contains("draw_models("),
             "minimap must not consume a second model/light publication"
         );
-        assert!(src.contains("if !allows_class(view, ModelClass::EcModel)"));
+        assert!(src.contains("if !allows_class_with_context(view, ModelClass::EcModel, context)"));
         assert!(
             src.matches("page.draw_selected(&mut p, reflected, pass_kind)")
                 .count()
