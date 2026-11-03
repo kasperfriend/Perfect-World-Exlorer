@@ -476,8 +476,18 @@ mod tests {
             }
             assert_eq!(front_first.uv[0], 1.0);
             assert_eq!(back_last.uv[0], 0.0);
-            if row + 1 == ROW_Y.len() {
-                // The native bottom row collapses both islands onto v = 0.5.
+            // Every row mirrors around the texture's horizontal midline, so the
+            // two runs always add up to one texture height.
+            assert!(
+                close(front_first.uv[1] + back_last.uv[1], 1.0, 1e-6),
+                "row {row}: {} / {}",
+                front_first.uv[1],
+                back_last.uv[1]
+            );
+            if ROW_Y[row] <= 0.0 {
+                // The two below-horizon rows (y = 0 and y = -10.6) collapse
+                // both islands onto that midline instead of running the image
+                // any further down.
                 assert_eq!(front_first.uv[1], 0.5);
                 assert_eq!(back_last.uv[1], 0.5);
             } else {

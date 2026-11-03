@@ -42,6 +42,9 @@ Rows are `39.27 * [1, 0.5, 0.167, 0, -0.27]`; each row holds two 7-column island
 | 3 | 0.0 | 0.5 | 0.5 | `0xffffffff` |
 | 4 | -10.6029005 | 0.5 | 0.5 | `0xffffffff` |
 
+Each row's two island runs sum to one texture height (`v` and `1 - v`); the two below-horizon
+rows both sit on the midline `v = 0.5`, so the image's lower half is never sampled there.
+
 Elevation coverage, as seen from the sphere centre: the curtain is a cylinder of radius 50, so a ray meets it at `50 * tan(elevation)`; the rows span **-11.98° to +38.16°**. Quads are
 `(v0, v0+14, v0+15), (v0, v0+15, v0+1)`; all 96 triangles have
 `normal · centroid < 0`, i.e. they face the camera inside the sphere.
