@@ -47,14 +47,14 @@ fn fogged(linear:vec3<f32>, reciprocal_w:f32)->vec3<f32> {
  let v=mix(encoded,camera.fog_color.rgb,f);
  return select(v/12.92,pow((max(v,vec3<f32>(0.))+0.055)/1.055,vec3<f32>(2.4)),v>vec3<f32>(0.04045));
 }
-struct In {@location(0) pos:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) uv:vec2<f32>,@location(3) color:vec4<f32>,@location(4) kind:f32,@location(5) instance:vec3<f32>,@location(6) info:vec2<f32>,@location(7) tex_h:u32};
-struct Out {@builtin(position) pos:vec4<f32>,@location(0) normal:vec3<f32>,@location(1) uv:vec2<f32>,@location(2) color:vec4<f32>,@location(3) @interpolate(flat) kind:f32,@location(4) world:vec3<f32>,@location(5) @interpolate(flat) tree:vec3<f32>,@location(6) @interpolate(flat) tex_h:f32,@location(7) @interpolate(flat) fade:vec2<f32>};
+struct In {@location(0) pos:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) uv:vec2<f32>,@location(3) color:vec4<f32>,@location(4) kind:f32,@location(5) instance:vec3<f32>,@location(6) info:vec2<f32>,@location(7) tex_h:u32,@location(8) alpha_ref:u32};
+struct Out {@builtin(position) pos:vec4<f32>,@location(0) normal:vec3<f32>,@location(1) uv:vec2<f32>,@location(2) color:vec4<f32>,@location(3) @interpolate(flat) kind:f32,@location(4) world:vec3<f32>,@location(5) @interpolate(flat) tree:vec3<f32>,@location(6) @interpolate(flat) tex_h:f32,@location(7) @interpolate(flat) fade:vec2<f32>,@location(8) @interpolate(flat) alpha_ref:u32};
 @vertex fn vs(i:In)->Out {var o:Out;var pos=i.pos+i.instance;var norm=i.normal;
  if i.kind>4.5 {let d=normalize(camera.direction.xyz);let az=atan2(d.z,d.x);let el=asin(clamp(d.y,-1.,1.));let rho=i.color.w;var corner=i.normal;let rock_index=i.tex_h>>8u;if rock_index>0u {corner=mix(corner,rock_sample(rock_index-1u,camera.tree_bounds.w),clamp(camera.tree_bounds.z,0.,1.));}let q=vec3<f32>(cos(el)*corner.x-sin(el)*corner.z,corner.y,sin(el)*corner.x+cos(el)*corner.z);let a=az+rho;var v=vec3<f32>(cos(a)*q.x-sin(a)*q.y,sin(a)*q.x+cos(a)*q.y,q.z);if rho>1000. {v=corner;}pos+=vec3<f32>(v.x,v.z,v.y);norm=vec3<f32>(0.,1.,0.);}
- o.pos=camera.matrix*vec4<f32>(pos,1.);o.world=pos;o.normal=norm;o.uv=i.uv;o.color=i.color;o.kind=i.kind;o.tree=i.instance;o.tex_h=f32(i.tex_h & 127u)*select(128./8192.,128./2048.,(i.tex_h & 128u)!=0u);o.fade=i.info;return o;}
+ o.pos=camera.matrix*vec4<f32>(pos,1.);o.world=pos;o.normal=norm;o.uv=i.uv;o.color=i.color;o.kind=i.kind;o.tree=i.instance;o.tex_h=f32(i.tex_h & 127u)*select(128./8192.,128./2048.,(i.tex_h & 128u)!=0u);o.fade=i.info;o.alpha_ref=i.alpha_ref;return o;}
 @fragment fn fs(i:Out)->@location(0) vec4<f32>{if camera.clip.y!=0. && (i.world.y-camera.clip.x)*camera.clip.y<0. {discard;}
 
- let scale=vec2<f32>(i.color.z,i.tex_h);let dx=dpdx(i.uv);let dy=dpdy(i.uv);let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(dx*dims),length(dy*dims)),1.)),0.,7.);let halfpixel=min(vec2<f32>(0.5*exp2(mip))/dims,scale*0.499);let uv=i.color.xy+clamp(fract((i.uv-i.color.xy)/scale)*scale,halfpixel,scale-halfpixel);let tex=textureSampleGrad(atlas,atlas_sampler,uv,dx,dy);if i.kind>3.5 && tex.a<0.5 {discard;}
+ let scale=vec2<f32>(i.color.z,i.tex_h);let dx=dpdx(i.uv);let dy=dpdy(i.uv);let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(dx*dims),length(dy*dims)),1.)),0.,7.);let halfpixel=min(vec2<f32>(0.5*exp2(mip))/dims,scale*0.499);let uv=i.color.xy+clamp(fract((i.uv-i.color.xy)/scale)*scale,halfpixel,scale-halfpixel);let tex=textureSampleGrad(atlas,atlas_sampler,uv,dx,dy);if i.alpha_ref!=0xffffffffu {let threshold=bitcast<f32>(i.alpha_ref);if tex.a<=threshold {discard;}}else if i.kind>4.5 && tex.a<0.5 {discard;}
  // Complementary ordered coverage: old and new snapshots never both draw
  // at the same pixel, while the tree is fully visible at the endpoints.
  if i.fade.y>0.5 {let xy=vec2<u32>(i.pos.xy)%vec2<u32>(4u);let b=(((xy.x&1u)^(xy.y&1u))*8u)+((xy.y&1u)*4u)+((((xy.x>>1u)&1u)^((xy.y>>1u)&1u))*2u)+((xy.y>>1u)&1u);let d=(f32(b)+0.5)/16.;if (i.fade.y<1.5 && d<i.fade.x)||(i.fade.y>1.5 && d>=i.fade.x){discard;}}
@@ -124,12 +124,16 @@ impl FarTrees {
                     "P4.07 tree authored-mip experiment: unsupported native sampler pair kept explicit: {rejection:?}; retaining the viewer's approved sampler"
                 );
             }
-            if let Err(rejection) = crate::vegetation_material::validate_cutout(
-                crate::vegetation_material::Material::TreeLeaf,
-                Some(crate::vegetation_material::LEGACY_TREE_ALPHA_REF),
-            ) {
+            let cached_alpha_lods = trees
+                .types
+                .iter()
+                .flatten()
+                .flat_map(|tree| &tree.lods)
+                .filter(|lod| lod.branch_alpha_ref.is_some() && lod.frond_alpha_ref.is_some())
+                .count();
+            if cached_alpha_lods == 0 {
                 eprintln!(
-                    "P4.07 tree authored-mip experiment: tree alpha threshold remains unsupported: {rejection:?}; retaining the approved legacy shader cutout"
+                    "P4.07 tree authored-mip experiment: cache contains no PWTREE08 branch/frond alpha references; legacy tree cutout remains active"
                 );
             }
         }
@@ -233,9 +237,17 @@ impl FarTrees {
                 }));
                 let end_inst = instances.len() as u32;
                 let start_idx = indices.len() as u32;
-                for (part, slot_id, kind) in
-                    [(&lod.branch, slots[0], 3.), (&lod.frond, slots[1], 4.)]
-                {
+                for (part, slot_id, kind, native_alpha) in [
+                    (&lod.branch, slots[0], 3., lod.branch_alpha_ref),
+                    (&lod.frond, slots[1], 4., lod.frond_alpha_ref),
+                ] {
+                    let alpha_ref = if authored_mips {
+                        native_alpha
+                            .filter(|reference| *reference >= 0.)
+                            .map_or(u32::MAX, |reference| (reference / 255.).to_bits())
+                    } else {
+                        u32::MAX
+                    };
                     let ox = slot_id.0 as f32 / side as f32;
                     let oy = slot_id.1 as f32 / side as f32;
                     let scale = slot_id.2 as f32 / side as f32;
@@ -249,7 +261,7 @@ impl FarTrees {
                             color: [ox, oy, scale, 0.],
                             kind,
                             diffuse: (slot_id.3 as u32 / 128) | if small { 128 } else { 0 },
-                            night_diffuse: 0xffff_ffff,
+                            night_diffuse: alpha_ref,
                         });
                     }
                     indices.extend(part.indices.iter().map(|i| base + *i));
@@ -275,7 +287,11 @@ impl FarTrees {
                                 } else {
                                     0
                                 },
-                            night_diffuse: 0xffff_ffff,
+                            night_diffuse: if authored_mips {
+                                (84. / 255.).to_bits()
+                            } else {
+                                u32::MAX
+                            },
                         });
                     }
                     indices.extend_from_slice(&[
@@ -511,7 +527,7 @@ impl FarTrees {
             bind_group_layouts: &[&layout],
             push_constant_ranges: &[],
         });
-        const ATTR: [wgpu::VertexAttribute; 6] = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4,4=>Float32,7=>Uint32];
+        const ATTR: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4,4=>Float32,7=>Uint32,8=>Uint32];
         const INST: [wgpu::VertexAttribute; 2] =
             wgpu::vertex_attr_array![5=>Float32x3,6=>Float32x2];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {

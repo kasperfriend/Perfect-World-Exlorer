@@ -7,16 +7,19 @@
 //! `POLICIES` separates the viewer sampler from native facts. Generic client
 //! sampler descriptors are not linked to the vegetation draws, so the native
 //! filter/address/anisotropy tuple is explicitly unsupported; `validate` refuses
-//! to silently label the viewer sampler as an exact native match.
+//! to silently label the viewer sampler as an exact native match. Tree branch /
+//! frond alpha references are now captured per LOD by PWTREE08, while the client
+//! explicitly sets leaf alpha reference 84. The checked-in helper binary must be
+//! rebuilt from source before that cache path is available in packaged builds.
 //!
 //! Native evidence (elementclient.exe, PE32 1.4.2):
 //! - grass stage 0 U/V = WRAP, stages 1/2 U/V = CLAMP (`0x65127a..0x65129c`);
 //!   grass alpha func GREATER (`0x652361`, state 0x19) and per-type ALPHAREF
 //!   default 0x54 (`0x652129`, `0x652368..0x652371`, state 0x18).
-//! - tree branch/frond and leaf passes write ALPHAREF from SpeedTreeRT object
-//!   fields +0x38 / +0x74 (`0x656bf5..0x656c01`, `0x656d3e..0x656d4a`).
-//!   Those runtime floats are not retained by the current PWTREE cache, so a
-//!   fixed tree cutout reference is explicitly unsupported here.
+//! - tree branch/frond passes write ALPHAREF from SpeedTreeRT geometry fields
+//!   +0x38 / +0x74 (`0x656bf5..0x656c01`, `0x656d3e..0x656d4a`); PWTREE08
+//!   carries those references per LOD. The client sets leaf reference 84 at
+//!   `0x650513`. Alpha compare parity for tree passes is not separately verified.
 //! - the generic material apply can write MAXANISOTROPY (`0x796953..0x796966`,
 //!   helper `0x77a1d0`, sampler state 0x17), but no vegetation-specific write
 //!   was recovered. The opt-in experiment retains the viewer's existing 16x
@@ -88,8 +91,8 @@ pub enum Cutout {
         compare: Compare,
         reference: u8,
     },
-    /// The client computes the reference at runtime from a source we do not yet
-    /// retain. A fixed substitute must be rejected, not silently uploaded.
+    /// The reference is selected from runtime geometry; PWTREE08 retains it per
+    /// LOD, so this policy cannot be represented by a single fixed byte value.
     Runtime {
         source: &'static str,
     },
@@ -328,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn tree_alpha_thresholds_remain_explicitly_unsupported() {
+    fn per_lod_tree_cutouts_cannot_be_represented_by_a_fixed_policy_byte() {
         for material in [
             Material::TreeBark,
             Material::TreeBranch,

@@ -26,6 +26,10 @@ pub struct Leaf {
 pub struct TreeLod {
     pub branch: Part,
     pub frond: Part,
+    /// Native SpeedTree alpha-test references (0..255), present in PWTREE08.
+    /// Older caches retain `None` so the renderer can preserve its legacy cutout.
+    pub branch_alpha_ref: Option<f32>,
+    pub frond_alpha_ref: Option<f32>,
     pub leaves: Vec<Leaf>,
     // Each cluster/corner has 64 runtime samples, stored in local camera space.
     pub rocking: Vec<[f32; 3]>,
@@ -102,9 +106,10 @@ impl<'a> Reader<'a> {
 fn parse(d: &[u8], source: &[u8], dll_hash: u32) -> Result<(String, Vec<TreeLod>), String> {
     let mut r = Reader { d, p: 0 };
     let magic = r.take(8)?;
-    let animated = match magic {
-        b"PWTREE05" => false,
-        b"PWTREE06" | b"PWTREE07" => true,
+    let (animated, native_alpha_refs) = match magic {
+        b"PWTREE05" => (false, false),
+        b"PWTREE06" | b"PWTREE07" => (true, false),
+        b"PWTREE08" => (true, true),
         _ => return Err("unknown tree cache version".into()),
     };
     if r.u()? != dll_hash {
@@ -133,6 +138,16 @@ fn parse(d: &[u8], source: &[u8], dll_hash: u32) -> Result<(String, Vec<TreeLod>
     for _ in 0..count {
         let branch = r.part()?;
         let frond = r.part()?;
+        let (branch_alpha_ref, frond_alpha_ref) = if native_alpha_refs {
+            let branch_ref = r.f()?;
+            let frond_ref = r.f()?;
+            if !(-1.0..=255.0).contains(&branch_ref) || !(-1.0..=255.0).contains(&frond_ref) {
+                return Err("invalid native tree alpha reference".into());
+            }
+            (Some(branch_ref), Some(frond_ref))
+        } else {
+            (None, None)
+        };
         let n = r.u()? as usize;
         if n > 65535 {
             return Err("tree leaf limit".into());
@@ -176,6 +191,8 @@ fn parse(d: &[u8], source: &[u8], dll_hash: u32) -> Result<(String, Vec<TreeLod>
         lods.push(TreeLod {
             branch,
             frond,
+            branch_alpha_ref,
+            frond_alpha_ref,
             leaves,
             rocking,
             rocking_clusters,
@@ -302,6 +319,39 @@ mod tests {
         assert!(parse(&b, source, 43).is_err());
         assert!(parse(&b, b"other", 42).is_err());
         assert!(parse(&b[..b.len() - 1], source, 42).is_err());
+    }
+    #[test]
+    fn reads_native_alpha_references_only_from_pwtree08() {
+        let source = b"tree";
+        let mut hash = 2166136261u32;
+        for b in source {
+            hash = (hash ^ u32::from(*b)).wrapping_mul(16777619);
+        }
+        let mut b = b"PWTREE08".to_vec();
+        for value in [42u32, hash, 0, 3] {
+            b.extend_from_slice(&value.to_le_bytes());
+        }
+        for _ in 0..3 {
+            // Empty branch and frond parts.
+            for _ in 0..4 {
+                b.extend_from_slice(&0u32.to_le_bytes());
+            }
+            b.extend_from_slice(&84f32.to_le_bytes());
+            b.extend_from_slice(&255f32.to_le_bytes());
+            // No leaves, then a valid empty 64-frame rocking table.
+            for value in [0u32, 0, 64] {
+                b.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let lods = parse(&b, source, 42).unwrap().1;
+        assert_eq!(lods.len(), 3);
+        assert_eq!(lods[0].branch_alpha_ref, Some(84.));
+        assert_eq!(lods[0].frond_alpha_ref, Some(255.));
+        assert!(parse(&b[..b.len() - 1], source, 42).is_err());
+        let mut invalid = b;
+        let ref_offset = 8 + 4 * 4 + 4 * 4;
+        invalid[ref_offset..ref_offset + 4].copy_from_slice(&256f32.to_le_bytes());
+        assert!(parse(&invalid, source, 42).is_err());
     }
     #[test]
     fn accepts_sampled_rocking_and_rejects_invalid_cluster() {
