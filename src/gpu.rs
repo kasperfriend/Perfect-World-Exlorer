@@ -1632,6 +1632,12 @@ impl Renderer {
             retained_regional_light: None,
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
+            // `begin_frame` turns wall time into wind steps, so the anchor
+            // has to exist before the first frame.
+            wind_last: Instant::now(),
+            // `+0x80` disc-flag word before any region sets it; the status
+            // line reports this value as it came from the source.
+            celestial_flags: 0x18,
             atlas,
             vertex,
             index,

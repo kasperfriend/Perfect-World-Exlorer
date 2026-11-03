@@ -270,6 +270,13 @@ impl GrassWind {
             self.vel[i] += seconds * accel[i];
         }
     }
+    /// Seconds-based wrapper kept for callers written against main's earlier
+    /// `update(elapsed)` API. The clock is milliseconds and the step is clamped
+    /// to 100 ms there, so a long frame cannot destabilise the spring.
+    pub fn update(&mut self, elapsed: f32) {
+        let ms = (elapsed * 1000.).floor().clamp(0., 100.) as i32;
+        self.advance_ms(ms);
+    }
     pub fn history(&self) -> [[f32; 4]; HISTORY] {
         self.history
     }
