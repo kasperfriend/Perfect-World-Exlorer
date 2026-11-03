@@ -43,20 +43,7 @@ jobs:
           rustc --edition=2021 --test src/scenery_visibility.rs -o /tmp/scenery-visibility-tests
           /tmp/scenery-visibility-tests
       - name: Check all binary targets
-        run: |
-          set +e
-          cargo check --locked --bins --message-format short > "$RUNNER_TEMP/build.log" 2>&1
-          status=$?
-          if [ "$status" -ne 0 ]; then
-            summary="$(grep -i -E 'error|failed' "$RUNNER_TEMP/build.log" | head -30 | awk '{printf "%s | ", $0}' | cut -c1-2500)"
-            if [ -z "$summary" ]; then
-              summary="$(tail -n 30 "$RUNNER_TEMP/build.log" | awk '{printf "%s | ", $0}' | cut -c1-2500)"
-            fi
-            echo "::error title=RustBuildDiagnostics::$summary"
-            cat "$RUNNER_TEMP/build.log"
-            exit "$status"
-          fi
-          cat "$RUNNER_TEMP/build.log"
+        run: cargo check --locked --bins
       - name: Test GFX light dependency audit
         run: cargo test --locked --bin gfx-light-audit
       - name: Run viewer unit tests
