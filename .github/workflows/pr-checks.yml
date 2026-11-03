@@ -55,10 +55,12 @@ jobs:
           # Keep the plain command so a non-zero exit still fails the job, but
           # also re-echo the compiler diagnostics as check annotations: the raw
           # step log is not always retrievable from the API.
-          CARGO_TERM_COLOR=never cargo check --locked --bins --message-format short 2>&1 | tee /tmp/cargo-check.log
+          # No `--message-format short` here: the short form drops the file:line
+          # that a later `is_empty`-class error needs to be located at all.
+          CARGO_TERM_COLOR=never cargo check --locked --bins 2>&1 | tee /tmp/cargo-check.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            grep -E "(^error|: error)" /tmp/cargo-check.log | head -40 | while IFS= read -r line; do
+            grep -E "(^error|: error|^  --> )" /tmp/cargo-check.log | head -40 | while IFS= read -r line; do
               echo "::error::$line"
             done
           fi
@@ -68,7 +70,7 @@ jobs:
           CARGO_TERM_COLOR=never cargo test --locked --bin gfx-light-audit 2>&1 | tee /tmp/gfx-audit.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            grep -E "(^error|: error|panicked at|assertion|test result)" /tmp/gfx-audit.log | head -40 | while IFS= read -r line; do
+            grep -E "(^error|: error|panicked at|assertion|test result|^  --> )" /tmp/gfx-audit.log | head -40 | while IFS= read -r line; do
               echo "::error::$line"
             done
           fi
@@ -78,7 +80,7 @@ jobs:
           CARGO_TERM_COLOR=never cargo test --locked --bin perfect-world-explorer 2>&1 | tee /tmp/cargo-test.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            grep -E "(^error|: error|panicked at|assertion)" /tmp/cargo-test.log | head -40 | while IFS= read -r line; do
+            grep -E "(^error|: error|panicked at|assertion|^  --> )" /tmp/cargo-test.log | head -40 | while IFS= read -r line; do
               echo "::error::$line"
             done
           fi
