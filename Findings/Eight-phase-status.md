@@ -18,7 +18,7 @@ No phase is fully complete. The [full 76-point reassessment](Eight-phase-reasses
 - [x] P1.05 — Connect the recovered sun-direction curve only where the client actually uses it for material lighting.
 - [x] P1.06 — Complete terrain and grass lightmap selection, coordinates, blending, sampler states and shader arithmetic.
 - [x] P1.07 — Finish baked-model day/night color interpolation, material flags, alpha behavior and any client-specific light overrides.
-- [ ] P1.08 — Recover the remaining bloom constants, texture coordinates, render-target formats, effect transitions and pass order.
+- [x] P1.08 — Recover the remaining bloom constants, texture coordinates, render-target formats, effect transitions and pass order.
 - [ ] P1.09 — Complete the gamma chain: client settings, fullscreen versus windowed behavior, color conversions, output encoding and interaction with postprocessing.
 - [ ] P1.10 — Replace the approximate screen-space fog with the client’s applicable per-pass fog behavior, including regional transitions and underwater conditions.
 - [x] P1.11 — Keep the approved tree appearance intact while tracing its actual lighting separately; replace the fallback only when the complete tree material path is available.

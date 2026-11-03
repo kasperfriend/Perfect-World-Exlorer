@@ -85,8 +85,18 @@ fn bump_bilinear(uv:vec2<f32>)->vec2<f32> {
  let uv=i.uv;
  let bump_uv=vec2<f32>(uv.x*3.,uv.y*3.*p.screen.y/p.screen.x+p.screen.z*0.5);
  let normal=bump_bilinear(bump_uv);
- // Texture stage 1 is CLAMP at 0x41029b–0x4102a4, not a 0.001 UV inset.
- return vec4<f32>(textureSample(scene,smp,uv+normal*vec2<f32>(-0.005,0.005)).rgb,1.);
+ // spacewarp.txt / spacewarp_tl.txt:
+ //   mul r2.rg, r2, c1        ; r2 = vertex texcoord * (-1, 1)
+ //   mul r3.rg, r0_bx2, r2    ; normal (-1..1) * that scale
+ //   mad r1.rg, r3, r0.a, r1  ; offset scaled by the normal map's alpha
+ //   sub r0.r, r0.a, c2.r     ; c2.r = 0.05
+ //   texkill r0
+ // So c2.r is a kill threshold on the normal-map alpha, NOT the offset size;
+ // the offset scale is supplied per-vertex by the warp stream. The texkill is
+ // reproduced here. The 0.005 scale below remains an approximation of that
+ // vertex texcoord, which the client builds at run time (0x94ef44).
+ if normal.a<0.05 { discard; }
+ return vec4<f32>(textureSample(scene,smp,uv+normal.xyz*vec2<f32>(-0.005,0.005)).rgb,1.);
 }
 fn composite(uv:vec2<f32>)->vec3<f32> {
  let original=textureSample(scene,smp,uv).rgb;
