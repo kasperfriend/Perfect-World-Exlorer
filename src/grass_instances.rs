@@ -450,10 +450,13 @@ mod tests {
     /// weight, not hash the vertex height again.
     #[test]
     fn wind_stage_matches_the_retail_grass_wave_shader() {
-        // `include_str!` also captures this test, so cut it off before looking
-        // for strings the test itself has to spell out.
+        // `include_str!` also captures the tests, so cut the file at the first
+        // test module before looking for strings the tests have to spell out.
+        // Main added a second test module (`scale_y_tests`) *above* the shader,
+        // so cutting at the first `#[cfg(test)]` threw the shader away with it.
+        // Only this module has to go, and it is the last thing in the file.
         let source = include_str!("grass_instances.rs");
-        let injected = source.split("#[cfg(test)]").next().unwrap();
+        let injected = &source[..source.find("mod tests").expect("this test module")];
         assert!(injected.contains("let slot=i32(round(extra.z))%80;"));
         assert!(injected.contains("let weight=bitcast<f32>(i.night_diffuse);"));
         assert!(injected.contains("pos+=camera.grass_history[history_index].xyz*weight;"));

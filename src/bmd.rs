@@ -378,6 +378,12 @@ mod tests {
                 b.extend_from_slice(&vec![0u8; (n * 4) as usize]);
                 b.extend_from_slice(&vec![0u8; (n * 4) as usize]);
             }
+            // v5 alone carries a material tail: a NUL-terminated name followed
+            // by 4x16 bytes of colours, a float and a two-sided flag.
+            if mesh_version >= 0x10000005 {
+                b.extend_from_slice(b"mat\0");
+                b.extend_from_slice(&[0u8; 69]);
+            }
             b.extend_from_slice(&[0; 48]);
             b
         };
@@ -397,6 +403,12 @@ mod tests {
             let m = Model::parse(&build(v, 4, 2)).unwrap();
             assert_eq!(m.meshes[0].version, v);
             assert_eq!(m.meshes[0].vertices.len(), 4);
+            // v4 stops before the material; v5 must consume the tail it added.
+            if v == 0x10000005 {
+                assert_eq!(m.meshes[0].material.as_ref().map(|x| x.name.as_str()), Some("mat"));
+            } else {
+                assert!(m.meshes[0].material.is_none(), "v{v:#x}");
+            }
         }
         // Truncating one byte must still be caught rather than misread.
         let mut short = build(0x10000002, 4, 2);
