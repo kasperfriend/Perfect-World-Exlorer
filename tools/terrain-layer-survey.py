@@ -58,7 +58,8 @@ def t2mk(path):
         if grid not in (0, 1):
             raise Unsupported(f"{path}: T2MK grid dimension byte {grid}")
     if areas == 0 or layers == 0:
-        raise Unsupported(f"{path}: empty T2MK")
+        # Shipped tiles with no terrain at all (368-byte files) have no layers.
+        raise Unsupported(f"{path}: empty T2MK (areas={areas} layers={layers})")
     table = 20 + areas * 4
     records = []
     for i in range(layers):
@@ -128,6 +129,37 @@ def t2lm(path):
             "tile_bytes": size, "offsets": offsets}
 
 
+def file_summary(path):
+    """One tolerant record per file: a rejected file is reported, not fatal."""
+    rec = {"file": path.rsplit("/", 1)[-1], "ok": False, "error": None}
+    try:
+        t = t2mk(path)
+    except Unsupported as e:
+        rec["error"] = str(e)
+        return rec
+    except Exception as e:  # truncated / short file
+        rec["error"] = f"{path}: {type(e).__name__}: {e}"
+        return rec
+    stacks = [len(a["stack"]) for a in t["areas"]]
+    rec.update(
+        {
+            "ok": True,
+            "version": t["version"],
+            "areas": len(t["areas"]),
+            "layer_records": t["layer_count"],
+            "entries": sum(stacks),
+            "min_stack": min(stacks),
+            "max_stack": max(stacks),
+            "masks": sum(1 for a in t["areas"] for l in a["stack"][1:]),
+            "mask_sizes": sorted({l["mask_size"] for a in t["areas"] for l in a["stack"][1:]}),
+            "axes": sorted({l["axis_raw"] for r in t["layers"] for l in [r]}),
+            "textures": len({r["texture"] for r in t["layers"]}),
+            "uv": sorted({(round(r["u"], 6), round(r["v"], 6)) for r in t["layers"]}),
+        }
+    )
+    return rec
+
+
 def survey(paths):
     print(f"files surveyed: {len(paths)}")
     axes = Counter()
@@ -190,6 +222,40 @@ def main(argv):
             csv_out = argv[i + 1]
             i += 2
             continue
+        if argv[i] == "--dir":
+            import glob
+            import os
+
+            d = argv[i + 1]
+            json_out = argv[i + 2] if len(argv) > i + 2 and not argv[i + 2].startswith("-") else None
+            files = sorted(glob.glob(os.path.join(d, "*.t2mk")))
+            records = [file_summary(f) for f in files]
+            ok = [r for r in records if r["ok"]]
+            bad = [r for r in records if not r["ok"]]
+            print(f"files: {len(records)}, parsed: {len(ok)}, rejected: {len(bad)}")
+            total_areas = sum(r["areas"] for r in ok)
+            total_entries = sum(r["entries"] for r in ok)
+            total_masks = sum(r["masks"] for r in ok)
+            print(f"areas: {total_areas}, area-layer entries: {total_entries}, masks: {total_masks}")
+            for key in ("version", "min_stack", "max_stack", "layer_records"):
+                vals = sorted({r[key] for r in ok})
+                print(f"{key}: {vals}")
+            sizes = sorted({s for r in ok for s in r["mask_sizes"]})
+            print(f"mask sizes: {sizes}")
+            axes = sorted({a for r in ok for a in r["axes"]})
+            print(f"axis bytes: {axes}")
+            uvs = sorted({u for r in ok for u in r["uv"]})
+            print(f"uv scales: {uvs}")
+            print(f"distinct textures per file: min {min(r['textures'] for r in ok)}, "
+                  f"max {max(r['textures'] for r in ok)}")
+            for r in bad:
+                print(f"  REJECTED {r['file']}: {r['error']}")
+            if json_out:
+                import json
+
+                json.dump(records, open(json_out, "w"), indent=1, sort_keys=True)
+                print(f"wrote {json_out}")
+            return 0
         if argv[i] == "--manifest":
             rest = []
             for line in open(argv[i + 1]).read().splitlines()[1:]:

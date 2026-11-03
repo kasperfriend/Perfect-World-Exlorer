@@ -1,0 +1,3361 @@
+[
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 42,
+  "error": null,
+  "file": "world_1.t2mk",
+  "layer_records": 3,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 26,
+  "max_stack": 3,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 3,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 80,
+  "error": null,
+  "file": "world_10.t2mk",
+  "layer_records": 10,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 64,
+  "max_stack": 6,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 10,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 89,
+  "error": null,
+  "file": "world_11.t2mk",
+  "layer_records": 8,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 73,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 8,
+  "uv": [
+   [
+    0.0125,
+    0.0125
+   ],
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1,
+   2
+  ],
+  "entries": 74,
+  "error": null,
+  "file": "world_12.t2mk",
+  "layer_records": 14,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 58,
+  "max_stack": 6,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 12,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.025,
+    0.025
+   ],
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 91,
+  "error": null,
+  "file": "world_13.t2mk",
+  "layer_records": 8,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 75,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 8,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 79,
+  "error": null,
+  "file": "world_14.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 63,
+  "max_stack": 6,
+  "min_stack": 3,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.01,
+    0.01
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 68,
+  "error": null,
+  "file": "world_15.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 52,
+  "max_stack": 6,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.01,
+    0.01
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 62,
+  "error": null,
+  "file": "world_16.t2mk",
+  "layer_records": 5,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 46,
+  "max_stack": 5,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 4,
+  "uv": [
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 56,
+  "error": null,
+  "file": "world_17.t2mk",
+  "layer_records": 5,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 40,
+  "max_stack": 5,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.01,
+    0.01
+   ],
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 91,
+  "error": null,
+  "file": "world_18.t2mk",
+  "layer_records": 11,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 75,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 10,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 91,
+  "error": null,
+  "file": "world_19.t2mk",
+  "layer_records": 16,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 75,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 16,
+  "uv": [
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.083333,
+    0.083333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.2,
+    0.2
+   ],
+   [
+    0.25,
+    0.25
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 36,
+  "error": null,
+  "file": "world_2.t2mk",
+  "layer_records": 3,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 20,
+  "max_stack": 3,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 3,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 87,
+  "error": null,
+  "file": "world_20.t2mk",
+  "layer_records": 9,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 71,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 9,
+  "uv": [
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 96,
+  "error": null,
+  "file": "world_21.t2mk",
+  "layer_records": 12,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 80,
+  "max_stack": 6,
+  "min_stack": 6,
+  "ok": true,
+  "textures": 11,
+  "uv": [
+   [
+    0.0125,
+    0.0125
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 96,
+  "error": null,
+  "file": "world_22.t2mk",
+  "layer_records": 8,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 80,
+  "max_stack": 6,
+  "min_stack": 6,
+  "ok": true,
+  "textures": 8,
+  "uv": [
+   [
+    0.014286,
+    0.014286
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.111111,
+    0.111111
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 83,
+  "error": null,
+  "file": "world_23.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 67,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.025,
+    0.025
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 36,
+  "error": null,
+  "file": "world_24.t2mk",
+  "layer_records": 3,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 20,
+  "max_stack": 3,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 2,
+  "uv": [
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 36,
+  "error": null,
+  "file": "world_25.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 20,
+  "max_stack": 4,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 6,
+  "uv": [
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.04,
+    0.04
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 94,
+  "error": null,
+  "file": "world_26.t2mk",
+  "layer_records": 9,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 78,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 9,
+  "uv": [
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.04,
+    0.04
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1,
+   2
+  ],
+  "entries": 94,
+  "error": null,
+  "file": "world_27.t2mk",
+  "layer_records": 17,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 78,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 17,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.025,
+    0.025
+   ],
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ],
+   [
+    0.25,
+    0.25
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 92,
+  "error": null,
+  "file": "world_28.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 76,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.055556,
+    0.055556
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 96,
+  "error": null,
+  "file": "world_29.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 80,
+  "max_stack": 6,
+  "min_stack": 6,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 31,
+  "error": null,
+  "file": "world_3.t2mk",
+  "layer_records": 2,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 15,
+  "max_stack": 2,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 2,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.125,
+    0.125
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 89,
+  "error": null,
+  "file": "world_30.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 73,
+  "max_stack": 7,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.076923,
+    0.076923
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 75,
+  "error": null,
+  "file": "world_31.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 59,
+  "max_stack": 6,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 6,
+  "uv": [
+   [
+    0.0125,
+    0.0125
+   ],
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 31,
+  "error": null,
+  "file": "world_32.t2mk",
+  "layer_records": 3,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 15,
+  "max_stack": 3,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 3,
+  "uv": [
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 89,
+  "error": null,
+  "file": "world_33.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 73,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 4,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 90,
+  "error": null,
+  "file": "world_34.t2mk",
+  "layer_records": 14,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 74,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 10,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.04,
+    0.04
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 90,
+  "error": null,
+  "file": "world_35.t2mk",
+  "layer_records": 11,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 74,
+  "max_stack": 7,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 10,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.083333,
+    0.083333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 95,
+  "error": null,
+  "file": "world_36.t2mk",
+  "layer_records": 10,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 79,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 9,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 85,
+  "error": null,
+  "file": "world_37.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 69,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.04,
+    0.04
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 53,
+  "error": null,
+  "file": "world_38.t2mk",
+  "layer_records": 5,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 37,
+  "max_stack": 4,
+  "min_stack": 3,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 87,
+  "error": null,
+  "file": "world_39.t2mk",
+  "layer_records": 9,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 71,
+  "max_stack": 6,
+  "min_stack": 3,
+  "ok": true,
+  "textures": 8,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 26,
+  "error": null,
+  "file": "world_4.t2mk",
+  "layer_records": 3,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 10,
+  "max_stack": 3,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 2,
+  "uv": [
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 22,
+  "error": null,
+  "file": "world_40.t2mk",
+  "layer_records": 2,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 6,
+  "max_stack": 2,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 2,
+  "uv": [
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 78,
+  "error": null,
+  "file": "world_41.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 62,
+  "max_stack": 6,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 94,
+  "error": null,
+  "file": "world_42.t2mk",
+  "layer_records": 9,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 78,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 8,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 94,
+  "error": null,
+  "file": "world_43.t2mk",
+  "layer_records": 11,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 78,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 10,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.083333,
+    0.083333
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 95,
+  "error": null,
+  "file": "world_44.t2mk",
+  "layer_records": 12,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 79,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 10,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 93,
+  "error": null,
+  "file": "world_45.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 77,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 87,
+  "error": null,
+  "file": "world_46.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 71,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 6,
+  "uv": [
+   [
+    0.006667,
+    0.006667
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1
+  ],
+  "entries": 94,
+  "error": null,
+  "file": "world_47.t2mk",
+  "layer_records": 16,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 78,
+  "max_stack": 7,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 15,
+  "uv": [
+   [
+    0.025,
+    0.025
+   ],
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.083333,
+    0.083333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.2,
+    0.2
+   ],
+   [
+    0.25,
+    0.25
+   ],
+   [
+    0.333333,
+    0.333333
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 25,
+  "error": null,
+  "file": "world_48.t2mk",
+  "layer_records": 3,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 9,
+  "max_stack": 3,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 3,
+  "uv": [
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 89,
+  "error": null,
+  "file": "world_49.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 73,
+  "max_stack": 6,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 74,
+  "error": null,
+  "file": "world_5.t2mk",
+  "layer_records": 5,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 58,
+  "max_stack": 5,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.01,
+    0.01
+   ],
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 85,
+  "error": null,
+  "file": "world_50.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 69,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 94,
+  "error": null,
+  "file": "world_51.t2mk",
+  "layer_records": 12,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 78,
+  "max_stack": 7,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 11,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1
+  ],
+  "entries": 93,
+  "error": null,
+  "file": "world_52.t2mk",
+  "layer_records": 12,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 77,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 12,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 94,
+  "error": null,
+  "file": "world_53.t2mk",
+  "layer_records": 8,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 78,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.01,
+    0.01
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1,
+   2
+  ],
+  "entries": 93,
+  "error": null,
+  "file": "world_54.t2mk",
+  "layer_records": 10,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 77,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 9,
+  "uv": [
+   [
+    0.014286,
+    0.014286
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 90,
+  "error": null,
+  "file": "world_55.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 74,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.025,
+    0.025
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 49,
+  "error": null,
+  "file": "world_56.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 33,
+  "max_stack": 6,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.006667,
+    0.006667
+   ],
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 73,
+  "error": null,
+  "file": "world_57.t2mk",
+  "layer_records": 5,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 57,
+  "max_stack": 5,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 4,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 58,
+  "error": null,
+  "file": "world_58.t2mk",
+  "layer_records": 5,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 42,
+  "max_stack": 5,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 93,
+  "error": null,
+  "file": "world_59.t2mk",
+  "layer_records": 8,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 77,
+  "max_stack": 7,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 7,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 94,
+  "error": null,
+  "file": "world_6.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 78,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 6,
+  "uv": [
+   [
+    0.01,
+    0.01
+   ],
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 88,
+  "error": null,
+  "file": "world_60.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 72,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 6,
+  "uv": [
+   [
+    0.04,
+    0.04
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 93,
+  "error": null,
+  "file": "world_61.t2mk",
+  "layer_records": 9,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 77,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 6,
+  "uv": [
+   [
+    0.01,
+    0.01
+   ],
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1
+  ],
+  "entries": 94,
+  "error": null,
+  "file": "world_62.t2mk",
+  "layer_records": 18,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 78,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 18,
+  "uv": [
+   [
+    0.025,
+    0.025
+   ],
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.076923,
+    0.076923
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.25,
+    0.25
+   ],
+   [
+    0.333333,
+    0.333333
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 76,
+  "error": null,
+  "file": "world_63.t2mk",
+  "layer_records": 15,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 60,
+  "max_stack": 6,
+  "min_stack": 3,
+  "ok": true,
+  "textures": 15,
+  "uv": [
+   [
+    0.028571,
+    0.028571
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.071429,
+    0.071429
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.25,
+    0.25
+   ],
+   [
+    0.333333,
+    0.333333
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 67,
+  "error": null,
+  "file": "world_64.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 51,
+  "max_stack": 6,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 6,
+  "uv": [
+   [
+    0.014286,
+    0.014286
+   ],
+   [
+    0.022222,
+    0.014286
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 62,
+  "error": null,
+  "file": "world_65.t2mk",
+  "layer_records": 5,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 46,
+  "max_stack": 5,
+  "min_stack": 3,
+  "ok": true,
+  "textures": 4,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 48,
+  "error": null,
+  "file": "world_66.t2mk",
+  "layer_records": 3,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 32,
+  "max_stack": 3,
+  "min_stack": 3,
+  "ok": true,
+  "textures": 2,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 74,
+  "error": null,
+  "file": "world_67.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 58,
+  "max_stack": 6,
+  "min_stack": 3,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 58,
+  "error": null,
+  "file": "world_68.t2mk",
+  "layer_records": 4,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 42,
+  "max_stack": 4,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 3,
+  "uv": [
+   [
+    0.01,
+    0.01
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 89,
+  "error": null,
+  "file": "world_69.t2mk",
+  "layer_records": 7,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 73,
+  "max_stack": 6,
+  "min_stack": 4,
+  "ok": true,
+  "textures": 6,
+  "uv": [
+   [
+    0.006667,
+    0.006667
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 82,
+  "error": null,
+  "file": "world_7.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 66,
+  "max_stack": 6,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.005,
+    0.003333
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 69,
+  "error": null,
+  "file": "world_70.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 53,
+  "max_stack": 6,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.006667,
+    0.006667
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 93,
+  "error": null,
+  "file": "world_71.t2mk",
+  "layer_records": 10,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 77,
+  "max_stack": 7,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 10,
+  "uv": [
+   [
+    0.05,
+    0.055556
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.111111,
+    0.111111
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.25,
+    0.25
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 21,
+  "error": null,
+  "file": "world_72.t2mk",
+  "layer_records": 2,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 5,
+  "max_stack": 2,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 2,
+  "uv": [
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 16,
+  "error": null,
+  "file": "world_73.t2mk",
+  "layer_records": 1,
+  "mask_sizes": [],
+  "masks": 0,
+  "max_stack": 1,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 1,
+  "uv": [
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 16,
+  "error": null,
+  "file": "world_74.t2mk",
+  "layer_records": 1,
+  "mask_sizes": [],
+  "masks": 0,
+  "max_stack": 1,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 1,
+  "uv": [
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 16,
+  "error": null,
+  "file": "world_75.t2mk",
+  "layer_records": 1,
+  "mask_sizes": [],
+  "masks": 0,
+  "max_stack": 1,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 1,
+  "uv": [
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 16,
+  "error": null,
+  "file": "world_76.t2mk",
+  "layer_records": 1,
+  "mask_sizes": [],
+  "masks": 0,
+  "max_stack": 1,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 1,
+  "uv": [
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 24,
+  "error": null,
+  "file": "world_77.t2mk",
+  "layer_records": 2,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 8,
+  "max_stack": 2,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 2,
+  "uv": [
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 95,
+  "error": null,
+  "file": "world_78.t2mk",
+  "layer_records": 12,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 79,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 12,
+  "uv": [
+   [
+    0.04,
+    0.04
+   ],
+   [
+    0.05,
+    0.05
+   ],
+   [
+    0.055556,
+    0.041667
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.083333,
+    0.083333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 94,
+  "error": null,
+  "file": "world_79.t2mk",
+  "layer_records": 10,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 78,
+  "max_stack": 6,
+  "min_stack": 5,
+  "ok": true,
+  "textures": 10,
+  "uv": [
+   [
+    0.04,
+    0.04
+   ],
+   [
+    0.04,
+    0.045455
+   ],
+   [
+    0.0625,
+    0.0625
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.083333,
+    0.083333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 36,
+  "error": null,
+  "file": "world_8.t2mk",
+  "layer_records": 3,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 20,
+  "max_stack": 3,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 3,
+  "uv": [
+   [
+    0.003333,
+    0.005
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 81,
+  "error": null,
+  "file": "world_80.t2mk",
+  "layer_records": 8,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 65,
+  "max_stack": 6,
+  "min_stack": 2,
+  "ok": true,
+  "textures": 8,
+  "uv": [
+   [
+    0.01,
+    0.01
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.2,
+    0.2
+   ],
+   [
+    0.25,
+    0.25
+   ],
+   [
+    0.333333,
+    0.333333
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 16,
+  "error": null,
+  "file": "world_81.t2mk",
+  "layer_records": 1,
+  "mask_sizes": [],
+  "masks": 0,
+  "max_stack": 1,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 1,
+  "uv": [
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 16,
+  "error": null,
+  "file": "world_82.t2mk",
+  "layer_records": 1,
+  "mask_sizes": [],
+  "masks": 0,
+  "max_stack": 1,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 1,
+  "uv": [
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 16,
+  "error": null,
+  "file": "world_83.t2mk",
+  "layer_records": 1,
+  "mask_sizes": [],
+  "masks": 0,
+  "max_stack": 1,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 1,
+  "uv": [
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1
+  ],
+  "entries": 43,
+  "error": null,
+  "file": "world_84.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 27,
+  "max_stack": 6,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.033333,
+    0.033333
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.166667,
+    0.166667
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 16,
+  "error": null,
+  "file": "world_85.t2mk",
+  "layer_records": 1,
+  "mask_sizes": [],
+  "masks": 0,
+  "max_stack": 1,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 1,
+  "uv": [
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 20,
+  "error": null,
+  "file": "world_86.t2mk",
+  "layer_records": 2,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 4,
+  "max_stack": 2,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 2,
+  "uv": [
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   0,
+   1,
+   2
+  ],
+  "entries": 73,
+  "error": null,
+  "file": "world_87.t2mk",
+  "layer_records": 6,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 57,
+  "max_stack": 6,
+  "min_stack": 3,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.01,
+    0.006667
+   ],
+   [
+    0.01,
+    0.01
+   ],
+   [
+    0.066667,
+    0.066667
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.142857,
+    0.142857
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 20,
+  "error": null,
+  "file": "world_88.t2mk",
+  "layer_records": 5,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 4,
+  "max_stack": 4,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 5,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.125,
+    0.125
+   ],
+   [
+    0.2,
+    0.2
+   ]
+  ],
+  "version": 2
+ },
+ {
+  "areas": 16,
+  "axes": [
+   1
+  ],
+  "entries": 30,
+  "error": null,
+  "file": "world_9.t2mk",
+  "layer_records": 3,
+  "mask_sizes": [
+   256
+  ],
+  "masks": 14,
+  "max_stack": 3,
+  "min_stack": 1,
+  "ok": true,
+  "textures": 3,
+  "uv": [
+   [
+    0.02,
+    0.02
+   ],
+   [
+    0.1,
+    0.1
+   ],
+   [
+    0.125,
+    0.125
+   ]
+  ],
+  "version": 2
+ }
+]

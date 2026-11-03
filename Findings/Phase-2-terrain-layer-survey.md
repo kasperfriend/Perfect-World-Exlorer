@@ -1,82 +1,129 @@
 # T2MK layer, mask and world-to-texture survey (P2.06)
 
 Archive survey, not one area. Regenerate with
-`tools/terrain-layer-survey.py <t2mk...> --csv <out.csv>`; per-layer rows are in
+`tools/terrain-layer-survey.py --dir <dir with the .t2mk files> <out.json>` for
+the whole archive, or `tools/terrain-layer-survey.py <file.t2mk> --csv <out.csv>`
+for the per-entry rows. The machine-readable result of the archive pass is
+[Phase-2-terrain-archive-survey.json](Phase-2-terrain-archive-survey.json); the
+per-entry rows for the reference tile are in
 [Phase-2-terrain-layer-survey.csv](Phase-2-terrain-layer-survey.csv).
 
 Reference client `elementclient.exe` 1.4.2, md5
-`5f02895688fa580506e869156340a664`. Only `world_35.t2mk` was extracted from the
-archive for this survey; the survey script accepts any number of files and the
-figures below state exactly what it covered.
+`5f02895688fa580506e869156340a664`.
 
 ## 1. Covered
 
 | Item | Value |
 |---|---|
-| Files surveyed | 1 (`world_35.t2mk`, 1,260,204 bytes) |
-| Version | 2 (magic `0x544d4b42`, `0x7a1599`; version cap 2 at `0x7a15c5`) |
-| Areas | 16 (`{layer,offset,size}` lists, offsets at `20+4*area`) |
-| Layer records | 11 (`0x7a178c` push `$0x1c`, `0x7a1837` `rep movsl` of 7 dwords) |
-| Live layers across all areas | 90 entries; stacks of 4 (2 areas), 5 (3), 6 (10), 7 (1) |
-| Distinct layer records used | all 11 indices |
-| Distinct texture indices | 10: 5, 18, 25, 46, 65, 73, 74, 82, 91, 92 |
-| Mask resolution | 256x256 for all 74 non-base entry masks; the base entry carries `mask_size = 0` |
-| Mask encoding | zlib stream per mask; 74/74 decode to exactly `size*size` bytes |
-| Axes | 1 = 8 records, 0 = 2, 2 = 1 |
-| Authored uv scales | (0.142857, 0.142857) x5, (0.2, 0.2), (0.02, 0.02), (0.1, 0.1), (0.083333, 0.083333), (0.005, 0.003333) x2 |
+| Files surveyed | **88** `world_1.t2mk` … `world_88.t2mk`, 79,716,831 bytes (76.0 MiB) - the complete `world_<n>` set shipped in the archive, contiguous, none missing |
+| Files rejected by the reader | 0 |
+| Version | 2 in every file (magic `0x544d4b42`; version cap 2 at `0x7a15c5`) |
+| Grid dimension byte (v2, `0x7a1662` -> `env+0x891`) | 1 in 88/88 files |
+| Areas | 16 per file, **1,408** area records in total |
+| Layer records | **603** in total; 1…18 per file; values seen: 1,2,3,4,5,6,7,8,9,10,11,12,14,15,16,17,18 |
+| Area-layer entries | **5,929** (one base + 4,521 masked) |
+| Masks | **4,521**, all 256x256, all zlib-compressed, each decoding to exactly 65,536 bytes: 282.6 MiB uncompressed |
+| Base entries | 1,408, all with `mask_size = 0` (a base never has a mask) |
+| Masked entries | 4,521, all `mask_size = 256`; no other resolution occurs |
+| Record `flags` (`+0x04`) | `0xffffffff` in all 603 records |
+| Axis bytes | 0: 39 records, 1: 527, 2: 37 - all three occur, none outside 0/1/2 |
+| Areas by stack depth | 1: 251, 2: 99, 3: 134, 4: 128, 5: 218, 6: 570, 7: 8 |
+| Distinct texture indices | 162 (0…161); 559 references total, 1…18 distinct per file |
+| Authored uv scale pairs | 31 distinct, of which 24 square and 7 non-square |
 
-The 32x44 world grid named elsewhere in the phase notes needs 176 `.t2mk` and
-2,816 tiles; **only `world_35` was surveyed here**. Coverage therefore states:
-1 sub-terrain file, 16 of the sub-terrain's areas, 90 of its 90 area-layer
-entries. It does **not** claim the whole archive.
+Stack-depth histogram is over area records, so 251 single-layer areas plus 1,157
+multi-layer areas add up to the 1,408 areas above.
+
+### Tiles with no terrain at all
+
+Eight files are exactly 368 bytes and contain `16 areas, 1 layer record, 0
+entries`: `world_73`, `world_74`, `world_75`, `world_76`, `world_81`,
+`world_82`, `world_83`, `world_85`. The client's own loader accepts them (they
+are v2 with the same header), so the survey parses and reports them instead of
+treating them as corruption. They are the only source of the "1 layer record"
+figure. Because they contribute no entries, dropping them would not change any
+stack, mask or axis count.
+
+### Coverage statement
+
+88 of 88 `world_<n>.t2mk` files, 1,408 of 1,408 of their areas and 5,929 of
+5,929 of their area-layer entries. What is **not** covered: the other terrain
+sets in the archive (`login_login`, the `a*`, `b*`, `s*` dungeon/instance tiles),
+which are separate worlds with their own `TRN2` and are not part of the shipped
+1.4.2 mainland. The survey tool accepts those files unchanged; they were simply
+not downloaded, and no claim is made about them here.
 
 ## 2. Layout
 
 ```
 +0x00  u32  magic 'BKMT' (0x544d4b42)
 +0x04  u32  version (<= 2; 0x7a15c5)
-+0x08  u32  area count
-+0x0c  u32  layer count
++0x08  u32  area count                       ; 16 in every file
++0x0c  u32  layer count                      ; 1..18
 +0x10  u32  grid dimension byte (v2 only, 0x7a1662 -> env+0x891)
 +0x14  u32[area] offsets to per-area lists
-        layer table follows the offset array: 28 bytes per record
+        layer table follows the offset array: 28 bytes per record (0x7a178c)
         +0x00 u32 texture index
         +0x04 u32 flags (0xffffffff in every surveyed record)
         +0x08 u32 mask size (0 = layer has no mask)
         +0x0c u8  axis, +0x0d..+0x0f padding
         +0x10 f32 u scale
         +0x14 f32 v scale
-        +0x18 u32 layer id (authoring/order tag)
+        +0x18 u32 layer id (authoring/order tag, 0..4)
 per-area list: u32 count (<= 100, 0x7a1676), then count * { u32 layer, u32 offset, u32 size }
 ```
 
-Every surveyed per-area list holds `mask_size`-sized masks at `offset` with a
-length of exactly `mask_size*mask_size` **compressed** bytes; the uncompressed
-length equals `mask_size*mask_size`.
+Every masked entry's `size` (`+0x08` of the list entry) is the compressed byte
+length of its zlib stream; the uncompressed length is always `mask_size²`.
 
-## 3. Ordering
+## 3. Ordering and record sharing
 
 `area_layer` is the stack order the client draws. The first entry is the base
 and has no mask; each later entry is mixed over the accumulated result with its
-own mask, so a stack of 7 is one base plus six masked layers. `layer` (record
-`+0x18`) is a separate authoring tag: consecutive entries can repeat it
-(`world_35` area 0 entries 2 and 3 both carry tag 3), so it cannot be used as a
-draw index.
+own mask, so a stack of 7 is one base plus six masked layers.
+
+Facts from the survey that constrain the ordering rule:
+
+| Observation | Count |
+|---|---|
+| Areas whose stored order is already non-decreasing in record `+0x18` (the tag) | 1,343 of 1,408 |
+| Areas where one tag value repeats | 1,065 of 1,408 |
+| Areas whose stored order is non-decreasing in the layer-record **index** | 1,408 of 1,408 |
+| Areas that use the same record twice | 0 |
+| Files whose areas share records (fewer records than entries) | 80 of 88 |
+
+So draw order is the file order of the per-area list, and the record index is
+the unique key for a layer inside a file (`world_60`: 6 records, 88 entries).
+The `+0x18` tag is **not** a draw index - it repeats inside a stack, and sorting
+by it would reorder 65 areas, which is why `src/material.rs` and
+`src/terrain_gpu.rs` both build the stack from the list order.
 
 ## 4. Axes and world-to-texture mapping
 
-| Axis byte | Projection | Records |
-|---|---|---|
-| 0 | `(x, z)` | 2 |
-| 1 | `(x, -y)` | 8 |
-| 2 | `(z, -y)` | 1 |
+| Axis byte | Layer records | Area base layers | Masked layers |
+|---|---|---|---|
+| 0 | 39 | 0 | 384 |
+| 1 | 527 | 1,408 | 3,766 |
+| 2 | 37 | 0 | 371 |
 
-`axis` is the record byte at `+0x0c`; `src/terrain_gpu.rs` currently maps
-`0 -> (z,-y)`, `1 -> (x,-z)`, `2 -> (x,-y)`, which does not correspond to a
-recovered native table. That mismatch is registered as an open gap below rather
-than silently reconciled: the byte reaches the shader as `Layer::axis` and the
-projection is applied in WGSL, so changing it needs the sprite-side reader for
-the same field, which this lane does not own.
+Every one of the 1,408 area **base** layers has axis 1. Axis 0 and 2 occur only
+on masked layers, and 755 of the 4,521 masked layers use an axis different from
+their own area's base, so the projection is genuinely per layer and cannot be
+hoisted to the area.
+
+The authored uv scales confirm that: 1,193 of 4,521 masked layers reuse their
+base's scale and the rest do not, and 7 of the 31 scale pairs are non-square
+(`u != v`), e.g. `(0.005, 0.003333)` 37 times and `(0.04, 0.045455)`.
+
+`axis` is the record byte at `+0x0c`. `src/terrain_gpu.rs` currently maps
+`0 -> (z,-y)`, `1 -> (x,-z)`, `2 -> (x,-y)`; `src/material.rs` maps
+`0 -> (z,-h)`, `2 -> (x,-h)`, else `(x,-z)`. Those two disagree with each other
+for axis 1 - which is the axis **every base layer uses** - and the survey cannot
+settle which is right without the native per-vertex texture-coordinate emitter.
+That emitter is not in the terrain range this lane owns (the vertex shader is
+`terrain_vs`, which writes `oT0..oT5` from pre-built texcoords, so the projection
+happens on the CPU in the mesh path). It is registered as an open gap, and the
+byte is left untouched in both readers rather than silently reconciled.
 
 ## 5. Lightmap pairing
 
@@ -85,14 +132,18 @@ the same field, which this lane does not own.
 per tile. Tile choice is per area, from the same counter that selects the mask
 slot (`0x7cd760`), not from world position.
 
-## 6. Not covered / unsupported
+## 6. Unsupported / rejected
+
+The survey raises `Unsupported`, naming the file (and the area and layer for
+per-entry problems), and never guesses:
 
 | Case | Behaviour |
 |---|---|
-| `.t2mk` version > 2 | rejected (`0x7a15c5`); the survey script raises `Unsupported` naming the file |
-| per-area layer count > 100 | rejected (`0x7a1676`) |
-| non-base entry with `mask_size == 0` | rejected by the script, naming file, area and layer |
-| mask that does not decode to `size*size` | rejected, naming file, area and layer |
-| any `.t2mk` other than `world_35`, all `.t2lm` other than `world_39` | **not surveyed** |
-| mask size other than 256 | no instance in the surveyed file; the code path is untested |
+| `.t2mk` version > 2 | rejected (`0x7a15c5`); names the file |
+| per-area layer count > 100 | rejected (`0x7a1676`); names the file and area |
+| non-base entry with `mask_size == 0` | rejected; names file, area and layer |
+| mask that does not decode to `size*size` | rejected; names file, area and layer |
+| grid-dimension byte other than 0/1 | rejected; names the file |
+| mask size other than 256 | no instance in 88 files; the reader accepts any `<= 8192` and the code path above 256 is untested |
 | axis byte other than 0/1/2 | no instance; no native default recovered |
+| the `a*`/`b*`/`s*`/`login` terrain sets | not downloaded, not surveyed |

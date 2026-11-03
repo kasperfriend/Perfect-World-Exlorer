@@ -134,6 +134,8 @@ The declaration `0x7c4e78` binds `v0` position, `v1` normal, `v2..v5` four
 
 | Case | Behaviour |
 |---|---|
-| hardware lightmap (`env+0x1b6`) | `VariantError::HardwareLightmapUnreachable`; row in `Unsupported-client-paths.md` |
-| per-mask variant | state table complete, texture arithmetic not yet implemented in the viewer |
+| hardware lightmap (`env+0x1b6`) | `VariantError::HardwareLightmapUnreachable`; row proposed for `Unsupported-client-paths.md` |
+| per-mask variant | state table complete, texture arithmetic not yet implemented in the viewer (shader `t2_tex_merger`, stage loop `0x7c25c0`) |
+| layer axis other than 1 | every surveyed area *base* layer is axis 1; axes 0 and 2 occur only on masked layers, and their world-to-texture projection is unrecovered (see `Phase-2-terrain-layer-survey.md` §4) |
+| no-pixel-pipeline variant | state table complete; the viewer always selects the 3-layer batch because `Caps::default()` reports a device pixel pipeline |
 | `t2_3layer_vertlit_14`, `t2_tm_lm` | loaded by the client, not bound by any terrain path in `0x7c1400-0x7d3fff` |
