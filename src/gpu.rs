@@ -485,12 +485,31 @@ fn build(
             }
         }
     }
+    // `0x653a30`: the resident grass grid is rebuilt at
+    // `step = 5 - ftol(cam[+0x678]*4 + 0.5)` cells and the native early-out
+    // drops every block when the budget yields 5. `cam[+0x678]` is the *first
+    // lane of a colour triple*: `0x41ed99`–`0x41ee16` registers three adjacent
+    // times the same authored scalar (`[env+0xa0]`, `[env+0x94]`, `[env+0x98]`)
+    // into `+0x66c/+0x678/+0x684` from one lerped `[0,1]` factor, and
+    // `0x41f5f1`–`0x41f661` advances each with `scalar = target` when the factor
+    // is zero or `scalar -= delta*factor` otherwise. `0x7c7fc4` allocates it as
+    // an 8-byte-stride array and `0x4211b9` blends it with neighbour colours, so
+    // it is a light/diffuse field, not a distance. The viewer has no scene
+    // colour field yet, so density keeps native full resolution (step 1) rather
+    // than inventing a depth; `density_step` stays the single place that will
+    // consume the recovered value.
+    let grass_step = crate::grass_wind::density_step(None);
     for area in &t.grass.areas {
         let half_x = area.width as f32 * area.grid * 0.5;
         let half_z = area.height as f32 * area.grid * 0.5;
-        const GRASS_RANGE: f32 = 200.0;
-        if (area.center[0] - cx).abs() > half_x + GRASS_RANGE
-            || (area.center[2] - cz).abs() > half_z + GRASS_RANGE
+        // A recovered step of 5 is the native "no grass" early-out.
+        let Some(step) = grass_step else {
+            break;
+        };
+        // `0x653a30` only keeps cells whose mask bit is set; distances use the
+        // client's own block extent rather than an invented 200-unit margin.
+        if (area.center[0] - cx).abs() > half_x + t.scene.block_size
+            || (area.center[2] - cz).abs() > half_z + t.scene.block_size
         {
             continue;
         }
@@ -571,7 +590,16 @@ fn build(
                     + (placement.col as f32 + placement.jitter_x) * area.grid;
                 let z = area.center[2] + half_z - placement.row as f32 * area.grid
                     + placement.jitter_z * area.grid;
-                if (x - cx) * (x - cx) + (z - cz) * (z - cz) > GRASS_RANGE * GRASS_RANGE {
+                // `0x653bd0`/`0x653c10`: the block walk visits every
+                // `step`-th cell on both axes, so anything off-stride is not a
+                // resident placement in the client.
+                if i64::from(placement.col) % i64::from(step) != 0
+                    || i64::from(placement.row) % i64::from(step) != 0
+                {
+                    continue;
+                }
+                let reach = half_x.max(half_z) + t.scene.block_size;
+                if (x - cx) * (x - cx) + (z - cz) * (z - cz) > reach * reach {
                     continue;
                 }
                 let gx = x / t.grid_spacing + t.width as f32 * 0.5;
@@ -595,7 +623,13 @@ fn build(
                 if grass_sample.is_none() {
                     grass_sample = Some([x, ground, z]);
                 }
-                let wind_index = (placement.wind_index + (x - 10000.).abs() * 2.).floor() % 80.;
+                // `0x653e93`: the emitter stores
+                // `ftol(2*|y - 10000| + rand(0,10)) % 80` as the placement's
+                // history slot, using the placement's own RANMAR selector. The
+                // instance carries the selector, so the vertex stage applies
+                // the recovered hash against the displaced vertex height and a
+                // later terrain rebuild cannot freeze the slot.
+                let wind_index = placement.wind_selector;
                 grass_builder.instance_for_area(
                     key,
                     [x, ground - 0.02, z],
@@ -974,7 +1008,6 @@ struct Renderer {
     water_start: u32,
     water_batches: Vec<WaterBatch>,
     started: Instant,
-    wind_last: Instant,
     /// Snapshot computed once by `render()`; secondary views reuse it.
     frame: FrameSnapshot,
     world_glow: crate::post_gpu::WorldGlow,
@@ -1486,7 +1519,6 @@ impl Renderer {
             water_start: m.water_start,
             water_batches: m.water_batches,
             started: Instant::now(),
-            wind_last: Instant::now(),
             frame: FrameSnapshot::default(),
             world_glow: crate::post_gpu::WorldGlow::default(),
             celestial_visibility: crate::client_sun::Visibility::default(),
@@ -1508,10 +1540,13 @@ impl Renderer {
     /// once. Every secondary view reuses the returned snapshot with a zero
     /// logic delta; no secondary submission calls this method.
     fn begin_frame(&mut self, camera: &Camera, w: u32, h: u32) -> FrameSnapshot {
-        let now = Instant::now();
-        let dt = now.duration_since(self.wind_last).as_secs_f32();
-        self.grass_wind_state.update(dt);
-        self.wind_last = now;
+        // Native grass wind advances once per logic update with the caller's
+        // frozen millisecond delta (`0x651040` from `0x42ab5f` / `0x42b1bb`);
+        // `0x651059` adds it without a clamp, so a long frame is not shortened.
+        // The clock is `logic_delta_ms`, never wall time: `0x651046` even reads
+        // the client's own millisecond tick (`0x763330`) into `+0x6a8` beside it.
+        let wind_ms = i32::try_from(camera.logic_delta_ms).unwrap_or(i32::MAX);
+        self.grass_wind_state.advance_ms(wind_ms);
         self.post.set_sharpen(camera.sharpen);
         self.world_glow.select(
             camera.bloom,
@@ -1632,9 +1667,13 @@ impl Renderer {
             camera.pos.z,
             if camera.grass_distance_fade { 1. } else { 0. },
         ];
+        // x is the recovered grass clock (`+0x15c`) for diagnostics, y is the
+        // native wind amplitude: the client's target is authored data
+        // (+0x6c..0x74 = 1.0, -0.5, 0.0) with no user scale, so the slider only
+        // gates the whole effect instead of scaling it.
         let grass_wind = [
-            elapsed,
-            camera.grass_wind_strength,
+            self.grass_wind_state.time(),
+            if camera.grass_wind_enabled { 1. } else { 0. },
             if camera.area_grass_lightmaps { 1. } else { 0. },
             0.,
         ];
@@ -2426,12 +2465,7 @@ impl Renderer {
                     camera.pos.z,
                     if camera.grass_distance_fade { 1. } else { 0. },
                 ],
-                grass_wind: [
-                    frame.elapsed,
-                    camera.grass_wind_strength,
-                    if camera.area_grass_lightmaps { 1. } else { 0. },
-                    0.,
-                ],
+                grass_wind: frame.grass_wind,
                 grass_history: frame.grass_history,
                 fog_range: frame.fog_range,
                 fog_color: frame.fog_color,
@@ -2550,7 +2584,9 @@ struct Camera {
     terrain_day_night: f32,
     model_backface_culling: bool,
     tree_wind_strength: f32,
-    grass_wind_strength: f32,
+    /// Native wind has no user amplitude, only the on/off gate the old
+    /// "Grass wind" slider now provides.
+    grass_wind_enabled: bool,
     regional_tree_lighting: bool,
     grass_distance_fade: bool,
     area_grass_lightmaps: bool,
@@ -2586,7 +2622,7 @@ impl Camera {
             terrain_day_night: 0.,
             model_backface_culling: true,
             tree_wind_strength: 0.2,
-            grass_wind_strength: 0.,
+            grass_wind_enabled: false,
             regional_tree_lighting: false,
             grass_distance_fade: true,
             area_grass_lightmaps: true,
@@ -3139,7 +3175,7 @@ pub fn run(
                     }}
                     camera.far = if settings.whole_world {settings.far.max(32000.)} else {settings.far};
                     camera.time_of_day = settings.time_of_day;
-                    camera.tree_wind_strength=settings.tree_wind_strength;camera.grass_wind_strength=settings.grass_wind_strength;
+                    camera.tree_wind_strength=settings.tree_wind_strength;camera.grass_wind_enabled=settings.grass_wind_strength>0.5;
                     camera.regional_tree_lighting=settings.regional_tree_lighting;
                     camera.grass_distance_fade=settings.grass_distance_fade;
                     camera.area_grass_lightmaps=settings.area_grass_lightmaps;
@@ -3438,7 +3474,7 @@ pub fn preview(
             terrain_day_night: 0.,
             model_backface_culling: true,
             tree_wind_strength: 0.2,
-            grass_wind_strength: 0.,
+            grass_wind_enabled: false,
             regional_tree_lighting: false,
             grass_distance_fade: true,
             area_grass_lightmaps: true,

@@ -144,7 +144,14 @@ impl Gpu {
         );
         let marker = "o.pos=camera.matrix*vec4<f32>(pos,1.);";
         assert!(source.contains(marker));
-        source = source.replacen(marker,"o.grass_area=area_center; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0. && weight>=0. && weight<100. {let history_index=u32(clamp(extra.z,0.,79.)); pos+=camera.grass_history[history_index].xyz*weight*camera.grass_wind.y;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
+        // The retail `grass_wave` vertex shader displaces every vertex by
+        // `c[10+a0.x]` (the 80-entry history) scaled by that vertex's own
+        // weight; the emitter's `ftol(2*|y-10000| + rand(0,10)) % 80`
+        // (`0x653e93`) picks the entry from the emitted vertex height, exactly
+        // as the native attribute does. The instance carries the placement's
+        // RANMAR selector in `extra.z`, so the slot follows the displaced
+        // height instead of a value frozen at build time.
+        source = source.replacen(marker,"o.grass_area=area_center; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0.5 && weight>=0. && weight<100. {let slot=i32(floor(2.*abs(pos.y-10000.)+extra.z))%80; let history_index=u32(slot<0?slot+80:slot); pos+=camera.grass_history[history_index].xyz*weight;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
         let marker = "tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)";
         assert!(source.contains(marker));
         source = source.replacen(
