@@ -155,27 +155,52 @@ the shipped buffers, not of a program this repository cannot read. What the
 retail game may have drawn *over* it (clouds, fog) is not part of these two
 objects and is not established here.
 
-Three test rounds shaped the viewer's fill of this band:
+Four test rounds shaped the viewer's fill of this band:
 
 1. a single fixed colour read as a **blue ring**;
 2. a gradient to the cap's rim colour sampled on *one circle* read as **radial
    streaks bleeding outward** (one colour per azimuth, stretched over 34° of
    elevation);
-3. the current fill continues the cap's own **planar** lookup outward — radius
-   `0.5 + 0.25 * (1 - t)` with `t = smoothstep(sin 38.16°, sin 72.5°, d.y)` — so
-   the radius sweeps from 0.5 on the 72.5° rim (exactly the circle the cap mesh
-   ends on, pixel-continuous with the cap) to 0.75 at the curtain rim, where the
-   sampled art is the roof texture's outer cloud ring. The band's alpha is
-   `smoothstep(sin 38.16°, sin 0.70, d.y)`, so it fades into the same
-   atmospheric fog colour the curtain's own zero-alpha rim row fades into.
+3. a sweeping radius sampling the roof texture's *mid* region read as a **cloud
+   ring with radial bleed** — the sampled art was not the art the cap ends with,
+   so the join at 72.5° was a visible edge;
+4. the shipped fill: **the cap's own lookup, evaluated at every elevation.**
 
-Because the radius now varies with elevation the sample is two-dimensional and
-cannot smear radially. `sky_geometry::project` reports the same lookup as
-`Region::CapEdgeGap` (`gap_blend`, `gap_alpha`), so the Rust model and the WGSL
-branch stay in step. This is still a viewer-only composition: retail covers the
-band with an object this build does not draw (`0x799f88` renders something taken
-from `[A3DSky+0x54]` through vtable `+0x1c`, between the cap and the curtain
-draws) and that object is not identified yet.
+The fourth version is the one that cannot produce either artifact, because it is
+not a second surface at all. `A3DSkySphere::Init` maps the cap with
+`uv = 0.5 + (x, z) / (2 * R * sin(step))`, i.e. `uv = 0.5 + d.xz * 1.66275358` in
+ray terms. At the cap rim that radius is exactly `0.5` — the roof texture's own
+edge — and it grows monotonically as the elevation drops: `0.5` at 72.5°,
+`1.307` at 38.16°. So continuing the same expression across the band gives a
+lookup that is (a) pixel-continuous with the cap at its top, (b) one smooth
+function of the direction, so it can hold neither a fixed colour nor a single
+circle, and (c) art the cap already shows rather than a new invention.
+
+Two details make it work:
+
+* **The roof texture tiles.** `clear\roof.bmp`'s opposite borders differ by
+  `0.6`/`2.5` levels against a mean neighbour step of `1.3`/`1.7`, i.e. by less
+  than pixel noise — the sheet is authored to be sampled past one tile. The
+  shader therefore binds a second sampler with `AddressMode::Repeat` for the
+  roof layer only (the panoramas and the discs keep clamp), which is also what
+  the engine's own wrap addressing does. With clamp the border pixel is smeared
+  along the rim, which is the vertical bleed the third round reported.
+* **The skirt fades over the sheet.** The curtain's rim row carries vertex
+  alpha 0 and reaches 1 at `y = 19.635`, so its authored fade is an alpha ramp.
+  The shader now composites the curtain *over* the roof sheet
+  (`mix(roof, curtain, curtain_alpha)`) instead of fading both into the pass
+  clear colour. Fading into the clear colour is what drew a dark ring under the
+  panorama rim, because the clear colour is darker than any of the art.
+
+`sky_geometry::project` reports the band as `Region::CapEdgeGap` with the same
+lookup and `alpha = 1`, and the test `the_open_band_is_the_cap_surface_continued`
+pins monotonicity, the twin joins, the `0.5`-at-the-rim continuity and the fact
+that the radius passes one whole tile at the bottom of the band.
+
+This is still a viewer-only composition: the object retail draws there is
+`0x799f88` (`[A3DSky+0x54]`, vtable `+0x1c`, between the cap and curtain draws)
+and is not identified. What is recovered is the texture it uses — the same
+`clear\roof.bmp` — and the projection the cap that shares that texture uses.
 
 ---
 
@@ -310,11 +335,12 @@ Two consequences that shaped the third round:
 | Fades | `0x4b5f63`–`0x4b6021` | `+0x7c` sun, `+0x80` moon, `± ms * ds:0x8db100` (0.0003), clamped to [0, 1]; targets `+0x84`/`+0x85` |
 | Textures | — | `textures/nature/sun.bmp`, `textures/nature/moon.tga` |
 
-Angular size: `2 * atan(1/100)` = **1.1459°** half-angle 0.01 rad. This is the
-whole recovered quad, so the second test round's "sun and moon are tiny" is the
-native size: what makes the retail sun read larger is the `sunshine.bmp` /
-flare pass of section 3.2, which is still unimplemented and is not faked by
-enlarging the billboard. The previous
+Angular size: `2 * atan(1/100)` = **1.1459°** full quad, half-angle 0.01 rad.
+This is the whole recovered billboard, so the round-two complaint that the discs
+are tiny is a statement about the billboard, which is correct: what makes the
+retail sun read larger is the `sunshine.bmp` shine quad of section 3.2. That
+quad is now drawn (additive, `GLOW_SCALE` × the billboard, viewer-sized), and
+`DISC_SCALE` stays a separate viewer knob at 2 on the billboard itself. The previous
 experimental discs used half-angles 0.028/0.035 rad (3.2°/4°) and were gated on
 `3.5 <= hour < 21`; both are replaced.
 
@@ -466,14 +492,13 @@ Time boundaries covered: 00:00, 01:30, 03:30, 12:00, 18:00, 20:00, 21:00, 24:00.
 
 ## 6. Remaining gaps
 
-1. **Sky coverage above 38.16°.** Resolved as far as the client is concerned: no
-   vertex program exists for the sky (`shaders.pck` has none) and neither draw
-   path selects one, so the two recovered buffers are the whole sky object and
-   the band is empty in the client too. What the retail scene layers over that
-   band — clouds or fog from other objects — is outside these two classes and is
-   not established here. The viewer renders the same coverage, reports the band
-   as `Region::CapEdgeGap`, and fills it with a fog-to-cap-rim gradient
-   (section 1.5) until the object retail draws there is identified.
+1. **Sky coverage above 38.16°.** The two recovered buffers leave 38.16-72.5°
+   open, and retail covers it with `0x799f88`, an object that is still
+   unidentified. The viewer now continues the cap's own recovered projection
+   and roof-sheet texture across that band (section 1.5), which is seamless by
+   construction and removes the ring/bleed of the earlier fills, but the object
+   itself remains the open item — a viewer composition standing in for a
+   `0x799f88` this build cannot read.
 2. **Sky set identity.** Resolved: `TransSky` (`0x79ac30`) receives the three
    paths from configuration and prefixes `Textures\Sky\`; the default
    environment in `element_client.cfg` names `clear` for all three images and
@@ -486,8 +511,13 @@ Time boundaries covered: 00:00, 01:30, 03:30, 12:00, 18:00, 20:00, 21:00, 24:00.
    identified, so the viewer holds rotation at 0 instead of inventing a drift.
 4. **Disc blending and the flare pipeline.** `sun.sdr` / `moon.sdr` /
    `sunshine.sdr` are recovered (section 3.1) and match the viewer's texture ×
-   fade alpha; the glow factor expression is reproduced and tested, but the
-   shader does not consume it yet. The celestial render issues no
+   fade alpha. The glow factor expression is now consumed: `.w` of each
+   `SkyFrame` object carries `glow_texture_factor / 5`, the shader uses it to
+   scale an additive shine quad over `sunshine.bmp` (sun) and `moonflare.bmp`
+   (moon). The quad's **size** is not recovered, so it is the viewer's
+   `sky_gpu::GLOW_SCALE` (12 × the 1.146° billboard, ≈ 13.7° across) and the
+   settings status says `+ shine x12 (viewer size)` next to the disc; the
+   billboard itself stays at its recovered size. The celestial render issues no
    `SetRenderState` call at all (`0x77bd00` is the only wrapper and it is not
    reached from `0x4b3e00`–`0x4b41ee`), so the blend state is inherited and
    additive-versus-alpha for `sun.bmp` is still unproven. The whole flare
@@ -514,7 +544,8 @@ Time boundaries covered: 00:00, 01:30, 03:30, 12:00, 18:00, 20:00, 21:00, 24:00.
 * `src/sky_time.rs` (new) — clock, elevations, night flag/strength, switch timer.
 * `src/sky_celestial.rs` (new) — native disc billboard, fades, explicit failures.
 * `src/sky_gpu.rs` — shader now samples the recovered projection and mixes the two
-  sets with `night_weight`; crossfade and smoothstep removed; `SkyFrame` input.
+  sets with `night_weight`; crossfade and smoothstep removed; `SkyFrame` input;
+  roof sheet on a repeat sampler (`GLOW_SCALE` shine layers 11/12).
 * `src/client_sun.rs` — added `Visibility::fade(sun)` for per-object fades.
 * `src/gpu.rs` — feeds `SkyFrame`, added `Renderer::celestial_status`, replaced the
   experimental disc label.

@@ -5,12 +5,21 @@
 //! [`crate::sky_time`] and [`crate::sky_celestial`]; this module only uploads
 //! them. The recovered parts are the mesh rows and their texture runs, the
 //! planar cap disc, the sun/moon billboards and the sky clock.
-//! Retail covers the band the two native buffers leave open (38.16-72.5
-//! degrees) with an object this build does not draw
-//! (`[A3DSky+0x54]`, `0x799f88`, vtable `+0x1c`), so the band is a gradient from
-//! the frame's atmospheric fog colour to the cap's own rim colour at 72.5
-//! degrees: both ends equal the neighbouring surface exactly, which is why no
-//! ring or disc edge is visible.
+//! The band the two native buffers leave open (38.16-72.5 degrees) is filled by
+//! continuing the cap's own recovered planar lookup over the whole upper
+//! hemisphere. That is the one fill that cannot produce an artifact: it is the
+//! surface the cap already draws, evaluated outside the 17.5 degree cap disc,
+//! and `clear\roof.bmp` is authored to tile (opposite borders differ by less
+//! than one pixel step), so the repeat sampler carries it past one tile exactly
+//! where the client's wrap addressing would. Retail draws *something* there
+//! with the same texture (`[A3DSky+0x54]`, `0x799f88`, vtable `+0x1c`) and that
+//! object is still unidentified; using the cap's projection for it is a
+//! viewer-only composition and is labelled as such in the settings status.
+//!
+//! The curtain keeps its authored rim fade (`alpha` 0 at 39.27, 1 at 19.64) and
+//! is composited *over* the roof sheet, so the skirt fades into the sky instead
+//! of into the pass clear colour. Earlier fills faded the band into that
+//! background, which is what drew a dark ring under the panorama rim.
 //!
 //! One authored set covers both phases. `element_client.cfg` names `Sky\clear`
 //! for all three `sky_image` slots, so the day/night change is the recovered
@@ -29,6 +38,15 @@ use wgpu::util::DeviceExt;
 /// size; the shipped 2 doubles the quad and its glow.
 pub const DISC_SCALE: f32 = 2.0;
 
+/// Viewer shine/moonflare quad, as a multiple of the native billboard's half
+/// extent. `CECSunMoon::Init` builds a separate sun-shine stream over
+/// `sunshine.bmp` and a flare chain over `moonflare.bmp` / `sunflare.bmp`, and
+/// that chain is what makes the retail sun and moon read large; its quad sizes
+/// are not recovered (P5.03 section 3.2), so the viewer draws those two shipped
+/// textures on a quad this many times the recovered billboard. The billed disc
+/// itself stays at [`DISC_SCALE`] x 1.146 degrees.
+pub const GLOW_SCALE: f32 = 12.0;
+
 /// Per-frame sky inputs, all recovered values.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SkyFrame {
@@ -38,14 +56,18 @@ pub struct SkyFrame {
     /// diagnostics; the shader uses [`Self::tint`] because one authored set now
     /// covers both phases.
     pub night_weight: f32,
-    /// Sun: `[fade, elevation, azimuth, unused]`.
+    /// Sun: `[fade, elevation, azimuth, shine strength 0..1]`. The shine is the
+    /// recovered stage-1 texture factor of `sunshine.sdr`
+    /// (`sky_celestial::glow_texture_factor`, full strength 5), normalised by
+    /// that full strength.
     pub sun: [f32; 4],
-    /// Moon: `[fade, elevation, azimuth, unused]`.
+    /// Moon: `[fade, elevation, azimuth, shine strength 0..1]`. The moon's block
+    /// halves its own colour instead of scaling, so its shine sits at half the
+    /// sun's strength.
     pub moon: [f32; 4],
-    /// Colour the pass shows where neither native buffer covers the sky: the
-    /// 38.16-72.5 degree band the two meshes leave open. The retail client fills
-    /// that band with an object this build does not draw (0x799f88), so the
-    /// frame's own atmospheric fog colour is used instead of a fixed blue.
+    /// The pass clear colour. The roof sheet now covers every direction above
+    /// the curtain, so this only shows through a partly transparent sample; it
+    /// stays the frame's atmospheric fog colour rather than a fixed blue.
     pub background: [f32; 3],
     /// Colour multiplier applied to the sky texture samples: the recovered
     /// regional light colour, so the single authored set darkens through dusk
@@ -92,13 +114,23 @@ pub struct SkyGpu {
     /// and still invisible; the settings tab reports that instead of the disc
     /// silently disappearing.
     disc_layers: [bool; 2],
+    /// Whether `sunshine.bmp` and `moonflare.bmp` decoded out of the package.
+    /// Without them the disc is still submitted at its native size, and the
+    /// settings tab says the shine quad is the part that is missing.
+    glow_layers: [bool; 2],
 }
 
 pub(crate) const SHADER: &str = r#"
 struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>};
+// Mirrors the Rust `GLOW_SCALE`: the shine quad is this many billboards wide.
+const GLOW_SCALE:f32=12.0;
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
+// The roof sheet samples past one tile; `clear\roof.bmp` tiles, and the client's
+// engine addresses textures by wrap, so the repeat sampler is the one that
+// continues the cap projection instead of smearing its border pixels.
+@group(0) @binding(3) var smpw:sampler;
 struct O {@builtin(position) pos:vec4<f32>,@location(0) clip:vec2<f32>};
 @vertex fn vs(@builtin(vertex_index) i:u32)->O {var o:O;let x=f32((i<<1u)&2u);let y=f32(i&2u);o.clip=vec2<f32>(x*2.-1.,1.-y*2.);o.pos=vec4<f32>(o.clip,0.999999,1.);return o;}
 
@@ -139,27 +171,18 @@ fn curtain_alpha(y:f32)->f32{
 }
 fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let tn=clamp(tint,vec3<f32>(0.0),vec3<f32>(1.0));
- // Cap: sphere of radius 50, planar disc over the top 17.5 degrees
- // (A3DSkySphere::Init 0x79a810).
- if d.y*50.0>=47.685848 {
-  let uv=vec2<f32>(0.5,0.5)+vec2<f32>(d.x,d.z)*1.66275358;
-  return vec4<f32>(textureSampleLevel(skies,smp,uv,base+2,0.).rgb*tn,1.0);
- }
  let flat=max(length(d.xz),0.000001);
  // Curtain: cylinder of radius 50, so the ray meets it at 50*tan(elevation).
  let y=50.0*d.y/flat;
- // 38.16..72.5 degrees has no native geometry. Retail covers that band with an
- // object this build does not draw (0x799f88), so the cap's own planar lookup
- // is continued outward (radius 0.5 on the 72.5 degree rim, 0.75 at the
- // curtain rim) and faded into the pass background: the band meets the opaque
- // cap exactly at its top and the curtain's own fade at its bottom, and because
- // the radius sweeps instead of holding one circle it cannot smear radially.
- if y>39.2700005 {
-  let t=smoothstep(0.618,0.9537,d.y);
-  let radius=0.5+0.25*(1.0-t);
-  let uv=vec2<f32>(0.5)+d.xz/flat*radius;
-  let band=textureSampleLevel(skies,smp,uv,base+2,0.).rgb*tn;
-  return vec4<f32>(band,smoothstep(0.618,0.70,d.y));
+ // Roof sheet: the cap's own planar lookup (A3DSkySphere::Init 0x79a810,
+ // `uv = 0.5 + d.xz * 50 / (2 * 50 * sin(step))`), evaluated at every elevation
+ // instead of only inside the 17.5 degree cap disc. On the cap rim it is the
+ // cap's own rim texel, so the two surfaces are pixel-continuous there, and
+ // because the radius is one smooth function of the direction it can neither
+ // hold a single circle (radial streaks) nor bleed a border pixel along a ring.
+ let roof=textureSampleLevel(skies,smpw,vec2<f32>(0.5)+d.xz*1.66275358,base+2,0.).rgb*tn;
+ if d.y*50.0>=47.685848 || y>39.2700005 {
+  return vec4<f32>(roof,1.0);
  }
  // The curtain draw passes two textures per set (01 and 02), so both cover the
  // dome and their stage blend is not recovered. The viewer keeps one as the
@@ -187,25 +210,40 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let plane=1.0-smoothstep(0.0,0.12,abs(d.z));
  let front=d.z>=0.0;
  let tex=mix(select(run1,run0,front),select(run0,run1,front),0.5*plane);
- return vec4<f32>(tex.rgb*tn,tex.a*curtain_alpha(sy));
+ // The authored skirt fade is an alpha ramp, so it fades over whatever is
+ // behind it: with the roof sheet behind, the rim row dissolves into sky
+ // instead of into the pass clear colour.
+ return vec4<f32>(mix(roof,tex.rgb*tn,curtain_alpha(sy)),1.0);
 }
 // One native billboard: centre at direction*100, half extent 1.0, so the disc
-// subtends 1.146 degrees. Gated on elevation and fade exactly like 0x4b3e00.
-fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,layer:i32)->vec3<f32>{
+// subtends 1.146 degrees, plus the shine quad the retail sun and moon carry.
+// Gated on elevation and fade exactly like 0x4b3e00.
+fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->vec3<f32>{
  let alpha=params.x;let el=params.y;let az=params.z;
+ // Recovered stage-1 texture factor of `sunshine.sdr`, normalised by its full
+ // strength (5.0) so it can tint an additive quad. 0 at full night.
+ let shine=clamp(params.w,0.0,1.0);
  if alpha<=0.0 || el<=0.0 {return color;}
  let c=vec3<f32>(cos(az)*cos(el),sin(el),sin(az)*cos(el));
  let z=dot(d,c);
  if z<=0.0 {return color;}
  let right=normalize(cross(vec3<f32>(0.,1.,0.),c)+vec3<f32>(0.000001,0.,0.));
  let up=cross(c,right);
+ let axis=vec2<f32>(dot(d,right),-dot(d,up));
+ var out=color;
+ // Shine quad: `sunshine.bmp` for the sun, `moonflare.bmp` for the moon, on a
+ // quad GLOW_SCALE times the billboard. Viewer-only size (see GLOW_SCALE).
+ let guv=axis/(2.0*0.01*GLOW_SCALE*z)+vec2<f32>(0.5);
+ if guv.x>=0.0 && guv.x<=1.0 && guv.y>=0.0 && guv.y<=1.0 {
+  out=clamp(out+textureSampleLevel(skies,smp,guv,glow,0.).rgb*(alpha*shine),vec3<f32>(0.),vec3<f32>(1.));
+ }
  // p.tint.w is the viewer disc scale (1 is the native 1.146 degree quad).
  let scale=max(p.tint.w,0.25);
- let uv=vec2<f32>(dot(d,right),-dot(d,up))/(2.0*0.01*scale*z)+vec2<f32>(0.5);
- if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {return color;}
- let t=textureSampleLevel(skies,smp,uv,layer,0.);
- if layer==9 {return clamp(color+t.rgb*alpha,vec3<f32>(0.),vec3<f32>(1.));}
- return mix(color,t.rgb,t.a*alpha);
+ let uv=axis/(2.0*0.01*scale*z)+vec2<f32>(0.5);
+ if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {return out;}
+ let t=textureSampleLevel(skies,smp,uv,disc,0.);
+ if disc==9 {return clamp(out+t.rgb*alpha,vec3<f32>(0.),vec3<f32>(1.));}
+ return mix(out,t.rgb,t.a*alpha);
 }
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
@@ -225,8 +263,8 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,layer:i32)->vec3<f32>{
   sky=vec4<f32>(mix(sky.rgb,other.rgb,swap),mix(sky.a,other.a,swap));
  }
  var color=mix(p.background.rgb,sky.rgb,clamp(sky.a,0.,1.));
- color=celestial(color,d,p.celestial,9);
- color=celestial(color,d,p.celestial2,10);
+ color=celestial(color,d,p.celestial,9,11);
+ color=celestial(color,d,p.celestial2,10,12);
  return vec4<f32>(color,1.);
 }
 "#;
@@ -296,12 +334,37 @@ impl SkyGpu {
             disc_layers[i] = decoded.is_some();
             frames.push(decoded.unwrap_or_else(|| image::RgbaImage::new(512, 512)));
         }
+        // Layers 11 and 12 are the shine quads of the same two objects: the sun
+        // shines with `sunshine.bmp`, the moon with `moonflare.bmp`. The flare
+        // chain that sizes them in retail is not recovered, so the quad's size
+        // is the viewer's `GLOW_SCALE` and only the textures are the client's.
+        let glow_textures = [
+            ("textures/nature/sunshine.bmp", image::ImageFormat::Bmp),
+            ("textures/nature/moonflare.bmp", image::ImageFormat::Bmp),
+        ];
+        let mut glow_layers = [false; 2];
+        for (i, (name, format)) in glow_textures.into_iter().enumerate() {
+            let decoded = entries
+                .get(name)
+                .and_then(|entry| pck::read_entry(&mut file, entry).ok())
+                .and_then(|bytes| image::load_from_memory_with_format(&bytes, format).ok())
+                .map(|img| {
+                    image::imageops::resize(
+                        &img.to_rgba8(),
+                        512,
+                        512,
+                        image::imageops::FilterType::Triangle,
+                    )
+                });
+            glow_layers[i] = decoded.is_some();
+            frames.push(decoded.unwrap_or_else(|| image::RgbaImage::new(512, 512)));
+        }
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("client sky images"),
             size: wgpu::Extent3d {
                 width: 512,
                 height: 512,
-                depth_or_array_layers: 11,
+                depth_or_array_layers: 13,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -346,6 +409,19 @@ impl SkyGpu {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        // The roof sheet is the one sky texture that is sampled past one tile;
+        // it is authored to tile (`clear\roof.bmp`'s opposite borders differ by
+        // less than one pixel step), so wrapping is what continues the cap
+        // instead of smearing its border pixel along the 72.5 degree rim.
+        let roof_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("sky roof sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
@@ -398,6 +474,12 @@ impl SkyGpu {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let bind = |b: &wgpu::Buffer| {
@@ -416,6 +498,10 @@ impl SkyGpu {
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&roof_sampler),
                     },
                 ],
             })
@@ -466,6 +552,7 @@ impl SkyGpu {
             normal_buf,
             reflected_buf,
             disc_layers,
+            glow_layers,
         })
     }
     /// Upload one frame's sky state for one view.
@@ -524,6 +611,10 @@ impl SkyGpu {
     /// Whether the client disc texture for `sun` decoded from `textures.pck`.
     pub fn disc_texture_present(&self, sun: bool) -> bool {
         self.disc_layers[usize::from(!sun)]
+    }
+    /// Whether the shine texture of `sun` decoded from `textures.pck`.
+    pub fn shine_texture_present(&self, sun: bool) -> bool {
+        self.glow_layers[usize::from(!sun)]
     }
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, reflected: bool) {
         pass.set_pipeline(&self.pipeline);

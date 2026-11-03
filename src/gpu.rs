@@ -1574,6 +1574,17 @@ impl Renderer {
                     if !self.sky.disc_texture_present(sun) {
                         out.push_str(" (client texture missing)");
                     }
+                    // The shine quad is what makes the retail discs read large;
+                    // its size is the viewer's, so say which half is not the
+                    // client's rather than implying the billboard is wrong.
+                    if self.sky.shine_texture_present(sun) {
+                        out.push_str(&format!(
+                            " + shine x{:.0} (viewer size)",
+                            crate::sky_gpu::GLOW_SCALE
+                        ));
+                    } else {
+                        out.push_str(" (shine texture missing)");
+                    }
                 }
                 Err(error) => out.push_str(&format!("; {error}")),
             }
@@ -1662,9 +1673,19 @@ impl Renderer {
                         0.
                     }
                 };
+                // `.w` is the shine strength the shader tints the additive
+                // shine quad with. The solar value is the recovered stage-1
+                // texture factor of `sunshine.sdr` normalised by its full
+                // strength; the moon's block halves its own colour instead of
+                // scaling, so it sits at half that.
+                let shine = crate::sky_celestial::glow_texture_factor(
+                    state.night_strength,
+                    state.night_flag,
+                );
+                let shine = (shine / 5.).clamp(0., 1.);
                 (
-                    [fade(true), state.sun_elevation, state.azimuth, 0.],
-                    [fade(false), state.moon_elevation, state.azimuth, 0.],
+                    [fade(true), state.sun_elevation, state.azimuth, shine],
+                    [fade(false), state.moon_elevation, state.azimuth, shine * 0.5],
                 )
             }
             None => ([0.; 4], [0.; 4]),

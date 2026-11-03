@@ -30,7 +30,9 @@ use sky_transition::{Machine, Request, Triple};
 
 const W: u32 = 64;
 const H: u32 = 64;
-const LAYERS: u32 = 11;
+// 9 set layers (3 sets x 3 textures), 2 discs (9, 10) and 2 shine quads
+// (11 sun, 12 moon): the indices the production shader samples by name.
+const LAYERS: u32 = 13;
 
 /// Deterministic gradient per texture layer, so two sets are visibly different
 /// while staying byte-stable across machines.
@@ -162,6 +164,10 @@ fn render(
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(sampler),
             },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(roof_sampler),
+            },
         ],
     });
     let mut encoder = device.create_command_encoder(&Default::default());
@@ -258,6 +264,17 @@ fn main() {
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
+    // The production shader's second sampler: the roof sheet is sampled past
+    // one tile, so it wraps instead of clamping.
+    let roof_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("phase5 sky roof sampler"),
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        address_mode_w: wgpu::AddressMode::Repeat,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("phase5 sky layout"),
         entries: &[
@@ -283,6 +300,12 @@ fn main() {
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
