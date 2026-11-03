@@ -75,6 +75,10 @@ struct Uniform {
     celestial2: [f32; 4],
     background: [f32; 4],
     tint: [f32; 4],
+    /// `x` committed set, `y` incoming set, `z` incoming weight, `w` hour. The
+    /// set crossfade of `sky_transition` rides here (P5.07): both indices name
+    /// one whole three-texture set in the same array.
+    sets: [f32; 4],
 }
 
 pub struct SkyGpu {
@@ -91,7 +95,7 @@ pub struct SkyGpu {
 }
 
 pub(crate) const SHADER: &str = r#"
-struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>};
+struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>};
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
@@ -203,13 +207,30 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,layer:i32)->vec3<f32>{
  if layer==9 {return clamp(color+t.rgb*alpha,vec3<f32>(0.),vec3<f32>(1.));}
  return mix(color,t.rgb,t.a*alpha);
 }
+// One whole sky resource set, blended by hour. The array is group-major:
+// group g, phase q (0 noon, 1 dusk, 2 night), side k -> layer g*9+q*3+k, which
+// `sky()` expresses as `sky(d, g*3+q)`. WGSL has no closures, so this is a real
+// function rather than the inline expression the single-set path uses.
+fn set_hour(d:vec3<f32>, g:i32, day:f32, e:f32)->vec3<f32>{
+ return mix(mix(sky(d,g*3+2),sky(d,g*3+1),e),sky(d,g*3+0),day);
+}
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
  // One authored set covers both phases (`sky_image01..03` in
  // element_client.cfg name Sky\clear for all three); the night look is the
  // recovered regional light colour, not a second texture set. Layers 0..2 are
  // that set, 9 and 10 the client sun and moon discs.
- let sky=sample_sky(d,0,p.background.rgb,p.tint.rgb);
+ // The set indices arrive as 0..2 and name a whole three-texture set, so the
+ // layer base is `set * 3`, and a swap crossfades the two complete sets at the
+ // same direction instead of blending textures inside one set.
+ let base=i32(clamp(p.sets.x,0.,2.))*3;
+ let incoming=i32(clamp(p.sets.y,0.,2.))*3;
+ let swap=clamp(p.sets.z,0.,1.);
+ var sky=sample_sky(d,base,p.background.rgb,p.tint.rgb);
+ if swap>0. && incoming!=base {
+  let other=sample_sky(d,incoming,p.background.rgb,p.tint.rgb);
+  sky=vec4<f32>(mix(sky.rgb,other.rgb,swap),mix(sky.a,other.a,swap));
+ }
  var color=mix(p.background.rgb,sky.rgb,clamp(sky.a,0.,1.));
  color=celestial(color,d,p.celestial,9);
  color=celestial(color,d,p.celestial2,10);
@@ -233,7 +254,13 @@ impl SkyGpu {
         // slots, so the authored set is loaded once and the shader uses it for
         // both phases. The extra folders stay loaded so the layer indices (0..2
         // set, 9 sun, 10 moon) do not move.
-        let names = ["clear", "evening", "night2"];
+        // One authored set covers both phases: `element_client.cfg` names
+        // `Sky\clear` for all three `sky_image` slots, and the packed
+        // `night2/01.bmp` carries a painted moon that would sit next to the
+        // recovered billboard. The three groups stay so the `sky_transition`
+        // swap lane keeps real layer indices; they are the same art, so a swap
+        // is a visual no-op until a second authored set exists.
+        let names = ["clear", "clear", "clear"];
         let mut frames = Vec::new();
         for folder in names {
             for name in ["01.bmp", "02.bmp", "roof.bmp"] {
@@ -340,6 +367,9 @@ impl SkyGpu {
                     celestial2: [0.; 4],
                     background: [0.18, 0.32, 0.48, 1.],
                     tint: [1.; 4],
+                    // Committed set 0 with weight zero: the shader leaves the
+                    // hour blend untouched until `begin_frame` uploads a frame.
+                    sets: [0., 0., 0., 12.],
                 }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             })
@@ -445,6 +475,13 @@ impl SkyGpu {
             disc_layers,
         })
     }
+    /// Upload one frame's sky state for one view.
+    ///
+    /// Every argument comes from the single per-frame snapshot. `reflected`
+    /// only selects which uniform buffer holds it; a reflected view must never
+    /// pass a different hour, set or blend (P5.08). `sets` is
+    /// `(committed, incoming, weight)` from `sky_transition::frame_sets`.
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &self,
         queue: &wgpu::Queue,
@@ -452,6 +489,7 @@ impl SkyGpu {
         w: u32,
         h: u32,
         frame: SkyFrame,
+        sets: (i32, i32, f32),
         reflected: bool,
     ) {
         let view = Mat4::look_to_rh(Vec3::ZERO, direction, Vec3::Y);
@@ -478,6 +516,7 @@ impl SkyGpu {
                 // `p.tint.w` carries the disc scale into `celestial`.
                 DISC_SCALE,
             ],
+            sets: [sets.0 as f32, sets.1 as f32, sets.2, frame.hour],
         };
         queue.write_buffer(
             if reflected {
@@ -508,8 +547,17 @@ impl SkyGpu {
     }
 }
 
+/// Inverse of the sky view-projection, without any eye translation.
+///
+/// `A3DSkySphere` recentres its vertices on the eye and only compares a cached
+/// position/radius tuple (`0x79acbd..0x79acd4`), so altitude reaches the sphere
+/// placement but never its ray directions. Dropping the translation here makes
+/// that structural rather than incidental: the camera position cannot leak into
+/// the sky, and a reflected view is the same ray mirrored about the water plane.
 fn sky_inverse(projection: Mat4, view: Mat4, reflected: bool) -> Mat4 {
-    let inv = (projection * view).inverse();
+    let mut rotation = view;
+    rotation.w_axis = glam::Vec4::W;
+    let inv = (projection * rotation).inverse();
     if reflected {
         Mat4::from_scale(Vec3::new(1., -1., 1.)) * inv
     } else {
@@ -553,5 +601,73 @@ mod reflection_tests {
         assert_eq!(frame.hour, 12.0);
         assert_eq!(frame.night_weight, 0.0);
         assert_eq!(crate::sky_time::night_weight(frame.hour), Some(0.0));
+    fn ray(projection: Mat4, view: Mat4, clip: glam::Vec2, reflected: bool) -> Vec3 {
+        let v = sky_inverse(projection, view, reflected) * glam::Vec4::new(clip.x, clip.y, 1., 1.);
+        (v.truncate() / v.w).normalize()
+    }
+    #[test]
+    fn altitude_never_reaches_the_sky() {
+        // A3DSkySphere recentres on the eye and only compares a cached
+        // position/radius tuple (0x79acbd..0x79acd4), so the sky follows the
+        // camera in X/Z/Y but its ray directions cannot depend on altitude
+        // (P5.08). Dropping the view translation makes that structural.
+        let projection = Mat4::from_scale(Vec3::new(-1., 1., 1.))
+            * Mat4::perspective_rh(70f32.to_radians(), 16. / 9., 1., 16000.);
+        let direction = Vec3::new(0.2, 0.35, -1.).normalize();
+        for clip in [
+            glam::Vec2::new(0., 0.),
+            glam::Vec2::new(-0.7, 0.4),
+            glam::Vec2::new(0.9, -0.85),
+        ] {
+            let reference = ray(
+                projection,
+                Mat4::look_to_rh(Vec3::new(512., 0., -2048.), direction, Vec3::Y),
+                clip,
+                false,
+            );
+            for altitude in [-2048., -12., 0., 160., 4096., 20_000.] {
+                let lifted = ray(
+                    projection,
+                    Mat4::look_to_rh(Vec3::new(512., altitude, -2048.), direction, Vec3::Y),
+                    clip,
+                    false,
+                );
+                assert!(
+                    (reference - lifted).length() < 1e-6,
+                    "altitude {altitude} moved the sky ray at {clip:?}"
+                );
+            }
+            // Horizontal movement must not move it either: only rotation matters.
+            let moved = ray(
+                projection,
+                Mat4::look_to_rh(Vec3::new(-900., 0., 1200.), direction, Vec3::Y),
+                clip,
+                false,
+            );
+            assert!((reference - moved).length() < 1e-6);
+        }
+    }
+    #[test]
+    fn the_uniform_carries_the_transition_lane() {
+        // The reflected and normal uploads must be built from the same values;
+        // the shader reads sets.xyz for the sky swap.
+        let src = include_str!("sky_gpu.rs");
+        let update = &src[src.find("pub fn update(").expect("update")..];
+        let update = &update[..update.find("pub fn draw<").expect("draw")];
+        assert_eq!(update.matches("sets: [sets.0 as f32").count(), 1);
+        // The translation drop lives in `sky_inverse`, not in `update`.
+        assert!(src.contains("rotation.w_axis = glam::Vec4::W"));
+        assert!(
+            src.contains("p.sets.z"),
+            "the shader must read the sets lane"
+        );
+        // A weather lane would need an authored runtime (P5.05); the shader must
+        // not sample anything for weather until that exists.
+        let shader = &src[src.find("pub(crate) const SHADER").expect("shader")..];
+        let shader = &shader[..shader.find("\"#;").expect("shader end")];
+        assert!(
+            !shader.contains("p.weather"),
+            "no weather uniform until an authored runtime exists (P5.05)"
+        );
     }
 }

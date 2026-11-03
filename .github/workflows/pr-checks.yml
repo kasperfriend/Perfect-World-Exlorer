@@ -42,12 +42,41 @@ jobs:
           python3 tools/audit-static-model-gpu-programs.py
           rustc --edition=2021 --test src/scenery_visibility.rs -o /tmp/scenery-visibility-tests
           /tmp/scenery-visibility-tests
+          # Phase 5 sky-swap machine: standalone, so a failure names the recovered
+          # count grid, the commit boundaries or the never-retarget guard directly
+          # instead of only failing the viewer's test binary (P5.07).
+          rustc --edition=2021 --test src/sky_transition.rs -o /tmp/sky-transition-tests
+          /tmp/sky-transition-tests
+          # Phase 5 sky panorama seam (P5.09): the two meridian bands of the
+          # production `sky_gpu::sky` mapping, the layer-index group integrity and
+          # both sides of a meridian, as pure arithmetic with no GPU and no assets.
+          rustc --edition=2021 -O -o /tmp/phase5-sky-seam-check src/bin/phase5-sky-seam-check.rs
+          /tmp/phase5-sky-seam-check
       - name: Check all binary targets
-        run: cargo check --locked --bins
+        run: |
+          # Keep the plain command so a non-zero exit still fails the job, but
+          # also re-echo the compiler diagnostics as check annotations: the raw
+          # step log is not always retrievable from the API.
+          CARGO_TERM_COLOR=never cargo check --locked --bins --message-format short 2>&1 | tee /tmp/cargo-check.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "(^error|: error)" /tmp/cargo-check.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+          exit "$status"
       - name: Test GFX light dependency audit
         run: cargo test --locked --bin gfx-light-audit
       - name: Run viewer unit tests
-        run: cargo test --locked --bin perfect-world-explorer
+        run: |
+          CARGO_TERM_COLOR=never cargo test --locked --bin perfect-world-explorer 2>&1 | tee /tmp/cargo-test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "(^error|: error|panicked at|assertion)" /tmp/cargo-test.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+          exit "$status"
       - name: Install software Vulkan for Phase 1 shader checks
         run: sudo apt-get install -y mesa-vulkan-drivers
       - name: Run Phase 1 production shader regressions
@@ -74,6 +103,12 @@ jobs:
           cargo run --locked --bin model-receiver-gpu-check
           cargo run --locked --bin model-draw-gpu-check
           cargo run --locked --bin phase1-fog-gpu-check
+          # Phase 5: native sky resource swap (`0x4203f4..0x420807` / `0x79aeb0`)
+          # plus reflection and altitude invariants (P5.07, P5.08). Compiles the
+          # production sky WGSL, proves the two-set crossfade changes pixels,
+          # proves camera altitude cannot move a sky ray, and proves every view
+          # reuses one snapshot without advancing the transition.
+          cargo run --locked --bin phase5-sky-transition-gpu-check
           cargo run --locked --bin terrain-refraction-gpu-check
           cargo run --locked --bin water-fog-gpu-check
           # Near/far LOD continuity: runs both real terrain vertex entry points
@@ -127,7 +162,11 @@ jobs:
       - name: Verify native gamma and glow CPU references on Windows
         shell: pwsh
         run: |
-          foreach ($module in @("gamma_curve", "glow_state", "post_plan", "color_chain", "fog_matrix", "client_region_shade", "client_region_stream", "client_regional_light", "gfx_color_track")) {
+          # `sky_transition` carries the recovered sky-swap machine: the count
+          # grid, the commit boundaries, the never-retarget guard and the
+          # clock-slice hurry (P5.07). It has no GPU dependency, so it runs on
+          # Windows as well as through `cargo test` on Linux.
+          foreach ($module in @("gamma_curve", "glow_state", "post_plan", "color_chain", "fog_matrix", "client_region_shade", "client_region_stream", "client_regional_light", "gfx_color_track", "sky_transition")) {
             $exe = Join-Path $env:RUNNER_TEMP "$module-tests.exe"
             rustc --edition=2021 --test "src/$module.rs" -o $exe
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

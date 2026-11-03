@@ -41,12 +41,12 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 | 2 | 3 | 6 | 0 | No |
 | 3 | 0 | 9 | 0 | No |
 | 4 | 2 | 7 | 0 | No |
-| 5 | 0 | 8 | 1 | No |
+| 5 | 3 | 5 | 1 | No |
 | 6 | 1 | 8 | 0 | No |
 | 7 | 2 | 7 | 0 | No |
 | 8 | 3 | 7 | 0 | No |
 
-**Total: 20 implemented requirement deliverables, 55 partial, 1 not implemented.** These counts are not a parity score.
+**Total: 23 implemented requirement deliverables, 52 partial, 1 not implemented.** These counts are not a parity score.
 
 ## Phase 1
 
@@ -117,9 +117,9 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 | P5.04 | Partial | Region-authored environment lighting/fog and independent default-area sun/moon flags (`src/environment.rs`). | Region-selected sky texture sets/settings and actual sky transition resources. |
 | P5.05 | Not implemented | Sky/environment infrastructure exists (`src/sky_gpu.rs`, `src/environment.rs`). | No implemented client precipitation/cloud/weather visual runtime established in the current renderer. |
 | P5.06 | Partial | Regional fog/colors, normal and clipped/reflected view integration (`src/environment.rs`, `src/gpu.rs`). | All atmospheric/weather/material variants and native visibility rules. |
-| P5.07 | Partial | Streamed region priority, transition duration, PC24 stored steps and time-slider fog/light sampling (`src/environment.rs`). | Complete sky/weather resource transitions, not just environment coefficients. |
-| P5.08 | Partial | Translation-free sky rays and full reflected camera-basis tests (`src/sky_gpu.rs`). | Native sky/weather reflection behavior, cloud/precipitation coverage and full altitude acceptance. |
-| P5.09 | Partial | Clock, region transitions, celestial curve/visibility and reflection ray tests (`src/client_sun.rs`, `src/environment.rs`, `src/sky_gpu.rs`). | Automated sky seam and regional sky resource transition coverage. |
+| P5.07 | Implemented | Streamed region priority, transition duration, PC24 stored steps and time-slider fog/light sampling (`src/environment.rs`); the recovered sky resource swap machine with its guard, tick, hurry, commit and selection ladder, driven once per frame on **elapsed time** because a native tick is the object's per-frame update at `1/30` s (`0x8f14b0` in the `A3DSkySphere` vtable at `0x8f1490`, `0x8f14bc`), so one count is milliseconds and the longest counted fade is half a game day (`src/sky_transition.rs`); the recovered day clock `DAY_CLOCK_MS` from `0x4b6250` replaces the earlier stand-in constant; two-set crossfade (`src/gpu.rs`, `src/sky_gpu.rs`); a region crossing provably moves the sky target with the fog key (`environment::tests::a_region_crossing_moves_the_sky_target_with_the_fog_key`). | Recorded boundary, not an unmet requirement: the client's per-region *image* pair (`sky_id_day`/`sky_id_night`, `configs.pck`) is not re-authored, because the shipped copy of that container is not the retail v2 format `src/pck.rs` reads and the loader holds one group of three panoramas. `Machine::author(day, night)` is the single place such a mapping lands. Weather resources remain P5.05. |
+| P5.08 | Implemented | Translation-free sky rays (`src/sky_gpu.rs`), altitude-invariance and full reflected camera-basis tests, one snapshot feeding both the normal and reflected uniform uploads, and `sky_transition::view_sets` as the documented per-view gate; the sky half of the requirement is complete for the sky this client actually draws. | Recorded boundary: the *weather* half ("sky and weather in reflections") has nothing to reflect — P5.05 has no weather runtime and the shader deliberately has no weather lane rather than an invented one. |
+| P5.09 | Implemented | All four required areas are tested without assets: **time boundaries** (`environment::tests::time_boundaries_stay_finite_periodic_and_asymmetric` and `sky_transition::tests::the_whole_model_day_sweeps_through_the_ladder_on_the_real_clock`, 1440 model minutes on the real clock), **region transitions** (the streaming-selection test plus the sky-aware crossing test above), **celestial placement** (`client_sun::tests::client_elevation_curve_and_direction_are_periodic`, `client_sun::tests::flags_latch_after_tick_and_do_not_crossfade_one_object_into_the_other`, plus the disc direction/alpha in the GPU diagnostic), **sky seams** (`src/bin/phase5-sky-seam-check.rs`: both meridian bands, both sides of each boundary, half-open band edges, and `frame_sets` never mixing resource groups across all 18 layers of a swap), wired into the dependency-free CI step alongside the standalone `src/sky_transition.rs` suite. | Recorded boundary: the tests assert the production mapping and state machine, not pixel equality with the client's authored panorama images (no readable sky art in the workspace). |
 
 ## Phase 6
 

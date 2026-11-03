@@ -979,6 +979,13 @@ struct Renderer {
     frame: FrameSnapshot,
     world_glow: crate::post_gpu::WorldGlow,
     celestial_visibility: crate::client_sun::Visibility,
+    /// Native `A3DSkySphere` swap machine (`+0x5b4`/`+0x5b8`/`+0x5b9`). Stepped
+    /// exactly once per frame from `begin_frame`; reflection, refraction and map
+    /// views only read the resulting snapshot (P5.07/P5.08).
+    sky_transition: crate::sky_transition::Machine,
+    /// Sub-tick remainder of the sky clock in milli-thirty-seconds: the native
+    /// tick is a 1/30 s step and the viewer's frames are not a multiple of it.
+    sky_tick_residual: u64,
     // Native SetLightParam/SetAmbient state persists when a frame selects no
     // environment box (0x41ec65 keeps the in-flight environment). Keeping the
     // last published regional light avoids erasing ordinary model light on an
@@ -1490,6 +1497,8 @@ impl Renderer {
             frame: FrameSnapshot::default(),
             world_glow: crate::post_gpu::WorldGlow::default(),
             celestial_visibility: crate::client_sun::Visibility::default(),
+            sky_transition: Default::default(),
+            sky_tick_residual: 0,
             retained_regional_light: None,
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
@@ -1614,18 +1623,14 @@ impl Renderer {
             1.,
             1. - 0.18 * twilight,
         ];
-        let authored = camera
-            .regional_light
-            .or(self.retained_regional_light)
+        // The region's authored light, resolved once for every consumer below.
+        let region_light = camera.regional_light.or(self.retained_regional_light);
+        let authored = region_light
             .map(|l| l.material_direction().toward_sun())
             .unwrap_or([0.6, -0.4, 0.8]);
         self.celestial_visibility.update(
             camera.logic_delta_ms,
-            camera
-                .regional_light
-                .or(self.retained_regional_light)
-                .map(|l| l.celestial_flags)
-                .unwrap_or(0x18),
+            region_light.map(|l| l.celestial_flags).unwrap_or(0x18),
         );
         // Disc placement follows the render path 0x4b3e00: each object uses its
         // own recovered elevation curve and the shared regional azimuth.
@@ -1656,15 +1661,49 @@ impl Renderer {
         } else {
             0.
         };
-        let night_weight = crate::sky_time::night_weight(camera.time_of_day).unwrap_or(0.);
+        // P5.07: the native sky driver (`0x4203f4..0x420807`) returns while a
+        // swap is in flight and otherwise installs the day or night triple for
+        // the clock phase. The viewer's phase is the model day/night factor the
+        // fog channels and the celestial clock already use, so a time-slider
+        // move and a region change reach the sky through the same clock. `drive`
+        // only issues a swap; `step` is the native once-per-frame tick
+        // (`0x79a040`), and nothing else in the frame may call either.
+        let phase = crate::environment::night_factor(camera.time_of_day).clamp(0., 1.);
+        // The byte read at `0x4204db`. The client derives it from the sky clock,
+        // and its two roles (pick the branch, choose the pre-swap) only change
+        // *which* of the two counted swaps runs, so the viewer keys it off the
+        // same clock phase the driver reads. The authored flag word at
+        // `0x420992` gates disc visibility and is NOT used here: nothing in the
+        // driver tests it, and every region box carries one constant word.
+        let day = crate::environment::daylight(camera.time_of_day) >= 0.5;
+        crate::sky_transition::drive(
+            &mut self.sky_transition,
+            phase,
+            day,
+            crate::sky_transition::DAY_CLOCK_MS,
+        );
+        // A native fade is minutes long (up to half a game day), so it is
+        // replayed on elapsed time, not once per rendered frame: `0x8f14bc` says
+        // one tick is 1/30 s and `0x79a040` is the object's per-frame update.
+        self.sky_transition
+            .step_ms(camera.logic_delta_ms, &mut self.sky_tick_residual);
+        let sets = crate::sky_transition::frame_sets(&self.sky_transition);
+        // P5.08: one snapshot, two uploads. The reflected buffer receives the
+        // same hour, sets, blend, celestial direction and alpha; only the ray
+        // basis differs, so the sky cannot disagree between views. `view_sets`
+        // is the documented gate: a view can only read the snapshot, never
+        // re-derive the fade (`0x7cca50` and the reflection target both draw the
+        // same sky object).
+        let main_sets = crate::sky_transition::view_sets(sets, Pass::Main.is_secondary());
+        let reflected_sets =
+            crate::sky_transition::view_sets(sets, Pass::Reflection.is_secondary());
         // One authored sky set covers both phases, so the dusk/night darkening is
         // the recovered regional light colour instead of a second texture set. It
         // never falls below the region's ambient level, and the recovered switch
         // weight drives it too, so a region without a lighting record still gets a
         // night sky.
-        let light = camera
-            .regional_light
-            .or(self.retained_regional_light)
+        let night_weight = crate::sky_time::night_weight(camera.time_of_day).unwrap_or(0.);
+        let light = region_light
             .map(|l| {
                 [
                     l.ambient[0].max(l.diffuse[0]),
@@ -1680,15 +1719,15 @@ impl Renderer {
             night_weight,
             sun,
             moon,
-            // The 38.16-72.5 degree band has no native mesh; the client covers
-            // it with something drawn at 0x799f88 that this build does not, so
-            // the viewer blends the frame's atmospheric fog into the cap's own
-            // rim colour across that band.
+            // The 38.16-72.5 degree band has no native mesh; the client covers it
+            // with something drawn at 0x799f88 that this build does not, so the
+            // viewer blends the frame's atmospheric fog into the cap's own rim
+            // colour across that band.
             background: camera.air_fog.color,
             tint,
         };
-        self.sky.update(&self.queue, direction, w, h, frame, false);
-        self.sky.update(&self.queue, direction, w, h, frame, true);
+        self.sky.update(&self.queue, direction, w, h, frame, main_sets, false);
+        self.sky.update(&self.queue, direction, w, h, frame, reflected_sets, true);
         self.far_trees.update_lods(
             &self.queue,
             camera.pos.to_array(),

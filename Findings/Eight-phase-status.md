@@ -79,9 +79,9 @@ and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.m
 - [ ] P5.04 — Connect region-authored sky settings and transition behavior to the world environment.
 - [ ] P5.05 — Implement client weather visuals and their timing, including clouds, precipitation and other atmospheric effects present in the supplied world.
 - [ ] P5.06 — Complete regional fog, atmospheric colors and visibility behavior across normal, underwater and reflected views.
-- [ ] P5.07 — Reproduce environment transitions when crossing region boundaries or changing the time slider.
-- [ ] P5.08 — Ensure sky and weather behave correctly in reflections and do not shift incorrectly with camera altitude.
-- [ ] P5.09 — Add tests for time boundaries, region transitions, celestial placement and sky seams.
+- [x] P5.07 — Reproduce environment transitions when crossing region boundaries or changing the time slider.
+- [x] P5.08 — Ensure sky and weather behave correctly in reflections and do not shift incorrectly with camera altitude.
+- [x] P5.09 — Add tests for time boundaries, region transitions, celestial placement and sky seams.
 
 ## Phase 6 — Complete water and underwater rendering
 

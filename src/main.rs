@@ -90,6 +90,10 @@ mod sky_celestial;
 mod sky_geometry;
 mod sky_gpu;
 mod sky_time;
+// Accessors that only the Phase 5 diagnostic and the future weather wiring use
+// are kept public and unreferenced here, like `client_sun`.
+#[allow(dead_code)]
+mod sky_transition;
 mod terrain_block;
 mod terrain_gpu;
 mod terrain_lightmaps;
