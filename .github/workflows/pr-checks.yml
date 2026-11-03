@@ -71,6 +71,10 @@ jobs:
           cargo run --locked --bin phase1-fog-gpu-check
           cargo run --locked --bin terrain-refraction-gpu-check
           cargo run --locked --bin water-fog-gpu-check
+          # Near/far LOD continuity: runs both real terrain vertex entry points
+          # (`vs`, `vs_far`) on identical geometry and compares the interpolated
+          # normal in RGB plus the packed LOD flag in alpha.
+          cargo run --locked --bin terrain-lod-gpu-check
       - name: Run terrain per-view GPU check
         env:
           WGPU_BACKEND: vulkan
