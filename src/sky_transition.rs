@@ -516,7 +516,10 @@ mod tests {
         );
         assert!(!m.step());
         assert_eq!(m.commits(), 1);
-        assert!(!m.counts_down(), "0x79afb4 sets direction 0 on a same-set hit");
+        assert!(
+            !m.counts_down(),
+            "0x79afb4 sets direction 0 on a same-set hit"
+        );
     }
 
     #[test]
@@ -649,10 +652,7 @@ mod tests {
     #[test]
     fn invalid_and_non_finite_inputs_are_rejected() {
         let mut m = Machine::new(Triple::DAY);
-        assert_eq!(
-            m.request(Request::now(Triple(9))),
-            Err(Refused::InvalidSet)
-        );
+        assert_eq!(m.request(Request::now(Triple(9))), Err(Refused::InvalidSet));
         assert_eq!(m.current(), Triple::DAY);
         assert!(!m.running());
         assert_eq!(slice_count(1000, f32::NAN), 0);
@@ -765,8 +765,8 @@ mod tests {
         assert_eq!(m.counter(), 225_000);
         let mut m = Machine::new(Triple::NIGHT);
         let r = drive(&mut m, 0.5, true, VIEWER_CLOCK_MS).unwrap();
-        assert_eq!(r.slices, 150, "240/2 * 0.5 * 1.25");
-        assert_eq!(m.counter(), 30, "2*150 - 120");
+        assert_eq!(r.slices, 75, "240/2 * 0.5 * 1.25");
+        assert_eq!(m.counter(), 30, "2*75 - 240/2");
         assert!(m.running());
     }
 

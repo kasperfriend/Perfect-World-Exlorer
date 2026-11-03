@@ -376,11 +376,7 @@ fn main() {
     };
     let base = probe(sea_level, (0., 0., 0.));
     let weight_one = probe(sea_level, (0., 2., 1.));
-    let differing = base
-        .iter()
-        .zip(&weight_one)
-        .filter(|(a, b)| a != b)
-        .count();
+    let differing = base.iter().zip(&weight_one).filter(|(a, b)| a != b).count();
     assert!(
         differing > base.len() / 10,
         "sky set crossfade did not change the frame ({differing} of {} bytes)",

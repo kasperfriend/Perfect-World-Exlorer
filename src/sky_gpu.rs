@@ -416,8 +416,7 @@ mod reflection_tests {
         }
     }
     fn ray(projection: Mat4, view: Mat4, clip: glam::Vec2, reflected: bool) -> Vec3 {
-        let v = sky_inverse(projection, view, reflected)
-            * glam::Vec4::new(clip.x, clip.y, 1., 1.);
+        let v = sky_inverse(projection, view, reflected) * glam::Vec4::new(clip.x, clip.y, 1., 1.);
         (v.truncate() / v.w).normalize()
     }
     #[test]
