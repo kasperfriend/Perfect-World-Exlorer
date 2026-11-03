@@ -117,9 +117,9 @@ pub enum Region {
     Cap,
     /// Horizon skirt, `y <= R * pi / 4`.
     Curtain,
-    /// Band between the cap rim (72.5 degrees) and the curtain rim (51.75
-    /// degrees). The client's two buffers leave this band empty; its own
-    /// rim vertex alpha is zero, so the background shows through there.
+    /// Band between the curtain rim (38.16 degrees) and the cap rim (72.5
+    /// degrees). The client's two buffers leave this band empty; its own rim
+    /// vertex alpha is zero, so the background shows through there.
     CapEdgeGap,
 }
 
@@ -272,8 +272,9 @@ pub fn project(direction: [f32; 3]) -> Option<Sample> {
         return None;
     }
     let d = [direction[0] / len, direction[1] / len, direction[2] / len];
-    let y = d[1] * RADIUS;
-    if y >= CAP_EDGE_Y {
+    // The cap is a sphere, so a ray meets it at `50 * d`; the curtain is a
+    // cylinder or radius 50, so a ray meets it at `50 * tan(elevation)`.
+    if d[1] * RADIUS >= CAP_EDGE_Y {
         // Planar disc: the cap's ring radius is `2 * R * sin(step)`.
         let disc = 2.0 * RADIUS * ANGULAR_STEP.sin();
         return Some(Sample {
@@ -283,6 +284,11 @@ pub fn project(direction: [f32; 3]) -> Option<Sample> {
             region: Region::Cap,
         });
     }
+    let horizontal = (d[0] * d[0] + d[2] * d[2]).sqrt();
+    if horizontal <= 1e-6 {
+        return None;
+    }
+    let y = RADIUS * d[1] / horizontal;
     // The second draw mirrors z; both draws use the same vertex buffer, so the
     // mirrored half shares the island split at azimuth 90 degrees.
     let (layer, z) = if d[2] >= 0.0 {
@@ -447,7 +453,7 @@ mod tests {
         assert_eq!(curtain.indices.len() + cap.indices.len(), 1080);
         assert!(
             ROW_Y[0] < CAP_EDGE_Y,
-            "the native buffers leave the band between 51.75 and 72.5 degrees open"
+            "the native buffers leave the band between 38.16 and 72.5 degrees open"
         );
     }
 
@@ -470,7 +476,13 @@ mod tests {
             }
             assert_eq!(front_first.uv[0], 1.0);
             assert_eq!(back_last.uv[0], 0.0);
-            assert_ne!(front_first.uv[1], back_last.uv[1]);
+            if row + 1 == ROW_Y.len() {
+                // The native bottom row collapses both islands onto v = 0.5.
+                assert_eq!(front_first.uv[1], 0.5);
+                assert_eq!(back_last.uv[1], 0.5);
+            } else {
+                assert_ne!(front_first.uv[1], back_last.uv[1]);
+            }
         }
     }
 
@@ -494,7 +506,7 @@ mod tests {
     #[test]
     fn projection_agrees_with_the_vertex_buffer_inside_the_curtain() {
         let mesh = curtain();
-        for index in [0usize, 7, 14, 27, 41, 55, 69] {
+        for index in [7usize, 14, 21, 28, 35, 42, 49, 56, 63] {
             let v = mesh.vertices[index];
             let len = (v.position[0] * v.position[0]
                 + v.position[1] * v.position[1]
@@ -569,7 +581,8 @@ mod tests {
         assert_eq!(curtain_alpha(ROW_Y[0] + 5.0), 0.0);
         assert_eq!(curtain_alpha(ROW_Y[1]), 1.0);
         assert_eq!(curtain_alpha(-30.0), 1.0);
-        assert!((curtain_alpha(15.0) - 0.618_65).abs() < 1e-3);
+        // Halfway up the opaque part of the skirt.
+        assert!((curtain_alpha(29.45) - 0.5).abs() < 1e-3);
     }
 
     #[test]

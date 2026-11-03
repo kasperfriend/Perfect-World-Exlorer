@@ -319,7 +319,10 @@ mod tests {
                 }
                 elapsed_ms += TRANSITION_STEP as f64;
                 let hour = start_hour + (elapsed_ms / CLOCK_MS_PER_HOUR) as f32;
-                let expected = night_weight(hour).unwrap();
+                // The night switch ramps towards the night set; the day switch
+                // ramps away from it, so the two count in opposite directions.
+                let weight = night_weight(hour).unwrap();
+                let expected = if night { weight } else { 1.0 - weight };
                 assert!(
                     (switch.weight() - expected).abs() < 0.01,
                     "night {night} hour {hour}: {} vs {expected}",

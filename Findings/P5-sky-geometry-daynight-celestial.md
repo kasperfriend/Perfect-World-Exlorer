@@ -42,7 +42,7 @@ Rows are `39.27 * [1, 0.5, 0.167, 0, -0.27]`; each row holds two 7-column island
 | 3 | 0.0 | 0.5 | 0.5 | `0xffffffff` |
 | 4 | -10.6029005 | 0.5 | 0.5 | `0xffffffff` |
 
-Elevation coverage: **-12.23° to +51.75°**. Quads are
+Elevation coverage, as seen from the sphere centre: the curtain is a cylinder of radius 50, so a ray meets it at `50 * tan(elevation)`; the rows span **-11.98° to +38.16°**. Quads are
 `(v0, v0+14, v0+15), (v0, v0+15, v0+1)`; all 96 triangles have
 `normal · centroid < 0`, i.e. they face the camera inside the sphere.
 
@@ -82,7 +82,7 @@ signed area.
 
 ### 1.5 The band the native buffers leave open
 
-The curtain rim is at 51.75° and the cap rim at 72.5°, so **51.75°–72.5° has no
+The curtain rim is at 38.16° and the cap rim at 72.5°, so **38.16°–72.5° has no
 geometry in either stream**. The native rim vertex carries alpha 0, so the
 client shows the pass background there. The renderer reproduces exactly that:
 `sky_geometry::project` returns `Region::CapEdgeGap` with `alpha = 0` for the
@@ -239,8 +239,8 @@ Time boundaries covered: 00:00, 01:30, 03:30, 12:00, 18:00, 20:00, 21:00, 24:00.
 
 ## 6. Remaining gaps
 
-1. **Sky vertex-shader projection.** The recovered buffers leave 51.75°–72.5°
-   empty. Whether the client's per-vertex program (`W_TRIANGLE`, or the `W_SIN`
+1. **Sky vertex-shader projection.** The recovered buffers leave 38.16°–72.5°
+   empty (curtain seen as a cylinder, cap as a sphere). Whether the client's per-vertex program (`W_TRIANGLE`, or the `W_SIN`
    used with `solarsky.txt`) stretches one of the two meshes into that band
    cannot be decided without the shader text: `shaders.pck` (8,225,973 bytes,
    371 entries) uses a footer key this repository cannot decode —

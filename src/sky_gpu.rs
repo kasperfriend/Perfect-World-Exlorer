@@ -97,14 +97,16 @@ fn curtain_alpha(y:f32)->f32{
  return (39.2700005-y)/19.6350002;
 }
 fn sample_sky(d:vec3<f32>,base:i32)->vec4<f32>{
- let y=d.y*50.0;
- // Cap: planar disc over the top 17.5 degrees, A3DSkySphere::Init 0x79a810.
- if y>=47.685848 {
+ // Cap: sphere of radius 50, planar disc over the top 17.5 degrees
+ // (A3DSkySphere::Init 0x79a810).
+ if d.y*50.0>=47.685848 {
   let uv=vec2<f32>(0.5,0.5)+vec2<f32>(d.x,d.z)*1.66275358;
   return vec4<f32>(textureSampleLevel(skies,smp,uv,base+2,0.).rgb,1.0);
  }
- // Curtain: one 180 degree half per draw, the second draw mirrors z. The
- // island split at azimuth 90 reverses the texture run, it never blends.
+ // Curtain: cylinder of radius 50, so the ray meets it at 50*tan(elevation).
+ // One 180 degree half per draw, the second draw mirrors z; the island split
+ // at azimuth 90 reverses the texture run, it never blends.
+ let y=50.0*d.y/max(length(d.xz),0.000001);
  let front=d.z>=0.0;
  let az=atan2(abs(d.z),d.x);
  let quarter=1.5707963;
