@@ -1606,9 +1606,9 @@ impl Renderer {
             day,
             crate::sky_transition::DAY_CLOCK_MS,
         );
-        // The native fade is 15-100 % of a game day long (see
-        // `sky_transition`'s module notes), so it is replayed on elapsed time,
-        // not once per rendered frame: `0x8f14bc` says a tick is 1/30 s.
+        // A native fade is minutes long (up to half a game day), so it is
+        // replayed on elapsed time, not once per rendered frame: `0x8f14bc` says
+        // one tick is 1/30 s and `0x79a040` is the object's per-frame update.
         self.sky_transition
             .step_ms(camera.logic_delta_ms, &mut self.sky_tick_residual);
         let sets = crate::sky_transition::frame_sets(&self.sky_transition);

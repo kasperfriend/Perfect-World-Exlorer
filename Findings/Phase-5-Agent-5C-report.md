@@ -59,12 +59,29 @@ a float at `+0x74`: a 40- or 30-minute game day in milliseconds. `0x892e78` is
 `_ftol` (truncating), and the `cltd`/`sub`/`sar` at `0x420559`..`0x42055c` is the
 integer halving.
 
-**Viewer decision, declared not hidden:** the driver divides that day clock
-straight into a counter that the tick moves by a flat 33 per call, so the units do
-not line up and the resulting fade length depends on an unrecovered tick cadence.
-The viewer therefore feeds its own clock value
-(`sky_transition::VIEWER_CLOCK_MS`) and keeps every recovered expression intact.
-This is the one substituted constant in P5.07.
+**The cadence, recovered (was the one substituted constant in P5.07).** The
+driver divides that day clock straight into a counter that the tick moves by a
+flat 33 per call, so the units only line up if the tick is the per-frame update
+and 33 is a millisecond step. Both hold:
+
+- `0x79a040` has **exactly one reference**, the vtable slot `0x8f14b0` of the
+  `A3DSkySphere` vtable at `0x8f1490` (found by dumping the vtable, not by
+  scanning for `call`). It is the object's owned per-frame update: there is no
+  other caller and no config-sourced cadence — the binary has no frame-rate or
+  frame-limit string at all.
+- `0x8f14bc` (in the same vtable neighbourhood) holds `0x3d088889` = `1/30`, the
+  factor `0x79a0e0` multiplies both interpolation blocks by. One tick is one
+  Voodoo-3-era frame: **33 ms of fade**.
+
+So a transition lasts `count` milliseconds of wall time. The counted bands
+(`0.5..0.8` with `clock/2 * phase * 1.25`, `0.5..1` with `clock/2 * (1-phase) * 2`)
+have a supremum of **half a game day** — 900 000 ms on the 30-minute setting,
+i.e. 15 game minutes and **900 s of real time**; the other half of the day is the
+uncounted endpoint switch at `phase <= 0` / `phase >= 1`. The viewer therefore
+feeds `sky_transition::DAY_CLOCK_MS` (`0x1b7740`, the 30-minute setting; the
+40-minute one is `0x249f00`) and replays the fade on elapsed time through
+`Machine::step_ms`, whose sub-tick residual is integer milli-thirty-seconds so
+that thirty ticks are exactly one second.
 
 ### 1.4 Reflection / altitude state (P5.08)
 
@@ -179,13 +196,18 @@ full `cargo check`/`cargo run` happens in CI):
    change therefore moves the fade through the clock and the flag-word gate but
    cannot change which images are loaded. `Machine::author(day, night)` is the
    single place a region mapping would land.
-2. **The swap-duration unit.** Recovered counts are day-clock milliseconds while
-   the tick moves a flat 33; `VIEWER_CLOCK_MS` substitutes the viewer's clock.
-   Recovering the tick cadence would remove the substitution.
+2. ~~**The swap-duration unit.**~~ **Closed.** The cadence is recovered: one tick
+   is one frame (`0x8f14b0`, the object's only vtable update) at `1/30` s
+   (`0x8f14bc`), so a count is milliseconds and the longest counted fade is half
+   a game day. `VIEWER_CLOCK_MS` is gone; the viewer feeds the recovered
+   `DAY_CLOCK_MS` and ticks on elapsed time.
 3. **Weather in reflections (P5.08's cloud/precipitation clause).** Blocked on
    P5.05; no weather lane exists, by design rather than by omission.
-4. **Sky seams across a resource swap.** The seam test covers one set; a swap
-   between authored sets is not asserted against real art.
+4. **Sky seams across a resource swap.** `src/bin/phase5-sky-seam-check.rs` now
+   covers the meridian arithmetic (both boundaries, both sides, the half-open
+   band edges, and `sky_transition::frame_sets` never mixing resource groups
+   across all 18 layers of a swap), but it is arithmetic on the production
+   mapping, not a comparison against the client's authored panorama images.
 5. **No sky-art screenshot parity.** The GPU diagnostic uses synthetic gradients;
    it proves state and shader behaviour, not that the client's panorama images
    match at the seam.
