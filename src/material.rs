@@ -10,7 +10,14 @@ use std::{
 pub(crate) struct Texture {
     pub(crate) w: usize,
     pub(crate) h: usize,
-    pub(crate) pixels: Vec<u8>,
+    /// The authored mip chain, level 0 first, each level RGBA8.
+    ///
+    /// The archive's terrain sources all carry a complete chain, and `0x7f7ef1`
+    /// uploads it as authored. Keeping the chain here means the renderer copies
+    /// level *n* into mip slot *n* instead of dropping the chain and rebuilding it
+    /// with a box filter, which would replace the client's authored reductions
+    /// with a different filter.
+    pub(crate) levels: Vec<crate::dxt::Level>,
 }
 pub(crate) struct Layer {
     pub(crate) texture: usize,
@@ -109,15 +116,32 @@ impl Materials {
                 .find(|e| e.name.eq_ignore_ascii_case(path))
                 .ok_or_else(|| format!("missing texture {path}"))?;
             let raw = pck::read_entry(&mut file, entry)?;
-            let img = image::load_from_memory_with_format(&raw, image::ImageFormat::Dds)
-                .map_err(|e| format!("texture {path}: {e}"))?
-                .to_rgb8();
-            let (w, h) = img.dimensions();
-            textures.push(Texture {
-                w: w as usize,
-                h: h as usize,
-                pixels: img.into_raw(),
-            });
+            // Terrain sources must be one of the compressed formats the client
+            // can create; anything else is an explicit error naming the file
+            // instead of an `image` crate fallback that silently decodes a
+            // format the native device would have rejected.
+            let info = crate::terrain_sampling::parse_terrain_dds(&raw)
+                .map_err(|e| format!("texture {path}: {e}"))?;
+            // Decode the authored chain exactly. `parse_terrain_dds` has already
+            // proved the payload covers precisely the declared levels, so a
+            // decode failure here is a real defect and never a silent fallback.
+            let levels = crate::dxt::decode_chain(
+                info.format.four_cc(),
+                &raw[128..],
+                info.width,
+                info.height,
+                info.authored_mips,
+            )
+            .map_err(|e| format!("texture {path}: {e}"))?;
+            if levels.len() as u32 != info.authored_mips {
+                return Err(format!(
+                    "texture {path}: decoded {} of {} authored levels",
+                    levels.len(),
+                    info.authored_mips
+                ));
+            }
+            let (w, h) = (info.width as usize, info.height as usize);
+            textures.push(Texture { w, h, levels });
         }
         let mut areas: Vec<Area> = (0..areas_x * areas_y)
             .map(|_| Area { layers: Vec::new() })
@@ -255,7 +279,8 @@ impl Materials {
             let texel = |x: isize, y: isize, k: usize| -> f32 {
                 let xx = x.rem_euclid(tex.w as isize) as usize;
                 let yy = y.rem_euclid(tex.h as isize) as usize;
-                tex.pixels[(yy * tex.w + xx) * 3 + k] as f32
+                // CPU terrain colouring samples level 0 of the authored chain.
+                tex.levels[0].rgba[(yy * tex.w + xx) * 4 + k] as f32
             };
             let alpha = if i == 0 {
                 1.
@@ -300,12 +325,20 @@ mod tests {
                 Texture {
                     w: 1,
                     h: 1,
-                    pixels: vec![200, 0, 0],
+                    levels: vec![crate::dxt::Level {
+                        width: 1,
+                        height: 1,
+                        rgba: vec![200, 0, 0, 255],
+                    }],
                 },
                 Texture {
                     w: 1,
                     h: 1,
-                    pixels: vec![0, 0, 200],
+                    levels: vec![crate::dxt::Level {
+                        width: 1,
+                        height: 1,
+                        rgba: vec![0, 0, 200, 255],
+                    }],
                 },
             ],
             areas: vec![Area {

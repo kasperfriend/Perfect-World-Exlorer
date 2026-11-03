@@ -214,9 +214,23 @@ struct Owner {
 /// Publication identity: owner serial in the high half, element index in the
 /// low half. Two owners can never collide, and destruction removes exactly the
 /// elements that owner published.
+/// A root is unsupported when its only problem is the container format. Matching
+/// on the marker keeps the classification in one place instead of every caller
+/// re-testing error strings.
+fn is_unsupported(error: &str) -> bool {
+    error.contains(UNSUPPORTED_BINARY)
+}
+
 fn element_identity(serial: u64, index: usize) -> u64 {
     (serial << 32) | (index as u64 & 0xffff_ffff)
 }
+
+/// Marker for a root that is a genuine asset in a container this reader does not
+/// implement. Those are counted apart from failures: the file loaded fine, this
+/// reader is incomplete, and `Findings/Unsupported-client-paths.md` records the
+/// gap. Without the split every binary root inflated the "failed" number and
+/// looked like a broken asset instead of a known unread format.
+pub const UNSUPPORTED_BINARY: &str = "binary GFX container is not implemented";
 
 /// Counters for the viewer's status line and for tests.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -229,6 +243,16 @@ pub struct Status {
     pub emitters: usize,
     /// Number of recorded failure strings, including rejected roots.
     pub failures: usize,
+    /// Roots that are valid assets in an unread container (see
+    /// [`UNSUPPORTED_BINARY`]); never counted as failures.
+    pub unsupported: usize,
+    /// Owners that loaded cleanly but contain no light producer (`LightType`).
+    /// The native player executes their sprites/particles/trails through the
+    /// rest of the GFX graph; that graph is not implemented here, so they are
+    /// reported separately instead of being counted as failed or as lights.
+    pub non_light_owners: usize,
+    /// Frames the manager has ticked; the loader admits one root per frame.
+    pub frames: u64,
 }
 
 pub struct Manager {
@@ -240,9 +264,15 @@ pub struct Manager {
     /// reader defaults to "no suppression" instead of inventing one.
     priority_limit: i32,
     failures: Vec<String>,
+    unsupported: Vec<String>,
     next_serial: u64,
     removed: usize,
     loads: usize,
+    /// Frames the manager has ticked. `load_one` admits at most one pending
+    /// owner per frame (`0x5b1a00` returns immediately after a load), so a
+    /// status line showing `0 loaded` next to a large pending count can simply
+    /// mean the queue is still being drained one root per frame.
+    frames: u64,
     read: Option<Box<dyn FnMut(&str) -> Result<String, String>>>,
 }
 
@@ -258,9 +288,11 @@ impl Manager {
             owners: Vec::new(),
             priority_limit: i32::MAX,
             failures: Vec::new(),
+            unsupported: Vec::new(),
             next_serial: 1,
             removed: 0,
             loads: 0,
+            frames: 0,
             read: None,
         }
     }
@@ -393,6 +425,7 @@ impl Manager {
     /// Order follows 0x5b1a00: existing owners tick and publish first, then at
     /// most one pending root is loaded and the update returns immediately.
     pub fn update(&mut self, delta_ms: u32, publications: &mut LightPublications) {
+        self.frames += 1;
         let limit = self.priority_limit;
         let mut finished = Vec::new();
         let mut failed = Vec::new();
@@ -433,6 +466,12 @@ impl Manager {
     }
 
     /// Lazily load exactly one pending root; 0x5b1a00 returns after a load.
+    /// Frames ticked so far; paired with the loader budget so the UI can say
+    /// how far the one-per-frame queue has been drained.
+    pub fn frames(&self) -> u64 {
+        self.frames
+    }
+
     fn load_one(&mut self) {
         let Some(index) = self
             .owners
@@ -452,14 +491,18 @@ impl Manager {
             Ok(emitters) => self.owners[index].state = State::Live(emitters),
             Err(e) => {
                 self.owners[index].state = State::Failed;
-                self.failures.push(format!("{origin}: {e}"));
+                if is_unsupported(&e) {
+                    self.unsupported.push(format!("{origin}: {e}"));
+                } else {
+                    self.failures.push(format!("{origin}: {e}"));
+                }
             }
         }
     }
 
     fn decode(text: &str) -> Result<Vec<Emitter>, String> {
         if !text.starts_with("MOXT") {
-            return Err("binary GFX root is not implemented for light publication".into());
+            return Err(format!("{UNSUPPORTED_BINARY} (root text)"));
         }
         let definitions = crate::gfx_light::parse(text)?;
         Ok(definitions.into_iter().map(Emitter::new).collect())
@@ -470,6 +513,8 @@ impl Manager {
             removed: self.removed,
             loads: self.loads,
             failures: self.failures.len(),
+            unsupported: self.unsupported.len(),
+            frames: self.frames,
             ..Default::default()
         };
         for owner in &self.owners {
@@ -479,6 +524,9 @@ impl Manager {
                 State::Live(emitters) => {
                     status.live += 1;
                     status.emitters += emitters.len();
+                    if emitters.is_empty() {
+                        status.non_light_owners += 1;
+                    }
                 }
             }
         }
@@ -487,6 +535,12 @@ impl Manager {
 
     pub fn failures(&self) -> &[String] {
         &self.failures
+    }
+
+    /// Roots that could not be read because their container format is not
+    /// implemented, as opposed to roots that are broken.
+    pub fn unsupported(&self) -> &[String] {
+        &self.unsupported
     }
 
     /// Owner origins in insertion order, for diagnostics.
@@ -742,6 +796,45 @@ mod tests {
         assert!(manager.failures()[0].contains("nonfinite attachment parent"));
     }
 
+    /// The status line used to read `0 elements` while 257 roots were loaded
+    /// because every loaded root was a sprite/particle root with no
+    /// `LightType`; those are now counted separately from failures, and the
+    /// frame counter makes the one-root-per-frame queue visible.
+    #[test]
+    fn owners_without_a_light_are_reported_apart_from_failures() {
+        let light = light_file();
+        // A sprite-only root: noise/line keys, but no LightType marker.
+        let sprite = "MOXTVersion: 37\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 150\n\
+                      Name: 11\nBufLen: 256\nAmplitude: 1\nWaveLen: 1\nSegs: 10\n\
+                      LightNum: 1\nInterval: 70\nFilter: 1\n"
+            .to_string();
+        let mut manager = Manager::with_reader(move |path| {
+            Ok(if path.contains("lamp") {
+                light.clone()
+            } else {
+                sprite.clone()
+            })
+        });
+        let mut r = request(1, true);
+        r.path = "gfx/scene/sprite.gfx".into();
+        manager.insert(r).unwrap();
+        manager.insert(request(2, true)).unwrap();
+        let mut publications = LightPublications::default();
+        manager.update(0, &mut publications);
+        manager.update(0, &mut publications);
+        let status = manager.status();
+        assert_eq!(status.live, 2, "both roots decoded");
+        assert_eq!(
+            status.non_light_owners, 1,
+            "the sprite root carries no light"
+        );
+        assert_eq!(status.emitters, 1);
+        assert_eq!(status.failed_owners, 0);
+        assert_eq!(status.failures, 0);
+        assert_eq!(status.frames, 2);
+        assert_eq!(manager.frames(), 2);
+    }
+
     #[test]
     fn one_root_is_loaded_per_update_and_insertion_order_is_preserved() {
         let text = light_file();
@@ -817,13 +910,28 @@ mod tests {
     }
 
     #[test]
-    fn binary_roots_are_refused_rather_than_parsed_as_lights() {
+    fn binary_roots_are_reported_as_unsupported_not_as_failures() {
         let mut manager = Manager::with_reader(|_| Ok("MOXB".to_string()));
         manager.insert(request(1, true)).unwrap();
         let mut publications = LightPublications::default();
         manager.update(16, &mut publications);
         assert_eq!(manager.status().failed_owners, 1);
-        assert!(manager.failures()[0].contains("binary GFX"));
+        // The root is a real asset in a container this reader cannot parse, so it
+        // must not be reported as a broken asset.
+        assert_eq!(
+            manager.status().failures,
+            0,
+            "a format gap is not a failure"
+        );
+        assert_eq!(manager.status().unsupported, 1);
+        assert!(manager.unsupported()[0].contains("binary GFX"));
+        // A reader that cannot find the entry IS a failure: the asset is
+        // missing, not merely in an unread container.
+        let mut manager = Manager::with_reader(|_| Err("missing gfx.pck entry".to_string()));
+        manager.insert(request(2, true)).unwrap();
+        manager.update(16, &mut publications);
+        assert_eq!(manager.status().unsupported, 0);
+        assert_eq!(manager.status().failures, 1);
         // No reader attached is also explicit, not a silent no-op.
         let mut manager = Manager::new();
         manager.insert(request(9, true)).unwrap();

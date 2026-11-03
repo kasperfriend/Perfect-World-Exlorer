@@ -31,6 +31,7 @@ mod client_detect;
 mod client_sun;
 mod color_chain;
 mod display_gamma;
+mod dxt;
 mod ecmodel;
 mod environment;
 mod far_trees_gpu;
@@ -85,11 +86,13 @@ mod skeleton_pose;
 mod skin;
 mod skin_pose;
 mod sky_gpu;
+mod terrain_block;
 mod terrain_gpu;
 mod terrain_lightmaps;
 #[allow(dead_code)]
 mod terrain_lod;
 mod terrain_residency;
+mod terrain_sampling;
 #[allow(dead_code)]
 mod terrain_shading;
 mod texture_atlas;
@@ -114,6 +117,15 @@ struct Terrain {
     height: usize,
     heights: std::sync::Arc<[f32]>,
     normals: Vec<[i8; 3]>,
+    /// Per-vertex RGBA baked into each T2BK block when flag bit 0x1 is set.
+    ///
+    /// Neither the height nor the normal section, but a full third section:
+    /// 4 bytes per vertex, zlib-compressed, exactly `(grid+1)^2 * 4` bytes once
+    /// inflated (1089 vertices at grid 32). The retail `world_39.t2bk` sets
+    /// bit 0x1 and carries it in all 256 blocks, so reading only heights and
+    /// normals left 1.7-1.9 kB unaccounted for in every block and overran the
+    /// file on the last one.
+    vertex_rgba: std::sync::Arc<[u8]>,
     grid_spacing: f32,
     materials: material::Materials,
     subterrain_names: Vec<String>,
@@ -183,6 +195,9 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     }
     let mut heights = vec![0f32; w * h];
     let mut normals = vec![[0i8, 127, 0]; w * h];
+    // Default is opaque white, i.e. "no authored tint", so a tile whose blocks do
+    // not set bit 0x1 renders exactly as before.
+    let mut vertex_rgba = vec![255u8; w * h * 4];
     let sin_table: Vec<f32> = (0..256)
         .map(|i| (i as f32 * std::f32::consts::TAU / 256.).sin())
         .collect();
@@ -216,6 +231,11 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         } else {
             data[12]
         };
+        // Validate the whole offset table and section layout before reading any
+        // heights: this is what catches a flags bit the reader does not implement,
+        // and it is what found the missing per-vertex colour section.
+        let block_layout =
+            terrain_block::layout(&data, grid).map_err(|e| format!("{name}: {e}"))?;
         for bi in 0..per * per {
             let off = u32at(&data, 16 + bi * 4)? as usize;
             let hs = u32at(&data, off + 16)? as usize;
@@ -319,6 +339,25 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
                     block_normals.push(n);
                 }
             }
+            // Third section: per-vertex RGBA, present when flag bit 0x1 is set.
+            let vertex_colour = if let Some((cs, ce)) = block_layout.blocks[bi].colour {
+                let raw = data.get(cs..ce).ok_or("truncated vertex colour data")?;
+                let mut decoded_colour = Vec::new();
+                ZlibDecoder::new(raw)
+                    .take((nv * 4 + 64) as u64)
+                    .read_to_end(&mut decoded_colour)
+                    .map_err(|e| format!("{name} block {bi} vertex colour: {e}"))?;
+                if decoded_colour.len() != nv * 4 {
+                    return Err(format!(
+                        "{name} block {bi}: vertex colour is {} bytes, expected {}",
+                        decoded_colour.len(),
+                        nv * 4
+                    ));
+                }
+                Some(decoded_colour)
+            } else {
+                None
+            };
             let br = (si / subs_x) * per + bi / per;
             let bc = (si % subs_x) * per + bi % per;
             for y in 0..grid {
@@ -330,6 +369,10 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
                     let dst = (br * grid + y) * w + bc * grid + x;
                     heights[dst] = val;
                     normals[dst] = block_normals[y * (grid + 1) + x];
+                    if let Some(c) = &vertex_colour {
+                        let s = (y * (grid + 1) + x) * 4;
+                        vertex_rgba[dst * 4..dst * 4 + 4].copy_from_slice(&c[s..s + 4]);
+                    }
                 }
             }
         }
@@ -440,6 +483,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         width: w,
         height: h,
         heights: heights.into(),
+        vertex_rgba: vertex_rgba.into(),
         normals,
         grid_spacing,
     })

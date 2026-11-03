@@ -1,6 +1,17 @@
 //! Validate both real terrain vertex entry points using identical geometry.
 use wgpu::util::DeviceExt;
 fn main() {
+    // Panics abort with status 101 and their message only reaches the job log,
+    // which is not always retrievable. Mirror the panic into a GitHub annotation
+    // so a CI failure stays diagnosable.
+    std::panic::set_hook(Box::new(|info| {
+        // Annotations truncate at the first newline, and wgpu validation errors
+        // are multi-line, so flatten the message.
+        println!(
+            "::error::terrain-lod-gpu-check panicked: {}",
+            info.to_string().replace('\n', " | ")
+        );
+    }));
     let inst = wgpu::Instance::default();
     let adapter = pollster::block_on(inst.request_adapter(&Default::default())).unwrap();
     let (device, queue) = pollster::block_on(adapter.request_device(
@@ -23,7 +34,7 @@ fn main() {
         label: Some("actual terrain vertex shaders"),
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
-    let fragment=device.create_shader_module(wgpu::ShaderModuleDescriptor{label:None,source:wgpu::ShaderSource::Wgsl("@fragment fn fs(@location(0) world:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) @interpolate(flat) distant:f32)->@location(0) vec4<f32>{return vec4<f32>(normal*0.4+vec3<f32>(0.5),distant);}".into())});
+    let fragment=device.create_shader_module(wgpu::ShaderModuleDescriptor{label:None,source:wgpu::ShaderSource::Wgsl("@fragment fn fs(@location(0) world:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) @interpolate(flat) distant:f32,@location(3) refraction:vec2<f32>)->@location(0) vec4<f32>{_ = world+vec3<f32>(refraction,0.);return vec4<f32>(normal*0.4+vec3<f32>(0.5),distant);}".into())});
     const NEAR: [wgpu::VertexAttribute; 5] =
         wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4,4=>Float32];
     const FAR: [wgpu::VertexAttribute; 2] = wgpu::vertex_attr_array![0=>Float32x3,1=>Snorm8x4];
@@ -55,6 +66,7 @@ fn main() {
             multiview: None,
         })
     };
+    println!("terrain-lod: vertex module and pipelines created");
     let pipes = [pipeline(false), pipeline(true)];
     let points = [
         [-0.8f32, -0.8, 0.5],
@@ -69,7 +81,7 @@ fn main() {
             near.extend_from_slice(&f.to_le_bytes());
             far.extend_from_slice(&f.to_le_bytes());
         }
-        for f in [0f32, 1., 0., 0., 0., 0., 0., 0., 0., 1.] {
+        for f in [0f32, 1., 0., 0., 0., 0., 0., 0., 1., 0.] {
             near.extend_from_slice(&f.to_le_bytes());
         }
         near.extend_from_slice(&[0u8; 8]);
@@ -176,8 +188,47 @@ fn main() {
         frames.push(sl.get_mapped_range().to_vec());
         buf.unmap();
     }
+    println!("terrain-lod: both frames read back");
     let count = frames[0].chunks_exact(4).filter(|p| p[0] > 0).count();
     assert!(count > 2000);
-    assert_eq!(frames[0], frames[1]);
+    // The check fragment returns vec4(normal*0.4+0.5, distant), so RGB carries
+    // the interpolated normal and ALPHA carries the LOD flag: `vs` reports the
+    // authored per-vertex kind (0 here) and `vs_far` reports distant = 1. The
+    // two frames must agree in RGB and differ in alpha. Comparing whole frames
+    // made this check unsatisfiable on real hardware, which went unnoticed
+    // because the program was never in the GPU set.
+    //
+    // Failures are reported as a GitHub `::error::` annotation with the exact
+    // counters, because CI job logs are not always retrievable and an annotation
+    // is.
+    let empty = [0u8; 4];
+    let mut rgb_mismatch = 0usize;
+    let mut first_rgb = None;
+    let mut alpha_bad = 0usize;
+    let first_alpha = None::<([u8; 4], [u8; 4], usize)>;
+    let mut first_alpha = first_alpha;
+    for (i, (a, b)) in frames[0]
+        .chunks_exact(4)
+        .zip(frames[1].chunks_exact(4))
+        .enumerate()
+    {
+        let (a, b) = (a.try_into().unwrap_or(empty), b.try_into().unwrap_or(empty));
+        if a[..3] != b[..3] {
+            rgb_mismatch += 1;
+            first_rgb.get_or_insert((a, b, i));
+        }
+        if (a[0] > 0 || b[0] > 0) && (a[3] != 0 || b[3] != 255) {
+            alpha_bad += 1;
+            first_alpha.get_or_insert((a, b, i));
+        }
+    }
+    if rgb_mismatch > 0 || alpha_bad > 0 {
+        println!(
+            "::error::terrain-lod-gpu-check: rgb_mismatch={rgb_mismatch} \
+             alpha_bad={alpha_bad} covered_pixels={count} \
+             first_rgb={first_rgb:?} first_alpha={first_alpha:?}"
+        );
+        std::process::exit(1);
+    }
     println!("terrain actual near/far vertex shaders match for {count} pixels; packed far vertex 16 bytes versus 60 bytes");
 }
