@@ -254,3 +254,23 @@ python3 tools/speedtree/compare_lod_counts.py Findings/SpeedTree-emulated-lod-co
 ```
 
 The source baker's nonfinite-normal diagnostic now additionally reports the vertex and vector component. `g++ -std=c++17 -Wall -Wextra -Werror tools/speedtree/test_bake_geometry.cpp -o .cache/test_bake_geometry && .cache/test_bake_geometry` passes, including the specific location in the error; the Zig cross-compile succeeds, but this is still not the embedded helper. The SpeedTree Python suite now passes 12 tests, including matching, missing, duplicate and mismatched LOD survey checks.
+
+### Loaded-geometry LOD traces (2026-11-03)
+
+`tools/speedtree/lod-geometry-probe.cpp` loads and computes an SPT using the baker's settings, calls the actual DLL `GetGeometry` with automatic component selection (`-1` for each short argument), and reports branch/frond/leaf indices, cutout references, and geometry counts for an evenly spaced range of explicit continuous LOD levels. It sets the global `SetDropToBillboard(false)` as observed in client initialization. This is direct DLL execution in the previously described wibo/Wine-derived CRT environment, not an end-to-end client or Windows run.
+
+Using 101 samples for each of 59 world records, 5,959 samples matched the experimental Rust discrete and leaf-transition translations, with maximum leaf alpha error `4.82e-7` (alpha range 0–255). This now compares against `GetGeometry` on loaded, computed real SPTs rather than only synthetic isolated-call fixtures. The sweep found branch and frond alpha reference 84 throughout the sampled levels; 58 mode-0 types had a single leaf set at 84, and mode-1 type 39 had two active leaf sets during some transitions, both with zero cards in these samples. This is a sampled observation, **not** proof of behavior between sample points, alternate states, or other SPTs. In the traced client manager, `0x65015f` enables alpha testing (`0x77a320` writes D3DRS_ALPHATESTENABLE 15) and `0x650174` sets D3DRS_ALPHAFUNC 25 to 5 (`GREATER`); branch and frond pass code sets D3DRS_ALPHAREF 24 via `0x77a380` at `0x656c01` and `0x656d4a` respectively; the leaf batch sets it to 84 at `0x650515`. These findings do not yet validate the full pixel alpha expression or justify replacing all production material handling with one constant.
+
+The 59-row summary is `Findings/SpeedTree-wibo-geometry-lod-survey.tsv`; full traces remain local. Representative 101-sample fixtures for types 0, 12 and 39 are checked in under `tools/speedtree/fixtures/lod-geometry/`, including both discrete and two-leaf mode cases. Reproduction:
+
+```
+.cache/zig/ziglang/zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/lod-geometry-probe.cpp -o .cache/lod-geometry-probe.exe
+mkdir -p .cache/geometry-traces
+seq 0 58 | xargs -P 4 -I '{}' sh -c 'id=$(printf "%03d" "$1"); .cache/wibo-build/wibo .cache/lod-geometry-probe.exe "$PWD/google_drive/speedtreert.dll" "$PWD/.cache/tree-source/tree-$id.spt" 100 > .cache/geometry-traces/$id.tsv' sh '{}'
+PATH="$PWD/.cache/rust/bin:$PATH" python3 tools/speedtree/compare_geometry_lod_rust.py .cache/geometry-traces
+PATH="$PWD/.cache/rust/bin:$PATH" python3 tools/speedtree/compare_geometry_lod_rust.py tools/speedtree/fixtures/lod-geometry --types 0,12,39
+```
+
+Neither the per-component selection nor the alpha references are yet used in production. The cache still lacks all component LODs, real bounds and full transition state; current shader state and leaf animation remain approximate. P4.01–P4.03 are still **No**.
+
+`src/tree_lod.rs::client_components` now combines the checked discrete and transition translations into branch, frond and up-to-two leaf slots with individual cutout references for drop-to-billboard disabled and leaf modes 0/1. Unsupported modes and invalid inputs return `None`; it does not invent geometry or implement billboard transitions. The 5,959-trace comparison now exercises this combined function. It remains unwired until the cache supplies independent component geometry and metadata; it does not change the switches.

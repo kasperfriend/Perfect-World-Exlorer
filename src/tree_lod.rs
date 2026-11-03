@@ -109,6 +109,51 @@ pub fn client_transition(
     Some(ClientTransition { primary: nearest - 1, secondary: Some(nearest), alpha_primary, alpha_secondary })
 }
 
+/// A per-component geometry slot and its alpha-test reference (0..255).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ComponentLod {
+    pub index: u16,
+    pub alpha_reference: f32,
+}
+
+/// GetGeometry's LOD outputs with drop-to-billboard disabled. This is not yet
+/// wired to the snapshot renderer: PWTREE07 does not contain independent LODs.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClientComponents {
+    pub branch: Option<ComponentLod>,
+    pub frond: Option<ComponentLod>,
+    pub leaf: [Option<ComponentLod>; 2],
+}
+
+/// Translate the component selection for the supported mode 0 and mode 1
+/// leaf paths, for finite levels and an explicitly supplied material state.
+/// Billboard blending and modes 2/3 are not represented: callers must not use
+/// this for those states. This function does not select or synthesize geometry.
+pub fn client_components(
+    level: f32, counts: [u16; 3], leaf_mode: u32,
+    half_width: f32, bias: f32, exponent: f32, alpha: u8,
+) -> Option<ClientComponents> {
+    if !level.is_finite() || !(0.0..=1.0).contains(&level)
+        || counts.iter().any(|&count| count > i16::MAX as u16)
+    {
+        return None;
+    }
+    let reference = f32::from(alpha);
+    let discrete = |count| client_discrete_level(level, count, false)
+        .map(|index| ComponentLod { index, alpha_reference: reference });
+    let leaf = match leaf_mode {
+        0 => [discrete(counts[2]), None],
+        1 if counts[2] == 0 => [None, None],
+        1 => {
+            let t = client_transition(level, counts[2], half_width, bias, exponent, reference)?;
+            [Some(ComponentLod { index: t.primary, alpha_reference: t.alpha_primary }),
+             t.secondary.map(|index| ComponentLod { index, alpha_reference: t.alpha_secondary })]
+        }
+        _ => return None,
+    };
+    Some(ClientComponents { branch: discrete(counts[0]), frond: discrete(counts[1]), leaf })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Selection {
     pub primary: usize,
@@ -181,6 +226,24 @@ mod tests {
         assert_eq!(client_level([f32::NAN, 0., 0.], [0.; 3], 50., 160.), None);
         assert_eq!(client_level([f32::MAX, 0., 0.], [0.; 3], 50., 160.), None);
         assert_eq!(client_level([0.; 3], [0.; 3], 160., 50.), None);
+    }
+    #[test]
+    fn component_selection_discrete_transition_and_unsupported_modes() {
+        let discrete = client_components(0.5, [2, 4, 3], 0, 0.07, 0.5, 1.3, 84).unwrap();
+        assert_eq!(discrete.branch.unwrap().index, 1);
+        assert_eq!(discrete.frond.unwrap().index, 2);
+        assert_eq!(discrete.leaf[0].unwrap().index, 1);
+        assert_eq!(discrete.leaf[0].unwrap().alpha_reference, 84.0);
+        assert_eq!(discrete.leaf[1], None);
+        let transition = client_components(0.5, [5, 5, 6], 1, 0.07, 0.5, 1.3, 84).unwrap();
+        assert_eq!(transition.leaf[0].unwrap().index, 2);
+        assert_eq!(transition.leaf[1].unwrap().index, 3);
+        assert_eq!(transition.leaf[0].unwrap().alpha_reference, 84.0);
+        assert_eq!(transition.leaf[1].unwrap().alpha_reference, 84.0);
+        assert_eq!(client_components(0.5, [0, 0, 0], 0, 0.0, 0.0, 0.0, 84).unwrap().leaf, [None, None]);
+        assert_eq!(client_components(0.5, [2, 2, 2], 3, 0.07, 0.5, 1.3, 84), None);
+        assert_eq!(client_components(f32::NAN, [2, 2, 2], 0, 0.07, 0.5, 1.3, 84), None);
+        assert_eq!(client_components(0.5, [2, 2, 2], 1, 0.0, 0.5, 1.3, 84), None);
     }
     #[test]
     fn distance_estimate_includes_altitude_and_rejects_invalid_values() {
