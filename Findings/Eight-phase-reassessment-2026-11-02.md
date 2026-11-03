@@ -2,10 +2,12 @@
 
 Audited code revision: `a9c4b35e1086067247ffc25a7e7755a0111124c2`.
 
-Phase 4-C evidence update — 3 November 2026: the authored-mip experiment now
-supports exact rectangular grass slots with separate X/Y extents. P4.07 remains
-Partial because native sampler tuples, tree runtime cutouts, deeper mip tails,
-and native tree lighting/reflection parity remain unverified; see
+Phase 4-C evidence and scope update — 3 November 2026: the authored-mip experiment now
+supports exact rectangular grass slots with separate X/Y extents, and the PWTREE08
+path captures per-LOD tree alpha references. At the user’s direction, P4.07 is
+closed as Implemented for the best-supported viewer path; this is not a native-
+parity signoff. Native sampler tuples, tree alpha compare, deeper mip tails, and
+tree lighting/reflection parity are documented as deferred gaps in the
 [Phase 4-C report](Phase-4-C-vegetation-materials.md).
 Original requirement text/IDs are preserved in [Eight-phase status](Eight-phase-status.md).
 This audit covers **all 76 points**, not just Phase 1. It corrects both stale
@@ -109,7 +111,7 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 | P4.04 | Partial | Per-tree geometry/motion inputs and optional wind controls (`src/far_trees_gpu.rs`, `src/view_settings.rs`). | Exact native timing, wind modes and per-instance runtime variation. |
 | P4.05 | Partial | Authored grass types/masks, terrain alignment, RANMAR jitter/yaw/scale and instancing (`src/grass.rs`, `src/grass_random.rs`, `src/grass_instances.rs`). | Complete native density, patch visibility, LOD and streaming behavior. |
 | P4.06 | Partial | 80-frame spring/noise wind history, source fade and cutout arithmetic (`src/grass_wind.rs`, `src/gpu.rs`). | Exact client wind update timing/precision and all material states. |
-| P4.07 | Partial | Foliage/grass authored mips through atlas LOD 7; the opt-in grass path now keeps exact rectangular slots with separate X/Y UV extents. Grass GREATER/84 cutout, lightmaps and reflection submission remain covered (`src/grass_mips.rs`, `src/grass_instances.rs`, `src/gpu.rs`). | Native per-material sampler tuples, tree runtime alpha references, authored tails deeper than LOD 7, and native tree lighting/reflection parity. |
+| P4.07 | Implemented | Opt-in authored mips through atlas LOD 7, exact rectangular grass slots, grass GREATER/84, PWTREE08 per-LOD tree alpha references, reflection submissions and Linux/Windows CI (`src/grass_mips.rs`, `src/grass_instances.rs`, `src/trees.rs`, `src/far_trees_gpu.rs`, `tools/speedtree/bake.cpp`). | **User-approved scope closeout, not native-parity signoff:** exact sampler tuples, branch/frond alpha compare, mip tails beyond LOD 7, and exact tree lighting/reflection remain deferred and recorded in the Phase 4-C report. |
 | P4.08 | Implemented | Approved tree path remains available and default; new regional lighting is opt-in (`src/view_settings.rs`, `src/far_trees_gpu.rs`). | Preservation requirement met, not full vegetation parity. |
 | P4.09 | Implemented | LOD, sampled motion, RANMAR placement, wind history, alpha coverage and lighting tests/diagnostics exist (`src/tree_lod.rs`, `src/trees.rs`, `src/grass_random.rs`, `src/grass_wind.rs`, `src/bin/grass-instance-gpu-check.rs`). | Test-category requirement met; asset-dependent diagnostics are not all rerun or all part of current CI. |
 

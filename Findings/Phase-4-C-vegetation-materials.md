@@ -1,5 +1,7 @@
 # Phase 4-C — vegetation materials, authored mips, and CI
 
+**Status: Implemented by user-approved scoped closeout (3 November 2026), not a claim of exact native parity.** Native sampler settings, branch/frond alpha compare, deeper mip tails, and tree lighting/reflection differences remain deferred and are listed below.
+
 Updated: 3 November 2026.
 
 ## Scope and preservation decision
@@ -103,4 +105,4 @@ The PWTREE08 parser tests, shader regression, all-target Linux build, Windows he
 
 ### PWTREE08 cache work (2026-11-03)
 
-`tools/speedtree/bake.cpp` now writes PWTREE08 with `Geometry.alpha_branch` and `Geometry.alpha_frond` after each LOD geometry pair, and emits a compact `tree-alpha-refs.csv` in the prepared cache for native inspection. `src/trees.rs` parses and range-checks those fields; older versions retain `None`. The opt-in far-tree vertex path transports the per-LOD reference and applies strict GREATER comparison; leaf reference 84 is separately evidenced by the client renderer. `windows_setup.rs` uses a PWTREE08 cache key. CI run `41719211642` successfully rebuilt the helper from source, parsed/tested PWTREE08, exercised the production shader regression, and built the Windows viewer. The checked-in helper artifact remains older for local builds unless rebuilt; CI did not run the new bridge against the proprietary runtime DLL, and no real-client/render comparison was available. The alpha compare for branch/frond and sampler/reflection parity remain unresolved, so P4.07 stays Partial.
+`tools/speedtree/bake.cpp` now writes PWTREE08 with `Geometry.alpha_branch` and `Geometry.alpha_frond` after each LOD geometry pair, and emits a compact `tree-alpha-refs.csv` in the prepared cache for native inspection. `src/trees.rs` parses and range-checks those fields; older versions retain `None`. The opt-in far-tree vertex path transports the per-LOD reference and applies strict GREATER comparison; leaf reference 84 is separately evidenced by the client renderer. `windows_setup.rs` uses a PWTREE08 cache key. CI run `41719211642` successfully rebuilt the helper from source, parsed/tested PWTREE08, exercised the production shader regression, and built the Windows viewer. Follow-up CI run `41722258155` also compiled the added CSV alpha-reference report into the helper and passed Linux/Windows checks. The checked-in helper artifact remains older for local builds unless rebuilt; CI did not run the new bridge against the proprietary runtime DLL, and no real-client/render comparison was available. The alpha compare for branch/frond and sampler/reflection parity remain unresolved, so the user-approved status is Implemented for the best-supported viewer path; these are explicitly deferred parity gaps, not resolved findings.
