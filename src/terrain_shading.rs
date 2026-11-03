@@ -562,6 +562,45 @@ mod tests {
         assert!(day_night_lightmap(0.8, 0.2, 0.5) > 0.2);
     }
 
+    /// Structural guard on the production shader: the recovered arithmetic has
+    /// to be the arithmetic `terrain_gpu.rs` actually executes, otherwise this
+    /// module is a description of the client rather than a reconstruction of it.
+    #[test]
+    fn production_terrain_wgsl_runs_the_recovered_composite() {
+        let wgsl = include_str!("terrain_gpu.rs");
+        let fs = wgsl
+            .split("fn fs(i:Out)")
+            .nth(1)
+            .expect("production terrain fragment shader");
+        // `lrp_sat r5, c3.a, r5, r4` with t4 = day, t5 = night: factor 0 is the
+        // day map, 1 the night map, so the mix is (day, night, factor).
+        assert!(
+            fs.contains("baked=mix(day,night,factor)*2.;"),
+            "day map must be the factor-0 endpoint and night the factor-1 endpoint"
+        );
+        // `mul_x2` doubles the encoded lightmap, exactly once.
+        assert_eq!(fs.matches("*2.").count(), 1);
+        // `mul r0, r0, v0` with v0 = c0.x = 1.0: no ambient or scene light is
+        // added to the baked terrain on the lightmapped path.
+        let composited = fs
+            .split("if lightmapped {return vec4<f32>(terrain_pass_fog(")
+            .nth(1)
+            .expect("lightmapped return");
+        let composited = composited.split(");}").next().unwrap();
+        for forbidden in ["camera.light", "camera.sun.xyz", "camera.region_", "dot("] {
+            assert!(
+                !composited.contains(forbidden),
+                "baked terrain must not add {forbidden}"
+            );
+        }
+        assert!(composited.contains("color*baked*i.refraction.y"));
+        // The lightmapped switch is exclusive: the lightmap block, the encoded
+        // conversion and the returned branch all branch on the same predicate,
+        // and the viewer-only fallback is its negation.
+        assert_eq!(fs.matches("if lightmapped").count(), 2);
+        assert_eq!(fs.matches("if !lightmapped").count(), 1);
+    }
+
     #[test]
     fn compose_drops_the_specular_term_because_c0w_is_zero() {
         // 0x9d30f8 starts at 0, so `mad r0, r5, r2, r0` adds nothing.

@@ -14,18 +14,20 @@ not touched here.
 | File | Change | Production call site |
 |---|---|---|
 | `src/terrain_shading.rs` | **new** - `Variant`, `Caps`, `select`, `PassState`/`pass_state`, stage constants, `vertex_layout`, `ShaderConstants`/`shader_constants`, `day_night_lightmap`, `lightmap_uses_night`, `compose`, `packed_weight`, `composite_layers`, `Atlas`, `lightmap_pair`, `native::*`; 12 tests | `TerrainGpu::new` calls `select`/`pass_state`; the lightmap arithmetic is still reference-only (section 7, gap 1) |
-| `src/terrain_gpu.rs` | **cross-lane edit, announced**: `TerrainGpu::new` now derives primitive, colour-target, depth and cull state from `terrain_shading::select`/`pass_state` instead of restating them | 2-A/2-C read the same pipeline; no mesh, texture, sampler or submit code touched |
+| `src/terrain_gpu.rs` | **cross-lane edit, announced**: `TerrainGpu::new` derives primitive, colour-target, depth and cull state for **both** the near and the far pipeline from `terrain_shading::select`/`pass_state` instead of restating them, and `fs` now runs the recovered lightmap composite (one `mix(day, night, factor)*2`, no ambient/normal/scene-light term on the lightmapped path) | 2-A/2-C read the same pipeline; no mesh, texture, sampler, draw or submit code touched. `light_consumers.rs` guard reworded, not weakened |
 | `src/main.rs` | `#[allow(dead_code)] mod terrain_shading;` added beside the other attributed modules (the address table and the reference arithmetic are not all reachable from the viewer yet) | binary crate root |
 | `tools/check-phase1-core.sh` | `terrain_shading` added to the dependency-free module loop | CI `pr-checks` |
 | `tools/terrain-layer-survey.py` | **new** - T2MK/T2LM survey with explicit `Unsupported` errors | manual / CI survey |
 | `Findings/Phase-2-terrain-variant-state-table.md` | new - P2.04 table | - |
 | `Findings/Phase-2-terrain-layer-survey.md`, `Findings/Phase-2-terrain-layer-survey.csv` | new - P2.06 survey | - |
 
-The `src/terrain_gpu.rs` edit stays inside the 2-B lane (pipeline and state
-setup only). It adds no mesh construction, no texture/mip/sampler creation and no
-view submission, and it leaves the WGSL untouched.
-`Findings/Unsupported-client-paths.md` needs one new row (section 7); it was not
-edited because that register is shared and the edit is proposed, not applied.
+The `src/terrain_gpu.rs` edit stays inside the 2-B lane (pipeline, state setup
+and the fragment-shader arithmetic). It adds no mesh construction, no
+texture/mip/sampler creation and no view submission.
+`Findings/Unsupported-client-paths.md` is a shared file; this lane added one row
+("Terrain day/night factor") **and announced it here** rather than editing
+silently. Version, camera uniform, vertex formats and everything 2-A/2-C own are
+unchanged.
 
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
 P2.04 | **No** | `terrain_shading` compiled into the binary and into the CI core loop; `PassState` now supplies `cull_mode`, `depth_write_enabled` and the opaque colour target of the main terrain pipeline; the far pipeline still restates its own state | `0x7c1450` switch, `0x7c14b0`/`0x7c1a20`/`0x7c1e00`/`0x7c2100`, `0x7cd760` state bracket, `0x7c0d99` FVF, `0x7c4d90` module load | not yet executed (no local toolchain); 11 unit tests are in CI only | pipeline wiring; per-mask texture arithmetic; `t2_3layer_vertlit_14`/`t2_tm_lm` binding sites outside the terrain range
@@ -63,6 +65,7 @@ Recovered constants that replace earlier estimates:
 | VS `c0.w` / `v1` (specular) | - | `0x9d30f8`, zero by default | one store site `0x7c281a`, debug keys `0x7c274e-0x7c281a` |
 | PS `c3.a` day/night | daylight fraction | **blended scene light direction y** | `0x7c2377: flds 0x198(%ecx)`; `env+0x198` written only by `UpdateSceneLight` (`0x7b4eb0`) then normalised in place at `0x7b4fc2..0x7b4fd9` |
 | day/night app scalar | `sun.w` ramp | `0x9d30f8 = 0` | sole app-side store; the blend factor is not an app value |
+| day/night direction of the mix | `mix(night, day, sun.w)` (day at factor 1) | `mix(day, night, factor)` (day at factor 0) | `lrp_sat r5, c3.a, r5, r4` with `t4` = day, `t5` = night (`0x7c23a2`, `0x7c23b0`); integrated in `terrain_gpu.rs` `fs` |
 | ambient / regional light | `light` uniform multiplication | **no ambient term** - `mul r0, r0, v0` is a multiply by 1.0 | `t2_3layer_batch_14` tail |
 | layer weights | per-layer mask alpha | packed mask **B/G/R = layers 1/2/3** | shader comments + `0x7c25c0` stage installs |
 | mask `c2` | scale | 1.0/0.0 selector per bound layer | `0x7c2331`/`0x7c2347`, uploaded to `c2` at `0x7c2368` |
@@ -74,8 +77,8 @@ addressing is per area through the mask slot, from the same counter as
 `(layers + lightmap*specular)` `* 1.0` `* lightmap * 2`, saturated.
 
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
-P2.05 | **No** | `day_night_lightmap`, `lightmap_uses_night`, `compose`, `shader_constants` exist and are tested; the WGSL `fs` still uses `mix(night,day,sun.w)*2` | `0x7c26e0` constant block, `0x7b4eb0` direction build, `0x7b4fc2` normalise, `0x7c2377` `c3.a` | `day_and_night_maps_are_fixed_stages_not_swapped`,
-`day_night_lightmap_selects_both_endpoints`, `compose_drops_the_specular_term_because_c0w_is_zero`, `shader_constants_force_lane_zero_to_one` - CI only | what feeds `UpdateSceneLight` before `0x7b4e60` (`env+0x194..+0x19c` are overwritten wholesale by a 4x4 copy there, so the pre-normalised source is still open); the WGSL still has to use the recovered factor `env+0x198` instead of `sun.w`
+P2.05 | **No** | `terrain_gpu.rs` `fs` now runs the recovered composite: `mix(day, night, factor)*2` with the day map as the factor-0 endpoint, a single `mul_x2`, and **no** ambient/normal/scene-light term on the lightmapped path (the point-light fallback only runs when no authored pair is bound). `day_night_lightmap`, `lightmap_uses_night`, `compose`, `shader_constants`, `lightmap_pair` remain the reference the WGSL is pinned to by `production_terrain_wgsl_runs_the_recovered_composite` | `0x7c26e0` constant block, `0x7b4eb0` direction build, `0x7b4fc2` normalise, `0x7c2377` `c3.a`, `0x7c23a2`/`0x7c23b0` stage 4/5 | `day_and_night_maps_are_fixed_stages_not_swapped`,
+`day_night_lightmap_selects_both_endpoints`, `compose_drops_the_specular_term_because_c0w_is_zero`, `shader_constants_force_lane_zero_to_one`, `production_terrain_wgsl_runs_the_recovered_composite` - CI only | the **factor** is still the viewer's `1 - sun.w` (`sun.w` = lightmap availability), not `env+0x198`: `UpdateSceneLight` is not reconstructed, and its pre-normalisation input (`0x7b4e5d-0x7b4e75`, a wholesale 4x4 copy) is unidentified; register row "Terrain day/night factor"
 
 ## 4. Layer, mask and world-to-texture survey (P2.06)
 
@@ -174,9 +177,15 @@ Interface for other agents:
 
 Open gaps, in priority order:
 
-1. `src/terrain_gpu.rs` still applies `mix(night, day, sun.w)`, a `baked`
-   multiply and a regional `light` term. P2.05 arithmetic is recovered but **not
-   integrated**; until it is, the viewer's terrain lighting is still an estimate.
+1. `src/terrain_gpu.rs` now runs the recovered composite for the lightmapped
+   path (day at factor 0, night at factor 1, one `mul_x2`, no ambient, no normal
+   dot, no scene light), and the point-light fallback is confined to the branch
+   taken when no authored pair is bound. What is still an estimate is the
+   **factor itself**: the shader uses `1 - camera.sun.w`, where `sun.w` is the
+   viewer's lightmap-availability switch, because `GEnv::UpdateSceneLight`
+   (`0x7b4b00`, whose `env+0x198` y is the native factor) is not reconstructed.
+   Register row: `Findings/Unsupported-client-paths.md`, "Terrain day/night
+   factor".
 2. The pre-normalisation source of `env+0x194..+0x19c` is overwritten wholesale
    at `0x7b4e5d-0x7b4e75` from a 4x4 copy, so the scene-light-to-direction step
    before it is unidentified.
@@ -186,15 +195,17 @@ Open gaps, in priority order:
 5. Archive-wide T2MK/T2LM survey (175 more `.t2mk` files) not run.
 
 A green build does not complete these points: P2.04 is still "not finished"
-because the per-mask layout and the far pipeline are not driven by the table,
-P2.05 because the WGSL arithmetic is not yet the recovered one, and P2.06 because
-one file out of 176 is surveyed.
+because the per-mask layout (`t2_tex_merger`, `0x7c25c0`) is described but not
+implemented, P2.05 because the blend **factor** is still the viewer's
+lightmap-availability scalar rather than `env+0x198` (the arithmetic and the
+endpoint order are now the recovered ones), and P2.06 because one file out of
+176 is surveyed.
 
 ## 8. Point summary
 
 Task | Finished Yes/No | Production integration | Native evidence | Tests executed and results | Remaining gaps
 P2.04 variant/state table | No | `select`/`pass_state` drive the main terrain pipeline's cull, depth-write and opaque target in `TerrainGpu::new`; the far pipeline and the per-mask layout are not yet table-driven | `0x7c1450` switch, four path bodies `0x7c14b0`/`0x7c1a20`/`0x7c1e00`/`0x7c2100`, `0x7cd760` state bracket, `0x7c0d99` FVF/stride, `0x7c4d90` module load, `0x77d0ea` proving `env+0x1b6` is never set | 4 of the 12 module tests cover the table; all 12 are CI-only, none ran in this sandbox | far-pipeline state, runtime per-mask layout selection, `t2_3layer_vertlit_14`/`t2_tm_lm` binding sites
-P2.05 lightmap arithmetic | No | reference functions only; WGSL still uses `mix(night, day, sun.w)*2` and a regional `light` term | `0x7c26e0` constant block (`c0 = 1.0, env+0x1a0, 0x98f368, 0x9d30f8`), `0x7c2377` `c3.a` from `env+0x198`, `0x7b4eb0`/`0x7b4f22`/`0x7b4fc2` direction build and normalise, `t2_3layer_batch_14` source | 4 tests (`lightmap_pair`, both endpoints, `compose`, `shader_constants`); CI-only | WGSL replacement; the pre-normalisation source of `env+0x194..+0x19c`; whether `UpdateSceneLight`'s inputs are the scene sun or a blended light set
+P2.05 lightmap arithmetic | No | `terrain_gpu.rs` runs `mix(day, night, factor)*2` with no ambient/normal/scene-light term on the lightmapped path; the point-light fallback is confined to the no-authored-pair branch; the factor is `1 - sun.w` | `0x7c26e0` constant block (`c0 = 1.0, env+0x1a0, 0x98f368, 0x9d30f8`), `0x7c2377` `c3.a` from `env+0x198`, `0x7b4eb0`/`0x7b4f22`/`0x7b4fc2` direction build and normalise, `t2_3layer_batch_14` source | 4 tests (`lightmap_pair`, both endpoints, `compose`, `shader_constants`); CI-only | WGSL replacement; the pre-normalisation source of `env+0x194..+0x19c`; whether `UpdateSceneLight`'s inputs are the scene sun or a blended light set
 P2.06 layer/mask/world-to-texture | No | `tools/terrain-layer-survey.py` standalone, `src/material.rs` untouched | T2MK reader `0x7a1599-0x7a18b7` (magic, version <= 2, 100-layer cap, 28-byte record, v2 grid byte `env+0x891`), T2LM reader `0x7a18c0` | survey of `world_35.t2mk` executed: 16 areas, 11 layer records, 90 area-layer entries, stacks 4/5/6/7 = 2/3/10/1, masks 0 or 256x256, 74/74 zlib; 90-row CSV written | 175 of 176 `.t2mk` files unsurveyed; the `terrain_gpu.rs` axis mapping contradicts the surveyed axial list; mask sizes other than 256 untested
 
 ## 9. Merge note
