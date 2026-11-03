@@ -207,13 +207,6 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,layer:i32)->vec3<f32>{
  if layer==9 {return clamp(color+t.rgb*alpha,vec3<f32>(0.),vec3<f32>(1.));}
  return mix(color,t.rgb,t.a*alpha);
 }
-// One whole sky resource set, blended by hour. The array is group-major:
-// group g, phase q (0 noon, 1 dusk, 2 night), side k -> layer g*9+q*3+k, which
-// `sky()` expresses as `sky(d, g*3+q)`. WGSL has no closures, so this is a real
-// function rather than the inline expression the single-set path uses.
-fn set_hour(d:vec3<f32>, g:i32, day:f32, e:f32)->vec3<f32>{
- return mix(mix(sky(d,g*3+2),sky(d,g*3+1),e),sky(d,g*3+0),day);
-}
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
  // One authored set covers both phases (`sky_image01..03` in
