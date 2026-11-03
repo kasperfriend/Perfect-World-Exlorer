@@ -42,9 +42,40 @@ The opt-in experiment uploads authored lower mip levels where the atlas can isol
 | Phase status consistency | `python3 tools/check-eight-phase-status.py` | Passed; no errors |
 | GPU diagnostic audit | `python3 tools/audit-static-model-gpu-programs.py` | Passed: 10 wired, 15 excluded with reasons, 25 total |
 | Shell syntax / whitespace | `bash -n tools/check-phase1-core.sh`; `git diff --check` | Passed |
-| Rust/GPU CI | Linux `pr-checks.yml` and Windows executable job | **Pending pull-request run; IDs and per-job results to be added after CI completes.** |
+| Rust/GPU CI | PR #17, run `41656708248` — https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41656708248 | **Passed**. Linux job `125988836765`; Windows job `125988837508`. |
 
-The sandbox has no local `cargo`, `rustc`, or `rustfmt`; Rust compilation, Rust tests, and GPU checks therefore require the Linux/Windows CI run.
+Successful CI commands/results:
+
+- Linux job `125988836765`: `cargo fmt --all -- --check`; `cargo check --locked --bins`; `cargo test --locked --bin gfx-light-audit`; `cargo test --locked --bin perfect-world-explorer`; Python status/audit commands above; and all configured GPU checks. The Phase 4 GPU commands were `cargo run --locked --bin tree-lod-gpu-check`, `cargo run --locked --bin grass-gpu-mip-check`, and `cargo run --locked --bin tree-authored-mip-gpu-check`; all passed in the green run.
+- Windows job `125988837508`: the nine existing standalone CPU tests plus `vegetation_material` passed; `cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer` and the `bmd-overlap-survey` release build passed; artifact staging/checksum passed.
+
+The sandbox has no local `cargo`, `rustc`, or `rustfmt`; Rust compilation, Rust tests, and GPU checks were verified by the Linux/Windows CI run.
+
+## Exact changed files
+
+- `.github/workflows/pr-checks.yml`
+- `Findings/Phase-4-C-vegetation-materials.md`
+- `src/bin/grass-check.rs`
+- `src/bin/grass-gpu-mip-check.rs`
+- `src/bin/grass-texture-check.rs`
+- `src/bin/tree-authored-mip-gpu-check.rs`
+- `src/bin/tree-gpu-mip-check.rs`
+- `src/bin/tree-lod-gpu-check.rs`
+- `src/bin/tree-motion-check.rs`
+- `src/bin/tree-texture-check.rs`
+- `src/bin/windows-tree-setup-check.rs`
+- `src/far_trees_gpu.rs`
+- `src/gpu.rs`
+- `src/grass.rs`
+- `src/grass_mips.rs`
+- `src/main.rs`
+- `src/trees.rs`
+- `src/vegetation_material.rs`
+- `src/vegetation_textures.rs`
+- `src/view_settings.rs`
+- `tools/audit-static-model-gpu-programs.py`
+- `tools/check-phase1-core.sh`
+- `tools/static-model-gpu-programs.txt`
 
 ## Remaining gaps
 
@@ -52,4 +83,4 @@ The sandbox has no local `cargo`, `rustc`, or `rustfmt`; Rust compilation, Rust 
 2. Tree alpha references are runtime SpeedTreeRT SGeometry fields and were not serialized by PWTREE05/06/07. The corresponding DLL bake/probe cannot be run in this sandbox (no Wine or MinGW toolchain), so tree thresholds remain explicitly unsupported.
 3. Grass is packed into square atlas tiles and shares the world sampler. Rectangular/resampled grass authored chains cannot be represented faithfully in this atlas and use generated fallback mips.
 4. Atlas LODs beyond 7 cannot be kept isolated per tile; deeper authored tail levels remain cached but are not uploaded.
-5. CI run and job IDs, Windows/Linux results, final changed-file inventory, and any fixes from CI are pending.
+5. Tree regional lighting remains the existing opt-in approximation; native per-material lighting constants are not recovered. Reflection submission was left unchanged and has no new standalone vegetation-reflection GPU diagnostic.
