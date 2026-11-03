@@ -84,10 +84,15 @@ impl Compare {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cutout {
     None,
-    Fixed { compare: Compare, reference: u8 },
+    Fixed {
+        compare: Compare,
+        reference: u8,
+    },
     /// The client computes the reference at runtime from a source we do not yet
     /// retain. A fixed substitute must be rejected, not silently uploaded.
-    Runtime { source: &'static str },
+    Runtime {
+        source: &'static str,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -233,9 +238,7 @@ pub enum Rejection {
 /// approved legacy path, but it must not label a rejected request as native.
 pub fn validate(material: Material, request: Request) -> Result<(), Rejection> {
     let p = policy(material);
-    if request.mips != RequestedMips::Authored
-        || p.mips != MipRule::PreserveAuthoredThroughLod7
-    {
+    if request.mips != RequestedMips::Authored || p.mips != MipRule::PreserveAuthoredThroughLod7 {
         return Err(Rejection::GeneratedMips);
     }
     Err(Rejection::NativeSamplerUnknown {
@@ -249,10 +252,18 @@ pub fn validate_cutout(material: Material, reference: Option<u8>) -> Result<(), 
     match policy(material).cutout {
         Cutout::None => Ok(()),
         Cutout::Runtime { source } => Err(Rejection::RuntimeCutout { source }),
-        Cutout::Fixed { reference: native, .. } => match reference {
+        Cutout::Fixed {
+            reference: native, ..
+        } => match reference {
             Some(r) if r == native => Ok(()),
-            Some(r) => Err(Rejection::FixedCutoutMismatch { requested: r, native }),
-            None => Err(Rejection::FixedCutoutMismatch { requested: 0, native }),
+            Some(r) => Err(Rejection::FixedCutoutMismatch {
+                requested: r,
+                native,
+            }),
+            None => Err(Rejection::FixedCutoutMismatch {
+                requested: 0,
+                native,
+            }),
         },
     }
 }

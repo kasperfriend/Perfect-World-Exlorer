@@ -2885,7 +2885,14 @@ pub fn run(
             let mut residency = crate::terrain_residency::Residency::default();
             while let Ok((x, z, detail)) = request_rx.recv() {
                 let started = Instant::now();
-                let result = build(&mut t, x, z, detail, &mut residency, vegetation_authored_mips);
+                let result = build(
+                    &mut t,
+                    x,
+                    z,
+                    detail,
+                    &mut residency,
+                    vegetation_authored_mips,
+                );
                 eprintln!(
                     "Background terrain build at ({x:.1},{z:.1}) took {:.2}s",
                     started.elapsed().as_secs_f32()

@@ -16,8 +16,7 @@ pub fn authored_lower_mips(bytes: &[u8]) -> Result<Vec<image::RgbaImage>, String
     };
     let mut out = Vec::with_capacity(dds.mips.len().saturating_sub(1));
     for mip in dds.mips.iter().skip(1) {
-        let (level, used) =
-            crate::dxt::decode_level(fourcc, mip.bytes, mip.width, mip.height)?;
+        let (level, used) = crate::dxt::decode_level(fourcc, mip.bytes, mip.width, mip.height)?;
         if used != mip.bytes.len() {
             return Err(format!(
                 "authored vegetation mip {}x{} left {} unused bytes",

@@ -76,7 +76,11 @@ pub fn authored_chain(
 /// coverage-preserving chain; the caller logs the unsupported material.
 pub fn prepare_with_authored(
     pixels: &[u8],
-    slots: &[(crate::texture_atlas::Slot, u8, Option<Vec<image::RgbaImage>>)],
+    slots: &[(
+        crate::texture_atlas::Slot,
+        u8,
+        Option<Vec<image::RgbaImage>>,
+    )],
     side: usize,
 ) -> Vec<Tile> {
     let mut tiles = Vec::new();

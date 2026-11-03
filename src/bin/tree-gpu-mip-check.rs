@@ -1,9 +1,13 @@
 //! Isolated GPU test using all client SpeedTree types, without world terrain.
 #![allow(dead_code)]
+#[path = "../dxt.rs"]
+mod dxt;
 #[path = "../far_trees_gpu.rs"]
 mod far_trees_gpu;
 #[path = "../foliage_mips.rs"]
 mod foliage_mips;
+#[path = "../model_dds.rs"]
+mod model_dds;
 #[path = "../pck.rs"]
 mod pck;
 #[path = "../scene.rs"]
@@ -12,10 +16,6 @@ mod scene;
 mod tree_lod;
 #[path = "../trees.rs"]
 mod trees;
-#[path = "../dxt.rs"]
-mod dxt;
-#[path = "../model_dds.rs"]
-mod model_dds;
 #[path = "../vegetation_material.rs"]
 mod vegetation_material;
 #[path = "../vegetation_textures.rs"]

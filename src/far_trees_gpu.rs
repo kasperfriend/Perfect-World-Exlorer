@@ -98,14 +98,22 @@ impl FarTrees {
         let mut batches = Vec::new();
         let mut groups = Vec::new();
         let mut packed_count = 0usize;
-        let mut mip_slots: Vec<(usize, usize, usize, usize, bool, Option<Vec<image::RgbaImage>>)> =
-            Vec::new();
+        let mut mip_slots: Vec<(
+            usize,
+            usize,
+            usize,
+            usize,
+            bool,
+            Option<Vec<image::RgbaImage>>,
+        )> = Vec::new();
         if authored_mips {
             let request = crate::vegetation_material::Request {
                 mips: crate::vegetation_material::RequestedMips::Authored,
-                anisotropy: crate::vegetation_material::policy(crate::vegetation_material::Material::TreeLeaf)
-                    .renderer_sampler
-                    .anisotropy,
+                anisotropy: crate::vegetation_material::policy(
+                    crate::vegetation_material::Material::TreeLeaf,
+                )
+                .renderer_sampler
+                .anisotropy,
                 cutout_reference: Some(crate::vegetation_material::LEGACY_TREE_ALPHA_REF),
             };
             if let Err(rejection) = crate::vegetation_material::validate(
@@ -191,12 +199,7 @@ impl FarTrees {
                     } else {
                         &tree.composite_mips
                     };
-                    if crate::vegetation_textures::chain_fits(
-                        mips,
-                        w as u32,
-                        h as u32,
-                        7,
-                    ) {
+                    if crate::vegetation_textures::chain_fits(mips, w as u32, h as u32, 7) {
                         if mips.len() > 7 {
                             eprintln!(
                                 "P4.07 tree type {id} part {part_index}: {} authored tail mip(s) beyond atlas LOD 7 retained in cache but not separately uploadable",
