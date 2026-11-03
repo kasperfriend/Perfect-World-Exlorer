@@ -88,7 +88,7 @@ mod tests {
                 .iter()
                 .map(|m| (m.width(), m.height()))
                 .collect::<Vec<_>>(),
-            [(128, 64), (64, 32), (32, 16)]
+            vec![(128, 64), (64, 32), (32, 16)]
         );
         assert_eq!(chain[0].get_pixel(0, 0).0[0], 1);
     }
