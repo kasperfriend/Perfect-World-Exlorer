@@ -129,6 +129,9 @@ pub struct ViewSettings {
     pub streamed_regions: bool,
     pub grass_distance_fade: bool,
     pub area_grass_lightmaps: bool,
+    /// Opt-in P4.07 authored vegetation mip experiment. Default false keeps the
+    /// approved generated-mip world path (P4.08). Applied at startup; restart to change.
+    pub vegetation_authored_mips: bool,
     pub celestial_discs: bool,
     /// World map artwork (the full-world page).
     pub world_map_style: MapStyle,
@@ -177,7 +180,10 @@ impl Default for ViewSettings {
             streamed_regions: false,
             grass_distance_fade: true,
             area_grass_lightmaps: true,
-            celestial_discs: false,
+            vegetation_authored_mips: false,
+            // The client sun and moon are the only discs the shipped
+            // `Sky\clear` set does not paint, so they are on by default.
+            celestial_discs: true,
             world_map_style: MapStyle::Realistic,
             minimap_style: MapStyle::Realistic,
             minimap_shape: MinimapShape::Square,
@@ -257,6 +263,7 @@ impl ViewSettings {
                 "streamed_regions" => flag!(s.streamed_regions),
                 "grass_distance_fade" => flag!(s.grass_distance_fade),
                 "area_grass_lightmaps" => flag!(s.area_grass_lightmaps),
+                "vegetation_authored_mips" => flag!(s.vegetation_authored_mips),
                 "celestial_discs" => flag!(s.celestial_discs),
                 "whole_world" => flag!(s.whole_world),
                 "water_reflections" => flag!(s.water_reflections),
@@ -293,11 +300,11 @@ impl ViewSettings {
             "radius={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.sharpen,self.resolution_scale,
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
             self.minimap_shape.label())
     }
@@ -465,6 +472,15 @@ mod tests {
         let s = ViewSettings::decode("area_grass_lightmaps=false");
         assert!(!s.area_grass_lightmaps);
         assert!(!ViewSettings::decode(&s.encode()).area_grass_lightmaps);
+    }
+    #[test]
+    fn vegetation_authored_mips_defaults_off_and_round_trips() {
+        assert!(!ViewSettings::default().vegetation_authored_mips);
+        assert!(!ViewSettings::decode("unknown=ignored").vegetation_authored_mips);
+        let s = ViewSettings::decode("vegetation_authored_mips=true");
+        assert!(s.vegetation_authored_mips);
+        assert_eq!(s, ViewSettings::decode(&s.encode()));
+        assert!(!ViewSettings::decode("vegetation_authored_mips=invalid").vegetation_authored_mips);
     }
     #[test]
     fn special_glow_preview_is_explicit_persisted_and_bounded() {

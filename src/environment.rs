@@ -566,25 +566,40 @@ impl Environments {
         self.sample(p, hour, false)
     }
     fn endpoints(&self, p: [f32; 3]) -> Selection {
-        // Selection order is still a heuristic pending the streaming-order trace.
-        let a = self
-            .areas
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| a.contains(p))
-            .min_by(|(_, a), (_, b)| {
-                a.global
-                    .cmp(&b.global)
-                    .then_with(|| a.distance2(p).total_cmp(&b.distance2(p)))
-            });
-        let (key, target, duration_ms) = self.endpoints_for(a.map(|(i, _)| i));
-        // The non-streamed path has one box per position, so it supplies both
-        // the local colours and the direction/flag word.
+        // Selection order is still a heuristic pending the streaming-order
+        // trace, but the two native selections stay separate here exactly as in
+        // `RegionStreaming::endpoints`: the nearest containing non-global box
+        // owns colour and fog, while the containing GLOBAL box owns the sun/moon
+        // flag word and the authored direction. `0x41ebe2` retains the default
+        // independently of the local box and `0x420992` reads its `+0x80` word
+        // on every render, so a local box can never switch the discs off.
+        let mut local: Option<(usize, f32)> = None;
+        let mut default: Option<(usize, f32)> = None;
+        for (i, a) in self.areas.iter().enumerate() {
+            if !a.contains(p) {
+                continue;
+            }
+            let slot = if a.global { &mut default } else { &mut local };
+            let d = a.distance2(p);
+            let nearer = match *slot {
+                Some((_, best)) => d < best,
+                None => true,
+            };
+            if nearer {
+                *slot = Some((i, d));
+            }
+        }
+        let index = local.or(default).map(|(i, _)| i);
+        let (key, mut target, duration_ms) = self.endpoints_for(index);
+        if let Some((i, _)) = default {
+            target.celestial_flags = self.areas[i].celestial_flags;
+            target.sun_direction = self.areas[i].sun_direction;
+        }
         Selection {
             key,
             target,
             duration_ms,
-            default_present: key.is_some(),
+            default_present: default.is_some(),
         }
     }
     fn endpoints_for(&self, index: Option<usize>) -> (Option<usize>, FogEndpoints, u32) {
@@ -642,6 +657,16 @@ impl Environments {
 }
 #[cfg(test)]
 mod tests {
+    /// The box a region selects, as `(area index, celestial flag word)`.
+    ///
+    /// Native reads BOTH from the independently selected default area
+    /// (`0x420992` extracts the SUN/MOON bits every render, `0x79b390` refreshes
+    /// the direction on a region install), so a sky target can only ever be the
+    /// box the environment actually selected - never a neighbouring block's.
+    fn sky_selection(sel: &Selection) -> (Option<usize>, u32) {
+        (sel.key, sel.target.celestial_flags)
+    }
+
     use super::*;
     #[test]
     fn client_v12_box_fog_and_priority() {
@@ -715,8 +740,13 @@ mod tests {
         second.ambient_day = [1., 0.5, 0.25];
         second.diffuse_day = [0.4, 0.3, 0.2];
         second.transition_ms = 5000;
+        // The authored direction and flag word belong to the containing GLOBAL
+        // box only (0x41f244/0x420992), so this fixture marks the box that owns
+        // the origin as the default one.
+        let mut base = overlap.areas[1].clone();
+        base.global = true;
         let mut env = Environments {
-            areas: vec![overlap.areas[1].clone(), second],
+            areas: vec![base, second],
             ..Default::default()
         };
         let mut transition = FogTransition::new(&env, [0.; 3]);
@@ -745,6 +775,55 @@ mod tests {
         env.areas[0].transition_ms = 0;
         let (_, instant) = transition.update(&env, [0.; 3], 12., 0.);
         assert!((instant.start - 7.).abs() < 1e-5);
+    }
+    #[test]
+    fn non_streamed_selection_reads_the_sun_moon_word_from_the_global_box() {
+        let fog = Fog::default();
+        let area = BoxArea {
+            global: false,
+            transition_ms: 5000,
+            center: [0.; 3],
+            extents: [10000.; 3],
+            axes: [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+            day: fog,
+            night: fog,
+            air_day: fog,
+            air_night: fog,
+            ambient_day: [1.; 3],
+            ambient_night: [0.; 3],
+            diffuse_day: [1.; 3],
+            diffuse_night: [0.; 3],
+            sun_direction: [0., -1., 0.],
+            celestial_flags: 0,
+        };
+        let mut global = area.clone();
+        global.global = true;
+        global.celestial_flags = 0x18;
+        global.sun_direction = [1., 0., 0.];
+        let mut local = area.clone();
+        local.day.start = 7.;
+        local.sun_direction = [0., 0., 1.];
+        let env = Environments {
+            areas: vec![global, local.clone()],
+            ..Default::default()
+        };
+        // The local box still owns colour, exactly as before.
+        assert_eq!(env.underwater([0.; 3], 12.).start, 7.);
+        let transition = FogTransition::new(&env, [0.; 3]);
+        let light = transition.lighting(12.).unwrap();
+        // ...but never the flag word or the authored direction (0x420992).
+        assert_eq!(light.celestial_flags, 0x18);
+        assert_eq!(light.toward_sun, [-1., 0., 0.]);
+        assert!(transition.default_present());
+        // A world without a containing global box keeps the recovered
+        // constructor default instead of borrowing the local box's word.
+        let only_local = Environments {
+            areas: vec![local],
+            ..Default::default()
+        };
+        let bare = FogTransition::new(&only_local, [0.; 3]);
+        assert_eq!(bare.lighting(12.).unwrap().celestial_flags, 0x18);
+        assert!(!bare.default_present());
     }
     #[test]
     fn streamed_region_selection_tracks_blocks_references_and_transitions() {
@@ -1184,5 +1263,83 @@ mod tests {
             ..l
         };
         assert_eq!(huge.material_direction().travel(), [0.; 3]);
+    }
+    #[test]
+    fn a_region_crossing_moves_the_sky_target_with_the_fog_key() {
+        // P5.07. The sky pair is selected from the same `Selection` the fog
+        // channels read: `0x420992` extracts the SUN/MOON bits from the
+        // independently selected default area on every render and `0x79b390`
+        // refreshes the direction on a region install, so the sky target can
+        // never name a different box from the one the fog transition adopted.
+        fn area(center: [f32; 3], start: f32, flags: u32) -> BoxArea {
+            let fog = Fog {
+                start,
+                ..Fog::default()
+            };
+            BoxArea {
+                global: false,
+                transition_ms: 1000,
+                center,
+                extents: [1000.; 3],
+                axes: [[1., 0., 0.], [0., 1., 0.], [0., 0., 1.]],
+                day: fog,
+                night: fog,
+                air_day: fog,
+                air_night: fog,
+                ambient_day: [1.; 3],
+                ambient_night: [0.; 3],
+                diffuse_day: [1.; 3],
+                diffuse_night: [0.; 3],
+                sun_direction: [0., -1., 0.],
+                celestial_flags: flags,
+            }
+        }
+        let mut global = area([0.; 3], 90., 8);
+        global.global = true;
+        let env = Environments {
+            areas: vec![
+                global,
+                area([-1500., 0., 0.], 10., 0x18),
+                area([1500., 0., 0.], 30., 0x08),
+            ],
+            id_to_index: [(1u32, 0usize), (54, 1), (2, 2)].into_iter().collect(),
+            streaming: Some(RegionLayout {
+                width: 4000.,
+                length: 500.,
+                block_size: 500.,
+                rows: 1,
+                cols: 8,
+                boxes: vec![
+                    vec![1],
+                    vec![1, 54],
+                    vec![1, 54],
+                    vec![1, 2],
+                    vec![1, 2],
+                    vec![1],
+                    vec![1],
+                    vec![1],
+                ],
+            }),
+        };
+        let mut active = env.streaming().unwrap();
+        let mut transition = FogTransition::new_streamed(&env, &mut active, [-1700., 0., 0.]);
+        // Walk across the whole strip, sampling as the renderer does.
+        for i in 0..40 {
+            let p = [-1900. + i as f32 * 100., 0., 0.];
+            let sel = active.endpoints(&env, p);
+            let (sky_key, sky_flags) = sky_selection(&sel);
+            assert_eq!(sky_key, sel.key, "sky target vs fog key at {p:?}");
+            assert_eq!(sky_flags, sel.target.celestial_flags);
+            transition.update_streamed_ms(&env, &mut active, p, 12., 16);
+            let lit = transition.lighting(12.).unwrap();
+            // The published flag word always belongs to a box that is either
+            // the local one or the selected default; never an unrelated third.
+            assert!(
+                lit.celestial_flags == sel.target.celestial_flags
+                    || lit.celestial_flags == env.areas[0].celestial_flags,
+                "flags {:#x} at {p:?} belong to no selected box",
+                lit.celestial_flags
+            );
+        }
     }
 }

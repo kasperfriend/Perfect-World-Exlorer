@@ -1,7 +1,11 @@
 //! Validate real client grass masks and MOXB meshes without opening a window.
 #[allow(dead_code)]
+#[path = "../dxt.rs"]
+mod dxt;
 #[path = "../grass.rs"]
 mod grass;
+#[path = "../model_dds.rs"]
+mod model_dds;
 #[allow(dead_code)]
 #[path = "../pck.rs"]
 mod pck;
@@ -9,6 +13,8 @@ mod pck;
 #[path = "../scene.rs"]
 mod scene;
 #[allow(dead_code)]
+#[path = "../vegetation_textures.rs"]
+mod vegetation_textures;
 #[path = "../water.rs"]
 mod water;
 fn main() {

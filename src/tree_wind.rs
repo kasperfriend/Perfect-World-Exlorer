@@ -24,8 +24,8 @@ impl ClientWind {
         }
         let mut table = [0.0; 256];
         for i in 0..256 {
-            table[i] = ((f64::from(raw[0][(i + 255) % 256])
-                + f64::from(raw[0][(i + 1) % 256])) * 0.25
+            table[i] = ((f64::from(raw[0][(i + 255) % 256]) + f64::from(raw[0][(i + 1) % 256]))
+                * 0.25
                 + f64::from(raw[0][i]) * 0.5) as f32;
         }
         let persistence = f32::from_bits(0x3f7fbe77);
@@ -42,7 +42,11 @@ impl ClientWind {
         for weight in &mut weights {
             *weight = (f64::from(*weight) / f64::from(total)) as f32;
         }
-        Self { table, offsets, weights }
+        Self {
+            table,
+            offsets,
+            weights,
+        }
     }
 
     /// Evaluate at client-global seconds. `None` denotes inputs for which
@@ -60,8 +64,9 @@ impl ClientWind {
             let fraction = (coordinate - index as f64) as f32;
             let a = f64::from(self.table[index % 256]);
             let b = f64::from(self.table[(index + 1) % 256]);
-            result = (f64::from(result) + (a * (1.0 - f64::from(fraction))
-                + b * f64::from(fraction)).abs() * f64::from(self.weights[i])) as f32;
+            result = (f64::from(result)
+                + (a * (1.0 - f64::from(fraction)) + b * f64::from(fraction)).abs()
+                    * f64::from(self.weights[i])) as f32;
         }
         Some(result)
     }
@@ -87,8 +92,17 @@ impl RuntimeWindPhase {
     /// Returns None for nonfinite, negative-strength or overflowed inputs.
     /// f64 arithmetic approximates x87 and may differ at rounding boundaries.
     pub fn update(self, time: f32, strength: f32, amplitude: f32, frequency: f32) -> Option<Self> {
-        if ![time, strength, self.strength, self.phase, amplitude, frequency]
-            .into_iter().all(f32::is_finite) || strength < 0.0
+        if ![
+            time,
+            strength,
+            self.strength,
+            self.phase,
+            amplitude,
+            frequency,
+        ]
+        .into_iter()
+        .all(f32::is_finite)
+            || strength < 0.0
         {
             return None;
         }
@@ -97,29 +111,61 @@ impl RuntimeWindPhase {
         let amplitude_degrees = (180.0 * f64::from(amplitude) * f64::from(strength)) as f32;
         let phase = (f64::from(time) * old_rate + f64::from(self.phase)
             - f64::from(time) * f64::from(angular_rate)) as f32;
-        if ![angular_rate, amplitude_degrees, phase].into_iter().all(f32::is_finite) {
+        if ![angular_rate, amplitude_degrees, phase]
+            .into_iter()
+            .all(f32::is_finite)
+        {
             return None;
         }
-        Some(Self { strength, phase, angular_rate, amplitude_degrees })
+        Some(Self {
+            strength,
+            phase,
+            angular_rate,
+            amplitude_degrees,
+        })
     }
 
     /// The first scalar rotation angle at 0x1002bd00, before the DLL builds
     /// its matrix. `local_phase` is supplied by the leaf-table caller; it is
     /// not a per-instance world position. This is not a complete card transform.
-    pub fn rock_angle(self, time: f32, local_phase: f32, base_amplitude: f32, rocking: bool) -> Option<f32> {
-        if ![time, local_phase, base_amplitude, self.phase, self.angular_rate, self.amplitude_degrees]
-            .into_iter().all(f32::is_finite) {
+    pub fn rock_angle(
+        self,
+        time: f32,
+        local_phase: f32,
+        base_amplitude: f32,
+        rocking: bool,
+    ) -> Option<f32> {
+        if ![
+            time,
+            local_phase,
+            base_amplitude,
+            self.phase,
+            self.angular_rate,
+            self.amplitude_degrees,
+        ]
+        .into_iter()
+        .all(f32::is_finite)
+        {
             return None;
         }
         let (phase, extent) = if rocking {
-            (f64::from(time) * f64::from(self.angular_rate) + f64::from(self.phase)
-                + f64::from(local_phase), f64::from(self.amplitude_degrees))
+            (
+                f64::from(time) * f64::from(self.angular_rate)
+                    + f64::from(self.phase)
+                    + f64::from(local_phase),
+                f64::from(self.amplitude_degrees),
+            )
         } else {
-            (f64::from(local_phase), f64::from(base_amplitude) * f64::from(0.15_f32))
+            (
+                f64::from(local_phase),
+                f64::from(base_amplitude) * f64::from(0.15_f32),
+            )
         };
         // The x87 FSIN result and libm's sin may diverge in precision; avoid
         // claiming support for huge arguments or nonfinite results.
-        if phase.abs() > 1_000_000.0 { return None; }
+        if phase.abs() > 1_000_000.0 {
+            return None;
+        }
         let angle = (-extent + (phase.sin() + 1.0) * 0.5 * (extent * 2.0)) as f32;
         angle.is_finite().then_some(angle)
     }
@@ -129,8 +175,14 @@ impl RuntimeWindPhase {
 /// sampled-animation blend. This modulation is not a port of leaf motion.
 /// Invalid or unsupported time falls back to the unmodulated legacy blend.
 pub fn preview_blend(wind: &ClientWind, time: f32, blend: f32, enabled: bool) -> f32 {
-    let blend = if blend.is_finite() { blend.clamp(0.0, 1.0) } else { 0.0 };
-    if !enabled { return blend; }
+    let blend = if blend.is_finite() {
+        blend.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    if !enabled {
+        return blend;
+    }
     match wind.sample(time) {
         Some(strength) => (blend * strength).clamp(0.0, 1.0),
         None => blend,
@@ -149,15 +201,30 @@ mod tests {
     #[test]
     fn runtime_phase_and_angle_fixtures() {
         // Isolated synthetic x87 fixtures, not an end-to-end client capture.
-        let initial = RuntimeWindPhase { strength: 0.25, phase: 1.0, angular_rate: 0.25, amplitude_degrees: 0.0 };
+        let initial = RuntimeWindPhase {
+            strength: 0.25,
+            phase: 1.0,
+            angular_rate: 0.25,
+            amplitude_degrees: 0.0,
+        };
         let state = initial.update(10.0, 0.5, 0.75, 0.125).unwrap();
         assert_eq!(state.phase, -1.5);
         assert_eq!(state.angular_rate, 0.5);
         assert_eq!(state.amplitude_degrees, 67.5);
-        assert_eq!(state.phase + 10.0 * state.angular_rate, initial.phase + 10.0 * initial.angular_rate);
-        let probe_state = RuntimeWindPhase { phase: 1.0, ..state };
-        assert!((probe_state.rock_angle(1.0, 0.2, 0.75, true).unwrap() - 66.9373779).abs() < 0.0001);
-        assert!((probe_state.rock_angle(1.0, 0.2, 0.75, false).unwrap() - 0.0223503).abs() < 0.000001);
+        assert_eq!(
+            state.phase + 10.0 * state.angular_rate,
+            initial.phase + 10.0 * initial.angular_rate
+        );
+        let probe_state = RuntimeWindPhase {
+            phase: 1.0,
+            ..state
+        };
+        assert!(
+            (probe_state.rock_angle(1.0, 0.2, 0.75, true).unwrap() - 66.9373779).abs() < 0.0001
+        );
+        assert!(
+            (probe_state.rock_angle(1.0, 0.2, 0.75, false).unwrap() - 0.0223503).abs() < 0.000001
+        );
         assert!(initial.update(1.0, -1.0, 1.0, 1.0).is_none());
         assert!(initial.update(f32::NAN, 1.0, 1.0, 1.0).is_none());
         assert!(probe_state.rock_angle(1.0e10, 0.0, 1.0, true).is_none());
@@ -168,7 +235,10 @@ mod tests {
         let wind = ClientWind::new();
         assert_eq!(preview_blend(&wind, 5., 0.6, false), 0.6);
         assert!((preview_blend(&wind, 0., 1., true) - 0.386193573).abs() < 1e-6);
-        assert_ne!(preview_blend(&wind, 0., 1., true), preview_blend(&wind, 16., 1., true));
+        assert_ne!(
+            preview_blend(&wind, 0., 1., true),
+            preview_blend(&wind, 16., 1., true)
+        );
         assert_eq!(preview_blend(&wind, 0., 0., true), 0.);
         assert_eq!(preview_blend(&wind, f32::NAN, 0.6, true), 0.6);
         assert_eq!(preview_blend(&wind, 1., f32::NAN, true), 0.);
@@ -181,9 +251,15 @@ mod tests {
         let wind = ClientWind::new();
         assert_eq!(wind.offsets, [215, 370, 417, 434, 952, 739, 9, 779]);
         for (time, expected) in [
-            (0.0, 0.386193573), (0.125, 0.385221481), (1.0, 0.378416777),
-            (5.0, 0.399008989), (16.0, 0.356702805), (64.0, 0.353442341),
-            (256.0, 0.286081165), (1024.0, 0.194191962), (65536.0, 0.386193573),
+            (0.0, 0.386193573),
+            (0.125, 0.385221481),
+            (1.0, 0.378416777),
+            (5.0, 0.399008989),
+            (16.0, 0.356702805),
+            (64.0, 0.353442341),
+            (256.0, 0.286081165),
+            (1024.0, 0.194191962),
+            (65536.0, 0.386193573),
         ] {
             assert!((wind.sample(time).unwrap() - expected).abs() < 0.000001);
         }

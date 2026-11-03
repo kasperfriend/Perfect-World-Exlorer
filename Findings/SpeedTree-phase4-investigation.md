@@ -475,3 +475,21 @@ phase updates and 4,000 scalar angles, and the SpeedTree Python tests pass
 20/20. Full Cargo compilation, GPU pipeline execution and native Windows tests
 were not available, so this integration has not been exercised in the running
 viewer in this environment.
+
+### Merge with current main: cache format collision
+
+Main introduced a distinct PWTREE08 format containing branch/frond alpha
+references, while the unshipped experimental baker on this branch had used
+PWTREE08 for leaf normals. Those layouts are incompatible. The merge keeps
+main's PWTREE08 reader and startup/cache policy intact, and assigns the
+experimental source baker's alpha-reference-plus-leaf-normal layout the new
+magic PWTREE09. No PWTREE09 helper is shipped. Existing findings above about
+the earlier experimental PWTREE08 describe that earlier format only; they do
+not describe main's PWTREE08 or establish validation of the new PWTREE09.
+
+The far-tree vertex shader retains main's authored-mip alpha references and
+reads optional PWTREE09 normals from a separate vertex-indexed buffer, so the
+same packed vertex field is not used for both purposes. Legacy caches retain
+up-normal fallback. The new combination and helper have not been GPU-tested
+or validated on Windows here. The viewer wind preview remains opt-in. The
+merge does not complete P4.01–P4.03.

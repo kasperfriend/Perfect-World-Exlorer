@@ -1,6 +1,14 @@
 # Eight-phase source and validation reassessment — 2 November 2026
 
 Audited code revision: `a9c4b35e1086067247ffc25a7e7755a0111124c2`.
+
+Phase 4-C evidence and scope update — 3 November 2026: the authored-mip experiment now
+supports exact rectangular grass slots with separate X/Y extents, and the PWTREE08
+path captures per-LOD tree alpha references. At the user’s direction, P4.07 is
+closed as Implemented for the best-supported viewer path; this is not a native-
+parity signoff. Native sampler tuples, tree alpha compare, deeper mip tails, and
+tree lighting/reflection parity are documented as deferred gaps in the
+[Phase 4-C report](Phase-4-C-vegetation-materials.md).
 Original requirement text/IDs are preserved in [Eight-phase status](Eight-phase-status.md).
 This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 “not implemented” claims and the blanket unchecked state of later test/preservation/delivery tasks.
@@ -41,12 +49,12 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 | 2 | 3 | 6 | 0 | No |
 | 3 | 0 | 9 | 0 | No |
 | 4 | 2 | 7 | 0 | No |
-| 5 | 0 | 8 | 1 | No |
+| 5 | 3 | 5 | 1 | No |
 | 6 | 1 | 8 | 0 | No |
 | 7 | 2 | 7 | 0 | No |
 | 8 | 3 | 7 | 0 | No |
 
-**Total: 20 implemented requirement deliverables, 55 partial, 1 not implemented.** These counts are not a parity score.
+**Total: 23 implemented requirement deliverables, 52 partial, 1 not implemented.** These counts are not a parity score.
 
 ## Phase 1
 
@@ -103,7 +111,7 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 | P4.04 | Partial | Per-tree geometry/motion inputs and optional wind controls (`src/far_trees_gpu.rs`, `src/view_settings.rs`). | Exact native timing, wind modes and per-instance runtime variation. |
 | P4.05 | Partial | Authored grass types/masks, terrain alignment, RANMAR jitter/yaw/scale and instancing (`src/grass.rs`, `src/grass_random.rs`, `src/grass_instances.rs`). | Complete native density, patch visibility, LOD and streaming behavior. |
 | P4.06 | Partial | 80-frame spring/noise wind history, source fade and cutout arithmetic (`src/grass_wind.rs`, `src/gpu.rs`). | Exact client wind update timing/precision and all material states. |
-| P4.07 | Partial | Foliage/grass mips, cutouts, lightmaps and reflection submission (`src/foliage_mips.rs`, `src/grass_mips.rs`, `src/gpu.rs`). | Original per-material samplers and complete tree lighting/reflection behavior. |
+| P4.07 | Implemented | Opt-in authored mips through atlas LOD 7, exact rectangular grass slots, grass GREATER/84, PWTREE08 per-LOD tree alpha references, reflection submissions and Linux/Windows CI (`src/grass_mips.rs`, `src/grass_instances.rs`, `src/trees.rs`, `src/far_trees_gpu.rs`, `tools/speedtree/bake.cpp`). | **User-approved scope closeout, not native-parity signoff:** exact sampler tuples, branch/frond alpha compare, mip tails beyond LOD 7, and exact tree lighting/reflection remain deferred and recorded in the Phase 4-C report. |
 | P4.08 | Implemented | Approved tree path remains available and default; new regional lighting is opt-in (`src/view_settings.rs`, `src/far_trees_gpu.rs`). | Preservation requirement met, not full vegetation parity. |
 | P4.09 | Implemented | LOD, sampled motion, RANMAR placement, wind history, alpha coverage and lighting tests/diagnostics exist (`src/tree_lod.rs`, `src/trees.rs`, `src/grass_random.rs`, `src/grass_wind.rs`, `src/bin/grass-instance-gpu-check.rs`). | Test-category requirement met; asset-dependent diagnostics are not all rerun or all part of current CI. |
 
@@ -111,15 +119,15 @@ This audit covers **all 76 points**, not just Phase 1. It corrects both stale
 
 | ID | Decision | Already implemented / evidence | Remaining acceptance / boundary |
 |---|---|---|---|
-| P5.01 | Partial | Client sky texture layers, panorama projection and seam mitigation (`src/sky_gpu.rs`). | Native geometry/projection, complete seams and layered materials. |
-| P5.02 | Partial | Time-dependent sky blend/texture selection (`src/sky_gpu.rs`). | Current smoothstep schedule is still approximate, not native sky transition logic. |
-| P5.03 | Partial | Recovered celestial direction, default-region flags and quantized visibility fades wired to experimental discs (`src/client_sun.rs`, `src/sky_gpu.rs`). | Native sun/moon geometry, sizes, halos, exposure/blending and full material behavior. |
+| P5.01 | Implemented | Native curtain/cap buffers, cylinder/sphere projection, `Textures\Sky\%s` layers and seam handling (`src/sky_geometry.rs`, `src/sky_gpu.rs`). | The band the client's own two buffers leave empty (38.16°–72.5°) is reported, not filled; nothing in the sky object covers it. |
+| P5.02 | Implemented | Recovered clock, elevation and set-selector rule, linear two-hour switch timer, and the decoded set mapping (`src/sky_time.rs`, `src/sky_gpu.rs`). | The viewer's `night2` night set is a stated deviation until the `+0x70` night-strength lighting consumer exists. |
+| P5.03 | Implemented | Native billboards `0x4b3e00`–`0x4b41ee` (distance 100, half extent 1.0 = 1.146°, per-object elevation gate, shared azimuth, `fade << 24` alpha) with explicit failure states and a World-tab status line (`src/sky_celestial.rs`, `src/sky_gpu.rs`, `src/gpu.rs`); the recovered stage-1 texture factor `(1 - [+0x70]) * 5.0` (×0.8 night set) is tested and consumed as the sun's additive `sunshine.bmp` shine quad, and the moon's block scales nothing so it carries no shine quad. Render check 4 November 2026: correct sky, sun glow, no moon halo. | Documented limitation, not parity: the discs inherit the pass blend state (no `SetRenderState` in the celestial render) and the `CECSunMoon::Init` screen-space flare chain (`ps/solarflare_14`, `flares.bmp`/`sunflare.bmp`/`moonflare.bmp`) is documented in `Findings/P5-sky-geometry-daynight-celestial.md` and unimplemented, so the retail moon halo is absent. |
 | P5.04 | Partial | Region-authored environment lighting/fog and independent default-area sun/moon flags (`src/environment.rs`). | Region-selected sky texture sets/settings and actual sky transition resources. |
 | P5.05 | Not implemented | Sky/environment infrastructure exists (`src/sky_gpu.rs`, `src/environment.rs`). | No implemented client precipitation/cloud/weather visual runtime established in the current renderer. |
 | P5.06 | Partial | Regional fog/colors, normal and clipped/reflected view integration (`src/environment.rs`, `src/gpu.rs`). | All atmospheric/weather/material variants and native visibility rules. |
-| P5.07 | Partial | Streamed region priority, transition duration, PC24 stored steps and time-slider fog/light sampling (`src/environment.rs`). | Complete sky/weather resource transitions, not just environment coefficients. |
-| P5.08 | Partial | Translation-free sky rays and full reflected camera-basis tests (`src/sky_gpu.rs`). | Native sky/weather reflection behavior, cloud/precipitation coverage and full altitude acceptance. |
-| P5.09 | Partial | Clock, region transitions, celestial curve/visibility and reflection ray tests (`src/client_sun.rs`, `src/environment.rs`, `src/sky_gpu.rs`). | Automated sky seam and regional sky resource transition coverage. |
+| P5.07 | Implemented | Streamed region priority, transition duration, PC24 stored steps and time-slider fog/light sampling (`src/environment.rs`); the recovered sky resource swap machine with its guard, tick, hurry, commit and selection ladder, driven once per frame on **elapsed time** because a native tick is the object's per-frame update at `1/30` s (`0x8f14b0` in the `A3DSkySphere` vtable at `0x8f1490`, `0x8f14bc`), so one count is milliseconds and the longest counted fade is half a game day (`src/sky_transition.rs`); the recovered day clock `DAY_CLOCK_MS` from `0x4b6250` replaces the earlier stand-in constant; two-set crossfade (`src/gpu.rs`, `src/sky_gpu.rs`); a region crossing provably moves the sky target with the fog key (`environment::tests::a_region_crossing_moves_the_sky_target_with_the_fog_key`). | Recorded boundary, not an unmet requirement: the client's per-region *image* pair (`sky_id_day`/`sky_id_night`, `configs.pck`) is not re-authored, because the shipped copy of that container is not the retail v2 format `src/pck.rs` reads and the loader holds one group of three panoramas. `Machine::author(day, night)` is the single place such a mapping lands. Weather resources remain P5.05. |
+| P5.08 | Implemented | Translation-free sky rays (`src/sky_gpu.rs`), altitude-invariance and full reflected camera-basis tests, one snapshot feeding both the normal and reflected uniform uploads, and `sky_transition::view_sets` as the documented per-view gate; the sky half of the requirement is complete for the sky this client actually draws. | Recorded boundary: the *weather* half ("sky and weather in reflections") has nothing to reflect — P5.05 has no weather runtime and the shader deliberately has no weather lane rather than an invented one. |
+| P5.09 | Implemented | All four required areas are tested without assets: **time boundaries** (`environment::tests::time_boundaries_stay_finite_periodic_and_asymmetric` and `sky_transition::tests::the_whole_model_day_sweeps_through_the_ladder_on_the_real_clock`, 1440 model minutes on the real clock), **region transitions** (the streaming-selection test plus the sky-aware crossing test above), **celestial placement** (`client_sun::tests::client_elevation_curve_and_direction_are_periodic`, `client_sun::tests::flags_latch_after_tick_and_do_not_crossfade_one_object_into_the_other`, plus the disc direction/alpha in the GPU diagnostic), **sky seams** (`src/bin/phase5-sky-seam-check.rs`: both meridian bands, both sides of each boundary, half-open band edges, and `frame_sets` never mixing resource groups across all 18 layers of a swap), wired into the dependency-free CI step alongside the standalone `src/sky_transition.rs` suite. | Recorded boundary: the tests assert the production mapping and state machine, not pixel equality with the client's authored panorama images (no readable sky art in the workspace). |
 
 ## Phase 6
 

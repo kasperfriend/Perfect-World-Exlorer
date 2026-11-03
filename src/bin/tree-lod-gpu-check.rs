@@ -1,9 +1,13 @@
 //! Synthetic GPU regression: identical LOD snapshots must not flicker or double-darken.
 #![allow(dead_code)]
+#[path = "../dxt.rs"]
+mod dxt;
 #[path = "../far_trees_gpu.rs"]
 mod far_trees_gpu;
 #[path = "../foliage_mips.rs"]
 mod foliage_mips;
+#[path = "../model_dds.rs"]
+mod model_dds;
 #[path = "../pck.rs"]
 mod pck;
 #[path = "../scene.rs"]
@@ -12,6 +16,10 @@ mod scene;
 mod tree_lod;
 #[path = "../trees.rs"]
 mod trees;
+#[path = "../vegetation_material.rs"]
+mod vegetation_material;
+#[path = "../vegetation_textures.rs"]
+mod vegetation_textures;
 mod gpu {
     use bytemuck::{Pod, Zeroable};
     #[repr(C)]
@@ -52,6 +60,8 @@ fn lod() -> trees::TreeLod {
             indices: vec![0, 1, 2, 1, 3, 2],
         },
         frond: Default::default(),
+        branch_alpha_ref: Some(84.),
+        frond_alpha_ref: Some(255.),
         leaves: vec![trees::Leaf {
             center: [0., 2., 2.5],
             normal: None,
@@ -64,7 +74,7 @@ fn lod() -> trees::TreeLod {
         rocking_clusters: 1,
     }
 }
-fn main() {
+pub fn run(authored_mips: bool) {
     std::env::set_var("PW_SMALL_TREE_ATLAS", "1");
     let tex = image::RgbaImage::from_pixel(128, 128, image::Rgba([240, 190, 70, 255]));
     let trees = trees::Trees {
@@ -72,6 +82,24 @@ fn main() {
             lods: vec![lod(), lod(), lod()],
             bark: tex.clone(),
             composite: image::RgbaImage::from_pixel(128, 128, image::Rgba([20, 240, 30, 255])),
+            bark_mips: (1..=7)
+                .map(|level| {
+                    image::RgbaImage::from_pixel(
+                        128 >> level,
+                        128 >> level,
+                        image::Rgba([240, 190, 70, 255]),
+                    )
+                })
+                .collect(),
+            composite_mips: (1..=7)
+                .map(|level| {
+                    image::RgbaImage::from_pixel(
+                        128 >> level,
+                        128 >> level,
+                        image::Rgba([20, 240, 30, 255]),
+                    )
+                })
+                .collect(),
         })],
         placements: vec![scene::Tree {
             tree_type: 0,
@@ -114,6 +142,7 @@ fn main() {
         &trees,
         &uniform,
         &uniform,
+        authored_mips,
     );
     let size = wgpu::Extent3d {
         width: 128,
@@ -320,4 +349,8 @@ fn main() {
         println!("regional tree frame {index}, expected {expected:?}, matched {matched} pixels");
     }
     println!("Tree LOD GPU test: {lit} pixels, same across boundaries; sampled leaf motion changes with time and stops at wind=0");
+}
+
+fn main() {
+    run(false);
 }

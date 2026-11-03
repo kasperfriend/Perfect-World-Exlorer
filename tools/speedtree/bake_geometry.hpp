@@ -1,5 +1,5 @@
 // Runtime indexed geometry serialization shared by the baker and its tests.
-// The unshipped PWTREE08 baker adds leaf normals; it does not yet store
+// The unshipped PWTREE09 baker adds leaf normals; it does not yet store
 // independent component LODs, tangents or material state.
 #pragma once
 #include <algorithm>

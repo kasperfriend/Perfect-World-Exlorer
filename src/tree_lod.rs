@@ -39,7 +39,9 @@ pub fn client_distance(position: [f32; 3], camera: [f32; 3]) -> Option<f32> {
     if !distance_squared.is_finite() {
         return None;
     }
-    Some(f32::from_bits((distance_squared.to_bits() >> 1) + 0x1fc0_0000))
+    Some(f32::from_bits(
+        (distance_squared.to_bits() >> 1) + 0x1fc0_0000,
+    ))
 }
 /// Translate the DLL's discrete LOD getters (0x10022260, 0x100222b0,
 /// 0x10022300) for explicitly supplied levels in the range 0..=1. For leaf
@@ -79,14 +81,25 @@ pub struct ClientTransition {
 /// f64 intermediates approximate the x87 arithmetic and pow is not guaranteed
 /// to match the client's imported CRT at every rounding boundary.
 pub fn client_transition(
-    level: f32, count: u16, half_width: f32, bias: f32, exponent: f32, alpha: f32,
+    level: f32,
+    count: u16,
+    half_width: f32,
+    bias: f32,
+    exponent: f32,
+    alpha: f32,
 ) -> Option<ClientTransition> {
-    if !level.is_finite() || !(0.0..=1.0).contains(&level)
-        || count == 0 || count > i16::MAX as u16
-        || !half_width.is_finite() || half_width <= 0.0
-        || !bias.is_finite() || !(0.0..1.0).contains(&bias)
-        || !exponent.is_finite() || exponent <= 0.0
-        || !alpha.is_finite() || !(0.0..=255.0).contains(&alpha)
+    if !level.is_finite()
+        || !(0.0..=1.0).contains(&level)
+        || count == 0
+        || count > i16::MAX as u16
+        || !half_width.is_finite()
+        || half_width <= 0.0
+        || !bias.is_finite()
+        || !(0.0..1.0).contains(&bias)
+        || !exponent.is_finite()
+        || exponent <= 0.0
+        || !alpha.is_finite()
+        || !(0.0..=255.0).contains(&alpha)
     {
         return None;
     }
@@ -96,17 +109,31 @@ pub fn client_transition(
     let delta = (f64::from(inverted) - f64::from(nearest) / f64::from(count)) as f32;
     if nearest == 0 || nearest == count || delta.abs() >= half_width {
         let primary = ((f64::from(inverted) * f64::from(count)) as u16).min(count - 1);
-        return Some(ClientTransition { primary, secondary: None, alpha_primary: alpha, alpha_secondary: 255.0 });
+        return Some(ClientTransition {
+            primary,
+            secondary: None,
+            alpha_primary: alpha,
+            alpha_secondary: 255.0,
+        });
     }
-    let phase = (1.0 - (f64::from(half_width) - f64::from(delta))
-        / (2.0 * f64::from(half_width))) as f32;
+    let phase =
+        (1.0 - (f64::from(half_width) - f64::from(delta)) / (2.0 * f64::from(half_width))) as f32;
     let remaining = (1.0_f64 - f64::from(bias)) as f32;
     let a = (1.0 - (f64::from(phase) - f64::from(bias)) / f64::from(remaining)).min(1.0) as f32;
     let b = (f64::from(phase) / f64::from(remaining)).min(1.0) as f32;
     let span = (255.0_f64 - f64::from(alpha)) as f32;
-    let alpha_primary = (f64::from(alpha) + f64::from(span) * (1.0 - f64::from(a)).powf(f64::from(exponent))) as f32;
-    let alpha_secondary = (f64::from(alpha) + f64::from(span) * (1.0 - f64::from(b)).powf(f64::from(exponent))) as f32;
-    Some(ClientTransition { primary: nearest - 1, secondary: Some(nearest), alpha_primary, alpha_secondary })
+    let alpha_primary = (f64::from(alpha)
+        + f64::from(span) * (1.0 - f64::from(a)).powf(f64::from(exponent)))
+        as f32;
+    let alpha_secondary = (f64::from(alpha)
+        + f64::from(span) * (1.0 - f64::from(b)).powf(f64::from(exponent)))
+        as f32;
+    Some(ClientTransition {
+        primary: nearest - 1,
+        secondary: Some(nearest),
+        alpha_primary,
+        alpha_secondary,
+    })
 }
 
 /// A per-component geometry slot and its alpha-test reference (0..255).
@@ -130,28 +157,50 @@ pub struct ClientComponents {
 /// Billboard blending and modes 2/3 are not represented: callers must not use
 /// this for those states. This function does not select or synthesize geometry.
 pub fn client_components(
-    level: f32, counts: [u16; 3], leaf_mode: u32,
-    half_width: f32, bias: f32, exponent: f32, alpha: u8,
+    level: f32,
+    counts: [u16; 3],
+    leaf_mode: u32,
+    half_width: f32,
+    bias: f32,
+    exponent: f32,
+    alpha: u8,
 ) -> Option<ClientComponents> {
-    if !level.is_finite() || !(0.0..=1.0).contains(&level)
+    if !level.is_finite()
+        || !(0.0..=1.0).contains(&level)
         || counts.iter().any(|&count| count > i16::MAX as u16)
     {
         return None;
     }
     let reference = f32::from(alpha);
-    let discrete = |count| client_discrete_level(level, count, false)
-        .map(|index| ComponentLod { index, alpha_reference: reference });
+    let discrete = |count| {
+        client_discrete_level(level, count, false).map(|index| ComponentLod {
+            index,
+            alpha_reference: reference,
+        })
+    };
     let leaf = match leaf_mode {
         0 => [discrete(counts[2]), None],
         1 if counts[2] == 0 => [None, None],
         1 => {
             let t = client_transition(level, counts[2], half_width, bias, exponent, reference)?;
-            [Some(ComponentLod { index: t.primary, alpha_reference: t.alpha_primary }),
-             t.secondary.map(|index| ComponentLod { index, alpha_reference: t.alpha_secondary })]
+            [
+                Some(ComponentLod {
+                    index: t.primary,
+                    alpha_reference: t.alpha_primary,
+                }),
+                t.secondary.map(|index| ComponentLod {
+                    index,
+                    alpha_reference: t.alpha_secondary,
+                }),
+            ]
         }
         _ => return None,
     };
-    Some(ClientComponents { branch: discrete(counts[0]), frond: discrete(counts[1]), leaf })
+    Some(ClientComponents {
+        branch: discrete(counts[0]),
+        frond: discrete(counts[1]),
+        leaf,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -212,17 +261,29 @@ mod tests {
         // Generated by probe_lod_unicorn.py against the identified DLL, not a
         // native Windows/client capture. See SpeedTree-phase4-investigation.md.
         for (distance, expected) in [
-            (0., 1.), (25., 1.), (49., 0.9931107759),
-            (50., 0.9860795736), (55., 0.9487926364),
-            (100., 0.5176136494), (150., 0.0737215877),
-            (160., 0.), (170., 0.), (200., 0.),
+            (0., 1.),
+            (25., 1.),
+            (49., 0.9931107759),
+            (50., 0.9860795736),
+            (55., 0.9487926364),
+            (100., 0.5176136494),
+            (150., 0.0737215877),
+            (160., 0.),
+            (170., 0.),
+            (200., 0.),
         ] {
             let level = client_level([distance, 0., 0.], [0., 0., 0.], 50., 160.).unwrap();
-            assert!((level - expected).abs() < 1e-6, "distance {distance}: {level}");
+            assert!(
+                (level - expected).abs() < 1e-6,
+                "distance {distance}: {level}"
+            );
         }
         let level = client_level([0., 100., 0.], [0., 0., 0.], 50., 160.).unwrap();
         assert!((level - 0.5176136494).abs() < 1e-6);
-        assert_eq!(client_level([110., 7., 2.], [10., 7., 2.], 50., 160.), Some(level));
+        assert_eq!(
+            client_level([110., 7., 2.], [10., 7., 2.], 50., 160.),
+            Some(level)
+        );
         assert_eq!(client_level([f32::NAN, 0., 0.], [0.; 3], 50., 160.), None);
         assert_eq!(client_level([f32::MAX, 0., 0.], [0.; 3], 50., 160.), None);
         assert_eq!(client_level([0.; 3], [0.; 3], 160., 50.), None);
@@ -240,10 +301,24 @@ mod tests {
         assert_eq!(transition.leaf[1].unwrap().index, 3);
         assert_eq!(transition.leaf[0].unwrap().alpha_reference, 84.0);
         assert_eq!(transition.leaf[1].unwrap().alpha_reference, 84.0);
-        assert_eq!(client_components(0.5, [0, 0, 0], 0, 0.0, 0.0, 0.0, 84).unwrap().leaf, [None, None]);
-        assert_eq!(client_components(0.5, [2, 2, 2], 3, 0.07, 0.5, 1.3, 84), None);
-        assert_eq!(client_components(f32::NAN, [2, 2, 2], 0, 0.07, 0.5, 1.3, 84), None);
-        assert_eq!(client_components(0.5, [2, 2, 2], 1, 0.0, 0.5, 1.3, 84), None);
+        assert_eq!(
+            client_components(0.5, [0, 0, 0], 0, 0.0, 0.0, 0.0, 84)
+                .unwrap()
+                .leaf,
+            [None, None]
+        );
+        assert_eq!(
+            client_components(0.5, [2, 2, 2], 3, 0.07, 0.5, 1.3, 84),
+            None
+        );
+        assert_eq!(
+            client_components(f32::NAN, [2, 2, 2], 0, 0.07, 0.5, 1.3, 84),
+            None
+        );
+        assert_eq!(
+            client_components(0.5, [2, 2, 2], 1, 0.0, 0.5, 1.3, 84),
+            None
+        );
     }
     #[test]
     fn distance_estimate_includes_altitude_and_rejects_invalid_values() {
@@ -273,16 +348,27 @@ mod tests {
     #[test]
     fn client_two_level_transition_emulated_dll_fixtures() {
         for (level, primary, secondary, alpha_a, alpha_b) in [
-            (0.738, 0, None, 84., 255.), (0.736, 0, Some(1), 84., 253.475494),
-            (0.700, 0, Some(1), 87.680840, 178.330017), (0.600, 0, Some(1), 247.423080, 84.),
-            (0.596, 1, None, 84., 255.), (0.404, 1, None, 84., 255.),
-            (0.402, 1, Some(2), 84., 251.955597), (0.300, 1, Some(2), 178.329956, 87.680862),
-            (0.264, 1, Some(2), 253.475449, 84.), (0.263, 2, None, 84., 255.),
+            (0.738, 0, None, 84., 255.),
+            (0.736, 0, Some(1), 84., 253.475494),
+            (0.700, 0, Some(1), 87.680840, 178.330017),
+            (0.600, 0, Some(1), 247.423080, 84.),
+            (0.596, 1, None, 84., 255.),
+            (0.404, 1, None, 84., 255.),
+            (0.402, 1, Some(2), 84., 251.955597),
+            (0.300, 1, Some(2), 178.329956, 87.680862),
+            (0.264, 1, Some(2), 253.475449, 84.),
+            (0.263, 2, None, 84., 255.),
         ] {
             let result = client_transition(level, 3, 0.07, 0.2, 1.5, 84.).unwrap();
             assert_eq!((result.primary, result.secondary), (primary, secondary));
-            assert!((result.alpha_primary - alpha_a).abs() < 0.001, "{level}: {result:?}");
-            assert!((result.alpha_secondary - alpha_b).abs() < 0.001, "{level}: {result:?}");
+            assert!(
+                (result.alpha_primary - alpha_a).abs() < 0.001,
+                "{level}: {result:?}"
+            );
+            assert!(
+                (result.alpha_secondary - alpha_b).abs() < 0.001,
+                "{level}: {result:?}"
+            );
         }
         assert!(client_transition(0.5, 0, 0.07, 0.2, 1.5, 84.).is_none());
         assert!(client_transition(0.5, 3, 0.0, 0.2, 1.5, 84.).is_none());

@@ -112,7 +112,7 @@ pub fn choose_client(owner: Hwnd, initial: Option<&Path>) -> Result<Option<PathB
 }
 fn cache_key(element: &Path) -> Result<u64, String> {
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    "PWTREE07-per-lod-leaf-corners-v1".hash(&mut h);
+    "PWTREE08-per-lod-leaf-corners-native-alpha-refs-v1".hash(&mut h);
     fs::canonicalize(element)
         .unwrap_or_else(|_| element.to_path_buf())
         .hash(&mut h);
@@ -143,9 +143,16 @@ pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
         .join("tree-cache");
     fs::create_dir_all(&base).map_err(|e| format!("Cannot create tree cache: {e}"))?;
     let key = cache_key(element)?;
-    let final_dir = base.join(format!("pwt07-{key:016x}"));
+    let final_dir = base.join(format!("pwt08-{key:016x}"));
     if ready(&final_dir) {
         eprintln!("Using prepared SpeedTree cache {}", final_dir.display());
+        let report = final_dir.join("tree-alpha-refs.csv");
+        if report.is_file() {
+            eprintln!(
+                "Native branch/frond alpha-reference report: {}",
+                report.display()
+            );
+        }
         return Ok(final_dir);
     }
     if final_dir.exists() {
@@ -203,7 +210,7 @@ pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
             fs::remove_file(data.join(name))
                 .map_err(|e| format!("Cannot clean temporary manifest: {e}"))?;
         }
-        fs::write(data.join("ready"), b"PWTREE07\n").map_err(|e| e.to_string())?;
+        fs::write(data.join("ready"), b"PWTREE08\n").map_err(|e| e.to_string())?;
         match fs::rename(&data, &final_dir) {
             Ok(()) => {}
             Err(e) => {
@@ -222,6 +229,17 @@ pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
         );
     }
     result?;
+    let report = final_dir.join("tree-alpha-refs.csv");
+    if report.is_file() {
+        eprintln!(
+            "Native branch/frond alpha-reference report: {}",
+            report.display()
+        );
+    } else {
+        eprintln!(
+            "SpeedTree alpha-reference report unavailable; rebuild the embedded bridge from tools/speedtree/bake.cpp."
+        );
+    }
     eprintln!("SpeedTree preparation finished.");
     Ok(final_dir)
 }

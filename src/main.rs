@@ -86,7 +86,14 @@ mod skeleton;
 mod skeleton_pose;
 mod skin;
 mod skin_pose;
+mod sky_celestial;
+mod sky_geometry;
 mod sky_gpu;
+mod sky_time;
+// Accessors that only the Phase 5 diagnostic and the future weather wiring use
+// are kept public and unreferenced here, like `client_sun`.
+#[allow(dead_code)]
+mod sky_transition;
 mod terrain_block;
 mod terrain_gpu;
 mod terrain_lightmaps;
@@ -99,11 +106,13 @@ mod terrain_shading;
 mod texture_atlas;
 mod texture_resolution;
 mod tree_lod;
-#[allow(dead_code)]
-mod tree_wind;
 #[cfg(windows)]
 mod tree_source;
+#[allow(dead_code)]
+mod tree_wind;
 mod trees;
+mod vegetation_material;
+mod vegetation_textures;
 mod view_settings;
 mod water;
 mod water_gpu;

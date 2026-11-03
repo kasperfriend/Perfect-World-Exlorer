@@ -18,7 +18,7 @@ pub struct Part {
 }
 pub struct Leaf {
     pub center: [f32; 3],
-    // PWTREE08 records the per-leaf runtime normal used by the client.
+    // PWTREE09 records the per-leaf runtime normal used by the client.
     // Older caches do not contain normals and retain the legacy fallback.
     pub normal: Option<[f32; 3]>,
     pub rho: f32,
@@ -29,6 +29,10 @@ pub struct Leaf {
 pub struct TreeLod {
     pub branch: Part,
     pub frond: Part,
+    /// Native SpeedTree alpha-test references (0..255), present in PWTREE08.
+    /// Older caches retain `None` so the renderer can preserve its legacy cutout.
+    pub branch_alpha_ref: Option<f32>,
+    pub frond_alpha_ref: Option<f32>,
     pub leaves: Vec<Leaf>,
     // Each cluster/corner has 64 runtime samples, stored in local camera space.
     pub rocking: Vec<[f32; 3]>,
@@ -38,6 +42,10 @@ pub struct TreeMesh {
     pub lods: Vec<TreeLod>,
     pub bark: image::RgbaImage,
     pub composite: image::RgbaImage,
+    /// Authored lower mip levels (1..N) retained for the opt-in P4.07 path.
+    /// Empty when the source chain is unavailable; the default path ignores them.
+    pub bark_mips: Vec<image::RgbaImage>,
+    pub composite_mips: Vec<image::RgbaImage>,
 }
 pub struct Trees {
     pub types: Vec<Option<TreeMesh>>,
@@ -101,10 +109,11 @@ impl<'a> Reader<'a> {
 fn parse(d: &[u8], source: &[u8], dll_hash: u32) -> Result<(String, Vec<TreeLod>), String> {
     let mut r = Reader { d, p: 0 };
     let magic = r.take(8)?;
-    let (animated, leaf_normals) = match magic {
-        b"PWTREE05" => (false, false),
-        b"PWTREE06" | b"PWTREE07" => (true, false),
-        b"PWTREE08" => (true, true),
+    let (animated, native_alpha_refs, leaf_normals) = match magic {
+        b"PWTREE05" => (false, false, false),
+        b"PWTREE06" | b"PWTREE07" => (true, false, false),
+        b"PWTREE08" => (true, true, false),
+        b"PWTREE09" => (true, true, true),
         _ => return Err("unknown tree cache version".into()),
     };
     if r.u()? != dll_hash {
@@ -133,6 +142,16 @@ fn parse(d: &[u8], source: &[u8], dll_hash: u32) -> Result<(String, Vec<TreeLod>
     for _ in 0..count {
         let branch = r.part()?;
         let frond = r.part()?;
+        let (branch_alpha_ref, frond_alpha_ref) = if native_alpha_refs {
+            let branch_ref = r.f()?;
+            let frond_ref = r.f()?;
+            if !(-1.0..=255.0).contains(&branch_ref) || !(-1.0..=255.0).contains(&frond_ref) {
+                return Err("invalid native tree alpha reference".into());
+            }
+            (Some(branch_ref), Some(frond_ref))
+        } else {
+            (None, None)
+        };
         let n = r.u()? as usize;
         if n > 65535 {
             return Err("tree leaf limit".into());
@@ -178,6 +197,8 @@ fn parse(d: &[u8], source: &[u8], dll_hash: u32) -> Result<(String, Vec<TreeLod>
         lods.push(TreeLod {
             branch,
             frond,
+            branch_alpha_ref,
+            frond_alpha_ref,
             leaves,
             rocking,
             rocking_clusters,
@@ -254,10 +275,22 @@ impl Trees {
                             format!("frond/leaf material texture {}: {e}", tex_entry.name)
                         })?
                         .to_rgba8();
+                let bark_mips = crate::vegetation_textures::authored_lower_mips(&bark_bytes)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Tree type {i} bark authored mips unavailable: {e}");
+                        Vec::new()
+                    });
+                let composite_mips = crate::vegetation_textures::authored_lower_mips(&tex_bytes)
+                    .unwrap_or_else(|e| {
+                        eprintln!("Tree type {i} composite authored mips unavailable: {e}");
+                        Vec::new()
+                    });
                 Ok(TreeMesh {
                     lods,
                     bark,
                     composite,
+                    bark_mips,
+                    composite_mips,
                 })
             })();
             match result {
@@ -301,6 +334,39 @@ mod tests {
         assert!(parse(&b[..b.len() - 1], source, 42).is_err());
     }
     #[test]
+    fn reads_native_alpha_references_only_from_pwtree08() {
+        let source = b"tree";
+        let mut hash = 2166136261u32;
+        for b in source {
+            hash = (hash ^ u32::from(*b)).wrapping_mul(16777619);
+        }
+        let mut b = b"PWTREE08".to_vec();
+        for value in [42u32, hash, 0, 3] {
+            b.extend_from_slice(&value.to_le_bytes());
+        }
+        for _ in 0..3 {
+            // Empty branch and frond parts.
+            for _ in 0..4 {
+                b.extend_from_slice(&0u32.to_le_bytes());
+            }
+            b.extend_from_slice(&84f32.to_le_bytes());
+            b.extend_from_slice(&255f32.to_le_bytes());
+            // No leaves, then a valid empty 64-frame rocking table.
+            for value in [0u32, 0, 64] {
+                b.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        let lods = parse(&b, source, 42).unwrap().1;
+        assert_eq!(lods.len(), 3);
+        assert_eq!(lods[0].branch_alpha_ref, Some(84.));
+        assert_eq!(lods[0].frond_alpha_ref, Some(255.));
+        assert!(parse(&b[..b.len() - 1], source, 42).is_err());
+        let mut invalid = b;
+        let ref_offset = 8 + 4 * 4 + 4 * 4;
+        invalid[ref_offset..ref_offset + 4].copy_from_slice(&256f32.to_le_bytes());
+        assert!(parse(&invalid, source, 42).is_err());
+    }
+    #[test]
     fn accepts_sampled_rocking_and_rejects_invalid_cluster() {
         let source = b"x";
         let hash = (2166136261u32 ^ u32::from(source[0])).wrapping_mul(16777619);
@@ -334,22 +400,27 @@ mod tests {
         assert!(parse(&b[..b.len() - 4], source, 42).is_err());
     }
     #[test]
-    fn reads_per_leaf_normals_only_from_version_08() {
+    fn reads_per_leaf_normals_only_from_version_09() {
         let source = b"x";
         let hash = (2166136261u32 ^ u32::from(source[0])).wrapping_mul(16777619);
-        for version in [b"PWTREE07", b"PWTREE08"] {
+        for version in [b"PWTREE07", b"PWTREE09"] {
             let mut b = version.to_vec();
             for value in [42u32, hash, 0, 3] {
                 b.extend_from_slice(&value.to_le_bytes());
             }
             for _ in 0..3 {
-                for value in [0u32, 0, 0, 0, 1] {
+                for value in [0u32, 0, 0, 0] {
                     b.extend_from_slice(&value.to_le_bytes());
                 }
+                if version == b"PWTREE09" {
+                    b.extend_from_slice(&84f32.to_le_bytes());
+                    b.extend_from_slice(&84f32.to_le_bytes());
+                }
+                b.extend_from_slice(&1u32.to_le_bytes());
                 for v in [1f32, 2., 3.] {
                     b.extend_from_slice(&v.to_le_bytes());
                 }
-                if version == b"PWTREE08" {
+                if version == b"PWTREE09" {
                     for v in [0.25f32, -0.5, 0.75] {
                         b.extend_from_slice(&v.to_le_bytes());
                     }
@@ -368,15 +439,15 @@ mod tests {
             assert_eq!(lods[0].leaves[0].center, [1., 2., 3.]);
             assert_eq!(
                 lods[0].leaves[0].normal,
-                if version == b"PWTREE08" {
+                if version == b"PWTREE09" {
                     Some([0.25, -0.5, 0.75])
                 } else {
                     None
                 }
             );
             assert!(parse(&b[..b.len() - 1], source, 42).is_err());
-            if version == b"PWTREE08" {
-                let normal_offset = 8 + 4 * 4 + 5 * 4 + 3 * 4;
+            if version == b"PWTREE09" {
+                let normal_offset = 8 + 4 * 4 + 4 * 4 + 2 * 4 + 4 + 3 * 4;
                 b[normal_offset..normal_offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
                 assert!(parse(&b, source, 42).is_err());
             }
