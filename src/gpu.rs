@@ -1703,7 +1703,7 @@ impl Renderer {
         // weight drives it too, so a region without a lighting record still gets a
         // night sky.
         let night_weight = crate::sky_time::night_weight(camera.time_of_day).unwrap_or(0.);
-        let light = region_light
+        let sky_light = region_light
             .map(|l| {
                 [
                     l.ambient[0].max(l.diffuse[0]),
@@ -1713,7 +1713,7 @@ impl Renderer {
             })
             .unwrap_or([1.; 3]);
         let shade = 1.0 - 0.72 * night_weight.clamp(0.0, 1.0);
-        let tint = [light[0] * shade, light[1] * shade, light[2] * shade];
+        let tint = [sky_light[0] * shade, sky_light[1] * shade, sky_light[2] * shade];
         let frame = crate::sky_gpu::SkyFrame {
             hour: camera.time_of_day,
             night_weight,
