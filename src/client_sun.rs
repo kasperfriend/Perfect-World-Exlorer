@@ -74,8 +74,23 @@ impl Visibility {
             })
             .clamp(0., 1.);
         }
+        // Latched exactly as the client latches it. A word without either disc
+        // bit is passed in as `0x18` by the viewer when the `+0x80` source has
+        // not been pinned (`0x421f50` is not the EC-BSD box constructor), so
+        // the recovered step below stays untouched.
         self.flags = flags;
     }
+    /// The flag word the last `update` latched (`+0x84`/`+0x85` sources): the
+    /// default area's `+0x80` word, bit 3 sun and bit 4 moon.
+    pub fn flags(&self) -> u32 {
+        self.flags
+    }
+    /// Per-object fade: `+0x7c` for the sun, `+0x80` for the moon.
+    pub fn fade(&self, sun: bool) -> f32 {
+        self.values[if sun { 0 } else { 1 }]
+    }
+    /// Legacy hour-selected alpha, still reported in the frame snapshot; the
+    /// sky shader consumes [`Self::fade`] per object instead.
     pub fn alpha(&self, hour: f32) -> f32 {
         let t = hour.rem_euclid(24.) / 24.;
         let sun = t > f32::from_bits(0x3e155555) && t < 0.875;

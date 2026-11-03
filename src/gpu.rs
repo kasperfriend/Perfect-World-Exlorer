@@ -1100,10 +1100,14 @@ struct Renderer {
     water_start: u32,
     water_batches: Vec<WaterBatch>,
     started: Instant,
+    wind_last: Instant,
     /// Snapshot computed once by `render()`; secondary views reuse it.
     frame: FrameSnapshot,
     world_glow: crate::post_gpu::WorldGlow,
     celestial_visibility: crate::client_sun::Visibility,
+    /// Raw `+0x80` disc-flag word from the default area, before the viewer's
+    /// unknown-word fallback, so the status line can say what the source said.
+    celestial_flags: u32,
     /// Native `A3DSkySphere` swap machine (`+0x5b4`/`+0x5b8`/`+0x5b9`). Stepped
     /// exactly once per frame from `begin_frame`; reflection, refraction and map
     /// views only read the resulting snapshot (P5.07/P5.08).
@@ -1642,14 +1646,99 @@ impl Renderer {
     /// Sample time and publish the frame's lighting/playback state exactly
     /// once. Every secondary view reuses the returned snapshot with a zero
     /// logic delta; no secondary submission calls this method.
+    /// Explicit celestial state report: which disc is drawable and, when it is
+    /// not, which native condition failed. Shown next to the sky settings so an
+    /// unsupported state is visible instead of silently missing.
+    pub fn celestial_status(&self, camera: &Camera) -> String {
+        let authored = camera
+            .regional_light
+            .or(self.retained_regional_light)
+            .map(|l| l.material_direction().toward_sun())
+            .unwrap_or([0.6, -0.4, 0.8]);
+        let state = match crate::sky_time::evaluate(camera.time_of_day, authored) {
+            Some(state) => state,
+            None => return "sky clock: non-finite time or sun direction".to_string(),
+        };
+        let night = crate::sky_time::night_weight(camera.time_of_day).unwrap_or(0.);
+        let mut out = format!(
+            "Sky clock {:.2} h: sun {:.1} deg, moon {:.1} deg, night texture set {:.0}%, night flag {}, night strength {:.2}",
+            camera.time_of_day,
+            state.sun_elevation.to_degrees(),
+            state.moon_elevation.to_degrees(),
+            night * 100.,
+            if state.night_flag { "on" } else { "off" },
+            state.night_strength
+        );
+        let flag_word = self.celestial_flags;
+        let latched = self.celestial_visibility.flags();
+        let flag_note = if latched & 0x18 == 0 {
+            " (latched word has neither disc bit)".to_string()
+        } else if flag_word & 0x18 == 0 {
+            // `+0x80` is unpinned: the viewer keeps both discs visible instead of
+            // hiding them on a word whose producer is not identified, and says so.
+            format!(" (source 0x{flag_word:02x} has no disc bit; viewer latches 0x{latched:02x})")
+        } else {
+            String::new()
+        };
+        out.push_str(&format!("; disc flags 0x{flag_word:02x}{flag_note}"));
+        for disc in crate::sky_celestial::discs(
+            &state,
+            self.celestial_visibility.fade(true),
+            self.celestial_visibility.fade(false),
+            true,
+            true,
+        ) {
+            match disc {
+                Ok(disc) => {
+                    out.push_str(&format!(
+                        "; {} {:.2} deg disc, alpha {}",
+                        disc.kind.name(),
+                        disc.angular_radius.to_degrees() * 2.,
+                        disc.alpha
+                    ));
+                    let sun = disc.kind == crate::sky_celestial::DiscKind::Sun;
+                    if !self.sky.disc_texture_present(sun) {
+                        out.push_str(" (client texture missing)");
+                    }
+                    // The sun's additive shine quad is what makes the retail
+                    // disc read large; its size is the viewer's, so say which
+                    // half is not the client's rather than implying the
+                    // billboard is wrong. The moon carries no shine quad in the
+                    // client's own block, and its retail halo is the flare
+                    // chain (0x4b374b..) that this build does not draw.
+                    if sun {
+                        let factor = crate::sky_celestial::glow_texture_factor(
+                            state.night_strength,
+                            state.night_flag,
+                        );
+                        let weight = (factor / 5.).clamp(0., 1.);
+                        if self.sky.shine_texture_present(true) {
+                            out.push_str(&format!(
+                                " + sunshine.bmp x{:.0} at {:.0}% (viewer size)",
+                                crate::sky_gpu::GLOW_SCALE,
+                                weight * 100.
+                            ));
+                        } else {
+                            out.push_str(" (sunshine.bmp missing)");
+                        }
+                    } else if self.sky.shine_texture_present(false) {
+                        out.push_str(
+                            " (no shine quad; moonflare.bmp waits for the client flare pass)",
+                        );
+                    } else {
+                        out.push_str(" (no shine quad; moonflare.bmp missing)");
+                    }
+                }
+                Err(error) => out.push_str(&format!("; {error}")),
+            }
+        }
+        out
+    }
     fn begin_frame(&mut self, camera: &Camera, w: u32, h: u32) -> FrameSnapshot {
-        // Native grass wind advances once per logic update with the caller's
-        // frozen millisecond delta (`0x651040` from `0x42ab5f` / `0x42b1bb`);
-        // `0x651059` adds it without a clamp, so a long frame is not shortened.
-        // The clock is `logic_delta_ms`, never wall time: `0x651046` even reads
-        // the client's own millisecond tick (`0x763330`) into `+0x6a8` beside it.
-        let wind_ms = i32::try_from(camera.logic_delta_ms).unwrap_or(i32::MAX);
-        self.grass_wind_state.advance_ms(wind_ms);
+        let now = Instant::now();
+        let dt = now.duration_since(self.wind_last).as_secs_f32();
+        self.grass_wind_state.update(dt);
+        self.wind_last = now;
         self.post.set_sharpen(camera.sharpen);
         self.world_glow.select(
             camera.bloom,
@@ -1702,13 +1791,55 @@ impl Renderer {
         let authored = region_light
             .map(|l| l.material_direction().toward_sun())
             .unwrap_or([0.6, -0.4, 0.8]);
+        // The raw word is kept for the status line; `+0x80` is not pinned, so a
+        // word with neither disc bit never reaches the native latch (the sun
+        // would silently disappear) and the viewer feeds `0x18` instead.
+        let source_flags = region_light.map(|l| l.celestial_flags).unwrap_or(0x18);
+        self.celestial_flags = source_flags;
+        self.celestial_visibility.update(
+            camera.logic_delta_ms,
+            if source_flags & 0x18 == 0 {
+                0x18
+            } else {
+                source_flags
+            },
+        );
+        // Disc placement follows the render path 0x4b3e00: each object uses its
+        // own recovered elevation curve and the shared regional azimuth.
+        // `sun_dir` is a light direction, which 0x4b60b0 stores negated.
+        let (sun, moon) = match crate::sky_time::evaluate(camera.time_of_day, authored) {
+            Some(state) => {
+                let fade = |sun: bool| {
+                    if camera.celestial_discs {
+                        self.celestial_visibility.fade(sun)
+                    } else {
+                        0.
+                    }
+                };
+                // `.w` is the shine strength the shader tints the additive
+                // shine quad with. Only the sun has one: `0x4b3e00` builds its
+                // stage-1 texture factor as `(1 - [+0x70]) * 5.0` (times 0.8 on
+                // the night set) from `sunshine.bmp`. The moon's block at
+                // `0x4b4049` halves its `+0x48` colour and scales nothing, so
+                // the moon gets no shine here; what retail shows around the moon
+                // is the screen-space flare chain, which is not implemented.
+                let shine = crate::sky_celestial::glow_texture_factor(
+                    state.night_strength,
+                    state.night_flag,
+                );
+                let shine = (shine / 5.).clamp(0., 1.);
+                (
+                    [fade(true), state.sun_elevation, state.azimuth, shine],
+                    [fade(false), state.moon_elevation, state.azimuth, 0.],
+                )
+            }
+            None => ([0.; 4], [0.; 4]),
+        };
+        // The frame snapshot keeps the legacy single-disc summary for the
+        // capture tests; the sky itself now consumes the per-object values above.
         let celestial = crate::client_sun::sky_object_direction(camera.time_of_day, authored)
             .unwrap_or([0., -1., 0.])
             .map(|x| -x);
-        self.celestial_visibility.update(
-            camera.logic_delta_ms,
-            region_light.map(|l| l.celestial_flags).unwrap_or(0x18),
-        );
         let celestial_alpha = if camera.celestial_discs {
             self.celestial_visibility.alpha(camera.time_of_day)
         } else {
@@ -1750,28 +1881,43 @@ impl Renderer {
         let main_sets = crate::sky_transition::view_sets(sets, Pass::Main.is_secondary());
         let reflected_sets =
             crate::sky_transition::view_sets(sets, Pass::Reflection.is_secondary());
-        self.sky.update(
-            &self.queue,
-            direction,
-            w,
-            h,
-            camera.time_of_day,
-            celestial,
-            celestial_alpha,
-            main_sets,
-            false,
-        );
-        self.sky.update(
-            &self.queue,
-            direction,
-            w,
-            h,
-            camera.time_of_day,
-            celestial,
-            celestial_alpha,
-            reflected_sets,
-            true,
-        );
+        // One authored sky set covers both phases, so the dusk/night darkening is
+        // the recovered regional light colour instead of a second texture set. It
+        // never falls below the region's ambient level, and the recovered switch
+        // weight drives it too, so a region without a lighting record still gets a
+        // night sky.
+        let night_weight = crate::sky_time::night_weight(camera.time_of_day).unwrap_or(0.);
+        let sky_light = region_light
+            .map(|l| {
+                [
+                    l.ambient[0].max(l.diffuse[0]),
+                    l.ambient[1].max(l.diffuse[1]),
+                    l.ambient[2].max(l.diffuse[2]),
+                ]
+            })
+            .unwrap_or([1.; 3]);
+        let shade = 1.0 - 0.72 * night_weight.clamp(0.0, 1.0);
+        let tint = [
+            sky_light[0] * shade,
+            sky_light[1] * shade,
+            sky_light[2] * shade,
+        ];
+        let frame = crate::sky_gpu::SkyFrame {
+            hour: camera.time_of_day,
+            night_weight,
+            sun,
+            moon,
+            // The 38.16-72.5 degree band has no native mesh; the client covers it
+            // with something drawn at 0x799f88 that this build does not, so the
+            // viewer blends the frame's atmospheric fog into the cap's own rim
+            // colour across that band.
+            background: camera.air_fog.color,
+            tint,
+        };
+        self.sky
+            .update(&self.queue, direction, w, h, frame, main_sets, false);
+        self.sky
+            .update(&self.queue, direction, w, h, frame, reflected_sets, true);
         self.far_trees.update_lods(
             &self.queue,
             camera.pos.to_array(),

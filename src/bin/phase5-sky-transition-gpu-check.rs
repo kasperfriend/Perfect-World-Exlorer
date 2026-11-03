@@ -30,7 +30,9 @@ use sky_transition::{Machine, Request, Triple};
 
 const W: u32 = 64;
 const H: u32 = 64;
-const LAYERS: u32 = 11;
+// 9 set layers (3 sets x 3 textures), 2 discs (9, 10) and 2 shine quads
+// (11 sun, 12 moon): the indices the production shader samples by name.
+const LAYERS: u32 = 13;
 
 /// Deterministic gradient per texture layer, so two sets are visibly different
 /// while staying byte-stable across machines.
@@ -126,8 +128,9 @@ fn read_back(
     bytes
 }
 
-/// One frame through the production shader. `params` is the exact 112-byte
-/// `Params` uniform: `inv`, `time`, `celestial`, `sets`.
+/// One frame through the production shader. `params` is the exact 160-byte
+/// `Params` uniform: `inv`, `time`, `celestial`, `celestial2`, `background`,
+/// `tint`, `sets`.
 fn render(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -135,8 +138,9 @@ fn render(
     layout: &wgpu::BindGroupLayout,
     sky: &wgpu::TextureView,
     sampler: &wgpu::Sampler,
+    roof_sampler: &wgpu::Sampler,
     t: &Target,
-    params: &[f32; 28],
+    params: &[f32; 40],
 ) -> Vec<u8> {
     let buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("phase5 sky params"),
@@ -160,6 +164,10 @@ fn render(
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(roof_sampler),
             },
         ],
     });
@@ -257,6 +265,17 @@ fn main() {
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
+    // The production shader's second sampler: the roof sheet is sampled past
+    // one tile, so it wraps instead of clamping.
+    let roof_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("phase5 sky roof sampler"),
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        address_mode_w: wgpu::AddressMode::Repeat,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        ..Default::default()
+    });
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("phase5 sky layout"),
         entries: &[
@@ -282,6 +301,12 @@ fn main() {
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
@@ -336,17 +361,26 @@ fn main() {
         }
     };
     let uniform = |inv: Mat4, sets: (f32, f32, f32)| {
-        let mut u = [0f32; 28];
+        let mut u = [0f32; 40];
         u[..16].copy_from_slice(&inv.to_cols_array());
         u[16] = 19.; // hour
+        u[17] = 0.; // night weight: this probe is about sets and altitude
         u[20] = 0.3; // celestial direction
         u[21] = 0.4;
         u[22] = -0.5;
-        u[23] = 0.; // no discs: this probe is about sets and altitude
-        u[24] = sets.0;
-        u[25] = sets.1;
-        u[26] = sets.2;
-        u[27] = 19.;
+        u[23] = 0.; // no discs, and celestial2 stays zero, for the same reason
+        u[28] = 0.2; // pass background the open band blends with
+        u[29] = 0.3;
+        u[30] = 0.4;
+        u[31] = 1.;
+        u[32] = 1.; // tint: no phase darkening here
+        u[33] = 1.;
+        u[34] = 1.;
+        u[35] = 1.; // disc scale: native, the native quad is what the lane tests
+        u[36] = sets.0;
+        u[37] = sets.1;
+        u[38] = sets.2;
+        u[39] = 19.;
         u
     };
 
@@ -364,6 +398,7 @@ fn main() {
             &layout,
             &sky_view,
             &sampler,
+            &roof_sampler,
             &t,
             &uniform(inv, sets),
         )
