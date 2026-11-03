@@ -345,6 +345,33 @@ pub fn day_night_lightmap(day: f32, night: f32, factor: f32) -> f32 {
     (factor * night + (1.0 - factor) * day).clamp(0.0, 1.0)
 }
 
+/// The native blend factor, `ps c3.a`: the y component of the blended scene
+/// light direction that `GEnv::UpdateSceneLight` leaves in `env+0x198`
+/// (`0x7b4eb0` builds it, `0x7b4fc2..0x7b4fd9` normalises it in place, and
+/// `0x7c2377` broadcasts it to `c3`). World Y points up, so the `_sat` of
+/// `lrp_sat` clamps the range to `[0, 1]`: a light travelling downward (sun
+/// above the horizon) gives 0 and the day map, a light travelling upward gives 1
+/// and the night map.
+pub fn native_day_night_factor(light_direction: [f32; 3]) -> f32 {
+    light_direction[1].clamp(0.0, 1.0)
+}
+
+/// Viewer stand-in for [`native_day_night_factor`] until
+/// `GEnv::UpdateSceneLight` is reconstructed. The viewer has no scene-light
+/// direction, only the app-level clock, so it uses the inverse day fraction:
+/// full daylight gives 0 (day map) and full night gives 1 (night map), which is
+/// the same mapping at both endpoints and the same monotonic direction, but not
+/// the same curve: the native factor follows the authored light direction, this
+/// one follows `environment::daylight`.
+///
+/// Registered gap: `Findings/Unsupported-client-paths.md`, "Terrain day/night
+/// factor". Replacing this function with [`native_day_night_factor`] is the
+/// whole of the remaining P2.05 work, and it needs the regional light direction
+/// published to the shader by whoever owns the camera uniform.
+pub fn viewer_day_night_factor(daylight: f32) -> f32 {
+    (1.0 - daylight).clamp(0.0, 1.0)
+}
+
 /// Whether the night map reaches the output at all. The native factor is the
 /// clamped signed y of the light direction, so the two maps cross-fade across
 /// the horizon and the result is only the pure day map when the light points
@@ -599,6 +626,57 @@ mod tests {
         // and the viewer-only fallback is its negation.
         assert_eq!(fs.matches("if lightmapped").count(), 2);
         assert_eq!(fs.matches("if !lightmapped").count(), 1);
+    }
+
+    #[test]
+    fn native_and_viewer_day_night_factors_agree_on_both_endpoints() {
+        // A light travelling straight down: sun above, pure day map.
+        assert_eq!(native_day_night_factor([0.0, -1.0, 0.0]), 0.0);
+        // Straight up: the sun is below the horizon, pure night map.
+        assert_eq!(native_day_night_factor([0.0, 1.0, 0.0]), 1.0);
+        // Horizontal light: the blend sits on the day map, not halfway.
+        assert_eq!(native_day_night_factor([1.0, 0.0, 0.0]), 0.0);
+        // `_sat` clamps anything beyond the unit range.
+        assert_eq!(native_day_night_factor([0.0, 4.0, 0.0]), 1.0);
+        // The viewer substitute matches both endpoints and the direction of
+        // travel between them, and is the function the WGSL runs.
+        assert_eq!(
+            viewer_day_night_factor(1.0),
+            native_day_night_factor([0.0, -1.0, 0.0])
+        );
+        assert_eq!(
+            viewer_day_night_factor(0.0),
+            native_day_night_factor([0.0, 1.0, 0.0])
+        );
+        assert!(viewer_day_night_factor(0.75) < viewer_day_night_factor(0.25));
+        assert_eq!(viewer_day_night_factor(-3.0), 1.0);
+        assert_eq!(viewer_day_night_factor(9.0), 0.0);
+    }
+
+    /// The published endpoints and the doubling, re-expressed here so the WGSL
+    /// is pinned to this module rather than to a copy of it.
+    #[test]
+    fn production_wgsl_matches_the_module_arithmetic() {
+        let wgsl = include_str!("terrain_gpu.rs");
+        // Noon: daylight 1 -> factor 0 -> pure day map, doubled.
+        assert_eq!(
+            day_night_lightmap(1.0, 0.0, viewer_day_night_factor(1.0)) * 2.0,
+            2.0
+        );
+        // Midnight: daylight 0 -> factor 1 -> pure night map, doubled.
+        assert_eq!(
+            day_night_lightmap(1.0, 0.0, viewer_day_night_factor(0.0)) * 2.0,
+            0.0
+        );
+        // Half daylight blends between the two published endpoints.
+        let dusk = day_night_lightmap(1.0, 0.0, viewer_day_night_factor(0.5)) * 2.0;
+        assert!((dusk - 1.0).abs() < 1e-6);
+        assert!(wgsl.contains("baked=mix(day,night,factor)*2.;"));
+        assert_eq!(
+            wgsl.matches("let factor=clamp(1.-camera.sun.w,0.,1.);")
+                .count(),
+            1
+        );
     }
 
     #[test]
