@@ -49,6 +49,7 @@ order, which is the cache type ID. This is not an enumeration of instances.
   limits and clamping. Thus the viewer's XZ-only distance and ordinary
   Euclidean sqrt would not be exact. NaN/zero and instruction-level x87
   behavior remain unvalidated against a running DLL.
+* Follow-up: `PYTHONPATH=.cache/py python3 tools/speedtree/probe_lod_unicorn.py google_drive/speedtreert.dll` executed that isolated DLL routine under Unicorn (not Wine or Windows) with near=50, far=160. It returned 1 at distance 25, 0.986079574 at 50, 0.517613649 at 100, and 0 at 160. A vertical-only displacement and a translated-camera case produced the same result as the corresponding horizontal relative displacement. This confirms the approximate-sqrt behavior in this emulator; the boundary at exactly the nominal near limit is already below 1. The script checks the exact DLL SHA-256 and uses `pefile` and `unicorn` Python packages. These fixtures are not independent native comparison and do not determine component transitions.
 * `GetDiscreteBranchLodLevel` (`0x10022260`) and
   `GetDiscreteFrondLodLevel` (`0x100222b0`) depend on continuous level and
   the runtime's respective LOD counts; `GetDiscreteLeafLodLevel`
@@ -74,8 +75,9 @@ No production tree path was changed: incomplete static evidence is not a
 safe basis for replacing the current approximations or claiming exactness.
 The PWTREE07 cache has only three geometry snapshots and sampled motion; exact
 runtime LOD and wind require additional data and/or a runtime implementation.
-The DLL was not executed, the split texture archive was not extracted, and no
-visual or GPU comparison was made. The environment had no Rust toolchain,
+Only the isolated DLL LOD routine was emulated; the full DLL initialization,
+asset loading and rendering were not successfully executed. The split texture
+archive was not extracted, and no visual or GPU comparison was made. The environment had no Rust toolchain,
 Wine or Windows cross compiler, so Rust builds and native probes were not run.
 A native 32-bit client/DLL probe or a verified emulator should capture every
 type's material arrays, actual geometry, alpha, LOD transition behavior and
