@@ -148,7 +148,10 @@ pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
         eprintln!("Using prepared SpeedTree cache {}", final_dir.display());
         let report = final_dir.join("tree-alpha-refs.csv");
         if report.is_file() {
-            eprintln!("Native branch/frond alpha-reference report: {}", report.display());
+            eprintln!(
+                "Native branch/frond alpha-reference report: {}",
+                report.display()
+            );
         }
         return Ok(final_dir);
     }
@@ -228,9 +231,14 @@ pub fn prepare_trees(element: &Path) -> Result<PathBuf, String> {
     result?;
     let report = final_dir.join("tree-alpha-refs.csv");
     if report.is_file() {
-        eprintln!("Native branch/frond alpha-reference report: {}", report.display());
+        eprintln!(
+            "Native branch/frond alpha-reference report: {}",
+            report.display()
+        );
     } else {
-        eprintln!("SpeedTree alpha-reference report unavailable; rebuild the embedded bridge from tools/speedtree/bake.cpp.");
+        eprintln!(
+            "SpeedTree alpha-reference report unavailable; rebuild the embedded bridge from tools/speedtree/bake.cpp."
+        );
     }
     eprintln!("SpeedTree preparation finished.");
     Ok(final_dir)
