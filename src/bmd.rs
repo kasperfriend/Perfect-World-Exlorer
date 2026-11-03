@@ -407,7 +407,10 @@ mod tests {
             assert_eq!(m.meshes[0].vertices.len(), 4);
             // v4 stops before the material; v5 must consume the tail it added.
             if v == 0x10000005 {
-                assert_eq!(m.meshes[0].material.as_ref().map(|x| x.name.as_str()), Some("mat"));
+                assert_eq!(
+                    m.meshes[0].material.as_ref().map(|x| x.name.as_str()),
+                    Some("mat")
+                );
             } else {
                 assert!(m.meshes[0].material.is_none(), "v{v:#x}");
             }

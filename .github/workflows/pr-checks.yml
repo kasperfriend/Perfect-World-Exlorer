@@ -103,7 +103,7 @@ jobs:
           # lavapipe ICD rather than silently disabling Vulkan with a stale path.
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
           test -n "$VK_ICD_FILENAMES"
-          # Name the binary that failed: this step runs ~25 checks and a bare
+          # Name the binary that failed: this step runs 22 checks and a bare
           # exit code does not say which one broke.
           run_check() {
             if ! cargo run --locked --bin "$1" 2>&1 | tee "/tmp/gpu-$1.log"; then
@@ -156,20 +156,16 @@ jobs:
           test -n "$VK_ICD_FILENAMES"
           cargo run --locked --bin terrain-view-gpu-check
 
-      # Formatting is cosmetic: run it after the compile and test steps so a
-      # whitespace diff can never hide a real compiler error behind it.
+      # Formatting is cosmetic: run it after the compile, test and shader steps
+      # so a whitespace diff can never hide a real failure behind it.
       - name: Check formatting
         run: |
-          # `--check` only names the file; `--diff` shows what rustfmt wants, and
-          # the step log is not always retrievable, so echo the hunks directly.
+          # `cargo fmt --check` already prints the "Diff in ..." hunks it wants;
+          # capture them because the raw step log is not always retrievable.
+          # (`rustfmt --diff` is not an option, so this is the only source.)
           cargo fmt --all -- --check > /tmp/fmt.check 2>&1 || true
           if [ -s /tmp/fmt.check ]; then
-            cargo fmt --all -- --diff > /tmp/fmt.diff 2>&1 || true
-            echo "check output: $(wc -c < /tmp/fmt.check) bytes"
-            head -40 /tmp/fmt.check
-            echo "diff output: $(wc -c < /tmp/fmt.diff) bytes"
-            head -60 /tmp/fmt.diff
-            echo "::error::rustfmt wants changes; see the posted PR comment"
+            echo "::error::rustfmt wants changes; the diff is posted as a PR comment"
             exit 1
           fi
       # Annotations are capped per check run and the GPU checks fill it with
@@ -181,8 +177,8 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           [ -n "$PR" ] || exit 0
-          { echo 'rustfmt check output:'; echo '```'; cat /tmp/fmt.check 2>/dev/null | head -60; echo '```'; \
-            echo 'rustfmt --diff:'; echo '```diff'; cat /tmp/fmt.diff 2>/dev/null | head -400; echo '```'; } > /tmp/fmt.md
+          { echo 'rustfmt wants these changes:'; echo '```diff'; \
+            head -600 /tmp/fmt.check; echo '```'; } > /tmp/fmt.md
           gh pr comment "$PR" --body-file /tmp/fmt.md
   windows:
     name: Windows executable (x64)
