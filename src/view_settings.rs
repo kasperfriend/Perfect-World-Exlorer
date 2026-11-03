@@ -1,6 +1,10 @@
 //! Persisted viewer controls; malformed values fall back safely.
 #[path = "post_plan.rs"]
 mod post_plan;
+/// Dependency-free upscaling policy, kept as a child module so this file still
+/// compiles standalone with `rustc --test src/view_settings.rs`.
+#[path = "upscaling.rs"]
+pub mod upscaling;
 /// The renderer must allocate/execute the post chain for each independent
 /// scene effect, not only when bloom happens to be enabled. The retained
 /// screen-space fog is a diagnostic route and is deliberately not an input:
@@ -142,7 +146,26 @@ pub struct ViewSettings {
     /// Internal 3D render resolution as a percentage of the window size.
     /// 100 is native; the Graphics tab exposes 10 (fast/blurry) to 200
     /// (supersampled). UI and presentation always stay at native resolution.
+    /// Used directly only when both `upscaler` and `frame_generation` are
+    /// `Off`; otherwise the quality preset (or native resolution for
+    /// frame-generation-only mode) supplies the internal percentage.
     pub resolution_scale: f32,
+    /// Graphics tab → Upscaling. `Off` keeps the bilinear `resolution_scale`
+    /// path when frame generation is also off; the other modes run the temporal
+    /// upscaler on supported hardware. Independent of `frame_generation`.
+    pub upscaler: upscaling::Upscaler,
+    /// Internal-resolution ladder for the selected upscaler.
+    pub upscale_quality: upscaling::Quality,
+    /// Contrast-adaptive sharpening strength (0..1), applied after the temporal
+    /// accumulation pass.
+    pub upscale_sharpness: f32,
+    /// Graphics tab → Frame generation. Independent of `upscaler`: mixed-vendor
+    /// combinations and frame generation with upscaling off are allowed. `Auto`
+    /// only picks a default and never overrides an explicit choice.
+    pub frame_generation: upscaling::FrameGen,
+    /// Presented frames per rendered frame (2..6). The frame generator's
+    /// hardware ceiling clamps this at runtime; see `upscaling::resolve`.
+    pub frame_gen_multiplier: u8,
 }
 impl Default for ViewSettings {
     fn default() -> Self {
@@ -188,6 +211,13 @@ impl Default for ViewSettings {
             minimap_style: MapStyle::Realistic,
             minimap_shape: MinimapShape::Square,
             resolution_scale: 100.,
+            // Upscaling and frame generation are opt-in: the default keeps the
+            // existing bilinear path and never doubles presented frames.
+            upscaler: upscaling::Upscaler::Off,
+            upscale_quality: upscaling::Quality::Quality,
+            upscale_sharpness: 0.5,
+            frame_generation: upscaling::FrameGen::Off,
+            frame_gen_multiplier: 2,
         }
     }
 }
@@ -259,6 +289,27 @@ impl ViewSettings {
                 "music_volume" => number!(s.music_volume, 0., 1.),
                 "minimap_range" => number!(s.minimap_range, 100., 600.),
                 "resolution_scale" => number!(s.resolution_scale, 10., 200.),
+                "upscaler" => {
+                    if let Some(mode) = upscaling::Upscaler::parse(v) {
+                        s.upscaler = mode;
+                    }
+                }
+                "upscale_quality" => {
+                    if let Some(quality) = upscaling::Quality::parse(v) {
+                        s.upscale_quality = quality;
+                    }
+                }
+                "upscale_sharpness" => number!(s.upscale_sharpness, 0., 1.),
+                "frame_generation" => {
+                    if let Some(fg) = upscaling::FrameGen::parse(v) {
+                        s.frame_generation = fg;
+                    }
+                }
+                "frame_gen_multiplier" => {
+                    if let Ok(n) = v.parse::<u8>() {
+                        s.frame_gen_multiplier = n.clamp(2, 6);
+                    }
+                }
                 "regional_tree_lighting" => flag!(s.regional_tree_lighting),
                 "streamed_regions" => flag!(s.streamed_regions),
                 "grass_distance_fade" => flag!(s.grass_distance_fade),
@@ -300,13 +351,26 @@ impl ViewSettings {
             "radius={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n",
+            "upscaler={}\nupscale_quality={}\nupscale_sharpness={}\nframe_generation={}\nframe_gen_multiplier={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
-            self.minimap_shape.label())
+            self.minimap_shape.label(),
+            self.upscaler.key(),self.upscale_quality.key(),self.upscale_sharpness,self.frame_generation.key(),self.frame_gen_multiplier)
+    }
+    /// Inputs for the hardware-gated upscaling/frame-generation resolver.
+    pub fn upscaling_config(&self) -> upscaling::Config {
+        upscaling::Config {
+            upscaler: self.upscaler,
+            quality: self.upscale_quality,
+            sharpness: self.upscale_sharpness,
+            frame_generation: self.frame_generation,
+            multiplier: self.frame_gen_multiplier,
+            manual_percent: self.resolution_scale,
+        }
     }
     fn file() -> Option<std::path::PathBuf> {
         #[cfg(windows)]
@@ -547,6 +611,72 @@ mod tests {
             100.
         );
     }
+    #[test]
+    fn upscaling_defaults_keep_the_bilinear_path_and_round_trip() {
+        let d = ViewSettings::default();
+        assert_eq!(d.upscaler, upscaling::Upscaler::Off);
+        assert_eq!(d.upscale_quality, upscaling::Quality::Quality);
+        assert_eq!(d.upscale_sharpness, 0.5);
+        assert_eq!(d.frame_generation, upscaling::FrameGen::Off);
+        assert_eq!(d.frame_gen_multiplier, 2);
+        assert_eq!(d, ViewSettings::decode(&d.encode()));
+
+        let mut s = ViewSettings::default();
+        s.upscaler = upscaling::Upscaler::Fsr41;
+        s.upscale_quality = upscaling::Quality::UltraPerformance;
+        s.upscale_sharpness = 0.23;
+        s.frame_generation = upscaling::FrameGen::Auto;
+        s.frame_gen_multiplier = 6;
+        assert_eq!(s, ViewSettings::decode(&s.encode()));
+        // Independent selectors: any frame generator can pair with any upscaler.
+        s.upscaler = upscaling::Upscaler::Dlss;
+        s.frame_generation = upscaling::FrameGen::Fsr;
+        assert_eq!(s, ViewSettings::decode(&s.encode()));
+    }
+
+    #[test]
+    fn unknown_or_dangerous_upscaling_settings_fall_back_safely() {
+        let s = ViewSettings::decode(concat!(
+            "upscaler=DLSS 4\nupscale_quality=Ultra\n",
+            "upscale_sharpness=NaN\nframe_generation=FSR4\nframe_gen_multiplier=99\n"
+        ));
+        assert_eq!(s.upscaler, upscaling::Upscaler::Off);
+        assert_eq!(s.upscale_quality, upscaling::Quality::Quality);
+        assert_eq!(s.upscale_sharpness, 0.5);
+        assert_eq!(s.frame_generation, upscaling::FrameGen::Off);
+        assert_eq!(s.frame_gen_multiplier, 6);
+        assert_eq!(
+            ViewSettings::decode("frame_gen_multiplier=1").frame_gen_multiplier,
+            2
+        );
+        assert_eq!(
+            ViewSettings::decode("upscale_sharpness=5").upscale_sharpness,
+            1.
+        );
+        assert_eq!(
+            ViewSettings::decode("upscaler=DLSS\nframe_generation=XeSS").frame_generation,
+            upscaling::FrameGen::Xess
+        );
+    }
+
+    #[test]
+    fn upscaling_config_matches_the_persisted_fields() {
+        let mut s = ViewSettings::default();
+        s.upscaler = upscaling::Upscaler::Fsr3;
+        s.upscale_quality = upscaling::Quality::Balanced;
+        s.upscale_sharpness = 0.75;
+        s.frame_generation = upscaling::FrameGen::Fsr;
+        s.frame_gen_multiplier = 6;
+        s.resolution_scale = 82.;
+        let config = s.upscaling_config();
+        assert_eq!(config.upscaler, upscaling::Upscaler::Fsr3);
+        assert_eq!(config.quality, upscaling::Quality::Balanced);
+        assert_eq!(config.sharpness, 0.75);
+        assert_eq!(config.frame_generation, upscaling::FrameGen::Fsr);
+        assert_eq!(config.multiplier, 6);
+        assert_eq!(config.manual_percent, 82.);
+    }
+
     #[test]
     fn every_independent_post_effect_activates_the_renderer_chain() {
         // bloom, sharpen, underwater and the scene-chain ramp each allocate the

@@ -20,6 +20,7 @@ use winit::{
     window::{CursorGrabMode, Fullscreen, WindowBuilder},
 };
 const TILE: usize = 32;
+use crate::view_settings::upscaling;
 use crate::view_settings::{DetailSettings, MapStyle, MinimapShape, ViewSettings};
 
 const TEX: usize = 128;
@@ -1104,7 +1105,12 @@ pub(crate) fn depth(device: &wgpu::Device, w: u32, h: u32) -> wgpu::Texture {
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Depth32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        // TEXTURE_BINDING lets the temporal upscaler reproject with scene depth
+        // (and the frame generator warp with it); COPY_SRC is the existing water
+        // depth-copy route.
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::TEXTURE_BINDING,
         view_formats: &[],
     })
 }
@@ -2972,6 +2978,94 @@ async fn adapter(
         .map_err(|e| e.to_string())?;
     Ok((a, d, q))
 }
+
+/// Translate the wgpu adapter into the dependency-free hardware record used by
+/// the Graphics-tab support matrix. wgpu does not expose Shader Model 6.4, so
+/// it is approximated by a hardware adapter on a modern (non-GL) backend; that
+/// is the requirement Intel publishes for XeSS/XeSS-FG on non-Intel GPUs and
+/// the FSR 4.1 INT8 model uses. `docs/Graphics-Upscaling.md` explains the gate.
+fn upscaling_hardware(info: &wgpu::AdapterInfo, features: wgpu::Features) -> upscaling::Hardware {
+    use upscaling::{Backend, DeviceClass};
+    let class = match info.device_type {
+        wgpu::DeviceType::Cpu => DeviceClass::Cpu,
+        wgpu::DeviceType::VirtualGpu => DeviceClass::Virtual,
+        wgpu::DeviceType::IntegratedGpu => DeviceClass::Integrated,
+        wgpu::DeviceType::DiscreteGpu => DeviceClass::Discrete,
+        _ => DeviceClass::Other,
+    };
+    let backend = match info.backend {
+        wgpu::Backend::Vulkan => Backend::Vulkan,
+        wgpu::Backend::Dx12 => Backend::Dx12,
+        wgpu::Backend::Metal => Backend::Metal,
+        wgpu::Backend::Gl => Backend::Gl,
+        wgpu::Backend::BrowserWebGpu => Backend::BrowserWebGpu,
+        _ => Backend::Other,
+    };
+    let software =
+        matches!(class, DeviceClass::Cpu | DeviceClass::Virtual) || backend == Backend::Other;
+    let shader_model_64 = !software
+        && !matches!(
+            backend,
+            Backend::Gl | Backend::BrowserWebGpu | Backend::Other
+        );
+    upscaling::Hardware::new(
+        info.vendor,
+        info.device,
+        info.name.clone(),
+        class,
+        backend,
+        features.contains(wgpu::Features::SHADER_F16),
+        shader_model_64,
+    )
+}
+
+/// Projection-space jitter for the temporal upscaler. Adding `j * clip.w` to
+/// clip.xy shifts the rendered image by a sub-pixel amount without changing
+/// depth, which is what the accumulation pass needs for super-sampling.
+fn jitter_projection(j: [f32; 2]) -> Mat4 {
+    Mat4::from_cols_array_2d(&[
+        [1., 0., 0., 0.],
+        [0., 1., 0., 0.],
+        [0., 0., 1., 0.],
+        [j[0], j[1], 0., 1.],
+    ])
+}
+
+/// The full-resolution composition target: the whole-frame gamma intermediate,
+/// otherwise the UNORM present-encode intermediate, otherwise the swapchain.
+fn composed_view(
+    whole_frame_gamma: bool,
+    gamma: Option<&crate::display_gamma::DisplayGamma>,
+    encode: Option<&crate::present_encode::PresentEncode>,
+) -> Option<wgpu::TextureView> {
+    if whole_frame_gamma {
+        gamma.map(|g| g.view())
+    } else {
+        encode.map(|e| e.view())
+    }
+}
+
+/// Exactly one gamma ramp stage, then exactly one output encode. Shared by real
+/// and generated frames so both take the same presentation route.
+fn present_chain(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    encode: Option<&crate::present_encode::PresentEncode>,
+    gamma: Option<&crate::display_gamma::DisplayGamma>,
+    surface_view: &wgpu::TextureView,
+    gamma_setting: f32,
+) {
+    if let Some(encode) = encode {
+        let ramp_target = encode.view();
+        if let Some(gamma) = gamma {
+            gamma.present(device, queue, &ramp_target, gamma_setting);
+        }
+        encode.present(device, queue, surface_view);
+    } else if let Some(gamma) = gamma {
+        gamma.present(device, queue, surface_view, gamma_setting);
+    }
+}
+
 pub fn run(
     mut t: Terrain,
     #[cfg(windows)] loading: Option<crate::windows_setup::LoadingWindow>,
@@ -2996,6 +3090,15 @@ pub fn run(
         .map_err(|e| e.to_string())?;
     let (adapter, device, queue) = pollster::block_on(adapter(&instance, Some(&surface)))?;
     let software_adapter = adapter.get_info().device_type == wgpu::DeviceType::Cpu;
+    // Hardware gates for the Graphics-tab upscalers and frame generators.
+    let hardware = upscaling_hardware(&adapter.get_info(), adapter.features());
+    eprintln!(
+        "Upscaling hardware: {} ({:?}, {:?}, SM6.4={})",
+        hardware.name,
+        hardware.vendor(),
+        hardware.backend,
+        hardware.shader_model_64
+    );
     window.set_title(&format!(
         "Perfect World Explorer — {} — click mouse to look, Esc menu, WASD fly",
         adapter.get_info().name
@@ -3071,6 +3174,12 @@ pub fn run(
     if applied_extent != (config.width, config.height) {
         resize_world_targets(&mut renderer, applied_extent.0, applied_extent.1);
     }
+    // Temporal upscaler / frame-generator runtime. Lazily allocated because the
+    // default Graphics tab keeps the original bilinear path. `upscaler_extent`
+    // tracks (window w, window h, low-res w, low-res h) so a resize or a
+    // quality-preset change reallocates the history textures exactly once.
+    let mut upscaler: Option<crate::upscale_gpu::UpscaleRuntime> = None;
+    let mut upscaler_extent: Option<(u32, u32, u32, u32)> = None;
     let mut display_gamma: Option<crate::display_gamma::DisplayGamma> = None;
     // Only allocated for UNORM-only swapchains; None is the normal sRGB route.
     let mut present_encode: Option<crate::present_encode::PresentEncode> =
@@ -3305,13 +3414,40 @@ pub fn run(
                     if let Some(encode)=present_encode.as_mut() {encode.resize(&renderer.device,s.width,s.height);}
                 }
                 WindowEvent::RedrawRequested => {
+                    // Resolve the Graphics-tab choices against the actual adapter.
+                    // Upscaling and frame generation are independent: the plan
+                    // may run FG with no upscaler, or DLSS SR with FSR FG, etc.
+                    let plan = upscaling::resolve(&settings.upscaling_config(), &hardware);
                     // One place handles both a window resize and a Graphics-tab
-                    // scale change: reallocate only when the scaled extent moves.
-                    let wanted_extent = crate::render_scale::scaled_extent(config.width, config.height, settings.resolution_scale, max_texture_dimension);
+                    // scale/quality change: reallocate only when the scaled
+                    // extent moves. The quality preset overrides the manual
+                    // resolution-scale slider whenever a temporal upscaler (or
+                    // native-resolution frame generation) is active.
+                    let wanted_extent = crate::render_scale::scaled_extent(config.width, config.height, plan.render_percent, max_texture_dimension);
                     if wanted_extent != applied_extent {
                         applied_extent = wanted_extent;
                         resize_world_targets(&mut renderer, wanted_extent.0, wanted_extent.1);
                         render_scale.resize(&renderer.device, wanted_extent.0, wanted_extent.1);
+                    }
+                    let upscale_key = (config.width, config.height, wanted_extent.0, wanted_extent.1);
+                    if plan.temporal_active {
+                        match upscaler.as_mut() {
+                            Some(runtime) if upscaler_extent == Some(upscale_key) => {}
+                            Some(runtime) => {
+                                runtime.resize(&renderer.device, upscale_key.0, upscale_key.1, upscale_key.2, upscale_key.3);
+                                upscaler_extent = Some(upscale_key);
+                            }
+                            None => {
+                                upscaler = Some(crate::upscale_gpu::UpscaleRuntime::new(
+                                    &renderer.device, format,
+                                    upscale_key.0, upscale_key.1, upscale_key.2, upscale_key.3,
+                                ));
+                                upscaler_extent = Some(upscale_key);
+                            }
+                        }
+                    } else {
+                        upscaler = None;
+                        upscaler_extent = None;
                     }
                     if settings != saved_settings && last_settings_save.elapsed().as_secs_f32() >= 1. {
                         if let Err(e)=settings.save(){eprintln!("Settings save: {e}");} else {saved_settings=settings.clone();}
@@ -3514,21 +3650,46 @@ pub fn run(
                             // present-encode intermediate, else the swapchain itself. This is
                             // always the full window resolution: UI and the final present chain
                             // stay sharp regardless of the 3D resolution scale.
-                            let composed_view=if whole_frame_gamma {Some(display_gamma.as_ref().unwrap().view())} else if let Some(encode)=present_encode.as_ref() {Some(encode.view())} else {None};
-                            let scene_view=composed_view.as_ref().unwrap_or(&surface_view);
-                            // Draw the world into the scaled offscreen target, then bilinearly
-                            // present it into `scene_view` before the UI pass loads that result.
+                            let composed_target = composed_view(whole_frame_gamma, display_gamma.as_ref(), present_encode.as_ref());
+                            let scene_view=composed_target.as_ref().unwrap_or(&surface_view);
+                            // Cached UI draw list: generated frames re-draw the same
+                            // overlay so menus stay crisp instead of being warped.
+                            let mut egui_jobs: Option<(Vec<egui::ClippedPrimitive>, [u32; 2], f32)> = None;
+                            // Draw the world into the scaled offscreen target. An active
+                            // temporal upscaler jitters the projection by a Halton
+                            // sub-pixel offset; the same jitter index is used by the
+                            // accumulation shader through `UpscaleRuntime::upscale`.
                             let world_view = render_scale.view();
                             let world_raw_view = render_scale.raw_view();
+                            let jitter = upscaler.as_ref().map(|runtime| {
+                                upscaling::jitter_ndc(runtime.frame_index(), applied_extent.0, applied_extent.1)
+                            }).unwrap_or([0., 0.]);
+                            let scene_matrix = jitter_projection(jitter)
+                                * camera.matrix(config.width, config.height, camera.far);
                             renderer.render(
                                 &world_view,
                                 &world_raw_view,
-                                camera.matrix(config.width, config.height, camera.far),
+                                scene_matrix,
                                 &camera,
                                 applied_extent.0,
                                 applied_extent.1,
                             );
-                            render_scale.blit(&renderer.device, &renderer.queue, scene_view);
+                            if let Some(runtime) = upscaler.as_mut() {
+                                runtime.upscale(
+                                    &renderer.device,
+                                    &renderer.queue,
+                                    &world_view,
+                                    &renderer.depth,
+                                    scene_view,
+                                    scene_matrix.inverse().to_cols_array_2d(),
+                                    scene_matrix.to_cols_array_2d(),
+                                    plan.profile,
+                                    plan.sharpness,
+                                );
+                            } else {
+                                // Legacy bilinear path: no temporal compositor.
+                                render_scale.blit(&renderer.device, &renderer.queue, scene_view);
+                            }
                             // Refresh the top-down view on every presented frame. The old
                             // 350ms timer capped minimap motion to fewer than 3 FPS.
                             // The realistic minimap is a live top-down render; the
@@ -3580,7 +3741,47 @@ pub fn run(
                                                 let defaults=ViewSettings::default();
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
-                                                    0=>{ui.heading("Graphics");marked_slider(ui,egui::Slider::new(&mut settings.resolution_scale,10.0..=200.0).integer().suffix("%"),"Resolution scale",defaults.resolution_scale,10.,200.,false,true);ui.label(egui::RichText::new("3D render resolution (10%–200% of the window). UI stays at native resolution.").small().weak());ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
+                                                    0=>{
+                                                        ui.heading("Graphics");
+                                                        ui.separator();
+                                                        ui.label(egui::RichText::new("Upscaling").strong());
+                                                        egui::ComboBox::from_label("Upscaler").selected_text(settings.upscaler.label()).show_ui(ui,|ui|{
+                                                            for mode in upscaling::Upscaler::ALL {
+                                                                ui.selectable_value(&mut settings.upscaler,mode,mode.label());
+                                                            }
+                                                        });
+                                                        ui.add_enabled_ui(!plan.temporal_active,|ui|{
+                                                            marked_slider(ui,egui::Slider::new(&mut settings.resolution_scale,10.0..=200.0).integer().suffix("%"),"Resolution scale",defaults.resolution_scale,10.,200.,false,true);
+                                                        });
+                                                        ui.label(egui::RichText::new("Manual 3D resolution (10%-200%). Used only when Upscaler and Frame generator are both Off; otherwise the quality preset sets it.").small().weak());
+                                                        ui.add_enabled_ui(settings.upscaler!=upscaling::Upscaler::Off,|ui|{
+                                                            egui::ComboBox::from_label("Upscaling quality").selected_text(settings.upscale_quality.label()).show_ui(ui,|ui|{
+                                                                for quality in upscaling::Quality::ALL {
+                                                                    ui.selectable_value(&mut settings.upscale_quality,quality,quality.label());
+                                                                }
+                                                            });
+                                                        });
+                                                        marked_slider(ui,egui::Slider::new(&mut settings.upscale_sharpness,0.0..=1.0),"Upscaler sharpening",0.5,0.,1.,false,plan.temporal_active);
+                                                        ui.label(egui::RichText::new(format!("Internal resolution: {:.0}% of {}x{} ({}x{})",plan.render_percent,config.width,config.height,applied_extent.0,applied_extent.1)).small());
+                                                        ui.label(egui::RichText::new(plan.upscaler_note.as_str()).small());
+                                                        ui.label(egui::RichText::new(format!("Adapter: {} - {:?} / {:?}, SM6.4 {}",hardware.name,hardware.vendor(),hardware.backend,if hardware.shader_model_64 {"yes"} else {"no"})).small().weak());
+                                                        if plan.upscaler_fallback {ui.colored_label(egui::Color32::LIGHT_RED,"Requested upscaler is not supported on this GPU; a cross-vendor path is running.");}
+                                                        ui.label(egui::RichText::new("FSR 2/3 and XeSS run on any modern GPU. FSR 4.1 FP8 is RDNA 4, with an INT8 compatibility path elsewhere. DLSS needs RTX Tensor cores.").small().weak());
+                                                        ui.separator();
+                                                        ui.label(egui::RichText::new("Frame generation").strong());
+                                                        egui::ComboBox::from_label("Frame generator").selected_text(settings.frame_generation.label()).show_ui(ui,|ui|{
+                                                            for fg in upscaling::FrameGen::ALL {
+                                                                ui.selectable_value(&mut settings.frame_generation,fg,fg.label());
+                                                            }
+                                                        });
+                                                        marked_slider(ui,egui::Slider::new(&mut settings.frame_gen_multiplier,2..=6).integer(),"Frame multiplier",2.,2.,6.,false,settings.frame_generation!=upscaling::FrameGen::Off);
+                                                        ui.label(egui::RichText::new(plan.frame_gen_note.as_str()).small());
+                                                        if plan.frame_gen_fallback {ui.colored_label(egui::Color32::LIGHT_RED,"Requested frame generator or multiplier is not supported here; a cross-vendor path is running.");}
+                                                        ui.label(egui::RichText::new("Frame generation is independent of upscaling: any combination works (DLSS + FSR FG, XeSS + DLSS-G, FG with upscaling off). Generated frames add latency.").small().weak());
+                                                        ui.label(egui::RichText::new("Vendor SDKs are not bundled; these are portable WGSL implementations with hardware-gated profiles.").small().weak());
+                                                        ui.separator();
+                                                        ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);
+                                                    }
                                                     1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.client_tree_wind_preview,"Client wind signal (preview)").on_hover_text("Modulates the existing 16-second sampled leaf loop with the recovered client wind signal. This is an approximation, not the original live leaf animation.");marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon").on_hover_text("Native billboards: centre at direction*100, half extent 1.0 (1.146 degrees), gated on the recovered elevation curve and the 0.0003/ms visibility ramps. Sun adds its texture, moon alpha-blends it. The sun also carries its recovered sunshine.bmp shine quad at a viewer-chosen size; the moon carries none, because the client scales nothing for it and its retail halo is the screen-space flare chain this build does not draw. The status line below says both.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.vegetation_authored_mips,"Authored vegetation mips (experimental, restart)").on_hover_text("P4.07 opt-in: preserve authored DDS mip chains for vegetation and use SpeedTree PWTREE08 per-LOD branch/frond alpha references plus the verified leaf reference 84. Default off keeps the approved legacy path. Applied at startup; restart after changing. Native sampler parity, grass anisotropy, and deeper-than-LOD-7 tails remain unresolved.");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());ui.label("Music follows the client zone playlists; ambient sounds are not yet implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();egui::ComboBox::from_label("Minimap style").selected_text(settings.minimap_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.minimap_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the world from above each frame; Original shows the client's own minimap tiles (surfaces/minimaps/world) at their native resolution.").small().weak());egui::ComboBox::from_label("Minimap shape").selected_text(settings.minimap_shape.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Square,"Square");ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Circular,"Circular");});egui::ComboBox::from_label("World map style").selected_text(settings.world_map_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.world_map_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.world_map_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the whole world from above; Original shows the client's map tiles (surfaces/maps).").small().weak());ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
@@ -3649,29 +3850,50 @@ pub fn run(
                                 {let mut pass=encoder.begin_render_pass(&wgpu::RenderPassDescriptor{label:Some("settings menu"),color_attachments:&[Some(wgpu::RenderPassColorAttachment{view:scene_view,resolve_target:None,ops:wgpu::Operations{load:wgpu::LoadOp::Load,store:wgpu::StoreOp::Store}})],depth_stencil_attachment:None,timestamp_writes:None,occlusion_query_set:None});egui_renderer.render(&mut pass,&jobs,&screen);}
                                 renderer.queue.submit(cmd.into_iter().chain(std::iter::once(encoder.finish())));
                                 for id in &output.textures_delta.free {egui_renderer.free_texture(id);}
+                                egui_jobs = Some((jobs, screen.size_in_pixels, screen.pixels_per_point));
                             }
                             // Exactly one ramp stage, then exactly one output encode.
-                            if let Some(encode) = present_encode.as_ref() {
-                                // Ramp into the sRGB intermediate, then copy it once.
-                                let ramp_target = encode.view();
-                                if let Some(gamma) = display_gamma.as_ref() {
-                                    gamma.present(
-                                        &renderer.device,
-                                        &renderer.queue,
-                                        &ramp_target,
-                                        frame_gamma_setting,
-                                    );
-                                }
-                                encode.present(&renderer.device, &renderer.queue, &surface_view);
-                            } else if let Some(gamma) = display_gamma.as_ref() {
-                                gamma.present(
-                                    &renderer.device,
-                                    &renderer.queue,
-                                    &surface_view,
-                                    frame_gamma_setting,
-                                );
-                            }
+                            present_chain(
+                                &renderer.device, &renderer.queue,
+                                present_encode.as_ref(), display_gamma.as_ref(),
+                                &surface_view, frame_gamma_setting,
+                            );
                             frame.present();
+                            // Frame generation: present `multiplier - 1` interpolated
+                            // frames without rendering the world again. Each one
+                            // warps the two accumulated full-resolution frames by
+                            // camera motion and re-draws the cached UI overlay.
+                            if let Some(runtime) = upscaler.as_ref() {
+                                if plan.multiplier > 1 && runtime.can_interpolate() && !software_adapter {
+                                    for step in 1..plan.multiplier {
+                                        let alpha = step as f32 / plan.multiplier as f32;
+                                        let Ok(generated) = surface.get_current_texture() else {
+                                            break;
+                                        };
+                                        let generated_view = generated.texture.create_view(&Default::default());
+                                        let generated_scene = composed_target.as_ref().unwrap_or(&generated_view);
+                                        runtime.warp(
+                                            &renderer.device, &renderer.queue,
+                                            generated_scene, &renderer.depth, alpha,
+                                        );
+                                        if let Some((jobs, size, pixels_per_point)) = &egui_jobs {
+                                            let screen = egui_wgpu::ScreenDescriptor {
+                                                size_in_pixels: *size,
+                                                pixels_per_point: *pixels_per_point,
+                                            };
+                                            let mut encoder = renderer.device.create_command_encoder(&Default::default());
+                                            {let mut pass=encoder.begin_render_pass(&wgpu::RenderPassDescriptor{label:Some("generated frame UI"),color_attachments:&[Some(wgpu::RenderPassColorAttachment{view:generated_scene,resolve_target:None,ops:wgpu::Operations{load:wgpu::LoadOp::Load,store:wgpu::StoreOp::Store}})],depth_stencil_attachment:None,timestamp_writes:None,occlusion_query_set:None});egui_renderer.render(&mut pass,jobs,&screen);}
+                                            renderer.queue.submit(Some(encoder.finish()));
+                                        }
+                                        present_chain(
+                                            &renderer.device, &renderer.queue,
+                                            present_encode.as_ref(), display_gamma.as_ref(),
+                                            &generated_view, frame_gamma_setting,
+                                        );
+                                        generated.present();
+                                    }
+                                }
+                            }
                             if software_adapter { renderer.device.poll(wgpu::Maintain::Wait); }
                         }
                         Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {

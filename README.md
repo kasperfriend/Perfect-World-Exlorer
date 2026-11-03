@@ -15,6 +15,7 @@ See the [full 76-point plan reassessment](Findings/Eight-phase-reassessment-2026
 - Experimental animated water, per-height reflections and refraction, shoreline waves, underwater effects, environmental fog, sky, time-of-day control and optional bloom.
 - Searchable teleport destinations, original and rendered world maps, a minimap, zone notices and Windows zone music.
 - Windows launcher with remembered client folder and settings, and in-app Graphics, World, Sound and Interface controls. Settings → Graphics → **Resolution scale** renders the 3D world at 10–200% of the window size (default 100%) and upscales it, while the UI stays at native resolution; lower values trade sharpness for speed, higher values supersample.
+- Settings → Graphics also offers FSR 2, FSR 3.1, FSR 4.1, DLSS and XeSS upscaling with a quality preset and sharpening, plus **independent** FSR / DLSS / XeSS frame generation (2×–6× where the hardware allows). Upscaling and frame generation can be mixed freely — DLSS upscaling with FSR frame generation, XeSS with DLSS-G, or frame generation at native resolution with no upscaler. See [Graphics upscaling and frame generation](#graphics-upscaling-and-frame-generation).
 
 Features are limited to formats and data encountered in one inspected build; other client variants may behave differently. This is not affiliated with or endorsed by the game or its publishers.
 
@@ -26,7 +27,7 @@ Features are limited to formats and data encountered in one inspected build; oth
 
 ## Run the Windows executable
 
-1. Download the Windows executable from the project's release (or the separately supplied `Windows` folder).
+1. Download the release zip. It contains one `Perfect-World-Explorer/` folder with `Perfect-World-Explorer.exe`, `README.md`, `LICENSE`, `docs/Graphics-Upscaling.md` and `SHA256SUMS.txt`. Extract the whole folder and run the exe from inside it. The executable is self-contained (the 32-bit SpeedTree helper and launcher art are embedded); the other files are documentation, licence and integrity checks. `BmdOverlapSurvey.exe` is a development diagnostic and is not shipped.
 2. Run it and choose **Select Game Folder**. Select the extracted client root or its `element` directory.
 3. Click **Load World**. The first run prepares tree geometry using the client runtime; wait for loading to finish.
 4. The menu starts open. Choose Settings or close the menu to fly.
@@ -46,6 +47,21 @@ Features are limited to formats and data encountered in one inspected build; oth
 | M | Open world map |
 
 Use **Escape → Teleport List** to search destinations. The world map offers original client tiles or a top-down render of the currently loaded world, mouse-wheel zoom, and optional click-to-teleport. Whole-world static objects need to finish loading to appear in the rendered map.
+
+## Graphics upscaling and frame generation
+
+**Settings → Graphics** has two independent selectors:
+
+| Selector | Options |
+| --- | --- |
+| Upscaler | Off (bilinear), FSR 2, FSR 3.1, FSR 4.1, DLSS Super Resolution, XeSS Super Resolution |
+| Frame generator | Off, Auto (match upscaler), FSR 3 Frame Generation, DLSS Frame Generation / MFG, XeSS Frame Generation / MFG |
+
+Supporting controls: upscaling quality (Native AA / Quality / Balanced / Performance / Ultra Performance), sharpening, frame multiplier (2–6, clamped by the technology's hardware ceiling) and the legacy manual resolution-scale slider (used only when both selectors are Off). The tab shows the detected adapter, the effective internal resolution, the path each technology is running on and any fallback.
+
+Combinations are **not** tied to a vendor. XeSS Super Resolution and XeSS Frame Generation run on non-Intel GPUs through Intel's DP4a / Shader Model 6.4 paths opened by the XeSS 2.1 SDK; FSR 2/3 and FSR Frame Generation are open and cross-vendor; FSR 4.1 has an INT8 compatibility profile for GPUs beyond RDNA 4; DLSS keeps its real NVIDIA RTX / RTX 40+ / RTX 50 hardware requirements. XeSS 3 Multi Frame Generation (4×) and DLSS 4.5 6× MFG remain limited to Intel XMX and RTX 50 hardware respectively. `Auto` is only a default and never overrides an explicit choice.
+
+These are **in-house portable WGSL compatibility implementations**, not the proprietary NVIDIA NGX, Intel XeSS or AMD FidelityFX SDKs: no vendor binaries or neural models are bundled, and image quality is not equivalent to the vendor implementations. They implement jittered temporal accumulation with depth reprojection, neighbourhood clipping and RCAS-like sharpening, plus depth-warped frame interpolation. Vendor modes are gated by the adapter; software rasterisers fall back to the original bilinear path. Full details, the 2026 support matrix and its detection limits are in [docs/Graphics-Upscaling.md](docs/Graphics-Upscaling.md).
 
 ## Build from source
 
@@ -67,7 +83,7 @@ CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
   cargo build --release --target x86_64-pc-windows-gnu --bin perfect-world-explorer
 ```
 
-The single executable embeds `tools/speedtree/speedtree-bake.exe`, a 32-bit helper built from `tools/speedtree/bake.cpp`. It invokes the **user's** runtime DLL; the DLL is not bundled. The helper binary is retained in the repository because the Rust build uses `include_bytes!`; Windows PR and release workflows rebuild it from `bake.cpp` before compiling the viewer. For local builds after changing the bridge source, rebuild it with a 32-bit MinGW C++ compiler, e.g. `i686-w64-mingw32-g++ -static -O2 -municode tools/speedtree/bake.cpp -o tools/speedtree/speedtree-bake.exe`. Compiler versions and flags may produce a different binary. The bridge also writes `tree-alpha-refs.csv` into its prepared cache directory, containing the native branch/frond alpha references for each of the 59 tree types and three LODs. `tools/launcher-art.jpg` is embedded at build time.
+The single executable embeds `tools/speedtree/speedtree-bake.exe`, a 32-bit helper built from `tools/speedtree/bake.cpp`. It invokes the **user's** runtime DLL; the DLL is not bundled. The Windows workflows now package that one exe together with `README.md`, `LICENSE`, `docs/Graphics-Upscaling.md` and `SHA256SUMS.txt` inside a `Perfect-World-Explorer/` folder (a zip for releases); the diagnostic `BmdOverlapSurvey.exe` is no longer built for or included in shipped artifacts. The helper binary is retained in the repository because the Rust build uses `include_bytes!`; Windows PR and release workflows rebuild it from `bake.cpp` before compiling the viewer. For local builds after changing the bridge source, rebuild it with a 32-bit MinGW C++ compiler, e.g. `i686-w64-mingw32-g++ -static -O2 -municode tools/speedtree/bake.cpp -o tools/speedtree/speedtree-bake.exe`. Compiler versions and flags may produce a different binary. The bridge also writes `tree-alpha-refs.csv` into its prepared cache directory, containing the native branch/frond alpha references for each of the 59 tree types and three LODs. `tools/launcher-art.jpg` is embedded at build time.
 
 The executable distributed alongside this source was rebuilt from this packaged snapshot. Native Windows/physical-GPU verification of the latest changes and game-to-viewer image comparison remain outstanding.
 
@@ -81,13 +97,14 @@ The executable distributed alongside this source was rebuilt from this packaged 
 
 ## Known limitations
 
-The water render target details, simple-water lighting/fog, quality modes, wave timing and underwater integration remain incomplete. Terrain, sky, grass placement/wind, SpeedTree LOD/wind, regional lighting and fog are approximations. Animated EC models and effects, full point-light integration and gameplay are missing. Whole-world memory use can be high; the map shows loaded content rather than all possible assets. Rendering and timing vary with client build, graphics driver and hardware. See the [roadmap](Findings/Roadmap.md), [parity assessment](Findings/Parity-Assessment.md), and [water plan](Findings/Water-100-percent-parity.md).
+The water render target details, simple-water lighting/fog, quality modes, wave timing and underwater integration remain incomplete. Terrain, sky, grass placement/wind, SpeedTree LOD/wind, regional lighting and fog are approximations. Animated EC models and effects, full point-light integration and gameplay are missing. Settings → Graphics upscaling and frame generation are portable WGSL compatibility implementations, not vendor SDKs; generated frames add latency and do not reproduce vendor optical-flow or neural-network quality. Whole-world memory use can be high; the map shows loaded content rather than all possible assets. Rendering and timing vary with client build, graphics driver and hardware. See the [roadmap](Findings/Roadmap.md), [parity assessment](Findings/Parity-Assessment.md), and [water plan](Findings/Water-100-percent-parity.md).
 
 ## Repository layout
 
 ```text
 Cargo.toml, Cargo.lock   Rust package and locked dependencies
 src/                     viewer, parsers, GPU code and diagnostics
+docs/                    Graphics upscaling / frame-generation documentation
 tools/speedtree/         bridge source, probes and embedded helper
 tools/launcher-art.jpg   embedded launcher image
 Findings/                research, evidence, assessment and roadmap

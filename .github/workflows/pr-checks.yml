@@ -42,6 +42,10 @@ jobs:
           python3 tools/audit-static-model-gpu-programs.py
           rustc --edition=2021 --test src/scenery_visibility.rs -o /tmp/scenery-visibility-tests
           /tmp/scenery-visibility-tests
+          # Graphics upscaling / frame-generation support matrix and the
+          # independent-selector policy: pure arithmetic, no GPU needed.
+          rustc --edition=2021 --test src/upscaling.rs -o /tmp/upscaling-tests
+          /tmp/upscaling-tests
           # Phase 5 sky-swap machine: standalone, so a failure names the recovered
           # count grid, the commit boundaries or the never-retarget guard directly
           # instead of only failing the viewer's test binary (P5.07).
@@ -185,21 +189,32 @@ jobs:
           }
       - name: Build standalone viewer
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer
-      - name: Build the shipped survey tool
-        run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin bmd-overlap-survey
-      - name: Stage artifact and checksum
+      - name: Stage the distributable folder and checksums
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifact | Out-Null
-          Copy-Item target/x86_64-pc-windows-msvc/release/perfect-world-explorer.exe artifact/Perfect-World-Explorer.exe
-          Copy-Item target/x86_64-pc-windows-msvc/release/bmd-overlap-survey.exe artifact/BmdOverlapSurvey.exe
-          $hash = (Get-FileHash artifact/Perfect-World-Explorer.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  Perfect-World-Explorer.exe" | Out-File -Encoding ascii artifact/SHA256SUMS.txt
-          $survey = (Get-FileHash artifact/BmdOverlapSurvey.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$survey  BmdOverlapSurvey.exe" | Out-File -Encoding ascii -Append artifact/SHA256SUMS.txt
+          # Downloading the artifact yields a zip whose top level is this folder,
+          # not a pile of loose files. The BMD overlap survey is a development
+          # diagnostic and is deliberately NOT built or shipped here.
+          $folder = Join-Path "artifact" "Perfect-World-Explorer"
+          New-Item -ItemType Directory -Force -Path (Join-Path $folder "docs") | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/perfect-world-explorer.exe (Join-Path $folder "Perfect-World-Explorer.exe")
+          Copy-Item README.md (Join-Path $folder "README.md")
+          Copy-Item LICENSE (Join-Path $folder "LICENSE")
+          Copy-Item docs/Graphics-Upscaling.md (Join-Path $folder "docs/Graphics-Upscaling.md")
+          $shipped = @("Perfect-World-Explorer.exe", "README.md", "LICENSE", "docs/Graphics-Upscaling.md")
+          $lines = foreach ($rel in $shipped) {
+            $hash = (Get-FileHash (Join-Path $folder $rel) -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $rel"
+          }
+          $lines | Out-File -Encoding ascii (Join-Path $folder "SHA256SUMS.txt")
+          $survey = Get-ChildItem -Recurse -File $folder | Where-Object { $_.Name -match 'Bmd.*Survey\.exe$' }
+          if ($survey) { throw "BmdOverlapSurvey.exe must not be shipped" }
+          Get-ChildItem -Recurse -File $folder | ForEach-Object { $_.FullName }
       - uses: actions/upload-artifact@v4
         with:
           name: Perfect-World-Explorer-Windows-x64
+          # artifact/ is the parent, so the zip contains the
+          # Perfect-World-Explorer/ folder with the exe and companion files.
           path: artifact/
           if-no-files-found: error
           retention-days: 14
