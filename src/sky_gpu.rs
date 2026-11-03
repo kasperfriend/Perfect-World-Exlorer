@@ -59,7 +59,10 @@ fn set_hour(d:vec3<f32>, g:i32, day:f32, e:f32)->vec3<f32>{
  // after the hour blend and never mixes the noon image of one set with the
  // night image of another. With no transition running both indices are equal
  // and the weight is zero, which leaves the colour untouched.
- let base=p.sets.x; let incoming=p.sets.y; let w=clamp(p.sets.z,0.,1.);
+ // The uniform can only carry floats, so the set indices are converted back to
+ // the integer layer selector `sky()`/`set_hour()` take. WGSL has no implicit
+ // conversion, hence the explicit i32() casts.
+ let base=i32(clamp(p.sets.x,0.,2.)); let incoming=i32(clamp(p.sets.y,0.,2.)); let w=clamp(p.sets.z,0.,1.);
  if w>0. && incoming!=base {
   // `set_hour` blends one whole group; the crossfade never mixes the noon image
   // of one set with the night image of another. The viewer currently loads one
