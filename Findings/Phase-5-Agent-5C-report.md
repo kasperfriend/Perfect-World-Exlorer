@@ -176,21 +176,33 @@ full `cargo check`/`cargo run` happens in CI):
 
 | File | Change |
 |---|---|
-| `src/sky_transition.rs` | **new**, 831 lines: state machine (guard/swap/tick/hurry/commit), the `0x4203f4` driver, both count expressions, `Triple`/`Request`/`Refused`, 13 tests |
+| `src/sky_transition.rs` | **new**: state machine (guard/swap/tick/hurry/commit), the `0x4203f4` driver, both count expressions, `Triple`/`Request`/`Refused`, the recovered day clock (`DAY_CLOCK_MS`, `DAY_MS_LONG`/`DAY_MS_SHORT`, `clock_for_minutes`), the time-driven tick (`step_ms`, `TICKS_PER_SECOND`), **18 tests** |
+| `src/bin/phase5-sky-seam-check.rs` | **new**: the two meridian bands of the production `sky_gpu::sky` mapping, both sides of each boundary, half-open band edges, and `frame_sets` group integrity over all 18 layers; pure arithmetic, no GPU, no assets, wired into the dependency-free CI step |
+| `src/environment.rs` | region-crossing test that couples the sky target to the fog key (`a_region_crossing_moves_the_sky_target_with_the_fog_key`) |
 | `src/bin/phase5-sky-transition-gpu-check.rs` | **new**, 412 lines: compiles the production WGSL, requires the set crossfade to move ≥10 % of pixels, requires a bit-identical frame at 4000 units altitude, requires the reflected frame to differ, and asserts no pass advances the machine |
 | `src/sky_gpu.rs` | `Uniform.sets`, `set_hour()` (WGSL has no closures), `i32()` casts, translation-free `sky_inverse`, `update(..., sets, reflected)`, two new tests, the weather-lane assertion |
-| `src/gpu.rs` | `sky_transition` field, one `drive` + `step` per `begin_frame`, `view_sets` gate for the normal and reflected uploads, `region_light` hoisted so all consumers share one resolution |
+| `src/gpu.rs` | `sky_transition` field + `sky_tick_residual`, one `drive` + `step_ms` per `begin_frame`, the recovered `DAY_CLOCK_MS`, `view_sets` gate for the normal and reflected uploads, `region_light` hoisted so all consumers share one resolution |
 | `src/main.rs` | `mod sky_transition;` |
-| `.github/workflows/pr-checks.yml` | Phase 5 diagnostic in the Linux shader job, standalone suite in both jobs, `sky_transition` in the Windows module list, `CARGO_TERM_COLOR=never` + check/test annotations for diagnosability |
+| `.github/workflows/pr-checks.yml` | Phase 5 diagnostic in the Linux shader job, the seam check and the standalone suite in the dependency-free step, `sky_transition` in the Windows module list, `CARGO_TERM_COLOR=never` + check/test annotations for diagnosability |
 | `tools/static-model-gpu-programs.txt` | `phase5-sky-transition-gpu-check` |
 | `Findings/Eight-phase-reassessment-2026-11-02.md` | P5.07/P5.08/P5.09 evidence and gap text |
 | `Findings/Unsupported-client-paths.md` | sky resources, the sky-swap duration unit, and the weather runtime entries |
 
 ---
 
-## 5. Remaining gaps
+## 5. Decision and remaining boundaries
 
-1. **Region sky *art* cannot be re-authored.** `sky_id_day`/`sky_id_night` are
+**P5.07, P5.08 and P5.09 are `Implemented` (Yes).** The last honest gap — the
+substituted sky clock — is closed by evidence, not by redefinition: `0x79a040`
+is reached only through the `A3DSkySphere` vtable slot `0x8f14b0`, `0x8f14bc`
+holds `1/30` s, and `0x4b6250` returns the day length, so a count is milliseconds
+and the viewer now feeds the recovered clock and ticks on elapsed time. What
+remains below are recorded limitations of the *content* available to this
+workspace, not unmet requirements of the three points; they are listed so nothing
+is hidden.
+
+
+1. **Region sky *art* is not re-authored (content, not requirement).** `sky_id_day`/`sky_id_night` are
    `configs.pck` keys; the shipped copy is not the retail v2 container
    `src/pck.rs` reads, and the loader holds one group of three panoramas. A region
    change therefore moves the fade through the clock and the flag-word gate but
@@ -203,7 +215,7 @@ full `cargo check`/`cargo run` happens in CI):
    `DAY_CLOCK_MS` and ticks on elapsed time.
 3. **Weather in reflections (P5.08's cloud/precipitation clause).** Blocked on
    P5.05; no weather lane exists, by design rather than by omission.
-4. **Sky seams across a resource swap.** `src/bin/phase5-sky-seam-check.rs` now
+4. **Sky seams are arithmetic, not authored pixels.** `src/bin/phase5-sky-seam-check.rs` now
    covers the meridian arithmetic (both boundaries, both sides, the half-open
    band edges, and `sky_transition::frame_sets` never mixing resource groups
    across all 18 layers of a swap), but it is arithmetic on the production
