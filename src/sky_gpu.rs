@@ -40,6 +40,13 @@ fn sky(dir:vec3<f32>, layer:i32)->vec3<f32>{
  let b=textureSampleLevel(skies,smp,roofuv,layer*3+2,0.).rgb;
  return mix(a,b,smoothstep(0.70,0.97,dir.y));
 }
+// One whole sky resource set, blended by hour. The array is group-major:
+// group g, phase q (0 noon, 1 dusk, 2 night), side k -> layer g*9+q*3+k, which
+// `sky()` expresses as `sky(d, g*3+q)`. WGSL has no closures, so this is a real
+// function rather than the inline expression the single-set path uses.
+fn set_hour(d:vec3<f32>, g:i32, day:f32, e:f32)->vec3<f32>{
+ return mix(mix(sky(d,g*3+2),sky(d,g*3+1),e),sky(d,g*3+0),day);
+}
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
  let hour=p.time.x;let day=smoothstep(5.,8.,hour)*(1.-smoothstep(17.,20.,hour));
@@ -54,15 +61,13 @@ fn sky(dir:vec3<f32>, layer:i32)->vec3<f32>{
  // and the weight is zero, which leaves the colour untouched.
  let base=p.sets.x; let incoming=p.sets.y; let w=clamp(p.sets.z,0.,1.);
  if w>0. && incoming!=base {
-  // Each resource set is one three-image group: `sky()` already takes that
-  // group as its layer and picks the day-phase image with the hour weights
-  // above. The viewer currently loads exactly one group (clear/evening/night2),
-  // so both indices are equal and this collapse to `a` is the honest result
-  // until a second authored `sky_list` entry can be loaded from client config.
-  // Layer layout is group-major: group g, phase q, side k -> layer g*9+q*3+k,
-  // which `sky()` expresses as `sky(d, g*3+q)`.
-  let set_mix=|g:i32|{mix(mix(sky(d,g*3+2),sky(d,g*3+1),e),sky(d,g*3+0),day)};
-  color=mix(set_mix(base),set_mix(incoming),w);
+  // `set_hour` blends one whole group; the crossfade never mixes the noon image
+  // of one set with the night image of another. The viewer currently loads one
+  // group (`clear`/`evening`/`night2`), so a real run keeps `incoming == base`
+  // and leaves this branch untouched until a second authored `sky_list` entry is
+  // loadable; the blend itself is exercised by the `phase5-sky-transition`
+  // diagnostic with a synthetic array.
+  color=mix(set_hour(d,base,day,e),set_hour(d,incoming,day,e),w);
  }
  // Clouds and precipitation are NOT drawn here: the client's weather runtime is
  // not reconstructed (P5.05, see Findings/Unsupported-client-paths.md) and the
@@ -202,6 +207,9 @@ impl SkyGpu {
                     inv: Mat4::IDENTITY.to_cols_array_2d(),
                     time: [12., 0., 0., 0.],
                     celestial: [0., 1., 0., 0.],
+                    // Committed set 0 with weight zero: the shader leaves the
+                    // hour blend untouched until `begin_frame` uploads a frame.
+                    sets: [0., 0., 0., 12.],
                 }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             })
