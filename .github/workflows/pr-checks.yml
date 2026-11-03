@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: pr-checks-${{ github.event.pull_request.number || github.ref }}
@@ -163,14 +164,21 @@ jobs:
           # the step log is not always retrievable, so echo the hunks directly.
           if ! cargo fmt --all -- --check; then
             cargo fmt --all -- --diff > /tmp/fmt.diff || true
-            # Echo the hunks as annotations: raw step output is not always
-            # retrievable, and only annotations survive in the API.
-            grep -E "^(Diff in |[-+][^-+])" /tmp/fmt.diff | head -60 \
-              | fold -w 400 | while IFS= read -r line; do
-              echo "::error::fmt: $line"
-            done
+            echo "::error::rustfmt wants changes; the diff is posted as a PR comment"
             exit 1
           fi
+      # Annotations are capped per check run and the GPU checks fill it with
+      # notices, so the diff is posted where it can actually be read.
+      - name: Post formatting diff
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          [ -s /tmp/fmt.diff ] || exit 0
+          [ -n "$PR" ] || exit 0
+          { echo '```diff'; head -400 /tmp/fmt.diff; echo '```'; } > /tmp/fmt.md
+          gh pr comment "$PR" --body-file /tmp/fmt.md
   windows:
     name: Windows executable (x64)
     runs-on: windows-latest
