@@ -28,13 +28,45 @@ Packs surveyed are the four retail packs matching this client build
 | `configs.pck` | 72 | 19 | 53 | **0** |
 | `shaders.pck` | 166 | 162 | 4 | **0** |
 | `textures.pck` | 1038 | 1037 | 0 | **1** |
-| **total** | **3302** | **1752** | **1549** | **1** |
+| `models.pck` | 40753 | 40569 | 177 | **7** |
+| **total** | **44055** | **42321** | **1726** | **8** |
 
-`textures.pck` (117,047,648 B, 2019-05-03) is 636 DDS, 236 BMP, 165 TGA and one
-JPG. The single unsupported member is `textures/sky/夕阳/未标题-2副本.jpg`, an
-authored stray in the sunset sky folder - nothing references it and it is not
-part of the `sky_image01..03` set. It is left unread rather than silently
-converted, which is the point of listing it by name.
+The eight unsupported members are, exhaustively: the single stray JPEG in
+`textures/sky/夕阳/`, and seven **zero-byte** authoring leftovers in `models.pck`
+(`logs/af.log`, `logs/skeletoneditor.log`, `log.txt`, `~ps49.tmp` and similar).
+Nothing in either pack is skipped because of unknown *content*; those eight are
+identified, named, and empty or irrelevant.
+
+## `models.pck` is not where the BMDs are
+
+This census overturned a working assumption that had been carried for several
+sessions, including by me in this branch: `models.pck` does **not** contain the
+character/effect BMDs. It contains **zero `.bmd` members**. It is the Angelica
+EC/ECM asset pack:
+
+| | count | |
+|---|---:|---|
+| `.stck` | 14065 | `MOXBKCTS` animation clips -> `src/animation.rs` |
+| `.ski` | 10898 | `MOXBIKSA` skin meshes -> `src/skin.rs` |
+| `.dds` | 6005 | textures |
+| `.ecm` | 3745 | text `MOXTVersion: N` models -> `src/ecmodel.rs` |
+| `.bon` | 3579 | `MOXBEKSA` skeletons -> `src/ecmodel.rs` |
+| `.smd` | 2228 | `MOXBDMSA` skin models -> `src/ecmodel.rs` |
+
+BMDs live in `litmodels.pck` (28,858 world BMDs, already censused) and
+`building.pck` holds none. The one `.ecm`-adjacent surprise is that ECM is a
+**text** format - `MOXTVersion: 21` + INI-style keys - spanning 24 distinct
+versions (v12 through v47) across 3,745 files, all of which parse.
+
+### A bug this census had, that it then found
+
+The first run reported `stck`, `ski`, `bon` and `smd` as unsupported. The cause
+was ordering inside `sniff()`: it tested `b[:4] == b"MOXB"` *before* the 8-byte
+container tags, and since every Angelica binary starts with `MOXB`, all four
+were classified as generic models. Longest-match-first fixes it, and the
+regression is worth stating because it is the same class of error as the
+extension-level assumptions the census exists to replace: a coarser test placed
+ahead of a finer one silently swallows every specific case.
 
 ## Per-extension verdicts
 
@@ -82,7 +114,7 @@ archive content rather than at the viewer's assumptions. Both were invisible to
 "Zero unsupported" here means: every member of these four packs is either parsed
 by the viewer or positively identified as belonging to another subsystem, with
 the reason recorded. It does **not** mean the viewer renders everything those
-parsers accept at full fidelity, and it does not cover the packs that are not
-downloaded (`textures.pck`, `models.pck`, `building.pck`, `litmodels.pck`,
-`surfaces.pck`, `gfx.pck`, `loddata.pck`). Those are listed in
-`Findings/Eight-phase-status.md` as remaining census scope, not as done.
+parsers accept at full fidelity. Six packs are covered; `building.pck`,
+`litmodels.pck`, `surfaces.pck`, `gfx.pck` and `loddata.pck` are not staged, and
+BMD coverage therefore rests on the existing `litmodels.pck` census rather than
+on this tool.

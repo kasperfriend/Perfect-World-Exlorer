@@ -34,7 +34,11 @@ HANDLED = {
     "mox": ("MOXB", "src/grass.rs"),
     "mod": ("MOXTMODEL", "src/grass.rs (mox_wrapper_child)"),
     "bmd": (None, "src/bmd.rs, src/objects.rs"),
-    "ecm": (None, "src/ecmodel.rs, src/world_models.rs"),
+    "ecm": ("MOXTVERSION: ", "src/ecmodel.rs, src/world_models.rs"),
+    "ski": ("MOXBIKSA", "src/skin.rs"),
+    "bon": ("MOXBEKSA", "src/ecmodel.rs"),
+    "smd": ("MOXBDMSA", "src/ecmodel.rs"),
+    "stck": ("MOXBKCTS", "src/animation.rs"),
     "spt": ("SPT", "src/tree_source.rs"),
     "tga": ("TGA", "src/objects.rs, src/light_consumers.rs"),
     "bmp": ("BMP", "src/sky_gpu.rs, src/texture_resolution.rs"),
@@ -57,22 +61,38 @@ OUT_OF_SCOPE = {
     "vso": "precompiled vertex shader object; superseded by the HLSL sources",
     "grs": "test-only grass sample; absent from elementclient.exe",
     "tbh": "tree billboard helper, consumed with the .spt tree source",
+    "mphy": "per-model physics/ragdoll blob; no renderer consumer",
+    "his": "build history metadata (HIS) shipped inside the pack",
+    "log": "authoring log files shipped inside the pack",
+    "tmp": "authoring leftover, not a runtime asset",
+    "rar": "archive shipped inside the pack by mistake",
+    "bip": "3ds Max Character Studio Biped clip, authoring source",
+    "dll": "prebuilt binary shipped inside the pack",
     "spt": "SpeedTree source; converted by tools/speedtree/bake.cpp against the retail "
            "SpeedTreeRT.dll (tools/speedtree/speedtree-bake.exe), not parsed by src/",
     "ecp": "ECModel convex collision hull (`MOXBpbce` + a path back to its .ecm); "
            "collision data, not rendered geometry",
 }
-SUPPORTED = {"dds", "mox", "mod", "bmd", "ecm", "tga", "bmp", "txt",
-             "sdr", "action", "ogg"}
+SUPPORTED = {"dds", "mox", "mod", "bmd", "ecm", "ski", "bon", "smd", "stck",
+             "tga", "bmp", "txt", "sdr", "action", "ogg"}
 
 
 def sniff(b):
     if len(b) >= 4 and b[:4] == b"DDS ":
         return "DDS"
-    if len(b) >= 4 and b[:4] == b"MOXB":
-        return "MOXB"
+    # Longest match first: every Angelica binary container starts "MOXB", so a
+    # bare 4-byte MOXB test placed above these would swallow `ski`, `bon`, `smd`
+    # and `stck` as generic models. That is exactly the shape of the bug this
+    # ordering fixes.
+    for tag in (b"MOXBIKSA", b"MOXBEKSA", b"MOXBDMSA", b"MOXBKCTS"):
+        if b[:8] == tag:
+            return tag.decode()
     if len(b) >= 9 and b[:9] == b"MOXTMODEL":
         return "MOXTMODEL"
+    if len(b) >= 12 and b[:12].upper() == b"MOXTVERSION:":
+        return "MOXTVERSION: "
+    if len(b) >= 4 and b[:4] == b"MOXB":
+        return "MOXB"
     if len(b) >= 4 and b[:4] == b"OggS":
         return "OGG"
     if len(b) >= 2 and b[:2] == b"BM":
@@ -100,7 +120,7 @@ def census(path):
             rows.append(row)
             continue
         sig = None
-        if ext in ("dds", "mox", "mod", "spt", "tga", "bmp", "ogg"):
+        if ext in ("dds", "mox", "mod", "spt", "tga", "bmp", "ogg", "ecm", "ski", "bon", "smd", "stck"):
             sig = sniff(pck.read_entry(path, (name, offset, size, flag))[:16])
         row["signature"] = sig
         if ext in SUPPORTED:
