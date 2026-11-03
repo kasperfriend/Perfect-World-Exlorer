@@ -91,7 +91,7 @@ fn target(device: &wgpu::Device) -> Target {
 fn read_back(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    encoder: wgpu::CommandEncoder,
+    mut encoder: wgpu::CommandEncoder,
     t: &Target,
 ) -> Vec<u8> {
     encoder.copy_texture_to_buffer(
@@ -248,14 +248,8 @@ fn main() {
     }
     let sky_view = sky.create_view(&wgpu::TextureViewDescriptor {
         label: Some("phase5 sky array view"),
-        format: None,
         dimension: Some(wgpu::TextureViewDimension::D2Array),
-        usage: None,
-        aspect: wgpu::TextureAspect::All,
-        base_mip_level: 0,
-        mip_level_count: None,
-        base_array_layer: 0,
-        array_layer_count: None,
+        ..Default::default()
     });
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
         label: Some("phase5 sky sampler"),
