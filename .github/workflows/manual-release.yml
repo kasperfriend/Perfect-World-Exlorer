@@ -71,7 +71,7 @@ jobs:
           install: mingw-w64-i686-gcc
       - name: Rebuild the embedded 32-bit SpeedTree bridge
         shell: msys2 {0}
-        run: g++ -static -O2 tools/speedtree/bake.cpp -o tools/speedtree/speedtree-bake.exe
+        run: g++ -static -O2 -municode tools/speedtree/bake.cpp -o tools/speedtree/speedtree-bake.exe
       - uses: Swatinem/rust-cache@v2
       - name: Build standalone viewer
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer

@@ -288,7 +288,7 @@ impl FarTrees {
                                     0
                                 },
                             night_diffuse: if authored_mips {
-                                (84. / 255.).to_bits()
+                                (84.0f32 / 255.0f32).to_bits()
                             } else {
                                 u32::MAX
                             },

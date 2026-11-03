@@ -60,6 +60,8 @@ fn lod() -> trees::TreeLod {
             indices: vec![0, 1, 2, 1, 3, 2],
         },
         frond: Default::default(),
+        branch_alpha_ref: Some(84.),
+        frond_alpha_ref: Some(255.),
         leaves: vec![trees::Leaf {
             center: [0., 2., 2.5],
             rho: 0.,
