@@ -595,10 +595,9 @@ fn build(
                 } else {
                     for py in 0..slot.h {
                         for px in 0..slot.w {
-                            let x = (px as u32 * img.width() / slot.w as u32)
-                                .min(img.width() - 1);
-                            let y = (py as u32 * img.height() / slot.h as u32)
-                                .min(img.height() - 1);
+                            let x = (px as u32 * img.width() / slot.w as u32).min(img.width() - 1);
+                            let y =
+                                (py as u32 * img.height() / slot.h as u32).min(img.height() - 1);
                             let o = ((oy + py) * ATLAS + ox + px) * 4;
                             atlas[o..o + 4].copy_from_slice(&img.get_pixel(x, y).0);
                         }
@@ -623,10 +622,7 @@ fn build(
                     img.height() as f32 / ATLAS as f32,
                 )
             } else {
-                (
-                    slot.w as f32 / ATLAS as f32,
-                    slot.h as f32 / ATLAS as f32,
-                )
+                (slot.w as f32 / ATLAS as f32, slot.h as f32 / ATLAS as f32)
             };
             let alpha = 84. / 255.;
             let key = (area.type_id, mesh_index);
