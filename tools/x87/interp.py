@@ -64,7 +64,15 @@ from pe import PE  # noqa: E402
 
 import capstone  # noqa: E402
 
-PEIMG = PE()
+try:
+    PEIMG = PE()
+except FileNotFoundError:
+    raise SystemExit(
+        "elementclient.exe is not staged. The interpreter reads the client image "
+        "for globals and code, so fetch it first (it is git-ignored under "
+        "google_drive/); the recovered constants it produced are listed in this "
+        "module's docstring."
+    )
 MD = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
 
 
