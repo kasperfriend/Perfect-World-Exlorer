@@ -18,9 +18,6 @@ pub(crate) struct Texture {
     /// with a box filter, which would replace the client's authored reductions
     /// with a different filter.
     pub(crate) levels: Vec<crate::dxt::Level>,
-    /// The authored FourCC, kept so the level count can be checked against the
-    /// declared header without re-reading the file.
-    pub(crate) fourcc: u32,
 }
 pub(crate) struct Layer {
     pub(crate) texture: usize,
@@ -107,9 +104,8 @@ impl Materials {
             // Decode the authored chain exactly. `parse_terrain_dds` has already
             // proved the payload covers precisely the declared levels, so a
             // decode failure here is a real defect and never a silent fallback.
-            let fourcc = info.format.four_cc();
             let levels = crate::dxt::decode_chain(
-                fourcc,
+                info.format.four_cc(),
                 &raw[128..],
                 info.width,
                 info.height,
@@ -124,13 +120,7 @@ impl Materials {
                 ));
             }
             let (w, h) = (info.width as usize, info.height as usize);
-            textures.push(Texture {
-                w,
-                h,
-
-                levels,
-                fourcc,
-            });
+            textures.push(Texture { w, h, levels });
         }
         let mut areas: Vec<Area> = (0..areas_x * areas_y)
             .map(|_| Area { layers: Vec::new() })
@@ -318,12 +308,20 @@ mod tests {
                 Texture {
                     w: 1,
                     h: 1,
-                    pixels: vec![200, 0, 0],
+                    levels: vec![crate::dxt::Level {
+                        width: 1,
+                        height: 1,
+                        rgba: vec![200, 0, 0, 255],
+                    }],
                 },
                 Texture {
                     w: 1,
                     h: 1,
-                    pixels: vec![0, 0, 200],
+                    levels: vec![crate::dxt::Level {
+                        width: 1,
+                        height: 1,
+                        rgba: vec![0, 0, 200, 255],
+                    }],
                 },
             ],
             areas: vec![Area {
