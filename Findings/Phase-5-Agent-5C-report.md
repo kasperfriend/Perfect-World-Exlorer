@@ -115,7 +115,8 @@ Workflow: `.github/workflows/pr-checks.yml` (`PR checks and Windows build`).
 
 | Run | Head | Result | Jobs |
 |---|---|---|---|
-| [41649717773](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41649717773) | `0d6be4f` (final) | **success** | both jobs success |
+| [41650307251](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41650307251) | `078fe69` (final, this report) | **success** | both jobs success |
+| [41649717773](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41649717773) | `0d6be4f` | **success** | both jobs success |
 | [41649136848](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41649136848) | `a78c698` (includes this report) | **success** | both jobs success |
 | [41648372049](https://github.com/kasperfriend/Perfect-World-Exlorer/actions/runs/41648372049) | `28472c8` | **success** | `Rust checks and tests (Linux)` job `125959650883` success; `Windows executable (x64)` success |
 | 41644266211 | `58d1339`+fixes | failure | compile error in the new diagnostic (fixed) |
