@@ -298,3 +298,50 @@ Validation on the current sandbox:
 * `.cache/zig/ziglang/zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/bake.cpp -o .cache/speedtree-bake-08.exe` succeeded; `g++ -std=c++17 -O2 tools/speedtree/test_bake_geometry.cpp -o .cache/test-bake-geometry && .cache/test-bake-geometry` passed.
 * Running one SPT at a time with `.cache/wibo-build/wibo .cache/speedtree-bake-08.exe google_drive/speedtreert.dll <single-file-directory>` produced 56 caches; 34, 47 and 48 still abort during strict branch-normal checks because Wibo cannot unwind the exception. The helper exits 1 for the single-file runs because the other 58 input files are absent.
 * An isolated `rustc --test` extraction of the actual reader and its tests, with a stub GBK decoder, parsed all 56 outputs (11,263 leaf records with finite normals), and passed the 05/06/07/08, truncation and nonfinite-normal tests. This does not test real GBK decoding, full Cargo compilation, or GPU shader/pipeline validation. Full Cargo tests remain blocked by unavailable crates.io dependencies. The first normal for type 0 was `[0.7135655, 0.2773056, 0.6433707]`.
+
+### Independent component-index retrieval and leaf-normal wind samples
+
+`GetGeometry` at `0x10024680` passes its three short override arguments to
+branch `0x100247d0`, frond `0x10024a90`, and leaf `0x10024db0`, respectively.
+`tools/speedtree/lod-explicit-probe.cpp` compares automatic geometry at each
+component LOD's midpoint with explicitly requesting that same index at the
+opposite continuous-LOD endpoint. For indexed geometry it hashes count, strip
+lengths and indices, positions, normals and UV0; for leaves it hashes count,
+centers, normals, cluster indices, UVs and camera-facing map coordinates. It
+also compares every combination of explicit branch/frond/leaf indices with
+individually requested components, at continuous level 0.37. Matching hashes
+are evidence about those fields, not an assertion of byte-by-byte proof, nor
+about unexamined colors, tangents, material state, other cameras, or wind.
+
+Under the same wibo/Wine-derived CRT setup described above, all 59 records
+completed: **369/369** individual component levels and **721/721** explicit
+index combinations matched. The completion-checked per-type results are
+`Findings/SpeedTree-wibo-explicit-lod-survey.tsv`; three example traces are in
+`tools/speedtree/fixtures/lod-explicit/`. This establishes a practical diagnostic
+path for extracting independent levels for these assets, but does not implement
+or ship an independent-level cache or renderer. In particular, setting an
+explicit index is not a substitute for obtaining the correct client transition
+alpha and billboard state at runtime.
+
+`tools/speedtree/leaf-normal-wind-probe.cpp` separately reads each explicit leaf
+LOD's normals at rest, then enables rocking and makes 64 sequential calls at
+0.25-second intervals at strength 1. In 59 completion-checked types, 121 leaf
+LODs and 8,530 leaves, zero of 1,637,760 sampled normal components changed
+from rest (`Findings/SpeedTree-wibo-leaf-normal-wind-survey.tsv`). This is
+limited to that camera, constant strength, times and call sequence, under the
+compatibility runtime; it does not establish general animation invariance or
+client lighting behavior.
+
+Commands:
+
+```sh
+.cache/zig/ziglang/zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/lod-explicit-probe.cpp -o .cache/lod-explicit-probe.exe
+python3 tools/speedtree/survey_explicit_lods.py .cache/wibo-build/wibo .cache/lod-explicit-probe.exe google_drive/speedtreert.dll .cache/tree-source Findings/SpeedTree-wibo-lod-counts.tsv Findings/SpeedTree-wibo-explicit-lod-survey.tsv
+.cache/zig/ziglang/zig c++ -target x86-windows-gnu -O2 -static -municode tools/speedtree/leaf-normal-wind-probe.cpp -o .cache/leaf-normal-wind-probe.exe
+python3 tools/speedtree/survey_leaf_normals.py .cache/wibo-build/wibo .cache/leaf-normal-wind-probe.exe google_drive/speedtreert.dll .cache/tree-source Findings/SpeedTree-wibo-lod-counts.tsv Findings/SpeedTree-wibo-leaf-normal-wind-survey.tsv
+PYTHONPATH=.cache/py python3 -m unittest discover -s tools/speedtree -p 'test_*.py'
+```
+
+Both cross-compiles succeeded; both surveys completed with the counts above;
+18 Python tests passed. Full Cargo/GPU and native Windows validation remain
+unavailable. P4.01–P4.03 remain incomplete.
