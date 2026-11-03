@@ -511,7 +511,10 @@ mod tests {
         // Half way out the squared term is a quarter.
         assert!((wave_fade([200., 100., 0.], eye) - 0.75).abs() < 1e-6);
         // `mov r1.y, c0.y` zeroes the vertical term, so height cannot fade it.
-        assert_eq!(wave_fade([120., -900., 0.], eye), wave_fade([120., 100., 0.], eye));
+        assert_eq!(
+            wave_fade([120., -900., 0.], eye),
+            wave_fade([120., 100., 0.], eye)
+        );
         assert!((wave_fade([120., -900., 0.], eye) - (1. - 14400. / 160000.)).abs() < 1e-6);
         // A 3D distance would have faded this one to nothing; the shader does not.
         assert!(wave_fade([120., -900., 0.], eye) > 0.5);

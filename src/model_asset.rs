@@ -142,7 +142,10 @@ impl ModelAsset {
         // Prefixing `models/` resolves 1,455 of the 1,473 references; resolving
         // against the `.ecm`'s own directory instead resolves almost none,
         // because these values already carry their full directory.
-        let smd_dir = descriptor.skin_model_path.rsplit_once('/').map(|p| p.0.to_string());
+        let smd_dir = descriptor
+            .skin_model_path
+            .rsplit_once('/')
+            .map(|p| p.0.to_string());
         let references: Vec<(String, String)> = if descriptor.additional_skins.is_empty() {
             model
                 .skins
@@ -200,8 +203,7 @@ impl ModelAsset {
                         // adds the failing path to the error.
                         if let Ok(b) = bytes(candidate) {
                             parsed = Some(
-                                skin::Skin::parse(&b)
-                                    .map_err(|e| format!("{candidate}: {e}"))?,
+                                skin::Skin::parse(&b).map_err(|e| format!("{candidate}: {e}"))?,
                             );
                             path = candidate.clone();
                             break;

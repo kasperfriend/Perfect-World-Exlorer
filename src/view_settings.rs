@@ -245,7 +245,7 @@ impl ViewSettings {
                             s.grass_wind_enabled = x > 0.5
                         }
                     }
-                },
+                }
                 "tree_wind_strength" => number!(s.tree_wind_strength, 0., 1.),
                 "client_tree_wind_preview" => flag!(s.client_tree_wind_preview),
                 "bloom_strength" => number!(s.bloom_strength, 0., 4.),

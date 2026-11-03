@@ -244,12 +244,7 @@ pub fn parse_ecm(bytes: &[u8]) -> Result<EcModel, String> {
                     additional_skins.push(value.into());
                 }
             }
-            _ if in_event
-                && !matches!(
-                    key,
-                    "ChildCount" | "PhysFileName" | "ECMHookCount"
-                ) =>
-            {
+            _ if in_event && !matches!(key, "ChildCount" | "PhysFileName" | "ECMHookCount") => {
                 events
                     .last_mut()
                     .unwrap()
@@ -492,7 +487,9 @@ mod tests {
         let src = format!("{base}AddiSkinCount: 2\r\nAddiSkinPath: a\\b.ski\r\n");
         assert!(parse_ecm(src.as_bytes()).is_err());
         // Declared 1, two paths.
-        let src = format!("{base}AddiSkinCount: 1\r\nAddiSkinPath: a\\b.ski\r\nAddiSkinPath: a\\c.ski\r\n");
+        let src = format!(
+            "{base}AddiSkinCount: 1\r\nAddiSkinPath: a\\b.ski\r\nAddiSkinPath: a\\c.ski\r\n"
+        );
         assert!(parse_ecm(src.as_bytes()).is_err());
         // Matching counts are accepted.
         let src = format!("{base}AddiSkinCount: 1\r\nAddiSkinPath: a\\b.ski\r\n");
@@ -501,7 +498,10 @@ mod tests {
     #[test]
     fn descriptors_without_addi_skin_leave_the_list_empty() {
         let src = "MOXTVersion: 21\r\nSkinModelPath: Models\\a.smd\r\n";
-        assert!(parse_ecm(src.as_bytes()).unwrap().additional_skins.is_empty());
+        assert!(parse_ecm(src.as_bytes())
+            .unwrap()
+            .additional_skins
+            .is_empty());
     }
 
     #[test]
