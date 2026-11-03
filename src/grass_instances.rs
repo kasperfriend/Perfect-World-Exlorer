@@ -211,7 +211,7 @@ impl Gpu {
         // rand(0,10)) % 80` once per placement (`0x653e93`-`0x653ec1`) from the
         // placement's own height, so the instance carries that slot and the
         // mesh vertex keeps its weight.
-        source = source.replacen(marker,"o.grass_area=area_center; o.grass_scale_y=i.grass_scale_y; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0.5 && weight>=0. && weight<100. {let slot=i32(round(extra.z))%80; let history_index=u32(slot<0?slot+80:slot); pos+=camera.grass_history[history_index].xyz*weight;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
+        source = source.replacen(marker,"o.grass_area=area_center; o.grass_scale_y=i.grass_scale_y; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0.5 && weight>=0. && weight<100. {let slot=i32(round(extra.z))%80; let wrapped=select(slot,slot+80,slot<0); let history_index=u32(wrapped); pos+=camera.grass_history[history_index].xyz*weight;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
         let marker = "tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)";
         assert!(source.contains(marker));
         source = source.replacen(
@@ -466,6 +466,26 @@ mod tests {
             !injected.contains("pos.y-10000."),
             "the vertex stage must not re-hash the vertex height"
         );
+    }
+    #[test]
+    fn injected_vertex_stage_is_valid_wgsl() {
+        // WGSL has no ternary operator. A `cond ? a : b` slipped into this
+        // injection once and only failed at runtime, when wgpu parsed the
+        // shader on a real adapter ("expected ')', found '?'"), because the
+        // GPU checks were not actually gating. Keep the whole injected line
+        // free of `?`, and keep the slot wrap in `select`, which is the WGSL
+        // spelling of the same arithmetic.
+        let source = include_str!("grass_instances.rs");
+        let injected = &source[..source.find("mod tests").expect("this test module")];
+        let line = injected
+            .lines()
+            .find(|l| l.contains("o.grass_area=area_center;"))
+            .expect("the injected vertex stage");
+        assert!(
+            !line.contains('?'),
+            "WGSL has no ternary operator; use select(): {line}"
+        );
+        assert!(line.contains("select(slot,slot+80,slot<0)"));
     }
     #[test]
     fn area_center_is_preserved_per_instance() {

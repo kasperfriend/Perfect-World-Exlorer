@@ -106,7 +106,12 @@ jobs:
           # Name the binary that failed: this step runs 22 checks and a bare
           # exit code does not say which one broke.
           run_check() {
-            if ! cargo run --locked --bin "$1" 2>&1 | tee "/tmp/gpu-$1.log"; then
+            # `if ! cmd | tee` tests *tee's* status, which is always 0, so the
+            # failure branch never ran and every check silently passed. Take the
+            # command's own status from PIPESTATUS.
+            cargo run --locked --bin "$1" 2>&1 | tee "/tmp/gpu-$1.log"
+            status=${PIPESTATUS[0]}
+            if [ "$status" -ne 0 ]; then
               echo "::error::gpu check failed: $1"
               # The reason, not just the name: a shader mismatch reports the
               # expected and actual values on these lines.
