@@ -121,8 +121,14 @@ impl WeatherOverride {
         match self {
             Self::Auto => area,
             Self::Clear => WeatherSelection::default(),
-            Self::Rain => WeatherSelection { rain: true, snow: false },
-            Self::Snow => WeatherSelection { rain: false, snow: true },
+            Self::Rain => WeatherSelection {
+                rain: true,
+                snow: false,
+            },
+            Self::Snow => WeatherSelection {
+                rain: false,
+                snow: true,
+            },
         }
     }
 }
@@ -200,9 +206,15 @@ mod tests {
 
     #[test]
     fn the_weather_override_forces_one_effect_or_keeps_the_area() {
-        let area = WeatherSelection { rain: false, snow: true };
+        let area = WeatherSelection {
+            rain: false,
+            snow: true,
+        };
         assert_eq!(WeatherOverride::Auto.apply(area), area);
-        assert_eq!(WeatherOverride::Clear.apply(area), WeatherSelection::default());
+        assert_eq!(
+            WeatherOverride::Clear.apply(area),
+            WeatherSelection::default()
+        );
         let rain = WeatherOverride::Rain.apply(area);
         assert!(rain.rain && !rain.snow, "rain override clears the snow");
         let snow = WeatherOverride::Snow.apply(WeatherSelection::default());

@@ -846,7 +846,12 @@ impl SkyGpu {
             // `sets.w` carries the night strength into `celestial` (the sun's
             // `1 + 2 * n` swell and the recovered shine ramp).
             sets: [sets.0 as f32, sets.1 as f32, sets.2, frame.night_weight],
-            glow_center: [self.glow_center[0], self.glow_center[1], flare_ndc[0], flare_ndc[1]],
+            glow_center: [
+                self.glow_center[0],
+                self.glow_center[1],
+                flare_ndc[0],
+                flare_ndc[1],
+            ],
         };
         queue.write_buffer(
             if reflected {
