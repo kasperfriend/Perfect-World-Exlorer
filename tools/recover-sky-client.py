@@ -66,6 +66,10 @@ WINDOWS = {
     "09-sky-set-select": (0x4203E0, 0x420700),
     "10-sky-timers": (0x79B150, 0x79B1D0),
     "11-sky-ctor-init": (0x799570, 0x799A40),
+    "13-sky-matrix-helpers": (0x789E60, 0x789FC0),
+    "14-sky-draws": (0x799A40, 0x799E00),
+    "15-flare-caller": (0x4B5900, 0x4B5B60),
+    "16-flare-helper": (0x450A80, 0x450C40),
     "12-sky-load": (0x951900, 0x951C80),
 }
 
