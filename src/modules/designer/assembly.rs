@@ -476,8 +476,9 @@ impl Character {
             // native missing-SKI tolerance visible as warnings, not a fatal
             // equipment error or an unrelated replacement model.
             let (mut asset, skin_warnings) =
-                ModelAsset::load_unique_with(&item.model, |path| assets.read(path))
-                    .map_err(|error| format!("flight item {} ({}): {error}", item.id, item.model))?;
+                ModelAsset::load_unique_with(&item.model, |path| assets.read(path)).map_err(
+                    |error| format!("flight item {} ({}): {error}", item.id, item.model),
+                )?;
             for warning in skin_warnings {
                 warnings.push(format!(
                     "flight item {}: {warning}; native unique-skin loading continued without that skin and installed no substitute",

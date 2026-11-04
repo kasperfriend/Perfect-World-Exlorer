@@ -359,9 +359,10 @@ impl ModelAsset {
                     // skin-less `amd` sibling folder, and only then give up.
                     let candidates = [smd_fallback.clone(), without_variant_suffix(&path)];
                     let mut parsed = None;
-                    for candidate in candidates.iter().filter(|c| {
-                        missing_skins.is_none() && !c.is_empty() && **c != *primary
-                    }) {
+                    for candidate in candidates
+                        .iter()
+                        .filter(|c| missing_skins.is_none() && !c.is_empty() && **c != *primary)
+                    {
                         // Go through `bytes`, not the raw `read`: `read` is
                         // already mutably borrowed by that wrapper, and it also
                         // adds the failing path to the error.
@@ -386,7 +387,9 @@ impl ModelAsset {
                     }
                 }
             };
-            loaded_skin_paths.push(path.clone());
+            if missing_skins.is_some() {
+                loaded_skin_paths.push(path.clone());
+            }
             skins.push(SkinAsset { path, data });
         }
         if missing_skins.is_some() {
@@ -858,8 +861,7 @@ mod tests {
                     ComActCount: 0\r\nEventCount: 0\r\n"
             .to_vec();
         let (asset, warnings) =
-            ModelAsset::load_unique_with("Models\\a.ecm", |path| read_rig(path, &files))
-                .unwrap();
+            ModelAsset::load_unique_with("Models\\a.ecm", |path| read_rig(path, &files)).unwrap();
         assert!(asset.skins.is_empty());
         assert!(asset.model.skins.is_empty());
         assert_eq!(warnings.len(), 1);
