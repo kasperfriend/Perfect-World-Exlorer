@@ -691,11 +691,11 @@ fn combine_matrix_list(matrices: &[Mat4], weights: &[f32]) -> Mat4 {
 }
 
 fn scale(value: u8, factor: f32) -> f32 {
-    1.0 + (value - 128) as f32 / 128.0 * factor
+    1.0 + (value as f32 - 128.0) / 128.0 * factor
 }
 
 fn offset(value: u8, factor: f32) -> f32 {
-    (value - 128) as f32 / 128.0 * factor
+    (value as f32 - 128.0) / 128.0 * factor
 }
 
 /// Evaluate every face operation in the native order.  The returned matrices
@@ -1091,5 +1091,13 @@ mod tests {
         let combined = combine_matrix_list(&[Mat4::IDENTITY], &[1.0]);
         assert!(combined.is_finite());
         assert!((combined.w_axis.w - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn customization_bytes_are_signed_offsets_from_128_not_wrapping_subtraction() {
+        assert_eq!(scale(0, 1.0), 0.0);
+        assert_eq!(scale(128, 0.6), 1.0);
+        assert_eq!(offset(0, 0.02), -0.02);
+        assert_eq!(offset(128, 0.02), 0.0);
     }
 }
