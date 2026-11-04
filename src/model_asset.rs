@@ -312,7 +312,10 @@ impl ModelAsset {
     }
 
     pub fn texture_paths(&self, skin_index: usize, texture: usize) -> Result<[String; 2], String> {
-        let skin = self.skins.get(skin_index).ok_or("skin index out of range")?;
+        let skin = self
+            .skins
+            .get(skin_index)
+            .ok_or("skin index out of range")?;
         if let Some(path) = self.texture_overrides.get(&(skin_index, texture)) {
             return Ok([path.clone(), path.clone()]);
         }
@@ -320,7 +323,10 @@ impl ModelAsset {
     }
 
     pub fn mesh_color(&self, skin: usize, mesh: usize, default: u32) -> u32 {
-        self.mesh_tints.get(&(skin, mesh)).copied().unwrap_or(default)
+        self.mesh_tints
+            .get(&(skin, mesh))
+            .copied()
+            .unwrap_or(default)
     }
 
     /// Absolute track time in seconds. Intentionally NOT an elapsed-time

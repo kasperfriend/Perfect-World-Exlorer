@@ -187,11 +187,19 @@ pub fn evaluate_controlled(
         let parent = skeleton.bones[i].parent;
         let setting = scale_settings[i];
         let own_whole = match setting {
-            Some(BoneScale { kind: ScaleType::Whole, factor, .. }) => factor,
+            Some(BoneScale {
+                kind: ScaleType::Whole,
+                factor,
+                ..
+            }) => factor,
             _ => Vec3::ONE,
         };
         let own_local = match setting {
-            Some(BoneScale { kind: ScaleType::Local | ScaleType::LocalNoOffset, factor, .. }) => factor,
+            Some(BoneScale {
+                kind: ScaleType::Local | ScaleType::LocalNoOffset,
+                factor,
+                ..
+            }) => factor,
             _ => Vec3::ONE,
         };
         up_to_root[i] = if parent < 0 {
@@ -201,7 +209,12 @@ pub fn evaluate_controlled(
             let parent = parent as usize;
             accumulated_whole[i] = own_whole * accumulated_whole[parent];
             let mut offset_scale = accumulated_whole[parent];
-            if let Some(BoneScale { kind: ScaleType::Local, factor, .. }) = scale_settings[parent] {
+            if let Some(BoneScale {
+                kind: ScaleType::Local,
+                factor,
+                ..
+            }) = scale_settings[parent]
+            {
                 offset_scale *= factor;
             }
             // SCALE_LOCAL_NOOFFSET is deliberately excluded here.
@@ -357,7 +370,10 @@ mod tests {
             }],
         )
         .unwrap();
-        assert_eq!(no_offset.absolute[1].transform_point3(Vec3::ZERO), Vec3::X * 3.0);
+        assert_eq!(
+            no_offset.absolute[1].transform_point3(Vec3::ZERO),
+            Vec3::X * 3.0
+        );
         assert_eq!(no_offset.absolute[1].x_axis.x, 1.0);
 
         let whole = evaluate_controlled(
@@ -373,7 +389,10 @@ mod tests {
             }],
         )
         .unwrap();
-        assert_eq!(whole.absolute[1].transform_point3(Vec3::ZERO), Vec3::X * 5.0);
+        assert_eq!(
+            whole.absolute[1].transform_point3(Vec3::ZERO),
+            Vec3::X * 5.0
+        );
         assert_eq!(whole.absolute[1].x_axis.x, 2.0);
     }
 
@@ -381,7 +400,9 @@ mod tests {
     fn malformed_parent_cycles_are_rejected_before_composition() {
         let mut skeleton = two_bones();
         skeleton.bones[0].parent = 1;
-        let error = evaluate(&skeleton, &[], 0.0, Mat4::IDENTITY).unwrap_err();
+        let error = evaluate(&skeleton, &[], 0.0, Mat4::IDENTITY)
+            .err()
+            .expect("a parent cycle must be rejected");
         assert!(error.contains("cyclic"));
     }
 }

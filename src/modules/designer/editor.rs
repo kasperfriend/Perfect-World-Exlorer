@@ -1,8 +1,8 @@
 //! Interactive character-designer module and world preview.
 
 use super::{
-    assets::Assets,
     assembly::{Character, CharacterMeshes},
+    assets::Assets,
     catalog::{Class, Gender},
     controls,
     customize::CharacterDesign,
@@ -194,7 +194,10 @@ impl Designer {
         } else {
             "Enable Character Designer"
         };
-        if ui.add_sized([220., 32.], egui::Button::new(button)).clicked() {
+        if ui
+            .add_sized([220., 32.], egui::Button::new(button))
+            .clicked()
+        {
             self.set_active(!self.active, spawn, yaw);
         }
         if !self.active {
@@ -443,4 +446,3 @@ fn preview_transform(position: Vec3, facing: Vec3) -> Mat4 {
         position.extend(1.),
     )
 }
-

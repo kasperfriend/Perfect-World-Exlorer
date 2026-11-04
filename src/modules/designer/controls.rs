@@ -16,7 +16,10 @@ pub(super) fn show(
         ($ui:ident, $section:literal, $key:literal, $field:ident, $label:literal) => {{
             let range = bounds.range($section, $key);
             let mut value = design.customize.face.$field as i32;
-            if $ui.add(egui::Slider::new(&mut value, range).text($label)).changed() {
+            if $ui
+                .add(egui::Slider::new(&mut value, range).text($label))
+                .changed()
+            {
                 design.customize.face.$field = value.clamp(0, 255) as u8;
                 changed = true;
             }
@@ -26,7 +29,10 @@ pub(super) fn show(
         ($ui:ident, $key:literal, $field:ident, $label:literal) => {{
             let range = bounds.range("Body", $key);
             let mut value = design.customize.$field as i32;
-            if $ui.add(egui::Slider::new(&mut value, range).text($label)).changed() {
+            if $ui
+                .add(egui::Slider::new(&mut value, range).text($label))
+                .changed()
+            {
                 design.customize.$field = value.clamp(0, 255) as u8;
                 changed = true;
             }
@@ -64,7 +70,13 @@ pub(super) fn show(
             body_slider!(ui, "legWidth", leg_width, "Leg width");
             body_slider!(ui, "breastScale", breast_scale, "Breast scale");
             slider!(ui, "3Parts", "scaleUp", scale_up, "Face upper third");
-            slider!(ui, "3Parts", "scaleMiddle", scale_middle, "Face middle third");
+            slider!(
+                ui,
+                "3Parts",
+                "scaleMiddle",
+                scale_middle,
+                "Face middle third"
+            );
             slider!(ui, "3Parts", "scaleDown", scale_down, "Face lower third");
             slider!(ui, "Face", "scaleFaceH", scale_face_h, "Face width");
             slider!(ui, "Face", "scaleFaceV", scale_face_v, "Face height");
@@ -74,7 +86,13 @@ pub(super) fn show(
     egui::CollapsingHeader::new("Face shape and complexion").show(ui, |ui| {
         changed |= shape_combo(ui, catalog, design, 0, "Face shape 1", 0);
         changed |= shape_combo(ui, catalog, design, 0, "Face shape 2", 1);
-        slider!(ui, "BlendFace", "blendFaceShape", blend_face_shape, "Shape blend");
+        slider!(
+            ui,
+            "BlendFace",
+            "blendFaceShape",
+            blend_face_shape,
+            "Shape blend"
+        );
         changed |= texture_combo(ui, catalog, design, 0, "Face texture", FaceId::Face);
         ui.horizontal(|ui| {
             id!(ui, id_third_eye, "Third-eye GFX ID");
@@ -82,18 +100,90 @@ pub(super) fn show(
     });
 
     egui::CollapsingHeader::new("Forehead, temples and cheeks").show(ui, |ui| {
-        slider!(ui, "Forehead", "offsetForeheadH", offset_forehead_h, "Forehead horizontal");
-        slider!(ui, "Forehead", "offsetForeheadV", offset_forehead_v, "Forehead vertical");
-        slider!(ui, "Forehead", "offsetForeheadZ", offset_forehead_z, "Forehead depth");
-        slider!(ui, "Forehead", "rotateForehead", rotate_forehead, "Forehead rotation");
-        slider!(ui, "Forehead", "scaleForehead", scale_forehead, "Forehead scale");
-        slider!(ui, "YokeBone", "offsetYokeBoneH", offset_yoke_bone_h, "Temple horizontal");
-        slider!(ui, "YokeBone", "offsetYokeBoneV", offset_yoke_bone_v, "Temple vertical");
-        slider!(ui, "YokeBone", "offsetYokeBoneZ", offset_yoke_bone_z, "Temple depth");
-        slider!(ui, "YokeBone", "rotateYokeBone", rotate_yoke_bone, "Temple rotation");
-        slider!(ui, "YokeBone", "scaleYokeBone", scale_yoke_bone, "Temple scale");
-        slider!(ui, "Cheek", "offsetCheekH", offset_cheek_h, "Cheek horizontal");
-        slider!(ui, "Cheek", "offsetCheekV", offset_cheek_v, "Cheek vertical");
+        slider!(
+            ui,
+            "Forehead",
+            "offsetForeheadH",
+            offset_forehead_h,
+            "Forehead horizontal"
+        );
+        slider!(
+            ui,
+            "Forehead",
+            "offsetForeheadV",
+            offset_forehead_v,
+            "Forehead vertical"
+        );
+        slider!(
+            ui,
+            "Forehead",
+            "offsetForeheadZ",
+            offset_forehead_z,
+            "Forehead depth"
+        );
+        slider!(
+            ui,
+            "Forehead",
+            "rotateForehead",
+            rotate_forehead,
+            "Forehead rotation"
+        );
+        slider!(
+            ui,
+            "Forehead",
+            "scaleForehead",
+            scale_forehead,
+            "Forehead scale"
+        );
+        slider!(
+            ui,
+            "YokeBone",
+            "offsetYokeBoneH",
+            offset_yoke_bone_h,
+            "Temple horizontal"
+        );
+        slider!(
+            ui,
+            "YokeBone",
+            "offsetYokeBoneV",
+            offset_yoke_bone_v,
+            "Temple vertical"
+        );
+        slider!(
+            ui,
+            "YokeBone",
+            "offsetYokeBoneZ",
+            offset_yoke_bone_z,
+            "Temple depth"
+        );
+        slider!(
+            ui,
+            "YokeBone",
+            "rotateYokeBone",
+            rotate_yoke_bone,
+            "Temple rotation"
+        );
+        slider!(
+            ui,
+            "YokeBone",
+            "scaleYokeBone",
+            scale_yoke_bone,
+            "Temple scale"
+        );
+        slider!(
+            ui,
+            "Cheek",
+            "offsetCheekH",
+            offset_cheek_h,
+            "Cheek horizontal"
+        );
+        slider!(
+            ui,
+            "Cheek",
+            "offsetCheekV",
+            offset_cheek_v,
+            "Cheek vertical"
+        );
         slider!(ui, "Cheek", "offsetCheekZ", offset_cheek_z, "Cheek depth");
         slider!(ui, "Cheek", "scaleCheek", scale_cheek, "Cheek scale");
     });
@@ -106,7 +196,13 @@ pub(super) fn show(
         slider!(ui, "Jaw", "offsetJawH", offset_jaw_h, "Jaw horizontal");
         slider!(ui, "Jaw", "offsetJawV", offset_jaw_v, "Jaw vertical");
         slider!(ui, "Jaw", "offsetJawZ", offset_jaw_z, "Jaw depth");
-        slider!(ui, "Jaw", "scaleJawSpecial", scale_jaw_special, "Jaw special scale");
+        slider!(
+            ui,
+            "Jaw",
+            "scaleJawSpecial",
+            scale_jaw_special,
+            "Jaw special scale"
+        );
         slider!(ui, "Jaw", "scaleJawH", scale_jaw_h, "Jaw width");
         slider!(ui, "Jaw", "scaleJawV", scale_jaw_v, "Jaw height");
     });
@@ -114,10 +210,21 @@ pub(super) fn show(
     egui::CollapsingHeader::new("Eyes and eyelids").show(ui, |ui| {
         changed |= shape_combo(ui, catalog, design, 1, "Eye shape", 2);
         changed |= texture_combo(ui, catalog, design, 1, "Eye base texture", FaceId::EyeBase);
-        changed |= texture_combo(ui, catalog, design, 1, "Eye highlight texture", FaceId::EyeHigh);
+        changed |= texture_combo(
+            ui,
+            catalog,
+            design,
+            1,
+            "Eye highlight texture",
+            FaceId::EyeHigh,
+        );
         changed |= texture_combo(ui, catalog, design, 6, "Eyeball texture", FaceId::Eyeball);
         changed |= color(ui, "Eyelid color", &mut design.customize.face.color_eye);
-        changed |= color(ui, "Eyeball color", &mut design.customize.face.color_eye_ball);
+        changed |= color(
+            ui,
+            "Eyeball color",
+            &mut design.customize.face.color_eye_ball,
+        );
         ui.label("Right eye / first native controller set");
         slider!(ui, "Eye", "scaleEyeH", scale_eye_h, "Width");
         slider!(ui, "Eye", "scaleEyeV", scale_eye_v, "Height");
@@ -130,10 +237,22 @@ pub(super) fn show(
         slider!(ui, "Eye", "scaleEyeH2", scale_eye_h2, "Width 2");
         slider!(ui, "Eye", "scaleEyeV2", scale_eye_v2, "Height 2");
         slider!(ui, "Eye", "rotateEye2", rotate_eye2, "Rotation 2");
-        slider!(ui, "Eye", "offsetEyeH2", offset_eye_h2, "Horizontal offset 2");
+        slider!(
+            ui,
+            "Eye",
+            "offsetEyeH2",
+            offset_eye_h2,
+            "Horizontal offset 2"
+        );
         slider!(ui, "Eye", "offsetEyeV2", offset_eye_v2, "Vertical offset 2");
         slider!(ui, "Eye", "offseteyeZ2", offset_eye_z2, "Depth 2");
-        slider!(ui, "Eye", "scaleEyeBall2", scale_eye_ball2, "Eyeball scale 2");
+        slider!(
+            ui,
+            "Eye",
+            "scaleEyeBall2",
+            scale_eye_ball2,
+            "Eyeball scale 2"
+        );
     });
 
     egui::CollapsingHeader::new("Eyebrows").show(ui, |ui| {
@@ -143,14 +262,32 @@ pub(super) fn show(
         slider!(ui, "Brow", "scaleBrowH", scale_brow_h, "Width");
         slider!(ui, "Brow", "scaleBrowV", scale_brow_v, "Height");
         slider!(ui, "Brow", "rotateBrow", rotate_brow, "Rotation");
-        slider!(ui, "Brow", "offsetBrowH", offset_brow_h, "Horizontal offset");
+        slider!(
+            ui,
+            "Brow",
+            "offsetBrowH",
+            offset_brow_h,
+            "Horizontal offset"
+        );
         slider!(ui, "Brow", "offsetBrowV", offset_brow_v, "Vertical offset");
         slider!(ui, "Brow", "offsetBrowZ", offset_brow_z, "Depth");
         slider!(ui, "Brow", "scaleBrowH2", scale_brow_h2, "Width 2");
         slider!(ui, "Brow", "scaleBrowV2", scale_brow_v2, "Height 2");
         slider!(ui, "Brow", "rotateBrow2", rotate_brow2, "Rotation 2");
-        slider!(ui, "Brow", "offsetBrowH2", offset_brow_h2, "Horizontal offset 2");
-        slider!(ui, "Brow", "offsetBrowV2", offset_brow_v2, "Vertical offset 2");
+        slider!(
+            ui,
+            "Brow",
+            "offsetBrowH2",
+            offset_brow_h2,
+            "Horizontal offset 2"
+        );
+        slider!(
+            ui,
+            "Brow",
+            "offsetBrowV2",
+            offset_brow_v2,
+            "Vertical offset 2"
+        );
         slider!(ui, "Brow", "offsetBrowZ2", offset_brow_z2, "Depth 2");
     });
 
@@ -161,9 +298,27 @@ pub(super) fn show(
         slider!(ui, "Nose", "scaleNoseTipH", scale_nose_tip_h, "Tip width");
         slider!(ui, "Nose", "scaleNoseTipV", scale_nose_tip_v, "Tip height");
         slider!(ui, "Nose", "scaleNoseTipZ", scale_nose_tip_z, "Tip depth");
-        slider!(ui, "Nose", "offsetNoseTipV", offset_nose_tip_v, "Tip vertical offset");
-        slider!(ui, "Nose", "scaleBridgeTipH", scale_bridge_tip_h, "Bridge width");
-        slider!(ui, "Nose", "OffsetBridgeTipZ", offset_bridge_tip_z, "Bridge depth");
+        slider!(
+            ui,
+            "Nose",
+            "offsetNoseTipV",
+            offset_nose_tip_v,
+            "Tip vertical offset"
+        );
+        slider!(
+            ui,
+            "Nose",
+            "scaleBridgeTipH",
+            scale_bridge_tip_h,
+            "Bridge width"
+        );
+        slider!(
+            ui,
+            "Nose",
+            "OffsetBridgeTipZ",
+            offset_bridge_tip_z,
+            "Bridge depth"
+        );
     });
 
     egui::CollapsingHeader::new("Mouth").show(ui, |ui| {
@@ -172,14 +327,44 @@ pub(super) fn show(
         changed |= shape_combo(ui, catalog, design, 7, "Lower lip line", 8);
         changed |= texture_combo(ui, catalog, design, 4, "Mouth texture", FaceId::Mouth);
         changed |= color(ui, "Mouth color", &mut design.customize.face.color_mouth);
-        slider!(ui, "Mouth", "thickUpLip", thick_up_lip, "Upper lip thickness");
-        slider!(ui, "Mouth", "thickDownLip", thick_down_lip, "Lower lip thickness");
+        slider!(
+            ui,
+            "Mouth",
+            "thickUpLip",
+            thick_up_lip,
+            "Upper lip thickness"
+        );
+        slider!(
+            ui,
+            "Mouth",
+            "thickDownLip",
+            thick_down_lip,
+            "Lower lip thickness"
+        );
         slider!(ui, "Mouth", "scaleMouthH", scale_mouth_h, "Width");
-        slider!(ui, "Mouth", "offsetMouthV", offset_mouth_v, "Vertical offset");
+        slider!(
+            ui,
+            "Mouth",
+            "offsetMouthV",
+            offset_mouth_v,
+            "Vertical offset"
+        );
         slider!(ui, "Mouth", "offsetMOuthZ", offset_mouth_z, "Depth");
-        slider!(ui, "Mouth", "offsetCornerOfMouthSpecial", offset_corner_of_mouth_special, "Corner offset");
+        slider!(
+            ui,
+            "Mouth",
+            "offsetCornerOfMouthSpecial",
+            offset_corner_of_mouth_special,
+            "Corner offset"
+        );
         slider!(ui, "Mouth", "scaleMouthH2", scale_mouth_h2, "Width 2");
-        slider!(ui, "Mouth", "offsetCornerOfMouthSpecial2", offset_corner_of_mouth_special2, "Corner offset 2");
+        slider!(
+            ui,
+            "Mouth",
+            "offsetCornerOfMouthSpecial2",
+            offset_corner_of_mouth_special2,
+            "Corner offset 2"
+        );
     });
 
     egui::CollapsingHeader::new("Ears, hair and facial hair").show(ui, |ui| {
@@ -197,12 +382,26 @@ pub(super) fn show(
             id!(ui, id_faling_skin, "Faling skin ID");
         });
         changed |= texture_combo(ui, catalog, design, 10, "Faling texture", FaceId::Faling);
-        changed |= texture_combo(ui, catalog, design, 7, "Moustache texture", FaceId::Moustache);
-        changed |= color(ui, "Facial-hair color", &mut design.customize.face.color_moustache);
+        changed |= texture_combo(
+            ui,
+            catalog,
+            design,
+            7,
+            "Moustache texture",
+            FaceId::Moustache,
+        );
+        changed |= color(
+            ui,
+            "Facial-hair color",
+            &mut design.customize.face.color_moustache,
+        );
     });
 
     egui::CollapsingHeader::new("Armor, fashion and weapons").show(ui, |ui| {
-        if ui.checkbox(&mut design.equipment.fashion_mode, "Use fashion slots").changed() {
+        if ui
+            .checkbox(&mut design.equipment.fashion_mode, "Use fashion slots")
+            .changed()
+        {
             changed = true;
         }
         changed |= weapon_combo(ui, catalog, design);
@@ -261,7 +460,10 @@ fn texture_combo(
     };
     let old = *id;
     let current = catalog.face_texture(old as u32);
-    let selected = current.map_or_else(|| format!("{old} (not in v27)"), |item| format!("{} — {}", item.id, item.name));
+    let selected = current.map_or_else(
+        || format!("{old} (not in v27)"),
+        |item| format!("{} — {}", item.id, item.name),
+    );
     egui::ComboBox::from_label(label)
         .selected_text(selected)
         .show_ui(ui, |ui| {
@@ -371,9 +573,11 @@ fn armor_combo(
         .selected_text(selected)
         .show_ui(ui, |ui| {
             ui.selectable_value(&mut id, 0, "0 — profession default");
-            for item in catalog.armor.iter().filter(|item| {
-                item.slot == slot && item.class_mask & class.bit() != 0
-            }) {
+            for item in catalog
+                .armor
+                .iter()
+                .filter(|item| item.slot == slot && item.class_mask & class.bit() != 0)
+            {
                 ui.selectable_value(&mut id, item.id, format!("{} — {}", item.id, item.name));
             }
         });
@@ -399,9 +603,11 @@ fn fashion_combo(
         .selected_text(selected)
         .show_ui(ui, |ui| {
             ui.selectable_value(&mut id, 0, "0 — native fashion default");
-            for item in catalog.fashion.iter().filter(|item| {
-                item.slot == slot && item.gender == gender as u32
-            }) {
+            for item in catalog
+                .fashion
+                .iter()
+                .filter(|item| item.slot == slot && item.gender == gender as u32)
+            {
                 ui.selectable_value(&mut id, item.id, format!("{} — {}", item.id, item.name));
             }
         });
@@ -429,4 +635,3 @@ fn color(ui: &mut egui::Ui, label: &str, argb: &mut u32) -> bool {
     }
     changed
 }
-

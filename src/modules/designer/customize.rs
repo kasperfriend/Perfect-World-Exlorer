@@ -256,33 +256,133 @@ impl CharacterDesign {
         let mut missing = Vec::new();
         let mut check = |kind: &str, id: u16, exists: bool| {
             if id != 0 && !exists {
-                missing.push(format!("{kind} ID {id} is not present in PW 1.4.2 elements.data"));
+                missing.push(format!(
+                    "{kind} ID {id} is not present in PW 1.4.2 elements.data"
+                ));
             }
         };
-        check("Face shape 1", f.id_face_shape1, catalog.face_shape(f.id_face_shape1 as u32).is_some());
-        check("Face shape 2", f.id_face_shape2, catalog.face_shape(f.id_face_shape2 as u32).is_some());
-        check("Face texture", f.id_face_tex, catalog.face_texture(f.id_face_tex as u32).is_some());
-        check("Eye shape", f.id_eye_shape, catalog.face_shape(f.id_eye_shape as u32).is_some());
-        check("Eye base texture", f.id_eye_base_tex, catalog.face_texture(f.id_eye_base_tex as u32).is_some());
-        check("Eye high texture", f.id_eye_high_tex, catalog.face_texture(f.id_eye_high_tex as u32).is_some());
-        check("Eyeball texture", f.id_eye_ball_tex, catalog.face_texture(f.id_eye_ball_tex as u32).is_some());
-        check("Brow shape", f.id_brow_shape, catalog.face_shape(f.id_brow_shape as u32).is_some());
-        check("Brow texture", f.id_brow_tex, catalog.face_texture(f.id_brow_tex as u32).is_some());
-        check("Nose tip shape", f.id_nose_tip_shape, catalog.face_shape(f.id_nose_tip_shape as u32).is_some());
-        check("Nose bridge shape", f.id_nose_bridge_shape, catalog.face_shape(f.id_nose_bridge_shape as u32).is_some());
-        check("Nose texture", f.id_nose_tex, catalog.face_texture(f.id_nose_tex as u32).is_some());
-        check("Upper lip shape", f.id_mouth_up_lip_line, catalog.face_shape(f.id_mouth_up_lip_line as u32).is_some());
-        check("Middle lip shape", f.id_mouth_mid_lip_line, catalog.face_shape(f.id_mouth_mid_lip_line as u32).is_some());
-        check("Lower lip shape", f.id_mouth_down_lip_line, catalog.face_shape(f.id_mouth_down_lip_line as u32).is_some());
-        check("Mouth texture", f.id_mouth_tex, catalog.face_texture(f.id_mouth_tex as u32).is_some());
-        check("Ear shape", f.id_ear_shape, catalog.face_shape(f.id_ear_shape as u32).is_some());
-        check("Hair model", f.id_hair_model, catalog.hair_item(f.id_hair_model as u32).is_some());
-        check("Hair texture", f.id_hair_tex, catalog.face_texture(f.id_hair_tex as u32).is_some());
-        check("Moustache skin", f.id_moustache_skin, catalog.moustache_item(f.id_moustache_skin as u32).is_some());
-        check("Moustache texture", f.id_moustache_tex, catalog.face_texture(f.id_moustache_tex as u32).is_some());
-        check("Goatee texture", f.id_goatee_tex, catalog.face_texture(f.id_goatee_tex as u32).is_some());
-        check("Faling skin", f.id_faling_skin, catalog.faling_item(f.id_faling_skin as u32).is_some());
-        check("Faling texture", f.id_faling_tex, catalog.face_texture(f.id_faling_tex as u32).is_some());
+        check(
+            "Face shape 1",
+            f.id_face_shape1,
+            catalog.face_shape(f.id_face_shape1 as u32).is_some(),
+        );
+        check(
+            "Face shape 2",
+            f.id_face_shape2,
+            catalog.face_shape(f.id_face_shape2 as u32).is_some(),
+        );
+        check(
+            "Face texture",
+            f.id_face_tex,
+            catalog.face_texture(f.id_face_tex as u32).is_some(),
+        );
+        check(
+            "Eye shape",
+            f.id_eye_shape,
+            catalog.face_shape(f.id_eye_shape as u32).is_some(),
+        );
+        check(
+            "Eye base texture",
+            f.id_eye_base_tex,
+            catalog.face_texture(f.id_eye_base_tex as u32).is_some(),
+        );
+        check(
+            "Eye high texture",
+            f.id_eye_high_tex,
+            catalog.face_texture(f.id_eye_high_tex as u32).is_some(),
+        );
+        check(
+            "Eyeball texture",
+            f.id_eye_ball_tex,
+            catalog.face_texture(f.id_eye_ball_tex as u32).is_some(),
+        );
+        check(
+            "Brow shape",
+            f.id_brow_shape,
+            catalog.face_shape(f.id_brow_shape as u32).is_some(),
+        );
+        check(
+            "Brow texture",
+            f.id_brow_tex,
+            catalog.face_texture(f.id_brow_tex as u32).is_some(),
+        );
+        check(
+            "Nose tip shape",
+            f.id_nose_tip_shape,
+            catalog.face_shape(f.id_nose_tip_shape as u32).is_some(),
+        );
+        check(
+            "Nose bridge shape",
+            f.id_nose_bridge_shape,
+            catalog.face_shape(f.id_nose_bridge_shape as u32).is_some(),
+        );
+        check(
+            "Nose texture",
+            f.id_nose_tex,
+            catalog.face_texture(f.id_nose_tex as u32).is_some(),
+        );
+        check(
+            "Upper lip shape",
+            f.id_mouth_up_lip_line,
+            catalog.face_shape(f.id_mouth_up_lip_line as u32).is_some(),
+        );
+        check(
+            "Middle lip shape",
+            f.id_mouth_mid_lip_line,
+            catalog.face_shape(f.id_mouth_mid_lip_line as u32).is_some(),
+        );
+        check(
+            "Lower lip shape",
+            f.id_mouth_down_lip_line,
+            catalog
+                .face_shape(f.id_mouth_down_lip_line as u32)
+                .is_some(),
+        );
+        check(
+            "Mouth texture",
+            f.id_mouth_tex,
+            catalog.face_texture(f.id_mouth_tex as u32).is_some(),
+        );
+        check(
+            "Ear shape",
+            f.id_ear_shape,
+            catalog.face_shape(f.id_ear_shape as u32).is_some(),
+        );
+        check(
+            "Hair model",
+            f.id_hair_model,
+            catalog.hair_item(f.id_hair_model as u32).is_some(),
+        );
+        check(
+            "Hair texture",
+            f.id_hair_tex,
+            catalog.face_texture(f.id_hair_tex as u32).is_some(),
+        );
+        check(
+            "Moustache skin",
+            f.id_moustache_skin,
+            catalog.moustache_item(f.id_moustache_skin as u32).is_some(),
+        );
+        check(
+            "Moustache texture",
+            f.id_moustache_tex,
+            catalog.face_texture(f.id_moustache_tex as u32).is_some(),
+        );
+        check(
+            "Goatee texture",
+            f.id_goatee_tex,
+            catalog.face_texture(f.id_goatee_tex as u32).is_some(),
+        );
+        check(
+            "Faling skin",
+            f.id_faling_skin,
+            catalog.faling_item(f.id_faling_skin as u32).is_some(),
+        );
+        check(
+            "Faling texture",
+            f.id_faling_tex,
+            catalog.face_texture(f.id_faling_tex as u32).is_some(),
+        );
         missing
     }
 }
@@ -385,9 +485,17 @@ impl PlayerCustomize {
         face!("Mouth", "offsetMouthV", offset_mouth_v);
         face!("Mouth", "offsetMOuthZ", offset_mouth_z);
         face!("Mouth", "idMouthTex", id_mouth_tex);
-        face!("Mouth", "offsetCornerOfMouthSpecial", offset_corner_of_mouth_special);
+        face!(
+            "Mouth",
+            "offsetCornerOfMouthSpecial",
+            offset_corner_of_mouth_special
+        );
         face!("Mouth", "scaleMouthH2", scale_mouth_h2);
-        face!("Mouth", "offsetCornerOfMouthSpecial2", offset_corner_of_mouth_special2);
+        face!(
+            "Mouth",
+            "offsetCornerOfMouthSpecial2",
+            offset_corner_of_mouth_special2
+        );
         face!("Ear", "idEarShape", id_ear_shape);
         face!("Ear", "scaleEar", scale_ear);
         face!("Ear", "offsetEarV", offset_ear_v);
@@ -436,44 +544,141 @@ impl PlayerCustomize {
             };
         }
         section!("3Parts");
-        write!("scaleUp", self.face.scale_up); write!("scaleMiddle", self.face.scale_middle); write!("scaleDown", self.face.scale_down);
+        write!("scaleUp", self.face.scale_up);
+        write!("scaleMiddle", self.face.scale_middle);
+        write!("scaleDown", self.face.scale_down);
         section!("BlendFace");
-        write!("idFaceShape1", self.face.id_face_shape1); write!("idFaceShape2", self.face.id_face_shape2); write!("blendFaceShape", self.face.blend_face_shape);
+        write!("idFaceShape1", self.face.id_face_shape1);
+        write!("idFaceShape2", self.face.id_face_shape2);
+        write!("blendFaceShape", self.face.blend_face_shape);
         section!("Face");
-        write!("scaleFaceH", self.face.scale_face_h); write!("scaleFaceV", self.face.scale_face_v); write!("idFaceTex", self.face.id_face_tex);
+        write!("scaleFaceH", self.face.scale_face_h);
+        write!("scaleFaceV", self.face.scale_face_v);
+        write!("idFaceTex", self.face.id_face_tex);
         section!("Faling");
-        write!("idFalingSkin", self.face.id_faling_skin); write!("idFalingTex", self.face.id_faling_tex);
+        write!("idFalingSkin", self.face.id_faling_skin);
+        write!("idFalingTex", self.face.id_faling_tex);
         section!("Forehead");
-        write!("offsetForeheadH", self.face.offset_forehead_h); write!("offsetForeheadV", self.face.offset_forehead_v); write!("offsetForeheadZ", self.face.offset_forehead_z); write!("rotateForehead", self.face.rotate_forehead); write!("scaleForehead", self.face.scale_forehead);
+        write!("offsetForeheadH", self.face.offset_forehead_h);
+        write!("offsetForeheadV", self.face.offset_forehead_v);
+        write!("offsetForeheadZ", self.face.offset_forehead_z);
+        write!("rotateForehead", self.face.rotate_forehead);
+        write!("scaleForehead", self.face.scale_forehead);
         section!("YokeBone");
-        write!("offsetYokeBoneH", self.face.offset_yoke_bone_h); write!("offsetYokeBoneV", self.face.offset_yoke_bone_v); write!("offsetYokeBoneZ", self.face.offset_yoke_bone_z); write!("rotateYokeBone", self.face.rotate_yoke_bone); write!("scaleYokeBone", self.face.scale_yoke_bone);
+        write!("offsetYokeBoneH", self.face.offset_yoke_bone_h);
+        write!("offsetYokeBoneV", self.face.offset_yoke_bone_v);
+        write!("offsetYokeBoneZ", self.face.offset_yoke_bone_z);
+        write!("rotateYokeBone", self.face.rotate_yoke_bone);
+        write!("scaleYokeBone", self.face.scale_yoke_bone);
         section!("Cheek");
-        write!("offsetCheekH", self.face.offset_cheek_h); write!("offsetCheekV", self.face.offset_cheek_v); write!("offsetCheekZ", self.face.offset_cheek_z); write!("scaleCheek", self.face.scale_cheek);
+        write!("offsetCheekH", self.face.offset_cheek_h);
+        write!("offsetCheekV", self.face.offset_cheek_v);
+        write!("offsetCheekZ", self.face.offset_cheek_z);
+        write!("scaleCheek", self.face.scale_cheek);
         section!("Chain");
-        write!("offsetChainV", self.face.offset_chain_v); write!("offsetChainZ", self.face.offset_chain_z); write!("rotateChain", self.face.rotate_chain); write!("scaleChainH", self.face.scale_chain_h);
+        write!("offsetChainV", self.face.offset_chain_v);
+        write!("offsetChainZ", self.face.offset_chain_z);
+        write!("rotateChain", self.face.rotate_chain);
+        write!("scaleChainH", self.face.scale_chain_h);
         section!("Jaw");
-        write!("offsetJawH", self.face.offset_jaw_h); write!("offsetJawV", self.face.offset_jaw_v); write!("offsetJawZ", self.face.offset_jaw_z); write!("scaleJawSpecial", self.face.scale_jaw_special); write!("scaleJawH", self.face.scale_jaw_h); write!("scaleJawV", self.face.scale_jaw_v);
+        write!("offsetJawH", self.face.offset_jaw_h);
+        write!("offsetJawV", self.face.offset_jaw_v);
+        write!("offsetJawZ", self.face.offset_jaw_z);
+        write!("scaleJawSpecial", self.face.scale_jaw_special);
+        write!("scaleJawH", self.face.scale_jaw_h);
+        write!("scaleJawV", self.face.scale_jaw_v);
         section!("Eye");
-        write!("idThirdEye", self.face.id_third_eye); write!("idEyeBaseTex", self.face.id_eye_base_tex); write!("idEyeHighTex", self.face.id_eye_high_tex); write!("idEyeBallTex", self.face.id_eye_ball_tex); write!("idEyeShape", self.face.id_eye_shape);
-        write!("scaleEyeH", self.face.scale_eye_h); write!("scaleEyeV", self.face.scale_eye_v); write!("rotateEye", self.face.rotate_eye); write!("offsetEyeH", self.face.offset_eye_h); write!("offsetEyeV", self.face.offset_eye_v); write!("offseteyeZ", self.face.offset_eye_z); write!("scaleEyeBall", self.face.scale_eye_ball);
-        write!("scaleEyeH2", self.face.scale_eye_h2); write!("scaleEyeV2", self.face.scale_eye_v2); write!("rotateEye2", self.face.rotate_eye2); write!("offsetEyeH2", self.face.offset_eye_h2); write!("offsetEyeV2", self.face.offset_eye_v2); write!("offseteyeZ2", self.face.offset_eye_z2); write!("scaleEyeBall2", self.face.scale_eye_ball2);
+        write!("idThirdEye", self.face.id_third_eye);
+        write!("idEyeBaseTex", self.face.id_eye_base_tex);
+        write!("idEyeHighTex", self.face.id_eye_high_tex);
+        write!("idEyeBallTex", self.face.id_eye_ball_tex);
+        write!("idEyeShape", self.face.id_eye_shape);
+        write!("scaleEyeH", self.face.scale_eye_h);
+        write!("scaleEyeV", self.face.scale_eye_v);
+        write!("rotateEye", self.face.rotate_eye);
+        write!("offsetEyeH", self.face.offset_eye_h);
+        write!("offsetEyeV", self.face.offset_eye_v);
+        write!("offseteyeZ", self.face.offset_eye_z);
+        write!("scaleEyeBall", self.face.scale_eye_ball);
+        write!("scaleEyeH2", self.face.scale_eye_h2);
+        write!("scaleEyeV2", self.face.scale_eye_v2);
+        write!("rotateEye2", self.face.rotate_eye2);
+        write!("offsetEyeH2", self.face.offset_eye_h2);
+        write!("offsetEyeV2", self.face.offset_eye_v2);
+        write!("offseteyeZ2", self.face.offset_eye_z2);
+        write!("scaleEyeBall2", self.face.scale_eye_ball2);
         section!("Brow");
-        write!("idBrowTex", self.face.id_brow_tex); write!("idBrowShape", self.face.id_brow_shape); write!("scaleBrowH", self.face.scale_brow_h); write!("scaleBrowV", self.face.scale_brow_v); write!("rotateBrow", self.face.rotate_brow); write!("offsetBrowH", self.face.offset_brow_h); write!("offsetBrowV", self.face.offset_brow_v); write!("offsetBrowZ", self.face.offset_brow_z);
-        write!("scaleBrowH2", self.face.scale_brow_h2); write!("scaleBrowV2", self.face.scale_brow_v2); write!("rotateBrow2", self.face.rotate_brow2); write!("offsetBrowH2", self.face.offset_brow_h2); write!("offsetBrowV2", self.face.offset_brow_v2); write!("offsetBrowZ2", self.face.offset_brow_z2);
+        write!("idBrowTex", self.face.id_brow_tex);
+        write!("idBrowShape", self.face.id_brow_shape);
+        write!("scaleBrowH", self.face.scale_brow_h);
+        write!("scaleBrowV", self.face.scale_brow_v);
+        write!("rotateBrow", self.face.rotate_brow);
+        write!("offsetBrowH", self.face.offset_brow_h);
+        write!("offsetBrowV", self.face.offset_brow_v);
+        write!("offsetBrowZ", self.face.offset_brow_z);
+        write!("scaleBrowH2", self.face.scale_brow_h2);
+        write!("scaleBrowV2", self.face.scale_brow_v2);
+        write!("rotateBrow2", self.face.rotate_brow2);
+        write!("offsetBrowH2", self.face.offset_brow_h2);
+        write!("offsetBrowV2", self.face.offset_brow_v2);
+        write!("offsetBrowZ2", self.face.offset_brow_z2);
         section!("Nose");
-        write!("idNoseTex", self.face.id_nose_tex); write!("idNoseTipShape", self.face.id_nose_tip_shape); write!("scaleNoseTipH", self.face.scale_nose_tip_h); write!("scaleNoseTipV", self.face.scale_nose_tip_v); write!("scaleNoseTipZ", self.face.scale_nose_tip_z); write!("offsetNoseTipV", self.face.offset_nose_tip_v); write!("idNoseBridgeShape", self.face.id_nose_bridge_shape); write!("scaleBridgeTipH", self.face.scale_bridge_tip_h); write!("offsetBridgeTipZ", self.face.offset_bridge_tip_z);
+        write!("idNoseTex", self.face.id_nose_tex);
+        write!("idNoseTipShape", self.face.id_nose_tip_shape);
+        write!("scaleNoseTipH", self.face.scale_nose_tip_h);
+        write!("scaleNoseTipV", self.face.scale_nose_tip_v);
+        write!("scaleNoseTipZ", self.face.scale_nose_tip_z);
+        write!("offsetNoseTipV", self.face.offset_nose_tip_v);
+        write!("idNoseBridgeShape", self.face.id_nose_bridge_shape);
+        write!("scaleBridgeTipH", self.face.scale_bridge_tip_h);
+        write!("offsetBridgeTipZ", self.face.offset_bridge_tip_z);
         section!("Mouth");
-        write!("idMouthUpLipLine", self.face.id_mouth_up_lip_line); write!("idMouthMidLipLine", self.face.id_mouth_mid_lip_line); write!("idMouthDownLipLine", self.face.id_mouth_down_lip_line); write!("thickUpLip", self.face.thick_up_lip); write!("thickDownLip", self.face.thick_down_lip); write!("scaleMouthH", self.face.scale_mouth_h); write!("offsetMouthV", self.face.offset_mouth_v); write!("offsetMOuthZ", self.face.offset_mouth_z); write!("idMouthTex", self.face.id_mouth_tex); write!("offsetCornerOfMouthSpecial", self.face.offset_corner_of_mouth_special); write!("scaleMouthH2", self.face.scale_mouth_h2); write!("offsetCornerOfMouthSpecial2", self.face.offset_corner_of_mouth_special2);
+        write!("idMouthUpLipLine", self.face.id_mouth_up_lip_line);
+        write!("idMouthMidLipLine", self.face.id_mouth_mid_lip_line);
+        write!("idMouthDownLipLine", self.face.id_mouth_down_lip_line);
+        write!("thickUpLip", self.face.thick_up_lip);
+        write!("thickDownLip", self.face.thick_down_lip);
+        write!("scaleMouthH", self.face.scale_mouth_h);
+        write!("offsetMouthV", self.face.offset_mouth_v);
+        write!("offsetMOuthZ", self.face.offset_mouth_z);
+        write!("idMouthTex", self.face.id_mouth_tex);
+        write!(
+            "offsetCornerOfMouthSpecial",
+            self.face.offset_corner_of_mouth_special
+        );
+        write!("scaleMouthH2", self.face.scale_mouth_h2);
+        write!(
+            "offsetCornerOfMouthSpecial2",
+            self.face.offset_corner_of_mouth_special2
+        );
         section!("Ear");
-        write!("idEarShape", self.face.id_ear_shape); write!("scaleEar", self.face.scale_ear); write!("offsetEarV", self.face.offset_ear_v);
+        write!("idEarShape", self.face.id_ear_shape);
+        write!("scaleEar", self.face.scale_ear);
+        write!("offsetEarV", self.face.offset_ear_v);
         section!("Hair");
-        write!("idHairModel", self.face.id_hair_model); write!("idHairTex", self.face.id_hair_tex);
+        write!("idHairModel", self.face.id_hair_model);
+        write!("idHairTex", self.face.id_hair_tex);
         section!("Moustache");
-        write!("idMoustacheTex", self.face.id_moustache_tex); write!("idMoustacheSkin", self.face.id_moustache_skin); write!("idGoateeTex", self.face.id_goatee_tex);
+        write!("idMoustacheTex", self.face.id_moustache_tex);
+        write!("idMoustacheSkin", self.face.id_moustache_skin);
+        write!("idGoateeTex", self.face.id_goatee_tex);
         section!("Color");
-        color!("colorHair", self.face.color_hair); color!("colorFace", self.face.color_face); color!("colorEye", self.face.color_eye); color!("colorBrow", self.face.color_brow); color!("colorMouth", self.face.color_mouth); color!("colorEyeBall", self.face.color_eye_ball); color!("colorMoustache", self.face.color_moustache);
+        color!("colorHair", self.face.color_hair);
+        color!("colorFace", self.face.color_face);
+        color!("colorEye", self.face.color_eye);
+        color!("colorBrow", self.face.color_brow);
+        color!("colorMouth", self.face.color_mouth);
+        color!("colorEyeBall", self.face.color_eye_ball);
+        color!("colorMoustache", self.face.color_moustache);
         section!("Body");
-        write!("bodyID", self.body_id); color!("colorBody", self.color_body); write!("headScale", self.head_scale); write!("upScale", self.up_scale); write!("waistScale", self.waist_scale); write!("armWidth", self.arm_width); write!("legWidth", self.leg_width); write!("breastScale", self.breast_scale);
+        write!("bodyID", self.body_id);
+        color!("colorBody", self.color_body);
+        write!("headScale", self.head_scale);
+        write!("upScale", self.up_scale);
+        write!("waistScale", self.waist_scale);
+        write!("armWidth", self.arm_width);
+        write!("legWidth", self.leg_width);
+        write!("breastScale", self.breast_scale);
         out
     }
 
@@ -488,21 +693,91 @@ impl PlayerCustomize {
                 bounds.clamp($section, $key, &mut self.face.$field);
             };
         }
-        face!("3Parts", "ScaleUpPart", scale_up); face!("3Parts", "ScaleMiddlePart", scale_middle); face!("3Parts", "ScaleDownPart", scale_down);
-        face!("Face", "ScaleFaceH", scale_face_h); face!("Face", "ScaleFaceV", scale_face_v);
-        face!("Forehead", "OffsetForeheadH", offset_forehead_h); face!("Forehead", "OffsetForeheadV", offset_forehead_v); face!("Forehead", "OffsetForeheadZ", offset_forehead_z); face!("Forehead", "RotateForehead", rotate_forehead); face!("Forehead", "ScaleForehead", scale_forehead);
-        face!("YokeBone", "OffsetYokeBoneH", offset_yoke_bone_h); face!("YokeBone", "OffsetYokeBoneV", offset_yoke_bone_v); face!("YokeBone", "OffsetYokeBoneZ", offset_yoke_bone_z); face!("YokeBone", "RotateYokeBone", rotate_yoke_bone); face!("YokeBone", "ScaleYokeBone", scale_yoke_bone);
-        face!("Cheek", "OffsetCheekH", offset_cheek_h); face!("Cheek", "OffsetCheekV", offset_cheek_v); face!("Cheek", "OffsetCheekZ", offset_cheek_z); face!("Cheek", "ScaleCheek", scale_cheek);
-        face!("Chain", "OffsetChainV", offset_chain_v); face!("Chain", "OffsetChainZ", offset_chain_z); face!("Chain", "RotateChain", rotate_chain); face!("Chain", "ScaleChainH", scale_chain_h);
-        face!("Jaw", "OffsetJawH", offset_jaw_h); face!("Jaw", "OffsetJawV", offset_jaw_v); face!("Jaw", "OffsetJawZ", offset_jaw_z); face!("Jaw", "ScaleJawSpecial", scale_jaw_special); face!("Jaw", "ScaleJawH", scale_jaw_h); face!("Jaw", "ScaleJawV", scale_jaw_v);
-        face!("Eye", "ScaleEyeH", scale_eye_h); face!("Eye", "ScaleEyeV", scale_eye_v); face!("Eye", "RotateEye", rotate_eye); face!("Eye", "OffsetEyeH", offset_eye_h); face!("Eye", "OffsetEyeV", offset_eye_v); face!("Eye", "OffsetEyeZ", offset_eye_z); face!("Eye", "ScaleEyeBall", scale_eye_ball);
-        face!("Eye", "ScaleEyeH", scale_eye_h2); face!("Eye", "ScaleEyeV", scale_eye_v2); face!("Eye", "RotateEye", rotate_eye2); face!("Eye", "OffsetEyeH", offset_eye_h2); face!("Eye", "OffsetEyeV", offset_eye_v2); face!("Eye", "OffsetEyeZ", offset_eye_z2); face!("Eye", "ScaleEyeBall", scale_eye_ball2);
-        face!("Brow", "ScaleBrowH", scale_brow_h); face!("Brow", "ScaleBrowV", scale_brow_v); face!("Brow", "RotateBrow", rotate_brow); face!("Brow", "OffsetBrowH", offset_brow_h); face!("Brow", "OffsetBrowV", offset_brow_v); face!("Brow", "OffsetBrowZ", offset_brow_z);
-        face!("Brow", "ScaleBrowH", scale_brow_h2); face!("Brow", "ScaleBrowV", scale_brow_v2); face!("Brow", "RotateBrow", rotate_brow2); face!("Brow", "OffsetBrowH", offset_brow_h2); face!("Brow", "OffsetBrowV", offset_brow_v2); face!("Brow", "OffsetBrowZ", offset_brow_z2);
-        face!("Nose", "ScaleNoseTipH", scale_nose_tip_h); face!("Nose", "ScaleNoseTipV", scale_nose_tip_v); face!("Nose", "ScaleNoseTipZ", scale_nose_tip_z); face!("Nose", "OffsetNoseTipV", offset_nose_tip_v); face!("Nose", "ScaleBridgeTipH", scale_bridge_tip_h); face!("Nose", "OffsetBridgeTipZ", offset_bridge_tip_z);
-        face!("Mouth", "ThickUpLip", thick_up_lip); face!("Mouth", "ThickDownLip", thick_down_lip); face!("Mouth", "ScaleMouthH", scale_mouth_h); face!("Mouth", "OffsetMouthV", offset_mouth_v); face!("Mouth", "OffsetMouthZ", offset_mouth_z); face!("Mouth", "OffsetCornerOfMouthSpecial", offset_corner_of_mouth_special); face!("Mouth", "ScaleMouthH2", scale_mouth_h2); face!("Mouth", "OffsetCornerOfMouthSpecial2", offset_corner_of_mouth_special2);
-        face!("Ear", "ScaleEar", scale_ear); face!("Ear", "OffsetEarV", offset_ear_v);
-        clamp!("Body", "HeadScale", head_scale); clamp!("Body", "UpScale", up_scale); clamp!("Body", "WaistScale", waist_scale); clamp!("Body", "ArmWidth", arm_width); clamp!("Body", "LegWidth", leg_width); clamp!("Body", "BreastScale", breast_scale);
+        face!("3Parts", "ScaleUpPart", scale_up);
+        face!("3Parts", "ScaleMiddlePart", scale_middle);
+        face!("3Parts", "ScaleDownPart", scale_down);
+        face!("Face", "ScaleFaceH", scale_face_h);
+        face!("Face", "ScaleFaceV", scale_face_v);
+        face!("Forehead", "OffsetForeheadH", offset_forehead_h);
+        face!("Forehead", "OffsetForeheadV", offset_forehead_v);
+        face!("Forehead", "OffsetForeheadZ", offset_forehead_z);
+        face!("Forehead", "RotateForehead", rotate_forehead);
+        face!("Forehead", "ScaleForehead", scale_forehead);
+        face!("YokeBone", "OffsetYokeBoneH", offset_yoke_bone_h);
+        face!("YokeBone", "OffsetYokeBoneV", offset_yoke_bone_v);
+        face!("YokeBone", "OffsetYokeBoneZ", offset_yoke_bone_z);
+        face!("YokeBone", "RotateYokeBone", rotate_yoke_bone);
+        face!("YokeBone", "ScaleYokeBone", scale_yoke_bone);
+        face!("Cheek", "OffsetCheekH", offset_cheek_h);
+        face!("Cheek", "OffsetCheekV", offset_cheek_v);
+        face!("Cheek", "OffsetCheekZ", offset_cheek_z);
+        face!("Cheek", "ScaleCheek", scale_cheek);
+        face!("Chain", "OffsetChainV", offset_chain_v);
+        face!("Chain", "OffsetChainZ", offset_chain_z);
+        face!("Chain", "RotateChain", rotate_chain);
+        face!("Chain", "ScaleChainH", scale_chain_h);
+        face!("Jaw", "OffsetJawH", offset_jaw_h);
+        face!("Jaw", "OffsetJawV", offset_jaw_v);
+        face!("Jaw", "OffsetJawZ", offset_jaw_z);
+        face!("Jaw", "ScaleJawSpecial", scale_jaw_special);
+        face!("Jaw", "ScaleJawH", scale_jaw_h);
+        face!("Jaw", "ScaleJawV", scale_jaw_v);
+        face!("Eye", "ScaleEyeH", scale_eye_h);
+        face!("Eye", "ScaleEyeV", scale_eye_v);
+        face!("Eye", "RotateEye", rotate_eye);
+        face!("Eye", "OffsetEyeH", offset_eye_h);
+        face!("Eye", "OffsetEyeV", offset_eye_v);
+        face!("Eye", "OffsetEyeZ", offset_eye_z);
+        face!("Eye", "ScaleEyeBall", scale_eye_ball);
+        face!("Eye", "ScaleEyeH", scale_eye_h2);
+        face!("Eye", "ScaleEyeV", scale_eye_v2);
+        face!("Eye", "RotateEye", rotate_eye2);
+        face!("Eye", "OffsetEyeH", offset_eye_h2);
+        face!("Eye", "OffsetEyeV", offset_eye_v2);
+        face!("Eye", "OffsetEyeZ", offset_eye_z2);
+        face!("Eye", "ScaleEyeBall", scale_eye_ball2);
+        face!("Brow", "ScaleBrowH", scale_brow_h);
+        face!("Brow", "ScaleBrowV", scale_brow_v);
+        face!("Brow", "RotateBrow", rotate_brow);
+        face!("Brow", "OffsetBrowH", offset_brow_h);
+        face!("Brow", "OffsetBrowV", offset_brow_v);
+        face!("Brow", "OffsetBrowZ", offset_brow_z);
+        face!("Brow", "ScaleBrowH", scale_brow_h2);
+        face!("Brow", "ScaleBrowV", scale_brow_v2);
+        face!("Brow", "RotateBrow", rotate_brow2);
+        face!("Brow", "OffsetBrowH", offset_brow_h2);
+        face!("Brow", "OffsetBrowV", offset_brow_v2);
+        face!("Brow", "OffsetBrowZ", offset_brow_z2);
+        face!("Nose", "ScaleNoseTipH", scale_nose_tip_h);
+        face!("Nose", "ScaleNoseTipV", scale_nose_tip_v);
+        face!("Nose", "ScaleNoseTipZ", scale_nose_tip_z);
+        face!("Nose", "OffsetNoseTipV", offset_nose_tip_v);
+        face!("Nose", "ScaleBridgeTipH", scale_bridge_tip_h);
+        face!("Nose", "OffsetBridgeTipZ", offset_bridge_tip_z);
+        face!("Mouth", "ThickUpLip", thick_up_lip);
+        face!("Mouth", "ThickDownLip", thick_down_lip);
+        face!("Mouth", "ScaleMouthH", scale_mouth_h);
+        face!("Mouth", "OffsetMouthV", offset_mouth_v);
+        face!("Mouth", "OffsetMouthZ", offset_mouth_z);
+        face!(
+            "Mouth",
+            "OffsetCornerOfMouthSpecial",
+            offset_corner_of_mouth_special
+        );
+        face!("Mouth", "ScaleMouthH2", scale_mouth_h2);
+        face!(
+            "Mouth",
+            "OffsetCornerOfMouthSpecial2",
+            offset_corner_of_mouth_special2
+        );
+        face!("Ear", "ScaleEar", scale_ear);
+        face!("Ear", "OffsetEarV", offset_ear_v);
+        clamp!("Body", "HeadScale", head_scale);
+        clamp!("Body", "UpScale", up_scale);
+        clamp!("Body", "WaistScale", waist_scale);
+        clamp!("Body", "ArmWidth", arm_width);
+        clamp!("Body", "LegWidth", leg_width);
+        clamp!("Body", "BreastScale", breast_scale);
     }
 }
 
@@ -544,8 +819,14 @@ impl Ini {
     }
     pub fn range(&self, section: &str, key: &str) -> (u8, u8) {
         let min = self.number(section, &format!("{key}Min"), 0).clamp(0, 255) as u8;
-        let max = self.number(section, &format!("{key}Max"), 255).clamp(0, 255) as u8;
-        if min <= max { (min, max) } else { (max, min) }
+        let max = self
+            .number(section, &format!("{key}Max"), 255)
+            .clamp(0, 255) as u8;
+        if min <= max {
+            (min, max)
+        } else {
+            (max, min)
+        }
     }
 }
 
@@ -555,7 +836,9 @@ pub struct SliderBounds {
 }
 impl SliderBounds {
     pub fn parse(bytes: &[u8]) -> Result<Self, String> {
-        Ok(Self { ini: Ini::parse(bytes)? })
+        Ok(Self {
+            ini: Ini::parse(bytes)?,
+        })
     }
     pub fn range(&self, section: &str, key: &str) -> std::ops::RangeInclusive<i32> {
         let (min, max) = self.ini.range(section, key);
@@ -572,24 +855,29 @@ mod tests {
     use super::*;
     #[test]
     fn authentic_default_round_trip_preserves_ids_sliders_and_signed_argb() {
-        let path = std::path::Path::new("google_drive/pw142/element/userdata/character/character00.ini");
+        let path =
+            std::path::Path::new("google_drive/pw142/element/userdata/character/character00.ini");
         if !path.exists() {
             return;
         }
         let bytes = std::fs::read(path).unwrap();
-        let design = CharacterDesign::from_default_ini(Class::Blademaster, Gender::Male, &bytes).unwrap();
+        let design =
+            CharacterDesign::from_default_ini(Class::Blademaster, Gender::Male, &bytes).unwrap();
         assert_eq!(design.customize.face.id_face_shape1, 62);
         assert_eq!(design.customize.face.id_hair_model, 265);
         assert_eq!(design.customize.face.color_hair, -11517643i32 as u32);
         assert_eq!(design.customize.color_body, -593687i32 as u32);
         let saved = design.to_ini_gbk().unwrap();
-        let reread = CharacterDesign::from_default_ini(Class::Blademaster, Gender::Male, &saved).unwrap();
+        let reread =
+            CharacterDesign::from_default_ini(Class::Blademaster, Gender::Male, &saved).unwrap();
         assert_eq!(design.customize, reread.customize);
     }
     #[test]
     fn preset_missing_body_fields_retain_native_zero_not_neutral_substitution() {
         let mut design = CharacterDesign::new(Class::Blademaster, Gender::Male);
-        design.apply_preset_ini(b"[Body]\r\nbodyID = 2\r\n").unwrap();
+        design
+            .apply_preset_ini(b"[Body]\r\nbodyID = 2\r\n")
+            .unwrap();
         assert_eq!(design.customize.body_id, 2);
         assert_eq!(design.customize.head_scale, 0);
         assert_eq!(design.customize.color_body, 0);

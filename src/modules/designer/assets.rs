@@ -83,9 +83,17 @@ impl Assets {
         }
     }
 
-    pub fn default_design(&mut self, class: Class, gender: Gender) -> Result<CharacterDesign, String> {
+    pub fn default_design(
+        &mut self,
+        class: Class,
+        gender: Gender,
+    ) -> Result<CharacterDesign, String> {
         if !class.allows(gender) {
-            return Err(format!("{} does not support {} characters", class.name(), gender.name()));
+            return Err(format!(
+                "{} does not support {} characters",
+                class.name(),
+                gender.name()
+            ));
         }
         let path = class.default_ini(gender);
         let bytes = self.read(&path)?;
@@ -171,7 +179,12 @@ impl Assets {
         for entry in entries {
             let entry = entry.map_err(|error| error.to_string())?;
             let path = entry.path();
-            if path.extension().and_then(|x| x.to_str()).map(|x| x.eq_ignore_ascii_case("ini")) != Some(true) {
+            if path
+                .extension()
+                .and_then(|x| x.to_str())
+                .map(|x| x.eq_ignore_ascii_case("ini"))
+                != Some(true)
+            {
                 continue;
             }
             let Some(name) = path.file_stem().and_then(|x| x.to_str()) else {
@@ -186,7 +199,11 @@ impl Assets {
         Ok(presets)
     }
 
-    pub fn apply_user_preset(&self, design: &mut CharacterDesign, path: &Path) -> Result<(), String> {
+    pub fn apply_user_preset(
+        &self,
+        design: &mut CharacterDesign,
+        path: &Path,
+    ) -> Result<(), String> {
         let bytes = fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
         design.apply_preset_ini(&bytes)?;
         design.clamp(&self.bounds);
@@ -203,7 +220,8 @@ pub struct UserPreset {
 fn safe_relative(path: &str) -> Result<PathBuf, String> {
     let mut result = PathBuf::new();
     for component in path.replace('\\', "/").split('/') {
-        if component.is_empty() || component == "." || component == ".." || component.contains(':') {
+        if component.is_empty() || component == "." || component == ".." || component.contains(':')
+        {
             return Err(format!("unsafe asset path: {path}"));
         }
         result.push(component);
@@ -236,7 +254,10 @@ mod tests {
     fn loose_paths_cannot_escape_element_directory() {
         assert!(safe_relative("../outside.ini").is_err());
         assert!(safe_relative("C:/outside.ini").is_err());
-        assert_eq!(safe_relative("userdata\\character\\a.ini").unwrap(), PathBuf::from("userdata/character/a.ini"));
+        assert_eq!(
+            safe_relative("userdata\\character\\a.ini").unwrap(),
+            PathBuf::from("userdata/character/a.ini")
+        );
         assert!(valid_preset_name("../bad").is_err());
         assert!(valid_preset_name("My preset 1").is_ok());
     }

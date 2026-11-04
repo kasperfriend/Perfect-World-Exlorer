@@ -161,16 +161,12 @@ impl Character {
             }
         }
 
-        let face_bon = design.class.face_asset(
-            design.gender,
-            design.customize.body_id,
-            "bon",
-        );
-        let face_ski = design.class.face_asset(
-            design.gender,
-            design.customize.body_id,
-            "ski",
-        );
+        let face_bon = design
+            .class
+            .face_asset(design.gender, design.customize.body_id, "bon");
+        let face_ski = design
+            .class
+            .face_asset(design.gender, design.customize.body_id, "ski");
         let mut face_model = ModelAsset::load_static_skins_with(
             &face_bon,
             std::slice::from_ref(&face_ski),
@@ -180,7 +176,11 @@ impl Character {
         let customized = &effective_design.customize.face;
 
         if customized.id_hair_model != 0 {
-            match assets.catalog.hair_item(customized.id_hair_model as u32).cloned() {
+            match assets
+                .catalog
+                .hair_item(customized.id_hair_model as u32)
+                .cloned()
+            {
                 Some(item) => {
                     if let Some(skin) = load_optional_face_skin(
                         assets,
@@ -282,8 +282,7 @@ impl Character {
         let face_neck = bone_index(&face_model.skeleton, "脖子对齐")
             .ok_or("face skeleton has no 脖子对齐 attachment bone")?;
         let original_head = Mat4::from_cols_array(&body.skeleton.bones[body_head].relative);
-        let original_neck =
-            Mat4::from_cols_array(&face_model.skeleton.bones[face_neck].relative);
+        let original_neck = Mat4::from_cols_array(&face_model.skeleton.bones[face_neck].relative);
         if !original_head.inverse().is_finite() || !original_neck.is_finite() {
             return Err("non-invertible/non-finite native head attachment matrix".into());
         }
@@ -352,9 +351,8 @@ impl Character {
         // Native: InverseTM(originalHead) * originalNeck * headAbsolute.
         // All matrices here are transposed native matrices, so reverse the
         // product while preserving the original (not animated) bind offsets.
-        let face_world = body.absolute[self.body_head]
-            * self.original_neck
-            * self.original_head.inverse();
+        let face_world =
+            body.absolute[self.body_head] * self.original_neck * self.original_head.inverse();
         if !face_world.is_finite() {
             return Err("non-finite face attachment transform".into());
         }
@@ -433,7 +431,9 @@ fn load_optional_face_skin(
     match load_skin(assets, path) {
         Ok(skin) => Some(skin),
         Err(error) => {
-            warnings.push(format!("{label} could not be loaded: {error}; no skin was added"));
+            warnings.push(format!(
+                "{label} could not be loaded: {error}; no skin was added"
+            ));
             None
         }
     }
@@ -496,11 +496,19 @@ fn location_target(location: i32) -> Option<ArmorSlot> {
     }
 }
 
-fn plan_equipment(design: &CharacterDesign, catalog: &Catalog) -> Result<Vec<EquipmentPart>, String> {
+fn plan_equipment(
+    design: &CharacterDesign,
+    catalog: &Catalog,
+) -> Result<Vec<EquipmentPart>, String> {
     let fashion = design.equipment.fashion_mode;
     let mut parts: [Option<EquipmentPart>; 4] = std::array::from_fn(|_| None);
     let mut show_mask = 0_u32;
-    for slot in [ArmorSlot::Upper, ArmorSlot::Wrist, ArmorSlot::Lower, ArmorSlot::Foot] {
+    for slot in [
+        ArmorSlot::Upper,
+        ArmorSlot::Wrist,
+        ArmorSlot::Lower,
+        ArmorSlot::Foot,
+    ] {
         let id = if fashion {
             design.equipment.fashion(slot)
         } else {
@@ -625,7 +633,11 @@ fn body_scales(skeleton: &Skeleton, design: &CharacterDesign) -> Vec<BoneScale> 
             result.push(BoneScale { bone, kind, factor });
         }
     };
-    add("Bip01 Neck", ScaleType::LocalNoOffset, Vec3::new(1.0, head, head));
+    add(
+        "Bip01 Neck",
+        ScaleType::LocalNoOffset,
+        Vec3::new(1.0, head, head),
+    );
     add("Bip01 Head", ScaleType::Whole, Vec3::splat(head));
     if design.gender == Gender::Female {
         add("Bone01", ScaleType::Local, Vec3::splat(breast));
@@ -636,8 +648,16 @@ fn body_scales(skeleton: &Skeleton, design: &CharacterDesign) -> Vec<BoneScale> 
     for name in ["Bip01 Spine2", "Bip01 Spine1"] {
         add(name, ScaleType::Local, Vec3::new(1.0, up, up));
     }
-    add("Bip01 Spine", ScaleType::LocalNoOffset, Vec3::new(1.0, waist, waist));
-    add("Bip01 Pelvis", ScaleType::Local, Vec3::new(1.0, waist, waist));
+    add(
+        "Bip01 Spine",
+        ScaleType::LocalNoOffset,
+        Vec3::new(1.0, waist, waist),
+    );
+    add(
+        "Bip01 Pelvis",
+        ScaleType::Local,
+        Vec3::new(1.0, waist, waist),
+    );
     for name in [
         "Bip01 L UpperArm",
         "Bip01 R UpperArm",
@@ -719,10 +739,13 @@ fn apply_face_textures_and_colors(
         }
         _ => None,
     };
-    let brow_choice = texture_choice(assets, data.id_brow_tex, "brow", warnings).map(choice_base_high);
+    let brow_choice =
+        texture_choice(assets, data.id_brow_tex, "brow", warnings).map(choice_base_high);
     let nose_choice = texture_choice(assets, data.id_nose_tex, "nose", warnings).map(choice_base);
-    let mouth_choice = texture_choice(assets, data.id_mouth_tex, "mouth", warnings).map(choice_base_high);
-    let eyeball_choice = texture_choice(assets, data.id_eye_ball_tex, "eyeball", warnings).map(choice_base_high);
+    let mouth_choice =
+        texture_choice(assets, data.id_mouth_tex, "mouth", warnings).map(choice_base_high);
+    let eyeball_choice =
+        texture_choice(assets, data.id_eye_ball_tex, "eyeball", warnings).map(choice_base_high);
     let moustache_choice = if design.gender == Gender::Male {
         texture_choice(assets, data.id_moustache_tex, "moustache", warnings).map(choice_base_high)
     } else {
@@ -742,20 +765,52 @@ fn apply_face_textures_and_colors(
         (5, data.color_eye_ball, eyeball_choice),
         (6, moustache_color, moustache_choice),
     ] {
-        apply_face_part(model, slots.face, part, color, choice, assets, stages, warnings)?;
+        apply_face_part(
+            model, slots.face, part, color, choice, assets, stages, warnings,
+        )?;
     }
 
-    let hair_choice = texture_choice(assets, data.id_hair_tex, "hair", warnings).map(choice_base_high);
+    let hair_choice =
+        texture_choice(assets, data.id_hair_tex, "hair", warnings).map(choice_base_high);
     if let Some(skin) = slots.hair {
-        apply_extra_texture(model, skin, data.color_hair, hair_choice, true, assets, stages, warnings)?;
+        apply_extra_texture(
+            model,
+            skin,
+            data.color_hair,
+            hair_choice,
+            true,
+            assets,
+            stages,
+            warnings,
+        )?;
     }
     if let Some(skin) = slots.goatee {
-        let choice = texture_choice(assets, data.id_goatee_tex, "goatee", warnings).map(choice_base_high);
-        apply_extra_texture(model, skin, data.color_moustache, choice, true, assets, stages, warnings)?;
+        let choice =
+            texture_choice(assets, data.id_goatee_tex, "goatee", warnings).map(choice_base_high);
+        apply_extra_texture(
+            model,
+            skin,
+            data.color_moustache,
+            choice,
+            true,
+            assets,
+            stages,
+            warnings,
+        )?;
     }
     if let Some(skin) = slots.faling {
-        let choice = texture_choice(assets, data.id_faling_tex, "faling", warnings).map(choice_base);
-        apply_extra_texture(model, skin, u32::MAX, choice, false, assets, stages, warnings)?;
+        let choice =
+            texture_choice(assets, data.id_faling_tex, "faling", warnings).map(choice_base);
+        apply_extra_texture(
+            model,
+            skin,
+            u32::MAX,
+            choice,
+            false,
+            assets,
+            stages,
+            warnings,
+        )?;
     }
     Ok(())
 }
@@ -810,7 +865,10 @@ fn apply_extra_texture(
         .map(|(index, mesh)| (index, mesh.texture))
         .collect::<Vec<_>>();
     if meshes.is_empty() && choice.is_some() {
-        warnings.push(format!("{} has no texture-0 mesh for its customized texture", model.skins[skin].path));
+        warnings.push(format!(
+            "{} has no texture-0 mesh for its customized texture",
+            model.skins[skin].path
+        ));
     }
     for (mesh, texture) in meshes {
         if tinted {
@@ -835,20 +893,30 @@ fn apply_texture_choice(
     warnings: &mut Vec<String>,
 ) {
     if texture < 0 {
-        warnings.push(format!("{} mesh {mesh} is untextured; customized texture was not applied", model.skins[skin].path));
+        warnings.push(format!(
+            "{} mesh {mesh} is untextured; customized texture was not applied",
+            model.skins[skin].path
+        ));
         return;
     }
     let base = ecmodel::normalize(&choice.base);
     if base.is_empty() || !assets.contains(&base) {
-        warnings.push(format!("missing customized texture {base}; retaining the SKI texture"));
+        warnings.push(format!(
+            "missing customized texture {base}; retaining the SKI texture"
+        ));
         return;
     }
-    let high = choice.high.map(|path| ecmodel::normalize(&path)).filter(|path| !path.is_empty());
+    let high = choice
+        .high
+        .map(|path| ecmodel::normalize(&path))
+        .filter(|path| !path.is_empty());
     let high = high.and_then(|path| {
         if assets.contains(&path) {
             Some(path)
         } else {
-            warnings.push(format!("missing customized highlight texture {path}; highlight stage was not applied"));
+            warnings.push(format!(
+                "missing customized highlight texture {path}; highlight stage was not applied"
+            ));
             None
         }
     });
@@ -873,8 +941,14 @@ mod tests {
         assert_eq!(equipment_visibility(1 << 5), [true, true, false, true]);
         assert_eq!(equipment_visibility(1 << 6), [true, false, true, true]);
         assert_eq!(equipment_visibility(1 << 8), [true, false, false, true]);
-        assert_eq!(equipment_visibility((1 << 3) | (1 << 7)), [true, true, true, false]);
-        assert_eq!(equipment_visibility((1 << 7) | (1 << 1)), [true, true, true, false]);
+        assert_eq!(
+            equipment_visibility((1 << 3) | (1 << 7)),
+            [true, true, true, false]
+        );
+        assert_eq!(
+            equipment_visibility((1 << 7) | (1 << 1)),
+            [true, true, true, false]
+        );
     }
 
     #[test]

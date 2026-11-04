@@ -287,9 +287,24 @@ impl FaceResources {
                 "nose-bridge shape",
                 warnings,
             ),
-            mouth_up: load_shape(assets, face.id_mouth_up_lip_line, "upper-lip shape", warnings),
-            mouth_mid: load_shape(assets, face.id_mouth_mid_lip_line, "lip-line shape", warnings),
-            mouth_down: load_shape(assets, face.id_mouth_down_lip_line, "lower-lip shape", warnings),
+            mouth_up: load_shape(
+                assets,
+                face.id_mouth_up_lip_line,
+                "upper-lip shape",
+                warnings,
+            ),
+            mouth_mid: load_shape(
+                assets,
+                face.id_mouth_mid_lip_line,
+                "lip-line shape",
+                warnings,
+            ),
+            mouth_down: load_shape(
+                assets,
+                face.id_mouth_down_lip_line,
+                "lower-lip shape",
+                warnings,
+            ),
             ear: load_shape(assets, face.id_ear_shape, "ear shape", warnings),
             face_1: load_shape(assets, face.id_face_shape1, "blend face 1", warnings),
             face_2: load_shape(assets, face.id_face_shape2, "blend face 2", warnings),
@@ -307,7 +322,9 @@ fn load_shape(
         return None;
     }
     let Some(record) = assets.catalog.face_shape(id as u32) else {
-        warnings.push(format!("{label} ID {id} is absent from elements.data; leaving those bones unchanged"));
+        warnings.push(format!(
+            "{label} ID {id} is absent from elements.data; leaving those bones unchanged"
+        ));
         return None;
     };
     let path = record.path.clone();
@@ -318,7 +335,9 @@ fn load_shape(
     {
         Ok(expression) => Some(expression),
         Err(error) => {
-            warnings.push(format!("{label} ID {id} could not be loaded: {error}; leaving those bones unchanged"));
+            warnings.push(format!(
+                "{label} ID {id} could not be loaded: {error}; leaving those bones unchanged"
+            ));
             None
         }
     }
@@ -479,7 +498,11 @@ impl FaceRig {
                 common_center
             };
             // CFaceBone::Rotate performs native TM *= Rx; TM *= Ry; TM *= Rz.
-            for (axis, angle) in [(Vec3::X, angles.x), (Vec3::Y, angles.y), (Vec3::Z, angles.z)] {
+            for (axis, angle) in [
+                (Vec3::X, angles.x),
+                (Vec3::Y, angles.y),
+                (Vec3::Z, angles.z),
+            ] {
                 let transform = transform_about(center, Mat4::from_axis_angle(axis, angle));
                 self.tm[bone] = transform * self.tm[bone];
             }
@@ -559,11 +582,7 @@ impl FaceRig {
     }
 
     fn move_nose_bridge(&mut self, distance: f32, half_face: bool) {
-        for (bones, factor) in [
-            (&[51][..], 1.0),
-            (&[50][..], 0.5),
-            (&[52][..], 0.8),
-        ] {
+        for (bones, factor) in [(&[51][..], 1.0), (&[50][..], 0.5), (&[52][..], 0.8)] {
             self.selection.clear();
             self.selection.extend_from_slice(bones);
             self.translate(Vec3::new(0.0, 0.0, distance * factor), half_face);
@@ -602,8 +621,14 @@ impl FaceRig {
         let half_face = side == EyeSide::Both;
         for (bones, factor) in [
             (vec![32 + offset], 1.0),
-            (vec![31 + offset, 33 + offset, 37 + offset, 40 + offset], 0.5),
-            (vec![30 + offset, 34 + offset, 38 + offset, 41 + offset], 0.25),
+            (
+                vec![31 + offset, 33 + offset, 37 + offset, 40 + offset],
+                0.5,
+            ),
+            (
+                vec![30 + offset, 34 + offset, 38 + offset, 41 + offset],
+                0.25,
+            ),
         ] {
             self.selection = bones;
             self.translate(Vec3::new(0.0, distance * factor, 0.0), half_face);
@@ -828,7 +853,11 @@ pub fn evaluate_face(
     rig.selection.clear();
     rig.select_group(6);
     rig.translate(
-        Vec3::new(0.0, offset(data.offset_chain_v, 0.02), offset(data.offset_chain_z, 0.01)),
+        Vec3::new(
+            0.0,
+            offset(data.offset_chain_v, 0.02),
+            offset(data.offset_chain_z, 0.01),
+        ),
         true,
     );
     rig.rotate(
@@ -854,7 +883,11 @@ pub fn evaluate_face(
         true,
     );
     rig.scale(
-        Vec3::new(scale(data.scale_jaw_h, 0.5), scale(data.scale_jaw_v, 0.5), 1.0),
+        Vec3::new(
+            scale(data.scale_jaw_h, 0.5),
+            scale(data.scale_jaw_v, 0.5),
+            1.0,
+        ),
         CenterType::All,
         true,
     );
@@ -869,7 +902,11 @@ fn calculate_eye(rig: &mut FaceRig, data: &super::customize::FaceCustomize) {
     rig.select_group(7);
     rig.mirror_selection();
     rig.scale(
-        Vec3::new(scale(data.scale_eye_h, 0.7), scale(data.scale_eye_v, 1.0), 1.0),
+        Vec3::new(
+            scale(data.scale_eye_h, 0.7),
+            scale(data.scale_eye_v, 1.0),
+            1.0,
+        ),
         CenterType::All,
         true,
     );
@@ -896,7 +933,11 @@ fn calculate_eye(rig: &mut FaceRig, data: &super::customize::FaceCustomize) {
     rig.selection.clear();
     rig.select_group(7);
     rig.scale(
-        Vec3::new(scale(data.scale_eye_h2, 0.7), scale(data.scale_eye_v2, 1.0), 1.0),
+        Vec3::new(
+            scale(data.scale_eye_h2, 0.7),
+            scale(data.scale_eye_v2, 1.0),
+            1.0,
+        ),
         CenterType::All,
         false,
     );
@@ -916,7 +957,10 @@ fn calculate_eye(rig: &mut FaceRig, data: &super::customize::FaceCustomize) {
     rig.reset_selected(false);
     rig.translate(secondary_offset, false);
     rig.selection.clear();
-    rig.scale_eyeball(Vec3::splat(scale(data.scale_eye_ball2, 0.8)), EyeSide::Right);
+    rig.scale_eyeball(
+        Vec3::splat(scale(data.scale_eye_ball2, 0.8)),
+        EyeSide::Right,
+    );
 }
 
 fn calculate_brow(rig: &mut FaceRig, data: &super::customize::FaceCustomize) {
@@ -1054,12 +1098,22 @@ fn calculate_mouth(rig: &mut FaceRig, data: &super::customize::FaceCustomize) {
     rig.select_group(16);
     rig.selection.push(62);
     rig.translate(
-        Vec3::new(0.0, offset(data.offset_mouth_v, 0.01), offset(data.offset_mouth_z, 0.02)),
+        Vec3::new(
+            0.0,
+            offset(data.offset_mouth_v, 0.01),
+            offset(data.offset_mouth_z, 0.02),
+        ),
         true,
     );
     rig.selection.clear();
-    rig.move_mouth_corner(offset(data.offset_corner_of_mouth_special, 0.02), EyeSide::Left);
-    rig.move_mouth_corner(offset(data.offset_corner_of_mouth_special2, 0.02), EyeSide::Right);
+    rig.move_mouth_corner(
+        offset(data.offset_corner_of_mouth_special, 0.02),
+        EyeSide::Left,
+    );
+    rig.move_mouth_corner(
+        offset(data.offset_corner_of_mouth_special2, 0.02),
+        EyeSide::Right,
+    );
     rig.selection.clear();
 }
 
@@ -1069,12 +1123,13 @@ mod tests {
 
     #[test]
     fn expression_uses_native_rows_as_glam_columns() {
-        let expression = Expression::parse(
-            b"MOXT\n1\n\n7 bone\n1 0 0 0\n0 1 0 0\n0 0 1 0\n2 3 4 1\n",
-        )
-        .unwrap();
+        let expression =
+            Expression::parse(b"MOXT\n1\n\n7 bone\n1 0 0 0\n0 1 0 0\n0 0 1 0\n2 3 4 1\n").unwrap();
         assert_eq!(expression.len(), 1);
-        assert_eq!(expression.get(7).unwrap().w_axis.truncate(), Vec3::new(2.0, 3.0, 4.0));
+        assert_eq!(
+            expression.get(7).unwrap().w_axis.truncate(),
+            Vec3::new(2.0, 3.0, 4.0)
+        );
     }
 
     #[test]

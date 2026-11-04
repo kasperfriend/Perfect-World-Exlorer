@@ -195,12 +195,7 @@ impl Class {
     }
     /// Equipment LOD path. `LoadPlayerSkin` appends 一级/二级/三级 by LOD;
     /// the essence's item level is unrelated to this suffix.
-    pub fn equipment_skin(
-        self,
-        gender: Gender,
-        realname: &str,
-        lod: i32,
-    ) -> String {
+    pub fn equipment_skin(self, gender: Gender, realname: &str, lod: i32) -> String {
         let level = match lod {
             0 => "一级",
             1 => "二级",
@@ -527,7 +522,10 @@ impl Catalog {
 }
 
 fn parses_section(section: usize) -> bool {
-    matches!(section, 2 | 3 | 5 | 6 | 60 | 61 | 64 | 65 | 67 | 77 | 83 | 84)
+    matches!(
+        section,
+        2 | 3 | 5 | 6 | 60 | 61 | 64 | 65 | 67 | 77 | 83 | 84
+    )
 }
 fn parse_record(section: usize, record: &[u8], catalog: &mut Catalog) -> Result<(), String> {
     let id = u32_at(record, 0)?;
@@ -696,7 +694,10 @@ struct Cursor<'a> {
 }
 impl Cursor<'_> {
     fn bytes(&mut self, length: usize) -> Result<&[u8], String> {
-        let end = self.pos.checked_add(length).ok_or("elements.data overflow")?;
+        let end = self
+            .pos
+            .checked_add(length)
+            .ok_or("elements.data overflow")?;
         let result = self
             .bytes
             .get(self.pos..end)
@@ -743,18 +744,137 @@ enum Size {
 }
 use Size::{ControlPlain as Plain, ControlTimestamp as Timestamp, Fixed as F, Talk as T};
 const SECTION_SIZES: [Size; 131] = [
-    F(84), F(68), F(356), F(1412), F(68), F(72), F(1120), F(68), F(72), F(1164), F(68),
-    F(68), F(376), F(68), F(68), F(368), F(68), F(364), F(68), F(624), Timestamp, F(68),
-    F(348), F(524), F(488), F(348), F(348), F(352), F(348), F(208), F(888), F(68), F(892),
-    F(68), F(340), F(68), F(436), F(84), F(196), F(1528), F(72), F(1224), F(72), F(72),
-    F(200), F(200), F(1092), F(1092), F(644), F(584), F(72), F(460), F(328), F(72), F(68),
-    F(1228), F(72), F(68), F(852), T, F(476), F(348), F(196), F(336), F(468), F(340),
-    F(208), F(204), F(68), F(68), F(416), F(196), F(160), F(612), F(552), F(404), F(344),
-    F(340), F(668), F(68), F(452), F(72), F(68), F(72), F(412), F(68), F(68), F(488),
-    F(68), F(68), F(2412), F(292), F(68), F(344), F(68), F(480), F(628), F(360), F(344),
-    F(480), F(344), Plain, F(148), F(1092), F(368), F(76), F(584), F(76), F(356), F(436),
-    F(344), F(76), F(76), F(76), F(392), F(348), F(356), F(356), F(348), F(344), F(368),
-    F(1356), F(68), F(392), F(352), F(360), F(384), F(344), F(644), F(2116), F(1092),
+    F(84),
+    F(68),
+    F(356),
+    F(1412),
+    F(68),
+    F(72),
+    F(1120),
+    F(68),
+    F(72),
+    F(1164),
+    F(68),
+    F(68),
+    F(376),
+    F(68),
+    F(68),
+    F(368),
+    F(68),
+    F(364),
+    F(68),
+    F(624),
+    Timestamp,
+    F(68),
+    F(348),
+    F(524),
+    F(488),
+    F(348),
+    F(348),
+    F(352),
+    F(348),
+    F(208),
+    F(888),
+    F(68),
+    F(892),
+    F(68),
+    F(340),
+    F(68),
+    F(436),
+    F(84),
+    F(196),
+    F(1528),
+    F(72),
+    F(1224),
+    F(72),
+    F(72),
+    F(200),
+    F(200),
+    F(1092),
+    F(1092),
+    F(644),
+    F(584),
+    F(72),
+    F(460),
+    F(328),
+    F(72),
+    F(68),
+    F(1228),
+    F(72),
+    F(68),
+    F(852),
+    T,
+    F(476),
+    F(348),
+    F(196),
+    F(336),
+    F(468),
+    F(340),
+    F(208),
+    F(204),
+    F(68),
+    F(68),
+    F(416),
+    F(196),
+    F(160),
+    F(612),
+    F(552),
+    F(404),
+    F(344),
+    F(340),
+    F(668),
+    F(68),
+    F(452),
+    F(72),
+    F(68),
+    F(72),
+    F(412),
+    F(68),
+    F(68),
+    F(488),
+    F(68),
+    F(68),
+    F(2412),
+    F(292),
+    F(68),
+    F(344),
+    F(68),
+    F(480),
+    F(628),
+    F(360),
+    F(344),
+    F(480),
+    F(344),
+    Plain,
+    F(148),
+    F(1092),
+    F(368),
+    F(76),
+    F(584),
+    F(76),
+    F(356),
+    F(436),
+    F(344),
+    F(76),
+    F(76),
+    F(76),
+    F(392),
+    F(348),
+    F(356),
+    F(356),
+    F(348),
+    F(344),
+    F(368),
+    F(1356),
+    F(68),
+    F(392),
+    F(352),
+    F(360),
+    F(384),
+    F(344),
+    F(644),
+    F(2116),
+    F(1092),
 ];
 
 #[cfg(test)]
@@ -771,7 +891,9 @@ mod tests {
             "models/players/形象/巫师男/头部/巫师男4.ski"
         );
         assert_eq!(
-            Class::Barbarian.default_armor_skin(Gender::Male, ArmorSlot::Upper).unwrap(),
+            Class::Barbarian
+                .default_armor_skin(Gender::Male, ArmorSlot::Upper)
+                .unwrap(),
             "models/players/装备/男/默认上衣/妖兽默认上衣一级.ski"
         );
         assert_eq!(

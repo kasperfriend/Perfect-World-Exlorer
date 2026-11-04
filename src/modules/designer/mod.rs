@@ -1,7 +1,7 @@
 //! Authentic PW 1.4.2 character designer.
 
-pub mod assets;
 pub mod assembly;
+pub mod assets;
 pub mod catalog;
 mod controls;
 pub mod customize;
