@@ -15,6 +15,7 @@ See the [full 76-point plan reassessment](Findings/Eight-phase-reassessment-2026
 - Experimental animated water, per-height reflections and refraction, shoreline waves, underwater effects, environmental fog, sky, time-of-day control and optional bloom.
 - Searchable teleport destinations, original and rendered world maps, a minimap, zone notices, Windows zone music, experimental stereo zone ambience and experimental positional world effects.
 - Windows launcher with remembered client folder and settings, and in-app Graphics, World, Sound and Interface controls. Settings → Graphics → **Resolution scale** renders the 3D world at 10–200% of the window size (default 100%) and upscales it, while the UI stays at native resolution; lower values trade sharpness for speed, higher values supersample.
+- An optional **Modules** add-on list. **Walker** loads a clothed native player character and supports terrain walking, source-backed run/jump mechanics, and first- or third-person cameras. Its integrated **Character Designer** reads PW 1.4.2 v27 catalogs and native presets, edits body/face/equipment data, saves GBK presets, and rebuilds the same spawned Walker. The executable discovers installed module packages beside itself; modules own their state and do not change persisted core settings.
 
 Features are limited to formats and data encountered in one inspected build; other client variants may behave differently. This is not affiliated with or endorsed by the game or its publishers.
 
@@ -26,10 +27,20 @@ Features are limited to formats and data encountered in one inspected build; oth
 
 ## Run the Windows executable
 
-1. Download the Windows executable from the project's release (or the separately supplied `Windows` folder).
-2. Run it and choose **Select Game Folder**. Select the extracted client root or its `element` directory.
+1. Download `Perfect-World-Explorer-Windows-x64.zip` from the project's release and extract it. Keep the entire **`Perfect World Explorer`** folder together:
+   ```text
+   Perfect World Explorer/
+     Perfect-World-Explorer.exe
+     Modules/
+       Walker/
+         module.ini
+     SHA256SUMS.txt
+   ```
+2. Run `Perfect-World-Explorer.exe` and choose **Select Game Folder**. Select the extracted client root or its `element` directory.
 3. Click **Load World**. The first run prepares tree geometry using the client runtime; wait for loading to finish.
 4. The menu starts open. Choose Settings or close the menu to fly.
+
+The executable resolves `Modules` relative to its own location, not the current working directory. Each installed module has its own subfolder and `module.ini` manifest. This build provides the implementation for known module IDs (currently `walker`); a manifest by itself is not a dynamic-plugin SDK. Missing or malformed packages are reported in the Modules page without preventing the core viewer from running.
 
 **Security:** The application executes the 32-bit `speedtreert.dll` from the selected client through an embedded helper. Only use a client you trust. Settings and the selected path are stored under `%LOCALAPPDATA%\PerfectWorldViewer`; derived tree geometry is cached in its `tree-cache` subfolder. The installation itself is not modified. Do not upload client data or the derived cache.
 
@@ -47,6 +58,16 @@ Features are limited to formats and data encountered in one inspected build; oth
 
 Use **Escape → Teleport List** to search destinations. The world map offers original client tiles or a top-down render of the currently loaded world, mouse-wheel zoom, and optional click-to-teleport. Whole-world static objects need to finish loading to appear in the rendered map.
 
+### Walker add-on
+
+Open **Escape → Modules**, select **Walker** to read its description, and choose **Enable Walker**. While Walker owns the camera, W/A/S/D moves the character, Space jumps (press again on foot for the client's second jump), and the mouse looks around. In water, Arrow Up/Down (or Z) swims vertically and Space takes off near the surface or ascends in deep water. Riding permits one jump; the configurable flight and mount hotkeys are shown in Walker settings. Disabling Walker restores the ordinary free-flight controls above.
+
+The draggable, resizable **Walker settings** panel appears beneath the minimap while the Escape menu is open. Its integrated **Character Designer** selects native class/gender combinations, body and face customization, equipment, and preset loading/saving, with item pickers that provide both a scrollable list and name/ID search. Every design change immediately rebuilds the current Walker in place; there is no separate preview character, and a failed rebuild leaves the previous character active. New Walkers use an Explorer-selected preview loadout built from authentic item-level-0 weapons and level-1 armor records; those records do not establish the server's new-character grant table. Psychic soulspheres use the native `HH_qiu` parent attachment instead of the ordinary right-hand weapon hook. The panel also provides move speed, jump height, and **First Person Mode** controls. First person evaluates the model's `Bip01 Head` bone and hides the head/face, right-hand weapon (including the soulsphere), and flight meshes while retaining the body and mount; third person draws the complete animated assembly.
+
+Walker uses authentic profession run/swim/flight speeds, ordinary jump impulse of 10.0 m/s, gravity of 9.8 m/s², support-plane movement, and the native two-jump limit on foot (one while riding). Its fixed 60 Hz integration makes the ordinary impulse's apex approximately 5.019 m; 5.102 m is only the continuous `v²/(2g)` reference, not a separate retail jump-height field. Custom height settings are converted to an equivalent launch impulse. Water uses native profession/gender AABB thresholds, first-matching-area heights, 3.0 m/s deep swimming, near-surface speed clamping, and a 7.0 m/s water-takeoff impulse. Flight speed is the class fly speed plus the selected authentic item bonus. A missing unique flight SKI is reported and skipped using the client's native tolerance, without substitute geometry. **Collision check** independently loads native BMD convex brushes for buildings/ornaments and TBH brushes for trees, then applies swept-AABB blocking and wall sliding; it does not require whole-world rendering. Terrain support and water behavior remain enabled whether or not this object-collision option is selected. Loader counts and missing/failed asset diagnostics appear beneath the option. Combat, server stat modifiers, and full gameplay are not claimed.
+
+With **Play world and character effects** enabled, Walker schedules authentic animation **EventType 101** SFX from `sfx.pck` (with the client's loose-file fallback), including authored timing, loop/once behavior, finite-time stops, file choices, probability, volume, and pitch. Body, mount, and flight channels are stopped on action/travel changes. Playback uses the Windows rodio backend and is local/non-spatial; EventType 109 audio events and the client's complete 3D mixing, audio-group, and duplicate-selection behavior are not implemented.
+
 ## Build from source
 
 Install stable Rust and Cargo from [rustup](https://rustup.rs/), and a toolchain suitable for the target platform. From the repository root:
@@ -56,6 +77,8 @@ cargo build --release --bin perfect-world-explorer
 cargo test --bin perfect-world-explorer
 cargo check --bins
 ```
+
+Cargo does not copy module packages into `target`. For a source-tree run, either copy `Modules` beside the built executable or set `PW_MODULES_DIR` to the repository's `Modules` directory. The environment override is also useful for portable or test installations. Windows PR artifacts and manual release ZIPs are staged by `tools/package-windows.ps1`, which verifies the executable/module layout and excludes development survey tools.
 
 Dependency-free Phase 1 core checks can also be run with `tools/check-phase1-core.sh` (requires `rustc`; optionally set `RUSTC`). This checks CPU references only, not the application or shaders. For the production whole-frame gamma pass, run `cargo run --bin display-gamma-gpu-check` on a machine with a working GPU adapter. Client gamma is fullscreen-only and applies after world and UI composition; windowed mode does not apply the display ramp.
 
@@ -67,13 +90,13 @@ CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
   cargo build --release --target x86_64-pc-windows-gnu --bin perfect-world-explorer
 ```
 
-The single executable embeds `tools/speedtree/speedtree-bake.exe`, a 32-bit helper built from `tools/speedtree/bake.cpp`. It invokes the **user's** runtime DLL; the DLL is not bundled. The helper binary is retained in the repository because the Rust build uses `include_bytes!`; Windows PR and release workflows rebuild it from `bake.cpp` before compiling the viewer. For local builds after changing the bridge source, rebuild it with a 32-bit MinGW C++ compiler, e.g. `i686-w64-mingw32-g++ -static -O2 -municode tools/speedtree/bake.cpp -o tools/speedtree/speedtree-bake.exe`. Compiler versions and flags may produce a different binary. The bridge also writes `tree-alpha-refs.csv` into its prepared cache directory, containing the native branch/frond alpha references for each of the 59 tree types and three LODs. `tools/launcher-art.jpg` is embedded at build time.
+The viewer executable embeds `tools/speedtree/speedtree-bake.exe`, a 32-bit helper built from `tools/speedtree/bake.cpp`. It invokes the **user's** runtime DLL; the DLL is not bundled. The helper binary is retained in the repository because the Rust build uses `include_bytes!`; Windows PR and release workflows rebuild it from `bake.cpp` before compiling the viewer. For local builds after changing the bridge source, rebuild it with a 32-bit MinGW C++ compiler, e.g. `i686-w64-mingw32-g++ -static -O2 -municode tools/speedtree/bake.cpp -o tools/speedtree/speedtree-bake.exe`. Compiler versions and flags may produce a different binary. The bridge also writes `tree-alpha-refs.csv` into its prepared cache directory, containing the native branch/frond alpha references for each of the 59 tree types and three LODs. `tools/launcher-art.jpg` is embedded at build time.
 
 The executable distributed alongside this source was rebuilt from this packaged snapshot. Native Windows/physical-GPU verification of the latest changes and game-to-viewer image comparison remain outstanding.
 
 ## Development and verification
 
-- `src/` contains parsers, scene loading, GPU rendering, UI and audio; `src/bin/` contains diagnostic and survey programs. These are development tools, not required to run the viewer.
+- `src/` contains parsers, scene loading, GPU rendering, UI and audio; `src/bin/` contains diagnostic and survey programs. These are development tools, are not required to run the viewer, and are not included in shipped viewer packages.
 - Example: `cargo run --release --bin pck-inspect -- /path/to/element/shaders.pck` lists archive entries. Input client files are required.
 - `cargo run --bin water-record-survey -- <directory>` expects `world.ecwld`, `world.ecbsd` and referenced BSData `.dat` files in that directory. Set `PW_WATER_SAMPLE_69` to a local `69.dat` path to enable optional real-data water tests. Do not commit these files.
 - GPU diagnostics include `water-pass-gpu-check`, `simple-water-gpu-check` and `post-gpu-check`. They require a working graphics adapter; synthetic tests do not prove in-game visual parity.
@@ -85,13 +108,15 @@ See [the world-loading optimization report](Findings/World-loading-optimization-
 
 ## Known limitations
 
-The water render target details, simple-water lighting/fog, quality modes, wave timing and underwater integration remain incomplete. Terrain, sky, grass placement/wind, SpeedTree LOD/wind, regional lighting and fog are approximations. Animated EC models and effects, full point-light integration and gameplay are missing. Whole-world memory use can be high; the map shows loaded content rather than all possible assets. Audio is Windows-only. Sound settings offer independent music, ambience and world-effects sliders. These channels default on for new settings; existing saved enable choices are respected. World effects use authored world placements, approximate distance attenuation and panning, a 16-voice cap and approximate replay timing. Zone choice and ambience day/night switching are approximations. Weather, combat and other gameplay effects are not implemented. Full decoder coverage and physical-device playback remain unverified. Rendering and timing vary with client build, graphics driver and hardware. See the [roadmap](Findings/Roadmap.md), [parity assessment](Findings/Parity-Assessment.md), and [water plan](Findings/Water-100-percent-parity.md).
+The water render target details, simple-water lighting/fog, quality modes, wave timing and underwater integration remain incomplete. Terrain, sky, grass placement/wind, SpeedTree LOD/wind, regional lighting and fog are approximations. Animated EC models and effects, full point-light integration and gameplay are missing; Walker is an optional terrain-locomotion add-on, not a complete game client. Whole-world memory use can be high; the map shows loaded content rather than all possible assets. Audio is Windows-only. Sound settings offer independent music, ambience and world-effects sliders. These channels default on for new settings; existing saved enable choices are respected. World effects use authored world placements, approximate distance attenuation and panning, a 16-voice cap and approximate replay timing. Zone choice and ambience day/night switching are approximations. Weather, combat and other gameplay effects are not implemented. Full decoder coverage and physical-device playback remain unverified. Rendering and timing vary with client build, graphics driver and hardware. See the [roadmap](Findings/Roadmap.md), [parity assessment](Findings/Parity-Assessment.md), and [water plan](Findings/Water-100-percent-parity.md).
 
 ## Repository layout
 
 ```text
 Cargo.toml, Cargo.lock   Rust package and locked dependencies
 src/                     viewer, parsers, GPU code and diagnostics
+Modules/                 installed module packages copied beside the executable
+tools/package-windows.ps1 shared PR/release portable-package builder
 tools/speedtree/         bridge source, probes and embedded helper
 tools/launcher-art.jpg   embedded launcher image
 Findings/                research, evidence, assessment and roadmap

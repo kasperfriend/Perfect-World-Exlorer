@@ -14,7 +14,7 @@ use std::{
 };
 use wgpu::util::DeviceExt;
 use winit::{
-    event::{DeviceEvent, ElementState, Event, MouseButton, WindowEvent},
+    event::{DeviceEvent, ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::EventLoop,
     keyboard::{KeyCode, PhysicalKey},
     window::{CursorGrabMode, Fullscreen, WindowBuilder},
@@ -203,6 +203,7 @@ fn marked_slider(
 enum MenuPage {
     Closed,
     Main,
+    Modules,
     Settings,
     Teleports,
     WorldMap,
@@ -212,7 +213,7 @@ impl MenuPage {
         match self {
             Self::Closed => Self::Main,
             Self::Main => Self::Closed,
-            Self::Settings | Self::Teleports => Self::Main,
+            Self::Modules | Self::Settings | Self::Teleports => Self::Main,
             Self::WorldMap => Self::Closed,
         }
     }
@@ -1146,6 +1147,9 @@ fn bmd_baked_rgb(day:u32, night:u32, night_factor:f32)->vec3<u32> {
 @fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if ((i.kind>1.05 && i.kind<1.15) || (i.kind>1.5 && i.kind<2.05)) && camera.clip.w == 0. && (front == (camera.clip.z != 0.)) {discard;} if camera.clip.y != 0.0 && (i.world.y-camera.clip.x)*camera.clip.y < 0.0 {discard;} if i.kind>0.5 && i.kind<1.05 {return vec4<f32>(fogged(i.color.rgb,i.pos.w),1.);} if i.kind>1.05 && i.kind<1.25 {return vec4<f32>(bmd_pass_fog(clamp(i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.)),i.pos.w,i.bmd_refraction),1.);} let uv_dx=dpdx(i.uv);let uv_dy=dpdy(i.uv);var uv=i.uv; if i.kind>1.5 {let scale=vec2<f32>(i.color.z,select(i.color.z,i.color.w,i.kind<2.5));let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(uv_dx*dims),length(uv_dy*dims)),1.)),0.,7.);let border=0.5*exp2(mip);let half_pixel=min(vec2<f32>(border)/dims,scale*0.499);let local=fract((i.uv-i.color.xy)/scale)*scale;uv=i.color.xy+clamp(local,half_pixel,scale-half_pixel);} let raw_tex=textureSampleGrad(atlas,atlas_sampler,uv,uv_dx,uv_dy);let encoded=raw_tex.rgb;let linear=select(encoded/12.92,pow((encoded+0.055)/1.055,vec3<f32>(2.4)),encoded>vec3<f32>(0.04045));let tex=vec4<f32>(linear,raw_tex.a);if ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9) {discard;} if i.kind>1.5 && i.kind<2.5 {let c=clamp(raw_tex.rgb*i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.));let rgb=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));return vec4<f32>(bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),1.);} let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.);}
 "#;
 struct Renderer {
+    /// Optional add-ons; default-disabled and absent from headless previews.
+    modules: crate::modules::Modules,
+    module_format: wgpu::TextureFormat,
     models: Option<crate::world_models_gpu::World>,
     model_lights: std::sync::Arc<crate::scene_lights::SceneLights>,
     model_scene: std::sync::Arc<crate::scene::Scene>,
@@ -1720,6 +1724,8 @@ impl Renderer {
             None
         };
         Ok(Self {
+            modules: crate::modules::Modules::default(),
+            module_format: format.remove_srgb_suffix(),
             models,
             model_lights: t.scene_lights.clone(),
             model_scene: t.scene.clone(),
@@ -2386,35 +2392,7 @@ impl Renderer {
             // included all asset-loading time on the first receiving-model draw.
             // Water passes reuse the sampled pose; never tick again per view.
             let delta = if advance { camera.logic_delta_ms } else { 0 };
-            // Authored EC-BSD direction only (light_consumers::DirectionSource
-            // ::Authored). The animated celestial curve never reaches here.
-            let d = light.material_direction().travel();
-            let frame = crate::model_draw_gpu::Frame {
-                blend_enabled: false,
-                matrix: uniform.matrix,
-                lighting: crate::model_material::Lighting {
-                    environment_ambient: [light.ambient[0], light.ambient[1], light.ambient[2], 1.],
-                    additional_ambient: [0.; 4],
-                    directional_diffuse: [light.diffuse[0], light.diffuse[1], light.diffuse[2], 1.],
-                    point_ambient: [0.; 4],
-                    point_diffuse: [0.; 4],
-                    transparency: -1.,
-                    point_enabled: false,
-                },
-                direction: d,
-                point_position: [0.; 3],
-                attenuation: [0., 0.4, 0.],
-                eye_direction: uniform.direction[..3].try_into().unwrap(),
-                directional_specular: [light.specular[0], light.specular[1], light.specular[2], 1.],
-                specular_variant: true,
-                vertex_fog: crate::fog_matrix::MODEL_VERTEX_FOG,
-                fog_color: uniform.fog_color,
-                fog_range: uniform.fog_range,
-                clip_plane: [0., uniform.clip[1], 0., -uniform.clip[0] * uniform.clip[1]],
-                reverse_front: uniform.clip[2] != 0.,
-                alpha_compare: 5,
-                alpha_reference: 84. / 255.,
-            };
+            let frame = receiving_model_frame(uniform, camera, light);
             models.update_pass(
                 &self.device,
                 &self.queue,
@@ -2449,6 +2427,48 @@ impl Renderer {
             models.draw(&mut pass);
         }
     }
+
+    /// The host player is not an ornamental EC model: WaterEffect 0 must not
+    /// suppress it. Native host-player reflection/refraction uses its feet-based
+    /// profession AABB, independently of the world-model class gate above.
+    fn draw_walker(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        depth: &wgpu::TextureView,
+        uniform: &Uniform,
+        camera: &Camera,
+        view: Pass,
+    ) {
+        let visible = match view {
+            Pass::Reflection => self
+                .modules
+                .walker_visible_in_water_pass(uniform.clip[0], true),
+            Pass::Refraction => self
+                .modules
+                .walker_visible_in_water_pass(uniform.clip[0], false),
+            _ => self.modules.walker_active(),
+        };
+        if !visible {
+            return;
+        }
+        if let Some(light) = camera.regional_light {
+            self.retained_regional_light = Some(light);
+        }
+        if let Some(light) = camera.regional_light.or(self.retained_regional_light) {
+            let frame = receiving_model_frame(uniform, camera, light);
+            self.modules.render(
+                &self.device,
+                &self.queue,
+                self.module_format,
+                encoder,
+                target,
+                depth,
+                frame,
+            );
+        }
+    }
+
     /// Render the actual loaded terrain and scenery from a north-up orthographic camera.
     /// Water is drawn as its real client grid with a flat color in this map pass.
     fn render_minimap(
@@ -2657,6 +2677,14 @@ impl Renderer {
             camera,
             Pass::Main,
             true,
+        );
+        self.draw_walker(
+            &mut e,
+            &model_target,
+            &scene_depth,
+            &normal,
+            camera,
+            Pass::Main,
         );
         if let Some(cloud) = &self.cloud {
             cloud.draw(
@@ -2883,6 +2911,15 @@ impl Renderer {
                         a: 1.,
                     }),
                 );
+                let model_view = self.water.refraction_raw();
+                self.draw_walker(
+                    &mut re,
+                    &model_view,
+                    &reflect_depth,
+                    &refracted,
+                    camera,
+                    Pass::Refraction,
+                );
                 self.queue.submit(Some(re.finish()));
                 self.water.render_edge(
                     &self.device,
@@ -2952,12 +2989,13 @@ impl Renderer {
                     above.clip,
                     selected_weather,
                 );
-                // Ornamental EC models enter refraction only from underwater.
+                // Ornamental EC models enter refraction only from underwater;
+                // the host player follows its own AABB gate in either view.
+                let model_view = self.water.refraction_raw();
                 if camera.underwater_depth > 0. {
-                    let raw = self.water.refraction_raw();
                     self.draw_models(
                         &mut re,
-                        &raw,
+                        &model_view,
                         &reflect_depth,
                         &above,
                         camera,
@@ -2965,6 +3003,14 @@ impl Renderer {
                         false,
                     );
                 }
+                self.draw_walker(
+                    &mut re,
+                    &model_view,
+                    &reflect_depth,
+                    &above,
+                    camera,
+                    Pass::Refraction,
+                );
                 self.water.draw_water(
                     &mut re,
                     scene_target,
@@ -3055,15 +3101,23 @@ impl Renderer {
                 reflected.clip,
                 selected_weather,
             );
-            let raw = self.water.reflection_raw();
+            let model_view = self.water.reflection_raw();
             self.draw_models(
                 &mut e,
-                &raw,
+                &model_view,
                 &reflect_depth,
                 &reflected,
                 camera,
                 Pass::Reflection,
                 false,
+            );
+            self.draw_walker(
+                &mut e,
+                &model_view,
+                &reflect_depth,
+                &reflected,
+                camera,
+                Pass::Reflection,
             );
             self.water.draw_water(
                 &mut e,
@@ -3260,6 +3314,41 @@ impl Camera {
             * Mat4::look_to_rh(self.pos, self.direction(), Vec3::Y)
     }
 }
+fn receiving_model_frame(
+    uniform: &Uniform,
+    camera: &Camera,
+    light: crate::environment::RegionalLight,
+) -> crate::model_draw_gpu::Frame {
+    // Authored EC-BSD direction only; the animated celestial curve is not a
+    // material-light input for either core world models or add-on characters.
+    let d = light.material_direction().travel();
+    crate::model_draw_gpu::Frame {
+        blend_enabled: false,
+        matrix: uniform.matrix,
+        lighting: crate::model_material::Lighting {
+            environment_ambient: [light.ambient[0], light.ambient[1], light.ambient[2], 1.],
+            additional_ambient: [0.; 4],
+            directional_diffuse: [light.diffuse[0], light.diffuse[1], light.diffuse[2], 1.],
+            point_ambient: [0.; 4],
+            point_diffuse: [0.; 4],
+            transparency: -1.,
+            point_enabled: false,
+        },
+        direction: d,
+        point_position: [0.; 3],
+        attenuation: [0., 0.4, 0.],
+        eye_direction: uniform.direction[..3].try_into().unwrap(),
+        directional_specular: [light.specular[0], light.specular[1], light.specular[2], 1.],
+        specular_variant: true,
+        vertex_fog: crate::fog_matrix::MODEL_VERTEX_FOG,
+        fog_color: uniform.fog_color,
+        fog_range: uniform.fog_range,
+        clip_plane: [0., uniform.clip[1], 0., -uniform.clip[0] * uniform.clip[1]],
+        reverse_front: uniform.clip[2] != 0.,
+        alpha_compare: 5,
+        alpha_reference: 84. / 255.,
+    }
+}
 async fn adapter(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
@@ -3436,9 +3525,16 @@ pub fn run(
         spacing: t.grid_spacing,
         heights: t.heights.clone(),
     };
+    let whole_ornaments = t.objects.ornaments.clone();
+    renderer.modules = crate::modules::Modules::new(
+        whole_element.clone(),
+        map_space.clone(),
+        water_areas.clone(),
+        &t.scene,
+        whole_ornaments.clone(),
+    );
     let destinations =
         crate::navigation::destinations(&whole_element.join("maps/world/world_targets.txt"));
-    let whole_ornaments = t.objects.ornaments.clone();
     let mut world_rx: Option<std::sync::mpsc::Receiver<crate::world_objects::Message>> = None;
     let mut world_cancel: Option<Arc<std::sync::atomic::AtomicBool>> = None;
     let mut world_enabled = false;
@@ -3583,6 +3679,18 @@ pub fn run(
                         return;
                     }
                 }
+                // Track keys before the menu's early return. Walker hotkey
+                // rebinding runs while movement input is disabled, so discarding
+                // these events here leaves its capture on "Press a key" forever.
+                if let WindowEvent::KeyboardInput { ref event, .. } = event {
+                    if let PhysicalKey::Code(k) = event.physical_key {
+                        if event.state == ElementState::Pressed {
+                            keys.insert(k);
+                        } else {
+                            keys.remove(&k);
+                        }
+                    }
+                }
                 // egui must receive focus changes even while the menu is closed;
                 // otherwise it believes the window is unfocused and ignores clicks.
                 if menu_page.is_open() || matches!(event,WindowEvent::Focused(_)) {
@@ -3591,14 +3699,13 @@ pub fn run(
                 }
                 match event {
                 WindowEvent::CloseRequested => { if let Err(e)=settings.save(){eprintln!("Settings save: {e}");} target.exit(); },
-                WindowEvent::KeyboardInput { event, .. } => {
-                    if let PhysicalKey::Code(k) = event.physical_key {
-                        if event.state == ElementState::Pressed {
-                            keys.insert(k);
-                        } else {
-                            keys.remove(&k);
-                        }
-                    }
+                WindowEvent::KeyboardInput { .. } => {}
+                WindowEvent::MouseWheel { delta, .. } if captured && !menu_page.is_open() => {
+                    let steps = match delta {
+                        MouseScrollDelta::LineDelta(_, y) => y,
+                        MouseScrollDelta::PixelDelta(position) => position.y as f32 / 120.0,
+                    };
+                    renderer.modules.walker_zoom(steps);
                 }
                 WindowEvent::MouseInput {
                     state: ElementState::Pressed,
@@ -3648,31 +3755,39 @@ pub fn run(
                     }
                     let dt = last.elapsed().as_secs_f32().min(0.1);
                     last = Instant::now();
-                    let speed = if menu_page.is_open() { 0. } else if keys.contains(&KeyCode::ShiftLeft) {
-                        settings.camera_speed * settings.boost
+                    // Add-ons get an optional camera-owner hook. `None` leaves
+                    // the original free-flight controls completely untouched.
+                    let addon_camera = renderer.modules.update(dt, !menu_page.is_open(), &keys, camera.yaw, camera.pitch);
+                    renderer.modules.update_walker_audio(settings.effects_enabled, settings.effects_volume);
+                    if let Some(position) = addon_camera {
+                        camera.pos = position;
                     } else {
-                        settings.camera_speed
-                    };
-                    let (s, c) = camera.yaw.sin_cos();
-                    let f = Vec3::new(s, 0., -c);
-                    let r = Vec3::new(-c, 0., -s);
-                    if keys.contains(&KeyCode::KeyW) {
-                        camera.pos += f * speed * dt
-                    }
-                    if keys.contains(&KeyCode::KeyS) {
-                        camera.pos -= f * speed * dt
-                    }
-                    if keys.contains(&KeyCode::KeyA) {
-                        camera.pos -= r * speed * dt
-                    }
-                    if keys.contains(&KeyCode::KeyD) {
-                        camera.pos += r * speed * dt
-                    }
-                    if keys.contains(&KeyCode::KeyE) || keys.contains(&KeyCode::Space) {
-                        camera.pos.y += speed * dt
-                    }
-                    if keys.contains(&KeyCode::KeyQ) || keys.contains(&KeyCode::ControlLeft) {
-                        camera.pos.y -= speed * dt
+                        let speed = if menu_page.is_open() { 0. } else if keys.contains(&KeyCode::ShiftLeft) {
+                            settings.camera_speed * settings.boost
+                        } else {
+                            settings.camera_speed
+                        };
+                        let (s, c) = camera.yaw.sin_cos();
+                        let f = Vec3::new(s, 0., -c);
+                        let r = Vec3::new(-c, 0., -s);
+                        if keys.contains(&KeyCode::KeyW) {
+                            camera.pos += f * speed * dt
+                        }
+                        if keys.contains(&KeyCode::KeyS) {
+                            camera.pos -= f * speed * dt
+                        }
+                        if keys.contains(&KeyCode::KeyA) {
+                            camera.pos -= r * speed * dt
+                        }
+                        if keys.contains(&KeyCode::KeyD) {
+                            camera.pos += r * speed * dt
+                        }
+                        if keys.contains(&KeyCode::KeyE) || keys.contains(&KeyCode::Space) {
+                            camera.pos.y += speed * dt
+                        }
+                        if keys.contains(&KeyCode::KeyQ) || keys.contains(&KeyCode::ControlLeft) {
+                            camera.pos.y -= speed * dt
+                        }
                     }
                     if keys.contains(&KeyCode::ArrowLeft) {
                         camera.yaw += dt
@@ -3883,7 +3998,7 @@ pub fn run(
                                 let output=egui_ctx.run(input,|ctx| {
                                     if menu_page==MenuPage::Main {
                                         egui::Window::new("PERFECT WORLD EXPLORER  |  ESC MENU")
-                                            .default_pos(egui::pos2(16.,16.)).default_size(egui::vec2(380.,270.)).min_size(egui::vec2(280.,220.)).collapsible(false).resizable(true).vscroll(true)
+                                            .default_pos(egui::pos2(16.,16.)).default_size(egui::vec2(380.,330.)).min_size(egui::vec2(280.,260.)).collapsible(false).resizable(true).vscroll(true)
                                             .show(ctx,|ui|{
                                                 ui.set_min_height(ui.available_height());
                                                 ui.add_space(8.);ui.vertical_centered(|ui|{
@@ -3894,6 +4009,8 @@ pub fn run(
                                                     ui.add_space(8.);
                                                     if ui.add_sized([button_width,52.],egui::Button::new(egui::RichText::new("SETTINGS").size(22.).strong()).fill(egui::Color32::from_rgb(38,83,116))).clicked(){settings_tab=0;menu_page=MenuPage::Settings;}
                                                     ui.add_space(8.);
+                                                    if ui.add_sized([button_width,42.],egui::Button::new(egui::RichText::new("MODULES").size(18.).strong())).clicked(){menu_page=MenuPage::Modules;}
+                                                    ui.add_space(8.);
                                                     if ui.add_sized([button_width,40.],egui::Button::new(egui::RichText::new("TELEPORT LIST").size(17.))).clicked(){menu_page=MenuPage::Teleports;}
                                                     ui.add_space(8.);
                                                     if ui.add_sized([button_width,40.],egui::Button::new(egui::RichText::new("WORLD MAP  [M]").size(17.))).clicked(){menu_page=MenuPage::WorldMap;map_refresh=Instant::now()-std::time::Duration::from_secs(10);}
@@ -3901,6 +4018,9 @@ pub fn run(
                                                     if ui.add_sized([button_width,36.],egui::Button::new("Exit Explorer")).clicked(){if let Err(e)=settings.save(){eprintln!("Settings save: {e}");}target.exit();}
                                                 });
                                             });
+                                    }
+                                    if menu_page==MenuPage::Modules {
+                                        if renderer.modules.menu_ui(ctx,camera.pos,camera.yaw){menu_page=MenuPage::Main;}
                                     }
                                     if menu_page==MenuPage::Settings {
                                         egui::Window::new("SETTINGS  |  ESC to go back")
@@ -3918,7 +4038,7 @@ pub fn run(
                                                 match settings_tab {
                                                     0=>{ui.heading("Graphics");marked_slider(ui,egui::Slider::new(&mut settings.resolution_scale,10.0..=200.0).integer().suffix("%"),"Resolution scale",defaults.resolution_scale,10.,200.,false,true);ui.label(egui::RichText::new("3D render resolution (10%–200% of the window). UI stays at native resolution.").small().weak());ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
                                                     1=>{ui.heading("World");ui.checkbox(&mut settings.detail.terrain_cutoff,"Original-game terrain cutoff (saves memory)").on_hover_text("Live, saved terrain and scenery cutoff. Keeps the block window below; releases distant terrain geometry and unused blend-mask atlas pages. Combine independently with Client atmospheric fog. Fog keeps the authored colour and caps its distance to the resident window (viewer adaptation). Distant scenery preload is paused; global lightmaps and shared tree assets still have memory costs; realistic maps show only resident terrain.");ui.label(renderer.terrain_gpu.residency_label());let (trees,bytes)=renderer.far_trees.residency_stats();ui.label(format!("Tree LOD instances: {trees}; instance buffer {:.1} KiB",bytes as f64/1024.));ui.add_enabled(!settings.detail.terrain_cutoff,egui::Checkbox::new(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)")).on_hover_text("Paused and its pages released while native cutoff is enabled.");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.client_tree_wind_preview,"Client wind signal (preview)").on_hover_text("Modulates the existing 16-second sampled leaf loop with the recovered client wind signal. This is an approximation, not the original live leaf animation.");marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon").on_hover_text("Native billboards: centre at direction*100, half extent 1.0 (1.146 degrees), gated on the recovered elevation curve and the 0.0003/ms visibility ramps. Sun adds its texture, moon alpha-blends it. The sun also carries its recovered sunshine.bmp shine quad at a viewer-chosen size; the moon carries none, because the client scales nothing for it and its retail halo is the screen-space flare chain this build does not draw. The status line below says both.");ui.checkbox(&mut settings.cloud_detail,"Cloud detail (Client CloudDetail gate)").on_hover_text("Shows the native world.cld cloud surface. Point sizing and water-view parity remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.vegetation_authored_mips,"Authored vegetation mips (experimental, restart)").on_hover_text("P4.07 opt-in: preserve authored DDS mip chains for vegetation and use SpeedTree PWTREE08 per-LOD branch/frond alpha references plus the verified leaf reference 84. Default off keeps the approved legacy path. Applied at startup; restart after changing. Native sampler parity, grass anisotropy, and deeper-than-LOD-7 tails remain unresolved.");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");ui.checkbox(&mut settings.grass_wind_enabled,"Grass wind").on_hover_text("Native wind from the recovered logic clock. The client scales it with authored per-area data (+0x6c..+0x74), not a user setting, so this is an on/off switch.");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_amplitude,0.0..=2.0),"Grass wind sway",defaults.grass_wind_amplitude,0.,2.,false,settings.grass_wind_enabled).on_hover_text("Viewer-only multiplier on the wind history. The mark (1.0) is the recovered amplitude: the client's only wind inputs are the noise sample and the authored axis weights (+0x6c..+0x74 = 1.0, -0.5, 0.0), with no scale of its own, so there is no single retail number to show. The spring is critically damped at the recovered stiffness, which bounds the sway by that target instead of letting it resonate.");ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Whole-world texture atlases are shared; geometry and unique source textures still require GPU memory.");}
-                                                    2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());let audio_diagnostic=music.diagnostic();if !audio_diagnostic.is_empty(){ui.label(audio_diagnostic);}ui.checkbox(&mut settings.ambience_enabled,"Play zone ambience (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.sound_volume,0.0..=1.0),"Ambience volume",defaults.sound_volume,0.,1.,false,true);ui.label(ambience.status());ui.checkbox(&mut settings.effects_enabled,"Play world effects (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.effects_volume,0.0..=1.0),"Effects volume",defaults.effects_volume,0.,1.,false,true);ui.label(world_audio.status());if let Some(error)=world_audio.diagnostic(){ui.label(error);}ui.label("Zone selection, world sound timing and spatialization are approximations. Gameplay, combat and weather effects are not implemented.");}
+                                                    2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());let audio_diagnostic=music.diagnostic();if !audio_diagnostic.is_empty(){ui.label(audio_diagnostic);}ui.checkbox(&mut settings.ambience_enabled,"Play zone ambience (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.sound_volume,0.0..=1.0),"Ambience volume",defaults.sound_volume,0.,1.,false,true);ui.label(ambience.status());ui.checkbox(&mut settings.effects_enabled,"Play world and character effects (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.effects_volume,0.0..=1.0),"Effects volume",defaults.effects_volume,0.,1.,false,true);ui.label(world_audio.status());if let Some(error)=world_audio.diagnostic(){ui.label(error);}ui.label(renderer.modules.walker_audio_status());if let Some(error)=renderer.modules.walker_audio_diagnostic(){ui.label(error);}ui.label("Character movement uses authentic animation SFX events and files; local playback is non-spatial. Zone selection, world sound timing and spatialization are approximations. Other gameplay, combat and weather effects are not implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();egui::ComboBox::from_label("Minimap style").selected_text(settings.minimap_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.minimap_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the world from above each frame; Original shows the client's own minimap tiles (surfaces/minimaps/world) at their native resolution.").small().weak());egui::ComboBox::from_label("Minimap shape").selected_text(settings.minimap_shape.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Square,"Square");ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Circular,"Circular");});egui::ComboBox::from_label("World map style").selected_text(settings.world_map_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.world_map_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.world_map_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the whole world from above; Original shows the client's map tiles (surfaces/maps).").small().weak());ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
                                                 }
                                                 ui.separator();ui.horizontal(|ui|{if ui.add_sized([135.,32.],egui::Button::new("Back to menu")).clicked(){menu_page=MenuPage::Main;}if ui.button("Restore defaults").clicked(){settings=ViewSettings::default();}});
@@ -3974,6 +4094,7 @@ pub fn run(
                                             }
                                         } else { ui.add(egui::Image::new((map_id,egui::vec2(MINIMAP_HUD,MINIMAP_HUD))).rounding(round)) };
                                         let center=image.rect.center();let dir=egui::vec2(camera.yaw.sin(),camera.yaw.cos());let side=egui::vec2(-dir.y,dir.x);let points=vec![center+dir*10.,center-dir*7.+side*5.,center-dir*7.-side*5.];ui.painter().add(egui::Shape::convex_polygon(points,egui::Color32::from_rgb(255,225,130),egui::Stroke::new(1.0f32,egui::Color32::BLACK)));ui.painter().text(image.rect.left_top()+egui::vec2(5.,5.),egui::Align2::LEFT_TOP,"N",egui::FontId::proportional(14.),egui::Color32::WHITE);});});}
+                                    if menu_page.is_open(){renderer.modules.settings_panel(ctx,config.width as f32/window.scale_factor() as f32);}
                                     if settings.show_zone_entry {if let Some((name,started))=&zone_banner {let elapsed=started.elapsed().as_secs_f32();if elapsed<4. {let alpha=(elapsed.min(4.-elapsed)*2.).clamp(0.,1.);egui::Area::new(egui::Id::new("zone-entry")).anchor(egui::Align2::CENTER_TOP,egui::vec2(0.,65.)).interactable(false).show(ctx,|ui|{ui.label(egui::RichText::new(format!("Entering {name}")).size(24.).color(egui::Color32::from_white_alpha((alpha*255.) as u8)));});}}}
                                 });
                                 egui_state.handle_platform_output(&window,output.platform_output);

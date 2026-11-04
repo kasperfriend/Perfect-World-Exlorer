@@ -34,6 +34,13 @@ pub struct Params {
     pub clip_plane: [f32; 4],
     /// Two sided, reverse front face, D3DCMPFUNC (0 disables), alpha reference.
     pub raster: [f32; 4],
+    /// x: base-texture alpha weight (0 for native armor/fashion, 1 otherwise).
+    /// y: dedicated native shader (0 ordinary, 1 brow, 2 body, 3 eye, 4 eyeball).
+    pub alpha: [f32; 4],
+    /// Native part `c0` (`colorBrow`/`colorBody`/`colorEye`/`colorEyeBall`),
+    /// and brow/eye `c1` (`colorFace`). Unused otherwise.
+    pub face_color: [f32; 4],
+    pub face_skin: [f32; 4],
 }
 pub struct Mesh {
     vertex: wgpu::Buffer,
@@ -247,6 +254,8 @@ impl Receiver {
         &self,
         device: &wgpu::Device,
         texture: &wgpu::TextureView,
+        highlight: &wgpu::TextureView,
+        gloss: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
         params: &Params,
     ) -> Result<Binding, String> {
@@ -272,6 +281,14 @@ impl Receiver {
                     binding: 2,
                     resource: wgpu::BindingResource::Sampler(sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(highlight),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(gloss),
+                },
             ],
         });
         Ok(Binding { uniform, bind })
@@ -293,11 +310,14 @@ pub const WGSL: &str = r#"
 struct Params {
  matrix:mat4x4<f32>,ambient:vec4<f32>,diffuse:vec4<f32>,point_ambient:vec4<f32>,point_diffuse:vec4<f32>,
  direction:vec4<f32>,point_position:vec4<f32>,attenuation:vec4<f32>,eye_direction:vec4<f32>,specular:vec4<f32>,lighting:vec4<f32>,
- fog_color:vec4<f32>,fog_range:vec4<f32>,clip_plane:vec4<f32>,raster:vec4<f32>
+ fog_color:vec4<f32>,fog_range:vec4<f32>,clip_plane:vec4<f32>,raster:vec4<f32>,alpha:vec4<f32>,
+ face_color:vec4<f32>,face_skin:vec4<f32>
 };
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var image_sampler:sampler;
+@group(0) @binding(3) var highlight_image:texture_2d<f32>;
+@group(0) @binding(4) var gloss_image:texture_2d<f32>;
 struct Input {@location(0) position:vec3<f32>,@location(1) normal:vec3<f32>,@location(2) uv:vec2<f32>,@location(3) fog:f32};
 struct Output {@builtin(position) position:vec4<f32>,@location(0) uv:vec2<f32>,@location(1) diffuse:vec4<f32>,@location(2) specular:vec3<f32>,@location(3) fog:f32,@location(4) world:vec3<f32>};
 @vertex fn vs(v:Input)->Output {
@@ -314,7 +334,47 @@ struct Output {@builtin(position) position:vec4<f32>,@location(0) uv:vec2<f32>,@
  if p.raster.x<0.5 && front==(p.raster.y>0.5) {discard;}
  if dot(vec4<f32>(v.world,1.),p.clip_plane)<0. {discard;}
  let t=textureSample(image,image_sampler,v.uv);
- let alpha=clamp(t.a*v.diffuse.a,0.,1.);
+ let h=textureSample(highlight_image,image_sampler,v.uv);
+ let g=textureSample(gloss_image,image_sampler,v.uv);
+ var rgb=t.rgb;
+ // Native armor/fashion write v0.a. Other ordinary model shaders use base
+ // alpha as opacity too; dedicated shaders below override that calculation.
+ var opacity=v.diffuse.a*mix(1.,t.a,p.alpha.x);
+ if p.alpha.y>5.5 {
+  // Shaders/ps/facerender/mouthrender.txt (ps.1.1):
+  // lrp(t1.a, t1*c0, t0*c1) * v0, then lrp(t2.a, t2, r0).
+  // The lip gloss replaces post-lighting colour; there is no +v1 term.
+  rgb=mix(t.rgb*p.face_skin.rgb,h.rgb*p.face_color.rgb,h.a);
+  opacity=v.diffuse.a*t.a;
+ } else if p.alpha.y>4.5 {
+  // Shaders/ps/facerender/facerender.txt and noserender.txt:
+  // t0*c0 (or c1 for nose), then ordinary untinted v0/v1 and t0.a*v0.a.
+  rgb=t.rgb*p.face_color.rgb;
+  opacity=v.diffuse.a*t.a;
+ } else if p.alpha.y>3.5 {
+  // Shaders/ps/facerender/eyeballrender.txt (ps.1.1):
+  // lrp(t1.a, t1, t0*c0) * v0, then lrp(t2.a, t2, r0)
+  // after vertex lighting. EyeBall has no +v1 specular term.
+  rgb=mix(t.rgb*p.face_color.rgb,h.rgb,h.a);
+  opacity=v.diffuse.a*t.a;
+ } else if p.alpha.y>2.5 {
+  // Shaders/ps/facerender/eyerender.txt (ps.1.1):
+  // lrp(t1.a, t1*c0, t0*c1) * v0, then +v1 and t0.a*v0.a.
+  rgb=mix(t.rgb*p.face_skin.rgb,h.rgb*p.face_color.rgb,h.a);
+  opacity=v.diffuse.a*t.a;
+ } else if p.alpha.y>1.5 {
+  // Shaders/ps/bodyrender.txt (ps.1.1):
+  // lrp(t0.a, t0*c0, t0) * v0, then +v1 and v0.a.
+  // In particular, t0.a is a colour mask, never an opacity multiplier.
+  rgb=mix(t.rgb,t.rgb*p.face_color.rgb,t.a);
+  opacity=v.diffuse.a;
+ } else if p.alpha.y>0.5 {
+  // Shaders/ps/facerender/browrender.txt (ps.1.1):
+  // lrp(t1.a, t1*c0, t0*c1) * v0, then +v1 and t0.a*v0.a.
+  rgb=mix(t.rgb*p.face_skin.rgb,h.rgb*p.face_color.rgb,h.a);
+  opacity=v.diffuse.a*t.a;
+ }
+ let alpha=clamp(opacity,0.,1.);
  let reference=p.raster.w;
  var alpha_pass=true;
  switch u32(p.raster.z) {
@@ -328,7 +388,10 @@ struct Output {@builtin(position) position:vec4<f32>,@location(0) uv:vec2<f32>,@
   default: {}
  }
  if !alpha_pass {discard;}
- let encoded=clamp(t.rgb*v.diffuse.rgb+v.specular,vec3<f32>(0.),vec3<f32>(1.));
+ var encoded=clamp(rgb*v.diffuse.rgb+v.specular,vec3<f32>(0.),vec3<f32>(1.));
+ if (p.alpha.y>3.5 && p.alpha.y<4.5) || p.alpha.y>5.5 {
+  encoded=clamp(mix(rgb*v.diffuse.rgb,g.rgb,g.a),vec3<f32>(0.),vec3<f32>(1.));
+ }
  var fog=v.fog;
  if p.fog_range.z>0.5 {
   let depth=1./max(v.position.w,0.0000001);

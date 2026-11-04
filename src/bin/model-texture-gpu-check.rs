@@ -160,8 +160,26 @@ fn main() {
             read.unmap();
         }
     }
+    let mut tga = vec![0; 18];
+    tga[2] = 2;
+    tga[12..14].copy_from_slice(&1u16.to_le_bytes());
+    tga[14..16].copy_from_slice(&1u16.to_le_bytes());
+    tga[16] = 32;
+    tga[17] = 8;
+    tga.extend_from_slice(&[3, 2, 1, 4]);
+    let (texture, alpha) = model_texture_gpu::upload_with_alpha(
+        &device,
+        &queue,
+        &tga,
+        model_texture_gpu::UploadMode::Auto,
+    )
+    .unwrap();
+    assert!(alpha);
+    assert_eq!((texture.width(), texture.height()), (1, 1));
+    assert_eq!(texture.mip_level_count(), 1);
+    assert_eq!(texture.format(), wgpu::TextureFormat::Rgba8Unorm);
     println!(
-        "{comparisons} model texture mip RGBA checks passed; native BC enabled: {}",
+        "{comparisons} model texture mip RGBA checks plus TGA upload passed; native BC enabled: {}",
         !features.is_empty()
     );
 }

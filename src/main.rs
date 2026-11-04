@@ -44,6 +44,8 @@ mod fog_matrix;
 mod foliage_mips;
 #[allow(dead_code)]
 mod gfx_color_track;
+mod gfx_decal;
+mod gfx_decal_gpu;
 #[allow(dead_code)]
 mod gfx_light;
 mod gfx_owner;
@@ -71,6 +73,7 @@ mod model_queue;
 mod model_receiver_class;
 mod model_receiver_gpu;
 mod model_texture_gpu;
+mod modules;
 mod music;
 mod navigation;
 mod objects;

@@ -3,6 +3,7 @@
 //! are implied by successfully loading this asset.
 use crate::{animation, ecmodel, skeleton, skeleton_pose, skin, skin_pose};
 use glam::Mat4;
+use std::collections::{HashMap, HashSet};
 
 pub struct SkinAsset {
     pub path: String,
@@ -42,6 +43,76 @@ impl SkinAsset {
         Err(failures.join("; "))
     }
 }
+/// Authentic native pixel shader attached to one retained mesh.
+/// Ordinary model modulation remains in `mesh_tints`; these shaders have
+/// separate constants and must not be collapsed into that single tint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FaceShader {
+    /// `Shaders/ps/facerender/facerender.txt` and `noserender.txt`: base ×
+    /// face colour, then untinted vertex light/specular and base-alpha opacity.
+    /// Ordinary material modulation is not equivalent: it also tints light and
+    /// specular, visibly splitting the head from the body's skin tone.
+    Face { color: u32 },
+    /// `Shaders/ps/facerender/browrender.txt`: base × skin colour, highlight ×
+    /// brow colour, highlight-alpha interpolation, then vertex light/specular.
+    Brow {
+        color: u32,
+        skin_color: u32,
+        highlight: String,
+    },
+    /// `Shaders/ps/facerender/eyerender.txt`: base × face colour and
+    /// highlight × eye colour, interpolated by highlight alpha.
+    Eye {
+        color: u32,
+        skin_color: u32,
+        highlight: String,
+    },
+    /// `Shaders/ps/facerender/mouthrender.txt`: base × face colour and
+    /// highlight × lip colour, highlight-alpha interpolation, then lipreflect
+    /// gloss after vertex lighting. The mouth mesh includes surrounding skin;
+    /// tinting that entire mesh with the lip colour causes a lower-face seam.
+    Mouth {
+        color: u32,
+        skin_color: u32,
+        highlight: String,
+    },
+    /// `Shaders/ps/facerender/moustacherender.txt`: the same two-colour
+    /// operation as Brow, with moustache colour restricted to the highlight.
+    Moustache {
+        color: u32,
+        skin_color: u32,
+        highlight: String,
+    },
+    /// `Shaders/ps/facerender/eyeballrender.txt`: pupil-coloured base mixed
+    /// with the highlight, vertex lighting, then the eyereflect gloss stage.
+    EyeBall { color: u32, highlight: String },
+    /// `Shaders/ps/bodyrender.txt`: texture alpha selects between the base
+    /// colour and the base colour multiplied by `colorBody`. It is a colour
+    /// mask, not opacity; the native shader writes vertex diffuse alpha.
+    Body { color: u32 },
+}
+
+impl FaceShader {
+    pub fn highlight(&self) -> Option<&str> {
+        match self {
+            Self::Brow { highlight, .. }
+            | Self::Eye { highlight, .. }
+            | Self::Mouth { highlight, .. }
+            | Self::Moustache { highlight, .. }
+            | Self::EyeBall { highlight, .. } => Some(highlight),
+            Self::Face { .. } | Self::Body { .. } => None,
+        }
+    }
+
+    pub fn gloss(&self) -> Option<&'static str> {
+        match self {
+            Self::Mouth { .. } => Some("textures/face/lipreflect.tga"),
+            Self::EyeBall { .. } => Some("textures/face/eyereflect.tga"),
+            _ => None,
+        }
+    }
+}
+
 pub struct ModelAsset {
     pub descriptor: ecmodel::EcModel,
     pub model: ecmodel::SkinModel,
@@ -50,6 +121,24 @@ pub struct ModelAsset {
     /// Same order as model.actions. None denotes the older embedded BON data,
     /// not permission to silently substitute another action's external tracks.
     pub tracks: Vec<Option<std::sync::Arc<animation::TrackSet>>>,
+    /// Rooted replacements keyed by this asset's isolated skin and texture
+    /// slots. Face parts therefore never mutate a texture shared by another
+    /// skin, body, or character.
+    pub texture_overrides: HashMap<(usize, usize), String>,
+    /// Per-mesh ARGB modulation used by ordinary native material/face paths.
+    pub mesh_tints: HashMap<(usize, usize), u32>,
+    /// Authentic dedicated native shaders (face parts and body) whose
+    /// constants/textures cannot be represented by one diffuse texture and
+    /// one mesh tint.
+    pub face_shaders: HashMap<(usize, usize), FaceShader>,
+    /// Native per-skin visibility, notably the body head hidden by CECFace.
+    /// Hidden meshes remain fully posed and validated but are not submitted.
+    pub hidden_meshes: HashSet<(usize, usize)>,
+    /// Armor/fashion meshes whose native shader writes diffuse alpha directly.
+    /// Their base-texture alpha is data (armor uses it for specular), not an
+    /// opacity cutout. Ordinary body/face/hair/world meshes are absent and keep
+    /// the usual texture-alpha times diffuse-alpha behavior.
+    pub diffuse_alpha_meshes: HashSet<(usize, usize)>,
 }
 /// World matrix of a named skeleton hook for an evaluated pose (the native
 /// combination order is documented on `ModelAsset::hook_matrix`).
@@ -81,6 +170,39 @@ pub struct PosedMesh {
     pub mesh: usize,
     pub vertices: Vec<skin_pose::PosedVertex>,
 }
+
+pub fn has_nonfinite_weights(vertex: &skin::Vertex) -> bool {
+    vertex.weights.iter().any(|weight| !weight.is_finite())
+}
+
+/// Triangles made non-finite by an authored bad weight cannot be rasterized by
+/// the native client either. Return the unchanged-finite subset, or `None`
+/// when no recovery is needed. The source mesh and its weights are never
+/// rewritten, and no replacement bind pose/weights are invented.
+pub fn indices_without_nonfinite_weights(mesh: &skin::Mesh) -> Option<Vec<u16>> {
+    if !mesh.vertices.iter().any(has_nonfinite_weights) {
+        return None;
+    }
+    let invalid = mesh
+        .vertices
+        .iter()
+        .map(has_nonfinite_weights)
+        .collect::<Vec<_>>();
+    let mut indices = Vec::with_capacity(mesh.indices.len());
+    for triangle in mesh.indices.chunks_exact(3) {
+        if triangle.iter().all(|&index| !invalid[index as usize]) {
+            indices.extend_from_slice(triangle);
+        }
+    }
+    Some(indices)
+}
+
+pub fn nonfinite_weight_triangle_count(mesh: &skin::Mesh) -> usize {
+    indices_without_nonfinite_weights(mesh)
+        .map(|indices| (mesh.indices.len() - indices.len()) / 3)
+        .unwrap_or(0)
+}
+
 /// Strip one trailing `amd` segment from the *directory* of a path.
 ///
 /// The retail pack ships skin-less duplicate folders where only the leaf
@@ -122,25 +244,79 @@ impl ModelAsset {
     /// names, instead of replacing missing geometry with a placeholder.
     pub fn load_with(
         descriptor_path: &str,
-        mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+        read: impl FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<Self, String> {
-        Self::load_cached(descriptor_path, &mut read, &mut TrackCache::default())
+        Self::load_impl(descriptor_path, read, true)
+    }
+
+    /// Load `LSF_UNIQUESKIN` geometry while preserving the native missing-SKI
+    /// behavior. `A3DSkinModel::AddSkinFile` returns `false` (zero), not `-1`,
+    /// when a skin cannot be read, so `A3DSkinModelMan`'s negative-result check
+    /// continues without that skin. Return every skipped dependency as a
+    /// warning; never substitute another skin or hide rig/action failures.
+    pub fn load_unique_with(
+        descriptor_path: &str,
+        mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> Result<(Self, Vec<String>), String> {
+        let mut warnings = Vec::new();
+        let asset = Self::load_cached_impl(
+            descriptor_path,
+            &mut read,
+            &mut TrackCache::default(),
+            true,
+            Some(&mut warnings),
+        )?;
+        Ok((asset, warnings))
+    }
+
+    /// Load an ECM/SMD/BON rig without reading its authored skin menu. This is
+    /// the native `A3DSkinModel::LSF_NOSKIN` path used by `CECPlayer`: the
+    /// caller installs its selected body/equipment/head skins afterwards.
+    pub fn load_without_skins_with(
+        descriptor_path: &str,
+        read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> Result<Self, String> {
+        Self::load_impl(descriptor_path, read, false)
+    }
+
+    fn load_impl(
+        descriptor_path: &str,
+        mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+        load_skins: bool,
+    ) -> Result<Self, String> {
+        Self::load_cached_impl(
+            descriptor_path,
+            &mut read,
+            &mut TrackCache::default(),
+            load_skins,
+            None,
+        )
     }
     pub fn load_cached(
         descriptor_path: &str,
         mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
         cache: &mut TrackCache,
     ) -> Result<Self, String> {
+        Self::load_cached_impl(descriptor_path, &mut read, cache, true, None)
+    }
+    fn load_cached_impl(
+        descriptor_path: &str,
+        mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+        cache: &mut TrackCache,
+        load_skins: bool,
+        mut missing_skins: Option<&mut Vec<String>>,
+    ) -> Result<Self, String> {
         let descriptor_path = ecmodel::normalize(descriptor_path);
         let mut bytes = |p: &str| read(p).map_err(|e| format!("{p}: {e}"));
         let descriptor = ecmodel::parse_ecm(&bytes(&descriptor_path)?)
             .map_err(|e| format!("{descriptor_path}: {e}"))?;
-        let model = ecmodel::parse_smd(&bytes(&descriptor.skin_model_path)?)
+        let mut model = ecmodel::parse_smd(&bytes(&descriptor.skin_model_path)?)
             .map_err(|e| format!("{}: {e}", descriptor.skin_model_path))?;
         let skeleton_path = relative(&descriptor.skin_model_path, &model.skeleton);
         let skeleton = skeleton::Skeleton::parse(&bytes(&skeleton_path)?)
             .map_err(|e| format!("{skeleton_path}: {e}"))?;
         let mut skins = Vec::new();
+        let mut loaded_skin_paths = Vec::new();
         // The descriptor's own AddiSkinPath list is authoritative. The `.smd`
         // list is a menu of skins that exist for the model family; in
         // models.pck 228 of its 247 unresolvable entries are simply the naming
@@ -158,7 +334,9 @@ impl ModelAsset {
             .skin_model_path
             .rsplit_once('/')
             .map(|p| p.0.to_string());
-        let references: Vec<(String, String)> = if descriptor.additional_skins.is_empty() {
+        let references: Vec<(String, String)> = if !load_skins {
+            Vec::new()
+        } else if descriptor.additional_skins.is_empty() {
             model
                 .skins
                 .iter()
@@ -190,11 +368,10 @@ impl ModelAsset {
             // Some authored model variants are skin-less siblings: an `amd`
             // folder carries its own .ecm/.smd/.bon but reuses the base
             // model's skin from the sibling folder without the suffix. In
-            // models.pck that accounts for 247 of 2,228 .smd models, so
-            // failing the whole model on a missing .ski would drop ~11% of the
-            // character set. Retry against the base folder before giving up,
-            // and still fail loudly if neither resolves - the client has no
-            // placeholder geometry either.
+            // models.pck that accounts for 247 of 2,228 .smd models. Strict
+            // callers retry against the base folder and still fail loudly if
+            // neither resolves. Native unique-skin callers skip those Explorer
+            // recovery candidates and report the authored missing path instead.
             // `path` is reassigned to whichever candidate actually loaded, so
             // the stored asset names its real source rather than the first
             // guess.
@@ -208,7 +385,7 @@ impl ModelAsset {
                     let mut parsed = None;
                     for candidate in candidates
                         .iter()
-                        .filter(|c| !c.is_empty() && **c != *primary)
+                        .filter(|c| missing_skins.is_none() && !c.is_empty() && **c != *primary)
                     {
                         // Go through `bytes`, not the raw `read`: `read` is
                         // already mutably borrowed by that wrapper, and it also
@@ -223,11 +400,26 @@ impl ModelAsset {
                     }
                     match parsed {
                         Some(skin) => skin,
-                        None => return Err(format!("{path}: {first}")),
+                        None => {
+                            let error = format!("{path}: {first}");
+                            if let Some(warnings) = missing_skins.as_deref_mut() {
+                                warnings.push(error);
+                                continue;
+                            }
+                            return Err(error);
+                        }
                     }
                 }
             };
+            if missing_skins.is_some() {
+                loaded_skin_paths.push(path.clone());
+            }
             skins.push(SkinAsset { path, data });
+        }
+        if missing_skins.is_some() {
+            // Keep retained skin indices and their authored path slots aligned
+            // after native missing-SKI omissions.
+            model.skins = loaded_skin_paths;
         }
         let mut tracks = Vec::new();
         for action in &model.actions {
@@ -251,13 +443,20 @@ impl ModelAsset {
             };
             tracks.push(set);
         }
-        for combined in &descriptor.actions {
-            for base in &combined.bases {
-                if !model.actions.iter().any(|a| a.name == base.name) {
-                    return Err(format!(
-                        "{descriptor_path}: {} -> missing SMD action {}",
-                        combined.name, base.name
-                    ));
+        // Full model loads retain strict combined-action validation. The
+        // skinless player-rig path only needs the direct bind/action data:
+        // authentic Wizard ECMs contain two `回城循环` references while their
+        // SMD calls that action `回城循环_通用`. Do not let that combined-action
+        // alias prevent the static body/head/equipment assembly from loading.
+        if load_skins {
+            for combined in &descriptor.actions {
+                for base in &combined.bases {
+                    if !model.actions.iter().any(|a| a.name == base.name) {
+                        return Err(format!(
+                            "{descriptor_path}: {} -> missing SMD action {}",
+                            combined.name, base.name
+                        ));
+                    }
                 }
             }
         }
@@ -267,8 +466,84 @@ impl ModelAsset {
             skeleton,
             skins,
             tracks,
+            texture_overrides: HashMap::new(),
+            mesh_tints: HashMap::new(),
+            face_shaders: HashMap::new(),
+            hidden_meshes: HashSet::new(),
+            diffuse_alpha_meshes: HashSet::new(),
         })
     }
+
+    /// Native static-skin constructor used by `CECFace`: bind one BON skeleton
+    /// directly and attach SKI resources without inventing an ECM body part.
+    /// Render defaults come from `EcModel::render_settings` (white, speed 1,
+    /// SRCALPHA/INVSRCALPHA), and there are no implicit animation tracks.
+    pub fn load_static_skins_with(
+        skeleton_path: &str,
+        skin_paths: &[String],
+        mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> Result<Self, String> {
+        let skeleton_path = ecmodel::normalize(skeleton_path);
+        let mut bytes = |path: &str| read(path).map_err(|error| format!("{path}: {error}"));
+        let skeleton = skeleton::Skeleton::parse(&bytes(&skeleton_path)?)
+            .map_err(|error| format!("{skeleton_path}: {error}"))?;
+        let mut skins = Vec::with_capacity(skin_paths.len());
+        for reference in skin_paths {
+            let path = ecmodel::normalize(reference);
+            let data = skin::Skin::parse(&bytes(&path)?).map_err(|e| format!("{path}: {e}"))?;
+            skins.push(SkinAsset { path, data });
+        }
+        Ok(Self {
+            descriptor: ecmodel::EcModel {
+                version: 0,
+                skin_model_path: skeleton_path.clone(),
+                original_color: None,
+                source_blend: None,
+                destination_blend: None,
+                default_speed: None,
+                actions: Vec::new(),
+                events: Vec::new(),
+                additional_skins: Vec::new(),
+            },
+            model: ecmodel::SkinModel {
+                version: 0,
+                skeleton: skeleton_path,
+                skins: skin_paths.to_vec(),
+                physique: String::new(),
+                track_directory: String::new(),
+                actions: Vec::new(),
+                hangers: Vec::new(),
+                properties: Vec::new(),
+            },
+            skeleton,
+            skins,
+            tracks: Vec::new(),
+            texture_overrides: HashMap::new(),
+            mesh_tints: HashMap::new(),
+            face_shaders: HashMap::new(),
+            hidden_meshes: HashSet::new(),
+            diffuse_alpha_meshes: HashSet::new(),
+        })
+    }
+
+    pub fn texture_paths(&self, skin_index: usize, texture: usize) -> Result<[String; 2], String> {
+        let skin = self
+            .skins
+            .get(skin_index)
+            .ok_or("skin index out of range")?;
+        if let Some(path) = self.texture_overrides.get(&(skin_index, texture)) {
+            return Ok([path.clone(), path.clone()]);
+        }
+        skin.texture_paths(texture)
+    }
+
+    pub fn mesh_color(&self, skin: usize, mesh: usize, default: u32) -> u32 {
+        self.mesh_tints
+            .get(&(skin, mesh))
+            .copied()
+            .unwrap_or(default)
+    }
+
     /// Absolute track time in seconds. Intentionally NOT an elapsed-time
     /// scheduler: action-loop duration, event timing, combined/direct namespace
     /// priority and random-loop selection must be supplied by verified playback.
@@ -336,6 +611,15 @@ impl ModelAsset {
                 for v in &data.vertices {
                     vertices.push(if let Some(matrix) = rigid {
                         skin_pose::deform_rigid(v.position, v.normal, matrix)?
+                    } else if has_nonfinite_weights(v) {
+                        // This vertex is not referenced by the retained draw
+                        // indices. Keep a finite upload tombstone without
+                        // altering its authentic source weights or inventing a
+                        // replacement deformation for the discarded triangle.
+                        skin_pose::PosedVertex {
+                            position: [0.0; 3],
+                            normal: [0.0; 3],
+                        }
                     } else {
                         skin_pose::deform(
                             v.position,
@@ -535,6 +819,93 @@ mod tests {
         bad.hooks[0].matrix[0] = f32::NAN;
         let error = hook_matrix(&bad, &pose, "weapon").unwrap_err();
         assert!(error.contains("non-finite matrix"), "{error}");
+    }
+
+    fn put_u32(bytes: &mut Vec<u8>, value: u32) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_string(bytes: &mut Vec<u8>, value: &str) {
+        put_u32(bytes, value.len() as u32);
+        bytes.extend_from_slice(value.as_bytes());
+    }
+
+    fn rig_files(skin_count: u32) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let ecm = b"MOXTVersion: 40\r\nSkinModelPath: Models\\a.smd\r\n\
+                    ComActCount: 1\r\nCombineActName: combined\r\n\
+                    BaseActCount: 1\r\nBaseActName: missing\r\nEventCount: 0\r\n"
+            .to_vec();
+        let mut smd = b"MOXBDMSA".to_vec();
+        for value in [8, skin_count, 0, 0, 0] {
+            put_u32(&mut smd, value);
+        }
+        smd.resize(88, 0);
+        put_string(&mut smd, "rig.bon");
+        for _ in 0..skin_count {
+            put_string(&mut smd, "unselected.ski");
+        }
+        put_string(&mut smd, "");
+        put_string(&mut smd, "");
+
+        let mut bon = b"MOXBEKSA".to_vec();
+        for value in [6, 0, 0, 0, 0, 0, 0] {
+            put_u32(&mut bon, value);
+        }
+        bon.resize(bon.len() + 64, 0);
+        (ecm, smd, bon)
+    }
+
+    fn read_rig(path: &str, files: &(Vec<u8>, Vec<u8>, Vec<u8>)) -> Result<Vec<u8>, String> {
+        match path {
+            "models/a.ecm" => Ok(files.0.clone()),
+            "models/a.smd" => Ok(files.1.clone()),
+            "models/rig.bon" => Ok(files.2.clone()),
+            _ => Err(format!("unexpected read {path}")),
+        }
+    }
+
+    #[test]
+    fn skinless_player_rig_ignores_smd_skin_menu_and_combined_aliases() {
+        let files = rig_files(1);
+        let mut reads = Vec::new();
+        let asset = ModelAsset::load_without_skins_with("Models\\a.ecm", |path| {
+            reads.push(path.to_owned());
+            read_rig(path, &files)
+        })
+        .unwrap();
+        assert!(asset.skins.is_empty());
+        assert_eq!(asset.model.skins, ["unselected.ski"]);
+        assert_eq!(reads, ["models/a.ecm", "models/a.smd", "models/rig.bon"]);
+    }
+
+    #[test]
+    fn unique_skin_load_preserves_native_missing_ski_tolerance() {
+        let mut files = rig_files(1);
+        files.0 = b"MOXTVersion: 40\r\nSkinModelPath: Models\\a.smd\r\n\
+                    ComActCount: 0\r\nEventCount: 0\r\n"
+            .to_vec();
+        let (asset, warnings) =
+            ModelAsset::load_unique_with("Models\\a.ecm", |path| read_rig(path, &files)).unwrap();
+        assert!(asset.skins.is_empty());
+        assert!(asset.model.skins.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("models/unselected.ski"));
+
+        // The ordinary world-model loader remains strict.
+        assert!(ModelAsset::load_with("Models\\a.ecm", |path| read_rig(path, &files)).is_err());
+    }
+
+    #[test]
+    fn ordinary_load_still_rejects_missing_combined_action_base() {
+        let files = rig_files(0);
+        let error = match ModelAsset::load_with("Models\\a.ecm", |path| read_rig(path, &files)) {
+            Ok(_) => panic!("missing combined-action base was accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            "models/a.ecm: combined -> missing SMD action missing"
+        );
     }
 
     #[test]
