@@ -39,6 +39,7 @@ impl Frame {
         material: &crate::skin::Material,
         original_color: u32,
         diffuse_alpha_only: bool,
+        face_shader: Option<&crate::model_asset::FaceShader>,
     ) -> Result<Params, String> {
         if self.alpha_compare > 8 || !self.vertex_fog.is_finite() {
             return Err("invalid model frame alpha comparison/vertex fog".into());
@@ -64,6 +65,25 @@ impl Frame {
         };
         let c = material.light_constants(self.lighting);
         let vector = |v: [f32; 3]| [v[0], v[1], v[2], 0.];
+        let argb = |color: u32| {
+            [
+                ((color >> 16) & 255) as f32 / 255.,
+                ((color >> 8) & 255) as f32 / 255.,
+                (color & 255) as f32 / 255.,
+                ((color >> 24) & 255) as f32 / 255.,
+            ]
+        };
+        let mut face_mode = 0.;
+        let mut face_color = [1.; 4];
+        let mut face_skin = [1.; 4];
+        if let Some(crate::model_asset::FaceShader::Brow {
+            color, skin_color, ..
+        }) = face_shader
+        {
+            face_mode = 1.;
+            face_color = argb(*color);
+            face_skin = argb(*skin_color);
+        }
         let p = Params {
             matrix: self.matrix,
             ambient: c.ambient,
@@ -90,7 +110,9 @@ impl Frame {
                 self.alpha_compare as f32,
                 self.alpha_reference,
             ],
-            alpha: [if diffuse_alpha_only { 0. } else { 1. }, 0., 0., 0.],
+            alpha: [if diffuse_alpha_only { 0. } else { 1. }, face_mode, 0., 0.],
+            face_color,
+            face_skin,
         };
         if bytemuck::cast_slice::<Params, f32>(std::slice::from_ref(&p))
             .iter()
@@ -125,6 +147,7 @@ struct Mesh {
     indices: Vec<u16>,
     vertices: usize,
     alpha_texture: bool,
+    face_shader: Option<crate::model_asset::FaceShader>,
     /// Initial (bind-pose) mesh AABB in model space, used by the retail alpha
     /// sort: 0x7a5460 measures the eight transformed initial-box corners.
     bounds: ([f32; 3], [f32; 3]),
@@ -159,7 +182,7 @@ impl Draw {
         // Validate every frame/material before allocating or uploading anything.
         let params: Vec<_> = prepared
             .iter()
-            .map(|m| frame.params(m.material, m.color, m.diffuse_alpha_only))
+            .map(|m| frame.params(m.material, m.color, m.diffuse_alpha_only, m.face_shader))
             .collect::<Result<_, _>>()?;
         let mut textures: Vec<wgpu::Texture> = Vec::new();
         let mut cache: std::collections::HashMap<[String; 2], (usize, bool)> =
@@ -195,6 +218,36 @@ impl Draw {
                 (index, alpha)
             };
             loaded.push((texture, alpha_texture));
+        }
+        let mut highlight_cache = std::collections::HashMap::<String, usize>::new();
+        let mut highlights = Vec::with_capacity(prepared.len());
+        for m in &prepared {
+            let index = match m.face_shader {
+                Some(crate::model_asset::FaceShader::Brow { highlight, .. }) => {
+                    if highlight.is_empty() {
+                        return Err("native brow shader has an empty highlight texture".into());
+                    }
+                    if let Some(&index) = highlight_cache.get(highlight) {
+                        Some(index)
+                    } else {
+                        let bytes =
+                            read(highlight).map_err(|error| format!("{highlight}: {error}"))?;
+                        let (texture, _) = model_texture_gpu::upload_with_alpha(
+                            device,
+                            queue,
+                            &bytes,
+                            model_texture_gpu::UploadMode::Auto,
+                        )
+                        .map_err(|error| format!("{highlight}: {error}"))?;
+                        let index = textures.len();
+                        textures.push(texture);
+                        highlight_cache.insert(highlight.clone(), index);
+                        Some(index)
+                    }
+                }
+                None => None,
+            };
+            highlights.push(index);
         }
         // Queue classification uses the recovered 1.4.2 rule. `0x7a5830`
         // reads `invisible`, `transparency` and the authored blend pair from
@@ -246,11 +299,15 @@ impl Draw {
             let (texture, alpha_texture) = loaded[index];
             let bounds = initial_bounds(asset, m.skin, m.mesh)?;
             let view = textures[texture].create_view(&Default::default());
+            let highlight =
+                textures[highlights[index].unwrap_or(texture)].create_view(&Default::default());
             let vertices = vertices(m, frame.vertex_fog);
             let alpha = state.queue == model_queue::Queue::Alpha;
             let binding = match &alpha_receiver {
-                Some(receiver) if alpha => receiver.binding(device, &view, sampler, &params[index]),
-                _ => receiver.binding(device, &view, sampler, &params[index]),
+                Some(receiver) if alpha => {
+                    receiver.binding(device, &view, &highlight, sampler, &params[index])
+                }
+                _ => receiver.binding(device, &view, &highlight, sampler, &params[index]),
             }?;
             if alpha {
                 alpha_meshes.push(index);
@@ -261,6 +318,7 @@ impl Draw {
                 indices: m.indices.to_vec(),
                 vertices: vertices.len(),
                 alpha_texture,
+                face_shader: m.face_shader.cloned(),
                 bounds,
                 mesh: raster::Mesh::new(device, &vertices, m.indices)?,
                 binding,
@@ -293,10 +351,11 @@ impl Draw {
         }
         let mut updates = Vec::with_capacity(prepared.len());
         for (index, m) in prepared.iter().enumerate() {
-            let params = frame.params(m.material, m.color, m.diffuse_alpha_only)?;
+            let params = frame.params(m.material, m.color, m.diffuse_alpha_only, m.face_shader)?;
             if let Some(gpu) = &self.meshes[index] {
                 if (m.skin, m.mesh) != gpu.key
                     || m.texture_paths != gpu.paths
+                    || m.face_shader != gpu.face_shader.as_ref()
                     || m.indices != gpu.indices
                     || m.vertices.len() != gpu.vertices
                 {

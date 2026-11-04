@@ -1,7 +1,7 @@
 //! Validated retained-asset -> ordinary drawing contract. Animation time and
 //! action selection are caller inputs, never inferred from the first SMD action.
 use crate::{
-    model_asset::{ModelAsset, PosedMesh},
+    model_asset::{FaceShader, ModelAsset, PosedMesh},
     skin,
 };
 
@@ -20,6 +20,7 @@ pub struct PreparedMesh<'a> {
     pub color: u32,
     pub texture_paths: [String; 2],
     pub diffuse_alpha_only: bool,
+    pub face_shader: Option<&'a FaceShader>,
 }
 /// Validate the complete set before any GPU uploads. Missing/duplicate poses,
 /// changed topology and unsupported render overrides are errors, not permission
@@ -96,7 +97,14 @@ pub fn prepare<'a>(
         let texture = usize::try_from(mesh.texture)
             .map_err(|_| "untextured ordinary model draw is not implemented")?;
         let texture_paths = asset.texture_paths(pose.skin, texture)?;
-        let color = asset.mesh_color(pose.skin, pose.mesh, settings.original_color);
+        let face_shader = asset.face_shaders.get(&(pose.skin, pose.mesh));
+        // Dedicated face pixel shaders consume their own constants. Native
+        // does not also modulate the material by the part colour.
+        let color = if face_shader.is_some() {
+            u32::MAX
+        } else {
+            asset.mesh_color(pose.skin, pose.mesh, settings.original_color)
+        };
         if color >> 24 != 255 {
             return Err("ordinary model draw requires an opaque mesh color".into());
         }
@@ -129,6 +137,7 @@ pub fn prepare<'a>(
             color,
             texture_paths,
             diffuse_alpha_only: asset.diffuse_alpha_meshes.contains(&(pose.skin, pose.mesh)),
+            face_shader,
         });
     }
     Ok(result)

@@ -443,7 +443,7 @@ impl FaceRig {
             }
             matrices.push(self.tm[bone]);
             weights.push(1.0);
-            self.tm[bone] = combine_matrix_list(&matrices, &weights);
+            self.tm[bone] = combine_matrix_list(self.original[bone], &matrices, &weights);
         }
         self.refresh_positions();
     }
@@ -695,8 +695,17 @@ fn transform_about(center: Vec3, transform: Mat4) -> Mat4 {
 
 /// Port of `A3DBoneMatrixController::CombineMatrixList`, without normalizing
 /// by the sum of weights (the original deliberately does not do so).
-fn combine_matrix_list(matrices: &[Mat4], weights: &[f32]) -> Mat4 {
+///
+/// Native decomposes `O * F * O⁻¹`, where O is the bone's original relative
+/// matrix and F is the EFACE/controller matrix.  In this module's transposed
+/// column convention that is `O⁻¹ * F * O`.  Its decomposed translation is
+/// multiplied by O's 3x3 before accumulation, and the final controller is
+/// `O⁻¹ * M * O * T` in native order.  Keeping these steps matters when two
+/// different non-identity expressions are blended; collapsing them to a blend
+/// of the un-conjugated F matrices is not equivalent.
+fn combine_matrix_list(original: Mat4, matrices: &[Mat4], weights: &[f32]) -> Mat4 {
     debug_assert_eq!(matrices.len(), weights.len());
+    let inverse = original.inverse();
     let mut position = Vec3::ZERO;
     let mut scale = Vec3::ZERO;
     // Native starts with the four-float zero quaternion, accumulates
@@ -705,9 +714,10 @@ fn combine_matrix_list(matrices: &[Mat4], weights: &[f32]) -> Mat4 {
     // the same sum. Glam's four-float constructor is (x,y,z,w).
     let mut rotation = Vec4::W;
     for (&matrix, &weight) in matrices.iter().zip(weights) {
+        let conjugated = inverse * matrix * original;
         let (matrix_scale, matrix_rotation, matrix_position) =
-            matrix.to_scale_rotation_translation();
-        position += matrix_position * weight;
+            conjugated.to_scale_rotation_translation();
+        position += original.transform_vector3(matrix_position) * weight;
         scale += (matrix_scale - Vec3::ONE) * weight;
         rotation += Vec4::new(
             matrix_rotation.x,
@@ -717,7 +727,8 @@ fn combine_matrix_list(matrices: &[Mat4], weights: &[f32]) -> Mat4 {
         ) * weight;
     }
     let rotation = Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w).normalize();
-    Mat4::from_scale_rotation_translation(scale + Vec3::ONE, rotation, position)
+    let linear = Mat4::from_scale_rotation_translation(scale + Vec3::ONE, rotation, Vec3::ZERO);
+    Mat4::from_translation(position) * original * linear * inverse
 }
 
 fn scale(value: u8, factor: f32) -> f32 {
@@ -791,11 +802,6 @@ pub fn evaluate_face(
         CenterType::Special,
         true,
     );
-
-    rig.scale_part_down(scale(data.scale_down, 0.4))?;
-    rig.scale_part_middle(scale(data.scale_middle, 0.4))?;
-    rig.scale_part_up(scale(data.scale_up, 0.4))?;
-    rig.refresh_positions();
 
     rig.selection.clear();
     rig.select_group(3);
@@ -898,6 +904,15 @@ pub fn evaluate_face(
     );
     rig.selection.clear();
     rig.move_cheek(offset(data.scale_jaw_special, 0.01), true);
+
+    // CECFace::CalculateAllFaceShape calls Calculate3Parts after CalculateJaw,
+    // not immediately after CalculateFace.  The middle bone part contains all
+    // four authored brow bones, and all three parts overlap groups transformed
+    // by the intervening forehead/yoke/cheek/jaw operations.
+    rig.scale_part_down(scale(data.scale_down, 0.4))?;
+    rig.scale_part_middle(scale(data.scale_middle, 0.4))?;
+    rig.scale_part_up(scale(data.scale_up, 0.4))?;
+    rig.refresh_positions();
 
     Ok(rig)
 }
@@ -1159,14 +1174,29 @@ mod tests {
     fn weighted_matrix_list_preserves_native_unnormalised_translation() {
         let a = Mat4::from_translation(Vec3::new(2.0, 0.0, 0.0));
         let b = Mat4::from_translation(Vec3::new(0.0, 4.0, 0.0));
-        let combined = combine_matrix_list(&[a, b, Mat4::IDENTITY], &[0.25, 0.5, 1.0]);
+        let combined =
+            combine_matrix_list(Mat4::IDENTITY, &[a, b, Mat4::IDENTITY], &[0.25, 0.5, 1.0]);
         assert_eq!(combined.w_axis.truncate(), Vec3::new(0.5, 2.0, 0.0));
         assert_eq!(combined.x_axis.x, 1.0);
     }
 
     #[test]
+    fn native_conjugated_single_expression_round_trips_through_controller() {
+        let original = Mat4::from_translation(Vec3::new(0.03, -0.02, 0.11))
+            * Mat4::from_rotation_y(0.37)
+            * Mat4::from_rotation_z(-0.21);
+        let expression = Mat4::from_translation(Vec3::new(-0.01, 0.02, 0.03))
+            * Mat4::from_rotation_x(0.19)
+            * Mat4::from_scale(Vec3::splat(1.1));
+        let combined = combine_matrix_list(original, &[expression, Mat4::IDENTITY], &[1.0, 1.0]);
+        let a = combined.to_cols_array();
+        let e = expression.to_cols_array();
+        assert!(a.iter().zip(e).all(|(a, e)| (a - e).abs() < 2e-5));
+    }
+
+    #[test]
     fn three_zero_quaternion_initializer_is_not_a_zero_quaternion() {
-        let combined = combine_matrix_list(&[Mat4::IDENTITY], &[1.0]);
+        let combined = combine_matrix_list(Mat4::IDENTITY, &[Mat4::IDENTITY], &[1.0]);
         assert!(combined.is_finite());
         assert!((combined.w_axis.w - 1.0).abs() < 1e-6);
     }
@@ -1177,6 +1207,193 @@ mod tests {
         assert_eq!(scale(128, 0.6), 1.0);
         assert_eq!(offset(0, 0.02), -0.02);
         assert_eq!(offset(128, 0.02), 0.0);
+    }
+
+    #[test]
+    fn authentic_brow_sliders_match_independent_native_matrix_sequences() {
+        use crate::modules::designer::{
+            catalog::{Class, Gender},
+            customize::CharacterDesign,
+        };
+
+        fn apply_side(
+            rig: &mut FaceRig,
+            bones: [usize; 4],
+            horizontal: Vec3,
+            vertical: Vec3,
+            angle: f32,
+            delta: Vec3,
+        ) {
+            // CT_ALL scale is a translation by the scaled positional delta.
+            let centre = bones.iter().map(|&bone| rig.positions[bone]).sum::<Vec3>() / 4.0;
+            for bone in bones {
+                let transform = transform_about(centre, Mat4::from_scale(horizontal));
+                let old = rig.positions[bone];
+                let displacement = transform.transform_point3(old) - old;
+                rig.tm[bone] = Mat4::from_translation(displacement) * rig.tm[bone];
+                rig.refresh_positions();
+            }
+            // CT_SELF scale uses each bone's own current position.
+            for bone in bones {
+                let centre = rig.positions[bone];
+                rig.tm[bone] = transform_about(centre, Mat4::from_scale(vertical)) * rig.tm[bone];
+                rig.refresh_positions();
+            }
+            let centre = bones.iter().map(|&bone| rig.positions[bone]).sum::<Vec3>() / 4.0;
+            for bone in bones {
+                rig.tm[bone] = transform_about(centre, Mat4::from_rotation_z(angle)) * rig.tm[bone];
+                rig.refresh_positions();
+            }
+            for bone in bones {
+                rig.tm[bone] = Mat4::from_translation(delta) * rig.tm[bone];
+                rig.refresh_positions();
+            }
+        }
+
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("facedata.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let class = Class::Blademaster;
+        let gender = Gender::Female;
+        let bytes = assets.read(&class.default_ini(gender)).unwrap();
+        let mut design = CharacterDesign::from_default_ini(class, gender, &bytes).unwrap();
+        let data = &mut design.customize.face;
+        data.scale_brow_h = 171;
+        data.scale_brow_v = 83;
+        data.rotate_brow = 146;
+        data.offset_brow_h = 159;
+        data.offset_brow_v = 112;
+        data.offset_brow_z = 137;
+        data.scale_brow_h2 = 92;
+        data.scale_brow_v2 = 161;
+        data.rotate_brow2 = 119;
+        data.offset_brow_h2 = 103;
+        data.offset_brow_v2 = 148;
+        data.offset_brow_z2 = 121;
+
+        let skeleton_path = class.face_asset(gender, design.customize.body_id, "bon");
+        let skeleton = Skeleton::parse(&assets.read(&skeleton_path).unwrap()).unwrap();
+        let config = FaceConfig::load(&mut assets).unwrap();
+        let mut warnings = Vec::new();
+        let resources = FaceResources::load(&design, &mut assets, &mut warnings);
+        let expression = resources.brow.as_ref().unwrap();
+        let data = &design.customize.face;
+
+        let mut actual = FaceRig::new(&skeleton, config.clone()).unwrap();
+        actual.add_shape(&[(expression, 1.0)]);
+        calculate_brow(&mut actual, data);
+
+        let mut expected = FaceRig::new(&skeleton, config).unwrap();
+        // One expression at weight one plus identity reduces exactly to the
+        // authored record, even through native conjugated list blending.
+        for bone in 0..TOTAL_BONES {
+            if let Some(matrix) = expression.get(bone) {
+                expected.tm[bone] = matrix;
+            }
+        }
+        expected.refresh_positions();
+        apply_side(
+            &mut expected,
+            [87, 88, 89, 90],
+            Vec3::new(scale(data.scale_brow_h, 0.4), 1.0, 1.0),
+            Vec3::new(1.0, scale(data.scale_brow_v, 1.0), 1.0),
+            offset(data.rotate_brow, 0.8),
+            Vec3::new(
+                offset(data.offset_brow_h, 0.01),
+                offset(data.offset_brow_v, 0.01),
+                offset(data.offset_brow_z, 0.01),
+            ),
+        );
+        apply_side(
+            &mut expected,
+            [22, 23, 24, 25],
+            Vec3::new(scale(data.scale_brow_h2, 0.4), 1.0, 1.0),
+            Vec3::new(1.0, scale(data.scale_brow_v2, 1.0), 1.0),
+            -offset(data.rotate_brow2, 0.8),
+            Vec3::new(
+                -offset(data.offset_brow_h2, 0.01),
+                offset(data.offset_brow_v2, 0.01),
+                offset(data.offset_brow_z2, 0.01),
+            ),
+        );
+        for bone in [22, 23, 24, 25, 87, 88, 89, 90] {
+            let a = actual.tm[bone].to_cols_array();
+            let e = expected.tm[bone].to_cols_array();
+            assert!(
+                a.iter().zip(e).all(|(a, e)| (a - e).abs() < 2e-5),
+                "brow bone {bone}: {a:?} != {e:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn authentic_three_part_scaling_is_numerically_last() {
+        use crate::modules::designer::{
+            catalog::{Class, Gender},
+            customize::CharacterDesign,
+        };
+
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("facedata.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let class = Class::Blademaster;
+        let gender = Gender::Female;
+        let bytes = assets.read(&class.default_ini(gender)).unwrap();
+        let mut adjusted = CharacterDesign::from_default_ini(class, gender, &bytes).unwrap();
+        let face = &mut adjusted.customize.face;
+        face.scale_up = 172;
+        face.scale_middle = 76;
+        face.scale_down = 149;
+        face.offset_forehead_v = 181;
+        face.rotate_forehead = 157;
+        face.scale_forehead = 143;
+        face.offset_yoke_bone_h = 166;
+        face.scale_yoke_bone = 137;
+        face.offset_cheek_v = 174;
+        face.scale_cheek = 151;
+        face.rotate_chain = 146;
+        face.scale_chain_h = 139;
+        face.offset_jaw_v = 169;
+        face.scale_jaw_h = 141;
+        face.scale_jaw_special = 158;
+
+        let mut neutral = adjusted.clone();
+        neutral.customize.face.scale_up = 128;
+        neutral.customize.face.scale_middle = 128;
+        neutral.customize.face.scale_down = 128;
+        let skeleton_path = class.face_asset(gender, adjusted.customize.body_id, "bon");
+        let skeleton = Skeleton::parse(&assets.read(&skeleton_path).unwrap()).unwrap();
+        let config = FaceConfig::load(&mut assets).unwrap();
+        let mut warnings = Vec::new();
+        let resources = FaceResources::load(&adjusted, &mut assets, &mut warnings);
+        let actual = evaluate_face(&skeleton, config.clone(), &adjusted, &resources).unwrap();
+
+        // With neutral 3-part sliders those operations are identities, so this
+        // is exactly the native state immediately before Calculate3Parts.
+        let mut expected = evaluate_face(&skeleton, config, &neutral, &resources).unwrap();
+        expected
+            .scale_part_down(scale(adjusted.customize.face.scale_down, 0.4))
+            .unwrap();
+        expected
+            .scale_part_middle(scale(adjusted.customize.face.scale_middle, 0.4))
+            .unwrap();
+        expected
+            .scale_part_up(scale(adjusted.customize.face.scale_up, 0.4))
+            .unwrap();
+        expected.refresh_positions();
+        for bone in 0..TOTAL_BONES {
+            let a = actual.tm[bone].to_cols_array();
+            let e = expected.tm[bone].to_cols_array();
+            assert!(
+                a.iter().zip(e).all(|(a, e)| (a - e).abs() < 2e-5),
+                "bone {bone} differs from native Calculate3Parts placement: {a:?} != {:?}",
+                expected.tm[bone].to_cols_array()
+            );
+        }
     }
 
     #[test]

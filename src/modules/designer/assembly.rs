@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     ecmodel,
-    model_asset::{self, ModelAsset, PosedMesh, SkinAsset},
+    model_asset::{self, FaceShader, ModelAsset, PosedMesh, SkinAsset},
     modules::walker::pose::{self, BoneControl, BoneScale, ScaleType},
     skeleton::Skeleton,
     skeleton_pose::Pose,
@@ -38,9 +38,9 @@ pub struct FaceTextureStage {
     pub skin: usize,
     pub mesh: usize,
     pub base: String,
-    /// Native stage 1/2 texture. The retained ordinary renderer currently
-    /// consumes `base`; keeping the authentic high texture here prevents the
-    /// assembly layer from discarding data needed by the face-shader renderer.
+    /// Native stage 1/2 texture. Brow stages also populate the dedicated
+    /// two-texture `FaceShader`; the remaining records preserve data needed by
+    /// the other authentic face-shader implementations.
     pub high: Option<String>,
 }
 
@@ -464,8 +464,21 @@ impl Character {
             if !item.has_loadable_model() {
                 return Err(format!("mount {} has no loadable model path", item.id));
             }
-            let asset = ModelAsset::load_with(&item.model, |path| assets.read(path))
-                .map_err(|error| format!("mount {} ({}): {error}", item.id, item.model))?;
+            // CECPlayer::LoadPetModel loads the rig with LSF_NOSKIN, then
+            // attaches the SKI obtained by changing the ECM extension. It also
+            // uses the armor-reflection replacement shader for the pet.
+            let mut asset =
+                ModelAsset::load_without_skins_with(&item.model, |path| assets.read(path))
+                    .map_err(|error| format!("mount {} ({}): {error}", item.id, item.model))?;
+            let skin_path = ecmodel::normalize(&item.model)
+                .rsplit_once('.')
+                .map(|(stem, _)| format!("{stem}.ski"))
+                .ok_or_else(|| format!("mount {} has an invalid model path", item.id))?;
+            asset.skins.push(
+                load_skin(assets, &skin_path)
+                    .map_err(|error| format!("mount {} skin ({skin_path}): {error}", item.id))?,
+            );
+            apply_armor_reflect_shader(&mut asset);
             Some(MountModel {
                 asset,
                 speed: item.speed_a,
@@ -1086,7 +1099,15 @@ fn apply_face_textures_and_colors(
         (6, moustache_color, moustache_choice),
     ] {
         apply_face_part(
-            model, slots.face, part, color, choice, assets, stages, warnings,
+            model,
+            slots.face,
+            part,
+            color,
+            data.color_face,
+            choice,
+            assets,
+            stages,
+            warnings,
         )?;
     }
 
@@ -1141,6 +1162,7 @@ fn apply_face_part(
     skin: usize,
     part: usize,
     color: u32,
+    skin_color: u32,
     choice: Option<TextureChoice>,
     assets: &Assets,
     stages: &mut Vec<FaceTextureStage>,
@@ -1166,7 +1188,21 @@ fn apply_face_part(
     };
     model.mesh_tints.insert((skin, mesh), color);
     if let Some(choice) = choice {
-        apply_texture_choice(model, skin, mesh, texture, choice, assets, stages, warnings);
+        let stage =
+            apply_texture_choice(model, skin, mesh, texture, choice, assets, stages, warnings);
+        if part == 2 {
+            if let Some(highlight) = stage.and_then(|stage| stage.high) {
+                model.mesh_tints.remove(&(skin, mesh));
+                model.face_shaders.insert(
+                    (skin, mesh),
+                    FaceShader::Brow {
+                        color,
+                        skin_color,
+                        highlight,
+                    },
+                );
+            }
+        }
     }
     Ok(())
 }
@@ -1201,7 +1237,8 @@ fn apply_extra_texture(
             model.mesh_tints.insert((skin, mesh), color);
         }
         if let Some(choice) = choice.clone() {
-            apply_texture_choice(model, skin, mesh, texture, choice, assets, stages, warnings);
+            let _ =
+                apply_texture_choice(model, skin, mesh, texture, choice, assets, stages, warnings);
         }
     }
     Ok(())
@@ -1217,20 +1254,20 @@ fn apply_texture_choice(
     assets: &Assets,
     stages: &mut Vec<FaceTextureStage>,
     warnings: &mut Vec<String>,
-) {
+) -> Option<FaceTextureStage> {
     if texture < 0 {
         warnings.push(format!(
             "{} mesh {mesh} is untextured; customized texture was not applied",
             model.skins[skin].path
         ));
-        return;
+        return None;
     }
     let base = ecmodel::normalize(&choice.base);
     if base.is_empty() || !assets.contains(&base) {
         warnings.push(format!(
             "missing customized texture {base}; retaining the SKI texture"
         ));
-        return;
+        return None;
     }
     let high = choice
         .high
@@ -1249,12 +1286,14 @@ fn apply_texture_choice(
     model
         .texture_overrides
         .insert((skin, texture as usize), base.clone());
-    stages.push(FaceTextureStage {
+    let stage = FaceTextureStage {
         skin,
         mesh,
         base,
         high,
-    });
+    };
+    stages.push(stage.clone());
+    Some(stage)
 }
 
 #[cfg(test)]
@@ -1356,6 +1395,68 @@ mod tests {
             }
         }
         assert_eq!(evaluated, 14);
+    }
+
+    #[test]
+    fn authentic_brows_keep_highlight_and_separate_skin_color() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let mut evaluated = 0;
+        for class in Class::ALL {
+            for gender in Gender::ALL {
+                if !class.allows(gender) {
+                    continue;
+                }
+                let design = assets.default_design(class, gender).unwrap();
+                let brow_texture = design.customize.face.id_brow_tex;
+                let brow_color = design.customize.face.color_brow;
+                let skin_color = design.customize.face.color_face;
+                let character = Character::assemble(design, &mut assets).unwrap();
+                let face = &character.face;
+                for (mesh_index, mesh) in face.skins[character.face_skins.face]
+                    .data
+                    .meshes
+                    .iter()
+                    .enumerate()
+                {
+                    if !mesh.name.eq_ignore_ascii_case("model人脸_2") {
+                        continue;
+                    }
+                    if brow_texture == 0 {
+                        continue;
+                    }
+                    let key = (character.face_skins.face, mesh_index);
+                    let Some(FaceShader::Brow {
+                        color,
+                        skin_color: actual_skin,
+                        highlight,
+                    }) = face.face_shaders.get(&key)
+                    else {
+                        panic!(
+                            "{} {} lost its native brow shader",
+                            class.name(),
+                            gender.name()
+                        );
+                    };
+                    assert_eq!(*color, brow_color);
+                    assert_eq!(*actual_skin, skin_color);
+                    assert!(assets.contains(highlight));
+                    assert!(!face.mesh_tints.contains_key(&key));
+                    assert!(character.face_texture_stages.iter().any(|stage| {
+                        stage.skin == key.0
+                            && stage.mesh == key.1
+                            && stage.high.as_ref() == Some(highlight)
+                    }));
+                    evaluated += 1;
+                }
+            }
+        }
+        // The authentic rigs contain nine customizable brow meshes; several
+        // classes intentionally share rigs or omit this optional part.
+        assert_eq!(evaluated, 9);
     }
 
     #[test]

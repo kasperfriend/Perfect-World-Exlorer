@@ -43,6 +43,20 @@ impl SkinAsset {
         Err(failures.join("; "))
     }
 }
+/// Authentic multi-texture face shader attached to one retained mesh.
+/// Ordinary model modulation remains in `mesh_tints`; these shaders have
+/// separate constants and must not be collapsed into that single tint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FaceShader {
+    /// `Shaders/ps/facerender/browrender.txt`: base × skin colour, highlight ×
+    /// brow colour, highlight-alpha interpolation, then vertex light/specular.
+    Brow {
+        color: u32,
+        skin_color: u32,
+        highlight: String,
+    },
+}
+
 pub struct ModelAsset {
     pub descriptor: ecmodel::EcModel,
     pub model: ecmodel::SkinModel,
@@ -57,6 +71,9 @@ pub struct ModelAsset {
     pub texture_overrides: HashMap<(usize, usize), String>,
     /// Per-mesh ARGB modulation used by the native body/face TFactor shaders.
     pub mesh_tints: HashMap<(usize, usize), u32>,
+    /// Authentic face-part shaders whose constants/textures cannot be
+    /// represented by one diffuse texture and one mesh tint.
+    pub face_shaders: HashMap<(usize, usize), FaceShader>,
     /// Native per-skin visibility, notably the body head hidden by CECFace.
     /// Hidden meshes remain fully posed and validated but are not submitted.
     pub hidden_meshes: HashSet<(usize, usize)>,
@@ -289,6 +306,7 @@ impl ModelAsset {
             tracks,
             texture_overrides: HashMap::new(),
             mesh_tints: HashMap::new(),
+            face_shaders: HashMap::new(),
             hidden_meshes: HashSet::new(),
             diffuse_alpha_meshes: HashSet::new(),
         })
@@ -340,6 +358,7 @@ impl ModelAsset {
             tracks: Vec::new(),
             texture_overrides: HashMap::new(),
             mesh_tints: HashMap::new(),
+            face_shaders: HashMap::new(),
             hidden_meshes: HashSet::new(),
             diffuse_alpha_meshes: HashSet::new(),
         })

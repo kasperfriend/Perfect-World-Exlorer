@@ -151,6 +151,8 @@ fn main() {
                         clip_plane: [0.; 4],
                         raster: [1., 0., 0., 0.],
                         alpha: [1., 0., 0., 0.],
+                        face_color: [1.; 4],
+                        face_skin: [1.; 4],
                     };
                     let vertices: Vec<_> = positions
                         .iter()
@@ -163,7 +165,9 @@ fn main() {
                         .collect();
                     let mesh = Mesh::new(&device, &vertices, &[0, 1, 2, 2, 1, 3]).unwrap();
                     assert!(mesh.update(&queue, &vertices[..3]).is_err());
-                    let binding = receiver.binding(&device, &view, &sampler, &params).unwrap();
+                    let binding = receiver
+                        .binding(&device, &view, &view, &sampler, &params)
+                        .unwrap();
                     // Exercise every rejection mode for ordinary meshes and one
                     // additional native equipment-alpha case for each light.
                     for reject in 0..15 {
@@ -279,5 +283,129 @@ fn main() {
             }
         }
     }
+    // Authentic Brow.sdr / browrender.txt: base*skin and highlight*brow are
+    // interpolated by highlight alpha before vertex lighting. Opacity still
+    // comes from base alpha, not highlight alpha.
+    let highlight = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("native brow highlight"),
+        size: image.size(),
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let highlight_texel = [32u8, 224, 96, 64];
+    queue.write_texture(
+        highlight.as_image_copy(),
+        &highlight_texel,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(4),
+            rows_per_image: Some(1),
+        },
+        highlight.size(),
+    );
+    let highlight_view = highlight.create_view(&Default::default());
+    let brow = [0.5, 0.25, 0.125, 1.];
+    let skin = [0.25, 0.75, 0.5, 1.];
+    let ambient = [0.5, 0.6, 0.7, 0.8];
+    let params = Params {
+        matrix: glam::Mat4::IDENTITY.to_cols_array_2d(),
+        ambient,
+        diffuse: [0.; 4],
+        point_ambient: [0.; 4],
+        point_diffuse: [0.; 4],
+        direction: [0.; 4],
+        point_position: [0.; 4],
+        attenuation: [0.; 4],
+        eye_direction: [0.; 4],
+        specular: [0.; 4],
+        lighting: [0.; 4],
+        fog_color,
+        fog_range: [0.; 4],
+        clip_plane: [0.; 4],
+        raster: [1., 0., 0., 0.],
+        alpha: [1., 1., 0., 0.],
+        face_color: brow,
+        face_skin: skin,
+    };
+    let vertices: Vec<_> = positions
+        .iter()
+        .map(|&position| Vertex {
+            position,
+            normal: [0., 0., 1.],
+            uv: [0.5; 2],
+            fog: 1.,
+        })
+        .collect();
+    let mesh = Mesh::new(&device, &vertices, &[0, 1, 2, 2, 1, 3]).unwrap();
+    let binding = receiver
+        .binding(&device, &view, &highlight_view, &sampler, &params)
+        .unwrap();
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("native brow raster"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: background[0] as f64 / 255.,
+                        g: background[1] as f64 / 255.,
+                        b: background[2] as f64 / 255.,
+                        a: background[3] as f64 / 255.,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        receiver.draw(&mut pass, &mesh, &binding);
+    }
+    encoder.copy_texture_to_buffer(
+        target.as_image_copy(),
+        wgpu::ImageCopyBuffer {
+            buffer: &read,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(256),
+                rows_per_image: Some(1),
+            },
+        },
+        target.size(),
+    );
+    queue.submit(Some(encoder.finish()));
+    let slice = read.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+    device.poll(wgpu::Maintain::Wait);
+    rx.recv().unwrap().unwrap();
+    let bytes = slice.get_mapped_range();
+    let opacity = ambient[3] * texel[3] as f32 / 255.;
+    for c in 0..4 {
+        let src = if c == 3 {
+            opacity
+        } else {
+            let base = texel[c] as f32 / 255. * skin[c];
+            let high = highlight_texel[c] as f32 / 255. * brow[c];
+            let a = highlight_texel[3] as f32 / 255.;
+            (base * (1. - a) + high * a) * ambient[c]
+        };
+        let expected =
+            ((src * opacity + background[c] as f32 / 255. * (1. - opacity)) * 255.).round() as u8;
+        assert!(
+            (bytes[c] as i32 - expected as i32).abs() <= 1,
+            "native brow channel {c}: {} != {expected}",
+            bytes[c]
+        );
+    }
+    drop(bytes);
+    read.unmap();
     println!("::notice::{cases} production model raster RGBA checks passed (material/light variants, encoded blend, fog, clip and alpha-test)");
+    println!("::notice::1 native brow raster RGBA check passed (base/skin, highlight/brow, highlight-alpha lerp and base-alpha opacity)");
 }
