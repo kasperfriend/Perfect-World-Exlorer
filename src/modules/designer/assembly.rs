@@ -55,15 +55,43 @@ pub struct FaceSkinSlots {
 pub struct WeaponModel {
     pub asset: ModelAsset,
     pub hook: &'static str,
+    /// Native GetRight/LeftWeaponOwnHookPos. Models without CC_weapon bind
+    /// directly to the hand; only a right-hand model may fall back to CC_qiu.
+    pub child_hook: Option<&'static str>,
 }
 
 /// The armor-reflection shader writes diffuse alpha directly; texture alpha is
-/// a specular input, not opacity. Native ChangeWing uses this shader too.
+/// a specular input, not opacity.
 fn apply_armor_reflect_shader(asset: &mut ModelAsset) {
     for (skin_index, skin) in asset.skins.iter().enumerate() {
         asset
             .diffuse_alpha_meshes
             .extend((0..skin.data.meshes.len()).map(|mesh| (skin_index, mesh)));
+    }
+}
+
+/// `glb_ArmorReplaceShader_ReflectPrefix` replaces only textures whose file
+/// title starts with `r_` (with `rw_` handled by a different shader). ChangeWing
+/// uses that selective callback: an ordinary wing such as 老鹰羽翅.dds keeps its
+/// original texture-alpha opacity instead of becoming an opaque armor card.
+fn reflect_prefix_texture(path: &str) -> bool {
+    ecmodel::normalize(path)
+        .rsplit('/')
+        .next()
+        .is_some_and(|name| name.to_ascii_lowercase().starts_with("r_"))
+}
+
+fn apply_reflect_prefix_shader(asset: &mut ModelAsset) {
+    for (skin_index, skin) in asset.skins.iter().enumerate() {
+        for (mesh_index, mesh) in skin.data.meshes.iter().enumerate() {
+            let matches = usize::try_from(mesh.texture)
+                .ok()
+                .and_then(|texture| skin.data.textures.get(texture))
+                .is_some_and(|texture| reflect_prefix_texture(texture));
+            if matches {
+                asset.diffuse_alpha_meshes.insert((skin_index, mesh_index));
+            }
+        }
     }
 }
 
@@ -380,9 +408,9 @@ impl Character {
                         design.equipment.weapon
                     )
                 })?;
-            for (path, hook) in [
-                (weapon.right_model, "HH_righthandweapon"),
-                (weapon.left_model, "HH_lefthandweapon"),
+            for (path, hook, right) in [
+                (weapon.right_model, "HH_righthandweapon", true),
+                (weapon.left_model, "HH_lefthandweapon", false),
             ] {
                 // elements.data uses "0" for an absent hand model (for
                 // example weapon 19's left hand). It is not an archive path.
@@ -392,7 +420,19 @@ impl Character {
                 let mut asset = ModelAsset::load_with(&path, |path| assets.read(path))
                     .map_err(|error| format!("weapon {} ({path}): {error}", weapon.id))?;
                 apply_weapon_material(&mut asset);
-                weapons.push(WeaponModel { asset, hook });
+                let has_hook = |name| asset.skeleton.hooks.iter().any(|hook| hook.name == name);
+                let child_hook = if has_hook("CC_weapon") {
+                    Some("CC_weapon")
+                } else if right && has_hook("CC_qiu") {
+                    Some("CC_qiu")
+                } else {
+                    None
+                };
+                weapons.push(WeaponModel {
+                    asset,
+                    hook,
+                    child_hook,
+                });
             }
         }
         let class_speeds = assets
@@ -434,7 +474,7 @@ impl Character {
             };
             let mut asset = ModelAsset::load_with(&item.model, |path| assets.read(path))
                 .map_err(|error| format!("flight item {} ({}): {error}", item.id, item.model))?;
-            apply_armor_reflect_shader(&mut asset);
+            apply_reflect_prefix_shader(&mut asset);
             Some(FlightModel {
                 asset,
                 model_path: item.model,
@@ -622,12 +662,33 @@ impl Character {
         )?;
         let mut weapon_poses = Vec::with_capacity(self.weapons.len());
         for weapon in &self.weapons {
-            let hook = model_asset::hook_matrix(&self.body.skeleton, &body, weapon.hook)?;
+            let parent = model_asset::hook_matrix(&self.body.skeleton, &body, weapon.hook)?;
+            let attached = if let Some(child_hook) = weapon.child_hook {
+                // CECPlayer::AttachWeapon supplies both HH and the weapon's own
+                // CC hook. Evaluating at HH alone discards the authored grip
+                // offset and rotates long weapons around the wrong point.
+                let reference = pose::evaluate_controlled(
+                    &weapon.asset.skeleton,
+                    &[],
+                    0.0,
+                    Mat4::IDENTITY,
+                    &[],
+                    &[],
+                )?;
+                let child = model_asset::hook_matrix(
+                    &weapon.asset.skeleton,
+                    &reference,
+                    child_hook,
+                )?;
+                hanger_world(parent, child)?
+            } else {
+                parent
+            };
             weapon_poses.push(pose::evaluate_controlled(
                 &weapon.asset.skeleton,
                 &[],
                 0.0,
-                hook,
+                attached,
                 &[],
                 &[],
             )?);
@@ -847,20 +908,20 @@ fn plan_equipment(
         };
         let basic_location = target_index(slot) as i32 + 1;
         if id == 0 {
-            show_mask |= 1 << basic_location;
-            let path = if fashion {
-                design.class.default_fashion_skin(design.gender, slot)
-            } else {
-                design.class.default_armor_skin(design.gender, slot)
-            };
-            if let Some(path) = path {
-                parts[target_index(slot)] = Some(EquipmentPart {
-                    target: slot,
-                    item_id: 0,
-                    equip_location: basic_location,
-                    path,
-                    visible: true,
-                });
+            // Only explicitly marked starter/reset slots retain CECPlayer's
+            // class/gender default-SKI fallback. An ordinary Designer zero is
+            // empty and exposes the base body, including in fashion mode.
+            if !fashion && design.equipment.native_default_armor(slot) {
+                show_mask |= 1 << basic_location;
+                if let Some(path) = design.class.default_armor_skin(design.gender, slot) {
+                    parts[target_index(slot)] = Some(EquipmentPart {
+                        target: slot,
+                        item_id: 0,
+                        equip_location: basic_location,
+                        path,
+                        visible: true,
+                    });
+                }
             }
             continue;
         }
@@ -1212,17 +1273,24 @@ fn apply_face_part(
     if let Some(choice) = choice {
         let stage =
             apply_texture_choice(model, skin, mesh, texture, choice, assets, stages, warnings);
-        if part == 2 {
+        if matches!(part, 1 | 2 | 5) {
             if let Some(highlight) = stage.and_then(|stage| stage.high) {
                 model.mesh_tints.remove(&(skin, mesh));
-                model.face_shaders.insert(
-                    (skin, mesh),
-                    FaceShader::Brow {
+                let shader = match part {
+                    1 => FaceShader::Eye {
                         color,
                         skin_color,
                         highlight,
                     },
-                );
+                    2 => FaceShader::Brow {
+                        color,
+                        skin_color,
+                        highlight,
+                    },
+                    5 => FaceShader::EyeBall { color, highlight },
+                    _ => unreachable!(),
+                };
+                model.face_shaders.insert((skin, mesh), shader);
             }
         }
     }
@@ -1323,6 +1391,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn reflect_prefix_replacement_does_not_capture_ordinary_wing_alpha() {
+        assert!(reflect_prefix_texture("Textures\\Wings\\R_Feather.DDS"));
+        assert!(!reflect_prefix_texture("Textures\\Wings\\老鹰羽翅.dds"));
+        assert!(!reflect_prefix_texture("Textures\\Wings\\rw_Feather.DDS"));
+    }
+
+    #[test]
     fn composite_equipment_matches_native_show_masks() {
         assert_eq!(equipment_visibility(1 << 1), [true, true, true, true]);
         assert_eq!(equipment_visibility(1 << 5), [true, true, false, true]);
@@ -1420,6 +1495,36 @@ mod tests {
     }
 
     #[test]
+    fn zero_armor_and_fashion_are_empty_not_native_default_skins() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        for fashion_mode in [false, true] {
+            let mut design = assets
+                .default_design(Class::Blademaster, Gender::Male)
+                .unwrap();
+            design.equipment.fashion_mode = fashion_mode;
+            for slot in [
+                ArmorSlot::Upper,
+                ArmorSlot::Wrist,
+                ArmorSlot::Lower,
+                ArmorSlot::Foot,
+            ] {
+                design.equipment.set_armor(slot, 0);
+                design.equipment.set_fashion(slot, 0);
+            }
+            let character = Character::assemble(design, &mut assets).unwrap();
+            assert!(character.equipment.is_empty());
+            assert_eq!(character.body.skins.len(), 2, "base body + hidden native head only");
+            assert_eq!(character.body.model.skins.len(), 2);
+            let pose = character.bind_pose(Mat4::IDENTITY).unwrap();
+            assert!(!character.meshes_from_pose(&pose).unwrap().body.is_empty());
+        }
+    }
+
+    #[test]
     fn authentic_brows_keep_highlight_and_separate_skin_color() {
         let element = std::path::Path::new("google_drive/pw142/element");
         if !element.join("models.pck").exists() {
@@ -1482,6 +1587,65 @@ mod tests {
     }
 
     #[test]
+    fn authentic_eye_and_eyeball_use_their_dedicated_two_and_three_stage_shaders() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let design = assets
+            .default_design(Class::Blademaster, Gender::Male)
+            .unwrap();
+        let eye_color = design.customize.face.color_eye;
+        let eyeball_color = design.customize.face.color_eye_ball;
+        let skin_color = design.customize.face.color_face;
+        let character = Character::assemble(design, &mut assets).unwrap();
+        let face = &character.face;
+        let mut eye = false;
+        let mut eyeball = false;
+        for (mesh_index, mesh) in face.skins[character.face_skins.face]
+            .data
+            .meshes
+            .iter()
+            .enumerate()
+        {
+            let key = (character.face_skins.face, mesh_index);
+            if mesh.name.eq_ignore_ascii_case("model人脸_1") {
+                let Some(FaceShader::Eye {
+                    color,
+                    skin_color: actual_skin,
+                    highlight,
+                }) = face.face_shaders.get(&key)
+                else {
+                    panic!("authentic eye mesh lost its native Eye shader");
+                };
+                assert_eq!(*color, eye_color);
+                assert_eq!(*actual_skin, skin_color);
+                assert!(assets.contains(highlight));
+                assert_eq!(face.face_shaders[&key].gloss(), None);
+                eye = true;
+            } else if mesh.name.eq_ignore_ascii_case("model人脸_5") {
+                let Some(FaceShader::EyeBall { color, highlight }) =
+                    face.face_shaders.get(&key)
+                else {
+                    panic!("authentic eyeball mesh lost its native EyeBall shader");
+                };
+                assert_eq!(*color, eyeball_color);
+                assert!(assets.contains(highlight));
+                assert_eq!(
+                    face.face_shaders[&key].gloss(),
+                    Some("textures/face/eyereflect.tga")
+                );
+                eyeball = true;
+            } else {
+                continue;
+            }
+            assert!(!face.mesh_tints.contains_key(&key));
+        }
+        assert!(eye && eyeball, "authentic face must contain Eye and EyeBall meshes");
+    }
+
+    #[test]
     fn authentic_body_uses_dedicated_color_mask_shader() {
         let element = std::path::Path::new("google_drive/pw142/element");
         if !element.join("models.pck").exists() {
@@ -1524,6 +1688,36 @@ mod tests {
         let character = Character::assemble(design, &mut assets).unwrap();
         assert_eq!(character.weapons.len(), 1);
         assert_eq!(character.weapons[0].hook, "HH_righthandweapon");
+        assert_eq!(character.weapons[0].child_hook, Some("CC_weapon"));
+
+        let posed = character.bind_pose(Mat4::IDENTITY).unwrap();
+        let parent = model_asset::hook_matrix(
+            &character.body.skeleton,
+            &posed.body,
+            character.weapons[0].hook,
+        )
+        .unwrap();
+        let reference = pose::evaluate_controlled(
+            &character.weapons[0].asset.skeleton,
+            &[],
+            0.0,
+            Mat4::IDENTITY,
+            &[],
+            &[],
+        )
+        .unwrap();
+        let child = model_asset::hook_matrix(
+            &character.weapons[0].asset.skeleton,
+            &reference,
+            "CC_weapon",
+        )
+        .unwrap();
+        let expected = hanger_world(parent, child).unwrap().to_cols_array();
+        let actual = posed.weapons[0].model.to_cols_array();
+        assert!(actual
+            .iter()
+            .zip(expected)
+            .all(|(actual, expected)| (actual - expected).abs() < 1e-5));
     }
 
     #[test]
@@ -1622,6 +1816,7 @@ mod tests {
         let mut assets = Assets::open(element).unwrap();
         for (class, gender, item, mode) in [
             (Class::Cleric, Gender::Male, 2092, FlightMode::Wing),
+            (Class::Cleric, Gender::Male, 2767, FlightMode::Wing),
             (
                 Class::Blademaster,
                 Gender::Male,
@@ -1645,11 +1840,22 @@ mod tests {
                     assert_eq!(after.specular, before.specular);
                     assert_eq!(after.power, before.power);
                 }
-                for mesh in 0..after.data.meshes.len() {
-                    assert!(flight
-                        .asset
-                        .diffuse_alpha_meshes
-                        .contains(&(skin_index, mesh)));
+                for (mesh_index, before_mesh) in before.data.meshes.iter().enumerate() {
+                    let expected = usize::try_from(before_mesh.texture)
+                        .ok()
+                        .and_then(|texture| before.data.textures.get(texture))
+                        .is_some_and(|texture| reflect_prefix_texture(texture));
+                    assert_eq!(
+                        flight
+                            .asset
+                            .diffuse_alpha_meshes
+                            .contains(&(skin_index, mesh_index)),
+                        expected,
+                        "flight item {item} mesh {mesh_index} alpha routing"
+                    );
+                    if item == 2767 {
+                        assert!(!expected, "Dance of clouds Wings must retain texture alpha");
+                    }
                 }
             }
             let flying = character

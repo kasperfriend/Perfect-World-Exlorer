@@ -461,9 +461,10 @@ pub struct Posed {
     pub meshes: CharacterMeshes,
 }
 
-/// Native zero armor IDs select CECPlayer's profession-specific default SKI
-/// set. Explicitly use that set for a new Walker instead of leaving the base
-/// body visible or starting in fashion mode.
+/// CECPlayer's zero-ID armor callback selects class/gender-specific default
+/// SKIs. Preserve that proven starter/reset appearance explicitly, without
+/// claiming that unrelated level-one item records are a recovered loadout.
+/// An explicit later `set_armor` clears the flag and makes zero bare.
 pub(super) fn starter_design(
     assets: &mut Assets,
     class: Class,
@@ -478,6 +479,7 @@ pub(super) fn starter_design(
         ArmorSlot::Foot,
     ] {
         design.equipment.set_armor(slot, 0);
+        design.equipment.set_native_default_armor(slot, true);
     }
     Ok(design)
 }
@@ -495,7 +497,8 @@ pub struct Character {
     mount_actions: MountActionSet,
     mount_player: Option<ClipPlayer>,
     travel: TravelState,
-    head_bone: Option<usize>,
+    /// Eye anchor in body-model space, measured from the bind/reference head.
+    camera_anchor: Vec3,
     last_jump: u64,
     last_landing: u64,
 }
@@ -545,8 +548,13 @@ impl Character {
         } else {
             (MountActionSet::default(), None)
         };
+        // Animation must not feed back into the camera anchor. Keep the
+        // reference head's local eye position and transform it by the final
+        // body/mount placement, which still follows travel attachment height.
+        let reference = evaluate(&assembly, None, Mat4::IDENTITY)?;
+        let camera_anchor = eye_position(&reference, head_bone)?;
         let posed = evaluate(&assembly, player.sample(), world)?;
-        let eye = eye_position(&posed, head_bone)?;
+        let eye = posed.pose.body.model.transform_point3(camera_anchor);
         let mut warnings = assembly.warnings.clone();
         warnings.extend(action_warnings);
         warnings.extend(travel_warnings);
@@ -564,7 +572,7 @@ impl Character {
             mount_actions,
             mount_player,
             travel: TravelState::Ground,
-            head_bone,
+            camera_anchor,
             last_jump: 0,
             last_landing: 0,
         })
@@ -722,7 +730,7 @@ impl Character {
             },
         };
         let posed = evaluate_travel(&self.assembly, self.player.sample(), world, animation)?;
-        self.eye = eye_position(&posed, self.head_bone)?;
+        self.eye = posed.pose.body.model.transform_point3(self.camera_anchor);
         self.posed = posed;
         Ok(())
     }
@@ -889,11 +897,37 @@ mod tests {
                     ArmorSlot::Foot,
                 ] {
                     assert_eq!(design.equipment.armor(slot), 0);
+                    assert!(design.equipment.native_default_armor(slot));
                 }
                 count += 1;
             }
         }
         assert_eq!(count, 14);
+    }
+
+    #[test]
+    fn clearing_one_starter_slot_is_bare_without_clearing_native_defaults_elsewhere() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let mut design = starter_design(&mut assets, Class::Blademaster, Gender::Male).unwrap();
+        design.equipment.set_armor(ArmorSlot::Upper, 0);
+        assert!(!design.equipment.native_default_armor(ArmorSlot::Upper));
+        for slot in [ArmorSlot::Wrist, ArmorSlot::Lower, ArmorSlot::Foot] {
+            assert!(design.equipment.native_default_armor(slot));
+        }
+        let character = Assembly::assemble(design, &mut assets).unwrap();
+        assert_eq!(character.equipment.len(), 3);
+        assert!(character
+            .equipment
+            .iter()
+            .all(|part| part.target != ArmorSlot::Upper));
+        assert!(character
+            .equipment
+            .iter()
+            .any(|part| part.target == ArmorSlot::Wrist));
     }
 
     #[test]
@@ -923,6 +957,22 @@ mod tests {
             assert!(character.assembly.body.skins.len() > 2);
             assert!(!character.posed.meshes.body.is_empty());
             assert!(!character.posed.meshes.face.is_empty());
+            let camera_eye = character.eye;
+            character
+                .update(
+                    0.05,
+                    &Body::default(),
+                    Vec3::Z,
+                    TravelState::Ground,
+                    false,
+                    0.0,
+                )
+                .unwrap();
+            assert!(
+                (character.eye - camera_eye).length() < 1e-6,
+                "{} idle head animation moved the first-person camera anchor",
+                class.name()
+            );
             assert!(
                 [
                     character.actions.stand,
@@ -1204,6 +1254,7 @@ mod tests {
         let mut assets = Assets::open(element).unwrap();
         for (class, gender, item) in [
             (Class::Cleric, Gender::Male, 2092),
+            (Class::Cleric, Gender::Male, 2767),
             (Class::Blademaster, Gender::Male, 27210),
         ] {
             let mut design = starter_design(&mut assets, class, gender).unwrap();

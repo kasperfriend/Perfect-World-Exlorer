@@ -852,18 +852,27 @@ fn armor_combo(
 ) -> bool {
     let class = design.class;
     let current = design.equipment.armor(slot);
+    let native_default = design.equipment.native_default_armor(slot);
     let mut id = current;
-    let selected = catalog.armor_item(current).map_or_else(
-        || format!("{current} — native default / not in v27"),
-        |item| format!("{} — {}", item.id, item.name),
-    );
+    let selected = if current == 0 {
+        if native_default {
+            "0 — native profession default".to_owned()
+        } else {
+            "0 — empty (bare character)".to_owned()
+        }
+    } else {
+        catalog.armor_item(current).map_or_else(
+            || format!("{current} — not in v27"),
+            |item| format!("{} — {}", item.id, item.name),
+        )
+    };
     let changed = item_combo(
         ui,
         state,
         format!("{label} armor"),
         current,
         selected,
-        Some((0, "0 — profession default".into())),
+        Some((0, "0 — empty (bare character)".into())),
         |query| {
             catalog
                 .armor
@@ -875,7 +884,9 @@ fn armor_combo(
         },
         |new| id = new,
     );
-    design.equipment.set_armor(slot, id);
+    if changed {
+        design.equipment.set_armor(slot, id);
+    }
     changed
 }
 
@@ -890,17 +901,21 @@ fn fashion_combo(
     let gender = design.gender;
     let current = design.equipment.fashion(slot);
     let mut id = current;
-    let selected = catalog.fashion_item(current).map_or_else(
-        || format!("{current} — native default / not in v27"),
-        |item| format!("{} — {}", item.id, item.name),
-    );
+    let selected = if current == 0 {
+        "0 — empty (bare character)".to_owned()
+    } else {
+        catalog.fashion_item(current).map_or_else(
+            || format!("{current} — not in v27"),
+            |item| format!("{} — {}", item.id, item.name),
+        )
+    };
     let changed = item_combo(
         ui,
         state,
         format!("{label} fashion"),
         current,
         selected,
-        Some((0, "0 — native fashion default".into())),
+        Some((0, "0 — empty (bare character)".into())),
         |query| {
             catalog
                 .fashion

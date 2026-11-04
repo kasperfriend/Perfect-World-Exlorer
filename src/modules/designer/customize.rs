@@ -153,6 +153,10 @@ pub struct Equipment {
     pub fashion_lower: u32,
     pub fashion_foot: u32,
     pub fashion_mode: bool,
+    /// Non-INI design state: zero armor slots which still request CECPlayer's
+    /// class/gender default SKI. An explicit `set_armor` clears that slot's bit,
+    /// making zero a genuinely empty slot without disturbing the other slots.
+    pub native_default_armor_mask: u8,
     /// Section-23/24 flight item, hidden until flight is activated.
     pub flight: u32,
     /// Section-95 Ride pet, hidden until riding is activated.
@@ -177,6 +181,22 @@ impl Equipment {
             Wrist => self.wrist = id,
             Lower => self.lower = id,
             Foot => self.foot = id,
+        }
+        self.set_native_default_armor(slot, false);
+    }
+    pub fn native_default_armor(&self, slot: super::catalog::ArmorSlot) -> bool {
+        slot.skin_index().is_some_and(|index| {
+            self.native_default_armor_mask & (1 << index) != 0
+        })
+    }
+    pub fn set_native_default_armor(&mut self, slot: super::catalog::ArmorSlot, enabled: bool) {
+        if let Some(index) = slot.skin_index() {
+            let bit = 1 << index;
+            if enabled {
+                self.native_default_armor_mask |= bit;
+            } else {
+                self.native_default_armor_mask &= !bit;
+            }
         }
     }
     pub fn fashion(&self, slot: super::catalog::ArmorSlot) -> u32 {
@@ -857,6 +877,8 @@ impl SliderBounds {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::catalog::ArmorSlot;
+
     #[test]
     fn authentic_default_round_trip_preserves_ids_sliders_and_signed_argb() {
         let path =
@@ -914,5 +936,15 @@ mod tests {
         assert_eq!(design.customize.face.offset_eye_z, 177);
         assert_eq!(design.customize.face.offset_bridge_tip_z, 166);
         assert_eq!(design.customize.face.offset_mouth_z, 155);
+    }
+
+    #[test]
+    fn explicit_armor_assignment_clears_only_that_native_default_flag() {
+        let mut equipment = Equipment::default();
+        equipment.set_native_default_armor(ArmorSlot::Upper, true);
+        equipment.set_native_default_armor(ArmorSlot::Wrist, true);
+        equipment.set_armor(ArmorSlot::Upper, 0);
+        assert!(!equipment.native_default_armor(ArmorSlot::Upper));
+        assert!(equipment.native_default_armor(ArmorSlot::Wrist));
     }
 }

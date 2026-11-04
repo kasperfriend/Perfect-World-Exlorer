@@ -55,10 +55,38 @@ pub enum FaceShader {
         skin_color: u32,
         highlight: String,
     },
+    /// `Shaders/ps/facerender/eyerender.txt`: base × face colour and
+    /// highlight × eye colour, interpolated by highlight alpha.
+    Eye {
+        color: u32,
+        skin_color: u32,
+        highlight: String,
+    },
+    /// `Shaders/ps/facerender/eyeballrender.txt`: pupil-coloured base mixed
+    /// with the highlight, vertex lighting, then the eyereflect gloss stage.
+    EyeBall { color: u32, highlight: String },
     /// `Shaders/ps/bodyrender.txt`: texture alpha selects between the base
     /// colour and the base colour multiplied by `colorBody`. It is a colour
     /// mask, not opacity; the native shader writes vertex diffuse alpha.
     Body { color: u32 },
+}
+
+impl FaceShader {
+    pub fn highlight(&self) -> Option<&str> {
+        match self {
+            Self::Brow { highlight, .. }
+            | Self::Eye { highlight, .. }
+            | Self::EyeBall { highlight, .. } => Some(highlight),
+            Self::Body { .. } => None,
+        }
+    }
+
+    pub fn gloss(&self) -> Option<&'static str> {
+        match self {
+            Self::EyeBall { .. } => Some("textures/face/eyereflect.tga"),
+            _ => None,
+        }
+    }
 }
 
 pub struct ModelAsset {

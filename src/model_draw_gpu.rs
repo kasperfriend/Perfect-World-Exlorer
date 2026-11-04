@@ -88,6 +88,17 @@ impl Frame {
                 face_mode = 2.;
                 face_color = argb(*color);
             }
+            Some(crate::model_asset::FaceShader::Eye {
+                color, skin_color, ..
+            }) => {
+                face_mode = 3.;
+                face_color = argb(*color);
+                face_skin = argb(*skin_color);
+            }
+            Some(crate::model_asset::FaceShader::EyeBall { color, .. }) => {
+                face_mode = 4.;
+                face_color = argb(*color);
+            }
             None => {}
         }
         let p = Params {
@@ -289,10 +300,10 @@ impl Draw {
         let mut highlight_cache = std::collections::HashMap::<String, usize>::new();
         let mut highlights = Vec::with_capacity(prepared.len());
         for m in &prepared {
-            let index = match m.face_shader {
-                Some(crate::model_asset::FaceShader::Brow { highlight, .. }) => {
+            let index = match m.face_shader.and_then(|shader| shader.highlight()) {
+                Some(highlight) => {
                     if highlight.is_empty() {
-                        return Err("native brow shader has an empty highlight texture".into());
+                        return Err("native face shader has an empty highlight texture".into());
                     }
                     if let Some(&index) = highlight_cache.get(highlight) {
                         Some(index)
@@ -301,13 +312,33 @@ impl Draw {
                             load(highlight).map_err(|error| format!("{highlight}: {error}"))?;
                         let index = textures.len();
                         textures.push(texture);
-                        highlight_cache.insert(highlight.clone(), index);
+                        highlight_cache.insert(highlight.to_owned(), index);
                         Some(index)
                     }
                 }
-                Some(crate::model_asset::FaceShader::Body { .. }) | None => None,
+                None => None,
             };
             highlights.push(index);
+        }
+        let mut gloss_cache = std::collections::HashMap::<String, usize>::new();
+        let mut glosses = Vec::with_capacity(prepared.len());
+        for m in &prepared {
+            let index = match m.face_shader.and_then(|shader| shader.gloss()) {
+                Some(gloss) => {
+                    if let Some(&index) = gloss_cache.get(gloss) {
+                        Some(index)
+                    } else {
+                        let (texture, _) =
+                            load(gloss).map_err(|error| format!("{gloss}: {error}"))?;
+                        let index = textures.len();
+                        textures.push(texture);
+                        gloss_cache.insert(gloss.to_owned(), index);
+                        Some(index)
+                    }
+                }
+                None => None,
+            };
+            glosses.push(index);
         }
         // Queue classification uses the recovered 1.4.2 rule. `0x7a5830`
         // reads `invisible`, `transparency` and the authored blend pair from
@@ -372,13 +403,26 @@ impl Draw {
             let view = textures[texture].create_view(&Default::default());
             let highlight =
                 textures[highlights[index].unwrap_or(texture)].create_view(&Default::default());
+            let gloss = textures[glosses[index].unwrap_or(texture)].create_view(&Default::default());
             let vertices = vertices(m, frame.vertex_fog);
             let alpha = state.queue == model_queue::Queue::Alpha;
             let binding = match &alpha_receiver {
-                Some(receiver) if alpha => {
-                    receiver.binding(device, &view, &highlight, sampler, &params[index])
-                }
-                _ => receiver.binding(device, &view, &highlight, sampler, &params[index]),
+                Some(receiver) if alpha => receiver.binding(
+                    device,
+                    &view,
+                    &highlight,
+                    &gloss,
+                    sampler,
+                    &params[index],
+                ),
+                _ => receiver.binding(
+                    device,
+                    &view,
+                    &highlight,
+                    &gloss,
+                    sampler,
+                    &params[index],
+                ),
             }?;
             if alpha {
                 alpha_meshes.push(index);
@@ -490,14 +534,36 @@ impl Draw {
     }
 
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        self.draw_opaque(pass);
-        for &mesh in &self.alpha_meshes {
-            self.draw_alpha_mesh(pass, mesh);
+        self.draw_filtered(pass, |_| true);
+    }
+    /// Keep all poses and bindings intact while changing only mesh submission.
+    /// Used by native first-person visibility, which must not violate the
+    /// renderer's complete-retained-mesh validation contract.
+    pub fn draw_filtered<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        mut visible: impl FnMut((usize, usize)) -> bool,
+    ) {
+        self.draw_opaque_filtered(pass, &mut visible);
+        for &index in &self.alpha_meshes {
+            let visible = self.meshes[index]
+                .as_ref()
+                .is_some_and(|mesh| visible(mesh.key));
+            if visible {
+                self.draw_alpha_mesh(pass, index);
+            }
         }
     }
     /// Non-alpha queue only. `World` submits the alpha list afterwards so the
     /// retail insertion order spans models, not just one model's meshes.
     pub fn draw_opaque<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        self.draw_opaque_filtered(pass, &mut |_| true);
+    }
+    fn draw_opaque_filtered<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        visible: &mut impl FnMut((usize, usize)) -> bool,
+    ) {
         for (index, mesh) in self.meshes.iter().enumerate() {
             let Some(mesh) = mesh else {
                 continue;
@@ -506,7 +572,7 @@ impl Draw {
             // pipeline owns a different implicit bind-group layout. Submitting
             // them here would be a layout mismatch, so `draw_alpha_mesh` owns
             // them instead.
-            if self.alpha_meshes.contains(&index) {
+            if self.alpha_meshes.contains(&index) || !visible(mesh.key) {
                 continue;
             }
             self.receiver.draw(pass, &mesh.mesh, &mesh.binding);

@@ -15,8 +15,13 @@ use self::{
     physics::{Body, FlightInput, Input, Mechanics},
 };
 use crate::{
-    gfx_decal_gpu, model_draw_gpu,
-    modules::designer::{assembly::TravelState, assets::Assets},
+    gfx_decal_gpu,
+    model_asset::{ModelAsset, PosedMesh},
+    model_draw_gpu,
+    modules::designer::{
+        assembly::{CharacterMeshes, TravelState},
+        assets::Assets,
+    },
     navigation::MapSpace,
 };
 use glam::Vec3;
@@ -82,11 +87,86 @@ fn edge_triggered(down: bool, was_down: &mut bool) -> bool {
     triggered
 }
 
+fn jump_requested(space: bool, was_down: bool, travel: TravelState) -> bool {
+    space && !was_down && travel != TravelState::Flying
+}
+
+#[derive(Clone, Copy)]
+enum ModelPart {
+    Body,
+    Face,
+    Weapon { right: bool },
+    Flight,
+    Mount,
+}
+
+struct RenderModel<'a> {
+    part: ModelPart,
+    asset: &'a ModelAsset,
+    poses: &'a [PosedMesh],
+}
+
 struct Gpu {
     draws: Vec<model_draw_gpu::Draw>,
+    parts: Vec<ModelPart>,
     gfx: gfx_decal_gpu::Draw,
     // Keep the sampler alive alongside bind groups that reference it.
     _sampler: wgpu::Sampler,
+}
+
+fn render_models<'a>(
+    character: &'a Character,
+    meshes: &'a CharacterMeshes,
+) -> Result<Vec<RenderModel<'a>>, String> {
+    let assembly = &character.assembly;
+    let mut models = Vec::with_capacity(4 + assembly.weapons.len());
+    models.push(RenderModel {
+        part: ModelPart::Body,
+        asset: &assembly.body,
+        poses: &meshes.body,
+    });
+    models.push(RenderModel {
+        part: ModelPart::Face,
+        asset: &assembly.face,
+        poses: &meshes.face,
+    });
+    models.extend(
+        assembly
+            .weapons
+            .iter()
+            .zip(&meshes.weapons)
+            .filter(|(_, posed)| !posed.is_empty())
+            .map(|(weapon, posed)| RenderModel {
+                part: ModelPart::Weapon {
+                    right: weapon.hook == "HH_righthandweapon",
+                },
+                asset: &weapon.asset,
+                poses,
+            }),
+    );
+    if !meshes.flight.is_empty() {
+        let flight = assembly
+            .flight
+            .as_ref()
+            .ok_or("flight meshes have no asset")?;
+        models.push(RenderModel {
+            part: ModelPart::Flight,
+            asset: &flight.asset,
+            poses: &meshes.flight,
+        });
+    }
+    if !meshes.mount.is_empty() {
+        let mount = assembly
+            .mount
+            .as_ref()
+            .ok_or("mount meshes have no asset")?;
+        models.push(RenderModel {
+            part: ModelPart::Mount,
+            asset: &mount.asset,
+            poses: &meshes.mount,
+        });
+    }
+    Ok(models)
 }
 
 pub struct Walker {
@@ -374,7 +454,7 @@ impl Walker {
             self.facing = direction;
         }
         let space = input_enabled && keys.contains(&KeyCode::Space);
-        let jump = space && !self.jump_was_down && self.travel == TravelState::Ground;
+        let jump = jump_requested(space, self.jump_was_down, self.travel);
         self.jump_was_down = space;
         let rushing = input_enabled
             && self.travel == TravelState::Flying
@@ -426,10 +506,7 @@ impl Walker {
                     body.advance(
                         delta,
                         &mechanics,
-                        Input {
-                            direction,
-                            jump: false,
-                        },
+                        Input { direction, jump },
                         &map,
                     );
                 }
@@ -551,7 +628,7 @@ impl Walker {
         }
         ui.label(
             egui::RichText::new(
-                "Fly: WASD, Space up, C down; hold Shift for rush. Mount: WASD. Hotkeys trigger once per press.",
+                "Fly: WASD, Space up, C down; hold Shift for rush. Mount: WASD + Space jump. Hotkeys trigger once per press.",
             )
             .small()
             .weak(),
@@ -583,7 +660,7 @@ impl Walker {
                 physics::CONTINUOUS_JUMP_HEIGHT,
             ));
         ui.checkbox(&mut self.settings.first_person, "First Person Mode")
-            .on_hover_text("Places the camera at the evaluated Bip01 Head bone and suppresses the entire character draw, preventing head or body geometry from obstructing the view.");
+            .on_hover_text("Uses a stable bind-head eye anchor without animation bob. The body and mount remain visible; native head/face, right-hand weapon, and flight meshes are hidden.");
         if ui.button("Restore native movement defaults").clicked() {
             self.settings.mechanics = Mechanics::default();
         }
@@ -638,7 +715,7 @@ impl Walker {
         depth: &wgpu::TextureView,
         frame: model_draw_gpu::Frame,
     ) {
-        if !self.is_active() || self.settings.first_person || self.gpu_failed {
+        if !self.is_active() || self.gpu_failed {
             return;
         }
         if self.gpu.is_none() {
@@ -654,35 +731,11 @@ impl Walker {
             let result = (|| -> Result<Gpu, String> {
                 let character = self.character.as_ref().ok_or("Walker character missing")?;
                 let assets = self.assets.as_mut().ok_or("Walker assets missing")?;
-                let assembly = &character.assembly;
-                let meshes = &character.posed.meshes;
-                let mut draws = Vec::with_capacity(4 + assembly.weapons.len());
-                let mut models = vec![
-                    (&assembly.body, &meshes.body),
-                    (&assembly.face, &meshes.face),
-                ];
-                models.extend(
-                    assembly
-                        .weapons
-                        .iter()
-                        .zip(&meshes.weapons)
-                        .map(|(weapon, posed)| (&weapon.asset, posed)),
-                );
-                if !meshes.flight.is_empty() {
-                    let flight = assembly
-                        .flight
-                        .as_ref()
-                        .ok_or("flight meshes have no asset")?;
-                    models.push((&flight.asset, &meshes.flight));
-                }
-                if !meshes.mount.is_empty() {
-                    let mount = assembly
-                        .mount
-                        .as_ref()
-                        .ok_or("mount meshes have no asset")?;
-                    models.push((&mount.asset, &meshes.mount));
-                }
-                for (asset, posed) in models {
+                let models = render_models(character, &character.posed.meshes)?;
+                let mut draws = Vec::with_capacity(models.len());
+                let mut parts = Vec::with_capacity(models.len());
+                for model in models {
+                    parts.push(model.part);
                     draws.push(model_draw_gpu::Draw::new(
                         device,
                         queue,
@@ -693,13 +746,14 @@ impl Walker {
                         )),
                         true,
                         &sampler,
-                        asset,
-                        posed,
+                        model.asset,
+                        model.poses,
                         frame,
                         |path| assets.read(path),
                     )?);
                 }
-                let decal_quads = character.gfx.quads(assembly, &character.posed.pose)?;
+                let decal_quads =
+                    character.gfx.quads(&character.assembly, &character.posed.pose)?;
                 let gfx = gfx_decal_gpu::Draw::new(
                     device,
                     queue,
@@ -713,6 +767,7 @@ impl Walker {
                 )?;
                 Ok(Gpu {
                     draws,
+                    parts,
                     gfx,
                     _sampler: sampler,
                 })
@@ -729,40 +784,15 @@ impl Walker {
         let update = (|| -> Result<(), String> {
             let gpu = self.gpu.as_ref().ok_or("Walker GPU draws missing")?;
             let character = self.character.as_ref().ok_or("Walker character missing")?;
-            let assembly = &character.assembly;
-            let meshes = &character.posed.meshes;
-            let mut models = vec![
-                (&assembly.body, &meshes.body),
-                (&assembly.face, &meshes.face),
-            ];
-            models.extend(
-                assembly
-                    .weapons
-                    .iter()
-                    .zip(&meshes.weapons)
-                    .map(|(weapon, posed)| (&weapon.asset, posed)),
-            );
-            if !meshes.flight.is_empty() {
-                let flight = assembly
-                    .flight
-                    .as_ref()
-                    .ok_or("flight meshes have no asset")?;
-                models.push((&flight.asset, &meshes.flight));
-            }
-            if !meshes.mount.is_empty() {
-                let mount = assembly
-                    .mount
-                    .as_ref()
-                    .ok_or("mount meshes have no asset")?;
-                models.push((&mount.asset, &meshes.mount));
-            }
+            let models = render_models(character, &character.posed.meshes)?;
             if models.len() != gpu.draws.len() {
                 return Err("travel draw count changed without rebuilding GPU resources".into());
             }
-            for (index, (asset, posed)) in models.into_iter().enumerate() {
-                gpu.draws[index].update(queue, asset, posed, frame)?;
+            for (index, model) in models.into_iter().enumerate() {
+                gpu.draws[index].update(queue, model.asset, model.poses, frame)?;
             }
-            let decal_quads = character.gfx.quads(assembly, &character.posed.pose)?;
+            let decal_quads =
+                character.gfx.quads(&character.assembly, &character.posed.pose)?;
             gpu.gfx
                 .update(queue, frame.matrix, frame.clip_plane, &decal_quads)?;
             Ok(())
@@ -795,8 +825,18 @@ impl Walker {
             occlusion_query_set: None,
         });
         if let Some(gpu) = &self.gpu {
-            for draw in &gpu.draws {
-                draw.draw(&mut pass);
+            for (draw, part) in gpu.draws.iter().zip(&gpu.parts) {
+                match part {
+                    ModelPart::Body if self.settings.first_person => {
+                        // Skin 1 is the separate native head installed by
+                        // CECPlayer. Keep every pose uploaded; only submission
+                        // changes, so the full-mesh validation remains intact.
+                        draw.draw_filtered(&mut pass, |(skin, _)| skin != 1);
+                    }
+                    ModelPart::Face | ModelPart::Flight if self.settings.first_person => {}
+                    ModelPart::Weapon { right: true } if self.settings.first_person => {}
+                    _ => draw.draw(&mut pass),
+                }
             }
             gpu.gfx.draw_quads(&mut pass);
         }
@@ -835,5 +875,15 @@ mod tests {
             captured_hotkey(&HashSet::from([KeyCode::ControlRight, KeyCode::KeyH])).unwrap();
         assert_eq!(captured.key, KeyCode::KeyH);
         assert!(captured.control);
+    }
+
+    #[test]
+    fn jump_press_edge_is_shared_by_ground_and_riding_but_not_flight() {
+        assert!(jump_requested(true, false, TravelState::Ground));
+        assert!(jump_requested(true, false, TravelState::Mounted));
+        assert!(!jump_requested(true, false, TravelState::Flying));
+        assert!(!jump_requested(true, true, TravelState::Ground));
+        assert!(!jump_requested(true, true, TravelState::Mounted));
+        assert!(!jump_requested(false, false, TravelState::Mounted));
     }
 }

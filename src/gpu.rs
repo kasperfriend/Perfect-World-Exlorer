@@ -3609,15 +3609,10 @@ pub fn run(
                         return;
                     }
                 }
-                // egui must receive focus changes even while the menu is closed;
-                // otherwise it believes the window is unfocused and ignores clicks.
-                if menu_page.is_open() || matches!(event,WindowEvent::Focused(_)) {
-                    let response=egui_state.on_window_event(&window,&event);
-                    if menu_page.is_open() && (response.consumed || matches!(event,WindowEvent::KeyboardInput{..})) && !matches!(event, WindowEvent::RedrawRequested | WindowEvent::Resized(_) | WindowEvent::CloseRequested | WindowEvent::Focused(_)) {return;}
-                }
-                match event {
-                WindowEvent::CloseRequested => { if let Err(e)=settings.save(){eprintln!("Settings save: {e}");} target.exit(); },
-                WindowEvent::KeyboardInput { event, .. } => {
+                // Track keys before the menu's early return. Walker hotkey
+                // rebinding runs while movement input is disabled, so discarding
+                // these events here leaves its capture on "Press a key" forever.
+                if let WindowEvent::KeyboardInput { ref event, .. } = event {
                     if let PhysicalKey::Code(k) = event.physical_key {
                         if event.state == ElementState::Pressed {
                             keys.insert(k);
@@ -3626,6 +3621,15 @@ pub fn run(
                         }
                     }
                 }
+                // egui must receive focus changes even while the menu is closed;
+                // otherwise it believes the window is unfocused and ignores clicks.
+                if menu_page.is_open() || matches!(event,WindowEvent::Focused(_)) {
+                    let response=egui_state.on_window_event(&window,&event);
+                    if menu_page.is_open() && (response.consumed || matches!(event,WindowEvent::KeyboardInput{..})) && !matches!(event, WindowEvent::RedrawRequested | WindowEvent::Resized(_) | WindowEvent::CloseRequested | WindowEvent::Focused(_)) {return;}
+                }
+                match event {
+                WindowEvent::CloseRequested => { if let Err(e)=settings.save(){eprintln!("Settings save: {e}");} target.exit(); },
+                WindowEvent::KeyboardInput { .. } => {}
                 WindowEvent::MouseInput {
                     state: ElementState::Pressed,
                     button: MouseButton::Left,
