@@ -141,7 +141,7 @@ fn render_models<'a>(
                     right: weapon.hook == "HH_righthandweapon",
                 },
                 asset: &weapon.asset,
-                poses,
+                poses: posed,
             }),
     );
     if !meshes.flight.is_empty() {
