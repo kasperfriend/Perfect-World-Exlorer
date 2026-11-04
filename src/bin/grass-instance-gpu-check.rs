@@ -1664,12 +1664,19 @@ fn main() {
         .zip(wind_frames[1].chunks_exact(4))
         .filter(|(a, b)| (a[1] > 0) != (b[1] > 0))
         .count();
+    // Any channel moving at all, which also catches a deformation too small to
+    // flip the coverage predicate but large enough to survive rasterisation.
+    let touched = wind_frames[0]
+        .chunks_exact(4)
+        .zip(wind_frames[1].chunks_exact(4))
+        .filter(|(a, b)| a != b)
+        .count();
     // Carry the measurement in the message: CI only surfaces the panic text
     // and the lines after it, so a bare count cannot say whether the history
     // failed to arrive or the geometry was never on screen.
     assert!(
         changes > 100,
-        "wind failed to deform coverage: {changes}; lit {} -> {} of 16384, mean green {:.3} -> {:.3}",
+        "wind failed to deform coverage: {changes} ({touched} pixels moved); lit {} -> {} of 16384, mean green {:.3} -> {:.3}",
         lit(&wind_frames[0]),
         lit(&wind_frames[1]),
         mean(&wind_frames[0]),
