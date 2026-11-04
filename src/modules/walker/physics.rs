@@ -34,10 +34,11 @@ pub fn ground(map: &MapSpace, x: f32, z: f32) -> Ground {
     let iy = (gy as usize).min(map.height - 2);
     let fx = gx - ix as f32;
     let fy = gy - iy as f32;
-    let a = map.heights[iy * map.width + ix];
-    let b = map.heights[iy * map.width + ix + 1];
-    let c = map.heights[(iy + 1) * map.width + ix];
-    let d = map.heights[(iy + 1) * map.width + ix + 1];
+    let mut heights = map.heights.reader();
+    let a = heights.height(iy * map.width + ix);
+    let b = heights.height(iy * map.width + ix + 1);
+    let c = heights.height((iy + 1) * map.width + ix);
+    let d = heights.height((iy + 1) * map.width + ix + 1);
     let (height, dhdx, dhdz) = if fx + fy <= 1. {
         (
             a + (b - a) * fx + (c - a) * fy,
@@ -297,14 +298,13 @@ impl Body {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
     fn flat_map() -> MapSpace {
         MapSpace {
             width: 8,
             height: 8,
             spacing: 2.,
-            heights: Arc::from(vec![10.; 64]),
+            heights: vec![10.; 64].into(),
         }
     }
 
@@ -468,7 +468,7 @@ mod tests {
             width: 3,
             height: 3,
             spacing: 2.,
-            heights: Arc::from(vec![0., 2., 4., 0., 2., 4., 0., 2., 4.]),
+            heights: vec![0., 2., 4., 0., 2., 4., 0., 2., 4.].into(),
         };
         let sample = ground(&map, -1., 1.);
         assert!((sample.height - map.ground(-1., 1.)).abs() < 0.000_001);
