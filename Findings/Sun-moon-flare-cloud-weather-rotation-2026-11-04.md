@@ -144,6 +144,29 @@ both quads from the emitted point (sun `y 0..-20`, strip `y 10..-30`), so their
 centres coincide at `y = -10` and only the art's own bright core needs aligning
 (`glow_center.xy`).
 
+### 1.6 What the failing checks actually were
+
+Both CI jobs are green on this branch (`Rust checks and tests (Linux)` 2m36s,
+`Windows executable (x64)` 6m16s). The failures were **not** in the celestial
+geometry work; every one of them was a stale expectation or an unbuildable
+check target left by the day/night-set change:
+
+| failure | cause | fix |
+| --- | --- | --- |
+| `rustc --test src/sky_transition.rs`, `phase5-sky-seam-check` | the night set moved from index 2 to 1 (`sky_id_night = 1`), but four `frame_sets` expectations and the seam check still expected 2 | expectations updated; the two tests that *started* on set 1 now start on set 2 so their swaps stay real changes |
+| `cargo check --bins` (3 bins) | `sky_gpu`/`environment` now read `angelica_pck` and `sky_config`, which the standalone check binaries did not build | the five affected bins declare both modules |
+| `cargo check --bins` | `sky_gpu` imported `sky_celestial`, which those binaries also do not build | `sky_gpu` keeps its own half-extent literals and says so |
+| viewer unit tests (2) | `assert_eq!(entries[0].size, 3)` on a 6-byte fixture; `angular_radius(half) * 2 * DISTANCE == 2 * half` is an arc-length identity that only held at the old 1-unit quad | fixture compares against the payload length; the identity is now `tan(half) * DISTANCE == half` (the 0.07-unit difference at 10 units is why it broke) |
+| viewer unit tests | `flate2::Flush` does not exist in flate2 1.x | `FlushDecompress::Finish` |
+| Angelica directory scan | a decoy zlib header aborted the scan instead of being skipped, so `configs.pck` would have failed to read at run time | bad candidates `continue` |
+| `cargo fmt --check` | new modules and one call site were not in rustfmt order/layout | reordered and reformatted |
+
+One behaviour change came out of this: the GPU sky check
+(`phase5-sky-transition-gpu-check`) now builds the 15-layer atlas the shader
+samples and drives the shine through `sets.w` (night strength 0.45) instead of
+the retired `DISC_SCALE` lane, so the sun/glow core alignment is still asserted
+on the production shader.
+
 ---
 
 ## 2. Clouds: exactly where they stand
