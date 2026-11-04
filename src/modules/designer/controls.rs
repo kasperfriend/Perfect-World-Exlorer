@@ -243,6 +243,8 @@ fn texture_combo(
     label: &str,
     field: FaceId,
 ) -> bool {
+    let class = design.class;
+    let gender = design.gender;
     let face = &mut design.customize.face;
     let id = match field {
         FaceId::Face => &mut face.id_face_tex,
@@ -263,7 +265,7 @@ fn texture_combo(
     egui::ComboBox::from_label(label)
         .selected_text(selected)
         .show_ui(ui, |ui| {
-            for item in catalog.texture_options(design.class, design.gender, part) {
+            for item in catalog.texture_options(class, gender, part) {
                 ui.selectable_value(id, item.id as u16, format!("{} — {}", item.id, item.name));
             }
         });
@@ -278,6 +280,8 @@ fn shape_combo(
     label: &str,
     which: usize,
 ) -> bool {
+    let class = design.class;
+    let gender = design.gender;
     let face = &mut design.customize.face;
     let id = match which {
         0 => &mut face.id_face_shape1,
@@ -299,7 +303,7 @@ fn shape_combo(
     egui::ComboBox::from_label(label)
         .selected_text(selected)
         .show_ui(ui, |ui| {
-            for item in catalog.shape_options(design.class, design.gender, part) {
+            for item in catalog.shape_options(class, gender, part) {
                 ui.selectable_value(id, item.id as u16, format!("{} — {}", item.id, item.name));
             }
         });
@@ -307,6 +311,8 @@ fn shape_combo(
 }
 
 fn hair_combo(ui: &mut egui::Ui, catalog: &Catalog, design: &mut CharacterDesign) -> bool {
+    let class = design.class;
+    let gender = design.gender;
     let id = &mut design.customize.face.id_hair_model;
     let old = *id;
     let selected = catalog.hair_item(old as u32).map_or_else(
@@ -317,7 +323,7 @@ fn hair_combo(ui: &mut egui::Ui, catalog: &Catalog, design: &mut CharacterDesign
         .selected_text(selected)
         .show_ui(ui, |ui| {
             ui.selectable_value(id, 0, "0 — bald / no additional hair skin");
-            for item in catalog.hair_options(design.class, design.gender) {
+            for item in catalog.hair_options(class, gender) {
                 ui.selectable_value(id, item.id as u16, format!("{} — {}", item.id, item.name));
             }
         });
@@ -325,6 +331,7 @@ fn hair_combo(ui: &mut egui::Ui, catalog: &Catalog, design: &mut CharacterDesign
 }
 
 fn weapon_combo(ui: &mut egui::Ui, catalog: &Catalog, design: &mut CharacterDesign) -> bool {
+    let class = design.class;
     let id = &mut design.equipment.weapon;
     let old = *id;
     let selected = catalog.weapon(old).map_or_else(
@@ -338,7 +345,7 @@ fn weapon_combo(ui: &mut egui::Ui, catalog: &Catalog, design: &mut CharacterDesi
             for item in catalog
                 .weapons
                 .iter()
-                .filter(|item| item.class_mask & design.class.bit() != 0)
+                .filter(|item| item.class_mask & class.bit() != 0)
             {
                 ui.selectable_value(id, item.id, format!("{} — {}", item.id, item.name));
             }
@@ -353,6 +360,7 @@ fn armor_combo(
     slot: ArmorSlot,
     label: &str,
 ) -> bool {
+    let class = design.class;
     let old = design.equipment.armor(slot);
     let mut id = old;
     let selected = catalog.armor_item(old).map_or_else(
@@ -364,7 +372,7 @@ fn armor_combo(
         .show_ui(ui, |ui| {
             ui.selectable_value(&mut id, 0, "0 — profession default");
             for item in catalog.armor.iter().filter(|item| {
-                item.slot == slot && item.class_mask & design.class.bit() != 0
+                item.slot == slot && item.class_mask & class.bit() != 0
             }) {
                 ui.selectable_value(&mut id, item.id, format!("{} — {}", item.id, item.name));
             }
@@ -380,6 +388,7 @@ fn fashion_combo(
     slot: ArmorSlot,
     label: &str,
 ) -> bool {
+    let gender = design.gender;
     let old = design.equipment.fashion(slot);
     let mut id = old;
     let selected = catalog.fashion_item(old).map_or_else(
@@ -391,7 +400,7 @@ fn fashion_combo(
         .show_ui(ui, |ui| {
             ui.selectable_value(&mut id, 0, "0 — native fashion default");
             for item in catalog.fashion.iter().filter(|item| {
-                item.slot == slot && item.gender == design.gender as u32
+                item.slot == slot && item.gender == gender as u32
             }) {
                 ui.selectable_value(&mut id, item.id, format!("{} — {}", item.id, item.name));
             }
