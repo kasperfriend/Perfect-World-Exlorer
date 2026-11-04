@@ -24,7 +24,7 @@
 //! `offset`; a compressed one is a bare zlib stream (`compressed < size`).
 
 use crate::pck::Entry;
-use flate2::Decompress;
+use flate2::{Decompress, FlushDecompress};
 use std::fs::File;
 use std::io::Read;
 
@@ -57,8 +57,8 @@ fn record_ending_at(blob: &[u8], end: usize) -> Result<(Vec<u8>, usize), String>
             let mut decoder = Decompress::new(true);
             // Most candidate starts are not zlib streams at all: a bad one is
             // skipped, not fatal, or the scan would stop at its first decoy.
-            let Ok(status) = decoder.decompress(&blob[start..end], &mut out, flate2::Flush::Finish)
-            else {
+            let input = &blob[start..end];
+            let Ok(status) = decoder.decompress(input, &mut out, FlushDecompress::Finish) else {
                 continue;
             };
             if status == flate2::Status::StreamEnd
