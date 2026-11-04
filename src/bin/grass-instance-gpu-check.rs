@@ -2,6 +2,8 @@
 #![allow(dead_code)]
 #[path = "../bmd.rs"]
 mod bmd;
+#[path = "../client_weather.rs"]
+mod client_weather;
 #[path = "../environment.rs"]
 mod environment;
 #[path = "../grass_instances.rs"]
@@ -12,6 +14,8 @@ mod pck;
 mod refraction_fog;
 #[path = "../scene.rs"]
 mod scene;
+#[path = "../sky_config.rs"]
+mod sky_config;
 mod gpu {
     use bytemuck::{Pod, Zeroable};
     #[repr(C)]
