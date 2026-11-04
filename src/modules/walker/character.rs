@@ -1,7 +1,10 @@
 //! Real player ECM/SMD/BON/SKI assembly and direct base-action playback.
 
 use super::{
-    audio::{asset_key, SoundCommand, SoundCue, BODY_CHANNEL, FLIGHT_CHANNEL, MOUNT_CHANNEL},
+    audio::{
+        asset_key, SoundCommand, SoundCue, BODY_CHANNEL, FLIGHT_CHANNEL, MOUNT_CHANNEL,
+        WEAPON_CHANNEL,
+    },
     gfx::CharacterGfx,
     physics::Body,
 };
@@ -41,6 +44,10 @@ enum Motion {
     FlyDescendHigh,
     FlyDescendLow,
     FlyLand,
+}
+
+fn hides_soulsphere(motion: Motion) -> bool {
+    matches!(motion, Motion::JumpStart | Motion::JumpLoop | Motion::Land)
 }
 
 #[derive(Default)]
@@ -365,6 +372,41 @@ impl ActionSet {
         match mode {
             FlightMode::Wing => &self.wing,
             FlightMode::FlySword | FlightMode::DoubleWheel => &self.sword,
+        }
+    }
+}
+
+struct SoulsphereActionSet {
+    stand: Option<usize>,
+    run: Option<usize>,
+    wing: FlightActionSet,
+}
+
+impl SoulsphereActionSet {
+    fn new(
+        combined: &[ecmodel::CombinedAction],
+        actions: &[ecmodel::Action],
+        gender: Gender,
+    ) -> Self {
+        let suffix = match gender {
+            Gender::Male => "_男",
+            Gender::Female => "_女",
+        };
+        let action = |stem: &str| {
+            let name = format!("{stem}{suffix}");
+            resolve_action(combined, actions, &name)
+        };
+        Self {
+            stand: action("站立"),
+            run: action("奔跑"),
+            wing: FlightActionSet {
+                takeoff: action("翅膀起飞"),
+                hover: action("翅膀悬停"),
+                forward: action("翅膀前进"),
+                descend_high: action("翅膀高空下降"),
+                descend_low: action("翅膀低空下降"),
+                land: action("翅膀落地"),
+            },
         }
     }
 }
@@ -765,6 +807,8 @@ pub struct Character {
     flight_player: Option<ClipPlayer>,
     mount_actions: MountActionSet,
     mount_player: Option<ClipPlayer>,
+    soulsphere_actions: Option<SoulsphereActionSet>,
+    soulsphere_player: Option<ClipPlayer>,
     travel: TravelState,
     /// Eye anchor in body-model space, measured from the bind/reference head.
     camera_anchor: Vec3,
@@ -828,12 +872,36 @@ impl Character {
         } else {
             (MountActionSet::default(), None)
         };
+        let (soulsphere_actions, soulsphere_player) = if let Some(model) =
+            assembly.weapons.iter().find(|weapon| weapon.state_actions)
+        {
+            let actions = SoulsphereActionSet::new(
+                &model.asset.descriptor.actions,
+                &model.asset.model.actions,
+                assembly.design.gender,
+            );
+            if actions.stand.is_none() || actions.run.is_none() {
+                travel_warnings.push(
+                    "Soulsphere is missing its gendered 站立 or 奔跑 action; an unavailable state keeps the previous clip."
+                        .into(),
+                );
+            }
+            let player =
+                ClipPlayer::new(&model.asset, Motion::Stand, actions.stand, WEAPON_CHANNEL)?;
+            (Some(actions), Some(player))
+        } else {
+            (None, None)
+        };
         // Animation must not feed back into the camera anchor. Keep the
         // reference head's local eye position and transform it by the final
         // body/mount placement, which still follows travel attachment height.
         let reference = evaluate(&assembly, None, Mat4::IDENTITY)?;
         let camera_anchor = eye_position(&reference, head_bone)?;
-        let posed = evaluate(&assembly, player.sample(), world)?;
+        let animation = TravelAnimation {
+            weapon: soulsphere_player.as_ref().and_then(ClipPlayer::sample),
+            ..TravelAnimation::default()
+        };
+        let posed = evaluate_travel(&assembly, player.sample(), world, animation)?;
         let eye = posed.pose.body.model.transform_point3(camera_anchor);
         let mut warnings = assembly.warnings.clone();
         warnings.extend(action_warnings);
@@ -851,6 +919,8 @@ impl Character {
             flight_player,
             mount_actions,
             mount_player,
+            soulsphere_actions,
+            soulsphere_player,
             travel: TravelState::Ground,
             camera_anchor,
             last_jump: 0,
@@ -1023,6 +1093,33 @@ impl Character {
             }
         }
 
+        let body_motion = self.player.motion;
+        if let (Some(actions), Some(player)) =
+            (&self.soulsphere_actions, &mut self.soulsphere_player)
+        {
+            let model = self
+                .assembly
+                .weapons
+                .iter()
+                .find(|weapon| weapon.state_actions)
+                .ok_or("soulsphere action player has no assembled weapon")?;
+            let action = match travel {
+                TravelState::Ground => match body_motion {
+                    Motion::Stand => actions.stand,
+                    Motion::Run => actions.run,
+                    Motion::FlyLand => actions.wing.land,
+                    _ => None,
+                },
+                TravelState::Flying => actions.wing.get(body_motion),
+                TravelState::Mounted => None,
+            };
+            if let Some(action) = action {
+                // An unavailable gendered action is a failed native lookup,
+                // not permission to replace the current clip with time zero.
+                player.set(&model.asset, body_motion, Some(action), false)?;
+            }
+        }
+
         let delta_ms = (delta.max(0.) * 1000.) as u32;
         self.player.tick(delta_ms);
         if travel == TravelState::Mounted {
@@ -1032,6 +1129,11 @@ impl Character {
         }
         if travel == TravelState::Flying {
             if let Some(player) = &mut self.flight_player {
+                player.tick(delta_ms);
+            }
+        }
+        if travel != TravelState::Mounted {
+            if let Some(player) = &mut self.soulsphere_player {
                 player.tick(delta_ms);
             }
         }
@@ -1052,6 +1154,14 @@ impl Character {
             self.sound_commands
                 .push(SoundCommand::StopChannel(FLIGHT_CHANNEL));
         }
+        if travel != TravelState::Mounted {
+            if let Some(player) = &mut self.soulsphere_player {
+                self.sound_commands.extend(player.drain_sounds());
+            }
+        } else if previous != TravelState::Mounted {
+            self.sound_commands
+                .push(SoundCommand::StopChannel(WEAPON_CHANNEL));
+        }
         let world = character_transform(body.position, facing);
         let animation = TravelAnimation {
             state: travel,
@@ -1065,11 +1175,25 @@ impl Character {
             } else {
                 None
             },
+            weapon: if travel == TravelState::Mounted {
+                None
+            } else {
+                self.soulsphere_player.as_ref().and_then(ClipPlayer::sample)
+            },
         };
         let posed = evaluate_travel(&self.assembly, self.player.sample(), world, animation)?;
         self.eye = posed.pose.body.model.transform_point3(self.camera_anchor);
         self.posed = posed;
         Ok(())
+    }
+
+    pub(super) fn soulsphere_hidden(&self) -> bool {
+        // Keep the mesh/draw arrays stable. Walker skips only submission, just
+        // as CECPlayer::ShowMagicWeapon changes visibility without resetting
+        // the weapon's current action.
+        self.soulsphere_player.is_some()
+            && self.travel == TravelState::Ground
+            && hides_soulsphere(self.player.motion)
     }
 
     pub(super) fn take_sound_commands(&mut self) -> Vec<SoundCommand> {
@@ -1176,6 +1300,35 @@ mod tests {
         assert!(warnings.is_empty());
         let (missing, _) = ActionSet::new(&[], &[action("not 站立_空手")]);
         assert_eq!(missing.stand, None);
+    }
+
+    #[test]
+    fn soulsphere_actions_use_exact_gendered_native_names() {
+        let actions = vec![
+            action("站立_男"),
+            action("奔跑_男"),
+            action("站立_女"),
+            action("奔跑_女"),
+            action("翅膀悬停_女"),
+        ];
+        let male = SoulsphereActionSet::new(&[], &actions, Gender::Male);
+        assert_eq!(male.stand, Some(0));
+        assert_eq!(male.run, Some(1));
+        let female = SoulsphereActionSet::new(&[], &actions, Gender::Female);
+        assert_eq!(female.stand, Some(2));
+        assert_eq!(female.run, Some(3));
+        assert_eq!(female.wing.hover, Some(4));
+        assert_eq!(female.wing.forward, None);
+    }
+
+    #[test]
+    fn ordinary_jump_states_hide_the_soulsphere_without_hiding_normal_actions() {
+        for motion in [Motion::JumpStart, Motion::JumpLoop, Motion::Land] {
+            assert!(hides_soulsphere(motion));
+        }
+        for motion in [Motion::Stand, Motion::Run, Motion::Swim, Motion::FlyLand] {
+            assert!(!hides_soulsphere(motion));
+        }
     }
 
     #[test]

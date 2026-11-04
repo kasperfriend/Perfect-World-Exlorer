@@ -14,7 +14,7 @@ use std::{
 };
 use wgpu::util::DeviceExt;
 use winit::{
-    event::{DeviceEvent, ElementState, Event, MouseButton, WindowEvent},
+    event::{DeviceEvent, ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::EventLoop,
     keyboard::{KeyCode, PhysicalKey},
     window::{CursorGrabMode, Fullscreen, WindowBuilder},
@@ -3700,6 +3700,13 @@ pub fn run(
                 match event {
                 WindowEvent::CloseRequested => { if let Err(e)=settings.save(){eprintln!("Settings save: {e}");} target.exit(); },
                 WindowEvent::KeyboardInput { .. } => {}
+                WindowEvent::MouseWheel { delta, .. } if captured && !menu_page.is_open() => {
+                    let steps = match delta {
+                        MouseScrollDelta::LineDelta(_, y) => y,
+                        MouseScrollDelta::PixelDelta(position) => position.y as f32 / 120.0,
+                    };
+                    renderer.modules.walker_zoom(steps);
+                }
                 WindowEvent::MouseInput {
                     state: ElementState::Pressed,
                     button: MouseButton::Left,

@@ -8,6 +8,7 @@
 //! plane for sliding. Terrain is deliberately not represented here; Walker's
 //! permanent terrain/support pass remains independent of this object option.
 
+use super::physics::Ground;
 use crate::{bmd::CollisionBrush, pck, scene};
 use glam::Vec3;
 use std::{
@@ -305,6 +306,28 @@ impl CollisionWorld {
         best
     }
 
+    fn support(&self, feet: Vec3, extents: Vec3, max_down: f32) -> Option<Ground> {
+        if !max_down.is_finite() || max_down < 0.0 {
+            return None;
+        }
+        // RetrieveSupportPlane traces the native player AABB downward. Start
+        // slightly above the supplied feet position so an exact contact from
+        // our fixed-step integrator is not misclassified as `start_solid`.
+        // The lift is included in the trace distance, not in the result.
+        const CONTACT_LIFT: f32 = 0.01;
+        let start = feet + Vec3::Y * (extents.y + CONTACT_LIFT);
+        let delta = Vec3::NEG_Y * (max_down + CONTACT_LIFT);
+        let hit = self.trace(start, delta, extents)?;
+        if hit.start_solid || hit.normal.y < 0.5 {
+            return None;
+        }
+        let center = start + delta * hit.fraction;
+        Some(Ground {
+            height: center.y - extents.y,
+            normal: hit.normal,
+        })
+    }
+
     fn resolve(&self, old_feet: Vec3, desired_feet: Vec3, extents: Vec3) -> ResolvedMove {
         let mut center = old_feet + Vec3::Y * extents.y;
         let mut remaining = desired_feet - old_feet;
@@ -387,6 +410,9 @@ fn skip_hull_payload(data: &[u8], p: &mut usize) -> Result<(), String> {
 }
 
 fn parse_tbh(data: &[u8]) -> Result<Vec<CollisionBrush>, String> {
+    // AFileImage consumes the container marker before CELTree::InitCDObjects
+    // reads version nine. Every authentic PW142 TBH carries this prefix.
+    let data = data.strip_prefix(b"MOXB").unwrap_or(data);
     let mut p = 0;
     let version = read_u32(data, &mut p)?;
     if version != 9 {
@@ -635,6 +661,10 @@ impl Collision {
         self.world.resolve(old_feet, desired_feet, extents)
     }
 
+    pub fn support(&self, feet: Vec3, extents: Vec3, max_down: f32) -> Option<Ground> {
+        self.world.support(feet, extents, max_down)
+    }
+
     pub fn status(&self) -> String {
         let loading = if self.building_paths.is_empty() {
             "no BMD placements".to_owned()
@@ -773,6 +803,25 @@ mod tests {
     }
 
     #[test]
+    fn falling_sweep_and_down_trace_provide_object_top_support() {
+        let collision = Collision::from_parts(vec![cube()]);
+        let extents = Vec3::new(0.3, 0.9, 0.3);
+        let landed = collision.resolve(Vec3::new(0.0, 3.0, 0.0), Vec3::new(0.0, 0.0, 0.0), extents);
+        assert!(landed.blocked);
+        assert_eq!(landed.normal, Vec3::Y);
+        assert!((landed.feet.y - (1.0 + DIST_EPSILON)).abs() < 1e-5);
+
+        let support = collision
+            .support(Vec3::new(0.0, 1.5, 0.0), extents, 1.0)
+            .expect("cube top should support the player AABB");
+        assert_eq!(support.normal, Vec3::Y);
+        assert!((support.height - (1.0 + DIST_EPSILON)).abs() < 1e-5);
+        assert!(collision
+            .support(Vec3::new(3.0, 1.5, 0.0), extents, 1.0)
+            .is_none());
+    }
+
+    #[test]
     fn tbh_reader_skips_native_hull_payload_and_reads_shared_brush() {
         let brush = cube();
         let mut bytes = Vec::new();
@@ -797,7 +846,9 @@ mod tests {
             bytes.extend_from_slice(&side.distance.to_le_bytes());
             bytes.push(u8::from(side.bevel));
         }
-        let parsed = parse_tbh(&bytes).unwrap();
+        let mut wrapped = b"MOXB".to_vec();
+        wrapped.extend_from_slice(&bytes);
+        let parsed = parse_tbh(&wrapped).unwrap();
         assert_eq!(parsed.len(), 1);
         assert_eq!(parsed[0].sides.len(), 6);
         assert_eq!(parsed[0].center, [0.0; 3]);

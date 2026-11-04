@@ -5,7 +5,10 @@
 //! Windows rodio backend. Random variation selection and non-spatial local
 //! playback are Explorer behavior, not a claim of bit-identical client mixing.
 
-use crate::{music, pck};
+use crate::{
+    modules::designer::catalog::{Class, Gender},
+    music, pck,
+};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -15,6 +18,85 @@ use std::{
 pub const BODY_CHANNEL: u8 = 0;
 pub const MOUNT_CHANNEL: u8 = 1;
 pub const FLIGHT_CHANNEL: u8 = 2;
+pub const WEAPON_CHANNEL: u8 = 3;
+pub const MOVEMENT_CHANNEL: u8 = 4;
+
+/// CECHostPlayer::UpdateMoveSound selection. The retail Configs\sound.txt
+/// table is absent from the supplied PW142 configs archive, so these paths are
+/// resolved directly from authentic sfx/2d.txt examples, the shared gender /
+/// beast filenames, and PET_ESSENCE::pet_snd_type. IDs retain the native
+/// selection semantics; this is not a claim that the missing table was read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MovementSound {
+    pub id: u16,
+    pub path: String,
+}
+
+impl MovementSound {
+    pub fn land(
+        class: Class,
+        gender: Gender,
+        running: bool,
+        mount_sound_type: Option<u32>,
+    ) -> Option<Self> {
+        let offset = if running { 1u16 } else { 0 };
+        let (id, stem) = if let Some(kind) = mount_sound_type {
+            let stem = match kind {
+                0 => "pethorse",
+                1 => "petbear",
+                2 => "petpuma",
+                3 => "petdinasaur",
+                4 => "petqilin",
+                _ => return None,
+            };
+            (200 + kind as u16 * 2 + offset, stem)
+        } else {
+            let index = (class.index() * 2 + gender.index()) as u16;
+            let stem = if class == Class::Barbarian {
+                "beasta"
+            } else {
+                match gender {
+                    Gender::Male => "malea",
+                    Gender::Female => "femalea",
+                }
+            };
+            ((if running { 130 } else { 100 }) + index, stem)
+        };
+        Some(Self {
+            id,
+            path: format!(
+                "sfx/character/footstep/land{}{stem}.wav",
+                if running { "run" } else { "walk" }
+            ),
+        })
+    }
+
+    pub fn water(camera_above: bool) -> Self {
+        let (id, file) = if camera_above {
+            (160, "swim.wav")
+        } else {
+            (161, "float.wav")
+        };
+        Self {
+            id,
+            path: format!("sfx/character/footstep/{file}"),
+        }
+    }
+
+    fn cue(&self) -> SoundCue {
+        SoundCue {
+            channel: MOVEMENT_CHANNEL,
+            event: self.id as u64,
+            paths: vec![self.path.clone()],
+            volume_min: 100,
+            volume_max: 100,
+            pitch_min: 0.0,
+            pitch_max: 0.0,
+            percent: 1.0,
+            looping: true,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct SoundCue {
@@ -35,6 +117,20 @@ pub enum SoundCommand {
     Stop { channel: u8, event: u64 },
     StopChannel(u8),
     StopAll,
+}
+
+fn movement_commands(
+    previous: &Option<MovementSound>,
+    requested: &Option<MovementSound>,
+) -> Vec<SoundCommand> {
+    if previous == requested {
+        return Vec::new();
+    }
+    let mut commands = vec![SoundCommand::StopChannel(MOVEMENT_CHANNEL)];
+    if let Some(sound) = requested {
+        commands.push(SoundCommand::Play(sound.cue()));
+    }
+    commands
 }
 
 #[derive(Clone, Debug)]
@@ -83,6 +179,7 @@ pub struct CharacterAudio {
     last_update: Instant,
     last_enabled: bool,
     last_volume: f32,
+    movement: Option<MovementSound>,
     #[cfg(windows)]
     tx: Option<std::sync::mpsc::Sender<Request>>,
     #[cfg(windows)]
@@ -106,6 +203,7 @@ impl Default for CharacterAudio {
             last_update: Instant::now() - Duration::from_secs(1),
             last_enabled: false,
             last_volume: -1.,
+            movement: None,
             #[cfg(windows)]
             tx: None,
             #[cfg(windows)]
@@ -206,9 +304,17 @@ impl CharacterAudio {
         }))
     }
 
-    pub fn update(&mut self, enabled: bool, volume: f32, commands: Vec<SoundCommand>) {
+    pub fn update(
+        &mut self,
+        enabled: bool,
+        volume: f32,
+        commands: Vec<SoundCommand>,
+        movement: Option<MovementSound>,
+    ) {
         self.enabled = enabled;
         self.volume = volume.clamp(0., 1.);
+        let requested_movement = if enabled { movement } else { None };
+        let movement_changed = requested_movement != self.movement;
         #[cfg(windows)]
         if let Some(rx) = &self.rx {
             while let Ok(message) = rx.try_recv() {
@@ -220,7 +326,7 @@ impl CharacterAudio {
         if !enabled {
             self.worker_error = None;
         }
-        let empty = commands.is_empty();
+        let empty = commands.is_empty() && !movement_changed;
         if empty
             && enabled == self.last_enabled
             && (self.volume - self.last_volume).abs() < 0.001
@@ -231,8 +337,15 @@ impl CharacterAudio {
         self.last_update = Instant::now();
         self.last_enabled = enabled;
         self.last_volume = self.volume;
+        let mut commands = commands;
+        if movement_changed {
+            // PlayMoveSound stops the previous buffer only when the selection
+            // changes. An unchanged selection must keep its loop position.
+            commands.extend(movement_commands(&self.movement, &requested_movement));
+            self.movement = requested_movement;
+        }
         self.status = if enabled {
-            format!("Character action sounds on; {} cue(s) triggered", self.cues)
+            format!("Character sounds on; {} cue(s) triggered", self.cues)
         } else {
             "Character sounds off".into()
         };
@@ -277,7 +390,7 @@ impl CharacterAudio {
     }
 
     pub fn stop(&mut self) {
-        self.update(self.enabled, self.volume, vec![SoundCommand::StopAll]);
+        self.update(self.enabled, self.volume, vec![SoundCommand::StopAll], None);
     }
 
     pub fn status(&self) -> &str {
@@ -487,6 +600,55 @@ fn worker(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn movement_selection_uses_native_ids_and_authentic_files() {
+        let psychic = MovementSound::land(Class::Psychic, Gender::Female, true, None).unwrap();
+        assert_eq!(psychic.id, 135);
+        assert_eq!(psychic.path, "sfx/character/footstep/landrunfemalea.wav");
+        let barbarian = MovementSound::land(Class::Barbarian, Gender::Male, true, None).unwrap();
+        assert_eq!(barbarian.id, 138);
+        assert_eq!(barbarian.path, "sfx/character/footstep/landrunbeasta.wav");
+        let horse = MovementSound::land(Class::Psychic, Gender::Female, true, Some(0)).unwrap();
+        assert_eq!(horse.id, 201);
+        assert_eq!(horse.path, "sfx/character/footstep/landrunpethorse.wav");
+        let raptor = MovementSound::land(Class::Psychic, Gender::Female, false, Some(3)).unwrap();
+        assert_eq!(raptor.id, 206);
+        assert_eq!(
+            raptor.path,
+            "sfx/character/footstep/landwalkpetdinasaur.wav"
+        );
+        assert_eq!(MovementSound::water(true).id, 160);
+        assert_eq!(MovementSound::water(false).id, 161);
+        assert!(MovementSound::land(Class::Psychic, Gender::Female, true, Some(5)).is_none());
+    }
+
+    #[test]
+    fn unchanged_movement_selection_does_not_restart_its_loop() {
+        let run = Some(MovementSound::land(Class::Psychic, Gender::Female, true, None).unwrap());
+        assert!(movement_commands(&run, &run).is_empty());
+        let swim = Some(MovementSound::water(true));
+        let changed = movement_commands(&run, &swim);
+        assert_eq!(changed.len(), 2);
+        assert!(matches!(
+            &changed[0],
+            SoundCommand::StopChannel(MOVEMENT_CHANNEL)
+        ));
+        match &changed[1] {
+            SoundCommand::Play(cue) => {
+                assert_eq!(cue.channel, MOVEMENT_CHANNEL);
+                assert_eq!(cue.event, 160);
+                assert!(cue.looping);
+            }
+            _ => panic!("movement change did not start its selected loop"),
+        }
+        let stopped = movement_commands(&swim, &None);
+        assert_eq!(stopped.len(), 1);
+        assert!(matches!(
+            &stopped[0],
+            SoundCommand::StopChannel(MOVEMENT_CHANNEL)
+        ));
+    }
 
     #[test]
     fn authentic_sfx_paths_are_rooted_and_traversal_is_rejected() {

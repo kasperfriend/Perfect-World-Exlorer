@@ -58,6 +58,9 @@ pub struct WeaponModel {
     /// Native GetRight/LeftWeaponOwnHookPos. Models without CC_weapon bind
     /// directly to the hand; only a right-hand model may fall back to CC_qiu.
     pub child_hook: Option<&'static str>,
+    /// Psychic soulspheres receive the player's gendered stand/run/wing
+    /// actions. Their animated CC_qiu hook also participates in attachment.
+    pub state_actions: bool,
 }
 
 /// Native `CECPlayer::GetRightWeaponHookPos`: Psychic soulspheres hang from
@@ -137,6 +140,7 @@ pub struct MountModel {
     pub asset: ModelAsset,
     pub speed: f32,
     pub speed_per_level: f32,
+    pub sound_type: u32,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -152,6 +156,7 @@ pub struct TravelAnimation {
     pub state: TravelState,
     pub mount: Option<(usize, f32)>,
     pub flight: Option<(usize, f32)>,
+    pub weapon: Option<(usize, f32)>,
 }
 
 pub struct Character {
@@ -448,6 +453,9 @@ impl Character {
                     asset,
                     hook: weapon_parent_hook(design.class, weapon.subtype, right, ordinary_hook),
                     child_hook,
+                    state_actions: right
+                        && design.class == Class::Psychic
+                        && weapon.subtype == 25333,
                 });
             }
         }
@@ -578,6 +586,7 @@ impl Character {
                 asset,
                 speed: item.speed_a,
                 speed_per_level: item.speed_b,
+                sound_type: item.sound_type,
             })
         };
         if customized.id_third_eye != 0 {
@@ -696,32 +705,25 @@ impl Character {
         let mut weapon_poses = Vec::with_capacity(self.weapons.len());
         for weapon in &self.weapons {
             let parent = model_asset::hook_matrix(&self.body.skeleton, &body, weapon.hook)?;
+            let sample = if weapon.state_actions {
+                travel.weapon
+            } else {
+                None
+            };
             let attached = if let Some(child_hook) = weapon.child_hook {
                 // CECPlayer::AttachWeapon supplies both HH and the weapon's own
-                // CC hook. Evaluating at HH alone discards the authored grip
-                // offset and rotates long weapons around the wrong point.
-                let reference = pose::evaluate_controlled(
-                    &weapon.asset.skeleton,
-                    &[],
-                    0.0,
-                    Mat4::IDENTITY,
-                    &[],
-                    &[],
-                )?;
+                // CC hook. A3DSkinModelHanger evaluates an animation-driven CC
+                // at identity, then uses its inverse for the final attachment.
+                // This is essential for HH_qiu: it is a body-root hook, while
+                // the soulsphere's authored action supplies its hand-side path.
+                let reference = evaluate_weapon(&weapon.asset, sample, Mat4::IDENTITY)?;
                 let child =
                     model_asset::hook_matrix(&weapon.asset.skeleton, &reference, child_hook)?;
                 hanger_world(parent, child)?
             } else {
                 parent
             };
-            weapon_poses.push(pose::evaluate_controlled(
-                &weapon.asset.skeleton,
-                &[],
-                0.0,
-                attached,
-                &[],
-                &[],
-            )?);
+            weapon_poses.push(evaluate_weapon(&weapon.asset, sample, attached)?);
         }
         let flight_pose = if travel.state == TravelState::Flying {
             let model = self
@@ -815,9 +817,35 @@ fn evaluate_asset(
     pose::evaluate(&asset.skeleton, tracks, seconds, world)
 }
 
+fn evaluate_weapon(
+    asset: &ModelAsset,
+    sample: Option<(usize, f32)>,
+    world: Mat4,
+) -> Result<Pose, String> {
+    let (tracks, seconds): (&[crate::animation::BoneTrack], f32) = match sample {
+        Some((action, seconds)) => {
+            let set = asset
+                .tracks
+                .get(action)
+                .ok_or("weapon action index out of range")?;
+            let tracks = match set {
+                Some(tracks) => &tracks.tracks,
+                None if !asset.skeleton.embedded_tracks.is_empty() => {
+                    &asset.skeleton.embedded_tracks
+                }
+                None => return Err("weapon action has no external or embedded tracks".into()),
+            };
+            (tracks, seconds)
+        }
+        None => (&[], 0.0),
+    };
+    pose::evaluate_controlled(&asset.skeleton, tracks, seconds, world, &[], &[])
+}
+
 /// Column-transform equivalent of the native row-vector hanger update
 /// `inverse(CC) * offset * parent_HH`, with the identity offset used by these
-/// player/pet models. The child CC pose is always evaluated at identity first.
+/// player/pet models. The (possibly animated) child CC pose is always evaluated
+/// at identity first.
 fn hanger_world(parent: Mat4, child: Mat4) -> Result<Mat4, String> {
     if !parent.is_finite() || !child.is_finite() {
         return Err("non-finite native hanger input".into());

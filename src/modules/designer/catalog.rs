@@ -438,6 +438,8 @@ pub struct MountItem {
     pub speed_a: f32,
     /// Retained native per-level coefficient; no unrecovered formula is applied.
     pub speed_b: f32,
+    /// Native PET_ESSENCE::pet_snd_type, selecting the mounted movement loop.
+    pub sound_type: u32,
 }
 impl MountItem {
     pub fn has_loadable_model(&self) -> bool {
@@ -823,6 +825,7 @@ fn parse_record(section: usize, record: &[u8], catalog: &mut Catalog) -> Result<
                     required_level: i32_at(record, 336)?,
                     speed_a: f32_at(record, 384)?,
                     speed_b: f32_at(record, 388)?,
+                    sound_type: u32_at(record, 340)?,
                 });
             }
         }

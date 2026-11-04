@@ -24,6 +24,7 @@ pub const CONTINUOUS_JUMP_HEIGHT: f32 = NATIVE_JUMP_IMPULSE * NATIVE_JUMP_IMPULS
 const GROUND_NORMAL_MIN: f32 = 0.5;
 const DOWN_TRACE: f32 = 0.3;
 const STEP_HEIGHT: f32 = 0.8;
+pub const NATIVE_MIN_AIR_HEIGHT: f32 = 1.6;
 
 /// Profession/gender values installed by `CECPlayer::CalcPlayerAABB`.
 /// Walker positions are feet positions, so the native AABB extends from `y`
@@ -372,7 +373,14 @@ impl Body {
     /// Air movement uses the equipped item's speed bonus over the class fly
     /// speed. The complete 3D wish velocity is clamped, matching AirWaterMove;
     /// gravity and ground jump rules are not applied while flying.
-    pub fn advance_flight(&mut self, delta: f32, input: FlightInput, map: &MapSpace) {
+    pub fn advance_flight(
+        &mut self,
+        delta: f32,
+        input: FlightInput,
+        map: &MapSpace,
+        areas: &[WaterArea],
+        constants: MovementConstants,
+    ) {
         if !delta.is_finite() || delta <= 0.0 || !input.speed.is_finite() {
             return;
         }
@@ -397,7 +405,22 @@ impl Body {
                 (direction + Vec3::Y * vertical).normalize_or_zero() * input.speed.max(0.0);
             self.grounded = false;
             self.vertical_velocity = velocity.y;
+            let previous_center_y = self.position.y + constants.half_height;
             self.position += velocity * STEP_SECONDS;
+
+            // EC_CDR::AirMove treats water as solid for flight. Its support
+            // comparison uses the AABB center and fMinAirHei (1.6 m), and the
+            // upward rescue is limited by the actual vertical step or 0.15 m.
+            // Convert back to Walker's feet position only after that clamp.
+            if let Some(water) = water_height(areas, self.position.x, self.position.z) {
+                let center_y = self.position.y + constants.half_height;
+                let minimum_center_y = water + NATIVE_MIN_AIR_HEIGHT;
+                if center_y < minimum_center_y {
+                    let allowance = ((previous_center_y - center_y).abs() + 0.001).max(0.15);
+                    self.position.y += (minimum_center_y - center_y).min(allowance);
+                }
+            }
+
             let support = ground(map, self.position.x, self.position.z);
             if self.position.y < support.height
                 || (self.position.y <= support.height && velocity.y < 0.0)
@@ -733,6 +756,8 @@ mod tests {
                     speed: 9.0,
                 },
                 &map,
+                &[],
+                MovementConstants::new(Class::Blademaster, Gender::Male),
             );
         }
         let displacement = body.position - Vec3::new(0.0, 12.0, 0.0);
@@ -748,11 +773,38 @@ mod tests {
                     speed: 9.0,
                 },
                 &map,
+                &[],
+                MovementConstants::new(Class::Blademaster, Gender::Male),
             );
         }
         assert!(body.grounded);
         assert_eq!(body.position.y, 10.0);
         assert_eq!(body.vertical_velocity, 0.0);
+    }
+
+    #[test]
+    fn flight_water_clearance_uses_native_center_height() {
+        let map = flat_map();
+        let areas = test_water(12.0);
+        let constants = MovementConstants::new(Class::Blademaster, Gender::Male);
+        let mut body = Body::new(Vec3::new(0.0, 14.0, 0.0));
+        body.begin_flight();
+        for _ in 0..300 {
+            body.advance_flight(
+                STEP_SECONDS,
+                FlightInput {
+                    direction: Vec3::ZERO,
+                    vertical: -1.0,
+                    speed: 9.0,
+                },
+                &map,
+                &areas,
+                constants,
+            );
+        }
+        assert!(!body.grounded);
+        assert!((body.position.y + constants.half_height - 13.6).abs() < 0.000_1);
+        assert!((body.position.y - 12.7).abs() < 0.000_1);
     }
 
     #[test]

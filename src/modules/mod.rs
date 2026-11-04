@@ -48,6 +48,10 @@ impl Modules {
         self.walker.is_active()
     }
 
+    pub fn walker_zoom(&mut self, steps: f32) {
+        self.walker.zoom(steps);
+    }
+
     pub fn walker_visible_in_water_pass(&self, plane: f32, reflection: bool) -> bool {
         self.walker.visible_in_water_pass(plane, reflection)
     }

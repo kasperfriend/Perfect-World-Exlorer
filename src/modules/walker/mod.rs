@@ -32,12 +32,15 @@ use std::{collections::HashSet, path::PathBuf};
 use winit::keyboard::KeyCode;
 
 const THIRD_PERSON_DISTANCE: f32 = 4.5;
+const OBJECT_DOWN_TRACE: f32 = 0.3;
 
 #[derive(Clone, Copy, Debug)]
 struct Settings {
     mechanics: Mechanics,
     first_person: bool,
     object_collision: bool,
+    camera_distance: f32,
+    camera_distance_target: f32,
 }
 
 impl Default for Settings {
@@ -46,6 +49,8 @@ impl Default for Settings {
             mechanics: Mechanics::default(),
             first_person: false,
             object_collision: true,
+            camera_distance: THIRD_PERSON_DISTANCE,
+            camera_distance_target: THIRD_PERSON_DISTANCE,
         }
     }
 }
@@ -94,6 +99,31 @@ fn edge_triggered(down: bool, was_down: &mut bool) -> bool {
 
 fn jump_requested(space: bool, was_down: bool, travel: TravelState) -> bool {
     space && !was_down && travel != TravelState::Flying
+}
+
+fn zoomed_distance(current: f32, steps: f32) -> f32 {
+    let change = if steps > 0.0 {
+        1.0
+    } else if steps < 0.0 {
+        -1.0
+    } else {
+        0.0
+    };
+    (current - change).clamp(0.0, 20.0)
+}
+
+fn eased_camera_distance(current: f32, target: f32, delta: f32) -> f32 {
+    if !delta.is_finite() || delta <= 0.0 {
+        return current;
+    }
+    let milliseconds = delta * 1000.0;
+    let difference = target - current;
+    if difference.abs() < delta {
+        // fCamZoomSpeed is 1 m/s in the native default settings.
+        target
+    } else {
+        current + difference * milliseconds / 200.0
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -186,6 +216,7 @@ pub struct Walker {
     body: Option<Body>,
     character: Option<Character>,
     facing: Vec3,
+    camera_position: Option<Vec3>,
     travel: TravelState,
     flight_hotkey: Hotkey,
     mount_hotkey: Hotkey,
@@ -213,6 +244,7 @@ impl Default for Walker {
             body: None,
             character: None,
             facing: Vec3::NEG_Z,
+            camera_position: None,
             travel: TravelState::Ground,
             flight_hotkey: Hotkey {
                 key: KeyCode::KeyF,
@@ -260,6 +292,16 @@ impl Walker {
         self.body.is_some() && self.character.is_some()
     }
 
+    /// CECCamera::Action changes distance by the configured native 1 m zoom
+    /// step per wheel notch and clamps to 0..20 m. Positive wheel steps zoom in.
+    pub fn zoom(&mut self, steps: f32) {
+        if !self.is_active() || self.settings.first_person || !steps.is_finite() {
+            return;
+        }
+        self.settings.camera_distance_target =
+            zoomed_distance(self.settings.camera_distance_target, steps);
+    }
+
     pub fn visible_in_water_pass(&self, plane: f32, reflection: bool) -> bool {
         let (Some(body), Some(character)) = (&self.body, &self.character) else {
             return false;
@@ -290,6 +332,35 @@ impl Walker {
         }
     }
 
+    fn movement_sound(&self) -> Option<audio::MovementSound> {
+        let body = self.body.as_ref()?;
+        let character = self.character.as_ref()?;
+        if self.travel == TravelState::Flying {
+            return None;
+        }
+        if body.swimming && !body.water_jumping {
+            let level = body
+                .water_height
+                .or_else(|| physics::water_height(&self.water, body.position.x, body.position.z))?;
+            let camera_y = self.camera_position.unwrap_or(character.eye).y;
+            return Some(audio::MovementSound::water(camera_y > level));
+        }
+        if !body.grounded || !body.moving {
+            return None;
+        }
+        let mount_sound_type = if self.travel == TravelState::Mounted {
+            Some(character.assembly.mount.as_ref()?.sound_type)
+        } else {
+            None
+        };
+        audio::MovementSound::land(
+            character.assembly.design.class,
+            character.assembly.design.gender,
+            true,
+            mount_sound_type,
+        )
+    }
+
     pub fn update_audio(&mut self, enabled: bool, volume: f32) {
         let active = self.is_active();
         let commands = if active {
@@ -300,7 +371,9 @@ impl Walker {
         } else {
             Vec::new()
         };
-        self.audio.update(enabled && active, volume, commands);
+        let movement = if active { self.movement_sound() } else { None };
+        self.audio
+            .update(enabled && active, volume, commands, movement);
     }
 
     pub fn audio_status(&self) -> &str {
@@ -319,6 +392,7 @@ impl Walker {
             }
             self.body = None;
             self.character = None;
+            self.camera_position = None;
             self.gpu = None;
             self.gpu_failed = false;
             self.last_error = None;
@@ -468,6 +542,11 @@ impl Walker {
         if !self.is_active() {
             return None;
         }
+        self.settings.camera_distance = eased_camera_distance(
+            self.settings.camera_distance,
+            self.settings.camera_distance_target,
+            delta,
+        );
         self.collision.poll();
         let mut captured = false;
         if let Some(action) = self.capture {
@@ -608,6 +687,8 @@ impl Walker {
                         speed: flight_speed?,
                     },
                     &map,
+                    &self.water,
+                    movement_constants,
                 ),
             }
         }
@@ -643,6 +724,32 @@ impl Walker {
                 }
             }
         }
+        // A building/tree top is a support plane too, not merely a wall that
+        // zeroes vertical velocity. Keep this after the terrain pass and use
+        // the higher surface, so object collision can never disable terrain.
+        if self.settings.object_collision
+            && self.travel != TravelState::Flying
+            && !(body.swimming && !body.water_jumping)
+            && body.vertical_velocity <= 0.0
+        {
+            if let Some(object) = self.collision.support(
+                body.position,
+                movement_constants.collision_extents(),
+                OBJECT_DOWN_TRACE,
+            ) {
+                if object.height >= support.height {
+                    let newly_landed = !body.grounded;
+                    body.position.y = object.height;
+                    body.vertical_velocity = 0.0;
+                    body.grounded = true;
+                    body.jump_count = 0;
+                    body.water_jumping = false;
+                    if newly_landed {
+                        body.landed_generation = body.landed_generation.wrapping_add(1);
+                    }
+                }
+            }
+        }
         if let Some(character) = &mut self.character {
             if let Err(error) =
                 character.update(delta, body, self.facing, self.travel, rushing, vertical)
@@ -651,13 +758,15 @@ impl Walker {
             }
             let eye = character.eye;
             if self.settings.first_person {
+                self.camera_position = Some(eye);
                 return Some(eye);
             }
             let cp = pitch.cos();
             let look = Vec3::new(s * cp, pitch.sin(), -c * cp);
-            let mut camera = eye - look * THIRD_PERSON_DISTANCE;
+            let mut camera = eye - look * self.settings.camera_distance;
             let clearance = physics::ground(&map, camera.x, camera.z).height + 0.25;
             camera.y = camera.y.max(clearance);
+            self.camera_position = Some(camera);
             return Some(camera);
         }
         None
@@ -808,7 +917,7 @@ impl Walker {
         ui.separator();
         ui.label(
             egui::RichText::new(
-                "Ground: WASD + Space jump/double jump • Water: WASD + Arrow Up/Down or Z, Space takeoff/ascend • Travel controls above • Mouse look",
+                "Ground: WASD + Space jump/double jump • Water: WASD + Arrow Up/Down or Z, Space takeoff/ascend • Travel controls above • Mouse look + wheel zoom",
             )
             .small(),
         );
@@ -982,7 +1091,12 @@ impl Walker {
                         draw.draw_filtered(&mut pass, |(skin, _)| skin != 1);
                     }
                     ModelPart::Face | ModelPart::Flight if self.settings.first_person => {}
-                    ModelPart::Weapon { right: true } if self.settings.first_person => {}
+                    ModelPart::Weapon { right: true }
+                        if self.settings.first_person
+                            || self
+                                .character
+                                .as_ref()
+                                .is_some_and(|character| character.soulsphere_hidden()) => {}
                     _ => draw.draw(&mut pass),
                 }
             }
@@ -1023,6 +1137,21 @@ mod tests {
             captured_hotkey(&HashSet::from([KeyCode::ControlRight, KeyCode::KeyH])).unwrap();
         assert_eq!(captured.key, KeyCode::KeyH);
         assert!(captured.control);
+    }
+
+    #[test]
+    fn wheel_zoom_uses_native_steps_and_clamps_without_touching_other_modes() {
+        assert_eq!(zoomed_distance(4.5, 1.0), 3.5);
+        assert_eq!(zoomed_distance(4.5, -1.0), 5.5);
+        assert_eq!(zoomed_distance(4.5, 3.0), 3.5);
+        assert_eq!(zoomed_distance(4.5, -3.0), 5.5);
+        assert_eq!(zoomed_distance(4.5, 0.0), 4.5);
+        assert_eq!(zoomed_distance(0.5, 1.0), 0.0);
+        assert_eq!(zoomed_distance(19.5, -1.0), 20.0);
+        let eased = eased_camera_distance(4.5, 3.5, 1.0 / 60.0);
+        assert!((eased - 53.0 / 12.0).abs() < 0.000_01);
+        assert_eq!(eased_camera_distance(4.5, 3.5, 2.0), 3.5);
+        assert_eq!(eased_camera_distance(4.5, 3.5, 0.0), 4.5);
     }
 
     #[test]
