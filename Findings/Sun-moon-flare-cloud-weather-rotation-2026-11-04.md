@@ -347,31 +347,64 @@ a file that predates them keeps both on `Auto`. The sky rows are the shipped
 `sky.lst` order: `0 晴天`, `1 阴天01`, `2 夕阳`. Note again that the shipped
 night row is *overcast*, not a painted night panorama.
 
-### 6.2 The flare sprite, as implemented
+### 6.2 The flare sprite and the disc colour, as implemented
 
-`sky_gpu` now draws the chain **in screen space**:
+**The discs were twice too bright.** `0x4b405f`–`0x4b4080` packs each disc's
+vertex diffuse as `([+0x48] & 0xfefefe | 0x01010100) >> 1 | fade << 24`: the
+object colour is halved and floor-ed at 1/255 per channel.
+`sun.sdr`/`moon.sdr` stage 0 is `TOP_MODULATE(TEXTURE, DIFFUSE)`, so retail
+draws both discs at *half* their object colour. The viewer multiplied by the
+texture alone, i.e. at twice that strength — this is the reported "sun too
+white", and the shader now applies `HALFCOLOUR = 127/255` to both discs.
 
-* the sun's screen position is computed on the CPU (`sky_gpu::flare_lanes`) by
-  projecting the sun direction with the very matrices the sky pass uses, and
-  passed in `glow_center.zw`; the screen aspect rides in `tint.w`;
-* the weight rides in `celestial.w` (formerly the shine strength, which the
-  recovered ramp replaced) and is zero for a reflected view, so the mirror never
-  draws a flipped chain;
-* the fragment shader (`flare_chain`) sums six samples on the line through the
-  sun and the screen centre at the recovered `0.4` weight, alternating
-  `sunflare.bmp` (13) and `flares.bmp` (14).
+Honest scope: what is recovered is the *operation* (half, floored), not the
+value of `+0x48`. Nothing in the record writes it in the disassembly that was
+read; the `| 0x01010100` floor only makes sense for an opaque white, and white is
+also the value that would leave this a pure 0.5. So the viewer applies the
+recovered operation to the white default. If `+0x48` turns out to be a per-region
+light colour, the multiply belongs there instead and the factor should be
+`colour * 0.5`.
 
-Viewer-chosen, and the only parts that are: the ghost ladder (`k = 1 − 0.4i`,
-i.e. 1.0 → −1.0, mirrored through the screen centre) and the sprite half extents
-(`0.04 + 0.025i` in NDC-height units, so 4 % → 16.5 % of the screen height). The
-recovered `-0.5`/`1.0` words in the vertex stream are *not* used as a scale
-because their unit is not pinned. There is no occlusion test: the client's
-54-point mask and the `0x786840` gate are what stop a flare behind terrain, and
-neither is reproduced.
+**The chain is one placeable sprite, not a ghost ladder.** Reading
+`ps/solarflare_14` again: the six `t0..t5` samples are *one sprite's* coverage —
+their alphas are summed at weight `0.4`, saturated, and multiplied into the
+sprite colour `c0.rgb`. They are not six sprites. The sprites themselves come
+from the 90-vertex strip, whose fill (`0x4b4290`-`0x4b5ef4`) computes their
+positions and sizes from the sun's screen position and the 54-point occlusion
+mask; that fill is still not reduced. The previous revision invented a ghost
+ladder along the screen diagonal, which is not in the client, so it is gone.
+What remains is:
+
+* the **`flares.bmp` ring**, concentric with the sun at twice the sun's own quad,
+  which is the one flare feature whose position is not in doubt and the only
+  sprite whose own centre is empty — `sunflare.bmp` would add its bright middle
+  on top of the disc that is already there, which is the opposite of what the
+  "too white" report asks for;
+* multiplied by the **recovered cover** — six flare-alpha samples
+  (`sunflare.bmp` and `flares.bmp` at three scales each) at weight `0.4`,
+  saturated;
+* multiplied by the **recovered half colour** and the disc's visibility fade.
+
+The chain is drawn in screen space: `sky_gpu::flare_lanes` projects the sun
+direction with the same matrices the sky pass uses and returns its NDC position
+(`glow_center.zw`) plus the weight (`celestial.w`); the screen aspect rides in
+`tint.w` and the sun's own NDC half extent (0.143 at the pass's 70° field of
+view) in `background.w`. The weight is zero for a reflected view and — the
+second bug report — for **any disc at or below the horizon**, which is the same
+`0x4b4035` test that stops the disc itself. A sun that has set submitted nothing
+but its visibility fade, and the chain followed it below the horizon; it no
+longer does.
+
+**Still viewer-chosen:** the 2x ring scale. **Still missing:** the sprite
+placement and the occlusion mask, so a disc behind a mountain still flares and
+the retail multi-sprite chain is not reproduced.
 
 ### 6.3 What is still not implemented, sky-side
 
-1. Flare ghost placement and size (above), and its occlusion mask.
+1. Flare sprite placement and size (above), and its occlusion mask. The chain is
+   one concentric ring because that is the only position the recovered evidence
+   pins; the client's generated strip (a 90-vertex buffer drawn as 30 triangles)
+   is not reproduced.
 2. The template's vertical anchor — the discs are still centred on the emitted
    direction rather than hanging `height/2` below it (§5.2). Unchanged on
    purpose: it would move the sun 5.7° and the elevation curve is itself an

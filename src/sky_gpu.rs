@@ -116,6 +116,8 @@ struct Uniform {
     time: [f32; 4],
     celestial: [f32; 4],
     celestial2: [f32; 4],
+    /// `rgb` the pass background the open band blends with, `w` the sun's own
+    /// half extent in NDC-height units (the flare chain is sized from it).
     background: [f32; 4],
     tint: [f32; 4],
     /// `x` committed set, `y` incoming set, `z` incoming weight, `w` hour. The
@@ -205,6 +207,15 @@ const SUN_HALF:f32=10.0;
 const MOON_HALF:f32=20.0;
 const SHINE_HALF_WIDTH:f32=60.0;
 const SHINE_HALF_HEIGHT:f32=20.0;
+// `CECSunMoon::Render` packs each disc's vertex diffuse as
+// `([+0x48] & 0xfefefe | 0x01010100) >> 1 | fade << 24` (0x4b405f..0x4b4080):
+// the object colour is halved, and the `| 0x01010100` floor only makes sense for
+// an opaque white, which is the only value that leaves the operation a pure
+// 0.5. The viewer multiplied by the texture alone, i.e. at twice the recovered
+// strength, which is what made the sun read as a white blob. Which record fills
+// `+0x48` is not recovered, so this is the recovered *operation* applied to the
+// white default, not a measured per-region tint.
+const HALFCOLOUR:f32=0.49803922;
 
 // `CECSunMoon::Render` sun-shine strength (0x4b3dc1..0x4b3e22): zero until the
 // night strength passes 0.3, ramp to 1 at 0.6, hold to 0.8, then `(1-n)*5`.
@@ -353,38 +364,46 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,nigh
  let uv=plane/(2.0*half)+vec2<f32>(0.5);
  if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {return out;}
  let t=textureSampleLevel(skies,smp,uv,disc,0.);
- if is_sun {return clamp(out+t.rgb*alpha,vec3<f32>(0.),vec3<f32>(1.));}
- return mix(out,t.rgb,t.a*alpha);
+ if is_sun {return clamp(out+t.rgb*HALFCOLOUR*alpha,vec3<f32>(0.),vec3<f32>(1.));}
+ return mix(out,t.rgb*HALFCOLOUR,t.a*alpha);
 }
 // The client's flare chain, in screen space.
 //
-// `CECSunMoon::Init` loads `sunflare.bmp` and `flares.bmp`; `ps/solarflare_14`
-// sums six flare-alpha samples at the recovered 0.4 weight through the
-// `0x786840` alpha target, and the 90-vertex stream at `0x4b5b74` places the
-// sprites from the sun's screen position, gated by a 54-point visibility mask.
-// Neither the placement generator nor that mask was reduced, so the viewer
-// places the same six samples, at the same weight, on the line through the sun
-// and the screen centre with its own size ladder, and feeds them the client's
-// two textures. A disc hidden behind terrain still flares: the occlusion mask is
-// the part that is missing, not the sum.
-fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,ring:i32)->vec3<f32>{
- if weight<=0.0 {return color;}
+// `CECSunMoon::Init` owns a flare stream (90 vertices, drawn as a strip at
+// `0x4b5b74`), a flare-alpha stream (68 vertices, 1604 indices) and the
+// `0x786840` accumulation target; `ps/solarflare_14` builds a sprite's coverage
+// from six flare-alpha samples at weight 0.4, saturates the sum and multiplies
+// it into the sprite colour, which is the object's own half colour below.
+//
+// The stream that *places* those sprites is filled at run time from the sun's
+// screen position and a 54-point occlusion mask, and that fill
+// (`0x4b4290`-`0x4b5ef4`) is still not reduced, so the viewer cannot put a
+// sprite anywhere but where it is certain of the position: concentric with the
+// sun. It therefore draws the one sprite that reads as a flare from there — the
+// `flares.bmp` ring at twice the sun's own quad — and multiplies it by the
+// recovered six-sample coverage instead of inventing ghost positions along the
+// screen diagonal. The ring is the sprite that leaves the sun's own core alone:
+// its art is empty at the centre, unlike `sunflare.bmp`, which would add its
+// bright middle on top of the disc that is already there.
+// Neither flare BMP has an alpha channel, so their own colour is the alpha the
+// client accumulates.
+fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32,flare:i32,ring:i32)->vec3<f32>{
+ if weight<=0.0 || disc_half<=0.0 {return color;}
  let sun=p.glow_center.zw;
- var out=color;
- // `k` runs 1.0 -> -1.0, i.e. the far ghost through the screen centre back past
- // the sun; naga rejects a runtime index into an immutable local array, so the
- // ladder is arithmetic instead of a table.
+ let q=vec2<f32>((ndc.x-sun.x)*aspect,ndc.y-sun.y);
+ // The recovered coverage: six flare-alpha samples, 0.4 each, saturated.
+ var mask=0.0;
  for(var i=0;i<6;i=i+1){
-  let k=1.0-f32(i)*0.4;
-  let ghost=-sun*k;
-  let d=vec2<f32>((ndc.x-ghost.x)*aspect,ndc.y-ghost.y);
-  let sz=0.04+0.025*f32(i);
-  let uv=d/(2.0*sz)+vec2<f32>(0.5);
+  let sz=disc_half*(1.5+0.5*f32(i));
+  let uv=q/(2.0*sz)+vec2<f32>(0.5);
   if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {continue;}
-  let tex=select(textureSampleLevel(skies,smp,uv,flare,0.),textureSampleLevel(skies,smp,uv,ring,0.),i%2==1);
-  out=clamp(out+tex.rgb*tex.a*(weight*0.4),vec3<f32>(0.),vec3<f32>(1.));
+  let t=select(textureSampleLevel(skies,smp,uv,flare,0.),textureSampleLevel(skies,smp,uv,ring,0.),i%2==1);
+  mask=mask+clamp(max(t.r,max(t.g,t.b)),0.0,1.0)*0.4;
  }
- return out;
+ let ruv=q/(2.0*(2.0*disc_half))+vec2<f32>(0.5);
+ if ruv.x<0.0 || ruv.x>1.0 || ruv.y<0.0 || ruv.y>1.0 {return color;}
+ let ringc=textureSampleLevel(skies,smp,ruv,ring,0.);
+ return clamp(color+ringc.rgb*clamp(mask,0.0,1.0)*(weight*HALFCOLOUR),vec3<f32>(0.),vec3<f32>(1.));
 }
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
@@ -414,12 +433,28 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
  let night=clamp(p.sets.w,0.0,1.0);
  color=celestial(color,d,p.celestial,9,11,night);
  color=celestial(color,d,p.celestial2,10,12,night);
- // `p.celestial.w` is the sun's flare weight and `p.tint.w` the screen aspect;
- // both are zeroed for a reflected view, which is why its chain is skipped.
- color=flare_chain(color,i.clip,p.celestial.w,p.tint.w,13,14);
+ // `p.celestial.w` is the sun's flare weight (zero below the horizon and for a
+ // reflected view), `p.tint.w` the screen aspect and `p.background.w` the sun's
+ // own half extent in NDC-height units.
+ color=flare_chain(color,i.clip,p.celestial.w,p.tint.w,p.background.w,13,14);
  return vec4<f32>(color,1.);
 }
 "#;
+
+/// The vertical field of view `update` builds its projection with.
+pub(crate) const FOV_DEGREES: f32 = 70.;
+
+/// The sun's own half extent in NDC-height units.
+///
+/// The recovered template is a 20-unit quad 100 units away
+/// (`sky_celestial::SUN_HALF_EXTENT` = 10, and the shader's `SUN_HALF`), so its
+/// half angle is `atan(10/100)`. Projected through a vertical `fov_degrees`
+/// field of view that is `0.1 / tan(fov/2)` — 0.143 NDC at 70 degrees, i.e.
+/// 7.1 % of the screen half-height. The flare chain is sized from this instead
+/// of a hard-coded screen size, so it tracks the disc.
+fn sun_ndc_half(fov_degrees: f32) -> f32 {
+    (10.0 / 100.0) / (fov_degrees.to_radians() * 0.5).tan()
+}
 
 /// Where the flare chain hangs, and how strongly it is drawn.
 ///
@@ -429,8 +464,10 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
 /// `celestial.yz`, projected with the matrices the sky pass already uses.
 ///
 /// A reflected view is mirrored against the water plane and must not draw the
-/// chain (the ghosts would flip), and a disc that is not being drawn, or is
-/// behind the camera, has no weight either.
+/// chain, and a disc that is not being drawn — below the horizon, faded out, or
+/// behind the camera — has no weight either. The elevation test is the one
+/// `0x4b4035` applies before it submits the disc itself: a sun under the
+/// horizon submits nothing, so nothing of its chain may be drawn.
 fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> ([f32; 2], f32) {
     let (elevation, azimuth) = (sun[1], sun[2]);
     let direction = Vec3::new(
@@ -441,7 +478,7 @@ fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> 
     // Point 100 units along the sun's own direction, so the projection's
     // near/far planes behave exactly as they do for the disc quad.
     let clip = projection * view * (direction * 100.).extend(1.);
-    if reflected || sun[0] <= 0. || clip.w <= 1e-6 {
+    if reflected || sun[0] <= 0. || elevation <= 0. || clip.w <= 1e-6 {
         return ([0., 0.], 0.);
     }
     ([clip.x / clip.w, clip.y / clip.w], sun[0].clamp(0., 1.))
@@ -812,7 +849,12 @@ impl SkyGpu {
     ) {
         let view = Mat4::look_to_rh(Vec3::ZERO, direction, Vec3::Y);
         let projection = Mat4::from_scale(Vec3::new(-1., 1., 1.))
-            * Mat4::perspective_rh(70f32.to_radians(), w as f32 / h.max(1) as f32, 1., 16000.);
+            * Mat4::perspective_rh(
+                FOV_DEGREES.to_radians(),
+                w as f32 / h.max(1) as f32,
+                1.,
+                16000.,
+            );
         // Reflect every world-space camera ray about the water plane. Mirroring
         // only the forward vector loses the inverted vertical screen basis.
         let inv = sky_inverse(projection, view, reflected);
@@ -833,7 +875,7 @@ impl SkyGpu {
                 frame.background[0],
                 frame.background[1],
                 frame.background[2],
-                1.,
+                sun_ndc_half(FOV_DEGREES),
             ],
             tint: [
                 frame.tint[0],
@@ -1202,6 +1244,27 @@ mod reflection_tests {
         let faded = super::flare_lanes(projection, view, [0.5, el, az, 0.], false);
         assert_eq!(faded.1, 0.5);
         assert!((faded.0[0] - ndc[0]).abs() < 1e-6);
+        // A sun that has set submits no disc (0x4b4035) and must not flare, even
+        // though its visibility fade is still at full strength.
+        for below in [-0.001, -0.4] {
+            assert_eq!(
+                super::flare_lanes(projection, view, [1., below, az, 0.], false).1,
+                0.,
+                "the chain must stop the moment the disc does"
+            );
+        }
+    }
+
+    #[test]
+    fn the_flare_chain_is_sized_from_the_recovered_sun_quad() {
+        // 10 units at distance 100 is 5.71 degrees; through a 70-degree
+        // projection that is 0.1 / tan(35) of the screen half-height.
+        let half = super::sun_ndc_half(super::FOV_DEGREES);
+        assert!((half - 0.142_83).abs() < 1e-4, "{half}");
+        assert!((half - 0.1 / (35f32.to_radians()).tan()).abs() < 1e-6);
+        // A narrower field of view magnifies it, a wider one shrinks it.
+        assert!(super::sun_ndc_half(20.) > half);
+        assert!(super::sun_ndc_half(120.) < half);
     }
 
     #[test]
