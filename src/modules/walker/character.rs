@@ -961,7 +961,7 @@ mod tests {
             character
                 .update(
                     0.05,
-                    &Body::default(),
+                    &Body::new(Vec3::ZERO),
                     Vec3::Z,
                     TravelState::Ground,
                     false,
