@@ -478,16 +478,26 @@ mod tests {
         }
     }
 
-    /// The integrand the viewer actually runs: no displacement, no damping,
-    /// so the velocity must not change at all.
+    /// With the target equal to the position there is no pull, so the only
+    /// acceleration left is the damping term: velocity must decay by exactly
+    /// `h * 2*omega` per step and the position must follow the reduced
+    /// velocity rather than free-running.
     #[test]
-    fn integrate_without_error_holds_velocity() {
+    fn integrate_without_error_only_damps() {
         let mut w = GrassWind::new();
         w.pos = [7., 8., 9.];
         w.vel = [1., 2., 3.];
         w.integrate(0.016, [7., 8., 9.]);
-        assert_eq!(w.vel, [1., 2., 3.]);
-        assert_eq!(w.pos, [7.016, 8.032, 9.048]);
+        let decay = 1. - 0.016 * 2. * (1.0 / SPRING_STIFFNESS).sqrt();
+        for (got, start) in w.vel.iter().zip([1., 2., 3.]) {
+            assert!(
+                (got - start * decay).abs() < 1e-6,
+                "vel={got} want={}",
+                start * decay
+            );
+        }
+        // Damping must remove energy, never add it.
+        assert!(w.vel.iter().zip([1., 2., 3.]).all(|(a, b)| *a < b));
     }
 
     /// From rest the pull is `(target - pos)/+0x48` minus the damping term.
