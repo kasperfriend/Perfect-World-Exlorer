@@ -77,6 +77,10 @@ impl Frame {
         let mut face_color = [1.; 4];
         let mut face_skin = [1.; 4];
         match face_shader {
+            Some(crate::model_asset::FaceShader::Face { color }) => {
+                face_mode = 5.;
+                face_color = argb(*color);
+            }
             Some(crate::model_asset::FaceShader::Brow {
                 color, skin_color, ..
             }) => {

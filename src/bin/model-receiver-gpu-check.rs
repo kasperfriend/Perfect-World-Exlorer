@@ -556,6 +556,30 @@ fn main() {
         pixel
     };
 
+    // Face.sdr / facerender.txt (and the identical Nose color shape) tint the
+    // base texture, not the vertex light/specular material. Base alpha still
+    // participates in opacity, unlike Body's independent color mask.
+    let mut face_params = params;
+    face_params.alpha = [1., 5., 0., 0.];
+    face_params.face_color = skin;
+    face_params.face_skin = [0.125, 0.25, 0.5, 1.];
+    let actual = render_face("native face raster", &face_params);
+    let opacity = ambient[3] * texel[3] as f32 / 255.;
+    for c in 0..4 {
+        let src = if c == 3 {
+            opacity
+        } else {
+            texel[c] as f32 / 255. * skin[c] * ambient[c]
+        };
+        let expected =
+            ((src * opacity + background[c] as f32 / 255. * (1. - opacity)) * 255.).round() as u8;
+        assert!(
+            (actual[c] as i32 - expected as i32).abs() <= 1,
+            "native face channel {c}: {} != {expected}",
+            actual[c]
+        );
+    }
+
     // Eye.sdr / eyerender.txt uses the same two-colour interpolation shape as
     // Brow, but its own constants and route. This catches accidental Body or
     // ordinary-material routing of model人脸_1.
@@ -614,6 +638,7 @@ fn main() {
     println!("::notice::{cases} production model raster RGBA checks passed (material/light variants, encoded blend, fog, clip and alpha-test)");
     println!("::notice::1 native brow raster RGBA check passed (base/skin, highlight/brow, highlight-alpha lerp and base-alpha opacity)");
     println!("::notice::1 native body raster RGBA check passed (texture-alpha colour mask and diffuse-alpha opacity)");
+    println!("::notice::1 native face raster RGBA check passed (base/face colour, untinted light route and base-alpha opacity)");
     println!("::notice::1 native eye raster RGBA check passed (face/eye colours, highlight-alpha lerp and base-alpha opacity)");
     println!("::notice::1 native eyeball raster RGBA check passed (pupil/highlight, post-lighting eyereflect gloss and base-alpha opacity)");
 }

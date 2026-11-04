@@ -215,6 +215,7 @@ pub struct Walker {
     settings: Settings,
     body: Option<Body>,
     character: Option<Character>,
+    object_grounded: bool,
     facing: Vec3,
     camera_position: Option<Vec3>,
     travel: TravelState,
@@ -243,6 +244,7 @@ impl Default for Walker {
             settings: Settings::default(),
             body: None,
             character: None,
+            object_grounded: false,
             facing: Vec3::NEG_Z,
             camera_position: None,
             travel: TravelState::Ground,
@@ -392,6 +394,7 @@ impl Walker {
             }
             self.body = None;
             self.character = None;
+            self.object_grounded = false;
             self.camera_position = None;
             self.gpu = None;
             self.gpu_failed = false;
@@ -432,6 +435,7 @@ impl Walker {
                 .set_move_speed(character.assembly.class_speeds.run);
             self.body = Some(Body::new(position));
             self.character = Some(character);
+            self.object_grounded = false;
             self.facing = facing;
             self.gpu = None;
             self.gpu_failed = false;
@@ -727,6 +731,7 @@ impl Walker {
         // A building/tree top is a support plane too, not merely a wall that
         // zeroes vertical velocity. Keep this after the terrain pass and use
         // the higher surface, so object collision can never disable terrain.
+        let mut object_grounded = false;
         if self.settings.object_collision
             && self.travel != TravelState::Flying
             && !(body.swimming && !body.water_jumping)
@@ -738,18 +743,12 @@ impl Walker {
                 OBJECT_DOWN_TRACE,
             ) {
                 if object.height >= support.height {
-                    let newly_landed = !body.grounded;
-                    body.position.y = object.height;
-                    body.vertical_velocity = 0.0;
-                    body.grounded = true;
-                    body.jump_count = 0;
-                    body.water_jumping = false;
-                    if newly_landed {
-                        body.landed_generation = body.landed_generation.wrapping_add(1);
-                    }
+                    body.ground_on_object(object, self.object_grounded);
+                    object_grounded = true;
                 }
             }
         }
+        self.object_grounded = object_grounded;
         if let Some(character) = &mut self.character {
             if let Err(error) =
                 character.update(delta, body, self.facing, self.travel, rushing, vertical)

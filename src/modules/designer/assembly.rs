@@ -1327,7 +1327,23 @@ fn apply_face_part(
         // 巫师男标准脸1.ski) contain only the base face and eyeball meshes.
         return Ok(());
     };
-    model.mesh_tints.insert((skin, mesh), color);
+    // CECFace::SetPartShader applies this material override to the complete
+    // base face skin whenever any native part shader is installed.
+    for material in &mut model.skins[skin].data.materials {
+        material.specular = [50. / 255., 50. / 255., 50. / 255., 1.];
+        material.power = 10.;
+    }
+    if part == 4 || (part == 0 && choice.is_some()) {
+        // Face and nose use the same native single-texture shader shape. Keep
+        // their colour out of ordinary material modulation so vertex light and
+        // specular match the adjoining body instead of being tinted again.
+        model.mesh_tints.remove(&(skin, mesh));
+        model
+            .face_shaders
+            .insert((skin, mesh), FaceShader::Face { color });
+    } else {
+        model.mesh_tints.insert((skin, mesh), color);
+    }
     if let Some(choice) = choice {
         let stage =
             apply_texture_choice(model, skin, mesh, texture, choice, assets, stages, warnings);
@@ -1584,6 +1600,46 @@ mod tests {
             let pose = character.bind_pose(Mat4::IDENTITY).unwrap();
             assert!(!character.meshes_from_pose(&pose).unwrap().body.is_empty());
         }
+    }
+
+    #[test]
+    fn authentic_male_human_and_elf_faces_use_native_skin_shaders() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let mut evaluated = 0;
+        for class in [Class::Blademaster, Class::Archer, Class::Cleric] {
+            let design = assets.default_design(class, Gender::Male).unwrap();
+            let skin_color = design.customize.face.color_face;
+            let character = Character::assemble(design, &mut assets).unwrap();
+            let face = &character.face;
+            for part in [0, 4] {
+                let name = format!("model人脸_{part}");
+                let (mesh, _) = face.skins[character.face_skins.face]
+                    .data
+                    .meshes
+                    .iter()
+                    .enumerate()
+                    .find(|(_, mesh)| mesh.name.eq_ignore_ascii_case(&name))
+                    .unwrap_or_else(|| panic!("{} is missing {name}", class.name()));
+                let key = (character.face_skins.face, mesh);
+                assert_eq!(
+                    face.face_shaders.get(&key),
+                    Some(&FaceShader::Face { color: skin_color }),
+                    "{} part {part}",
+                    class.name()
+                );
+                assert!(!face.mesh_tints.contains_key(&key));
+                evaluated += 1;
+            }
+            for material in &face.skins[character.face_skins.face].data.materials {
+                assert_eq!(material.specular, [50. / 255., 50. / 255., 50. / 255., 1.]);
+                assert_eq!(material.power, 10.);
+            }
+        }
+        assert_eq!(evaluated, 6);
     }
 
     #[test]

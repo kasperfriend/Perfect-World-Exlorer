@@ -88,7 +88,11 @@ pub(crate) fn show(
             slider!(ui, "3Parts", "scaleDown", scale_down, "Face lower third");
             slider!(ui, "Face", "scaleFaceH", scale_face_h, "Face width");
             slider!(ui, "Face", "scaleFaceV", scale_face_v, "Face height");
-            changed |= color(ui, "Face color", &mut design.customize.face.color_face);
+            let mut face_color = design.customize.face.color_face;
+            if color(ui, "Face color", &mut face_color) {
+                design.set_face_color(face_color);
+                changed = true;
+            }
         });
 
     egui::CollapsingHeader::new("Face shape and complexion").show(ui, |ui| {

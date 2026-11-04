@@ -48,6 +48,11 @@ impl SkinAsset {
 /// separate constants and must not be collapsed into that single tint.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FaceShader {
+    /// `Shaders/ps/facerender/facerender.txt` and `noserender.txt`: base ×
+    /// face colour, then untinted vertex light/specular and base-alpha opacity.
+    /// Ordinary material modulation is not equivalent: it also tints light and
+    /// specular, visibly splitting the head from the body's skin tone.
+    Face { color: u32 },
     /// `Shaders/ps/facerender/browrender.txt`: base × skin colour, highlight ×
     /// brow colour, highlight-alpha interpolation, then vertex light/specular.
     Brow {
@@ -77,7 +82,7 @@ impl FaceShader {
             Self::Brow { highlight, .. }
             | Self::Eye { highlight, .. }
             | Self::EyeBall { highlight, .. } => Some(highlight),
-            Self::Body { .. } => None,
+            Self::Face { .. } | Self::Body { .. } => None,
         }
     }
 

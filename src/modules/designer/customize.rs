@@ -268,6 +268,13 @@ impl CharacterDesign {
         }
         Ok(bytes.into_owned())
     }
+    /// Native CUS_COLOR_FACE updates both shader color fields. INI loading is
+    /// intentionally separate and still preserves independently stored values.
+    pub fn set_face_color(&mut self, color: u32) {
+        self.customize.face.color_face = color;
+        self.customize.color_body = color;
+    }
+
     pub fn clamp(&mut self, bounds: &SliderBounds) {
         self.customize.clamp(bounds);
     }
@@ -913,6 +920,19 @@ mod tests {
         assert_eq!(design.customize.color_body, 0);
         assert_eq!(design.equipment, equipment);
     }
+    #[test]
+    fn native_face_color_command_synchronizes_body_but_ini_keeps_stored_values() {
+        let mut design = CharacterDesign::new(Class::Blademaster, Gender::Male);
+        design.set_face_color(0xfff6f0e9);
+        assert_eq!(design.customize.face.color_face, 0xfff6f0e9);
+        assert_eq!(design.customize.color_body, 0xfff6f0e9);
+        design
+            .apply_preset_ini(b"[Color]\r\ncolorFace = 100\r\n[Body]\r\ncolorBody = 200\r\n")
+            .unwrap();
+        assert_eq!(design.customize.face.color_face, 100);
+        assert_eq!(design.customize.color_body, 200);
+    }
+
     #[test]
     fn malformed_preset_does_not_partially_replace_the_character() {
         let mut design = CharacterDesign::new(Class::Blademaster, Gender::Male);

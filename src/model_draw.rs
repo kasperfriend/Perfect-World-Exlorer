@@ -229,6 +229,19 @@ mod tests {
         assert_eq!(p[0].indices.as_ref(), [0, 1, 2]);
     }
     #[test]
+    fn native_face_shader_owns_skin_color_without_generic_material_tint() {
+        let (mut asset, poses) = fixture();
+        let color = 0xfff6f0e9;
+        asset.mesh_tints.insert((0, 0), color);
+        asset
+            .face_shaders
+            .insert((0, 0), FaceShader::Face { color });
+        let prepared = prepare(&asset, &poses).unwrap();
+        assert_eq!(prepared[0].color, u32::MAX);
+        assert_eq!(prepared[0].face_shader, Some(&FaceShader::Face { color }));
+    }
+
+    #[test]
     fn native_equipment_alpha_mode_is_per_mesh() {
         let (mut asset, poses) = fixture();
         assert!(!prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);

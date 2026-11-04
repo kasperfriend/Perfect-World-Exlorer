@@ -359,6 +359,22 @@ impl Body {
         )
     }
 
+    /// Install an object support plane after the terrain-only fixed step.
+    /// `continued_support` distinguishes a persistent object contact from a
+    /// real airborne landing. Without it, the terrain step's transient
+    /// `grounded = false` restarts the landing action on every frame.
+    pub fn ground_on_object(&mut self, support: Ground, continued_support: bool) {
+        let newly_landed = !continued_support && !self.grounded;
+        self.position.y = support.height;
+        self.vertical_velocity = 0.0;
+        self.grounded = true;
+        self.jump_count = 0;
+        self.water_jumping = false;
+        if newly_landed {
+            self.landed_generation = self.landed_generation.wrapping_add(1);
+        }
+    }
+
     pub fn begin_flight(&mut self) {
         self.grounded = false;
         self.swimming = false;
@@ -805,6 +821,39 @@ mod tests {
         assert!(!body.grounded);
         assert!((body.position.y + constants.half_height - 13.6).abs() < 0.000_1);
         assert!((body.position.y - 12.7).abs() < 0.000_1);
+    }
+
+    #[test]
+    fn persistent_object_support_does_not_restart_landing_every_frame() {
+        let map = flat_map();
+        let mechanics = Mechanics::default();
+        let input = Input::default();
+        let object = Ground {
+            height: 12.0,
+            normal: Vec3::Y,
+        };
+        let mut body = Body::new(Vec3::new(0.0, object.height, 0.0));
+        body.ground_on_object(object, false);
+        for _ in 0..120 {
+            body.advance(STEP_SECONDS, &mechanics, input, &map);
+            // The terrain-only step cannot see the object at y=12 above its
+            // y=10 map, so it transiently clears grounded on every iteration.
+            assert!(!body.grounded);
+            body.ground_on_object(object, true);
+            assert!(body.grounded);
+            assert_eq!(body.position.y, object.height);
+            assert_eq!(body.vertical_velocity, 0.0);
+            assert_eq!(body.landed_generation, 0);
+        }
+
+        let mut airborne = Body::new(Vec3::new(0.0, 13.0, 0.0));
+        airborne.grounded = false;
+        airborne.vertical_velocity = -1.0;
+        airborne.advance(STEP_SECONDS, &mechanics, input, &map);
+        assert!(!airborne.grounded);
+        airborne.ground_on_object(object, false);
+        assert!(airborne.grounded);
+        assert_eq!(airborne.landed_generation, 1);
     }
 
     #[test]
