@@ -201,6 +201,8 @@ impl TerrainGpu {
         for group in native_groups.iter().flatten() {
             native_counts[*group] += 1;
         }
+        eprintln!("Terrain native BC upload: {} textures; {} decoded fallback textures (original resolution and authored mips retained)",
+            native_counts.iter().sum::<usize>(), m.textures.len() - native_counts.iter().sum::<usize>());
         let native_textures: Vec<_> = (0..6)
             .map(|group| {
                 let side = if native_counts[group] == 0 {

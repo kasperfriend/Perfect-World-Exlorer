@@ -280,6 +280,33 @@ impl Materials {
                 }
             }
         }
+        let packed_bytes: usize = textures.iter().map(|t| t.source.len()).sum::<usize>()
+            + areas
+                .iter()
+                .flat_map(|a| &a.layers)
+                .map(|l| l.mask.bytes.len())
+                .sum::<usize>();
+        let expanded_bytes: usize = textures
+            .iter()
+            .map(|t| {
+                let info =
+                    crate::terrain_sampling::parse_terrain_dds(&t.source).expect("validated DDS");
+                (0..info.authored_mips)
+                    .map(|mip| {
+                        ((info.width >> mip).max(1) as usize)
+                            * ((info.height >> mip).max(1) as usize)
+                            * 4
+                    })
+                    .sum::<usize>()
+            })
+            .sum::<usize>()
+            + areas
+                .iter()
+                .flat_map(|a| &a.layers)
+                .map(|l| l.mask_size * l.mask_size)
+                .sum::<usize>();
+        eprintln!("Terrain CPU sources: {:.1} MiB packed; eager RGBA/masks would use {:.1} MiB (temporary decode per upload)",
+            packed_bytes as f64 / 1048576., expanded_bytes as f64 / 1048576.);
         Ok(Self {
             textures,
             areas,

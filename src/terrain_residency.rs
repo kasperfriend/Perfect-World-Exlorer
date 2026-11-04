@@ -12,7 +12,7 @@
 //!
 //! * a block enters the resident set when the window first covers it, and its
 //!   mesh is built exactly once at the level the rule picked;
-//! * it is re-meshed only when its level changes;
+//! * it is re-meshed only when its level or edge stitching changes;
 //! * it is evicted when the window moves off it, freeing its geometry;
 //! * the submitted set is the resident set filtered per view by the same
 //!   bounds test the client stores in `block+0x74`.
@@ -43,7 +43,7 @@ pub struct Census {
     pub loaded: usize,
     /// Blocks the window moved off, whose geometry was released.
     pub evicted: usize,
-    /// Resident blocks re-meshed because their level changed.
+    /// Resident blocks re-meshed because their level or stitching changed.
     pub remeshed: usize,
     /// Triangles held by the resident blocks.
     pub triangles: u32,
@@ -121,7 +121,7 @@ impl Residency {
                 let (level, cases) = state_of(x, y);
                 if level == 0 {
                     // No mesh for this block (`block+0x70 == 0`).
-                    self.blocks.remove(&(x, y));
+                    census.evicted += usize::from(self.blocks.remove(&(x, y)).is_some());
                     continue;
                 }
                 let stale = match self.blocks.get(&(x, y)) {

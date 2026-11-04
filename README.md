@@ -21,7 +21,7 @@ Features are limited to formats and data encountered in one inspected build; oth
 ## Requirements
 
 - 64-bit Windows 10 or 11, a compatible GPU with current drivers and a trusted, extracted Perfect World client with its data packages and 32-bit SpeedTree runtime. Game assets and the client are **not included**.
-- Considerable memory and VRAM. Startup reads the terrain and may take time. Whole-world static scenery for the inspected client uses approximately **5.4 GiB of texture pages alone**, before geometry, terrain and other GPU resources. Use nearby streaming and the launcher's lower-memory terrain-mask option if needed.
+- Startup reads the terrain and may take time. Terrain DDS/mask sources remain compact during loading; supported GPUs sample the original BC1/BC2 terrain blocks, and repeated world models share textures, pipelines and animation tracks. This reduces allocations without lowering texture resolution. Memory still depends on the client, driver and enabled features. Whole-world static scenery for the inspected client uses approximately **5.4 GiB of texture pages alone**, before geometry, terrain and other GPU resources. Use nearby streaming and the launcher's lower-memory terrain-mask option if needed.
 - The launcher recognizes one particular 1.4.2 executable fingerprint. Other patched or regional clients are not guaranteed to work and may be marked unrecognized.
 
 ## Run the Windows executable
@@ -80,6 +80,8 @@ The executable distributed alongside this source was rebuilt from this packaged 
 - `python tools/audio-census.py /path/to/element/sfx.pck --ffmpeg /path/to/ffmpeg` surveys archive audio and independently decodes it; this is not a test of the Windows playback backend. On Windows, `cargo run --release --bin audio-corpus-check -- <element directory>` instead reads and decodes packed SFX and loose music with rodio; it does not test audible output or detect every possible mid-stream decoding error.
 - `cargo run --bin scene-sound-check -- /path/to/element` surveys world sound placements and checks their paths against `sfx.pck`.
 - Some helper binaries and research scripts assume specific test data layouts. Consult their source and [Findings](Findings/README.md) before use.
+
+See [the world-loading optimization report](Findings/World-loading-optimization-2026-11-04.md) for implementation details, regression checks and measurement limits. A 6 GB laptop has not yet been hardware-verified.
 
 ## Known limitations
 
