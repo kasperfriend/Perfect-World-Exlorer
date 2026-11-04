@@ -259,30 +259,30 @@ impl CharacterDesign {
                 missing.push(format!("{kind} ID {id} is not present in PW 1.4.2 elements.data"));
             }
         };
-        check("Face shape 1", f.id_face_shape1, catalog.face_shape(f.id_face_shape1).is_some());
-        check("Face shape 2", f.id_face_shape2, catalog.face_shape(f.id_face_shape2).is_some());
-        check("Face texture", f.id_face_tex, catalog.face_texture(f.id_face_tex).is_some());
-        check("Eye shape", f.id_eye_shape, catalog.face_shape(f.id_eye_shape).is_some());
-        check("Eye base texture", f.id_eye_base_tex, catalog.face_texture(f.id_eye_base_tex).is_some());
-        check("Eye high texture", f.id_eye_high_tex, catalog.face_texture(f.id_eye_high_tex).is_some());
-        check("Eyeball texture", f.id_eye_ball_tex, catalog.face_texture(f.id_eye_ball_tex).is_some());
-        check("Brow shape", f.id_brow_shape, catalog.face_shape(f.id_brow_shape).is_some());
-        check("Brow texture", f.id_brow_tex, catalog.face_texture(f.id_brow_tex).is_some());
-        check("Nose tip shape", f.id_nose_tip_shape, catalog.face_shape(f.id_nose_tip_shape).is_some());
-        check("Nose bridge shape", f.id_nose_bridge_shape, catalog.face_shape(f.id_nose_bridge_shape).is_some());
-        check("Nose texture", f.id_nose_tex, catalog.face_texture(f.id_nose_tex).is_some());
-        check("Upper lip shape", f.id_mouth_up_lip_line, catalog.face_shape(f.id_mouth_up_lip_line).is_some());
-        check("Middle lip shape", f.id_mouth_mid_lip_line, catalog.face_shape(f.id_mouth_mid_lip_line).is_some());
-        check("Lower lip shape", f.id_mouth_down_lip_line, catalog.face_shape(f.id_mouth_down_lip_line).is_some());
-        check("Mouth texture", f.id_mouth_tex, catalog.face_texture(f.id_mouth_tex).is_some());
-        check("Ear shape", f.id_ear_shape, catalog.face_shape(f.id_ear_shape).is_some());
-        check("Hair model", f.id_hair_model, catalog.hair_item(f.id_hair_model).is_some());
-        check("Hair texture", f.id_hair_tex, catalog.face_texture(f.id_hair_tex).is_some());
-        check("Moustache skin", f.id_moustache_skin, catalog.moustache_item(f.id_moustache_skin).is_some());
-        check("Moustache texture", f.id_moustache_tex, catalog.face_texture(f.id_moustache_tex).is_some());
-        check("Goatee texture", f.id_goatee_tex, catalog.face_texture(f.id_goatee_tex).is_some());
-        check("Faling skin", f.id_faling_skin, catalog.faling_item(f.id_faling_skin).is_some());
-        check("Faling texture", f.id_faling_tex, catalog.face_texture(f.id_faling_tex).is_some());
+        check("Face shape 1", f.id_face_shape1, catalog.face_shape(f.id_face_shape1 as u32).is_some());
+        check("Face shape 2", f.id_face_shape2, catalog.face_shape(f.id_face_shape2 as u32).is_some());
+        check("Face texture", f.id_face_tex, catalog.face_texture(f.id_face_tex as u32).is_some());
+        check("Eye shape", f.id_eye_shape, catalog.face_shape(f.id_eye_shape as u32).is_some());
+        check("Eye base texture", f.id_eye_base_tex, catalog.face_texture(f.id_eye_base_tex as u32).is_some());
+        check("Eye high texture", f.id_eye_high_tex, catalog.face_texture(f.id_eye_high_tex as u32).is_some());
+        check("Eyeball texture", f.id_eye_ball_tex, catalog.face_texture(f.id_eye_ball_tex as u32).is_some());
+        check("Brow shape", f.id_brow_shape, catalog.face_shape(f.id_brow_shape as u32).is_some());
+        check("Brow texture", f.id_brow_tex, catalog.face_texture(f.id_brow_tex as u32).is_some());
+        check("Nose tip shape", f.id_nose_tip_shape, catalog.face_shape(f.id_nose_tip_shape as u32).is_some());
+        check("Nose bridge shape", f.id_nose_bridge_shape, catalog.face_shape(f.id_nose_bridge_shape as u32).is_some());
+        check("Nose texture", f.id_nose_tex, catalog.face_texture(f.id_nose_tex as u32).is_some());
+        check("Upper lip shape", f.id_mouth_up_lip_line, catalog.face_shape(f.id_mouth_up_lip_line as u32).is_some());
+        check("Middle lip shape", f.id_mouth_mid_lip_line, catalog.face_shape(f.id_mouth_mid_lip_line as u32).is_some());
+        check("Lower lip shape", f.id_mouth_down_lip_line, catalog.face_shape(f.id_mouth_down_lip_line as u32).is_some());
+        check("Mouth texture", f.id_mouth_tex, catalog.face_texture(f.id_mouth_tex as u32).is_some());
+        check("Ear shape", f.id_ear_shape, catalog.face_shape(f.id_ear_shape as u32).is_some());
+        check("Hair model", f.id_hair_model, catalog.hair_item(f.id_hair_model as u32).is_some());
+        check("Hair texture", f.id_hair_tex, catalog.face_texture(f.id_hair_tex as u32).is_some());
+        check("Moustache skin", f.id_moustache_skin, catalog.moustache_item(f.id_moustache_skin as u32).is_some());
+        check("Moustache texture", f.id_moustache_tex, catalog.face_texture(f.id_moustache_tex as u32).is_some());
+        check("Goatee texture", f.id_goatee_tex, catalog.face_texture(f.id_goatee_tex as u32).is_some());
+        check("Faling skin", f.id_faling_skin, catalog.faling_item(f.id_faling_skin as u32).is_some());
+        check("Faling texture", f.id_faling_tex, catalog.face_texture(f.id_faling_tex as u32).is_some());
         missing
     }
 }

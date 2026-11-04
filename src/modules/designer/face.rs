@@ -299,14 +299,14 @@ impl FaceResources {
 
 fn load_shape(
     assets: &mut Assets,
-    id: u32,
+    id: u16,
     label: &str,
     warnings: &mut Vec<String>,
 ) -> Option<Expression> {
     if id == 0 {
         return None;
     }
-    let Some(record) = assets.catalog.face_shape(id) else {
+    let Some(record) = assets.catalog.face_shape(id as u32) else {
         warnings.push(format!("{label} ID {id} is absent from elements.data; leaving those bones unchanged"));
         return None;
     };

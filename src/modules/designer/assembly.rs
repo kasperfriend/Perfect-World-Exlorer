@@ -180,7 +180,7 @@ impl Character {
         let customized = &effective_design.customize.face;
 
         if customized.id_hair_model != 0 {
-            match assets.catalog.hair_item(customized.id_hair_model).cloned() {
+            match assets.catalog.hair_item(customized.id_hair_model as u32).cloned() {
                 Some(item) => {
                     if let Some(skin) = load_optional_face_skin(
                         assets,
@@ -203,7 +203,7 @@ impl Character {
         if design.gender == Gender::Male && customized.id_moustache_skin != 0 {
             match assets
                 .catalog
-                .moustache_item(customized.id_moustache_skin)
+                .moustache_item(customized.id_moustache_skin as u32)
                 .cloned()
             {
                 Some(item) => {
@@ -231,7 +231,7 @@ impl Character {
         {
             match assets
                 .catalog
-                .faling_item(customized.id_faling_skin)
+                .faling_item(customized.id_faling_skin as u32)
                 .cloned()
             {
                 Some(item) => {
@@ -672,7 +672,7 @@ fn texture_choice(
     if id == 0 {
         return None;
     }
-    match assets.catalog.face_texture(id).cloned() {
+    match assets.catalog.face_texture(id as u32).cloned() {
         Some(texture) => Some(texture),
         None => {
             warnings.push(format!(
