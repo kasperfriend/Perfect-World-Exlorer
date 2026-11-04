@@ -5,6 +5,7 @@
 pub(crate) mod archive;
 mod character;
 mod designer;
+mod gfx;
 pub(crate) mod physics;
 pub(crate) mod pose;
 
@@ -14,7 +15,7 @@ use self::{
     physics::{Body, FlightInput, Input, Mechanics},
 };
 use crate::{
-    model_draw_gpu,
+    gfx_decal_gpu, model_draw_gpu,
     modules::designer::{assembly::TravelState, assets::Assets},
     navigation::MapSpace,
 };
@@ -83,6 +84,7 @@ fn edge_triggered(down: bool, was_down: &mut bool) -> bool {
 
 struct Gpu {
     draws: Vec<model_draw_gpu::Draw>,
+    gfx: gfx_decal_gpu::Draw,
     // Keep the sampler alive alongside bind groups that reference it.
     _sampler: wgpu::Sampler,
 }
@@ -697,8 +699,21 @@ impl Walker {
                         |path| assets.read(path),
                     )?);
                 }
+                let decal_quads = character.gfx.quads(assembly, &character.posed.pose)?;
+                let gfx = gfx_decal_gpu::Draw::new(
+                    device,
+                    queue,
+                    format,
+                    Some((
+                        wgpu::TextureFormat::Depth32Float,
+                        wgpu::CompareFunction::Greater,
+                    )),
+                    &decal_quads,
+                    |path| assets.read(path),
+                )?;
                 Ok(Gpu {
                     draws,
+                    gfx,
                     _sampler: sampler,
                 })
             })();
@@ -747,6 +762,9 @@ impl Walker {
             for (index, (asset, posed)) in models.into_iter().enumerate() {
                 gpu.draws[index].update(queue, asset, posed, frame)?;
             }
+            let decal_quads = character.gfx.quads(assembly, &character.posed.pose)?;
+            gpu.gfx
+                .update(queue, frame.matrix, frame.clip_plane, &decal_quads)?;
             Ok(())
         })();
         if let Err(error) = update {
@@ -780,6 +798,7 @@ impl Walker {
             for draw in &gpu.draws {
                 draw.draw(&mut pass);
             }
+            gpu.gfx.draw_quads(&mut pass);
         }
     }
 }

@@ -18,6 +18,7 @@ pub struct Assets {
     pub facedata: Archive,
     pub configs: Archive,
     pub textures: Archive,
+    pub gfx: Archive,
     pub catalog: Catalog,
     pub bounds: SliderBounds,
 }
@@ -27,6 +28,7 @@ impl Assets {
         let facedata = Archive::open_archive(&element.join("facedata.pck"))?;
         let configs = Archive::open_archive(&element.join("configs.pck"))?;
         let textures = Archive::open_archive(&element.join("textures.pck"))?;
+        let gfx = Archive::open_archive(&element.join("gfx.pck"))?;
         let elements_path = element.join("data/elements.data");
         let elements = fs::read(&elements_path)
             .map_err(|error| format!("{}: {error}", elements_path.display()))?;
@@ -42,6 +44,7 @@ impl Assets {
             facedata,
             configs,
             textures,
+            gfx,
             catalog,
             bounds,
         })
@@ -49,6 +52,9 @@ impl Assets {
 
     pub fn read(&mut self, path: &str) -> Result<Vec<u8>, String> {
         let normalized = ecmodel::normalize(path);
+        if normalized.starts_with("gfx/") {
+            return self.gfx.read(&normalized);
+        }
         if normalized.starts_with("facedata/") {
             return self.facedata.read(&normalized);
         }
@@ -68,7 +74,9 @@ impl Assets {
 
     pub fn contains(&self, path: &str) -> bool {
         let normalized = ecmodel::normalize(path);
-        if normalized.starts_with("facedata/") {
+        if normalized.starts_with("gfx/") {
+            self.gfx.contains(&normalized)
+        } else if normalized.starts_with("facedata/") {
             self.facedata.contains(&normalized)
         } else if normalized.starts_with("configs/") {
             self.configs.contains(&normalized)

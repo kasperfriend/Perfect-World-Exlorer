@@ -44,6 +44,8 @@ mod fog_matrix;
 mod foliage_mips;
 #[allow(dead_code)]
 mod gfx_color_track;
+mod gfx_decal;
+mod gfx_decal_gpu;
 #[allow(dead_code)]
 mod gfx_light;
 mod gfx_owner;

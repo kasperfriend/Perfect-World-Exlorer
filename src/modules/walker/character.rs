@@ -1,6 +1,6 @@
 //! Real player ECM/SMD/BON/SKI assembly and direct base-action playback.
 
-use super::physics::Body;
+use super::{gfx::CharacterGfx, physics::Body};
 use crate::{
     ecmodel,
     model_asset::ModelAsset,
@@ -487,6 +487,7 @@ pub struct Character {
     pub posed: Posed,
     pub eye: Vec3,
     pub warnings: Vec<String>,
+    pub gfx: CharacterGfx,
     actions: ActionSet,
     player: ClipPlayer,
     flight_actions: FlightActionSet,
@@ -502,6 +503,7 @@ pub struct Character {
 impl Character {
     pub fn load(assets: &mut Assets, design: CharacterDesign, world: Mat4) -> Result<Self, String> {
         let assembly = Assembly::assemble(design, assets)?;
+        let gfx = CharacterGfx::load(&assembly, assets);
         let (actions, action_warnings) = ActionSet::new(
             &assembly.body.descriptor.actions,
             &assembly.body.model.actions,
@@ -548,11 +550,13 @@ impl Character {
         let mut warnings = assembly.warnings.clone();
         warnings.extend(action_warnings);
         warnings.extend(travel_warnings);
+        warnings.extend(gfx.warnings.iter().cloned());
         Ok(Self {
             assembly,
             posed,
             eye,
             warnings,
+            gfx,
             actions,
             player,
             flight_actions,
