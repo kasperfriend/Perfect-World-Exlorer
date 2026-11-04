@@ -1,0 +1,481 @@
+//! Experimental positional playback of authored ECWLD sound placements.
+//! Timing, attenuation and voice limits are viewer approximations.
+use crate::{music, pck, scene};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
+
+const MAX_VOICES: usize = 16;
+
+#[derive(Clone, Debug)]
+enum Asset {
+    Packed(pck::Entry),
+    Loose(PathBuf),
+}
+
+#[derive(Clone, Debug)]
+struct Emitter {
+    sound: scene::Sound,
+    asset: Option<Asset>,
+}
+
+fn asset_key(path: &str) -> Option<String> {
+    let path = path.replace('\\', "/");
+    if path.starts_with('/')
+        || path
+            .split('/')
+            .any(|p| p.is_empty() || p == "." || p == ".." || p.contains(':'))
+    {
+        return None;
+    }
+    let path = path.to_lowercase();
+    Some(if path.starts_with("sfx/") {
+        path
+    } else {
+        format!("sfx/{path}")
+    })
+}
+
+#[derive(Clone, Debug)]
+struct Voice {
+    index: usize,
+    gain: f32,
+    pan: f32,
+}
+
+/// The client gates modes 0/1/2 at the strict 0.5 day/night boundary.
+/// Gain and the voice cap are deliberately not claimed as native behavior.
+fn select(emitters: &[Emitter], pos: [f32; 3], yaw: f32, night_factor: f32) -> Vec<Voice> {
+    if !pos.iter().all(|v| v.is_finite()) || !yaw.is_finite() {
+        return Vec::new();
+    }
+    let (sin, cos) = yaw.sin_cos();
+    let mut result = Vec::new();
+    for (index, e) in emitters.iter().enumerate() {
+        let s = &e.sound;
+        if e.asset.is_none()
+            || !scene::effect_visible(s.mode, night_factor)
+            || s.min_distance < 0.
+            || s.max_distance <= 0.
+            || s.max_distance < s.min_distance
+        {
+            continue;
+        }
+        let dx = s.position[0] - pos[0];
+        let dy = s.position[1] - pos[1];
+        let dz = s.position[2] - pos[2];
+        let distance = dx.hypot(dy).hypot(dz);
+        if !distance.is_finite() || distance >= s.max_distance {
+            continue;
+        }
+        let gain = if distance <= s.min_distance {
+            1.
+        } else {
+            (s.max_distance - distance) / (s.max_distance - s.min_distance)
+        };
+        // Match the viewer's mirrored camera and D-key strafe direction.
+        let horizontal = dx.hypot(dz);
+        let pan = if horizontal > 0.0001 {
+            ((-cos * dx - sin * dz) / horizontal).clamp(-1., 1.)
+        } else {
+            0.
+        };
+        result.push(Voice { index, gain, pan });
+    }
+    result.sort_by(|a, b| {
+        b.gain
+            .total_cmp(&a.gain)
+            .then_with(|| a.index.cmp(&b.index))
+    });
+    result.truncate(MAX_VOICES);
+    result
+}
+
+struct Request {
+    enabled: bool,
+    volume: f32,
+    voices: Vec<Voice>,
+}
+
+pub struct WorldAudio {
+    emitters: Vec<Emitter>,
+    missing: usize,
+    catalog_error: Option<String>,
+    worker_error: Option<String>,
+    status: String,
+    last_update: Instant,
+    last_enabled: bool,
+    last_volume: f32,
+    #[cfg(windows)]
+    tx: std::sync::mpsc::Sender<Request>,
+    #[cfg(windows)]
+    rx: std::sync::mpsc::Receiver<Option<String>>,
+}
+
+impl WorldAudio {
+    pub fn new(element: &Path, scene: &scene::Scene) -> Self {
+        let catalog = std::fs::File::open(element.join("sfx.pck"))
+            .map_err(|e| e.to_string())
+            .and_then(|mut f| pck::directory(&mut f));
+        let catalog_error = catalog.as_ref().err().cloned();
+        let packed: HashMap<String, pck::Entry> = catalog
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| (e.name.to_lowercase(), e))
+            .collect();
+        let mut cache = HashMap::new();
+        let mut missing = 0;
+        let emitters = scene
+            .blocks
+            .iter()
+            .flat_map(|b| &b.sounds)
+            .map(|sound| {
+                let asset = asset_key(&sound.path).and_then(|key| {
+                    cache
+                        .entry(key.clone())
+                        .or_insert_with(|| {
+                            packed.get(&key).cloned().map(Asset::Packed).or_else(|| {
+                                music::resolve_under(element, &key, "sfx").map(Asset::Loose)
+                            })
+                        })
+                        .clone()
+                });
+                if asset.is_none() {
+                    missing += 1;
+                }
+                Emitter {
+                    sound: sound.clone(),
+                    asset,
+                }
+            })
+            .collect::<Vec<_>>();
+        let status = format!(
+            "{} world sound placements; {missing} unresolved",
+            emitters.len()
+        );
+        #[cfg(windows)]
+        let (tx, rx) = {
+            let (tx, input) = std::sync::mpsc::channel();
+            let (output, rx) = std::sync::mpsc::channel();
+            let archive = element.join("sfx.pck");
+            let assets = emitters.iter().map(|e| e.asset.clone()).collect();
+            std::thread::Builder::new()
+                .name("world-sounds".into())
+                .spawn(move || worker(input, output, archive, assets))
+                .expect("world sound worker");
+            (tx, rx)
+        };
+        Self {
+            emitters,
+            missing,
+            catalog_error,
+            worker_error: None,
+            status,
+            last_update: Instant::now() - Duration::from_secs(1),
+            last_enabled: false,
+            last_volume: -1.,
+            #[cfg(windows)]
+            tx,
+            #[cfg(windows)]
+            rx,
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        enabled: bool,
+        volume: f32,
+        pos: [f32; 3],
+        yaw: f32,
+        night_factor: f32,
+    ) {
+        #[cfg(windows)]
+        while let Ok(message) = self.rx.try_recv() {
+            if enabled {
+                self.worker_error = message;
+            }
+        }
+        if !enabled {
+            self.worker_error = None;
+        }
+        if self.last_update.elapsed() < Duration::from_millis(250)
+            && enabled == self.last_enabled
+            && (volume - self.last_volume).abs() < 0.001
+        {
+            return;
+        }
+        self.last_update = Instant::now();
+        self.last_enabled = enabled;
+        self.last_volume = volume;
+        let voices = if enabled {
+            select(&self.emitters, pos, yaw, night_factor)
+        } else {
+            Vec::new()
+        };
+        self.status = if enabled {
+            format!(
+                "{} nearby world sound(s); {} unresolved placements",
+                voices.len(),
+                self.missing
+            )
+        } else {
+            "World effects off".into()
+        };
+        #[cfg(not(windows))]
+        if enabled {
+            self.status.push_str(" (audio playback is Windows-only)");
+        }
+        let request = Request {
+            enabled,
+            volume,
+            voices,
+        };
+        #[cfg(windows)]
+        let _ = self.tx.send(request);
+        #[cfg(not(windows))]
+        let _ = request;
+    }
+    pub fn status(&self) -> &str {
+        &self.status
+    }
+    pub fn diagnostic(&self) -> Option<String> {
+        let mut messages = Vec::new();
+        if let Some(e) = &self.catalog_error {
+            messages.push(format!("sfx.pck unavailable: {e}"));
+        }
+        if let Some(e) = &self.worker_error {
+            messages.push(e.clone());
+        }
+        if messages.is_empty() {
+            None
+        } else {
+            Some(messages.join("; "))
+        }
+    }
+}
+
+#[cfg(windows)]
+fn worker(
+    rx: std::sync::mpsc::Receiver<Request>,
+    status: std::sync::mpsc::Sender<Option<String>>,
+    archive: PathBuf,
+    assets: Vec<Option<Asset>>,
+) {
+    use rodio::{Decoder, OutputStream, SpatialSink};
+    use std::{
+        io::{BufReader, Cursor},
+        sync::Arc,
+    };
+    struct Playing {
+        sink: SpatialSink,
+        replay_at: Option<Instant>,
+    }
+    let mut output = None;
+    let mut retry_output = Instant::now();
+    let mut active: HashMap<usize, Playing> = HashMap::new();
+    let mut cache: HashMap<usize, Arc<[u8]>> = HashMap::new();
+    let mut cached_bytes = 0usize;
+    let mut failed = HashMap::<usize, String>::new();
+    loop {
+        let mut req = match rx.recv_timeout(Duration::from_millis(250)) {
+            Ok(req) => req,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+        };
+        while let Ok(next) = rx.try_recv() {
+            req = next;
+        }
+        if !req.enabled {
+            for (_, voice) in active.drain() {
+                voice.sink.stop();
+            }
+            failed.clear();
+            continue;
+        }
+        active.retain(|index, voice| {
+            let keep = req.voices.iter().any(|v| v.index == *index);
+            if !keep {
+                voice.sink.stop();
+            }
+            keep
+        });
+        failed.retain(|index, _| req.voices.iter().any(|v| v.index == *index));
+        if req.voices.is_empty() {
+            let _ = status.send(None);
+            continue;
+        }
+        if output.is_none() && Instant::now() >= retry_output {
+            match OutputStream::try_default() {
+                Ok(stream) => output = Some(stream),
+                Err(e) => {
+                    let _ = status.send(Some(format!("World sound output unavailable: {e}")));
+                    retry_output = Instant::now() + Duration::from_secs(2);
+                }
+            }
+        }
+        let Some((_, handle)) = output.as_ref() else {
+            continue;
+        };
+        let mut sink_error = false;
+        for voice in &req.voices {
+            if failed.contains_key(&voice.index) {
+                continue;
+            }
+            let playback = if let Some(playing) = active.get_mut(&voice.index) {
+                playing
+            } else {
+                // SpatialSink's distance law is bypassed with a unit-distance emitter;
+                // authored distances are applied separately as an approximate gain.
+                match SpatialSink::try_new(handle, [0., 0., -1.], [0.2, 0., 0.], [-0.2, 0., 0.]) {
+                    Ok(sink) => active.entry(voice.index).or_insert(Playing {
+                        sink,
+                        replay_at: None,
+                    }),
+                    Err(e) => {
+                        sink_error = true;
+                        let _ = status.send(Some(format!("World sound output error: {e}")));
+                        continue;
+                    }
+                }
+            };
+            let pan = voice.pan;
+            playback
+                .sink
+                .set_emitter_position([pan, 0., -(1. - pan * pan).max(0.).sqrt()]);
+            playback
+                .sink
+                .set_volume((req.volume.clamp(0., 1.) * voice.gain).clamp(0., 1.));
+            if !playback.sink.empty() {
+                continue;
+            }
+            if let Some(at) = playback.replay_at {
+                if Instant::now() < at {
+                    continue;
+                }
+            }
+            let bytes = if let Some(bytes) = cache.get(&voice.index) {
+                Ok(bytes.clone())
+            } else {
+                let read = match assets.get(voice.index).and_then(Option::as_ref) {
+                    Some(Asset::Packed(entry)) => std::fs::File::open(&archive)
+                        .map_err(|e| e.to_string())
+                        .and_then(|mut f| pck::read_entry(&mut f, entry)),
+                    Some(Asset::Loose(path)) => std::fs::read(path).map_err(|e| e.to_string()),
+                    None => Err("sound asset is missing".into()),
+                };
+                read.map(|bytes| {
+                    let bytes: Arc<[u8]> = bytes.into();
+                    if cached_bytes + bytes.len() > 16 * 1024 * 1024 {
+                        cache.clear();
+                        cached_bytes = 0;
+                    }
+                    if bytes.len() <= 16 * 1024 * 1024 {
+                        cached_bytes += bytes.len();
+                        cache.insert(voice.index, bytes.clone());
+                    }
+                    bytes
+                })
+            };
+            match bytes.and_then(|b| {
+                Decoder::new(BufReader::new(Cursor::new(b))).map_err(|e| e.to_string())
+            }) {
+                Ok(source) => {
+                    playback.sink.append(source);
+                    // An approximate pause avoids machine-gunning short calls. Native scheduling is unknown.
+                    playback.replay_at = None;
+                }
+                Err(e) => {
+                    let label = match assets.get(voice.index).and_then(Option::as_ref) {
+                        Some(Asset::Packed(entry)) => entry.name.clone(),
+                        Some(Asset::Loose(path)) => path.display().to_string(),
+                        None => format!("placement {}", voice.index),
+                    };
+                    let _ = status.send(Some(format!("Cannot load world sound {label}: {e}")));
+                    failed.insert(voice.index, e);
+                }
+            }
+        }
+        if failed.is_empty() && !sink_error {
+            let _ = status.send(None);
+        }
+        // Delay replay after each source finishes; initial playback is immediate.
+        for playing in active.values_mut() {
+            if !playing.sink.empty() {
+                playing.replay_at = Some(Instant::now() + Duration::from_secs(2));
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn emitter(position: [f32; 3], mode: i32) -> Emitter {
+        Emitter {
+            sound: scene::Sound {
+                export_id: 1,
+                position,
+                min_distance: 5.,
+                max_distance: 15.,
+                reserved: 0,
+                mode,
+                path: "Effect/Scene/a.wav".into(),
+            },
+            asset: Some(Asset::Loose(PathBuf::from("unused"))),
+        }
+    }
+    #[test]
+    fn keys_reject_traversal_and_preserve_audio_extensions() {
+        assert_eq!(
+            asset_key("Effect\\Scene\\bird.wav").as_deref(),
+            Some("sfx/effect/scene/bird.wav")
+        );
+        assert_eq!(
+            asset_key("SFX/Music/a.ogg").as_deref(),
+            Some("sfx/music/a.ogg")
+        );
+        for path in [
+            "../secret.wav",
+            "Effect/../secret.wav",
+            "/sfx/a.wav",
+            "C:/a.wav",
+            "effect//a.wav",
+        ] {
+            assert!(asset_key(path).is_none());
+        }
+    }
+    #[test]
+    fn selects_by_distance_day_night_and_viewer_right() {
+        let emitters = vec![
+            emitter([-5., 0., 0.], 0),
+            emitter([10., 0., 0.], 1),
+            emitter([0., 0., 15.], 2),
+        ];
+        let day = select(&emitters, [0., 0., 0.], 0., 0.);
+        assert_eq!(day.len(), 1);
+        assert_eq!(day[0].index, 0);
+        assert_eq!(day[0].gain, 1.);
+        assert_eq!(day[0].pan, 1.);
+        let night = select(&emitters, [0., 0., 0.], 0., 1.);
+        assert_eq!(night.len(), 1);
+        assert_eq!(night[0].index, 1);
+        assert_eq!(night[0].gain, 0.5);
+        assert_eq!(night[0].pan, -1.);
+        assert!(select(&emitters, [0., 0., 0.], 0., 0.5).is_empty());
+        assert!(select(&emitters, [f32::NAN, 0., 0.], 0., 0.).is_empty());
+    }
+    #[test]
+    fn caps_prioritizes_and_filters_unresolved_voices() {
+        let mut emitters = (0..30)
+            .map(|i| emitter([i as f32 / 2., 0., 0.], 2))
+            .collect::<Vec<_>>();
+        emitters[0].asset = None;
+        let voices = select(&emitters, [0., 0., 0.], 0., 0.);
+        assert_eq!(voices.len(), MAX_VOICES);
+        assert_eq!(voices[0].index, 1);
+        assert!(voices.iter().all(|v| v.index != 0));
+        assert!(voices.windows(2).all(|v| v[0].gain >= v[1].gain));
+    }
+}

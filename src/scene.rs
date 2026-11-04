@@ -90,7 +90,30 @@ pub fn effect_visible(valid_time: i32, night_factor: f32) -> bool {
 pub struct Sound {
     pub export_id: u32,
     pub position: [f32; 3],
+    /// Native sound-buffer near/far distance parameters (ECWLD offsets 16/20).
+    pub min_distance: f32,
+    pub max_distance: f32,
+    /// Serialized word at offset 24, not copied by the inspected client loader.
+    pub reserved: u32,
+    /// Native owner mode at offset 28; its complete meaning is not yet proven.
+    pub mode: i32,
     pub path: String,
+}
+impl Sound {
+    fn read(data: &[u8], p: &mut usize) -> Result<Self, String> {
+        let end = p.checked_add(32).ok_or("sound offset overflow")?;
+        let bytes = data.get(*p..end).ok_or("short scene sound record")?;
+        *p = end;
+        Ok(Self {
+            export_id: u32at(bytes, 0)?,
+            position: vec3(bytes, 4)?,
+            min_distance: f32at(bytes, 16)?,
+            max_distance: f32at(bytes, 20)?,
+            reserved: u32at(bytes, 24)?,
+            mode: u32at(bytes, 28)? as i32,
+            path: string(data, p)?,
+        })
+    }
 }
 #[derive(Clone, Debug)]
 pub struct Block {
@@ -303,15 +326,7 @@ impl Scene {
             let beziers = refs(data, &mut p, n[8])?;
             let mut sounds = Vec::with_capacity(n[9]);
             for _ in 0..n[9] {
-                let export_id = u32at(data, p)?;
-                let position = vec3(data, p + 4)?;
-                p += 32;
-                let path = string(data, &mut p)?;
-                sounds.push(Sound {
-                    export_id,
-                    position,
-                    path,
-                })
+                sounds.push(Sound::read(data, &mut p)?)
             }
             if p != data.len() {
                 return Err(format!(
@@ -450,6 +465,30 @@ mod tests {
         assert_eq!(e.path, "a.gfx");
         for n in 0..b.len() {
             assert!(Effect::read(&b[..n], &mut 0).is_err(), "length {n}");
+        }
+    }
+    #[test]
+    fn retains_scene_sound_distance_mode_and_path() {
+        let mut b = vec![0; 32];
+        b[0..4].copy_from_slice(&23u32.to_le_bytes());
+        for (offset, value) in [(4, 1.0f32), (8, 2.0), (12, 3.0), (16, 5.0), (20, 50.0)] {
+            b[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        b[24..28].copy_from_slice(&0x1234u32.to_le_bytes());
+        b[28..32].copy_from_slice(&2i32.to_le_bytes());
+        b.extend_from_slice(&5u32.to_le_bytes());
+        b.extend_from_slice(b"x.wav");
+        let mut p = 0;
+        let s = Sound::read(&b, &mut p).unwrap();
+        assert_eq!(p, b.len());
+        assert_eq!((s.export_id, s.position), (23, [1., 2., 3.]));
+        assert_eq!(
+            (s.min_distance, s.max_distance, s.reserved, s.mode),
+            (5., 50., 0x1234, 2)
+        );
+        assert_eq!(s.path, "x.wav");
+        for n in 0..b.len() {
+            assert!(Sound::read(&b[..n], &mut 0).is_err(), "length {n}");
         }
     }
     #[test]
