@@ -312,8 +312,6 @@ impl World {
         }
         Ok(installed)
     }
-    /// Explorer position plus the radius in which installed producers are
-    /// active. Effects outside the radius are unloaded without publishing.
     /// Release receiving-model geometry and poses outside the installed terrain
     /// window, rather than merely disabling their effect-light producers.
     pub fn set_resident_bounds(&mut self, bounds: Option<[f32; 4]>) {
@@ -328,7 +326,15 @@ impl World {
                 slot.geometry_dirty = true;
             }
         }
+        if bounds.is_some() {
+            // Draw-owned Arcs pin active/shared textures; do not keep every
+            // texture and pipeline ever visited after its last draw is evicted.
+            self.textures
+                .retain(|_, (texture, _)| std::sync::Arc::strong_count(texture) > 1);
+            self.receivers.trim_unreferenced();
+        }
     }
+    /// Effect activation radius (independent of resident geometry bounds).
     pub fn set_view_center(&mut self, x: f32, z: f32, radius: f32) {
         self.view = Some((x, z, radius.max(0.)));
     }
@@ -676,6 +682,11 @@ impl World {
         }
     }
     /// Include dependency failures in the UI; never count a skipped asset ready.
+    /// Entries owned by the world cache, excluding live draw references.
+    #[allow(dead_code)]
+    pub fn residency_cache_counts(&self) -> (usize, usize) {
+        (self.textures.len(), self.receivers.len())
+    }
     pub fn status(&self) -> (usize, usize, usize) {
         let ready = self.slots.iter().filter(|s| s.draw.is_some()).count();
         let failed = self.slots.iter().filter(|s| s.failed).count() + self.assets.unloaded.len();

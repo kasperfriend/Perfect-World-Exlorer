@@ -903,7 +903,14 @@ fn main() {
     println!("::notice::scene effect owner passed: ECWLD placement -> one-root-per-update load -> publication -> scene query -> receiving pixels, and region unload removes the light");
     assert_eq!(world.status(), (1, 0, 1));
     // Terrain residency must release model geometry, not only deactivate FX.
+    assert!(world.residency_cache_counts().0 > 0);
+    assert!(world.residency_cache_counts().1 > 0);
     world.set_resident_bounds(Some([4000., 4100., 4000., 4100.]));
+    assert_eq!(
+        world.residency_cache_counts(),
+        (0, 0),
+        "cold textures/pipelines were retained"
+    );
     world.update(
         &device,
         &queue,
@@ -915,7 +922,7 @@ fn main() {
     );
     assert_eq!(world.status(), (0, 0, 1));
     check(&device, &queue, &world, [[0; 4]; 2]);
-    world.set_resident_bounds(None);
+    world.set_resident_bounds(Some([-100., 100., -100., 100.]));
     world.update(
         &device,
         &queue,
@@ -932,6 +939,15 @@ fn main() {
         &world,
         [[32, 64, 96, 136], [96, 32, 64, 136]],
     );
+    assert!(world.residency_cache_counts().0 > 0);
+    let retained = world.residency_cache_counts();
+    world.set_resident_bounds(Some([-101., 101., -101., 101.]));
+    assert_eq!(
+        world.residency_cache_counts(),
+        retained,
+        "live draw's shared resources evicted"
+    );
+    world.set_resident_bounds(None);
     let mut unsupported = opaque_dim;
     unsupported.blend_enabled = true;
     world.update(

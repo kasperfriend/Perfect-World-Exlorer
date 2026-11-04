@@ -144,6 +144,13 @@ pub struct Draw {
 #[derive(Default)]
 pub struct ReceiverCache(std::collections::HashMap<String, std::sync::Arc<raster::Receiver>>);
 impl ReceiverCache {
+    /// Drop pipelines which no live receiving draw owns. Kept draws pin their
+    /// shared receivers; re-entering a cold region can recreate its variants.
+    pub fn trim_unreferenced(&mut self) {
+        self.0
+            .retain(|_, receiver| std::sync::Arc::strong_count(receiver) > 1);
+    }
+
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.0.len()
