@@ -7,19 +7,19 @@ elementclient.exe: base 0x400000, 6 sections, 107 sky strings
   01c-flare-stream-builder: 809 lines
   02-sun-moon-render: 639 lines
   03-flare-fill: 1711 lines
-  04-celestial-clock: 167 lines
+  04-celestial-clock: 1892 lines
   05-sky-band-object: 290 lines
   06-sky-tick: 219 lines
   07-sky-builders: 410 lines
   08-sky-textures: 795 lines
-  09-sky-set-select: 240 lines
+  09-sky-set-select: 2098 lines
   10-sky-timers: 40 lines
   11-sky-ctor-init: 386 lines
   13-sky-matrix-helpers: 247 lines
   14-sky-draws: 317 lines
-  15-flare-caller: 369 lines
-  16-flare-helper: 47 lines
+  15-flare-caller: 1427 lines
+  16-flare-helper: 1431 lines
   12-sky-load: 182 lines
   17-sky-trans: 607 lines
   18-world-loadsky: 750 lines
-  19-flare-occlusion: 566 lines
+  19-flare-occlusion: 1892 lines

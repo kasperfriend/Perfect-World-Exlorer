@@ -1,5 +1,1389 @@
 # 16-flare-helper  0x450900-0x450c40
-; resynced +0x2b0: nearest function boundary, dumping from 0x450bb0
+; resynced -0xbd0: nearest function boundary, dumping from 0x44fd30
+0044fd30: mov ecx, 0x9b5040                         ; f32 0
+0044fd35: jmp 0x87b5f0                            
+0044fd3a: nop                                     
+0044fd3b: nop                                     
+0044fd3c: nop                                     
+0044fd3d: nop                                     
+0044fd3e: nop                                     
+0044fd3f: nop                                     
+0044fd40: mov eax, dword ptr [esp + 4]            
+0044fd44: push esi                                
+0044fd45: mov edx, dword ptr [eax]                
+0044fd47: lea esi, [edx - 0xc8]                   
+0044fd4d: cmp esi, 0xc9                           
+0044fd53: ja 0x450453                               ; f32 -55.5016
+0044fd59: xor edx, edx                            
+0044fd5b: mov dl, byte ptr [esi + 0x450694]       
+0044fd61: jmp dword ptr [edx*4 + 0x45045c]        
+0044fd68: push eax                                
+0044fd69: call 0x450760                           
+0044fd6e: mov al, 1                               
+0044fd70: pop esi                                 
+0044fd71: ret 4                                   
+0044fd74: push eax                                
+0044fd75: call 0x450bb0                           
+0044fd7a: mov al, 1                               
+0044fd7c: pop esi                                 
+0044fd7d: ret 4                                   
+0044fd80: push eax                                
+0044fd81: call 0x450bd0                           
+0044fd86: mov al, 1                               
+0044fd88: pop esi                                 
+0044fd89: ret 4                                   
+0044fd8c: push eax                                
+0044fd8d: call 0x450bf0                           
+0044fd92: mov al, 1                               
+0044fd94: pop esi                                 
+0044fd95: ret 4                                   
+0044fd98: push eax                                
+0044fd99: call 0x450e00                           
+0044fd9e: mov al, 1                               
+0044fda0: pop esi                                 
+0044fda1: ret 4                                   
+0044fda4: push eax                                
+0044fda5: call 0x450c70                           
+0044fdaa: mov al, 1                               
+0044fdac: pop esi                                 
+0044fdad: ret 4                                   
+0044fdb0: push eax                                
+0044fdb1: call 0x450f60                           
+0044fdb6: mov al, 1                               
+0044fdb8: pop esi                                 
+0044fdb9: ret 4                                   
+0044fdbc: push eax                                
+0044fdbd: call 0x451000                           
+0044fdc2: mov al, 1                               
+0044fdc4: pop esi                                 
+0044fdc5: ret 4                                   
+0044fdc8: push eax                                
+0044fdc9: call 0x4551d0                           
+0044fdce: mov al, 1                               
+0044fdd0: pop esi                                 
+0044fdd1: ret 4                                   
+0044fdd4: push eax                                
+0044fdd5: call 0x45eaf0                           
+0044fdda: mov al, 1                               
+0044fddc: pop esi                                 
+0044fddd: ret 4                                   
+0044fde0: push eax                                
+0044fde1: call 0x45f1c0                           
+0044fde6: mov al, 1                               
+0044fde8: pop esi                                 
+0044fde9: ret 4                                   
+0044fdec: push eax                                
+0044fded: call 0x451150                           
+0044fdf2: mov al, 1                               
+0044fdf4: pop esi                                 
+0044fdf5: ret 4                                   
+0044fdf8: push eax                                
+0044fdf9: call 0x4511e0                           
+0044fdfe: mov al, 1                               
+0044fe00: pop esi                                 
+0044fe01: ret 4                                   
+0044fe04: push eax                                
+0044fe05: call 0x451240                           
+0044fe0a: mov al, 1                               
+0044fe0c: pop esi                                 
+0044fe0d: ret 4                                   
+0044fe10: push eax                                
+0044fe11: call 0x451280                           
+0044fe16: mov al, 1                               
+0044fe18: pop esi                                 
+0044fe19: ret 4                                   
+0044fe1c: push eax                                
+0044fe1d: call 0x4512a0                           
+0044fe22: mov al, 1                               
+0044fe24: pop esi                                 
+0044fe25: ret 4                                   
+0044fe28: mov edx, dword ptr [eax + 0xc]          
+0044fe2b: test edx, edx                           
+0044fe2d: je 0x44fe4d                             
+0044fe2f: mov eax, dword ptr [eax + 0x10]         
+0044fe32: mov edx, dword ptr [ecx + 0x904]        
+0044fe38: neg eax                                 
+0044fe3a: sbb eax, eax                            
+0044fe3c: pop esi                                 
+0044fe3d: add eax, 2                              
+0044fe40: or edx, eax                             
+0044fe42: mov al, 1                               
+0044fe44: mov dword ptr [ecx + 0x904], edx        
+0044fe4a: ret 4                                   
+0044fe4d: mov esi, dword ptr [eax + 0x10]         
+0044fe50: mov eax, dword ptr [ecx + 0x904]        
+0044fe56: xor edx, edx                            
+0044fe58: test esi, esi                           
+0044fe5a: setne dl                                
+0044fe5d: add edx, -3                             
+0044fe60: pop esi                                 
+0044fe61: and eax, edx                            
+0044fe63: mov dword ptr [ecx + 0x904], eax        
+0044fe69: mov al, 1                               
+0044fe6b: ret 4                                   
+0044fe6e: push eax                                
+0044fe6f: call 0x4512c0                           
+0044fe74: mov al, 1                               
+0044fe76: pop esi                                 
+0044fe77: ret 4                                   
+0044fe7a: push eax                                
+0044fe7b: call 0x451340                           
+0044fe80: mov al, 1                               
+0044fe82: pop esi                                 
+0044fe83: ret 4                                   
+0044fe86: push eax                                
+0044fe87: call 0x451700                           
+0044fe8c: mov al, 1                               
+0044fe8e: pop esi                                 
+0044fe8f: ret 4                                   
+0044fe92: push eax                                
+0044fe93: call 0x451720                           
+0044fe98: mov al, 1                               
+0044fe9a: pop esi                                 
+0044fe9b: ret 4                                   
+0044fe9e: push eax                                
+0044fe9f: call 0x451760                           
+0044fea4: mov al, 1                               
+0044fea6: pop esi                                 
+0044fea7: ret 4                                   
+0044feaa: mov eax, dword ptr [eax + 0xc]          
+0044fead: push eax                                
+0044feae: call 0x45f410                           
+0044feb3: mov al, 1                               
+0044feb5: pop esi                                 
+0044feb6: ret 4                                   
+0044feb9: push eax                                
+0044feba: call 0x4519c0                           
+0044febf: mov al, 1                               
+0044fec1: pop esi                                 
+0044fec2: ret 4                                   
+0044fec5: push eax                                
+0044fec6: call 0x451a30                           
+0044fecb: mov al, 1                               
+0044fecd: pop esi                                 
+0044fece: ret 4                                   
+0044fed1: push eax                                
+0044fed2: call 0x451b50                           
+0044fed7: mov al, 1                               
+0044fed9: pop esi                                 
+0044feda: ret 4                                   
+0044fedd: push eax                                
+0044fede: call 0x451d30                           
+0044fee3: mov al, 1                               
+0044fee5: pop esi                                 
+0044fee6: ret 4                                   
+0044fee9: push eax                                
+0044feea: call 0x451e30                           
+0044feef: mov al, 1                               
+0044fef1: pop esi                                 
+0044fef2: ret 4                                   
+0044fef5: push eax                                
+0044fef6: call 0x451e90                           
+0044fefb: mov al, 1                               
+0044fefd: pop esi                                 
+0044fefe: ret 4                                   
+0044ff01: push eax                                
+0044ff02: call 0x451eb0                           
+0044ff07: mov al, 1                               
+0044ff09: pop esi                                 
+0044ff0a: ret 4                                   
+0044ff0d: push eax                                
+0044ff0e: call 0x451f00                           
+0044ff13: mov al, 1                               
+0044ff15: pop esi                                 
+0044ff16: ret 4                                   
+0044ff19: push eax                                
+0044ff1a: call 0x451f70                           
+0044ff1f: mov al, 1                               
+0044ff21: pop esi                                 
+0044ff22: ret 4                                   
+0044ff25: push eax                                
+0044ff26: call 0x451ff0                           
+0044ff2b: mov al, 1                               
+0044ff2d: pop esi                                 
+0044ff2e: ret 4                                   
+0044ff31: push eax                                
+0044ff32: call 0x452070                           
+0044ff37: mov al, 1                               
+0044ff39: pop esi                                 
+0044ff3a: ret 4                                   
+0044ff3d: push eax                                
+0044ff3e: call 0x452180                           
+0044ff43: mov al, 1                               
+0044ff45: pop esi                                 
+0044ff46: ret 4                                   
+0044ff49: push eax                                
+0044ff4a: call 0x452b30                           
+0044ff4f: mov al, 1                               
+0044ff51: pop esi                                 
+0044ff52: ret 4                                   
+0044ff55: push eax                                
+0044ff56: call 0x453390                           
+0044ff5b: mov al, 1                               
+0044ff5d: pop esi                                 
+0044ff5e: ret 4                                   
+0044ff61: push eax                                
+0044ff62: call 0x453580                           
+0044ff67: mov al, 1                               
+0044ff69: pop esi                                 
+0044ff6a: ret 4                                   
+0044ff6d: push eax                                
+0044ff6e: call 0x4535b0                           
+0044ff73: mov al, 1                               
+0044ff75: pop esi                                 
+0044ff76: ret 4                                   
+0044ff79: push eax                                
+0044ff7a: call 0x4535f0                           
+0044ff7f: mov al, 1                               
+0044ff81: pop esi                                 
+0044ff82: ret 4                                   
+0044ff85: push eax                                
+0044ff86: call 0x453740                           
+0044ff8b: mov al, 1                               
+0044ff8d: pop esi                                 
+0044ff8e: ret 4                                   
+0044ff91: push eax                                
+0044ff92: call 0x4537d0                           
+0044ff97: mov al, 1                               
+0044ff99: pop esi                                 
+0044ff9a: ret 4                                   
+0044ff9d: push eax                                
+0044ff9e: call 0x453980                           
+0044ffa3: mov al, 1                               
+0044ffa5: pop esi                                 
+0044ffa6: ret 4                                   
+0044ffa9: push eax                                
+0044ffaa: call 0x453a10                             ; f32 0.461041
+0044ffaf: mov al, 1                               
+0044ffb1: pop esi                                 
+0044ffb2: ret 4                                   
+0044ffb5: push eax                                
+0044ffb6: call 0x453a40                           
+0044ffbb: mov al, 1                               
+0044ffbd: pop esi                                 
+0044ffbe: ret 4                                   
+0044ffc1: push eax                                
+0044ffc2: call 0x453b60                           
+0044ffc7: mov al, 1                               
+0044ffc9: pop esi                                 
+0044ffca: ret 4                                   
+0044ffcd: push eax                                
+0044ffce: call 0x453bc0                             ; f32 0.461041
+0044ffd3: mov al, 1                               
+0044ffd5: pop esi                                 
+0044ffd6: ret 4                                   
+0044ffd9: push eax                                
+0044ffda: call 0x453c20                           
+0044ffdf: mov al, 1                               
+0044ffe1: pop esi                                 
+0044ffe2: ret 4                                   
+0044ffe5: push eax                                
+0044ffe6: call 0x453e70                           
+0044ffeb: mov al, 1                               
+0044ffed: pop esi                                 
+0044ffee: ret 4                                   
+0044fff1: push eax                                
+0044fff2: call 0x453f00                           
+0044fff7: mov al, 1                               
+0044fff9: pop esi                                 
+0044fffa: ret 4                                   
+0044fffd: push eax                                
+0044fffe: call 0x4540c0                           
+00450003: mov al, 1                               
+00450005: pop esi                                 
+00450006: ret 4                                   
+00450009: push eax                                
+0045000a: call 0x453080                           
+0045000f: mov al, 1                               
+00450011: pop esi                                 
+00450012: ret 4                                   
+00450015: push eax                                
+00450016: call 0x454190                           
+0045001b: mov al, 1                               
+0045001d: pop esi                                 
+0045001e: ret 4                                   
+00450021: push eax                                
+00450022: call 0x454270                             ; f32 0.462168
+00450027: mov al, 1                               
+00450029: pop esi                                 
+0045002a: ret 4                                   
+0045002d: push eax                                
+0045002e: call 0x4543a0                           
+00450033: mov al, 1                               
+00450035: pop esi                                 
+00450036: ret 4                                   
+00450039: push eax                                
+0045003a: call 0x4546c0                           
+0045003f: mov al, 1                               
+00450041: pop esi                                 
+00450042: ret 4                                   
+00450045: push eax                                
+00450046: call 0x4546e0                           
+0045004b: mov al, 1                               
+0045004d: pop esi                                 
+0045004e: ret 4                                   
+00450051: push eax                                
+00450052: call 0x454740                           
+00450057: mov al, 1                               
+00450059: pop esi                                 
+0045005a: ret 4                                   
+0045005d: push eax                                
+0045005e: call 0x4547d0                           
+00450063: mov al, 1                               
+00450065: pop esi                                 
+00450066: ret 4                                   
+00450069: push eax                                
+0045006a: call 0x4548b0                           
+0045006f: mov al, 1                               
+00450071: pop esi                                 
+00450072: ret 4                                   
+00450075: push eax                                
+00450076: call 0x454990                           
+0045007b: mov al, 1                               
+0045007d: pop esi                                 
+0045007e: ret 4                                   
+00450081: push eax                                
+00450082: call 0x454bd0                           
+00450087: mov al, 1                               
+00450089: pop esi                                 
+0045008a: ret 4                                   
+0045008d: push eax                                
+0045008e: call 0x454c40                           
+00450093: mov al, 1                               
+00450095: pop esi                                 
+00450096: ret 4                                   
+00450099: push eax                                
+0045009a: call 0x454c90                           
+0045009f: mov al, 1                               
+004500a1: pop esi                                 
+004500a2: ret 4                                   
+004500a5: push eax                                
+004500a6: call 0x454cc0                           
+004500ab: mov al, 1                               
+004500ad: pop esi                                 
+004500ae: ret 4                                   
+004500b1: push eax                                
+004500b2: call 0x454f60                           
+004500b7: mov al, 1                               
+004500b9: pop esi                                 
+004500ba: ret 4                                   
+004500bd: push eax                                
+004500be: call 0x454fb0                           
+004500c3: mov al, 1                               
+004500c5: pop esi                                 
+004500c6: ret 4                                   
+004500c9: push eax                                
+004500ca: call 0x455010                           
+004500cf: mov al, 1                               
+004500d1: pop esi                                 
+004500d2: ret 4                                   
+004500d5: push eax                                
+004500d6: call 0x455050                           
+004500db: mov al, 1                               
+004500dd: pop esi                                 
+004500de: ret 4                                   
+004500e1: push eax                                
+004500e2: call 0x4551c0                           
+004500e7: mov al, 1                               
+004500e9: pop esi                                 
+004500ea: ret 4                                   
+004500ed: push eax                                
+004500ee: call 0x4551f0                           
+004500f3: mov al, 1                               
+004500f5: pop esi                                 
+004500f6: ret 4                                   
+004500f9: push eax                                
+004500fa: call 0x4552f0                           
+004500ff: mov al, 1                               
+00450101: pop esi                                 
+00450102: ret 4                                   
+00450105: push eax                                
+00450106: call 0x455390                           
+0045010b: mov al, 1                               
+0045010d: pop esi                                 
+0045010e: ret 4                                   
+00450111: push eax                                
+00450112: call 0x455430                           
+00450117: mov al, 1                               
+00450119: pop esi                                 
+0045011a: ret 4                                   
+0045011d: push eax                                
+0045011e: call 0x455610                           
+00450123: mov al, 1                               
+00450125: pop esi                                 
+00450126: ret 4                                   
+00450129: push eax                                
+0045012a: call 0x4556c0                           
+0045012f: mov al, 1                               
+00450131: pop esi                                 
+00450132: ret 4                                   
+00450135: push eax                                
+00450136: call 0x4557c0                           
+0045013b: mov al, 1                               
+0045013d: pop esi                                 
+0045013e: ret 4                                   
+00450141: push eax                                
+00450142: call 0x451440                           
+00450147: mov al, 1                               
+00450149: pop esi                                 
+0045014a: ret 4                                   
+0045014d: push eax                                
+0045014e: call 0x451470                           
+00450153: mov al, 1                               
+00450155: pop esi                                 
+00450156: ret 4                                   
+00450159: push eax                                
+0045015a: call 0x4515a0                           
+0045015f: mov al, 1                               
+00450161: pop esi                                 
+00450162: ret 4                                   
+00450165: push eax                                
+00450166: call 0x4558a0                           
+0045016b: mov al, 1                               
+0045016d: pop esi                                 
+0045016e: ret 4                                   
+00450171: push eax                                
+00450172: call 0x455ab0                           
+00450177: mov al, 1                               
+00450179: pop esi                                 
+0045017a: ret 4                                   
+0045017d: push eax                                
+0045017e: call 0x455b80                           
+00450183: mov al, 1                               
+00450185: pop esi                                 
+00450186: ret 4                                   
+00450189: push eax                                
+0045018a: call 0x455ba0                             ; f32 0.461041
+0045018f: mov al, 1                               
+00450191: pop esi                                 
+00450192: ret 4                                   
+00450195: push eax                                
+00450196: call 0x455bd0                           
+0045019b: mov al, 1                               
+0045019d: pop esi                                 
+0045019e: ret 4                                   
+004501a1: push eax                                
+004501a2: call 0x455c20                           
+004501a7: mov al, 1                               
+004501a9: pop esi                                 
+004501aa: ret 4                                   
+004501ad: push eax                                
+004501ae: call 0x455c80                           
+004501b3: mov al, 1                               
+004501b5: pop esi                                 
+004501b6: ret 4                                   
+004501b9: push eax                                
+004501ba: call 0x455fe0                           
+004501bf: mov al, 1                               
+004501c1: pop esi                                 
+004501c2: ret 4                                   
+004501c5: push eax                                
+004501c6: call 0x456180                           
+004501cb: mov al, 1                               
+004501cd: pop esi                                 
+004501ce: ret 4                                   
+004501d1: push eax                                
+004501d2: call 0x4561c0                           
+004501d7: mov al, 1                               
+004501d9: pop esi                                 
+004501da: ret 4                                   
+004501dd: push eax                                
+004501de: call 0x4561e0                           
+004501e3: mov al, 1                               
+004501e5: pop esi                                 
+004501e6: ret 4                                   
+004501e9: push eax                                
+004501ea: call 0x4563a0                           
+004501ef: mov al, 1                               
+004501f1: pop esi                                 
+004501f2: ret 4                                   
+004501f5: push eax                                
+004501f6: call 0x4563c0                           
+004501fb: mov al, 1                               
+004501fd: pop esi                                 
+004501fe: ret 4                                   
+00450201: push eax                                
+00450202: call 0x456580                           
+00450207: mov al, 1                               
+00450209: pop esi                                 
+0045020a: ret 4                                   
+0045020d: push eax                                
+0045020e: call 0x4565b0                           
+00450213: mov al, 1                               
+00450215: pop esi                                 
+00450216: ret 4                                   
+00450219: push eax                                
+0045021a: call 0x456630                           
+0045021f: mov al, 1                               
+00450221: pop esi                                 
+00450222: ret 4                                   
+00450225: push eax                                
+00450226: call 0x456830                           
+0045022b: mov al, 1                               
+0045022d: pop esi                                 
+0045022e: ret 4                                   
+00450231: push eax                                
+00450232: call 0x4569c0                           
+00450237: mov al, 1                               
+00450239: pop esi                                 
+0045023a: ret 4                                   
+0045023d: push eax                                
+0045023e: call 0x4569e0                           
+00450243: mov al, 1                               
+00450245: pop esi                                 
+00450246: ret 4                                   
+00450249: push eax                                
+0045024a: call 0x456ab0                           
+0045024f: mov al, 1                               
+00450251: pop esi                                 
+00450252: ret 4                                   
+00450255: push eax                                
+00450256: call 0x456bc0                           
+0045025b: mov al, 1                               
+0045025d: pop esi                                 
+0045025e: ret 4                                   
+00450261: push eax                                
+00450262: call 0x456cc0                           
+00450267: mov al, 1                               
+00450269: pop esi                                 
+0045026a: ret 4                                   
+0045026d: push eax                                
+0045026e: call 0x456d10                           
+00450273: mov al, 1                               
+00450275: pop esi                                 
+00450276: ret 4                                   
+00450279: push eax                                
+0045027a: call 0x456d30                           
+0045027f: mov al, 1                               
+00450281: pop esi                                 
+00450282: ret 4                                   
+00450285: push eax                                
+00450286: call 0x457210                           
+0045028b: mov al, 1                               
+0045028d: pop esi                                 
+0045028e: ret 4                                   
+00450291: push eax                                
+00450292: call 0x4573b0                           
+00450297: mov al, 1                               
+00450299: pop esi                                 
+0045029a: ret 4                                   
+0045029d: push eax                                
+0045029e: call 0x4573d0                           
+004502a3: mov al, 1                               
+004502a5: pop esi                                 
+004502a6: ret 4                                   
+004502a9: push eax                                
+004502aa: call 0x457490                             ; f32 0.461041
+004502af: mov al, 1                               
+004502b1: pop esi                                 
+004502b2: ret 4                                   
+004502b5: push eax                                
+004502b6: call 0x4574d0                           
+004502bb: mov al, 1                               
+004502bd: pop esi                                 
+004502be: ret 4                                   
+004502c1: push eax                                
+004502c2: call 0x457520                             ; f32 0.461041
+004502c7: mov al, 1                               
+004502c9: pop esi                                 
+004502ca: ret 4                                   
+004502cd: push eax                                
+004502ce: call 0x459300                           
+004502d3: mov al, 1                               
+004502d5: pop esi                                 
+004502d6: ret 4                                   
+004502d9: push eax                                
+004502da: call 0x457560                           
+004502df: mov al, 1                               
+004502e1: pop esi                                 
+004502e2: ret 4                                   
+004502e5: push eax                                
+004502e6: call 0x457590                           
+004502eb: mov al, 1                               
+004502ed: pop esi                                 
+004502ee: ret 4                                   
+004502f1: push eax                                
+004502f2: call 0x4e5d10                           
+004502f7: mov al, 1                               
+004502f9: pop esi                                 
+004502fa: ret 4                                   
+004502fd: push eax                                
+004502fe: call 0x4e5d10                           
+00450303: mov al, 1                               
+00450305: pop esi                                 
+00450306: ret 4                                   
+00450309: push eax                                
+0045030a: call 0x4576d0                           
+0045030f: mov al, 1                               
+00450311: pop esi                                 
+00450312: ret 4                                   
+00450315: push eax                                
+00450316: call 0x4575b0                           
+0045031b: mov al, 1                               
+0045031d: pop esi                                 
+0045031e: ret 4                                   
+00450321: push eax                                
+00450322: call 0x4577f0                           
+00450327: mov al, 1                               
+00450329: pop esi                                 
+0045032a: ret 4                                   
+0045032d: mov edx, dword ptr [ecx]                
+0045032f: push eax                                
+00450330: call dword ptr [edx + 0x94]             
+00450336: mov al, 1                               
+00450338: pop esi                                 
+00450339: ret 4                                   
+0045033c: mov edx, dword ptr [ecx]                
+0045033e: push eax                                
+0045033f: call dword ptr [edx + 0x7c]             
+00450342: mov al, 1                               
+00450344: pop esi                                 
+00450345: ret 4                                   
+00450348: mov edx, dword ptr [ecx]                
+0045034a: push eax                                
+0045034b: call dword ptr [edx + 0x80]             
+00450351: mov al, 1                               
+00450353: pop esi                                 
+00450354: ret 4                                   
+00450357: mov edx, dword ptr [ecx]                
+00450359: push eax                                
+0045035a: call dword ptr [edx + 0x84]             
+00450360: mov al, 1                               
+00450362: pop esi                                 
+00450363: ret 4                                   
+00450366: push eax                                
+00450367: call 0x4582c0                           
+0045036c: mov al, 1                               
+0045036e: pop esi                                 
+0045036f: ret 4                                   
+00450372: push eax                                
+00450373: call 0x458370                           
+00450378: mov al, 1                               
+0045037a: pop esi                                 
+0045037b: ret 4                                   
+0045037e: push eax                                
+0045037f: call 0x458410                           
+00450384: mov al, 1                               
+00450386: pop esi                                 
+00450387: ret 4                                   
+0045038a: push eax                                
+0045038b: call 0x458340                           
+00450390: mov al, 1                               
+00450392: pop esi                                 
+00450393: ret 4                                   
+00450396: push eax                                
+00450397: call 0x458460                           
+0045039c: mov al, 1                               
+0045039e: pop esi                                 
+0045039f: ret 4                                   
+004503a2: push eax                                
+004503a3: call 0x458490                           
+004503a8: mov al, 1                               
+004503aa: pop esi                                 
+004503ab: ret 4                                   
+004503ae: push eax                                
+004503af: call 0x4589e0                           
+004503b4: mov al, 1                               
+004503b6: pop esi                                 
+004503b7: ret 4                                   
+004503ba: push eax                                
+004503bb: call 0x4e5d10                           
+004503c0: mov al, 1                               
+004503c2: pop esi                                 
+004503c3: ret 4                                   
+004503c6: mov edx, dword ptr [ecx]                
+004503c8: push eax                                
+004503c9: call dword ptr [edx + 0x88]             
+004503cf: mov al, 1                               
+004503d1: pop esi                                 
+004503d2: ret 4                                   
+004503d5: mov edx, dword ptr [ecx]                
+004503d7: push eax                                
+004503d8: call dword ptr [edx + 0x8c]             
+004503de: mov al, 1                               
+004503e0: pop esi                                 
+004503e1: ret 4                                   
+004503e4: mov edx, dword ptr [ecx]                
+004503e6: push eax                                
+004503e7: call dword ptr [edx + 0x90]             
+004503ed: mov al, 1                               
+004503ef: pop esi                                 
+004503f0: ret 4                                   
+004503f3: push eax                                
+004503f4: call 0x458dc0                           
+004503f9: mov al, 1                               
+004503fb: pop esi                                 
+004503fc: ret 4                                   
+004503ff: push eax                                
+00450400: call 0x458e60                           
+00450405: mov al, 1                               
+00450407: pop esi                                 
+00450408: ret 4                                   
+0045040b: push eax                                
+0045040c: call 0x458e80                             ; f32 -238590
+00450411: mov al, 1                               
+00450413: pop esi                                 
+00450414: ret 4                                   
+00450417: mov edx, dword ptr [ecx]                
+00450419: push eax                                
+0045041a: call dword ptr [edx + 0x98]             
+00450420: mov al, 1                               
+00450422: pop esi                                 
+00450423: ret 4                                   
+00450426: push eax                                
+00450427: call 0x4590b0                           
+0045042c: mov al, 1                               
+0045042e: pop esi                                 
+0045042f: ret 4                                   
+00450432: mov edx, dword ptr [ecx]                
+00450434: push eax                                
+00450435: call dword ptr [edx + 0x9c]             
+0045043b: mov al, 1                               
+0045043d: pop esi                                 
+0045043e: ret 4                                   
+00450441: push eax                                
+00450442: call 0x4593b0                           
+00450447: mov al, 1                               
+00450449: pop esi                                 
+0045044a: ret 4                                   
+0045044d: push eax                                
+0045044e: call 0x459350                           
+00450453: mov al, 1                               
+00450455: pop esi                                 
+00450456: ret 4                                   
+00450459: lea ecx, [ecx]                          
+0045045c: push 0x740044fd                         
+00450461: std                                     
+00450462: inc esp                                 
+00450463: add byte ptr [eax - 0x73ffbb03], al     
+00450469: std                                     
+0045046a: inc esp                                 
+0045046b: add al, cl                              
+0045046d: std                                     
+0045046e: inc esp                                 
+0045046f: add byte ptr [eax - 0x4fffbb03], bl     
+00450475: std                                     
+00450476: inc esp                                 
+00450477: add byte ptr [ebp + edi*8 - 0x22bffbc], bh
+0045047e: inc esp                                 
+0045047f: add byte ptr [eax], ch                  
+00450481: inc byte ptr [eax + eax - 0x14]         
+00450485: std                                     
+00450486: inc esp                                 
+00450487: add al, bh                              
+00450489: std                                     
+0045048a: inc esp                                 
+0045048b: add byte ptr [esi + edi*8], al          
+0045048e: inc esp                                 
+0045048f: add byte ptr [eax], dl                  
+00450491: inc byte ptr [eax + eax + 0x1c]         
+00450495: inc byte ptr [eax + eax + 0x6e]         
+00450499: inc byte ptr [eax + eax + 0x7a]         
+0045049d: inc byte ptr [eax + eax - 0x7a]         
+004504a1: inc byte ptr [eax + eax - 0x6e]         
+004504a5: inc byte ptr [eax + eax - 0x62]         
+004504a9: inc byte ptr [eax + eax - 0x56]         
+004504ad: inc byte ptr [eax + eax - 0x47]         
+004504b1: inc byte ptr [eax + eax - 0x3b]         
+004504b5: inc byte ptr [eax + eax - 0x2f]         
+004504b9: inc byte ptr [eax + eax - 0x23]         
+004504bd: inc byte ptr [eax + eax + 0x21]         
+004504c1: add byte ptr [ebp], al                  
+004504c4: jmp 0xf54549c7                          
+004504c9: inc byte ptr [eax + eax + 1]            
+004504cd: inc dword ptr [eax + eax + 0xd]         
+004504d1: inc dword ptr [eax + eax - 0x20]        
+004504d5: std                                     
+004504d6: inc esp                                 
+004504d7: add byte ptr [ecx], bl                  
+004504d9: inc dword ptr [eax + eax + 0x25]        
+004504dd: inc dword ptr [eax + eax + 0x31]        
+004504e1: inc dword ptr [eax + eax + 0x3d]        
+004504e5: inc dword ptr [eax + eax + 0x55]        
+004504e9: inc dword ptr [eax + eax + 0x61]        
+004504ed: inc dword ptr [eax + eax + 0x6d]        
+004504f1: inc dword ptr [eax + eax - 0x7b]        
+004504f5: inc dword ptr [eax + eax + 0x79]        
+004504f9: inc dword ptr [eax + eax - 0x6f]        
+004504fd: inc dword ptr [eax + eax - 0x63]        
+00450501: inc dword ptr [eax + eax - 0x57]        
+00450505: inc dword ptr [eax + eax - 0x4b]        
+00450509: inc dword ptr [eax + eax - 0x3f]        
+0045050d: inc dword ptr [eax + eax - 0x33]        
+00450511: inc dword ptr [eax + eax - 0x27]        
+00450515: inc dword ptr [eax + eax - 0x1b]        
+00450519: inc dword ptr [eax + eax - 0xf]         
+0045051d: inc dword ptr [eax + eax - 3]           
+00450521: inc dword ptr [eax + eax + 9]           
+00450525: add byte ptr [ebp], al                  
+00450528: adc eax, 0x2d004500                     
+0045052d: add byte ptr [ebp], al                  
+00450530: cmp dword ptr [eax], eax                
+00450532: inc ebp                                 
+00450533: add byte ptr [ebp], al                  
+00450536: inc ebp                                 
+00450537: add byte ptr [ecx], dl                  
+0045053a: inc ebp                                 
+0045053b: add byte ptr [ebp], bl                  
+0045053e: inc ebp                                 
+0045053f: add byte ptr [ebp], dh                  
+00450542: inc ebp                                 
+00450543: add byte ptr [ecx - 0x72ffbb00], al     
+00450549: add byte ptr [ebp], al                  
+0045054c: cdq                                     
+0045054d: add byte ptr [ebp], al                  
+00450550: movsd dword ptr es:[edi], dword ptr [esi]
+00450551: add byte ptr [ebp], al                  
+00450554: mov cl, 0                               
+00450556: inc ebp                                 
+00450557: add byte ptr [ebp - 0x36ffbb00], bh     
+0045055d: add byte ptr [ebp], al                  
+00450560: aad 0                                   
+00450562: inc ebp                                 
+00450563: add cl, ah                              
+00450565: add byte ptr [ebp], al                  
+00450568: in eax, dx                              
+00450569: add byte ptr [ebp], al                  
+0045056c: stc                                     
+0045056d: add byte ptr [ebp], al                  
+00450570: add eax, 0x11004501                     
+00450575: add dword ptr [ebp], eax                
+00450578: sbb eax, 0x29004501                     
+0045057d: add dword ptr [ebp], eax                
+00450580: dec ecx                                 
+00450581: inc dword ptr [eax + eax + 0x35]        
+00450585: add dword ptr [ebp], eax                
+00450588: inc ecx                                 
+00450589: add dword ptr [ebp], eax                
+0045058c: dec ebp                                 
+0045058d: add dword ptr [ebp], eax                
+00450590: pop ecx                                 
+00450591: add dword ptr [ebp], eax                
+00450594: add dword ptr gs:[ebp], eax             
+00450598: jno 0x45059b                              ; f32 2071.81
+0045059a: inc ebp                                 
+0045059b: add byte ptr [ebp + 1], bh              
+0045059e: inc ebp                                 
+0045059f: add byte ptr [ecx - 0x6affbaff], cl     
+004505a5: add dword ptr [ebp], eax                
+004505a8: mov eax, dword ptr [0xad004501]         
+004505ad: add dword ptr [ebp], eax                
+004505b0: mov ecx, 0xc5004501                     
+004505b5: add dword ptr [ebp], eax                
+004505b8: rol dword ptr [ecx], 1                  
+004505ba: inc ebp                                 
+004505bb: add ch, bl                              
+004505bd: add dword ptr [ebp], eax                
+004505c0: jmp 0xf5454ac6                          
+004505c5: add dword ptr [ebp], eax                
+004505c8: add dword ptr [edx], eax                
+004505ca: inc ebp                                 
+004505cb: add byte ptr [0x19004502], cl           
+004505d1: add al, byte ptr [ebp]                  
+004505d4: and eax, 0x31004502                     
+004505d9: add al, byte ptr [ebp]                  
+004505dc: cmp eax, 0x49004502                     
+004505e1: add al, byte ptr [ebp]                  
+004505e4: push ebp                                
+004505e5: add al, byte ptr [ebp]                  
+004505e8: popal                                   
+004505e9: add al, byte ptr [ebp]                  
+004505ec: insd dword ptr es:[edi], dx             
+004505ed: add al, byte ptr [ebp]                  
+004505f0: jns 0x4505f4                            
+004505f2: inc ebp                                 
+004505f3: add byte ptr [ebp - 0x6effbafe], al     
+004505f9: add al, byte ptr [ebp]                  
+004505fc: popfd                                   
+004505fd: add al, byte ptr [ebp]                  
+00450600: test eax, 0xb5004502                    
+00450605: add al, byte ptr [ebp]                  
+00450608: imul eax, dword ptr [eax], 0x2c10045    
+0045060e: inc ebp                                 
+0045060f: add ch, cl                              
+00450611: add al, byte ptr [ebp]                  
+00450614: movsb byte ptr es:[edi], byte ptr [esi] 
+00450615: std                                     
+00450616: inc esp                                 
+00450617: add cl, bl                              
+00450619: add al, byte ptr [ebp]                  
+0045061c: inc ecx                                 
+0045061d: add al, 0x45                            
+0045061f: add byte ptr [ebp + 4], cl              
+00450622: inc ebp                                 
+00450623: add ch, ah                              
+00450625: add al, byte ptr [ebp]                  
+00450628: sub eax, 0x21004503                     
+0045062d: add eax, dword ptr [ebp]                
+00450630: int1                                    
+00450631: add al, byte ptr [ebp]                  
+00450634: or dword ptr [ebx], eax                 
+00450636: inc ebp                                 
+00450637: add byte ptr [0x3c004503], dl           
+0045063d: add eax, dword ptr [ebp]                
+00450640: jb 0x450645                             
+00450642: inc ebp                                 
+00450643: add bl, dh                              
+00450645: add eax, dword ptr [ebp]                
+00450648: std                                     
+00450649: add al, byte ptr [ebp]                  
+0045064c: dec eax                                 
+0045064d: add eax, dword ptr [ebp]                
+00450650: push edi                                
+00450651: add eax, dword ptr [ebp]                
+00450654: mov al, byte ptr [ebx]                  
+00450656: inc ebp                                 
+00450657: add byte ptr [esi + 3], ah              
+0045065a: inc ebp                                 
+0045065b: add byte ptr [esi + 3], bh              
+0045065e: inc ebp                                 
+0045065f: add byte ptr [esi - 0x51ffbafd], dl     
+00450665: add eax, dword ptr [ebp]                
+00450668: mov edx, 0xc6004503                     
+0045066d: add eax, dword ptr [ebp]                
+00450670: aad 3                                   
+00450672: inc ebp                                 
+00450673: add ah, ah                              
+00450675: add eax, dword ptr [ebp]                
+00450678: inc dword ptr [ebx]                     
+0045067a: inc ebp                                 
+0045067b: add byte ptr [ebx], cl                  
+0045067d: add al, 0x45                            
+0045067f: add byte ptr [edi], dl                  
+00450681: add al, 0x45                            
+00450683: add byte ptr [esi], ah                  
+00450685: add al, 0x45                            
+00450687: add byte ptr [edx], dh                  
+00450689: add al, 0x45                            
+0045068b: add byte ptr [edx + 0x53004503], ah     
+00450691: add al, 0x45                            
+00450693: add byte ptr [eax], al                  
+00450695: add dword ptr [edx], eax                
+00450697: add ecx, dword ptr [ebp - 0x72727273]   
+0045069d: lea ecx, [ebp - 0x72727273]             
+004506a3: lea ecx, [ebp + 0x48d8d8d]              
+004506a9: add eax, 0x9080706                      
+004506ae: or cl, byte ptr [ebx]                   
+004506b0: or al, 0xd                              
+004506b2: push cs                                 
+004506b3: lea ecx, [edi]                          
+004506b5: adc byte ptr [ecx], dl                  
+004506b7: lea edx, [edx]                          
+004506b9: adc edx, dword ptr [edx + 0x19181716]   
+004506c0: sbb bl, byte ptr [ebx]                  
+004506c2: sbb al, 0x1d                            
+004506c4: push ds                                 
+004506c5: pop ds                                  
+004506c6: and byte ptr [ecx], ah                  
+004506c8: and ah, byte ptr [ebx]                  
+004506ca: and al, 0x25                            
+004506cc: daa                                     
+004506ce: sub byte ptr [ecx], ch                  
+004506d0: sub ch, byte ptr [ebx]                  
+004506d2: sub al, 0x2d                            
+004506d4: das                                     
+004506d6: xor byte ptr [ecx], dh                  
+004506d8: xor dh, byte ptr [ebx]                  
+004506da: xor al, 0x35                            
+004506dc: aaa                                     
+004506de: cmp byte ptr [ecx], bh                  
+004506e0: cmp bh, byte ptr [ebx]                  
+004506e2: cmp al, 0x3d                            
+004506e4: aas                                     
+004506e6: inc eax                                 
+004506e7: inc ecx                                 
+004506e8: inc edx                                 
+004506e9: inc ebx                                 
+004506ea: lea eax, [ebp + eax*2 + 0x46]           
+004506ee: inc edi                                 
+004506ef: dec eax                                 
+004506f0: dec ecx                                 
+004506f1: dec edx                                 
+004506f2: dec ebx                                 
+004506f3: dec esp                                 
+004506f4: dec ebp                                 
+004506f5: dec esi                                 
+004506f6: dec edi                                 
+004506f7: push eax                                
+004506f8: push ecx                                
+004506f9: push edx                                
+004506fa: push ebx                                
+004506fb: push esp                                
+004506fc: lea edx, [ebp + 0x56]                   
+004506ff: push edi                                
+00450700: pop eax                                 
+00450701: pop ecx                                 
+00450702: pop edx                                 
+00450703: pop ebx                                 
+00450704: pop esp                                 
+00450705: pop ebp                                 
+00450706: pop esi                                 
+00450707: pop edi                                 
+00450708: pushal                                  
+00450709: popal                                   
+0045070a: bound esp, qword ptr [ebx + 0x64]       
+0045070d: push 0x6a69                             
+00450713: imul ebp, dword ptr [ebp + ebp*2 + 0x6e], 0x6f
+00450718: jo 0x45078b                             
+0045071a: jb 0x4506a9                             
+0045071c: lea ecx, [ebp - 0x72727273]             
+00450722: lea ecx, [ebp - 0x72727273]             
+00450728: lea ecx, [ebp - 0x72727273]             
+0045072e: jae 0x4506bd                            
+00450730: lea ecx, [ebp - 0x72727273]             
+00450736: lea ecx, [ebp + 0x75748d8d]             
+0045073c: jbe 0x4507b5                            
+0045073e: lea edi, [eax + 0x79]                   
+00450741: jp 0x4507be                             
+00450743: jl 0x4506d2                               ; ',-./'
+00450745: lea edi, [ebp - 0x73]                   
+00450748: jle 0x4507c9                            
+0045074a: add byte ptr [ecx - 0x7a7b7c7e], 0x8d   
+00450751: xchg byte ptr [edi - 0x76727773], al    
+00450757: mov cl, byte ptr [ebp - 0x72727275]     
+0045075d: mov word ptr [eax - 0x43137e70], ss     
+00450763: add byte ptr [eax], al                  
+00450765: add byte ptr [ebp + 0x56142444], cl     
+0045076b: push edi                                
+0045076c: mov edi, ecx                            
+0045076e: push 2                                  
+00450770: push eax                                
+00450771: lea esi, [edi + 0x760]                  
+00450777: mov ecx, esi                            
+00450779: call 0x421500                           
+0045077e: lea ecx, [esp + 0x28]                   
+00450782: push 0                                  
+00450784: push ecx                                
+00450785: mov ecx, esi                            
+00450787: call 0x421500                           
+0045078c: mov edx, dword ptr [esp + 0xc8]         
+00450793: mov eax, dword ptr [edx + 0xc]          
+00450796: cmp eax, 7                              
+00450799: ja 0x450aab                             
+0045079f: jmp dword ptr [eax*4 + 0x450b0c]        
+004507a6: mov eax, dword ptr [esp + 0x1c]         
+004507aa: mov ecx, dword ptr [esp + 0x20]         
+004507ae: mov edx, dword ptr [esp + 0x24]         
+004507b2: mov dword ptr [esp + 8], eax            
+004507b6: mov dword ptr [esp + 0xc], ecx          
+004507ba: mov dword ptr [esp + 0x10], edx         
+004507be: jmp 0x450aab                            
+004507c3: fld dword ptr [esp + 0x24]              
+004507c7: fsub dword ptr [esp + 0x30]             
+004507cb: push ecx                                
+004507cc: fstp dword ptr [esp]                    
+004507cf: fld dword ptr [esp + 0x24]              
+004507d3: fsub dword ptr [esp + 0x30]             
+004507d7: push ecx                                
+004507d8: fstp dword ptr [esp]                    
+004507db: fld dword ptr [esp + 0x24]              
+004507df: fsub dword ptr [esp + 0x30]             
+004507e3: push ecx                                
+004507e4: lea ecx, [esp + 0xa0]                   
+004507eb: fstp dword ptr [esp]                    
+004507ee: call 0x401ca0                           
+004507f3: lea ecx, [esp + 0x94]                   
+004507fa: call 0x40a5f0                           
+004507ff: fst dword ptr [esp + 0x14]              
+00450803: fcomp qword ptr [0x8d5c38]              
+00450809: fnstsw ax                               
+0045080b: test ah, 1                              
+0045080e: je 0x45082e                             
+00450810: fld dword ptr [esp + 0x14]              
+00450814: fcomp qword ptr [0x8d5c30]              
+0045081a: fnstsw ax                               
+0045081c: test ah, 0x41                           
+0045081f: jne 0x45082e                            
+00450821: push 0                                  
+00450823: lea ecx, [esp + 0x38]                   
+00450827: call 0x40af10                           
+0045082c: jmp 0x450848                            
+0045082e: mov eax, dword ptr [esp + 0x14]         
+00450832: lea ecx, [esp + 0x94]                   
+00450839: push eax                                
+0045083a: lea edx, [esp + 0x38]                   
+0045083e: push ecx                                
+0045083f: push edx                                
+00450840: call 0x408020                           
+00450845: add esp, 0xc                            
+00450848: mov eax, dword ptr [esp + 0x34]         
+0045084c: mov ecx, dword ptr [esp + 0x38]         
+00450850: mov edx, dword ptr [esp + 0x3c]         
+00450854: mov dword ptr [esp + 8], eax            
+00450858: mov dword ptr [esp + 0xc], ecx          
+0045085c: mov dword ptr [esp + 0x10], edx         
+00450860: jmp 0x450aab                            
+00450865: fld dword ptr [esp + 0x30]              
+00450869: push ecx                                
+0045086a: fchs                                    
+0045086c: fstp dword ptr [esp]                    
+0045086f: fld dword ptr [esp + 0x30]              
+00450873: push ecx                                
+00450874: fchs                                    
+00450876: fstp dword ptr [esp]                    
+00450879: fld dword ptr [esp + 0x30]              
+0045087d: push ecx                                
+0045087e: lea ecx, [esp + 0x70]                   
+00450882: fchs                                    
+00450884: fstp dword ptr [esp]                    
+00450887: call 0x401ca0                           
+0045088c: mov eax, dword ptr [esp + 0x64]         
+00450890: mov ecx, dword ptr [esp + 0x68]         
+00450894: mov edx, dword ptr [esp + 0x6c]         
+00450898: mov dword ptr [esp + 8], eax            
+0045089c: mov dword ptr [esp + 0xc], ecx          
+004508a0: mov dword ptr [esp + 0x10], edx         
+004508a4: jmp 0x450aab                            
+004508a9: fld dword ptr [esp + 0x24]              
+004508ad: push ecx                                
+004508ae: fchs                                    
+004508b0: fstp dword ptr [esp]                    
+004508b3: fld dword ptr [esp + 0x24]              
+004508b7: push ecx                                
+004508b8: fchs                                    
+004508ba: fstp dword ptr [esp]                    
+004508bd: fld dword ptr [esp + 0x24]              
+004508c1: push ecx                                
+004508c2: lea ecx, [esp + 0x58]                   
+004508c6: fchs                                    
+004508c8: fstp dword ptr [esp]                    
+004508cb: call 0x401ca0                           
+004508d0: fld dword ptr [esp + 0x54]              
+004508d4: fsub dword ptr [esp + 0x30]             
+004508d8: push ecx                                
+004508d9: fstp dword ptr [esp]                    
+004508dc: fld dword ptr [esp + 0x54]              
+004508e0: fsub dword ptr [esp + 0x30]             
+004508e4: push ecx                                
+004508e5: fstp dword ptr [esp]                    
+004508e8: fld dword ptr [esp + 0x54]              
+004508ec: fsub dword ptr [esp + 0x30]             
+004508f0: push ecx                                
+004508f1: lea ecx, [esp + 0x88]                   
+004508f8: fstp dword ptr [esp]                    
+004508fb: call 0x401ca0                           
+00450900: lea ecx, [esp + 0x7c]                   
+00450904: call 0x40a5f0                           
+00450909: fst dword ptr [esp + 0x14]              
+0045090d: fcomp qword ptr [0x8d5c38]              
+00450913: fnstsw ax                               
+00450915: test ah, 1                              
+00450918: je 0x450938                             
+0045091a: fld dword ptr [esp + 0x14]              
+0045091e: fcomp qword ptr [0x8d5c30]              
+00450924: fnstsw ax                               
+00450926: test ah, 0x41                           
+00450929: jne 0x450938                            
+0045092b: push 0                                  
+0045092d: lea ecx, [esp + 0x44]                   
+00450931: call 0x40af10                           
+00450936: jmp 0x45094f                              ; f32 2.56668
+00450938: mov eax, dword ptr [esp + 0x14]         
+0045093c: lea ecx, [esp + 0x7c]                   
+00450940: push eax                                
+00450941: lea edx, [esp + 0x44]                   
+00450945: push ecx                                
+00450946: push edx                                
+00450947: call 0x408020                           
+0045094c: add esp, 0xc                            
+0045094f: mov eax, dword ptr [esp + 0x40]         
+00450953: mov ecx, dword ptr [esp + 0x44]         
+00450957: mov edx, dword ptr [esp + 0x48]         
+0045095b: mov dword ptr [esp + 8], eax            
+0045095f: mov dword ptr [esp + 0xc], ecx          
+00450963: mov dword ptr [esp + 0x10], edx         
+00450967: jmp 0x450aab                            
+0045096c: fld dword ptr [esp + 0x24]              
+00450970: push ecx                                
+00450971: fchs                                    
+00450973: fstp dword ptr [esp]                    
+00450976: fld dword ptr [esp + 0x24]              
+0045097a: push ecx                                
+0045097b: fchs                                    
+0045097d: fstp dword ptr [esp]                    
+00450980: fld dword ptr [esp + 0x24]              
+00450984: push ecx                                
+00450985: lea ecx, [esp + 0x64]                   
+00450989: fchs                                    
+0045098b: fstp dword ptr [esp]                    
+0045098e: call 0x401ca0                           
+00450993: mov eax, dword ptr [esp + 0x58]         
+00450997: mov ecx, dword ptr [esp + 0x5c]         
+0045099b: mov edx, dword ptr [esp + 0x60]         
+0045099f: mov dword ptr [esp + 8], eax            
+004509a3: mov dword ptr [esp + 0xc], ecx          
+004509a7: mov dword ptr [esp + 0x10], edx         
+004509ab: jmp 0x450aab                            
+004509b0: fld dword ptr [esp + 0x24]              
+004509b4: push ecx                                
+004509b5: fchs                                    
+004509b7: fstp dword ptr [esp]                    
+004509ba: fld dword ptr [esp + 0x24]              
+004509be: push ecx                                
+004509bf: fchs                                    
+004509c1: fstp dword ptr [esp]                    
+004509c4: fld dword ptr [esp + 0x24]              
+004509c8: push ecx                                
+004509c9: lea ecx, [esp + 0x7c]                   
+004509cd: fchs                                    
+004509cf: fstp dword ptr [esp]                    
+004509d2: call 0x401ca0                           
+004509d7: fld dword ptr [esp + 0x78]              
+004509db: fadd dword ptr [esp + 0x30]             
+004509df: push ecx                                
+004509e0: fstp dword ptr [esp]                    
+004509e3: fld dword ptr [esp + 0x78]              
+004509e7: fadd dword ptr [esp + 0x30]             
+004509eb: push ecx                                
+004509ec: fstp dword ptr [esp]                    
+004509ef: fld dword ptr [esp + 0x78]              
+004509f3: fadd dword ptr [esp + 0x30]             
+004509f7: push ecx                                
+004509f8: lea ecx, [esp + 0xac]                   
+004509ff: fstp dword ptr [esp]                    
+00450a02: call 0x401ca0                           
+00450a07: lea ecx, [esp + 0xa0]                   
+00450a0e: call 0x40a5f0                           
+00450a13: fst dword ptr [esp + 0x14]              
+00450a17: fcomp qword ptr [0x8d5c38]              
+00450a1d: fnstsw ax                               
+00450a1f: test ah, 1                              
+00450a22: je 0x450a4c                             
+00450a24: fld dword ptr [esp + 0x14]              
+00450a28: fcomp qword ptr [0x8d5c30]              
+00450a2e: fnstsw ax                               
+00450a30: test ah, 0x41                           
+00450a33: jne 0x450a4c                            
+00450a35: push 0                                  
+00450a37: lea ecx, [esp + 0x8c]                   
+00450a3e: call 0x40af10                           
+00450a43: lea eax, [esp + 0x88]                   
+00450a4a: jmp 0x450aa1                            
+00450a4c: mov eax, dword ptr [esp + 0x14]         
+00450a50: lea ecx, [esp + 0xa0]                   
+00450a57: push eax                                
+00450a58: lea edx, [esp + 0x8c]                   
+00450a5f: push ecx                                
+00450a60: push edx                                
+00450a61: call 0x408020                           
+00450a66: add esp, 0xc                            
+00450a69: lea eax, [esp + 0x88]                   
+00450a70: jmp 0x450aa1                            
+00450a72: lea ecx, [esp + 0x28]                   
+00450a76: push ecx                                
+00450a77: jmp 0x450aa2                            
+00450a79: lea edx, [esp + 0x28]                   
+00450a7d: lea eax, [esp + 0x1c]                   
+00450a81: push edx                                
+00450a82: lea ecx, [esp + 0xb0]                   
+00450a89: push eax                                
+00450a8a: push ecx                                
+00450a8b: call 0x4071f0                           
+00450a90: lea edx, [esp + 0xc4]                   
+00450a97: push eax                                
+00450a98: push edx                                
+00450a99: call 0x450b30                           
+00450a9e: add esp, 0x14                           
+00450aa1: push eax                                
+00450aa2: lea ecx, [esp + 0xc]                    
+00450aa6: call 0x401cc0                           
+00450aab: mov eax, dword ptr [0x9b3eec]             ; f32 0
+00450ab0: mov dword ptr [esp + 0x18], 0           
+00450ab8: mov edx, dword ptr [edi + 0x754]        
+00450abe: mov ecx, dword ptr [eax + 0x490]        
+00450ac4: lea eax, [esp + 8]                      
+00450ac8: mov dword ptr [esp + 0x14], ecx         
+00450acc: lea ecx, [edi + 0x754]                  
+00450ad2: fild qword ptr [esp + 0x14]             
+00450ad6: push eax                                
+00450ad7: fmul dword ptr [0x8d7434]                 ; f32 0.005
+00450add: fld dword ptr [esp + 0xc]               
+00450ae1: fmul st(1)                              
+00450ae3: fstp dword ptr [esp + 0xc]              
+00450ae7: fld dword ptr [esp + 0x10]              
+00450aeb: fmul st(1)                              
+00450aed: fstp dword ptr [esp + 0x10]             
+00450af1: fld dword ptr [esp + 0x14]              
+00450af5: fmul st(1)                              
+00450af7: fstp dword ptr [esp + 0x14]             
+00450afb: fstp st(0)                              
+00450afd: call dword ptr [edx + 0x1c]             
+00450b00: pop edi                                 
+00450b01: pop esi                                 
+00450b02: add esp, 0xbc                           
+00450b08: ret 4                                   
+00450b0b: nop                                     
+00450b0c: cmpsb byte ptr [esi], byte ptr es:[edi] 
+00450b0d: pop es                                  
+00450b0e: inc ebp                                 
+00450b0f: add bl, al                              
+00450b11: pop es                                  
+00450b12: inc ebp                                 
+00450b13: add byte ptr [ebp + 8], ah              
+00450b16: inc ebp                                 
+00450b17: add byte ptr [ecx + 0x6c004508], ch     
+00450b1d: or dword ptr [ebp], eax                 
+00450b20: mov al, 9                               
+00450b22: inc ebp                                 
+00450b23: add byte ptr [edx + 0xa], dh            
+00450b26: inc ebp                                 
+00450b27: add byte ptr [ecx + 0xa], bh            
+00450b2a: inc ebp                                 
+00450b2b: add byte ptr [eax - 0x746f6f70], dl     
+00450b31: dec esp                                 
+00450b32: and al, 8                               
+00450b34: fld dword ptr [ecx + 8]                 
+00450b37: fld dword ptr [ecx + 4]                 
+00450b3a: fld dword ptr [ecx]                     
+00450b3c: fld st(0)                               
+00450b3e: fmul st(1)                              
+00450b40: fld st(2)                               
+00450b42: fmul st(3)                              
+00450b44: faddp st(1)                             
+00450b46: fld st(3)                               
+00450b48: fmul st(4)                              
+00450b4a: faddp st(1)                             
+00450b4c: fsqrt                                   
+00450b4e: fstp st(3)                              
+00450b50: fstp st(0)                              
+00450b52: fstp st(0)                              
+00450b54: fcom qword ptr [0x8d5c38]               
+00450b5a: fnstsw ax                               
+00450b5c: test ah, 1                              
+00450b5f: je 0x450b7f                             
+00450b61: fcom qword ptr [0x8d5c30]               
+00450b67: fnstsw ax                               
+00450b69: test ah, 0x41                           
+00450b6c: jne 0x450b7f                            
+00450b6e: mov eax, dword ptr [esp + 4]            
+00450b72: xor ecx, ecx                            
+00450b74: fstp st(0)                              
+00450b76: mov dword ptr [eax], ecx                
+00450b78: mov dword ptr [eax + 4], ecx            
+00450b7b: mov dword ptr [eax + 8], ecx            
+00450b7e: ret                                     
+00450b7f: fdivr dword ptr [0x8d5c28]                ; f32 1
+00450b85: mov eax, dword ptr [esp + 4]            
+00450b89: fst dword ptr [esp + 8]                 
+00450b8d: fmul dword ptr [ecx + 8]                
+00450b90: fld dword ptr [esp + 8]                 
+00450b94: fmul dword ptr [ecx + 4]                
+00450b97: fld dword ptr [esp + 8]                 
+00450b9b: fmul dword ptr [ecx]                    
+00450b9d: fstp dword ptr [eax]                    
+00450b9f: fstp dword ptr [eax + 4]                
+00450ba2: fstp dword ptr [eax + 8]                
+00450ba5: ret                                     
+00450ba6: nop                                     
+00450ba7: nop                                     
+00450ba8: nop                                     
+00450ba9: nop                                     
+00450baa: nop                                     
+00450bab: nop                                     
+00450bac: nop                                     
+00450bad: nop                                     
+00450bae: nop                                     
+00450baf: nop                                     
 00450bb0: mov eax, dword ptr [esp + 4]            
 00450bb4: push ecx                                
 00450bb5: fild dword ptr [eax + 0xc]              
