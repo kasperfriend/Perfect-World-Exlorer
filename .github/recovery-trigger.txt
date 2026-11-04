@@ -1,1 +1,1 @@
-round 4: resync + sky trans/loadsky/flare occlusion
+round 5: padding-boundary resync, widened flare windows

@@ -68,15 +68,15 @@ WINDOWS = {
     "11-sky-ctor-init": (0x799570, 0x799A40),
     "13-sky-matrix-helpers": (0x789E60, 0x789FC0),
     "14-sky-draws": (0x799A40, 0x799E00),
-    "15-flare-caller": (0x4B5700, 0x4B5B60),
-    "16-flare-helper": (0x450A80, 0x450C40),
+    "15-flare-caller": (0x4B5600, 0x4B5B60),
+    "16-flare-helper": (0x450900, 0x450C40),
     "12-sky-load": (0x951900, 0x951C80),
     # The star question: `A3DSkySphere::TransSky` and the world/scene sky name.
-    "17-sky-trans": (0x79B200, 0x79B600),
+    "17-sky-trans": (0x79B000, 0x79B600),
     # `CECWorld::LoadSky`, the caller of the `Textures\Sky\%s` template.
-    "18-world-loadsky": (0x951600, 0x951940),
+    "18-world-loadsky": (0x951300, 0x951940),
     # The 54-point occlusion mask that gates the flare, and the flare alpha cover.
-    "19-flare-occlusion": (0x4B5B60, 0x4B6100),
+    "19-flare-occlusion": (0x4B5A00, 0x4B6100),
 }
 
 # Archive entries whose text can name a sky set, a flare program or a zone rule.
@@ -84,18 +84,28 @@ TEXT_HINT = re.compile(rb"sky|flare|sunshine|autofamily|autoscene", re.I)
 NAME_HINT = re.compile(r"sky|flare|solar|scene", re.I)
 
 
-# A frame-pointer prologue. Windows are chosen from call sites and string
-# cross-references, so many of them open in the middle of an instruction; the
-# dump is worth little until it starts on a real function boundary, and every
-# earlier round mis-read an operand because of that.
-PROLOGUE = re.compile(rb"\x55\x8b\xec|\x8b\xff\x55\x8b\xec")
-PROLOGUE_SCAN = 0x100
+# Windows are chosen from call sites and string cross-references, so many of
+# them open in the middle of an instruction; the dump is worth little until it
+# starts on a real function boundary, and every earlier round mis-read an
+# operand because of that.
+#
+# This is an optimised MSVC build with no frame pointers - `push ebp; mov ebp,
+# esp` does not appear - so a boundary is found the way the linker makes it: the
+# tail of the previous function (`ret` / `ret imm16`) followed by `int3` or `nop`
+# padding.
+BOUNDARY = re.compile(rb"(?:\xc3|\xc2..)[\xcc\x90]{2,}")
+BOUNDARY_SCAN = 0x300
 
 
 def resync(blob):
-    """Offset of the first frame-pointer prologue in the head of a window."""
-    match = PROLOGUE.search(blob[:PROLOGUE_SCAN])
-    return match.start() if match else 0
+    """Offset just past the first inter-function padding run in the window head.
+
+    A window that opens mid-instruction is nudged forward onto the next real
+    function start; a window that opens inside the function it is meant to
+    explain is widened (see `WINDOWS`) so that boundary is still in the head.
+    """
+    match = BOUNDARY.search(blob[:BOUNDARY_SCAN])
+    return match.end() if match else 0
 
 
 def disassemble(pe, start, end, text_strings):
