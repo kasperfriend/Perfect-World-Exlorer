@@ -29,7 +29,7 @@ impl Default for Designer {
             preset_name: String::new(),
             user_presets: Vec::new(),
             user_presets_for: None,
-            status: "Native profession starter armor will be equipped on spawn.".into(),
+            status: "Authentic level-one preview equipment will be equipped on spawn.".into(),
             status_error: false,
         }
     }
@@ -43,7 +43,7 @@ impl Designer {
         if !self.initialized {
             self.design = starter_design(assets, self.design.class, self.design.gender)?;
             self.initialized = true;
-            self.status = "Native profession starter armor equipped.".into();
+            self.status = "Authentic level-one preview equipment equipped.".into();
             self.status_error = false;
         }
         Ok(self.design.clone())
@@ -81,7 +81,7 @@ impl Designer {
                 Some(self.design.clone())
             }
             Err(error) => {
-                self.status = format!("Could not load native default: {error}");
+                self.status = format!("Could not load starter preview equipment: {error}");
                 self.status_error = true;
                 None
             }
@@ -94,7 +94,7 @@ impl Designer {
         ui.heading("Character Designer");
         ui.label(
             egui::RichText::new(
-                "Customize this Walker character; every change applies immediately. New and reset characters use native profession starter armor.",
+                "Customize this Walker character; every change applies immediately. New and reset characters use an Explorer-selected loadout of authentic item-level-0 weapons and level-1 armor; this is not a recovered server grant table.",
             )
             .small()
             .weak(),
@@ -214,7 +214,7 @@ impl Designer {
             rebuild = Some(self.design.clone());
         }
 
-        if ui.button("Reset class and starter armor").clicked() {
+        if ui.button("Reset class and preview equipment").clicked() {
             rebuild = self.load_default(assets, self.design.class, self.design.gender);
         }
         ui.horizontal(|ui| {

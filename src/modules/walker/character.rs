@@ -21,11 +21,16 @@ const HEAD_EYE_OFFSET: f32 = 0.075;
 enum Motion {
     Stand,
     Run,
+    Swim,
+    WaterIdle,
     JumpStart,
     JumpLoop,
     Land,
     RideStand,
     RideRun,
+    RideJumpStart,
+    RideJumpLoop,
+    RideLand,
     FlyTakeoff,
     FlyHover,
     FlyForward,
@@ -176,6 +181,9 @@ impl FlightActionSet {
 struct MountActionSet {
     stand: Option<usize>,
     run: Option<usize>,
+    jump_start: Option<usize>,
+    jump_loop: Option<usize>,
+    land: Option<usize>,
 }
 
 impl MountActionSet {
@@ -191,6 +199,9 @@ impl MountActionSet {
         Self {
             stand: resolve("站立"),
             run: resolve("快速移动"),
+            jump_start: resolve("跳跃起"),
+            jump_loop: resolve("跳跃循环"),
+            land: resolve("跳跃落"),
         }
     }
 }
@@ -241,11 +252,16 @@ fn find_prefixed(
 struct ActionSet {
     stand: Option<usize>,
     run: Option<usize>,
+    swim: Option<usize>,
+    water_idle: Option<usize>,
     jump_start: Option<usize>,
     jump_loop: Option<usize>,
     land: Option<usize>,
     ride_stand: Option<usize>,
     ride_run: Option<usize>,
+    ride_jump_start: Option<usize>,
+    ride_jump_loop: Option<usize>,
+    ride_land: Option<usize>,
     wing: FlightActionSet,
     sword: FlightActionSet,
 }
@@ -275,6 +291,8 @@ impl ActionSet {
                     "跑步",
                 ],
             ),
+            swim: find_action(combined, actions, &["游动_通用"]),
+            water_idle: find_action(combined, actions, &["水中漂浮_通用"]),
             jump_start: find_action(
                 combined,
                 actions,
@@ -298,6 +316,9 @@ impl ActionSet {
             ),
             ride_stand: find_action(combined, actions, &["站立_骑乘_通用"]),
             ride_run: find_action(combined, actions, &["奔跑_骑乘_通用"]),
+            ride_jump_start: find_action(combined, actions, &["起跳_骑乘_通用"]),
+            ride_jump_loop: find_action(combined, actions, &["跳跃空中循环_骑乘_通用"]),
+            ride_land: find_action(combined, actions, &["跳跃落地_骑乘_通用"]),
             wing: FlightActionSet::body(combined, actions, FlightMode::Wing),
             sword: FlightActionSet::body(combined, actions, FlightMode::FlySword),
         };
@@ -322,11 +343,16 @@ impl ActionSet {
         match motion {
             Motion::Stand => self.stand,
             Motion::Run => self.run,
+            Motion::Swim => self.swim,
+            Motion::WaterIdle => self.water_idle,
             Motion::JumpStart => self.jump_start,
             Motion::JumpLoop => self.jump_loop,
             Motion::Land => self.land,
             Motion::RideStand => self.ride_stand,
             Motion::RideRun => self.ride_run,
+            Motion::RideJumpStart => self.ride_jump_start,
+            Motion::RideJumpLoop => self.ride_jump_loop,
+            Motion::RideLand => self.ride_land,
             _ => None,
         }
     }
@@ -395,9 +421,12 @@ impl ClipPlayer {
                 motion,
                 Motion::Stand
                     | Motion::Run
+                    | Motion::Swim
+                    | Motion::WaterIdle
                     | Motion::JumpLoop
                     | Motion::RideStand
                     | Motion::RideRun
+                    | Motion::RideJumpLoop
                     | Motion::FlyHover
                     | Motion::FlyForward
                     | Motion::FlyDescendHigh
@@ -461,25 +490,77 @@ pub struct Posed {
     pub meshes: CharacterMeshes,
 }
 
-/// CECPlayer's zero-ID armor callback selects class/gender-specific default
-/// SKIs. Preserve that proven starter/reset appearance explicitly, without
-/// claiming that unrelated level-one item records are a recovered loadout.
-/// An explicit later `set_armor` clears the flag and makes zero bare.
+fn starter_loadout(class: Class) -> (u32, [u32; 4]) {
+    use Class::*;
+    let weapon = match class {
+        Blademaster => 2097,  // Wooden Sword
+        Barbarian => 2258,    // Splintered Club
+        Archer => 2250,       // Wooden Bow
+        Assassin => 26331,    // Bonerazor (Assassin-only record)
+        Psychic => 26332,     // Lesser Soulsphere (Psychic-only record)
+        Wizard | Venomancer | Cleric => 2251, // Wand
+    };
+    // Heavy, light, and arcane armor respectively: upper, wrist, lower, foot.
+    let armor = match class {
+        Blademaster | Barbarian => [8451, 8535, 8456, 8459],
+        Archer | Assassin => [8453, 8536, 8457, 8460],
+        Wizard | Psychic | Venomancer | Cleric => [8455, 8537, 8458, 8461],
+    };
+    (weapon, armor)
+}
+
+/// Deterministic Walker preview equipment selected from authentic item-level-0
+/// weapons and level-1 armor in `elements.data`. This is an Explorer loadout,
+/// not a claim to have recovered the server's new-character grant table.
 pub(super) fn starter_design(
     assets: &mut Assets,
     class: Class,
     gender: Gender,
 ) -> Result<CharacterDesign, String> {
+    let (weapon, armor) = starter_loadout(class);
+    let weapon_record = assets
+        .catalog
+        .weapon(weapon)
+        .ok_or_else(|| format!("starter weapon {weapon} is absent from elements.data"))?;
+    if weapon_record.item_level != 0
+        || weapon_record.required_level != 1
+        || weapon_record.class_mask & class.bit() == 0
+    {
+        return Err(format!(
+            "starter weapon {weapon} is not an allowed level-1, item-level-0 weapon for {}",
+            class.name()
+        ));
+    }
+
     let mut design = assets.default_design(class, gender)?;
+    design.equipment.weapon = weapon;
     design.equipment.fashion_mode = false;
-    for slot in [
+    for (slot, id) in [
         ArmorSlot::Upper,
         ArmorSlot::Wrist,
         ArmorSlot::Lower,
         ArmorSlot::Foot,
-    ] {
-        design.equipment.set_armor(slot, 0);
-        design.equipment.set_native_default_armor(slot, true);
+    ]
+    .into_iter()
+    .zip(armor)
+    {
+        let item = assets
+            .catalog
+            .armor_item(id)
+            .ok_or_else(|| format!("starter armor {id} is absent from elements.data"))?;
+        if item.slot != slot
+            || item.required_level != 1
+            || item.item_level != 0
+            || item.class_mask & class.bit() == 0
+        {
+            return Err(format!(
+                "starter armor {id} is not allowed level-1 {} armor for {}",
+                slot.name(),
+                class.name()
+            ));
+        }
+        design.equipment.set_armor(slot, id);
+        design.equipment.set_native_default_armor(slot, false);
     }
     Ok(design)
 }
@@ -596,7 +677,30 @@ impl Character {
 
         match travel {
             TravelState::Mounted => {
-                let motion = if body.moving {
+                if jumped {
+                    self.player.set(
+                        &self.assembly.body,
+                        Motion::RideJumpStart,
+                        self.actions.ride_jump_start,
+                        true,
+                    )?;
+                } else if landed {
+                    self.player.set(
+                        &self.assembly.body,
+                        Motion::RideLand,
+                        self.actions.ride_land,
+                        true,
+                    )?;
+                }
+                let motion = if !body.grounded {
+                    if self.player.motion == Motion::RideJumpStart && !self.player.finished() {
+                        Motion::RideJumpStart
+                    } else {
+                        Motion::RideJumpLoop
+                    }
+                } else if self.player.motion == Motion::RideLand && !self.player.finished() {
+                    Motion::RideLand
+                } else if body.moving {
                     Motion::RideRun
                 } else {
                     Motion::RideStand
@@ -604,10 +708,12 @@ impl Character {
                 self.player
                     .set(&self.assembly.body, motion, self.actions.get(motion), false)?;
                 if let Some(model) = &self.assembly.mount {
-                    let action = if motion == Motion::RideRun {
-                        self.mount_actions.run
-                    } else {
-                        self.mount_actions.stand
+                    let action = match motion {
+                        Motion::RideRun => self.mount_actions.run,
+                        Motion::RideJumpStart => self.mount_actions.jump_start,
+                        Motion::RideJumpLoop => self.mount_actions.jump_loop,
+                        Motion::RideLand => self.mount_actions.land,
+                        _ => self.mount_actions.stand,
                     };
                     if let Some(player) = &mut self.mount_player {
                         player.set(&model.asset, motion, action, false)?;
@@ -662,6 +768,18 @@ impl Character {
                 }
                 if self.player.motion == Motion::FlyLand && !self.player.finished() {
                     // Preserve the native wing/fly-sword landing action.
+                } else if body.swimming && !body.water_jumping {
+                    let motion = if body.moving {
+                        Motion::Swim
+                    } else {
+                        Motion::WaterIdle
+                    };
+                    self.player.set(
+                        &self.assembly.body,
+                        motion,
+                        self.actions.get(motion),
+                        false,
+                    )?;
                 } else if jumped {
                     self.player.set(
                         &self.assembly.body,
@@ -676,6 +794,8 @@ impl Character {
 
                 if self.player.motion == Motion::FlyLand && !self.player.finished() {
                     // Still landing from flight.
+                } else if body.swimming && !body.water_jumping {
+                    // The authored swim/hang action was selected above.
                 } else if !body.grounded {
                     if self.player.motion != Motion::JumpStart || self.player.finished() {
                         self.player.set(
@@ -876,6 +996,48 @@ mod tests {
     }
 
     #[test]
+    fn native_swim_and_mounted_jump_actions_resolve_exact_names() {
+        let actions = vec![
+            action("游动_通用"),
+            action("水中漂浮_通用"),
+            action("起跳_骑乘_通用"),
+            action("跳跃空中循环_骑乘_通用"),
+            action("跳跃落地_骑乘_通用"),
+        ];
+        let (set, _) = ActionSet::new(&[], &actions);
+        assert_eq!(set.swim, Some(0));
+        assert_eq!(set.water_idle, Some(1));
+        assert_eq!(set.ride_jump_start, Some(2));
+        assert_eq!(set.ride_jump_loop, Some(3));
+        assert_eq!(set.ride_land, Some(4));
+
+        let mount = MountActionSet::new(
+            &[],
+            &[
+                action("跳跃起"),
+                action("跳跃循环"),
+                action("跳跃落"),
+            ],
+        );
+        assert_eq!(mount.jump_start, Some(0));
+        assert_eq!(mount.jump_loop, Some(1));
+        assert_eq!(mount.land, Some(2));
+    }
+
+    #[test]
+    fn starter_loadout_is_nonzero_and_uses_class_specific_authentic_records() {
+        for class in Class::ALL {
+            let (weapon, armor) = starter_loadout(class);
+            assert_ne!(weapon, 0, "{} weapon", class.name());
+            assert!(armor.iter().all(|id| *id != 0), "{} armor", class.name());
+        }
+        assert_eq!(starter_loadout(Class::Assassin).0, 26331);
+        assert_eq!(starter_loadout(Class::Psychic).0, 26332);
+        assert_eq!(starter_loadout(Class::Blademaster).0, 2097);
+        assert_eq!(starter_loadout(Class::Archer).0, 2250);
+    }
+
+    #[test]
     fn authentic_starter_designs_cover_every_native_class_and_gender() {
         let element = std::path::Path::new("google_drive/pw142/element");
         if !element.join("configs.pck").exists() {
@@ -890,14 +1052,24 @@ mod tests {
                 }
                 let design = starter_design(&mut assets, class, gender).unwrap();
                 assert!(!design.equipment.fashion_mode);
+                let weapon = assets.catalog.weapon(design.equipment.weapon).unwrap();
+                assert_eq!(weapon.item_level, 0);
+                assert_eq!(weapon.required_level, 1);
+                assert_ne!(weapon.class_mask & class.bit(), 0);
                 for slot in [
                     ArmorSlot::Upper,
                     ArmorSlot::Wrist,
                     ArmorSlot::Lower,
                     ArmorSlot::Foot,
                 ] {
-                    assert_eq!(design.equipment.armor(slot), 0);
-                    assert!(design.equipment.native_default_armor(slot));
+                    let id = design.equipment.armor(slot);
+                    assert_ne!(id, 0);
+                    assert!(!design.equipment.native_default_armor(slot));
+                    let item = assets.catalog.armor_item(id).unwrap();
+                    assert_eq!(item.slot, slot);
+                    assert_eq!(item.required_level, 1);
+                    assert_eq!(item.item_level, 0);
+                    assert_ne!(item.class_mask & class.bit(), 0);
                 }
                 count += 1;
             }
@@ -906,7 +1078,7 @@ mod tests {
     }
 
     #[test]
-    fn clearing_one_starter_slot_is_bare_without_clearing_native_defaults_elsewhere() {
+    fn clearing_one_starter_slot_only_removes_that_armor_piece() {
         let element = std::path::Path::new("google_drive/pw142/element");
         if !element.join("models.pck").exists() {
             return;
@@ -916,7 +1088,8 @@ mod tests {
         design.equipment.set_armor(ArmorSlot::Upper, 0);
         assert!(!design.equipment.native_default_armor(ArmorSlot::Upper));
         for slot in [ArmorSlot::Wrist, ArmorSlot::Lower, ArmorSlot::Foot] {
-            assert!(design.equipment.native_default_armor(slot));
+            assert_ne!(design.equipment.armor(slot), 0);
+            assert!(!design.equipment.native_default_armor(slot));
         }
         let character = Assembly::assemble(design, &mut assets).unwrap();
         assert_eq!(character.equipment.len(), 3);

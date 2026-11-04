@@ -6,7 +6,7 @@ mod designer;
 mod package;
 mod walker;
 
-use crate::{model_draw_gpu, navigation::MapSpace};
+use crate::{model_draw_gpu, navigation::MapSpace, water::WaterArea};
 use glam::Vec3;
 use package::{Package, Registry};
 use std::{collections::HashSet, path::PathBuf};
@@ -30,9 +30,9 @@ impl Default for Modules {
 }
 
 impl Modules {
-    pub fn new(element: PathBuf, map: MapSpace) -> Self {
+    pub fn new(element: PathBuf, map: MapSpace, water: Vec<WaterArea>) -> Self {
         Self {
-            walker: Walker::with_host(element, map),
+            walker: Walker::with_host(element, map, water),
             packages: Registry::discover(package::default_root()),
             selected: 0,
         }
@@ -40,6 +40,10 @@ impl Modules {
 
     pub fn walker_active(&self) -> bool {
         self.walker.is_active()
+    }
+
+    pub fn walker_visible_in_water_pass(&self, plane: f32, reflection: bool) -> bool {
+        self.walker.visible_in_water_pass(plane, reflection)
     }
 
     /// Returns true when the user asks to go back to the main Escape menu.
@@ -217,7 +221,7 @@ impl Modules {
         }
         ui.label(
             egui::RichText::new(
-                "While enabled: WASD moves, Space jumps (press again for the client's second jump), and the mouse looks around. Open Escape to use the integrated Character Designer and movement settings beneath the minimap. New characters start with native profession armor.",
+                "While enabled: WASD moves, Space jumps (press again on foot for the client's second jump), and the mouse looks around. In water, Arrow Up/Down (or Z) swims vertically; deep-water Space ascends. Open Escape to use the integrated Character Designer and movement settings beneath the minimap. Walker previews use authentic level-one equipment records, not a recovered server loadout.",
             )
             .small()
             .weak(),

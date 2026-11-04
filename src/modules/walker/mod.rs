@@ -23,6 +23,7 @@ use crate::{
         assets::Assets,
     },
     navigation::MapSpace,
+    water::WaterArea,
 };
 use glam::Vec3;
 use std::{collections::HashSet, path::PathBuf};
@@ -172,6 +173,7 @@ fn render_models<'a>(
 pub struct Walker {
     element: Option<PathBuf>,
     map: Option<MapSpace>,
+    water: Vec<WaterArea>,
     assets: Option<Assets>,
     designer: Designer,
     settings: Settings,
@@ -196,6 +198,7 @@ impl Default for Walker {
         Self {
             element: None,
             map: None,
+            water: Vec::new(),
             assets: None,
             designer: Designer::default(),
             settings: Settings::default(),
@@ -224,16 +227,33 @@ impl Default for Walker {
 }
 
 impl Walker {
-    pub fn with_host(element: PathBuf, map: MapSpace) -> Self {
+    pub fn with_host(element: PathBuf, map: MapSpace, water: Vec<WaterArea>) -> Self {
         Self {
             element: Some(element),
             map: Some(map),
+            water,
             ..Self::default()
         }
     }
 
     pub fn is_active(&self) -> bool {
         self.body.is_some() && self.character.is_some()
+    }
+
+    pub fn visible_in_water_pass(&self, plane: f32, reflection: bool) -> bool {
+        let (Some(body), Some(character)) = (&self.body, &self.character) else {
+            return false;
+        };
+        let design = &character.assembly.design;
+        let constants =
+            physics::MovementConstants::new(design.class, design.gender);
+        let (min_y, max_y) = body.aabb_y(constants);
+        let (reflect, refract) = physics::water_pass_visibility(min_y, max_y, plane);
+        if reflection {
+            reflect
+        } else {
+            refract
+        }
     }
 
     pub fn status(&self) -> String {
@@ -292,6 +312,9 @@ impl Walker {
             let assets = self.assets.as_mut().unwrap();
             let design = self.designer.ensure_initialized(assets)?;
             let character = Character::load(assets, design, character_transform(position, facing))?;
+            self.settings
+                .mechanics
+                .set_move_speed(character.assembly.class_speeds.run);
             self.body = Some(Body::new(position));
             self.character = Some(character);
             self.facing = facing;
@@ -489,21 +512,57 @@ impl Walker {
             .character
             .as_ref()
             .and_then(|character| character.assembly.mount.as_ref().map(|mount| mount.speed));
+        let (movement_constants, swim_speed) = self
+            .character
+            .as_ref()
+            .map(|character| {
+                let design = &character.assembly.design;
+                (
+                    physics::MovementConstants::new(design.class, design.gender),
+                    character.assembly.class_speeds.swim,
+                )
+            })?;
+        let water_vertical = if input_enabled && self.travel == TravelState::Ground {
+            let ascend = keys.contains(&KeyCode::ArrowUp);
+            let descend = keys.contains(&KeyCode::ArrowDown) || keys.contains(&KeyCode::KeyZ);
+            let deep_space = space
+                && self.body.as_ref().is_some_and(|body| {
+                    let level = physics::water_height(
+                        &self.water,
+                        body.position.x,
+                        body.position.z,
+                    );
+                    level.is_some()
+                        && !physics::can_take_off_water(
+                            body.position,
+                            level,
+                            movement_constants,
+                        )
+                });
+            (if ascend || deep_space { 1.0 } else { 0.0 })
+                - if descend { 1.0 } else { 0.0 }
+        } else {
+            0.0
+        };
 
         let map = self.map.as_ref()?.clone();
         let body = self.body.as_mut()?;
         if input_enabled {
             match self.travel {
-                TravelState::Ground => body.advance(
+                TravelState::Ground => body.advance_with_water(
                     delta,
                     &self.settings.mechanics,
                     Input { direction, jump },
+                    water_vertical,
+                    swim_speed,
                     &map,
+                    &self.water,
+                    movement_constants,
                 ),
                 TravelState::Mounted => {
                     let mut mechanics = self.settings.mechanics;
                     mechanics.move_speed = mount_speed?;
-                    body.advance(delta, &mechanics, Input { direction, jump }, &map);
+                    body.advance_mounted(delta, &mechanics, Input { direction, jump }, &map);
                 }
                 TravelState::Flying => body.advance_flight(
                     delta,
@@ -638,8 +697,14 @@ impl Walker {
         {
             self.settings.mechanics.set_move_speed(speed);
         }
-        ui.label("Ground move speed (native default 5.0 m/s)")
-            .on_hover_text("CECConfigs' default ground run speed. Server-side class, equipment and buff modifiers are not present in this offline explorer.");
+        let native_run = self
+            .character
+            .as_ref()
+            .map_or(physics::NATIVE_RUN_SPEED, |character| {
+                character.assembly.class_speeds.run
+            });
+        ui.label(format!("Ground move speed (class native {native_run:.1} m/s)"))
+            .on_hover_text("CECConfigs' profession run speed. Server-side equipment and buff modifiers are not present in this offline explorer.");
 
         let mut height = self.settings.mechanics.jump_height;
         if ui
@@ -658,11 +723,12 @@ impl Walker {
             .on_hover_text("Uses a stable bind-head eye anchor without animation bob. The body and mount remain visible; native head/face, right-hand weapon, and flight meshes are hidden.");
         if ui.button("Restore native movement defaults").clicked() {
             self.settings.mechanics = Mechanics::default();
+            self.settings.mechanics.set_move_speed(native_run);
         }
         ui.separator();
         ui.label(
             egui::RichText::new(
-                "Ground: WASD + Space jump/double jump • Travel controls above • Mouse look",
+                "Ground: WASD + Space jump/double jump • Water: WASD + Arrow Up/Down or Z, Space takeoff/ascend • Travel controls above • Mouse look",
             )
             .small(),
         );
@@ -673,11 +739,16 @@ impl Walker {
                     match self.travel {
                         TravelState::Flying => "Flying",
                         TravelState::Mounted => "Riding",
+                        TravelState::Ground if body.swimming && !body.water_jumping => "Swimming",
                         TravelState::Ground if body.grounded => "Grounded",
                         TravelState::Ground => "Airborne",
                     },
                     body.jump_count,
-                    physics::MAX_JUMPS,
+                    if self.travel == TravelState::Mounted {
+                        physics::MOUNTED_MAX_JUMPS
+                    } else {
+                        physics::MAX_JUMPS
+                    },
                     body.position.x,
                     body.position.y,
                     body.position.z,

@@ -2426,7 +2426,36 @@ impl Renderer {
             });
             models.draw(&mut pass);
         }
-        if let Some(light) = light {
+    }
+
+    /// The host player is not an ornamental EC model: WaterEffect 0 must not
+    /// suppress it. Native host-player reflection/refraction uses its feet-based
+    /// profession AABB, independently of the world-model class gate above.
+    fn draw_walker(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        depth: &wgpu::TextureView,
+        uniform: &Uniform,
+        camera: &Camera,
+        view: Pass,
+    ) {
+        let visible = match view {
+            Pass::Reflection => self
+                .modules
+                .walker_visible_in_water_pass(uniform.clip[0], true),
+            Pass::Refraction => self
+                .modules
+                .walker_visible_in_water_pass(uniform.clip[0], false),
+            _ => self.modules.walker_active(),
+        };
+        if !visible {
+            return;
+        }
+        if let Some(light) = camera.regional_light {
+            self.retained_regional_light = Some(light);
+        }
+        if let Some(light) = camera.regional_light.or(self.retained_regional_light) {
             let frame = receiving_model_frame(uniform, camera, light);
             self.modules.render(
                 &self.device,
@@ -2439,6 +2468,7 @@ impl Renderer {
             );
         }
     }
+
     /// Render the actual loaded terrain and scenery from a north-up orthographic camera.
     /// Water is drawn as its real client grid with a flat color in this map pass.
     fn render_minimap(
@@ -2647,6 +2677,14 @@ impl Renderer {
             camera,
             Pass::Main,
             true,
+        );
+        self.draw_walker(
+            &mut e,
+            &model_target,
+            &scene_depth,
+            &normal,
+            camera,
+            Pass::Main,
         );
         if let Some(cloud) = &self.cloud {
             cloud.draw(
@@ -2873,6 +2911,15 @@ impl Renderer {
                         a: 1.,
                     }),
                 );
+                let model_view = self.water.refraction_raw();
+                self.draw_walker(
+                    &mut re,
+                    &model_view,
+                    &reflect_depth,
+                    &refracted,
+                    camera,
+                    Pass::Refraction,
+                );
                 self.queue.submit(Some(re.finish()));
                 self.water.render_edge(
                     &self.device,
@@ -2942,12 +2989,13 @@ impl Renderer {
                     above.clip,
                     selected_weather,
                 );
-                // Ornamental EC models enter refraction only from underwater.
+                // Ornamental EC models enter refraction only from underwater;
+                // the host player follows its own AABB gate in either view.
+                let model_view = self.water.refraction_raw();
                 if camera.underwater_depth > 0. {
-                    let raw = self.water.refraction_raw();
                     self.draw_models(
                         &mut re,
-                        &raw,
+                        &model_view,
                         &reflect_depth,
                         &above,
                         camera,
@@ -2955,6 +3003,14 @@ impl Renderer {
                         false,
                     );
                 }
+                self.draw_walker(
+                    &mut re,
+                    &model_view,
+                    &reflect_depth,
+                    &above,
+                    camera,
+                    Pass::Refraction,
+                );
                 self.water.draw_water(
                     &mut re,
                     scene_target,
@@ -3045,15 +3101,23 @@ impl Renderer {
                 reflected.clip,
                 selected_weather,
             );
-            let raw = self.water.reflection_raw();
+            let model_view = self.water.reflection_raw();
             self.draw_models(
                 &mut e,
-                &raw,
+                &model_view,
                 &reflect_depth,
                 &reflected,
                 camera,
                 Pass::Reflection,
                 false,
+            );
+            self.draw_walker(
+                &mut e,
+                &model_view,
+                &reflect_depth,
+                &reflected,
+                camera,
+                Pass::Reflection,
             );
             self.water.draw_water(
                 &mut e,
@@ -3461,7 +3525,11 @@ pub fn run(
         spacing: t.grid_spacing,
         heights: t.heights.clone(),
     };
-    renderer.modules = crate::modules::Modules::new(whole_element.clone(), map_space.clone());
+    renderer.modules = crate::modules::Modules::new(
+        whole_element.clone(),
+        map_space.clone(),
+        water_areas.clone(),
+    );
     let destinations =
         crate::navigation::destinations(&whole_element.join("maps/world/world_targets.txt"));
     let whole_ornaments = t.objects.ornaments.clone();
