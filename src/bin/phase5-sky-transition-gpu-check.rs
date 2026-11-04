@@ -145,7 +145,7 @@ fn render(
     sampler: &wgpu::Sampler,
     roof_sampler: &wgpu::Sampler,
     t: &Target,
-    params: &[f32; 44],
+    params: &[f32; 48],
 ) -> Vec<u8> {
     let buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("phase5 sky params"),
@@ -346,7 +346,10 @@ fn main() {
         multiview: None,
     });
 
-    // The production uniform layout: inv(16) time(4) celestial(4) sets(4).
+    // The production uniform layout: inv(16) time(4) celestial(4) celestial2(4)
+    // background(4) tint(4) sets(4) glow_center(4) skyrot(4) - `skyrot.xy` is the
+    // recovered sky-sphere rotation (`0x7995e0`), left at zero here so the bands
+    // this probe measures are not tilted.
     //
     // `eye` only reaches `look_to_rh`, exactly like `SkyGpu::update`, and is then
     // dropped by clearing the translation column. The native sphere compares the
@@ -366,7 +369,7 @@ fn main() {
         }
     };
     let uniform = |inv: Mat4, sets: (f32, f32, f32)| {
-        let mut u = [0f32; 44];
+        let mut u = [0f32; 48];
         u[..16].copy_from_slice(&inv.to_cols_array());
         u[16] = 19.; // hour
         u[17] = 0.; // night weight: this probe is about sets and altitude

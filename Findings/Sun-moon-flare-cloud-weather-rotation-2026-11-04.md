@@ -532,3 +532,117 @@ let fall = fract(phase + seconds * speed) * 110.0 - 55.0;   // rises
 slab downwards. This was a viewer bug from the first precipitation shader, not a
 recovered one; the spawn box, the 33 ms clock, the two objects' own particle
 constants and the submerged-view mask are unchanged.
+
+---
+
+## 8. Recovering the retail look from the client itself
+
+The sandbox cannot hold the client binaries, so the recovery runs on a GitHub
+runner: `tools/recover-sky-client.py` disassembles the named windows with
+Capstone and lists the two Angelica archives, and `client-recovery.yml` commits
+the text dumps back to the branch (no binary and no art leaves the runner). The
+dumps are in `Findings/recovery/`. Three rounds covered the celestial object,
+the sky sphere, the config archives and all 68 `textures/sky` folders.
+
+### 8.1 The sky sphere turns — the "flowing" sky
+
+`A3DSkySphere` owns a rotation descriptor at `+0x4cc`, constructed by
+`0x7995e0` (called from the sphere constructor at `0x799618`):
+
+| field | value |
+| --- | --- |
+| `+0x00` scale | `8.0` (`0x41000000`) |
+| `+0x04` rate X | `0.018` (`0x3c9374bc`) |
+| `+0x08` rate Y | `0.018` |
+| `+0x0c` rate Z | `0.0` |
+| `+0x10`..`+0x18` | angle accumulators X, Y, Z, all starting at 0 |
+
+`0x79a040` ticks the sphere (`+0x4cc` -> `+0x504`, `+0x4e8` -> `+0x544`), and
+`0x79a0e0` does the work: `angle += rate * (1/30)` (`0x8f14bc` = 0.0333333) per
+tick, then `0x789ec0` (the Z rate, skipped while it is zero) and `0x789f20`
+build a 3x3 from the two angles, which becomes the cap's and the curtain's world
+matrix. A uniform scale cannot change a direction, so in a ray projector the
+whole effect is `Rx(-ax) * Ry(-ay) * d` on the texture lookup - the sky drifts,
+while the sun, moon and flare stay where `CECSunMoon` puts them.
+
+Implemented as `sky_gpu::SKY_ROTATION_RATE` / `SKY_ROTATION_TICK_SECONDS`, the
+`SkyFrame::sky_angles` pair, the `skyrot` uniform lane and the `sky_local()`
+shader function. The viewer advances the angles on the logic delta, so the drift
+rate matches a 30 Hz client and does not change with the frame rate.
+
+### 8.2 The flare is fifteen screen-space sprites, and the tables are recovered
+
+`0x4b6270` (called from the torch chain at `\(0x4b5b59\)) fills the 90-vertex
+`flares` stream: `add ebx, 0xc0` per sprite is `6 vertices * 32 bytes`, and
+`cmp ebp, 0x3c` with `add ebp, 4` is fifteen iterations. The vertices are
+pre-transformed screen-space quads (position, `rhw`, diffuse, `uv`), so the
+flare is a **2D overlay in pixels**, not geometry in the sky.
+
+Five constant tables are built in the prologue (verbatim, `i = 0..14`):
+
+| table | offset | values |
+| --- | --- | --- |
+| size | `+0x190` | 0.06, 0.45, 0.35, 0.04, 0.09, 0.05, 0.04, 0.015, 0.02, 0.07, 0.12, 0.03, 0.03, 0.15, 0.30 |
+| axis offset | `+0x1cc` | 860, 100, 100, 40, 25, 20, 10, 4, -2.5, -4, -4.4, -4.5, -6.2, -8, -9 |
+| uv origin | `+0x208` (pairs) | (0.75,0.25) (0.25,0.5) (0.5,0.5) (0,0) (0.25,0) (0,0) (0.5,0) (0.75,0) (0.75,0) (0.5,0) (0.5,0) (0.5,0) (0,0.5) (0.25,0.25) (0.5,0.25) |
+| uv size | `+0xf4` | 0.25 except the third sprite, which is 0.5 |
+
+The uv pair is read as `[eax-4]`/`[eax]` with `eax` stepping by 8, so the sprites
+are **cells of a 4x4 atlas** - that is `textures/nature/flares.bmp` (256x256),
+not a per-sprite texture, which is why the viewer's whole-texture ghosts could
+never match. The size is `viewport_dword * table[i]` (`fild qword` on the
+6-dword block copied from `arg1+0x14`, `fmul`, `fst`) and the centre is
+`sun_screen + direction * table[i]`.
+
+Two things are still unpinned and are why this is not implemented yet:
+
+* **which dword of that six-dword block is the metric.** The reads use
+  `[esp+0x194]`/`[esp+0x1d0]`, i.e. one element past each table, so the last
+  sprite reads the *next* table's first entry (860) - either a real 16th entry
+  the author intended, or a benign overrun that is clipped. The host block is a
+  viewport-like `{x, y, w, h, ..}` at `arg1+0x14`, so the metric is the width or
+  the height; they differ by `aspect`.
+* **the direction vector itself.** It is written by `0x450b30`, whose dump
+  drifted (the window did not start on an instruction boundary) and needs a
+  window that starts exactly at the function address.
+
+Both are cheap to settle with one more aligned dump (`0x450b30`,
+`0x789ec0`, `0x789f20`, `0x799a40`). The viewer keeps its six-ghost chain until
+then rather than shipping a second approximation: the retail flare is fifteen
+atlas cells within ~100 px of the sun with sizes up to 0.45 of a viewport
+dimension, i.e. far larger and far more concentrated than the current chain, and
+the tables above are enough to see that.
+
+### 8.3 Which sky a zone uses - the star question
+
+`configs/autofamilyconfigs/sky.lst` is 170 bytes and fully recovered. Format:
+a count, then per row an id, a display name and **three** texture paths, and a
+trailing `0`:
+
+| id | name | roof | panorama 1 | panorama 2 |
+| --- | --- | --- | --- | --- |
+| 0 | 晴天 (clear) | `clear\roof.bmp` | `clear\01.bmp` | `clear\02.bmp` |
+| 1 | 阴天 (overcast) | `阴天01\roof.bmp` | `阴天01\01.bmp` | `阴天01\02.bmp` |
+| 2 | 夕阳 (sunset) | `夕阳\wwwww.bmp` | `夕阳\01.bmp` | `夕阳\02.bmp` |
+
+That confirms the three-file set the viewer already models (one roof for the
+cap, two panoramas for the sphere) and it is the honest answer to "why is the
+Tideborn night plain clouds": `autoscene.cfg` carries `sky_id_night = 1`, i.e.
+the **overcast** row, for the generated `cache\EditMaps\Scene00`. The shipped
+list has no starry set at all, so a real zone cannot be getting its night sky
+from this file.
+
+The archive holds **68** `textures/sky` folders instead
+(`Findings/recovery/textures-sky-folders.txt`), including `夜晚01..04`,
+`海盗岛夜晚`, `雪山夜晚天空`, `白全夜晚1/3`, `a满堂天空/满堂新夜晚`,
+`a满堂天空/密林晚上`, `night2`, `dongtian`, `xian`. `night2/01.bmp` is confirmed
+to carry a painted moon (the ASCII preview in `textures-sky-ascii.txt` shows one
+bright blob in an otherwise empty dark field clustered to the right of centre)
+and `夜晚01/01.bmp` is a gradient night panorama. The client reaches those
+folders through `A3DSkySphere::TransSky`, whose only path template is
+`Textures\Sky\%s` (`0x98c0e8`), so the folder **name** arrives from outside the
+package - the scene/world record, not `configs.pck`. Picking `夜晚01` for
+Tideborn by eye would be a guess dressed up as a recovery, so the viewer does
+not do it yet; what is now known is the exact set inventory, which of them are
+dark night art, and that the config-side ladder only ever produces clear,
+overcast or sunset.

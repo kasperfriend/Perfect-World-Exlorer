@@ -99,6 +99,16 @@ pub struct SkyFrame {
     /// `+0x48` is not recovered, so the World tab exposes it and this lane
     /// carries whatever the tester settles on; 127/255 is the default.
     pub disc_brightness: f32,
+    /// The sky sphere's own slow rotation, in radians about the X and Y axes.
+    ///
+    /// `A3DSkySphere` owns a descriptor at `+0x4cc` (constructor `0x7995e0`)
+    /// holding a scale of 8.0, rates `x = y = 0.018`, `z = 0.0` and three angle
+    /// accumulators. `0x79a0e0` advances each accumulator by `rate * (1/30)` per
+    /// sky tick and rebuilds the cap/curtain world matrix from the two angles, so
+    /// the drawn sky slowly turns - the drift a tester described as the sky
+    /// "flowing". The rate is per tick, not per second, so this is the value a
+    /// 30 Hz client reproduces exactly.
+    pub sky_angles: [f32; 2],
 }
 
 impl Default for SkyFrame {
@@ -112,6 +122,7 @@ impl Default for SkyFrame {
             fog_enabled: false,
             tint: [1.0; 3],
             disc_brightness: DISC_BRIGHTNESS,
+            sky_angles: [0., 0.],
         }
     }
 }
@@ -135,6 +146,10 @@ struct Uniform {
     /// `xy` the glow art's own bright-core lookup offset (`glow_lookup_center`),
     /// `zw` the sun's screen position in NDC for the flare chain.
     glow_center: [f32; 4],
+    /// `xy` the sky sphere's recovered rotation angles (radians about X and Y),
+    /// `z` the NDC height of one pixel (`2 / height`, the screen-space scale the
+    /// client's flare sprites are sized in), `w` reserved.
+    sky: [f32; 4],
 }
 
 pub struct SkyGpu {
@@ -208,7 +223,7 @@ pub(crate) fn glow_lookup_center(disc: &image::RgbaImage, glow: &image::RgbaImag
 }
 
 pub(crate) const SHADER: &str = r#"
-struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>,glow_center:vec4<f32>};
+struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>,glow_center:vec4<f32>,skyrot:vec4<f32>};
 // Recovered `CECSunMoon::Init` templates: world units in the disc plane at
 // distance 100. Mirrors `sky_celestial::SUN_HALF_EXTENT` and friends.
 const SUN_HALF:f32=10.0;
@@ -275,6 +290,20 @@ fn curtain_alpha(y:f32)->f32{
  if y>=39.2700005 {return 0.0;}
  if y<=19.6350002 {return 1.0;}
  return (39.2700005-y)/19.6350002;
+}
+// The sky sphere's own rotation. `A3DSkySphere` carries a rotation descriptor
+// at `+0x4cc` (constructor `0x7995e0`: scale 8.0, rates x = y = 0.018, z = 0,
+// three angle accumulators); `0x79a040` ticks it and `0x79a0e0` rebuilds the cap
+// and curtain world matrices from the two angles every tick, which is the slow
+// drift a tester described as the sky flowing. A uniform scale cannot change a
+// direction, so a ray projector only needs the rotation undone: the world ray
+// `d` meets the sphere's local direction `Rx(-ax) * Ry(-ay) * d`.
+fn sky_local(d:vec3<f32>)->vec3<f32>{
+ let ax=p.skyrot.x;let ay=p.skyrot.y;
+ if ax==0.0 && ay==0.0 {return d;}
+ let ca=cos(ax);let sa=sin(ax);let cb=cos(ay);let sb=sin(ay);
+ let y=vec3<f32>(cb*d.x-sb*d.z,d.y,sb*d.x+cb*d.z);
+ return vec3<f32>(y.x,ca*y.y+sa*y.z,-sa*y.y+ca*y.z);
 }
 fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let tn=clamp(tint,vec3<f32>(0.0),vec3<f32>(1.0));
@@ -433,9 +462,12 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32
  let base=i32(clamp(p.sets.x,0.,2.))*3;
  let incoming=i32(clamp(p.sets.y,0.,2.))*3;
  let swap=clamp(p.sets.z,0.,1.);
- var sky=sample_sky(d,base,p.background.rgb,p.tint.rgb);
+ // The sky sphere turns; the sun, moon and flare do not (they are separate
+ // objects in the client), so only the texture lookup undoes the rotation.
+ let sd=sky_local(d);
+ var sky=sample_sky(sd,base,p.background.rgb,p.tint.rgb);
  if swap>0. && incoming!=base {
-  let other=sample_sky(d,incoming,p.background.rgb,p.tint.rgb);
+  let other=sample_sky(sd,incoming,p.background.rgb,p.tint.rgb);
   sky=vec4<f32>(mix(sky.rgb,other.rgb,swap),mix(sky.a,other.a,swap));
  }
  var color=mix(p.background.rgb,sky.rgb,clamp(sky.a,0.,1.));
@@ -465,6 +497,19 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32
 /// circles on screen, so the default is the unmodulated texture and the World
 /// tab's Star brightness slider still reaches the recovered 127/255.
 pub const DISC_BRIGHTNESS: f32 = 1.0;
+
+/// The recovered sky-sphere rotation rate, radians per sky tick.
+///
+/// `A3DSkySphere`'s rotation descriptor (`0x7995e0`, the object at `+0x4cc`)
+/// initialises both the X and the Y rate to `0.018` and the Z rate to zero, and
+/// `0x79a0e0` advances the accumulators by `rate * (1/30)` per tick. The viewer
+/// reproduces that as `rate * seconds` using [`SKY_ROTATION_TICK_SECONDS`], so a
+/// 30 Hz client and the viewer turn the same amount per frame.
+pub const SKY_ROTATION_RATE: f32 = 0.018;
+
+/// The client's fixed tick divisor for the sky rotation (`1/30` at `0x79a14b`
+/// and `0x79a247`).
+pub const SKY_ROTATION_TICK_SECONDS: f32 = 1. / 30.;
 
 /// The vertical field of view `update` builds its projection with.
 pub(crate) const FOV_DEGREES: f32 = 70.;
@@ -918,6 +963,12 @@ impl SkyGpu {
                 self.glow_center[1],
                 flare_ndc[0],
                 flare_ndc[1],
+            ],
+            skyrot: [
+                frame.sky_angles[0],
+                frame.sky_angles[1],
+                2. / h.max(1) as f32,
+                0.,
             ],
         };
         queue.write_buffer(
