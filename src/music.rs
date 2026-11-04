@@ -145,7 +145,7 @@ fn resolve(element: &Path, raw: &str) -> Option<PathBuf> {
     resolve_under(element, raw, "music")
 }
 
-fn resolve_under(element: &Path, raw: &str, prefix: &str) -> Option<PathBuf> {
+pub(crate) fn resolve_under(element: &Path, raw: &str, prefix: &str) -> Option<PathBuf> {
     let parts: Vec<_> = raw.split(['\\', '/']).filter(|s| !s.is_empty()).collect();
     if parts.is_empty()
         || !parts[0].eq_ignore_ascii_case(prefix)
@@ -244,6 +244,7 @@ fn resolve_track(element: &Path, packed: &HashMap<String, pck::Entry>, raw: &str
 struct Request {
     enabled: bool,
     volume: f32,
+    repeat: bool,
     zone: Option<usize>,
     paths: Vec<Track>,
 }
@@ -355,6 +356,7 @@ impl MusicPlayer {
         let req = Request {
             enabled,
             volume,
+            repeat: false,
             zone,
             paths,
         };
@@ -514,6 +516,7 @@ impl AmbiencePlayer {
         let req = Request {
             enabled,
             volume,
+            repeat: true,
             zone,
             paths,
         };
@@ -533,7 +536,7 @@ impl AmbiencePlayer {
 }
 #[cfg(windows)]
 fn audio_worker(rx: std::sync::mpsc::Receiver<Request>, status: std::sync::mpsc::Sender<String>) {
-    use rodio::{Decoder, OutputStream, Sink};
+    use rodio::{Decoder, OutputStream, Sink, Source};
     use std::{
         io::{BufReader, Cursor},
         time::Duration,
@@ -545,12 +548,18 @@ fn audio_worker(rx: std::sync::mpsc::Receiver<Request>, status: std::sync::mpsc:
     let mut index = 0usize;
     let mut volume = 0.5f32;
     let mut enabled = false;
+    let mut repeat = false;
+    let mut retry_at = Instant::now();
     loop {
         match rx.recv_timeout(Duration::from_millis(250)) {
             Ok(req) => {
-                let changed = req.zone != current || req.enabled != enabled || req.paths != paths;
+                let changed = req.zone != current
+                    || req.enabled != enabled
+                    || req.paths != paths
+                    || req.repeat != repeat;
                 volume = req.volume.clamp(0., 1.);
                 enabled = req.enabled;
+                repeat = req.repeat;
                 if changed {
                     if let Some(s) = sink.take() {
                         s.stop();
@@ -558,6 +567,7 @@ fn audio_worker(rx: std::sync::mpsc::Receiver<Request>, status: std::sync::mpsc:
                     paths = req.paths;
                     current = req.zone;
                     index = 0;
+                    retry_at = Instant::now();
                 }
                 if let Some(s) = &sink {
                     s.set_volume(volume)
@@ -566,7 +576,7 @@ fn audio_worker(rx: std::sync::mpsc::Receiver<Request>, status: std::sync::mpsc:
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
         }
-        if !enabled || paths.is_empty() {
+        if !enabled || paths.is_empty() || Instant::now() < retry_at {
             continue;
         }
         if output.is_none() {
@@ -574,7 +584,7 @@ fn audio_worker(rx: std::sync::mpsc::Receiver<Request>, status: std::sync::mpsc:
                 Ok(o) => output = Some(o),
                 Err(e) => {
                     let _ = status.send(format!("Audio output unavailable: {e}"));
-                    std::thread::sleep(Duration::from_secs(2));
+                    retry_at = Instant::now() + Duration::from_secs(2);
                     continue;
                 }
             }
@@ -591,17 +601,22 @@ fn audio_worker(rx: std::sync::mpsc::Receiver<Request>, status: std::sync::mpsc:
                         Ok(s) => s,
                         Err(e) => {
                             let _ = status.send(format!("Audio output error: {e}"));
+                            retry_at = Instant::now() + Duration::from_secs(2);
                             continue;
                         }
                     };
                     s.set_volume(volume);
-                    s.append(source);
+                    if repeat {
+                        s.append(source.repeat_infinite());
+                    } else {
+                        s.append(source);
+                    }
                     let _ = status.send(format!("Playing: {}", path.label()));
                     sink = Some(s);
                 }
                 Err(e) => {
                     let _ = status.send(format!("Cannot decode {}: {e}", path.label()));
-                    std::thread::sleep(Duration::from_secs(1));
+                    retry_at = Instant::now() + Duration::from_secs(1);
                 }
             }
         }

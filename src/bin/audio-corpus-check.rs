@@ -158,6 +158,21 @@ mod tests {
     }
 
     #[test]
+    fn spatial_sink_ear_convention_places_viewer_right_on_right_channel() {
+        use rodio::{buffer::SamplesBuffer, source::Spatial};
+        let source = SamplesBuffer::new(1, 22050, vec![12000i16; 16]);
+        let stereo: Vec<_> =
+            Spatial::new(source, [1., 0., 0.], [0.2, 0., 0.], [-0.2, 0., 0.]).collect();
+        assert!(stereo.len() >= 2);
+        assert!(
+            stereo[1] > stereo[0],
+            "right={} left={}",
+            stereo[1],
+            stereo[0]
+        );
+    }
+
+    #[test]
     fn decodes_generated_mp3_and_vorbis_fixtures() {
         for bytes in [
             &include_bytes!("../../tools/fixtures/audio/tone.mp3")[..],

@@ -119,6 +119,8 @@ pub struct ViewSettings {
     pub music_volume: f32,
     pub ambience_enabled: bool,
     pub sound_volume: f32,
+    pub effects_enabled: bool,
+    pub effects_volume: f32,
     pub fullscreen: bool,
     pub show_zone_entry: bool,
     pub show_minimap: bool,
@@ -169,10 +171,12 @@ impl Default for ViewSettings {
             gamma_setting: 41.,
             terrain_lightmaps: true,
             model_backface_culling: true,
-            music_enabled: false,
+            music_enabled: true,
             music_volume: 0.5,
-            ambience_enabled: false,
+            ambience_enabled: true,
             sound_volume: 0.5,
+            effects_enabled: true,
+            effects_volume: 0.5,
             fullscreen: false,
             show_zone_entry: true,
             show_minimap: true,
@@ -262,6 +266,8 @@ impl ViewSettings {
                 "gamma_setting" => number!(s.gamma_setting, 0., 100.),
                 "music_volume" => number!(s.music_volume, 0., 1.),
                 "sound_volume" => number!(s.sound_volume, 0., 1.),
+                "effects_volume" => number!(s.effects_volume, 0., 1.),
+                "effects_enabled" => flag!(s.effects_enabled),
                 "ambience_enabled" => flag!(s.ambience_enabled),
                 "minimap_range" => number!(s.minimap_range, 100., 600.),
                 "resolution_scale" => number!(s.resolution_scale, 10., 200.),
@@ -305,11 +311,11 @@ impl ViewSettings {
         format!(concat!("# Perfect World Explorer settings, version 1\n",
             "radius={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
-            "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nambience_enabled={}\nsound_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
+            "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nambience_enabled={}\nsound_volume={}\neffects_enabled={}\neffects_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
             "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
-            self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.ambience_enabled,self.sound_volume,self.fullscreen,self.show_zone_entry,
+            self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.ambience_enabled,self.sound_volume,self.effects_enabled,self.effects_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
             self.minimap_shape.label())
@@ -426,6 +432,8 @@ mod tests {
         s.music_volume = 0.21;
         s.ambience_enabled = true;
         s.sound_volume = 0.37;
+        s.effects_enabled = false;
+        s.effects_volume = 0.18;
         s.atmospheric_fog = true;
         s.celestial_discs = true;
         s.regional_tree_lighting = true;
@@ -442,7 +450,13 @@ mod tests {
         assert!(settings.ambience_enabled);
         assert_eq!(ViewSettings::decode("sound_volume=-1").sound_volume, 0.0);
         assert_eq!(ViewSettings::decode("sound_volume=NaN").sound_volume, 0.5);
-        assert!(!ViewSettings::default().ambience_enabled);
+        assert!(ViewSettings::default().ambience_enabled);
+        assert!(ViewSettings::default().effects_enabled);
+        assert_eq!(ViewSettings::decode("effects_volume=5").effects_volume, 1.0);
+        assert_eq!(
+            ViewSettings::decode("effects_volume=NaN").effects_volume,
+            0.5
+        );
     }
     #[test]
     fn tree_wind_preview_defaults_off_and_persists() {

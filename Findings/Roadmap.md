@@ -49,7 +49,7 @@ This is the current known backlog, not a guarantee that every unknown discrepanc
 - Verify overlapping-precinct precedence against the original executable; current selection uses the smallest containing polygon, an unverified heuristic. Check boundaries and behavior for zones with missing, empty or unresolved track lists.
 - Reconstruct original randomization, repeat, crossfade, transition timing, persistence, special circumstances and zone-name display. The viewer plays available playlist entries sequentially.
 - Test audible playback, volume, output-device changes, MP3 and actual client OGG tracks on native Windows audio hardware. Windows decoding and switching from MP3s to the actual archived Raging Tides Vorbis OGG were tested through Wine with a null audio device; real audio output remains untested.
-- Validate the experimental stereo precinct ambience against the native client; implement positional, weather, gameplay and other sound events. Current zone ambience and music do not provide full game audio; see [audio audit](Audio-audit-2026-11-03.md).
+- Validate the experimental stereo precinct ambience against the native client; validate the experimental positional world effects against native playback and implement weather, gameplay and other sound events. The viewer does not provide full game audio; see [audio audit](Audio-audit-2026-11-03.md).
 
 ## Interface and minimap
 
