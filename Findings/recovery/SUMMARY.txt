@@ -15,4 +15,8 @@ elementclient.exe: base 0x400000, 6 sections, 107 sky strings
   09-sky-set-select: 240 lines
   10-sky-timers: 40 lines
   11-sky-ctor-init: 372 lines
+  13-sky-matrix-helpers: 146 lines
+  14-sky-draws: 317 lines
+  15-flare-caller: 185 lines
+  16-flare-helper: 156 lines
   12-sky-load: 182 lines

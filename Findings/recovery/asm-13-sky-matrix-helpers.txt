@@ -1,0 +1,147 @@
+# 13-sky-matrix-helpers  0x789e60-0x789fc0
+00789e60: or dword ptr [ebx - 0x327ebf12], 0x40020000
+00789e6a: add esi, 2                              
+00789e6d: mov dword ptr [ecx + eax*4], ebp        
+00789e70: mov ebp, edi                            
+00789e72: inc eax                                 
+00789e73: or ebp, 0x40020000                      
+00789e79: add edi, 2                              
+00789e7c: mov dword ptr [ecx + eax*4], ebp        
+00789e7f: inc eax                                 
+00789e80: cmp edx, ebx                            
+00789e82: jl 0x789e55                             
+00789e84: pop edi                                 
+00789e85: pop ebp                                 
+00789e86: mov dword ptr [ecx + eax*4], 0xffffffff 
+00789e8d: pop ebx                                 
+00789e8e: pop esi                                 
+00789e8f: ret                                     
+00789e90: mov eax, dword ptr [esp + 8]            
+00789e94: sub esp, 0x24                           
+00789e97: lea ecx, [esp]                          
+00789e9b: push esi                                
+00789e9c: push edi                                
+00789e9d: push eax                                
+00789e9e: call 0x787260                           
+00789ea3: mov eax, dword ptr [esp + 0x30]         
+00789ea7: mov ecx, 9                              
+00789eac: lea esi, [esp + 8]                      
+00789eb0: mov edi, eax                            
+00789eb2: rep movsd dword ptr es:[edi], dword ptr [esi]
+00789eb4: pop edi                                 
+00789eb5: pop esi                                 
+00789eb6: add esp, 0x24                           
+00789eb9: ret                                     
+00789eba: nop                                     
+00789ebb: nop                                     
+00789ebc: nop                                     
+00789ebd: nop                                     
+00789ebe: nop                                     
+00789ebf: nop                                     
+00789ec0: mov eax, dword ptr [esp + 0xc]          
+00789ec4: sub esp, 0x24                           
+00789ec7: lea ecx, [esp]                          
+00789ecb: push esi                                
+00789ecc: push eax                                
+00789ecd: push ecx                                
+00789ece: call 0x789e90                           
+00789ed3: mov edx, dword ptr [esp + 0x38]         
+00789ed7: mov esi, dword ptr [esp + 0x34]         
+00789edb: push eax                                
+00789edc: push edx                                
+00789edd: push esi                                
+00789ede: call 0x787170                           
+00789ee3: add esp, 0x14                           
+00789ee6: mov eax, esi                            
+00789ee8: pop esi                                 
+00789ee9: add esp, 0x24                           
+00789eec: ret                                     
+00789eed: nop                                     
+00789eee: nop                                     
+00789eef: nop                                     
+00789ef0: mov eax, dword ptr [esp + 0xc]          
+00789ef4: mov ecx, dword ptr [esp + 8]            
+00789ef8: sub esp, 0x24                           
+00789efb: push esi                                
+00789efc: push edi                                
+00789efd: push eax                                
+00789efe: push ecx                                
+00789eff: lea ecx, [esp + 0x10]                   
+00789f03: call 0x787240                           
+00789f08: mov eax, dword ptr [esp + 0x30]         
+00789f0c: mov ecx, 9                              
+00789f11: lea esi, [esp + 8]                      
+00789f15: mov edi, eax                            
+00789f17: rep movsd dword ptr es:[edi], dword ptr [esi]
+00789f19: pop edi                                 
+00789f1a: pop esi                                 
+00789f1b: add esp, 0x24                           
+00789f1e: ret                                     
+00789f1f: nop                                     
+00789f20: mov eax, dword ptr [esp + 0x10]         
+00789f24: mov ecx, dword ptr [esp + 0xc]          
+00789f28: sub esp, 0x24                           
+00789f2b: lea edx, [esp]                          
+00789f2f: push esi                                
+00789f30: push eax                                
+00789f31: push ecx                                
+00789f32: push edx                                
+00789f33: call 0x789ef0                           
+00789f38: mov esi, dword ptr [esp + 0x38]         
+00789f3c: push eax                                
+00789f3d: mov eax, dword ptr [esp + 0x40]         
+00789f41: push eax                                
+00789f42: push esi                                
+00789f43: call 0x787170                           
+00789f48: add esp, 0x18                           
+00789f4b: mov eax, esi                            
+00789f4d: pop esi                                 
+00789f4e: add esp, 0x24                           
+00789f51: ret                                     
+00789f52: nop                                     
+00789f53: nop                                     
+00789f54: nop                                     
+00789f55: nop                                     
+00789f56: nop                                     
+00789f57: nop                                     
+00789f58: nop                                     
+00789f59: nop                                     
+00789f5a: nop                                     
+00789f5b: nop                                     
+00789f5c: nop                                     
+00789f5d: nop                                     
+00789f5e: nop                                     
+00789f5f: nop                                     
+00789f60: mov eax, ecx                            
+00789f62: xor ecx, ecx                            
+00789f64: mov dword ptr [eax + 4], ecx            
+00789f67: mov edx, dword ptr [0x9858e4]           
+00789f6d: mov dword ptr [eax + 8], edx            
+00789f70: mov dword ptr [eax], 0x8f0a48           
+00789f76: mov edx, dword ptr [0x9858e4]           
+00789f7c: mov dword ptr [eax + 0x10], edx         
+00789f7f: mov dword ptr [eax], 0x8f0e08           
+00789f85: mov dword ptr [eax + 4], 0x19           
+00789f8c: mov dword ptr [eax + 0xc], ecx          
+00789f8f: mov dword ptr [eax + 0x14], ecx         
+00789f92: mov dword ptr [eax + 0x18], ecx         
+00789f95: mov dword ptr [eax + 0x1c], ecx         
+00789f98: mov dword ptr [eax + 0x20], ecx         
+00789f9b: ret                                     
+00789f9c: nop                                     
+00789f9d: nop                                     
+00789f9e: nop                                     
+00789f9f: nop                                     
+00789fa0: push esi                                
+00789fa1: mov esi, ecx                            
+00789fa3: call 0x789fc0                           
+00789fa8: test byte ptr [esp + 8], 1              
+00789fad: je 0x789fb8                               ; f32 -55.6939
+00789faf: push esi                                
+00789fb0: call 0x763260                           
+00789fb5: add esp, 4                              
+00789fb8: mov eax, esi                            
+00789fba: pop esi                                 
+00789fbb: ret 4                                   
+00789fbe: nop                                     
+00789fbf: nop                                     

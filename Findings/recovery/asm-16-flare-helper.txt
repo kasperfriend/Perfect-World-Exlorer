@@ -1,0 +1,157 @@
+# 16-flare-helper  0x450a80-0x450c40
+00450a80: sbb al, 0x52                            
+00450a82: lea ecx, [esp + 0xb0]                   
+00450a89: push eax                                
+00450a8a: push ecx                                
+00450a8b: call 0x4071f0                           
+00450a90: lea edx, [esp + 0xc4]                   
+00450a97: push eax                                
+00450a98: push edx                                
+00450a99: call 0x450b30                           
+00450a9e: add esp, 0x14                           
+00450aa1: push eax                                
+00450aa2: lea ecx, [esp + 0xc]                    
+00450aa6: call 0x401cc0                           
+00450aab: mov eax, dword ptr [0x9b3eec]             ; f32 0
+00450ab0: mov dword ptr [esp + 0x18], 0           
+00450ab8: mov edx, dword ptr [edi + 0x754]        
+00450abe: mov ecx, dword ptr [eax + 0x490]        
+00450ac4: lea eax, [esp + 8]                      
+00450ac8: mov dword ptr [esp + 0x14], ecx         
+00450acc: lea ecx, [edi + 0x754]                  
+00450ad2: fild qword ptr [esp + 0x14]             
+00450ad6: push eax                                
+00450ad7: fmul dword ptr [0x8d7434]                 ; f32 0.005
+00450add: fld dword ptr [esp + 0xc]               
+00450ae1: fmul st(1)                              
+00450ae3: fstp dword ptr [esp + 0xc]              
+00450ae7: fld dword ptr [esp + 0x10]              
+00450aeb: fmul st(1)                              
+00450aed: fstp dword ptr [esp + 0x10]             
+00450af1: fld dword ptr [esp + 0x14]              
+00450af5: fmul st(1)                              
+00450af7: fstp dword ptr [esp + 0x14]             
+00450afb: fstp st(0)                              
+00450afd: call dword ptr [edx + 0x1c]             
+00450b00: pop edi                                 
+00450b01: pop esi                                 
+00450b02: add esp, 0xbc                           
+00450b08: ret 4                                   
+00450b0b: nop                                     
+00450b0c: cmpsb byte ptr [esi], byte ptr es:[edi] 
+00450b0d: pop es                                  
+00450b0e: inc ebp                                 
+00450b0f: add bl, al                              
+00450b11: pop es                                  
+00450b12: inc ebp                                 
+00450b13: add byte ptr [ebp + 8], ah              
+00450b16: inc ebp                                 
+00450b17: add byte ptr [ecx + 0x6c004508], ch     
+00450b1d: or dword ptr [ebp], eax                 
+00450b20: mov al, 9                               
+00450b22: inc ebp                                 
+00450b23: add byte ptr [edx + 0xa], dh            
+00450b26: inc ebp                                 
+00450b27: add byte ptr [ecx + 0xa], bh            
+00450b2a: inc ebp                                 
+00450b2b: add byte ptr [eax - 0x746f6f70], dl     
+00450b31: dec esp                                 
+00450b32: and al, 8                               
+00450b34: fld dword ptr [ecx + 8]                 
+00450b37: fld dword ptr [ecx + 4]                 
+00450b3a: fld dword ptr [ecx]                     
+00450b3c: fld st(0)                               
+00450b3e: fmul st(1)                              
+00450b40: fld st(2)                               
+00450b42: fmul st(3)                              
+00450b44: faddp st(1)                             
+00450b46: fld st(3)                               
+00450b48: fmul st(4)                              
+00450b4a: faddp st(1)                             
+00450b4c: fsqrt                                   
+00450b4e: fstp st(3)                              
+00450b50: fstp st(0)                              
+00450b52: fstp st(0)                              
+00450b54: fcom qword ptr [0x8d5c38]               
+00450b5a: fnstsw ax                               
+00450b5c: test ah, 1                              
+00450b5f: je 0x450b7f                             
+00450b61: fcom qword ptr [0x8d5c30]               
+00450b67: fnstsw ax                               
+00450b69: test ah, 0x41                           
+00450b6c: jne 0x450b7f                            
+00450b6e: mov eax, dword ptr [esp + 4]            
+00450b72: xor ecx, ecx                            
+00450b74: fstp st(0)                              
+00450b76: mov dword ptr [eax], ecx                
+00450b78: mov dword ptr [eax + 4], ecx            
+00450b7b: mov dword ptr [eax + 8], ecx            
+00450b7e: ret                                     
+00450b7f: fdivr dword ptr [0x8d5c28]                ; f32 1
+00450b85: mov eax, dword ptr [esp + 4]            
+00450b89: fst dword ptr [esp + 8]                 
+00450b8d: fmul dword ptr [ecx + 8]                
+00450b90: fld dword ptr [esp + 8]                 
+00450b94: fmul dword ptr [ecx + 4]                
+00450b97: fld dword ptr [esp + 8]                 
+00450b9b: fmul dword ptr [ecx]                    
+00450b9d: fstp dword ptr [eax]                    
+00450b9f: fstp dword ptr [eax + 4]                
+00450ba2: fstp dword ptr [eax + 8]                
+00450ba5: ret                                     
+00450ba6: nop                                     
+00450ba7: nop                                     
+00450ba8: nop                                     
+00450ba9: nop                                     
+00450baa: nop                                     
+00450bab: nop                                     
+00450bac: nop                                     
+00450bad: nop                                     
+00450bae: nop                                     
+00450baf: nop                                     
+00450bb0: mov eax, dword ptr [esp + 4]            
+00450bb4: push ecx                                
+00450bb5: fild dword ptr [eax + 0xc]              
+00450bb8: fmul dword ptr [0x8d7438]                 ; f32 1.52588e-05
+00450bbe: fstp dword ptr [esp]                    
+00450bc1: call 0x45dda0                           
+00450bc6: ret 4                                   
+00450bc9: nop                                     
+00450bca: nop                                     
+00450bcb: nop                                     
+00450bcc: nop                                     
+00450bcd: nop                                     
+00450bce: nop                                     
+00450bcf: nop                                     
+00450bd0: mov eax, dword ptr [esp + 4]            
+00450bd4: push ecx                                
+00450bd5: fild dword ptr [eax + 0xc]              
+00450bd8: fmul dword ptr [0x8d7438]                 ; f32 1.52588e-05
+00450bde: fstp dword ptr [esp]                    
+00450be1: call 0x45de30                           
+00450be6: ret 4                                   
+00450be9: nop                                     
+00450bea: nop                                     
+00450beb: nop                                     
+00450bec: nop                                     
+00450bed: nop                                     
+00450bee: nop                                     
+00450bef: nop                                     
+00450bf0: sub esp, 0xc                            
+00450bf3: mov eax, dword ptr [0x9b3eec]             ; f32 0
+00450bf8: mov dword ptr [esp + 4], 0              
+00450c00: mov edx, dword ptr [eax + 0x490]        
+00450c06: mov eax, dword ptr [esp + 0x10]         
+00450c0a: mov dword ptr [esp], edx                
+00450c0e: fild qword ptr [esp]                    
+00450c12: mov edx, dword ptr [eax + 0xc]          
+00450c15: test edx, edx                           
+00450c17: fmul dword ptr [0x8d7434]                 ; f32 0.005
+00450c1d: jne 0x450c21                              ; f32 192.023
+00450c1f: fchs                                    
+00450c21: fld dword ptr [0x9b4340]                  ; f32 0
+00450c27: fmul st(1)                              
+00450c29: mov edx, dword ptr [ecx + 0x754]        
+00450c2f: add ecx, 0x754                          
+00450c35: lea eax, [esp]                          
+00450c39: fstp dword ptr [esp]                    
