@@ -13,8 +13,7 @@ pub struct Archive {
 impl Archive {
     pub fn open(element: &Path) -> Result<Self, String> {
         let path = element.join("models.pck");
-        let mut file = File::open(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Self::open_archive(path)
+        Self::open_archive(&path)
     }
 
     pub fn open_archive(path: &Path) -> Result<Self, String> {
