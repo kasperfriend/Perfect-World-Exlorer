@@ -1208,6 +1208,11 @@ struct Renderer {
     /// Sub-tick remainder of the sky clock in milli-thirty-seconds: the native
     /// tick is a 1/30 s step and the viewer's frames are not a multiple of it.
     sky_tick_residual: u64,
+    /// Stage-0 sky texture-matrix translation. `A3DSky::Tick` (`0x79a040`)
+    /// advances the descriptor's x/z accumulators by `rate / 30` per 30 Hz tick
+    /// and `A3DSky::Render` installs the resulting matrix on texture stage 0, so
+    /// the ceiling art slides at `rate` per second in both axes.
+    sky_drift: [f32; 2],
     // Native SetLightParam/SetAmbient state persists when a frame selects no
     // environment box (0x41ec65 keeps the in-flight environment). Keeping the
     // last published regional light avoids erasing ordinary model light on an
@@ -1780,6 +1785,7 @@ impl Renderer {
             celestial_flags: 0x18,
             sky_transition,
             sky_tick_residual: 0,
+            sky_drift: [0.; 2],
             retained_regional_light: None,
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
@@ -2040,6 +2046,17 @@ impl Renderer {
         // one tick is 1/30 s and `0x79a040` is the object's per-frame update.
         self.sky_transition
             .step_ms(camera.logic_delta_ms, &mut self.sky_tick_residual);
+        // The same tick rebuilds `A3DSky`'s stage-0 texture matrix (`0x79a0e0`
+        // driven by `0x79a040`): both accumulators of the descriptor at `+0x4cc`
+        // advance by `rate / 30` per 30 Hz tick, so at an arbitrary frame rate
+        // the slide is `rate` per second. The descriptor's angle slot is zero,
+        // so there is no rotation to replay. `A3DSky::Render` (`0x799a40`) hangs
+        // the matrix on texture stage 0, which is the ceiling only; the curtain
+        // inherits the identity stage-1 matrix and keeps its authored UVs.
+        let drift_step = crate::sky_gpu::SKY_DRIFT_RATE
+            * (camera.logic_delta_ms.max(0) as f32 / 1000.);
+        self.sky_drift[0] += drift_step;
+        self.sky_drift[1] += drift_step;
         // World-tab override: publish one pinned `sky.lst` row. The machine
         // above still advances underneath, so returning to `Auto` resumes the
         // client's own ladder instead of snapping to a stale set, but nothing it
@@ -2097,6 +2114,7 @@ impl Renderer {
             } else {
                 0.
             },
+            drift: self.sky_drift,
         };
         self.sky
             .update(&self.queue, direction, w, h, frame, main_sets, false);

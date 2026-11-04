@@ -348,8 +348,11 @@ fn main() {
 
     // The production uniform layout: inv(16) time(4) celestial(4) celestial2(4)
     // background(4) tint(4) sets(4) glow_center(4) skyrot(4) - `skyrot.xy` is the
-    // recovered sky-sphere rotation (`0x7995e0`), left at zero here so the bands
-    // this probe measures are not tilted.
+    // stage-0 sky texture-matrix translation and `skyrot.w` its diagonal scale,
+    // both from `A3DSky`'s descriptor (`0x7995e0` scale 8, `0x42a98d` rates).
+    // The translation stays at zero here so the bands this probe measures are
+    // not slid, but the scale is the client's own 8 because the ceiling UVs run
+    // through that matrix in the shader.
     //
     // `eye` only reaches `look_to_rh`, exactly like `SkyGpu::update`, and is then
     // dropped by clearing the translation column. The native sphere compares the
@@ -390,6 +393,9 @@ fn main() {
         u[37] = sets.1;
         u[38] = sets.2;
         u[39] = 0.; // night strength: day, so the sun keeps its native size
+        // u[44] and u[45] stay zero: no drift in this probe. u[46] is the flare
+        // pixel scale, unused here. u[47] is the descriptor's recovered scale.
+        u[47] = 8.;
         u
     };
 

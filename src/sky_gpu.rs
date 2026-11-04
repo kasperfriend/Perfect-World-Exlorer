@@ -16,6 +16,18 @@
 //! object is still unidentified; using the cap's projection for it is a
 //! viewer-only composition and is labelled as such in the settings status.
 //!
+//! The ceiling is drawn through the client's own stage-0 texture matrix.
+//! `A3DSky::Tick` (`0x79a040`) rebuilds it every frame from the seven-float
+//! descriptor at `+0x4cc` (`A3DSky::Rotate`, `0x79a0e0`), `CECWorld::LoadSky`
+//! (`0x42a98d`) puts 0.003 in both rate slots, the constructor `0x7995e0` puts
+//! 8.0 on the diagonal and leaves the angle at zero, and `A3DSky::Render`
+//! (`0x799a40`) enables the transform for stage 0 (`0x77a1f0(0, 2)`) and hangs
+//! the matrix there with `A3DDevice::SetTextureMatrix` (`0x779da0`). The ceiling
+//! is therefore sampled at `8 * uv + drift` with repeat addressing, and the
+//! drift is a slide of 0.003 texture units per second with no rotation. The
+//! curtain inherits the stage-1 matrix, which stays identity, so its panorama
+//! keeps the authored UVs.
+//!
 //! The curtain keeps its authored rim fade (`alpha` 0 at 39.27, 1 at 19.64) and
 //! is composited *over* the roof sheet, so the skirt fades into the sky instead
 //! of into the pass clear colour. Earlier fills faded the band into that
@@ -99,6 +111,18 @@ pub struct SkyFrame {
     /// `+0x48` is not recovered, so the World tab exposes it and this lane
     /// carries whatever the tester settles on; 127/255 is the default.
     pub disc_brightness: f32,
+    /// Stage-0 sky texture-matrix translation, in texture space.
+    ///
+    /// `A3DSky::Tick` (`0x79a040`) rebuilds the stage-0 matrix every frame from
+    /// a seven-float descriptor at `+0x4cc` (`A3DSky::Rotate`, `0x79a0e0`) and
+    /// installs it with `A3DDevice::SetTextureMatrix` (`0x779da0`, error string
+    /// `D3DDevice SetTextureMatrix Failure`) right before the ceiling draw.
+    /// `CECWorld::LoadSky` (`0x42a98d`) writes `0x3b449ba6` = 0.003 into the two
+    /// rate slots and leaves the rest at the constructor's defaults, so the only
+    /// motion retail has is this slide: `rate/30` per 30 Hz tick, no rotation
+    /// (the angle only advances when the descriptor's third slot is non-zero,
+    /// and it is zero). Both numbers are `x` and `y` here.
+    pub drift: [f32; 2],
 }
 
 impl Default for SkyFrame {
@@ -112,6 +136,7 @@ impl Default for SkyFrame {
             fog_enabled: false,
             tint: [1.0; 3],
             disc_brightness: DISC_BRIGHTNESS,
+            drift: [0.0; 2],
         }
     }
 }
@@ -135,12 +160,19 @@ struct Uniform {
     /// `xy` the glow art's own bright-core lookup offset (`glow_lookup_center`),
     /// `zw` the sun's screen position in NDC for the flare chain.
     glow_center: [f32; 4],
-    /// `z` the NDC height of one pixel (`2 / height`, the screen-space scale the
-    /// client's flare sprites are sized in); the rest is reserved. The client's
-    /// stage-0 sky texture matrix (a descriptor at `+0x4cc` whose scale and rates
-    /// arrive from the scene, `0x79ac30`) is deliberately **not** applied here:
-    /// the recovered sky geometry is static, and every attempt to animate it
-    /// from those accumulators moved the art the wrong way.
+    /// `xy` the stage-0 sky texture-matrix translation, `z` the NDC height of
+    /// one pixel (`2 / height`, the screen-space scale the client's flare
+    /// sprites are sized in), `w` the matrix's diagonal scale.
+    ///
+    /// The matrix is the client's own: `A3DSky::Rotate` (`0x79a0e0`) builds it
+    /// as `Translate(accumulated) * Scale(+0x4cc) * Rotate(angle)`, the
+    /// constructor `0x7995e0` puts 8.0 in the scale slot and zero in the angle,
+    /// and `CECWorld::LoadSky` puts 0.003 in both rate slots. `A3DSky::Render`
+    /// (`0x799a40`) enables the transform for stage 0 with `0x77a1f0(0, 2)`
+    /// (`D3DTTFF_COUNT2`) and hangs the matrix there, so the ceiling texture is
+    /// sampled at `8 * uv + drift` with the sampler's repeat addressing. The
+    /// curtain (`0x799b40`) inherits the *stage-1* matrix, which stays identity,
+    /// so its panorama keeps the authored UVs.
     sky: [f32; 4],
 }
 
@@ -255,6 +287,14 @@ struct O {@builtin(position) pos:vec4<f32>,@location(0) clip:vec2<f32>};
 // ring is forced to 0.5: the horizon ring sits at 0.275 and the bottom ring at
 // 0.5, so the 12.05 degree skirt is the lower-middle band of the panorama.
 const SKY_RADIUS:f32=50.0;
+// `A3DSky::Rotate` 0x79a0e0 composes the stage-0 texture matrix from the
+// descriptor at `+0x4cc`: the constructor 0x7995e0 stores 8.0 in the scale slot
+// and zero in the angle slot, and `CECWorld::LoadSky` 0x42a98d stores 0x3b449ba6
+// (0.003) in both rate slots. The ceiling UV therefore arrives as
+// `8 * uv + accumulated`, and the accumulator grows by `rate / 30` per 30 Hz
+// tick - the recovered `0x8f14bc` tick length - which is `rate` per second.
+const SKY_DRIFT_SCALE:f32=8.0;
+const SKY_DRIFT_RATE:f32=0.003;
 const SKIRT_TOP_V:f32=0.275;
 const SKIRT_BOTTOM_V:f32=0.5;
 const SKIRT_BOTTOM_Y:f32=-10.602875;
@@ -287,7 +327,7 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  // Above the horizon the client draws the cap described in `cap_uv`; nothing
  // else is in front of it (the surround's upper rows are behind the cap).
  if d.y>=0.0 {
-  let roof=textureSampleLevel(skies,smpw,cap_uv(d,flat),base+2,0.).rgb*tn;
+  let roof=textureSampleLevel(skies,smpw,cap_uv(d,flat)*p.skyrot.w+p.skyrot.xy,base+2,0.).rgb*tn;
   return vec4<f32>(roof,1.0);
  }
  // Below the horizon `A3DSkySphere` is the visible surface. Only its two lowest
@@ -501,6 +541,19 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,metric:f32,fl
 /// circles on screen, so the default is the unmodulated texture and the World
 /// tab's Star brightness slider still reaches the recovered 127/255.
 pub const DISC_BRIGHTNESS: f32 = 1.0;
+
+/// Diagonal scale `A3DSky`'s constructor (`0x7995e0`) stores in the stage-0
+/// texture-matrix descriptor (`+0x4cc`). `A3DSky::Rotate` (`0x79a0e0`) puts it
+/// on the matrix diagonal, so the ceiling is sampled at `8 * uv + drift`.
+pub const SKY_DRIFT_SCALE: f32 = 8.0;
+
+/// Texture-space units the ceiling slide advances per second.
+///
+/// `CECWorld::LoadSky` (`0x42a98d`) writes the float `0x3b449ba6` (0.003) into
+/// both rate slots of that descriptor, and `A3DSky::Rotate` adds `rate / 30`
+/// on every 30 Hz tick (`0x8f14bc` is the tick length), i.e. `rate` per second.
+/// The descriptor's angle slot stays zero, so there is no rotation.
+pub const SKY_DRIFT_RATE: f32 = 0.003;
 
 /// The vertical field of view `update` builds its projection with.
 pub(crate) const FOV_DEGREES: f32 = 70.;
@@ -959,7 +1012,12 @@ impl SkyGpu {
                 flare_ndc[0],
                 flare_ndc[1],
             ],
-            sky: [0., 0., 2. / h.max(1) as f32, 0.],
+            sky: [
+                frame.drift[0],
+                frame.drift[1],
+                2. / h.max(1) as f32,
+                SKY_DRIFT_SCALE,
+            ],
         };
         queue.write_buffer(
             if reflected {
@@ -1331,6 +1389,35 @@ mod reflection_tests {
         // A narrower field of view magnifies it, a wider one shrinks it.
         assert!(super::sun_ndc_half(20.) > half);
         assert!(super::sun_ndc_half(120.) < half);
+    }
+
+    #[test]
+    fn the_ceiling_runs_through_the_recovered_texture_matrix() {
+        // `0x7995e0` puts 8.0 in the descriptor's scale slot and `0x42a98d`
+        // puts 0.003 in both rate slots; the angle slot it never touches stays
+        // zero, so the matrix is a scale and a slide with no rotation.
+        assert_eq!(super::SKY_DRIFT_SCALE, 8.);
+        assert!((super::SKY_DRIFT_RATE - 0.003).abs() < 1e-9);
+        // `A3DSky::Rotate` adds `rate / 30` once per 30 Hz tick, so one second
+        // of ticks is one `rate`.
+        assert!((super::SKY_DRIFT_RATE / 30. * 30. - super::SKY_DRIFT_RATE).abs() < 1e-9);
+        let src = include_str!("sky_gpu.rs");
+        let shader = &src[src.find("pub(crate) const SHADER").expect("shader")..];
+        let shader = &shader[..shader.find("\"#;").expect("shader end")];
+        // The ceiling samples through the matrix...
+        assert!(
+            shader.contains("cap_uv(d,flat)*p.skyrot.w+p.skyrot.xy"),
+            "the ceiling must run its planar UV through the stage-0 matrix"
+        );
+        // ...and the curtain must not: it inherits the identity stage-1 matrix.
+        assert!(
+            shader.contains("let uv_own=vec2<f32>(select(ub,uf,owns_front),v);"),
+            "the curtain keeps the authored panorama UVs"
+        );
+        assert!(
+            !shader.contains("uv_own*p.skyrot.w"),
+            "the stage-0 matrix is the ceiling's, not the curtain's"
+        );
     }
 
     #[test]
