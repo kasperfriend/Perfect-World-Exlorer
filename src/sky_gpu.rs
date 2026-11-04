@@ -29,7 +29,7 @@
 //! switches between crossfade over 3.4 degrees instead of meeting at a hard
 //! seam.
 use crate::pck;
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec3, Vec4};
 use std::{collections::HashMap, fs::File, path::Path};
 use wgpu::util::DeviceExt;
 
@@ -122,6 +122,8 @@ struct Uniform {
     /// set crossfade of `sky_transition` rides here (P5.07): both indices name
     /// one whole three-texture set in the same array.
     sets: [f32; 4],
+    /// `xy` the glow art's own bright-core lookup offset (`glow_lookup_center`),
+    /// `zw` the sun's screen position in NDC for the flare chain.
     glow_center: [f32; 4],
 }
 
@@ -309,7 +311,7 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
 // sun's two bills scale by `1 + 2 * night_strength` (0x4b3d1d, 0x4b3fc6); the
 // moon block (0x4b4161) scales nothing. Gated on elevation and fade exactly
 // like 0x4b3e00.
-fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,flare:i32,ring:i32,tint:vec3<f32>,night:f32)->vec3<f32>{
+fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,night:f32)->vec3<f32>{
  let alpha=params.x;let el=params.y;let az=params.z;
  if alpha<=0.0 || el<=0.0 {return color;}
  let is_sun=disc==9;
@@ -345,24 +347,6 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,flar
    out=clamp(out+textureSampleLevel(skies,smp,huv,glow,0.).rgb*(alpha*0.5),vec3<f32>(0.),vec3<f32>(1.));
   }
  }
- // Flare chain. `CECSunMoon::Init` loads `sunflare.bmp` and `flares.bmp` and
- // `ps/solarflare_14` sums six flare-alpha samples at weight 0.4. The sprite
- // sizes are the one part of the chain still generated at run time; the viewer
- // anchors them to the recovered quad sizes instead of inventing a scale.
- // Half extents are `SUN_HALF * 2^i` and `2 * SUN_HALF * 2^i`; the scales are
- // computed instead of indexed from a table because naga rejects a runtime
- // index into an immutable local array.
- for(var i=0;i<3;i=i+1){
-  let k=pow(2.0,f32(i));
-  let fuv=plane/(2.0*SUN_HALF*k)+vec2<f32>(0.5);
-  if fuv.x>=0.0 && fuv.x<=1.0 && fuv.y>=0.0 && fuv.y<=1.0 {
-   out=clamp(out+textureSampleLevel(skies,smp,fuv,flare,0.).rgb*(alpha*0.4*tint),vec3<f32>(0.),vec3<f32>(1.));
-  }
-  let ruv=plane/(2.0*(2.0*SUN_HALF)*k)+vec2<f32>(0.5);
-  if ruv.x>=0.0 && ruv.x<=1.0 && ruv.y>=0.0 && ruv.y<=1.0 {
-   out=clamp(out+textureSampleLevel(skies,smp,ruv,ring,0.).rgb*(alpha*0.4*tint),vec3<f32>(0.),vec3<f32>(1.));
-  }
- }
  // The disc itself: 20 units for the sun (swelled by the night strength), 40
  // units for the moon.
  let half=select(MOON_HALF,SUN_HALF*swell,is_sun);
@@ -371,6 +355,36 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,flar
  let t=textureSampleLevel(skies,smp,uv,disc,0.);
  if is_sun {return clamp(out+t.rgb*alpha,vec3<f32>(0.),vec3<f32>(1.));}
  return mix(out,t.rgb,t.a*alpha);
+}
+// The client's flare chain, in screen space.
+//
+// `CECSunMoon::Init` loads `sunflare.bmp` and `flares.bmp`; `ps/solarflare_14`
+// sums six flare-alpha samples at the recovered 0.4 weight through the
+// `0x786840` alpha target, and the 90-vertex stream at `0x4b5b74` places the
+// sprites from the sun's screen position, gated by a 54-point visibility mask.
+// Neither the placement generator nor that mask was reduced, so the viewer
+// places the same six samples, at the same weight, on the line through the sun
+// and the screen centre with its own size ladder, and feeds them the client's
+// two textures. A disc hidden behind terrain still flares: the occlusion mask is
+// the part that is missing, not the sum.
+fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,ring:i32)->vec3<f32>{
+ if weight<=0.0 {return color;}
+ let sun=p.glow_center.zw;
+ var out=color;
+ // `k` runs 1.0 -> -1.0, i.e. the far ghost through the screen centre back past
+ // the sun; naga rejects a runtime index into an immutable local array, so the
+ // ladder is arithmetic instead of a table.
+ for(var i=0;i<6;i=i+1){
+  let k=1.0-f32(i)*0.4;
+  let ghost=-sun*k;
+  let d=vec2<f32>((ndc.x-ghost.x)*aspect,ndc.y-ghost.y);
+  let sz=0.04+0.025*f32(i);
+  let uv=d/(2.0*sz)+vec2<f32>(0.5);
+  if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {continue;}
+  let tex=select(textureSampleLevel(skies,smp,uv,flare,0.),textureSampleLevel(skies,smp,uv,ring,0.),i%2==1);
+  out=clamp(out+tex.rgb*tex.a*(weight*0.4),vec3<f32>(0.),vec3<f32>(1.));
+ }
+ return out;
 }
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
@@ -398,11 +412,40 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,flar
   color=mix(fog,color,smoothstep(0.,0.08,d.y));
  }
  let night=clamp(p.sets.w,0.0,1.0);
- color=celestial(color,d,p.celestial,9,11,13,14,vec3<f32>(1.0,0.72,0.42),night);
- color=celestial(color,d,p.celestial2,10,12,13,14,vec3<f32>(0.62,0.76,1.0),night);
+ color=celestial(color,d,p.celestial,9,11,night);
+ color=celestial(color,d,p.celestial2,10,12,night);
+ // `p.celestial.w` is the sun's flare weight and `p.tint.w` the screen aspect;
+ // both are zeroed for a reflected view, which is why its chain is skipped.
+ color=flare_chain(color,i.clip,p.celestial.w,p.tint.w,13,14);
  return vec4<f32>(color,1.);
 }
 "#;
+
+/// Where the flare chain hangs, and how strongly it is drawn.
+///
+/// Returns the sun's screen position in NDC plus the weight, exactly the values
+/// `update` writes into `glow_center.zw` and `celestial.w`. The direction is the
+/// same `(cos az cos el, sin el, sin az cos el)` the shader rebuilds from
+/// `celestial.yz`, projected with the matrices the sky pass already uses.
+///
+/// A reflected view is mirrored against the water plane and must not draw the
+/// chain (the ghosts would flip), and a disc that is not being drawn, or is
+/// behind the camera, has no weight either.
+fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> ([f32; 2], f32) {
+    let (elevation, azimuth) = (sun[1], sun[2]);
+    let direction = Vec3::new(
+        azimuth.cos() * elevation.cos(),
+        elevation.sin(),
+        azimuth.sin() * elevation.cos(),
+    );
+    // Point 100 units along the sun's own direction, so the projection's
+    // near/far planes behave exactly as they do for the disc quad.
+    let clip = projection * view * Vec4::new(direction * 100., 1.);
+    if reflected || sun[0] <= 0. || clip.w <= 1e-6 {
+        return ([0., 0.], 0.);
+    }
+    ([clip.x / clip.w, clip.y / clip.w], sun[0].clamp(0., 1.))
+}
 
 impl SkyGpu {
     pub fn new(
@@ -773,6 +816,7 @@ impl SkyGpu {
         // Reflect every world-space camera ray about the water plane. Mirroring
         // only the forward vector loses the inverted vertical screen basis.
         let inv = sky_inverse(projection, view, reflected);
+        let (flare_ndc, flare_weight) = flare_lanes(projection, view, frame.sun, reflected);
         let uniform = Uniform {
             inv: inv.to_cols_array_2d(),
             time: [
@@ -781,7 +825,9 @@ impl SkyGpu {
                 if frame.fog_enabled { 1. } else { 0. },
                 0.,
             ],
-            celestial: frame.sun,
+            // `.w` is the sun's flare weight, not the shine strength the
+            // recovered ramp replaces.
+            celestial: [frame.sun[0], frame.sun[1], frame.sun[2], flare_weight],
             celestial2: frame.moon,
             background: [
                 frame.background[0],
@@ -793,14 +839,14 @@ impl SkyGpu {
                 frame.tint[0],
                 frame.tint[1],
                 frame.tint[2],
-                // Unused by `celestial` now that the recovered templates give
-                // each object its own size; kept so the uniform layout is fixed.
-                1.0,
+                // The screen aspect the flare chain needs to keep its sprites
+                // round in NDC, where x and y span different angles.
+                w as f32 / h.max(1) as f32,
             ],
             // `sets.w` carries the night strength into `celestial` (the sun's
             // `1 + 2 * n` swell and the recovered shine ramp).
             sets: [sets.0 as f32, sets.1 as f32, sets.2, frame.night_weight],
-            glow_center: self.glow_center,
+            glow_center: [self.glow_center[0], self.glow_center[1], flare_ndc[0], flare_ndc[1]],
         };
         queue.write_buffer(
             if reflected {
@@ -1123,6 +1169,36 @@ mod reflection_tests {
             assert!((reference - moved).length() < 1e-6);
         }
     }
+    #[test]
+    fn the_flare_chain_hangs_where_the_sun_projects() {
+        let projection = Mat4::from_scale(Vec3::new(-1., 1., 1.))
+            * Mat4::perspective_rh(70f32.to_radians(), 16. / 9., 1., 16000.);
+        let (el, az) = (0.4f32, -0.5f32);
+        let sun_dir = Vec3::new(az.cos() * el.cos(), el.sin(), az.sin() * el.cos());
+        let view = Mat4::look_to_rh(Vec3::ZERO, sun_dir, Vec3::Y);
+        let sun = [1., el, az, 0.];
+        let (ndc, weight) = super::flare_lanes(projection, view, sun, false);
+        assert_eq!(weight, 1.);
+        assert!(
+            ndc[0].abs() < 1e-3 && ndc[1].abs() < 1e-3,
+            "a camera pointed at the sun puts it at the screen centre: {ndc:?}"
+        );
+        // A reflected view must not draw the chain, and neither must a disc the
+        // visibility fade has already removed.
+        assert_eq!(super::flare_lanes(projection, view, sun, true).1, 0.);
+        assert_eq!(
+            super::flare_lanes(projection, view, [0., el, az, 0.], false).1,
+            0.
+        );
+        // Behind the camera there is no screen position to hang anything on.
+        let away = Mat4::look_to_rh(Vec3::ZERO, -sun_dir, Vec3::Y);
+        assert_eq!(super::flare_lanes(projection, away, sun, false).1, 0.);
+        // A partial fade carries through as the chain's weight.
+        let faded = super::flare_lanes(projection, view, [0.5, el, az, 0.], false);
+        assert_eq!(faded.1, 0.5);
+        assert!((faded.0[0] - ndc[0]).abs() < 1e-6);
+    }
+
     #[test]
     fn the_uniform_carries_the_transition_lane() {
         // The reflected and normal uploads must be built from the same values;

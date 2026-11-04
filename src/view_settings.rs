@@ -1,4 +1,6 @@
 //! Persisted viewer controls; malformed values fall back safely.
+use crate::client_weather::WeatherOverride;
+use crate::sky_transition::SkyOverride;
 #[path = "post_plan.rs"]
 mod post_plan;
 /// The renderer must allocate/execute the post chain for each independent
@@ -158,6 +160,10 @@ pub struct ViewSettings {
     /// 100 is native; the Graphics tab exposes 10 (fast/blurry) to 200
     /// (supersampled). UI and presentation always stay at native resolution.
     pub resolution_scale: f32,
+    /// World tab: force one precipitation effect instead of the area flags.
+    pub weather_override: WeatherOverride,
+    /// World tab: pin one `sky.lst` row instead of the day/night ladder.
+    pub sky_override: SkyOverride,
 }
 impl Default for ViewSettings {
     fn default() -> Self {
@@ -209,6 +215,11 @@ impl Default for ViewSettings {
             minimap_style: MapStyle::Realistic,
             minimap_shape: MinimapShape::Square,
             resolution_scale: 100.,
+            // Both overrides default to the client's own behaviour; the World
+            // tab offers them only so the recovered sets and particle
+            // constants can be inspected anywhere.
+            weather_override: WeatherOverride::Auto,
+            sky_override: SkyOverride::Auto,
         }
     }
 }
@@ -305,6 +316,16 @@ impl ViewSettings {
                 "area_grass_lightmaps" => flag!(s.area_grass_lightmaps),
                 "vegetation_authored_mips" => flag!(s.vegetation_authored_mips),
                 "celestial_discs" => flag!(s.celestial_discs),
+                "weather_override" => {
+                    if let Some(option) = WeatherOverride::parse(v) {
+                        s.weather_override = option;
+                    }
+                }
+                "sky_override" => {
+                    if let Some(option) = SkyOverride::parse(v) {
+                        s.sky_override = option;
+                    }
+                }
                 "cloud_detail" => flag!(s.cloud_detail),
                 "whole_world" => flag!(s.whole_world),
                 "water_reflections" => flag!(s.water_reflections),
@@ -341,13 +362,14 @@ impl ViewSettings {
             "radius={}\nterrain_cutoff={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nambience_enabled={}\nsound_volume={}\neffects_enabled={}\neffects_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\nweather_override={}\nsky_override={}\n"),
             self.detail.radius,self.detail.terrain_cutoff,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.ambience_enabled,self.sound_volume,self.effects_enabled,self.effects_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.cloud_detail,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
-            self.minimap_shape.label())
+            self.minimap_shape.label(),
+            self.weather_override.token(),self.sky_override.token())
     }
     fn file() -> Option<std::path::PathBuf> {
         #[cfg(windows)]
@@ -623,6 +645,31 @@ mod tests {
         assert_eq!(invalid.bloom_brightness_fade, 0.);
         assert_eq!(invalid.bloom_opacity_fade, 1.);
     }
+    #[test]
+    fn the_weather_and_sky_overrides_default_to_the_client_and_round_trip() {
+        let d = ViewSettings::default();
+        assert_eq!(d.weather_override, WeatherOverride::Auto);
+        assert_eq!(d.sky_override, SkyOverride::Auto);
+        // A file written before the overrides existed keeps both on Auto.
+        let legacy = ViewSettings::decode("celestial_discs=true\nroutine=none");
+        assert_eq!(legacy.weather_override, WeatherOverride::Auto);
+        assert_eq!(legacy.sky_override, SkyOverride::Auto);
+        for weather in WeatherOverride::ALL {
+            for sky in SkyOverride::ALL {
+                let mut s = ViewSettings::default();
+                s.weather_override = weather;
+                s.sky_override = sky;
+                let back = ViewSettings::decode(&s.encode());
+                assert_eq!(back.weather_override, weather);
+                assert_eq!(back.sky_override, sky);
+            }
+        }
+        // Unknown spellings leave the defaults alone.
+        let bad = ViewSettings::decode("weather_override=Hail\nsky_override=night");
+        assert_eq!(bad.weather_override, WeatherOverride::Auto);
+        assert_eq!(bad.sky_override, SkyOverride::Auto);
+    }
+
     #[test]
     fn render_resolution_scale_is_persisted_and_bounded() {
         assert_eq!(ViewSettings::default().resolution_scale, 100.);

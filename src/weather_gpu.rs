@@ -1,8 +1,13 @@
 //! Camera-relative world-space precipitation using the client's rain/snow
 //! masks and native 33 ms object clock. Particle generation is a deterministic
-//! visual model, not a recovered copy of the client's particle RNG/lifetime.
-//! Parsed water-area masks suppress the view when the camera is submerged.
-use crate::client_weather::{WeatherClock, WeatherSelection};
+//! visual model, not a recovered copy of the client's particle RNG/lifetime,
+//! but the two objects' own `Speed`/`SpeedVariation`/`Size`/`SizeVariation`
+//! stores ([`crate::client_weather::RAIN`], [`crate::client_weather::SNOW`]) are
+//! consumed here instead of viewer-chosen numbers. Parsed water-area masks
+//! suppress the view when the camera is submerged.
+use crate::client_weather::{
+    PrecipitationProfile, WeatherClock, WeatherSelection, RAIN, SNOW, SNOW_SPEED_SCALE,
+};
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
 use std::{collections::HashMap, fs::File, path::Path};
@@ -20,6 +25,39 @@ struct Params {
     fog_color: [f32; 4],
     clip: [f32; 4],
     clock_weather: [f32; 4], // wrapped ticks, water-area count, rain, snow
+    /// `[rain half width, rain size variation, snow half width, snow variation]`
+    /// from the two constructors' `Size`/`SizeVariation` stores.
+    particle: [f32; 4],
+    /// `[rain speed, rain speed variation, snow speed, snow speed variation]`
+    /// from the same objects' `Speed`/`SpeedVariation` stores.
+    motion: [f32; 4],
+}
+
+/// The two uniform lanes the shader reads, built from the objects' stores.
+///
+/// `particle` is `[rain size, rain size variation, snow size, snow variation]`
+/// and `motion` is `[rain speed, rain speed variation, snow speed, snow speed
+/// variation]`. A store a constructor never writes contributes `0.0`, which the
+/// shader reads as "no spread" rather than as a zero particle.
+fn profile_lanes(
+    rain: PrecipitationProfile,
+    snow: PrecipitationProfile,
+    snow_speed_scale: f32,
+) -> ([f32; 4], [f32; 4]) {
+    (
+        [
+            rain.size,
+            rain.size_variation.unwrap_or_default(),
+            snow.size,
+            snow.size_variation.unwrap_or_default(),
+        ],
+        [
+            rain.speed,
+            rain.speed_variation.unwrap_or_default(),
+            snow.speed * snow_speed_scale,
+            snow.speed_variation.unwrap_or_default(),
+        ],
+    )
 }
 
 #[repr(C)]
@@ -68,6 +106,7 @@ struct Params {
     matrix: mat4x4<f32>, camera: vec4<f32>, right: vec4<f32>, up: vec4<f32>,
     forward: vec4<f32>, fog_range: vec4<f32>, fog_color: vec4<f32>,
     clip: vec4<f32>, clock_weather: vec4<f32>,
+    particle: vec4<f32>, motion: vec4<f32>,
 };
 struct WaterArea { bounds: vec4<f32>, data: vec4<u32> };
 @group(0) @binding(0) var<uniform> p: Params;
@@ -116,7 +155,12 @@ fn camera_in_mapped_water(camera: vec3<f32>) -> bool {
     let phase = hash(seed + 7.0);
     let x = (hash(seed + 1.0) * 2.0 - 1.0) * 28.0;
     let z = 4.0 + hash(seed + 3.0) * 72.0;
-    let speed = select(0.18 + hash(seed + 11.0) * 0.15, 0.015 + hash(seed + 13.0) * 0.03, snow);
+    // Speed/SpeedVariation: the object stores 0.5 for both effects and a
+    // 50 % variation for rain only, so the viewer reads the stored percentage
+    // literally as +- that fraction of Speed.
+    let speed_base = select(p.motion.x, p.motion.z, snow);
+    let speed_spread = select(p.motion.y, p.motion.w, snow);
+    let speed = speed_base * (1.0 + (hash(seed + 11.0) * 2.0 - 1.0) * speed_spread);
     let seconds = p.clock_weather.x * 0.033;
     let fall = fract(phase + seconds * speed) * 110.0 - 55.0;
     let center = p.camera.xyz + p.right.xyz * x + p.forward.xyz * z + vec3<f32>(0.0, fall, 0.0);
@@ -131,8 +175,15 @@ fn camera_in_mapped_water(camera: vec3<f32>) -> bool {
     let corner = vec2<f32>(select(-1.0, 1.0, right), select(-1.0, 1.0, top));
     let uv_top = vertex == 0u || vertex == 1u || vertex == 4u;
     let uv = vec2<f32>(select(0.0, 1.0, right), select(0.0, 1.0, uv_top));
-    let half_width = select(0.035, 0.12, snow);
-    let half_height = select(1.1 + hash(seed + 17.0) * 1.3, 0.12, snow);
+    // Size/SizeVariation: the quad is the stored Size across, so the recovered
+    // 0.04 drop and 0.3 flake replace the viewer's 0.07/0.24 guesses. Rain
+    // stores a 30 % size spread; the flake keeps its square shape and has no
+    // stored spread. The streak length stays a viewer value: it is the visible
+    // consequence of a shutter the client does not have.
+    let size_base = select(p.particle.x, p.particle.z, snow) * 0.5;
+    let size_spread = select(p.particle.y, p.particle.w, snow);
+    let half_width = size_base * (1.0 + (hash(seed + 5.0) * 2.0 - 1.0) * size_spread);
+    let half_height = select(1.1 + hash(seed + 17.0) * 1.3, half_width, snow);
     let vertical = select(vec3<f32>(0.0, corner.y * half_height, 0.0), p.up.xyz * (corner.y * half_height), snow);
     let world = center + p.right.xyz * (corner.x * half_width) + vertical;
     let clip = p.matrix * vec4<f32>(world, 1.0);
@@ -485,6 +536,7 @@ impl WeatherGpu {
         let right = Vec3::new(c, 0., s);
         let forward = Vec3::new(s * cp, sp, -c * cp);
         let up = right.cross(forward).normalize_or_zero();
+        let lanes = profile_lanes(RAIN, SNOW, SNOW_SPEED_SCALE);
         let params = Params {
             matrix: matrix.to_cols_array_2d(),
             camera: [camera.x, camera.y, camera.z, 1.],
@@ -500,6 +552,8 @@ impl WeatherGpu {
                 selection.rain as u8 as f32,
                 selection.snow as u8 as f32,
             ],
+            particle: lanes.0,
+            motion: lanes.1,
         };
         queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&params));
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -531,8 +585,27 @@ impl WeatherGpu {
 
 #[cfg(test)]
 mod tests {
-    use super::{pack_water_masks, snow_luminance_mask};
+    use super::{pack_water_masks, profile_lanes, snow_luminance_mask};
+    use crate::client_weather::{RAIN, SNOW, SNOW_SPEED_SCALE};
     use crate::water::WaterArea;
+
+    #[test]
+    fn the_shader_lanes_carry_the_two_constructors_stores() {
+        let (particle, motion) = profile_lanes(RAIN, SNOW, SNOW_SPEED_SCALE);
+        assert_eq!(particle[0], 0.04, "rain Size");
+        assert_eq!(particle[1], 0.3, "rain SizeVariation");
+        assert_eq!(particle[2], 0.3, "snow Size");
+        assert_eq!(particle[3], 0.0, "snow stores no SizeVariation");
+        assert_eq!(motion[0], 0.5, "rain Speed");
+        assert_eq!(motion[1], 0.5, "rain SpeedVariation");
+        assert_eq!(motion[2], 0.5 * SNOW_SPEED_SCALE, "snow descent");
+        assert_eq!(motion[3], 0.0, "snow stores no SpeedVariation");
+        // Rain is visibly the faster of the two, which is the only reason the
+        // viewer keeps a flake scale at all.
+        assert!(motion[2] < motion[0]);
+        // A profile with no variation must not read as a zero particle.
+        assert!(particle[2] > 0. && motion[2] > 0.);
+    }
 
     #[test]
     fn water_masks_pack_with_byte_offsets_for_shader_lookup() {

@@ -124,10 +124,19 @@ references to `ds:0x8d5894` = 0.5 in that function), and two of the sprites are
 anchored at `(0, -10, 0)` and `(0, -20, 0)` world units from the sun point
 (`0x4b44f6`, `0x4b45e2`).
 
-The viewer therefore draws the six samples at half extents of 10/20/40 units
-(`sunflare.bmp`) and 20/40/80 units (`flares.bmp`) — anchored to the *recovered*
-sun and moon quads instead of to the old 1.146° billboard, which is what made the
-old chain invisible.
+An earlier viewer revision anchored the six samples to the recovered sun and
+moon quads inside the disc plane. That is not what the client does: the sprite
+stream is placed from the sun's **screen** position, and its sprites are lens
+ghosts, not sky-space billboards. The chain now hangs in screen space (§6.2).
+
+Two more things about the pass, recovered and used by the viewer:
+
+* `ps/solarflare_14` reads an alpha texture (`ps/solarflare_14.txt`) and samples
+  it six times; the samples are summed, saturated and multiplied into `c0.rgb`.
+  The weight per sample is `0.4`.
+* The flare alpha target (`0x786840`) is a 1×1-format off-screen surface, which
+  is how the client gates the whole chain: nothing is drawn over a disc that the
+  54-point point-list says is hidden.
 
 ### 1.5 What changed in the viewer
 
@@ -238,12 +247,26 @@ and the flag selection, both unit tested. `weather_gpu.rs` draws depth-tested,
 camera-centred precipitation using the client's own `rain.tga`/`snow.bmp`, the
 native 33 ms tick count and the parsed water-area masks for the submerged view.
 
-**State, explicitly:** textures, flags and clock are the client's. The particle
-population is not: the viewer generates a deterministic field of drops/flakes
-with its own count, spawn box, velocity, size and lifetime. The recovered
-constants above (rain size 0.04 vs snow size 0.3, 50% speed variation, 30% size
-variation) are exactly what the viewer's model does not yet consume, so a
-rain→snow transition still changes look without changing the physics.
+**State, explicitly:** textures, flags and clock are the client's, and since the
+2026-11-04 follow-up the two objects' own `Speed`/`SpeedVariation`/`Size`/
+`SizeVariation` stores feed the shader through two uniform lanes
+(`client_weather::RAIN`, `client_weather::SNOW`, `weather_gpu::profile_lanes`):
+
+| lane | rain | snow |
+| --- | --- | --- |
+| quad width (client `Size`) | 0.04 | 0.3 |
+| width spread (client `SizeVariation`, read literally as ± that fraction) | ±30 % | none stored |
+| descent (`Speed`) | 0.5 | 0.5 × `SNOW_SPEED_SCALE` = 0.03 |
+| speed spread (`SpeedVariation`) | ±50 % | none stored |
+
+The particle *population* is still not the client's: count, spawn box (a
+camera-relative 56 × 72 units slab), fall range, streak length, alpha and the
+flake descent scale are viewer values, and no rain→snow physics difference is
+claimed beyond the numbers above. `SNOW_SPEED_SCALE` exists because both objects
+store `Speed 0.5` yet the client's flakes visibly drift while its drops fall; the
+two integer fields that presumably separate them (`+0x1790 = 40` for snow,
+`+0x1794 = 8` for rain) are not decoded, and pretending one `Speed` explains both
+would have made the flakes fall like drops.
 
 ---
 
@@ -289,8 +312,10 @@ models in `sky_transition`.
 ## 5. Residual list after this pass
 
 1. **Flare sprite placement and size** (the 90-vertex stream) — still the one
-   piece of the sun/moon chain generated at run time; the viewer anchors its six
-   samples to the recovered quads.
+   piece of the sun/moon chain generated at run time. The viewer now draws the
+   same six samples in screen space (§6.2) with its own ghost ladder and size
+   ladder, because the fill function is not reduced; the client's 54-point
+   occlusion mask is likewise still missing, so a disc behind a mountain flares.
 2. **The template's vertical anchor.** All three templates hang from their
    anchor (`y` runs `0..-height`), so the texture centre sits `height/2` below
    the emitted position. The viewer keeps the disc centred on the emitted
@@ -298,6 +323,63 @@ models in `sky_transition`.
    unproven, and the elevation curve itself is a recovered approximation.
 3. **Cloud group parameters** — four floats per group, unassigned; decoding them
    is what turns the billboards back into the native mesh.
-4. **Weather particle population** — sizes/variations recovered, spawn model not.
+4. **Weather particle population** — sizes/speeds recovered and now consumed;
+   spawn model, count and lifetimes still the viewer's.
 5. The band `38.16°`–`72.5°` and the `0x799f88` object remain as documented in
    `P5-sky-geometry-daynight-celestial.md` §1.5 / §6.
+
+---
+
+## 6. Follow-up pass, 2026-11-04: overrides, flare sprite, weather constants
+
+Scope: the World-tab overrides, the flare sprite, and the one weather item that
+was recovered-but-unused. Nothing else was touched.
+
+### 6.1 World-tab overrides
+
+| control | field | what `Auto` is | what a fixed choice does |
+| --- | --- | --- | --- |
+| **Sky set** | `ViewSettings::sky_override` → `sky_transition::SkyOverride` | `0x4203f4` drives `sky_transition` from `autoscene.cfg`'s `sky_id_day`/`sky_id_night` through `sky.lst`, including the counted fades | publishes one pinned row `(row, row, 0.0)`, so no fade is ever drawn; the swap machine keeps running underneath so returning to `Auto` resumes the clock's own set instead of snapping to a stale one |
+| **Weather** | `ViewSettings::weather_override` → `client_weather::WeatherOverride` | `0x421520`: EC-BSD `world.ecbsd+0x04` bit 1 = rain, bit 2 = snow, independent (a zone may ask for both) | forces none / rain / snow for every view (main, reflection, above-water) before the selections are distributed |
+
+Both are persisted (`weather_override=`, `sky_override=`), default to `Auto`, and
+a file that predates them keeps both on `Auto`. The sky rows are the shipped
+`sky.lst` order: `0 晴天`, `1 阴天01`, `2 夕阳`. Note again that the shipped
+night row is *overcast*, not a painted night panorama.
+
+### 6.2 The flare sprite, as implemented
+
+`sky_gpu` now draws the chain **in screen space**:
+
+* the sun's screen position is computed on the CPU (`sky_gpu::flare_lanes`) by
+  projecting the sun direction with the very matrices the sky pass uses, and
+  passed in `glow_center.zw`; the screen aspect rides in `tint.w`;
+* the weight rides in `celestial.w` (formerly the shine strength, which the
+  recovered ramp replaced) and is zero for a reflected view, so the mirror never
+  draws a flipped chain;
+* the fragment shader (`flare_chain`) sums six samples on the line through the
+  sun and the screen centre at the recovered `0.4` weight, alternating
+  `sunflare.bmp` (13) and `flares.bmp` (14).
+
+Viewer-chosen, and the only parts that are: the ghost ladder (`k = 1 − 0.4i`,
+i.e. 1.0 → −1.0, mirrored through the screen centre) and the sprite half extents
+(`0.04 + 0.025i` in NDC-height units, so 4 % → 16.5 % of the screen height). The
+recovered `-0.5`/`1.0` words in the vertex stream are *not* used as a scale
+because their unit is not pinned. There is no occlusion test: the client's
+54-point mask and the `0x786840` gate are what stop a flare behind terrain, and
+neither is reproduced.
+
+### 6.3 What is still not implemented, sky-side
+
+1. Flare ghost placement and size (above), and its occlusion mask.
+2. The template's vertical anchor — the discs are still centred on the emitted
+   direction rather than hanging `height/2` below it (§5.2). Unchanged on
+   purpose: it would move the sun 5.7° and the elevation curve is itself an
+   approximation.
+3. Cloud group floats: four per group, still unassigned; the geometry is a
+   billboard approximation (`cumulus01.tga` atlas + the 4×4 MOXB mapping are the
+   client's).
+4. The `38.16°`–`72.5°` band and the `0x799f88` object (§5.5).
+5. Weather population: count, spawn box, fall range, streak length, lifetime.
+6. Sky-dome rotation: recovered mechanism, **zero rate** in retail — nothing to
+   implement (§4).

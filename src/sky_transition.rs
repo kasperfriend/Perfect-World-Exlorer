@@ -192,6 +192,66 @@ impl Triple {
     }
 }
 
+/// Viewer-only sky-set override for the World tab.
+///
+/// `Auto` is the client's own ladder: `autoscene.cfg` names the day and night
+/// ids, `0x4203f4` swaps between them through `sky.lst`, and a region that
+/// names the third row gets it. The other choices pin one `sky.lst` row, which
+/// is the only way to look at a set the shipped configuration never selects —
+/// the machine is not driven while an override is active, so a resume continues
+/// from the committed set instead of replaying a fade.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SkyOverride {
+    #[default]
+    Auto,
+    Clear,
+    Overcast,
+    Sunset,
+}
+
+impl SkyOverride {
+    pub const ALL: [Self; 4] = [Self::Auto, Self::Clear, Self::Overcast, Self::Sunset];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto (day/night ladder)",
+            Self::Clear => "晴天 clear (row 0)",
+            Self::Overcast => "阴天01 overcast (row 1)",
+            Self::Sunset => "夕阳 sunset (row 2)",
+        }
+    }
+
+    /// Persisted spelling; short, so a settings file stays readable.
+    pub fn token(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Clear => "Clear",
+            Self::Overcast => "Overcast",
+            Self::Sunset => "Sunset",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|o| o.token() == text)
+    }
+
+    /// The `sky.lst` row this override pins, or `None` for `Auto`.
+    pub fn row(self) -> Option<u8> {
+        match self {
+            Self::Auto => None,
+            Self::Clear => Some(0),
+            Self::Overcast => Some(1),
+            Self::Sunset => Some(2),
+        }
+    }
+
+    /// What the sky shader is handed while this override is active: both
+    /// indices are the pinned row, so no fade is ever drawn.
+    pub fn sets(self) -> Option<(i32, i32, f32)> {
+        self.row().map(|row| (row as i32, row as i32, 0.))
+    }
+}
+
 /// A swap request in the same units `0x79aeb0` receives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Request {
@@ -1120,5 +1180,24 @@ mod tests {
         // And the machine's own view of the frame is what got published.
         assert_eq!(frame, frame_sets(&m));
         assert_eq!(counter, m.counter(), "no view advanced the machine");
+    }
+
+    #[test]
+    fn the_sky_override_pins_one_row_and_never_fades() {
+        assert_eq!(SkyOverride::Auto.row(), None);
+        assert_eq!(SkyOverride::Auto.sets(), None);
+        for option in SkyOverride::ALL {
+            assert_eq!(SkyOverride::parse(option.token()), Some(option));
+            if let Some((current, incoming, weight)) = option.sets() {
+                let row = option.row().expect("a pinned row");
+                assert_eq!((current, incoming, weight), (row as i32, row as i32, 0.));
+                assert!(Triple(row).valid(), "{} is a sky.lst row", option.label());
+            }
+        }
+        // The three pinned rows are the shipped sky.lst order.
+        assert_eq!(SkyOverride::Clear.row(), Some(Triple::DAY.0));
+        assert_eq!(SkyOverride::Overcast.row(), Some(Triple::NIGHT.0));
+        assert_eq!(SkyOverride::Sunset.row(), Some(2));
+        assert_eq!(SkyOverride::parse("auto"), None, "tokens are exact");
     }
 }
