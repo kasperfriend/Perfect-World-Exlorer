@@ -350,8 +350,10 @@ mod tests {
         let moon = angular_radius(MOON_HALF_EXTENT);
         assert!((sun.to_degrees() - 5.710_593).abs() < 1e-5);
         assert!((moon.to_degrees() - 11.309_932).abs() < 1e-5);
-        assert!((sun * 2.0 * DISTANCE - 2.0 * SUN_HALF_EXTENT).abs() < 1e-3);
-        assert!((moon * 2.0 * DISTANCE - 2.0 * MOON_HALF_EXTENT).abs() < 1e-3);
+        // tan(half angle) * distance is the half extent exactly; the arc length
+        // is not, and at these sizes the difference is 0.07 units.
+        assert!((sun.tan() * DISTANCE - SUN_HALF_EXTENT).abs() < 1e-3);
+        assert!((moon.tan() * DISTANCE - MOON_HALF_EXTENT).abs() < 1e-3);
         // The templates say exactly 20, 40 and 120 x 40 units.
         assert_eq!(SUN_HALF_EXTENT * 2.0, 20.0);
         assert_eq!(MOON_HALF_EXTENT * 2.0, 40.0);

@@ -180,17 +180,18 @@ mod tests {
 
     #[test]
     fn reads_an_angelica_package_and_its_payload() {
-        let pkg = package("configs/autofamilyconfigs/sky.lst", b"3\r\n0\r\n");
+        let stored = b"3\r\n0\r\n";
+        let pkg = package("configs/autofamilyconfigs/sky.lst", stored);
         let path = std::env::temp_dir().join("pw-angelica-test.pck");
         std::fs::write(&path, &pkg).unwrap();
         let mut file = File::open(&path).unwrap();
         let entries = directory(&mut file).unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "configs/autofamilyconfigs/sky.lst");
-        assert_eq!(entries[0].size, 3);
-        assert_eq!(entries[0].compressed, 3);
+        assert_eq!(entries[0].size, stored.len() as u32);
+        assert_eq!(entries[0].compressed, stored.len() as u32);
         let payload = crate::pck::read_entry(&mut file, &entries[0]).unwrap();
-        assert_eq!(payload, b"3\r\n0\r\n");
+        assert_eq!(payload, stored);
         std::fs::remove_file(&path).ok();
     }
 }
