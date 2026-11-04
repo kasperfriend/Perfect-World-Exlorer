@@ -20,7 +20,7 @@ fn at(f: &mut File, p: u64, n: usize) -> Result<Vec<u8>, String> {
     Ok(b)
 }
 fn inflate(bytes: &[u8], expected: usize) -> Result<Vec<u8>, String> {
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(expected.min(1024 * 1024));
     ZlibDecoder::new(bytes)
         .take((expected + 1) as u64)
         .read_to_end(&mut out)
@@ -109,10 +109,68 @@ pub fn directory(f: &mut File) -> Result<Vec<Entry>, String> {
 }
 
 pub fn read_entry(f: &mut File, e: &Entry) -> Result<Vec<u8>, String> {
-    let bytes = at(f, e.offset as u64, e.compressed as usize)?;
     if e.compressed < e.size {
-        inflate(&bytes, e.size as usize)
+        // Decode directly from a bounded file reader. The old path retained a
+        // complete compressed member alongside its expanded output.
+        f.seek(SeekFrom::Start(e.offset as u64))
+            .map_err(|err| err.to_string())?;
+        let mut out = Vec::with_capacity((e.size as usize).min(1024 * 1024));
+        ZlibDecoder::new(f.take(e.compressed as u64))
+            .take(e.size as u64 + 1)
+            .read_to_end(&mut out)
+            .map_err(|err| err.to_string())?;
+        if out.len() != e.size as usize {
+            return Err(format!(
+                "bad decompressed size: {} != {}",
+                out.len(),
+                e.size
+            ));
+        }
+        Ok(out)
     } else {
-        Ok(bytes)
+        at(f, e.offset as u64, e.compressed as usize)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    #[test]
+    fn bounded_streaming_decode_matches_the_original_member() {
+        let expected = vec![37u8; 128 * 1024];
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&expected).unwrap();
+        let packed = encoder.finish().unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "pw-pck-{}-{}.tmp",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let mut f = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        f.write_all(&[0; 17]).unwrap();
+        f.write_all(&packed).unwrap();
+        f.write_all(&[99; 100]).unwrap(); // next member is not part of the stream
+        let mut entry = Entry {
+            name: "test".into(),
+            offset: 17,
+            size: expected.len() as u32,
+            compressed: packed.len() as u32,
+        };
+        let decoded = read_entry(&mut f, &entry);
+        entry.size -= 1;
+        let invalid = read_entry(&mut f, &entry);
+        drop(f);
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(decoded.unwrap(), expected);
+        assert!(invalid.is_err());
     }
 }

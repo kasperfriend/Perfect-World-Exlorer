@@ -748,7 +748,11 @@ fn draw_one(
             let data = read(path)?;
             let alpha = crate::model_dds::Dds::parse(&data)?.format.alpha_texture();
             let texture = std::sync::Arc::new(crate::model_texture_gpu::upload(
-                device, queue, &data, crate::model_texture_gpu::UploadMode::Auto)?);
+                device,
+                queue,
+                &data,
+                crate::model_texture_gpu::UploadMode::Auto,
+            )?);
             textures.insert(path.into(), (texture.clone(), alpha));
             Ok((texture, alpha))
         },

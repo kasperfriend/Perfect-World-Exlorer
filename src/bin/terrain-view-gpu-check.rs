@@ -96,7 +96,7 @@ fn main() {
         source: wgpu::ShaderSource::Wgsl(source.into()),
     });
 
-    // Bindings 0..=10, matching the production layout one-for-one.
+    // Bindings 0..=16, matching the production layout one-for-one.
     let binding = |b: u32| wgpu::BindGroupLayoutEntry {
         binding: b,
         visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
@@ -139,6 +139,12 @@ fn main() {
             binding(8),
             binding(9),
             binding(10),
+            binding(11),
+            binding(12),
+            binding(13),
+            binding(14),
+            binding(15),
+            binding(16),
         ],
     });
 
@@ -227,8 +233,8 @@ fn main() {
     // Native sampler policy: MAG/MIN/MIP = 2 = D3DTEXF_LINEAR and ADDRESSU/V = 2
     // = D3DTADDRESS_MIRROR (0x7c14b0), with no D3DTSS_MAXANISOTROPY write.
     let layer_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        address_mode_u: wgpu::AddressMode::MirrorRepeat,
-        address_mode_v: wgpu::AddressMode::MirrorRepeat,
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
         mipmap_filter: wgpu::FilterMode::Linear,
@@ -281,6 +287,30 @@ fn main() {
             },
             wgpu::BindGroupEntry {
                 binding: 10,
+                resource: wgpu::BindingResource::TextureView(&color_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 11,
+                resource: wgpu::BindingResource::TextureView(&color_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 12,
+                resource: wgpu::BindingResource::TextureView(&color_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 13,
+                resource: wgpu::BindingResource::TextureView(&color_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 14,
+                resource: wgpu::BindingResource::TextureView(&color_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 15,
+                resource: wgpu::BindingResource::TextureView(&color_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 16,
                 resource: wgpu::BindingResource::TextureView(&color_view),
             },
         ],

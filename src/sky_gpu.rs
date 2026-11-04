@@ -104,9 +104,11 @@ struct Uniform {
     /// set crossfade of `sky_transition` rides here (P5.07): both indices name
     /// one whole three-texture set in the same array.
     sets: [f32; 4],
+    glow_center: [f32; 4],
 }
 
 pub struct SkyGpu {
+    glow_center: [f32; 4],
     pipeline: wgpu::RenderPipeline,
     normal: wgpu::BindGroup,
     reflected: wgpu::BindGroup,
@@ -124,8 +126,32 @@ pub struct SkyGpu {
     glow_layers: [bool; 2],
 }
 
+/// Centre of the bright core, ignoring the asymmetric low-intensity flare
+/// tail. Thresholding the brightest channel also handles saturated red art.
+fn luminous_center(image: &image::RgbaImage) -> [f32; 2] {
+    let peak = image
+        .pixels()
+        .map(|p| *p.0[..3].iter().max().unwrap() as f64)
+        .fold(0.0f64, f64::max);
+    let mut sum = [0.0f64; 3];
+    for (x, y, p) in image.enumerate_pixels() {
+        let value = *p.0[..3].iter().max().unwrap() as f64;
+        let weight = (value - peak * 0.5).max(0.0) * p[3] as f64;
+        sum[0] += (x as f64 + 0.5) * weight;
+        sum[1] += (y as f64 + 0.5) * weight;
+        sum[2] += weight;
+    }
+    if sum[2] == 0.0 {
+        return [0.5; 2];
+    }
+    [
+        (sum[0] / sum[2] / image.width() as f64) as f32,
+        (sum[1] / sum[2] / image.height() as f64) as f32,
+    ]
+}
+
 pub(crate) const SHADER: &str = r#"
-struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>};
+struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>,glow_center:vec4<f32>};
 // Mirrors the Rust `GLOW_SCALE`: the shine quad is this many billboards wide.
 const GLOW_SCALE:f32=12.0;
 @group(0) @binding(0) var<uniform> p:Params;
@@ -239,7 +265,10 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->ve
  // Shine quad: `sunshine.bmp`, on a quad GLOW_SCALE times the billboard.
  // Viewer-only size (see GLOW_SCALE). `shine` is 0 for the moon, whose
  // `moonflare.bmp` belongs to the flare chain rather than to this quad.
- let guv=axis/(2.0*0.01*GLOW_SCALE*z)+vec2<f32>(0.5);
+ // The bitmap's luminous hotspot need not be at its rectangle centre.
+ // Offset in billboard UV space, so alignment survives pitch and reflection.
+ let centre=select(p.glow_center.zw,p.glow_center.xy,disc==9);
+ let guv=axis/(2.0*0.01*GLOW_SCALE*z)+centre;
  if guv.x>=0.0 && guv.x<=1.0 && guv.y>=0.0 && guv.y<=1.0 {
   out=clamp(out+textureSampleLevel(skies,smp,guv,glow,0.).rgb*(alpha*shine),vec3<f32>(0.),vec3<f32>(1.));
  }
@@ -381,6 +410,17 @@ impl SkyGpu {
             glow_layers[i] = decoded.is_some();
             frames.push(decoded.unwrap_or_else(|| image::RgbaImage::new(512, 512)));
         }
+        let sun_core = luminous_center(&frames[9]);
+        let sun_glow = luminous_center(&frames[11]);
+        // Match the luminous centre of the disc (including non-centred art),
+        // not just the mathematical billboard centre.
+        let ratio = DISC_SCALE / GLOW_SCALE;
+        let glow_center = [
+            sun_glow[0] - (sun_core[0] - 0.5) * ratio,
+            sun_glow[1] - (sun_core[1] - 0.5) * ratio,
+            0.5,
+            0.5,
+        ];
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("client sky images"),
             size: wgpu::Extent3d {
@@ -461,6 +501,7 @@ impl SkyGpu {
                     // Committed set 0 with weight zero: the shader leaves the
                     // hour blend untouched until `begin_frame` uploads a frame.
                     sets: [0., 0., 0., 12.],
+                    glow_center,
                 }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             })
@@ -568,6 +609,7 @@ impl SkyGpu {
             multiview: None,
         });
         Ok(Self {
+            glow_center,
             pipeline,
             normal,
             reflected,
@@ -619,6 +661,7 @@ impl SkyGpu {
                 DISC_SCALE,
             ],
             sets: [sets.0 as f32, sets.1 as f32, sets.2, frame.hour],
+            glow_center: self.glow_center,
         };
         queue.write_buffer(
             if reflected {
@@ -825,6 +868,16 @@ mod reflection_tests {
             );
         }
     }
+    #[test]
+    fn glow_alignment_uses_the_bright_core_not_the_bitmap_midpoint() {
+        let mut img = image::RgbaImage::from_pixel(8, 8, image::Rgba([0, 0, 0, 255]));
+        img.put_pixel(3, 5, image::Rgba([255, 0, 0, 255]));
+        // Dim, asymmetric flare tail must not pull the centre down.
+        img.put_pixel(3, 7, image::Rgba([40, 0, 0, 255]));
+        assert_eq!(luminous_center(&img), [3.5 / 8., 5.5 / 8.]);
+        assert_eq!(luminous_center(&image::RgbaImage::new(8, 8)), [0.5; 2]);
+    }
+
     #[test]
     fn sky_frame_defaults_to_the_recovered_day_state() {
         let frame = SkyFrame::default();

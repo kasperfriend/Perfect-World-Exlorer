@@ -17,11 +17,17 @@ pub(crate) struct Texture {
 impl Texture {
     pub(crate) fn decode(&self) -> Result<Vec<crate::dxt::Level>, String> {
         let info = crate::terrain_sampling::parse_terrain_dds(&self.source)?;
-        crate::dxt::decode_chain(info.format.four_cc(), &self.source[128..],
-            info.width, info.height, info.authored_mips)
+        crate::dxt::decode_chain(
+            info.format.four_cc(),
+            &self.source[128..],
+            info.width,
+            info.height,
+            info.authored_mips,
+        )
     }
     fn cpu_levels(&self) -> &[crate::dxt::Level] {
-        self.levels.get_or_init(|| self.decode().expect("validated terrain DDS"))
+        self.levels
+            .get_or_init(|| self.decode().expect("validated terrain DDS"))
     }
 }
 
@@ -34,19 +40,32 @@ pub(crate) struct Mask {
 }
 impl Mask {
     fn raw(bytes: Vec<u8>) -> Self {
-        Self { bytes, compressed: false, decoded: Default::default() }
+        Self {
+            bytes,
+            compressed: false,
+            decoded: Default::default(),
+        }
     }
     pub(crate) fn decode(&self, side: usize) -> Result<std::borrow::Cow<'_, [u8]>, String> {
-        if !self.compressed { return Ok(std::borrow::Cow::Borrowed(&self.bytes)); }
+        if !self.compressed {
+            return Ok(std::borrow::Cow::Borrowed(&self.bytes));
+        }
         let mut out = Vec::with_capacity(side * side);
-        ZlibDecoder::new(self.bytes.as_slice()).take((side * side + 1) as u64)
-            .read_to_end(&mut out).map_err(|e| e.to_string())?;
-        if out.len() != side * side { return Err("invalid decoded mask size".into()); }
+        ZlibDecoder::new(self.bytes.as_slice())
+            .take((side * side + 1) as u64)
+            .read_to_end(&mut out)
+            .map_err(|e| e.to_string())?;
+        if out.len() != side * side {
+            return Err("invalid decoded mask size".into());
+        }
         Ok(std::borrow::Cow::Owned(out))
     }
     fn cpu_bytes(&self, side: usize) -> &[u8] {
-        if !self.compressed { return &self.bytes; }
-        self.decoded.get_or_init(|| self.decode(side).expect("validated mask").into_owned())
+        if !self.compressed {
+            return &self.bytes;
+        }
+        self.decoded
+            .get_or_init(|| self.decode(side).expect("validated mask").into_owned())
     }
 }
 pub(crate) struct Layer {
@@ -153,7 +172,12 @@ impl Materials {
             let info = crate::terrain_sampling::parse_terrain_dds(&raw)
                 .map_err(|e| format!("texture {path}: {e}"))?;
             let (w, h) = (info.width as usize, info.height as usize);
-            textures.push(Texture { w, h, source: raw, levels: Default::default() });
+            textures.push(Texture {
+                w,
+                h,
+                source: raw,
+                levels: Default::default(),
+            });
         }
         let mut areas: Vec<Area> = (0..areas_x * areas_y)
             .map(|_| Area { layers: Vec::new() })
@@ -245,7 +269,11 @@ impl Materials {
                         v: f32at(&data, lp + 20)?,
                         mask_size: size,
                         mask: match packed {
-                            Some(bytes) => Mask { bytes, compressed: true, decoded: Default::default() },
+                            Some(bytes) => Mask {
+                                bytes,
+                                compressed: true,
+                                decoded: Default::default(),
+                            },
                             None => Mask::raw(mask),
                         },
                     });
@@ -336,6 +364,29 @@ impl Materials {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn packed_masks_upload_losslessly_without_retaining_expanded_pixels() {
+        use std::io::Write;
+        let expected: Vec<u8> = (0..256 * 256)
+            .map(|i| ((i / 256 + i % 256) % 256) as u8)
+            .collect();
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&expected).unwrap();
+        let mask = Mask {
+            bytes: encoder.finish().unwrap(),
+            compressed: true,
+            decoded: Default::default(),
+        };
+        assert!(mask.bytes.len() < expected.len() / 4);
+        assert_eq!(mask.decode(256).unwrap().as_ref(), expected);
+        assert!(mask.decoded.get().is_none(), "GPU decode must be temporary");
+        assert_eq!(mask.cpu_bytes(256), expected);
+        assert!(
+            mask.decode(128).is_err(),
+            "wrong size is rejected, not truncated"
+        );
+    }
+
     #[test]
     fn blends_real_mask_weight() {
         let m = Materials {

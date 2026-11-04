@@ -144,9 +144,14 @@ pub struct Draw {
 #[derive(Default)]
 pub struct ReceiverCache(std::collections::HashMap<String, std::sync::Arc<raster::Receiver>>);
 impl ReceiverCache {
-    fn get(&mut self, key: String, create: impl FnOnce() -> Result<raster::Receiver, String>)
-        -> Result<std::sync::Arc<raster::Receiver>, String> {
-        if let Some(receiver) = self.0.get(&key) { return Ok(receiver.clone()); }
+    fn get(
+        &mut self,
+        key: String,
+        create: impl FnOnce() -> Result<raster::Receiver, String>,
+    ) -> Result<std::sync::Arc<raster::Receiver>, String> {
+        if let Some(receiver) = self.0.get(&key) {
+            return Ok(receiver.clone());
+        }
         let receiver = std::sync::Arc::new(create()?);
         self.0.insert(key, receiver.clone());
         Ok(receiver)
@@ -165,14 +170,29 @@ impl Draw {
         frame: Frame,
         mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<Self, String> {
-        Self::with_textures(device, queue, format, depth, depth_write, sampler,
-            asset, poses, frame, &mut ReceiverCache::default(), |path| {
+        Self::with_textures(
+            device,
+            queue,
+            format,
+            depth,
+            depth_write,
+            sampler,
+            asset,
+            poses,
+            frame,
+            &mut ReceiverCache::default(),
+            |path| {
                 let bytes = read(path)?;
                 let alpha = crate::model_dds::Dds::parse(&bytes)?.format.alpha_texture();
-                let texture = model_texture_gpu::upload(device, queue, &bytes,
-                    model_texture_gpu::UploadMode::Auto)?;
+                let texture = model_texture_gpu::upload(
+                    device,
+                    queue,
+                    &bytes,
+                    model_texture_gpu::UploadMode::Auto,
+                )?;
                 Ok((std::sync::Arc::new(texture), alpha))
-            })
+            },
+        )
     }
 
     /// Share immutable texture allocations across placements and all water passes.
@@ -242,19 +262,36 @@ impl Draw {
         for (_, alpha_texture) in &loaded {
             states.push(model.mesh_state(false, *alpha_texture)?);
         }
-        let receiver = receivers.get(format!("{format:?}/{depth:?}/{depth_write}/{}", frame.blend_enabled), || {
-            if frame.blend_enabled {
-                raster::Receiver::new(device, format, depth, depth_write)
-            } else {
-                raster::Receiver::new_opaque(device, format, depth, depth_write)
-            }
-        })?;
-        let alpha_receiver = match states.iter().find(|state| state.queue == model_queue::Queue::Alpha) {
+        let receiver = receivers.get(
+            format!("{format:?}/{depth:?}/{depth_write}/{}", frame.blend_enabled),
+            || {
+                if frame.blend_enabled {
+                    raster::Receiver::new(device, format, depth, depth_write)
+                } else {
+                    raster::Receiver::new_opaque(device, format, depth, depth_write)
+                }
+            },
+        )?;
+        let alpha_receiver = match states
+            .iter()
+            .find(|state| state.queue == model_queue::Queue::Alpha)
+        {
             Some(state) => Some(receivers.get(
-                format!("{format:?}/{depth:?}/alpha/{:?}/{:?}", state.source, state.destination), || {
-                    raster::Receiver::new_blended(device, format, depth,
-                        model_queue::ALPHA_DEPTH_WRITE, blend_factor(state.source), blend_factor(state.destination))
-                })?),
+                format!(
+                    "{format:?}/{depth:?}/alpha/{:?}/{:?}",
+                    state.source, state.destination
+                ),
+                || {
+                    raster::Receiver::new_blended(
+                        device,
+                        format,
+                        depth,
+                        model_queue::ALPHA_DEPTH_WRITE,
+                        blend_factor(state.source),
+                        blend_factor(state.destination),
+                    )
+                },
+            )?),
             None => None,
         };
         let mut meshes = Vec::with_capacity(prepared.len());

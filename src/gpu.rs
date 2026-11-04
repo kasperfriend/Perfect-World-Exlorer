@@ -410,9 +410,13 @@ fn build(
         for x in win.x0..win.x1 {
             let i = (y - win.y0) * (win.x1 - win.x0) + x - win.x0;
             let case = levels.level(x, y).saturating_sub(1);
-            for (side, boundary) in [y == win.y0, y + 1 == win.y1,
-                x == win.x0, x + 1 == win.x1].into_iter().enumerate() {
-                if boundary { levels.cases[i][side] = case; }
+            for (side, boundary) in [y == win.y0, y + 1 == win.y1, x == win.x0, x + 1 == win.x1]
+                .into_iter()
+                .enumerate()
+            {
+                if boundary {
+                    levels.cases[i][side] = case;
+                }
             }
         }
     }
@@ -434,8 +438,12 @@ fn build(
     let census =
         residency.update_stitched(
             &win,
-            |x, y| (levels.level(x, y),
-                levels.cases[(y - win.y0) * (win.x1 - win.x0) + x - win.x0]),
+            |x, y| {
+                (
+                    levels.level(x, y),
+                    levels.cases[(y - win.y0) * (win.x1 - win.x0) + x - win.x0],
+                )
+            },
             |x, y, level| {
                 let cases = levels.cases[(y - win.y0) * (win.x1 - win.x0) + (x - win.x0)];
                 let surface = crate::terrain_lod::block_surface(level, cases);
@@ -1095,6 +1103,7 @@ struct Renderer {
     /// Resident terrain blocks (`0x77e250`) and the runs submitted last frame.
     spans: Vec<crate::terrain_residency::Span>,
     terrain_runs: Vec<(u32, u32)>,
+    far_terrain_runs: Vec<(u32, u32)>,
     terrain_end: u32,
     world_width: usize,
     world_height: usize,
@@ -1677,6 +1686,7 @@ impl Renderer {
             lod: m.lod,
             spans: m.spans,
             terrain_runs: Vec::new(),
+            far_terrain_runs: Vec::new(),
         })
     }
     /// Sample time and publish the frame's lighting/playback state exactly
@@ -2146,7 +2156,7 @@ impl Renderer {
         // The main view submits only the blocks its frustum keeps
         // (`block+0x74`); the other passes reuse the full terrain because they
         // look through different matrices and must not lose blocks.
-        let runs = if reflected {
+        let runs = if reflected || !matches!(pass_kind, Pass::Main | Pass::Fog) {
             None
         } else {
             Some(self.terrain_runs.as_slice())
@@ -2158,6 +2168,11 @@ impl Renderer {
             &self.index,
             self.terrain_end,
             runs,
+            if matches!(pass_kind, Pass::Main | Pass::Fog) {
+                Some(&self.far_terrain_runs)
+            } else {
+                None
+            },
         );
         drop(p);
         if let Some(source) = terrain_depth_source {
@@ -2407,6 +2422,7 @@ impl Renderer {
         // Per-frame, per-view visibility of the resident terrain (`0x77e250`):
         // the same block walk the client runs before the level rule.
         self.terrain_runs = crate::terrain_residency::visible_runs(&self.spans, matrix);
+        self.far_terrain_runs = self.terrain_gpu.visible_far_runs(matrix);
         let frame = self.begin_frame(camera, w, h);
         self.weather.advance(camera.logic_delta_ms);
         let selected_weather = camera.regional_light.map_or(

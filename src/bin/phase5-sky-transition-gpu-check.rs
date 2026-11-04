@@ -128,9 +128,9 @@ fn read_back(
     bytes
 }
 
-/// One frame through the production shader. `params` is the exact 160-byte
+/// One frame through the production shader. `params` is the exact 176-byte
 /// `Params` uniform: `inv`, `time`, `celestial`, `celestial2`, `background`,
-/// `tint`, `sets`.
+/// `tint`, `sets`, `glow_center`.
 fn render(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -140,7 +140,7 @@ fn render(
     sampler: &wgpu::Sampler,
     roof_sampler: &wgpu::Sampler,
     t: &Target,
-    params: &[f32; 40],
+    params: &[f32; 44],
 ) -> Vec<u8> {
     let buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("phase5 sky params"),
@@ -361,7 +361,7 @@ fn main() {
         }
     };
     let uniform = |inv: Mat4, sets: (f32, f32, f32)| {
-        let mut u = [0f32; 40];
+        let mut u = [0f32; 44];
         u[..16].copy_from_slice(&inv.to_cols_array());
         u[16] = 19.; // hour
         u[17] = 0.; // night weight: this probe is about sets and altitude

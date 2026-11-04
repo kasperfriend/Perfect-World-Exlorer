@@ -267,6 +267,45 @@ mod tests {
     }
 
     #[test]
+    fn neighbor_stitch_changes_invalidate_an_unchanged_level() {
+        let mut r = Residency::default();
+        let win = window(0, 0, 2, 1);
+        r.update_stitched(&win, |_, _| (3, [0; 4]), |x, _, _| Ok(block(x as f32)))
+            .unwrap();
+        let c = r
+            .update_stitched(
+                &win,
+                |x, _| (3, if x == 0 { [0, 0, 0, 1] } else { [0; 4] }),
+                |x, _, level| {
+                    assert_eq!((x, level), (0, 3));
+                    Ok(block(x as f32))
+                },
+            )
+            .unwrap();
+        assert_eq!(c.remeshed, 1);
+        let c = r
+            .update_stitched(
+                &win,
+                |x, _| (3, if x == 0 { [0, 0, 0, 1] } else { [0; 4] }),
+                |_, _, _| panic!("unchanged stitched mesh must be reused"),
+            )
+            .unwrap();
+        assert_eq!(c.remeshed, 0);
+    }
+
+    #[test]
+    fn level_zero_removes_previously_resident_geometry() {
+        let mut r = Residency::default();
+        let win = window(0, 0, 1, 1);
+        r.update(&win, |_, _| 3, |_, _, _| Ok(block(0.))).unwrap();
+        let c = r
+            .update(&win, |_, _| 0, |_, _, _| panic!("disabled"))
+            .unwrap();
+        assert_eq!(c.resident, 0);
+        assert_eq!(c.triangles, 0);
+    }
+
+    #[test]
     fn blocks_enter_with_the_window_and_are_evicted_when_it_leaves() {
         let mut residency = Residency::default();
         let first = window(0, 0, 2, 2);
