@@ -44,29 +44,23 @@ use wgpu::util::DeviceExt;
 /// | moon | `x -20..20`, `y 0..-40` | 22.62 deg |
 ///
 /// so the sun is drawn at 10 units and the moon at 20 units half extent, not at
-/// the single 1-unit quad this viewer used to draw for both. See
-/// `sky_celestial::SUN_HALF_EXTENT`, [`crate::sky_celestial::sun_half_extent`]
-/// and [`crate::sky_celestial::shine_ramp`].
-pub const SUN_HALF_EXTENT: f32 = crate::sky_celestial::SUN_HALF_EXTENT;
+/// the single 1-unit quad this viewer used to draw for both. The numbers are
+/// repeated here rather than imported from `sky_celestial` because the GPU
+/// check binaries build this module on its own; `sky_celestial` is the source
+/// of truth (and owns `sun_half_extent` / `shine_ramp`).
+pub const SUN_HALF_EXTENT: f32 = 10.0;
 /// Moon template half extent in the same plane.
-pub const MOON_HALF_EXTENT: f32 = crate::sky_celestial::MOON_HALF_EXTENT;
+pub const MOON_HALF_EXTENT: f32 = 20.0;
 /// Sun-shine template half width (`x` in `-60..60`).
-pub const SUNSHINE_HALF_WIDTH: f32 = crate::sky_celestial::SUNSHINE_HALF_WIDTH;
+pub const SUNSHINE_HALF_WIDTH: f32 = 60.0;
 /// Sun-shine template half height (`y` in `10..-30`).
-pub const SUNSHINE_HALF_HEIGHT: f32 = crate::sky_celestial::SUNSHINE_HALF_HEIGHT;
-/// Sun-shine template centre offset: the strip is centred 10 units below the
-/// emitted direction (`y` runs `10..-30`).
-pub const SUNSHINE_CENTRE_OFFSET: f32 = 10.0;
-/// Flare-chain sprite half extents in the same plane. The client's flare stream
-/// quads are generated per frame and their sizes are not recovered; the viewer
-/// anchors them to the recovered templates (`20 x 20` sun, `40 x 40` moon).
-pub const FLARE_HALF_EXTENTS: [f32; 3] = [SUN_HALF_EXTENT, 2.0 * SUN_HALF_EXTENT, 4.0 * SUN_HALF_EXTENT];
-/// Ring (`flares.bmp`) half extents: one step larger than the sun-flare sprites.
-pub const RING_HALF_EXTENTS: [f32; 3] = [
-    2.0 * SUN_HALF_EXTENT,
-    4.0 * SUN_HALF_EXTENT,
-    8.0 * SUN_HALF_EXTENT,
-];
+///
+/// The client hangs both quads from the emitted point — the sun template spans
+/// `y 0..-20` and the strip `y 10..-30` — so their *centres* coincide at
+/// `y = -10` and the strip is concentric with the disc, not offset below it.
+/// The viewer draws both centred on the emitted direction, which keeps that
+/// relative placement.
+pub const SUNSHINE_HALF_HEIGHT: f32 = 20.0;
 
 /// Per-frame sky inputs, all recovered values.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -209,7 +203,6 @@ const SUN_HALF:f32=10.0;
 const MOON_HALF:f32=20.0;
 const SHINE_HALF_WIDTH:f32=60.0;
 const SHINE_HALF_HEIGHT:f32=20.0;
-const SHINE_CENTRE_OFFSET:f32=10.0;
 
 // `CECSunMoon::Render` sun-shine strength (0x4b3dc1..0x4b3e22): zero until the
 // night strength passes 0.3, ramp to 1 at 0.6, hold to 0.8, then `(1-n)*5`.
@@ -332,12 +325,14 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,flar
  let plane=vec2<f32>(dot(d,right),-dot(d,up))*(100.0/z);
  var out=color;
  if is_sun {
-  // The recovered sun-shine strip: 120 wide, 40 tall, centred 10 units below
-  // the sun, sampled with `sunshine.bmp` across the whole rectangle. Drawn only
-  // inside the recovered night-strength window.
+  // The recovered sun-shine strip: 120 wide, 40 tall, concentric with the disc
+  // (the client hangs both 10 units below the emitted point), sampled with
+  // `sunshine.bmp` across the whole rectangle. `glow_center.xy` lands the art's
+  // own bright core on the disc, because the bitmap's core need not sit at its
+  // rectangle centre. Drawn only inside the recovered night-strength window.
   let strength=shine_ramp(n);
   if strength>0.0 {
-   let suv=vec2<f32>(plane.x/(2.0*SHINE_HALF_WIDTH*swell)+0.5,(plane.y+SHINE_CENTRE_OFFSET)/(2.0*SHINE_HALF_HEIGHT*swell)+0.5);
+   let suv=vec2<f32>(plane.x/(2.0*SHINE_HALF_WIDTH*swell),plane.y/(2.0*SHINE_HALF_HEIGHT*swell))+p.glow_center.xy;
    if suv.x>=0.0 && suv.x<=1.0 && suv.y>=0.0 && suv.y<=1.0 {
     out=clamp(out+textureSampleLevel(skies,smp,suv,glow,0.).rgb*(alpha*strength),vec3<f32>(0.),vec3<f32>(1.));
    }
@@ -441,7 +436,7 @@ impl SkyGpu {
         let mut frames = Vec::new();
         let mut day_set = 0usize;
         let mut night_set = 1usize;
-        let load_layer = |key: &str, fallback: &str| -> Result<image::RgbaImage, String> {
+        let mut load_layer = |key: &str, fallback: &str| -> Result<image::RgbaImage, String> {
             let key = if entries.contains_key(key) {
                 key.to_string()
             } else {
@@ -496,9 +491,9 @@ impl SkyGpu {
         // The atlas must always hold nine sky layers even if a `sky.lst` row is
         // short; pad with the clear set so `set * 3` stays valid.
         while frames.len() < 9 {
-            let fallback = ["textures/sky/clear/01.bmp", "textures/sky/clear/02.bmp", "textures/sky/clear/roof.bmp"];
-            let name = fallback[frames.len() % 3];
-            frames.push(load_layer(name, name)?);
+            let name = ATLAS_ORDER[frames.len() % 3];
+            let fallback = format!("textures/sky/clear/{name}");
+            frames.push(load_layer(&fallback, &fallback)?);
         }
         // Extra layers are the client sun and moon discs; absent optional assets
         // stay transparent so the world still loads.

@@ -579,7 +579,7 @@ mod tests {
         assert_eq!(m.current(), Triple::NIGHT);
         assert!(!m.running());
         assert!(!m.waiting());
-        assert_eq!(frame_sets(&m), (2, 2, 0.));
+        assert_eq!(frame_sets(&m), (1, 1, 0.), "night is set 1");
         assert_eq!(m.commits(), 1);
         // The same-set guard (0x79ad7d) refuses a repeat and starts no fade.
         assert_eq!(
@@ -609,7 +609,7 @@ mod tests {
         assert_eq!(m.counter(), 200);
         assert_eq!(frame_sets(&m), (0, 0, 0.), "no fade until the load lands");
         m.resources_ready();
-        assert_eq!(frame_sets(&m), (0, 2, 0.));
+        assert_eq!(frame_sets(&m), (0, 1, 0.));
         assert!(!m.step());
         assert_eq!(m.counter(), 167);
         assert_eq!(m.blend(), 1. - 167. / 200.);
@@ -620,7 +620,7 @@ mod tests {
         }
         assert_eq!(m.current(), Triple::NIGHT);
         assert!(!m.running());
-        assert_eq!(frame_sets(&m), (2, 2, 0.));
+        assert_eq!(frame_sets(&m), (1, 1, 0.));
     }
 
     #[test]
@@ -672,13 +672,13 @@ mod tests {
     #[test]
     fn a_running_swap_is_never_retargeted() {
         let mut m = Machine::new(Triple::DAY);
-        assert!(m.request(Request::over(Triple(1), 100)).is_ok());
+        assert!(m.request(Request::over(Triple(2), 100)).is_ok());
         assert_eq!(
             m.request(Request::now(Triple::NIGHT)),
             Err(Refused::Busy),
             "0x79ac48 guards the load"
         );
-        assert_eq!(m.pending(), Triple(1));
+        assert_eq!(m.pending(), Triple(2));
         m.resources_ready();
         assert_eq!(
             m.request(Request::now(Triple::NIGHT)),
@@ -687,7 +687,7 @@ mod tests {
         );
         m.hurry(1000);
         assert!(m.step());
-        assert_eq!(m.current(), Triple(1));
+        assert_eq!(m.current(), Triple(2));
         assert!(m.request(Request::now(Triple::NIGHT)).is_ok());
         assert_eq!(m.current(), Triple::NIGHT);
     }
@@ -788,8 +788,9 @@ mod tests {
         assert!(drive(&mut m, 0.9, true, 1000).is_none());
         assert!(!m.running());
         assert_eq!(m.current(), Triple(1));
-        // The night branch needs 0.5 or more (0x4207aa).
-        let mut m = Machine::new(Triple(1));
+        // The night branch needs 0.5 or more (0x4207aa). Start on set 2 so the
+        // night set (1) is still a real change.
+        let mut m = Machine::new(Triple(2));
         assert!(drive(&mut m, 0.4, false, 1000).is_none());
         assert!(!m.running());
         assert!(drive(&mut m, 0.75, false, 1000).is_some());
@@ -1063,18 +1064,18 @@ mod tests {
 
     #[test]
     fn frame_sets_are_the_committed_set_without_a_running_swap() {
-        let mut m = Machine::new(Triple(1));
-        assert_eq!(frame_sets(&m), (1, 1, 0.));
+        let mut m = Machine::new(Triple(2));
+        assert_eq!(frame_sets(&m), (2, 2, 0.));
         m.request(Request::over(Triple::NIGHT, 200)).unwrap();
-        assert_eq!(frame_sets(&m), (1, 1, 0.), "loading is not a fade");
+        assert_eq!(frame_sets(&m), (2, 2, 0.), "loading is not a fade");
         m.resources_ready();
-        assert_eq!(frame_sets(&m), (1, 2, 0.));
+        assert_eq!(frame_sets(&m), (2, 1, 0.));
         for _ in 0..100 {
             if m.step() {
                 break;
             }
         }
-        assert_eq!(frame_sets(&m), (2, 2, 0.));
+        assert_eq!(frame_sets(&m), (1, 1, 0.));
     }
 
     #[test]

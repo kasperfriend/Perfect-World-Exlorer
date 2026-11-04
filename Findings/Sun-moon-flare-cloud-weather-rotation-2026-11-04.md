@@ -134,8 +134,15 @@ old chain invisible.
 | file | change |
 | --- | --- |
 | `src/sky_celestial.rs` | `HALF_EXTENT = 1.0` replaced by `SUN_HALF_EXTENT = 10.0`, `MOON_HALF_EXTENT = 20.0`, `SUNSHINE_HALF_WIDTH/HEIGHT = 60/20`, `SUN_SWELL = 2.0`; new `sun_half_extent(n)` and `shine_ramp(n, night_set)`; `disc()`/`discs()` take the night strength; tests assert 11.421°/22.619° and the swell |
-| `src/sky_gpu.rs` | shader draws the recovered rectangles (20-unit sun, 120×40 strip centred 10 units below the sun, 40-unit moon, halo and ghosts in the same unit system), the `1 + 2*n` swell, the recovered shine window, and passes the night strength in `sets.w`; `DISC_SCALE`/`GLOW_SCALE` retired |
-| `src/gpu.rs` | status line reports the client's quad sizes and the recovered shine strength instead of "viewer size" |
+| `src/sky_gpu.rs` | shader draws the recovered rectangles (20-unit sun, 120×40 strip concentric with the sun, 40-unit moon, flare ghosts in the same unit system), the `1 + 2*n` swell, the recovered shine window, and passes the night strength in `sets.w`; `DISC_SCALE`/`GLOW_SCALE` retired |
+| `src/gpu.rs` | status line reports the client's quad sizes and the recovered shine strength instead of "viewer size"; the sun/moon status and the settings tooltip say 11.42°/22.62° |
+| `src/sky_transition.rs`, `src/bin/phase5-sky-seam-check.rs` | tests and the seam check now expect the night set at index **1** (`sky_id_night = 1`); they still asserted the old index 2 |
+| `src/bin/phase5-sky-transition-gpu-check.rs`, `src/bin/model-draw-gpu-check.rs` | build the modules `sky_gpu` now reads (`angelica_pck`, `sky_config`); the GPU check's texture array grew to 15 layers and enables the shine window through `sets.w` |
+
+The strip is **concentric** with the sun, not offset below it: the client hangs
+both quads from the emitted point (sun `y 0..-20`, strip `y 10..-30`), so their
+centres coincide at `y = -10` and only the art's own bright core needs aligning
+(`glow_center.xy`).
 
 ---
 

@@ -15,8 +15,12 @@
 //! Images are synthetic gradients, so this is state and shader coverage, not a
 //! claim about client screenshots or authored sky art.
 #![allow(dead_code)]
+#[path = "../angelica_pck.rs"]
+mod angelica_pck;
 #[path = "../pck.rs"]
 mod pck;
+#[path = "../sky_config.rs"]
+mod sky_config;
 #[path = "../scenery_visibility.rs"]
 mod scenery_visibility;
 #[path = "../sky_gpu.rs"]
@@ -30,9 +34,10 @@ use sky_transition::{Machine, Request, Triple};
 
 const W: u32 = 64;
 const H: u32 = 64;
-// 9 set layers (3 sets x 3 textures), 2 discs (9, 10) and 2 shine quads
-// (11 sun, 12 moon): the indices the production shader samples by name.
-const LAYERS: u32 = 13;
+// 9 set layers (3 sets x 3 textures), 2 discs (9, 10), 2 shine quads
+// (11 sun, 12 moon) and the 2 flare sprites (13 sunflare, 14 flares): the
+// indices the production shader samples by name.
+const LAYERS: u32 = 15;
 
 /// Deterministic gradient per texture layer, so two sets are visibly different
 /// while staying byte-stable across machines.
@@ -376,11 +381,11 @@ fn main() {
         u[32] = 1.; // tint: no phase darkening here
         u[33] = 1.;
         u[34] = 1.;
-        u[35] = 1.; // disc scale: native, the native quad is what the lane tests
+        u[35] = 1.; // retired disc-scale lane, kept so the layout stays fixed
         u[36] = sets.0;
         u[37] = sets.1;
         u[38] = sets.2;
-        u[39] = 19.;
+        u[39] = 0.; // night strength: day, so the sun keeps its native size
         u
     };
 
@@ -534,7 +539,9 @@ fn main() {
             let mut params = uniform(inv, (0., 0., 0.));
             params[20..24].copy_from_slice(&[1., el, az, 1.]);
             params[28..32].fill(0.);
-            params[35] = sky_gpu::DISC_SCALE;
+            // Night strength 0.45 sits inside the recovered shine window, so the
+            // strip is drawn at half strength and the sun swells by `1 + 2n`.
+            params[39] = 0.45;
             params[40..44].copy_from_slice(&lookup);
             let pixels = render(
                 &device,

@@ -55,9 +55,12 @@ fn record_ending_at(blob: &[u8], end: usize) -> Result<(Vec<u8>, usize), String>
             }
             let mut out = vec![0u8; 276];
             let mut decoder = Decompress::new(true);
-            let status = decoder
-                .decompress(&blob[start..end], &mut out, flate2::Flush::Finish)
-                .map_err(|e| e.to_string())?;
+            // Most candidate starts are not zlib streams at all: a bad one is
+            // skipped, not fatal, or the scan would stop at its first decoy.
+            let Ok(status) = decoder.decompress(&blob[start..end], &mut out, flate2::Flush::Finish)
+            else {
+                continue;
+            };
             if status == flate2::Status::StreamEnd
                 && decoder.total_out() == 276
                 && decoder.total_in() == (end - start) as u64

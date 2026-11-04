@@ -4,10 +4,11 @@
 //!
 //! * `CECSunMoon` render 0x4b3e00..0x4b41ee submits two billboards. Each one
 //!   is gated on its own elevation (`+0x4c` for the sun, `+0x50` for the moon)
-//!   being greater than `0.0` (`fcomp ds:0x8d58a0`), places the quad centre at
-//!   `direction * ds:0x8d6a9c` (100.0 world units) and offsets the four corners
-//!   by `+/- (0.5 * 2.0)` (constants `0x8d6a94` and `0x8d6a98`), so the disc
-//!   subtends `2 * atan(1 / 100)` = 1.146 degrees.
+//!   being greater than `0.0` (`fcomp ds:0x8d58a0`) and places its quad centre
+//!   at `direction * ds:0x8d6a9c` (100.0 world units). The quad sizes are the
+//!   vertex templates `CECSunMoon::Init` fills (`0x4b2fde` sun, `0x4b3425`
+//!   moon): 20 x 20 and 40 x 40 world units, so the discs subtend 11.42 and
+//!   22.62 degrees. `0x8d6a94`/`0x8d6a98` are not read by that path.
 //! * The direction is rebuilt every frame from `[+0x50]`/`[+0x4c]` and `[+0x60]`
 //!   as `(cos(az)cos(el), sin(el), sin(az)cos(el))`.
 //! * The vertex diffuse alpha is `fade_byte << 24` over an opaque RGB, taken
@@ -16,11 +17,11 @@
 //!   moon).
 //! * Textures are `textures/nature/sun.bmp` and `textures/nature/moon.tga`.
 //!
-//! No halo or flare geometry is submitted by that path: the flare looks are
-//! `solarflare_14.txt` style pixel-shader effects, and the package that holds
-//! them (`shaders.pck`) uses a key this repository cannot read yet. States this
-//! module cannot reproduce are reported as [`CelestialError`] instead of being
-//! drawn approximately.
+//! `CECSunMoon::Init` also fills a 120 x 40 sun-shine strip over
+//! `sunshine.bmp` (drawn by [`shine_ramp`]'s window) and the flare-chain streams
+//! over `sunflare.bmp`/`flares.bmp`, whose per-sprite placement is not
+//! recovered. States this module cannot reproduce are reported as
+//! [`CelestialError`] instead of being drawn approximately.
 
 use crate::sky_time::SunMoon;
 
@@ -345,15 +346,12 @@ mod tests {
     #[test]
     fn disc_size_matches_the_native_stream_templates_at_distance_100() {
         // 20 x 20 units at 100 -> 11.421 degrees; 40 x 40 -> 22.619 degrees.
-        assert!((angular_radius(SUN_HALF_EXTENT).to_degrees() - 5.710_593).abs() < 1e-5);
-        assert!((angular_radius(MOON_HALF_EXTENT).to_degrees() - 11.309_932).abs() < 1e-5);
-        assert!(
-            (angular_radius(SUN_HALF_EXTENT) * 2.0 * DISTANCE - 2.0 * SUN_HALF_EXTENT).abs() < 1e-3
-        );
-        assert!(
-            (angular_radius(MOON_HALF_EXTENT) * 2.0 * DISTANCE - 2.0 * MOON_HALF_EXTENT).abs()
-                < 1e-3
-        );
+        let sun = angular_radius(SUN_HALF_EXTENT);
+        let moon = angular_radius(MOON_HALF_EXTENT);
+        assert!((sun.to_degrees() - 5.710_593).abs() < 1e-5);
+        assert!((moon.to_degrees() - 11.309_932).abs() < 1e-5);
+        assert!((sun * 2.0 * DISTANCE - 2.0 * SUN_HALF_EXTENT).abs() < 1e-3);
+        assert!((moon * 2.0 * DISTANCE - 2.0 * MOON_HALF_EXTENT).abs() < 1e-3);
         // The templates say exactly 20, 40 and 120 x 40 units.
         assert_eq!(SUN_HALF_EXTENT * 2.0, 20.0);
         assert_eq!(MOON_HALF_EXTENT * 2.0, 40.0);

@@ -39,8 +39,12 @@ mod model_receiver_class;
 mod model_receiver_gpu;
 #[path = "../model_texture_gpu.rs"]
 mod model_texture_gpu;
+#[path = "../angelica_pck.rs"]
+mod angelica_pck;
 #[path = "../pck.rs"]
 mod pck;
+#[path = "../sky_config.rs"]
+mod sky_config;
 #[path = "../scene.rs"]
 mod scene;
 #[path = "../scene_lights.rs"]
