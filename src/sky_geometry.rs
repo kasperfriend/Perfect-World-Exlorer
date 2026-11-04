@@ -610,7 +610,7 @@ mod tests {
             assert!(close(sample.uv[1], v.uv[1], 1e-4), "cap v at {index}");
         }
         // The rim of the cap is the horizon ray, and its stored UV is 1.0.
-        let rim = cap()
+        let rim = mesh
             .vertices
             .iter()
             .find(|v| (v.position[1] - CAP_DROP).abs() < 1e-3)
