@@ -23,5 +23,8 @@ elementclient.exe: base 0x400000, 6 sections, 107 sky strings
   17-sky-trans: 607 lines
   18-world-loadsky: 750 lines
   19-flare-occlusion: 1892 lines
+  22-flare-metric-source: 160 lines
+  23-device-stage-matrix: 136 lines
+  24-matrix-math: 227 lines
   20-sky-module: 3715 lines
   xref functions: 58 bodies
