@@ -2084,8 +2084,8 @@ impl Renderer {
         // (`0x79a14b`, `0x79a247`, `0x79a25e`), so at the client's 30 Hz that is
         // `rate` per second. Advancing by `rate * seconds` gives exactly that at
         // 30 Hz and a smooth equivalent at any other frame rate.
-        let sky_step =
-            crate::sky_gpu::SKY_ROTATION_RATE * (camera.logic_delta_ms.max(0) as f32 / 1000.);
+        let sky_step = crate::sky_gpu::SKY_ROTATION_RATE
+            * (camera.logic_delta_ms.max(0) as f32 / 1000.);
         self.sky_rotation[0] += sky_step;
         self.sky_rotation[1] += sky_step;
         let frame = crate::sky_gpu::SkyFrame {
