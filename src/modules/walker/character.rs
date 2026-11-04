@@ -400,6 +400,6 @@ mod tests {
     fn transform_keeps_feet_at_body_position_and_faces_movement() {
         let matrix = character_transform(Vec3::new(3., 8., -2.), Vec3::X);
         assert_eq!(matrix.transform_point3(Vec3::ZERO), Vec3::new(3., 8., -2.));
-        assert_eq!(matrix.transform_vector(Vec3::Z), Vec3::X);
+        assert_eq!(matrix.transform_vector3(Vec3::Z), Vec3::X);
     }
 }
