@@ -500,13 +500,13 @@ mod tests {
         device.poll(wgpu::Maintain::Wait);
         receiver.recv().unwrap().unwrap();
         let bytes = slice.get_mapped_range();
-        let source = [
+        let source: [f32; 4] = [
             128. / 255. * 0.5,
             64. / 255.,
             32. / 255. * 0.25,
             128. / 255. * 0.5,
         ];
-        let destination = [0.2, 0.4, 0.6, 1.];
+        let destination: [f32; 4] = [0.2, 0.4, 0.6, 1.];
         let alpha = source[3];
         for (actual, (source, destination)) in
             bytes[..4].iter().zip(source.into_iter().zip(destination))
