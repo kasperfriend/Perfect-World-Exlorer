@@ -131,7 +131,7 @@ accumulator (`0x429378`). The viewer's `client_weather` clock and
 
 | file | change |
 | --- | --- |
-| `src/angelica_pck.rs` (new) | Angelica File Package reader: trailer guard `0xa508bdc4`, 280-byte trailer, backwards zlib-stream directory, 276-byte records, `pck::Entry` output. Includes a synthetic-package unit test. |
+| `src/angelica_pck.rs` (new) | Angelica File Package reader: trailer guards `0xfdfdfeee` / `0xf00dbeef` (the shipped configs/shaders) and `0xa508bdc4` / `0x853567c8`, 280-byte trailer, backwards zlib-stream directory, 276-byte records, `pck::Entry` output. Includes a synthetic-package unit test. |
 | `src/main.rs` | registers `angelica_pck`. |
 | `src/environment.rs` | AutoFamily `autoscene.cfg` fog is now read with `angelica_pck` instead of the retail reader. |
 | `src/sky_gpu.rs` | reads `sky.lst` + `autoscene.cfg` through `angelica_pck`; loads all three `sky.lst` sets in file order (clear, overcast, sunset) into atlas layers 0..8; exposes `day_set()`/`night_set()`; `DISC_SCALE = 1.0`; `GLOW_SCALE = 6.0`; loads `sunflare.bmp` and `flares.bmp` as layers 13/14; adds the six-sample flare chain to the sky shader; moon halo from `moonflare.bmp`. |
