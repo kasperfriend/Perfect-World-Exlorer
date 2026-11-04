@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: pr-checks-${{ github.event.pull_request.number || github.ref }}
@@ -28,8 +29,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
-      - name: Check formatting
-        run: cargo fmt --all -- --check
       - name: Verify recovered regional arithmetic on x87
         run: |
           cc -O0 tools/check-native-region-reference.c -o /tmp/native-region-reference
@@ -55,26 +54,46 @@ jobs:
       - name: Check all binary targets
         run: |
           # Keep the plain command so a non-zero exit still fails the job, but
-          # also re-echo the compiler diagnostics as check annotations: the raw
+          # also echo the compiler diagnostics as check annotations: the raw
           # step log is not always retrievable from the API.
-          CARGO_TERM_COLOR=never cargo check --locked --bins --message-format short 2>&1 | tee /tmp/cargo-check.log
+          # No `--message-format short` here: the short form drops the `-->`
+          # file:line line, which is what actually locates a type error.
+          CARGO_TERM_COLOR=never cargo check --locked --bins 2>&1 | tee /tmp/cargo-check.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            grep -E "(^error|: error)" /tmp/cargo-check.log | head -40 | while IFS= read -r line; do
+            # Only real errors and the one `-->` line that belongs to each:
+            # warning arrows would otherwise crowd out the failure.
+            awk '/^error(\[|:)/{print; want=1; next} want && /^[[:space:]]*--> /{print; want=0}' /tmp/cargo-check.log \
+              | head -40 | while IFS= read -r line; do
               echo "::error::$line"
             done
           fi
           exit "$status"
       - name: Test GFX light dependency audit
-        run: cargo test --locked --bin gfx-light-audit
+        run: |
+          CARGO_TERM_COLOR=never cargo test --locked --bin gfx-light-audit 2>&1 | tee /tmp/gfx-audit.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "^test result:|^error(\[|:)|panicked at" /tmp/gfx-audit.log | head -5 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            sed -n '/^failures:$/,/^test result:/p' /tmp/gfx-audit.log | head -20 \
+              | while IFS= read -r line; do [ -n "$line" ] && echo "::error::$line"; done
+          fi
+          exit "$status"
       - name: Run viewer unit tests
         run: |
           CARGO_TERM_COLOR=never cargo test --locked --bin perfect-world-explorer 2>&1 | tee /tmp/cargo-test.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            grep -E "(^error|: error|panicked at|assertion)" /tmp/cargo-test.log | head -40 | while IFS= read -r line; do
-              echo "::error::$line"
-            done
+            # Preserve compiler spans/help next to a test-only type error; the
+            # remote log archive is not reliably accessible from the API.
+            grep -A9 -E "^error(\[|:)" /tmp/cargo-test.log | head -40 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            grep -E "^test result:|^error(\[|:)|panicked at" /tmp/cargo-test.log | head -5 \
+              | while IFS= read -r line; do echo "::error::$line"; done
+            # The failing test names, which is what actually needs naming.
+            sed -n '/^failures:$/,/^test result:/p' /tmp/cargo-test.log | head -30 \
+              | while IFS= read -r line; do [ -n "$line" ] && echo "::error::$line"; done
           fi
           exit "$status"
       - name: Install software Vulkan for Phase 1 shader checks
@@ -88,38 +107,60 @@ jobs:
           # lavapipe ICD rather than silently disabling Vulkan with a stale path.
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
           test -n "$VK_ICD_FILENAMES"
-          cargo run --locked --bin display-gamma-gpu-check
-          cargo run --locked --bin post-gpu-check
-          cargo run --locked --bin bloom-gpu-check
-          cargo run --locked --bin bmd-baked-gpu-check
-          cargo run --locked --bin bmd-sided-gpu-check
-          cargo run --locked --bin bmd-depth-gpu-check
-          cargo run --locked --bin scenery-pass-gpu-check
-          cargo run --locked --bin grass-instance-gpu-check
-          cargo run --locked --bin model-light-gpu-check
-          cargo run --locked --bin skin-pose-gpu-check
-          cargo run --locked --bin skin-palette-gpu-check
-          cargo run --locked --bin model-texture-gpu-check
-          cargo run --locked --bin model-receiver-gpu-check
-          cargo run --locked --bin model-draw-gpu-check
-          cargo run --locked --bin phase1-fog-gpu-check
+          # Name the binary that failed: this step runs 22 checks and a bare
+          # exit code does not say which one broke.
+          run_check() {
+            # `if ! cmd | tee` tests *tee's* status, which is always 0, so the
+            # failure branch never ran and every check silently passed. Take the
+            # command's own status from PIPESTATUS.
+            cargo run --locked --bin "$1" 2>&1 | tee "/tmp/gpu-$1.log"
+            status=${PIPESTATUS[0]}
+            if [ "$status" -ne 0 ]; then
+              echo "::error::gpu check failed: $1"
+              # The reason, not just the name: a shader mismatch reports the
+              # expected and actual values on these lines.
+              # The assert message itself, which carries the actual and
+              # expected values, plus the panic location.
+              grep -A3 -E "panicked at" "/tmp/gpu-$1.log" \
+                | head -12 | while IFS= read -r line; do echo "::error::$1: $line"; done
+              exit 1
+            fi
+          }
+          run_check display-gamma-gpu-check
+          run_check post-gpu-check
+          run_check bloom-gpu-check
+          run_check bmd-baked-gpu-check
+          run_check bmd-sided-gpu-check
+          run_check bmd-depth-gpu-check
+          run_check scenery-pass-gpu-check
+          run_check grass-instance-gpu-check
+          run_check model-light-gpu-check
+          run_check skin-pose-gpu-check
+          run_check skin-palette-gpu-check
+          run_check model-texture-gpu-check
+          run_check model-receiver-gpu-check
+          run_check model-draw-gpu-check
+          run_check phase1-fog-gpu-check
           # Phase 5: native sky resource swap (`0x4203f4..0x420807` / `0x79aeb0`)
           # plus reflection and altitude invariants (P5.07, P5.08). Compiles the
           # production sky WGSL, proves the two-set crossfade changes pixels,
           # proves camera altitude cannot move a sky ray, and proves every view
           # reuses one snapshot without advancing the transition.
-          cargo run --locked --bin phase5-sky-transition-gpu-check
-          cargo run --locked --bin terrain-refraction-gpu-check
-          cargo run --locked --bin water-fog-gpu-check
+          run_check phase5-sky-transition-gpu-check
+          # Validate both newly integrated P5 weather shaders on lavapipe. They
+          # are otherwise only created when a user loads a client world.
+          run_check phase5-weather-cloud-shader-check
+          run_check terrain-refraction-gpu-check
+          run_check water-fog-gpu-check
           # Near/far LOD continuity: runs both real terrain vertex entry points
           # (`vs`, `vs_far`) on identical geometry and compares the interpolated
           # normal in RGB plus the packed LOD flag in alpha.
-          cargo run --locked --bin terrain-lod-gpu-check
+          run_check terrain-lod-gpu-check
           # Phase 4 vegetation diagnostics: tree LOD/lighting preservation,
           # grass mip coverage/upload, and synthetic authored tree mip upload.
-          cargo run --locked --bin tree-lod-gpu-check
-          cargo run --locked --bin grass-gpu-mip-check
-          cargo run --locked --bin tree-authored-mip-gpu-check
+          run_check tree-lod-gpu-check
+          run_check grass-gpu-mip-check
+          run_check tree-authored-mip-gpu-check
       - name: Run terrain per-view GPU check
         env:
           WGPU_BACKEND: vulkan
@@ -129,6 +170,30 @@ jobs:
           test -n "$VK_ICD_FILENAMES"
           cargo run --locked --bin terrain-view-gpu-check
 
+      # Formatting is cosmetic: run it after the compile, test and shader steps
+      # so a whitespace diff can never hide a real failure behind it.
+      - name: Check formatting
+        run: |
+          # `cargo fmt --check` already prints the "Diff in ..." hunks it wants;
+          # capture them because the raw step log is not always retrievable.
+          # (`rustfmt --diff` is not an option, so this is the only source.)
+          cargo fmt --all -- --check > /tmp/fmt.check 2>&1 || true
+          if [ -s /tmp/fmt.check ]; then
+            echo "::error::rustfmt wants changes; the diff is posted as a PR comment"
+            exit 1
+          fi
+      # Annotations are capped per check run and the GPU checks fill it with
+      # notices, so the diff is posted where it can actually be read.
+      - name: Post formatting diff
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          [ -n "$PR" ] || exit 0
+          { echo 'rustfmt wants these changes:'; echo '```diff'; \
+            head -600 /tmp/fmt.check; echo '```'; } > /tmp/fmt.md
+          gh pr comment "$PR" --body-file /tmp/fmt.md
   windows:
     name: Windows executable (x64)
     runs-on: windows-latest
@@ -184,7 +249,16 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
       - name: Build standalone viewer
-        run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer
+        shell: bash
+        run: |
+          CARGO_TERM_COLOR=never cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer 2>&1 | tee /tmp/win-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "(^error|: error)" /tmp/win-build.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+          exit "$status"
       - name: Build audio corpus and scene diagnostics
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin audio-corpus-check --bin scene-sound-check
       - name: Test Windows audio decoding with synthetic fixtures
@@ -192,6 +266,7 @@ jobs:
       - name: Test world audio selection on Windows
         run: cargo test --locked --target x86_64-pc-windows-msvc --bin perfect-world-explorer world_audio::tests
       - name: Build the shipped survey tool
+        shell: bash
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin bmd-overlap-survey
       - name: Stage artifact and checksum
         shell: pwsh

@@ -1,8 +1,14 @@
 #![allow(dead_code)]
+#[path = "../client_weather.rs"]
+mod client_weather;
 #[path = "../environment.rs"]
 mod environment;
+#[path = "../pck.rs"]
+mod pck;
 #[path = "../scene.rs"]
 mod scene;
+#[path = "../sky_config.rs"]
+mod sky_config;
 use std::{collections::BTreeMap, env, fs};
 fn main() {
     let p: Vec<_> = env::args().collect();

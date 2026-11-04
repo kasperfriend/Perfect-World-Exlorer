@@ -11,6 +11,16 @@ pub struct EcModel {
     pub default_speed: Option<f32>,
     pub actions: Vec<CombinedAction>,
     pub events: Vec<EcmEvent>,
+    /// `AddiSkinPath` entries: the skins this descriptor actually selects.
+    ///
+    /// This is the authoritative skin list. The `.smd` it points at carries its
+    /// own `.ski` references, but those are a *menu*, not a selection: in
+    /// `models.pck`, 228 of 247 `.ski` names referenced by `.smd` files do not
+    /// exist, while the folder holds the real ones under variant names
+    /// (`冬.smd` lists `冬.ski`; the folder has `冬1.ski`..`冬4.ski`, and
+    /// `冬1.ecm` names `冬1.SKI` through `AddiSkinPath`). Treating the `.smd`
+    /// list as authoritative drops those models entirely.
+    pub additional_skins: Vec<String>,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RenderSettings {
@@ -167,6 +177,8 @@ pub fn parse_ecm(bytes: &[u8]) -> Result<EcModel, String> {
     let mut actions = Vec::<CombinedAction>::new();
     let mut base_counts = Vec::<Option<usize>>::new();
     let mut events = Vec::<EcmEvent>::new();
+    let mut additional_skins: Vec<String> = Vec::new();
+    let mut additional_skin_count: Option<usize> = None;
     let mut header = true;
     let mut in_bases = false;
     let mut in_event = false;
@@ -222,12 +234,17 @@ pub fn parse_ecm(bytes: &[u8]) -> Result<EcModel, String> {
                     fields: Vec::new(),
                 });
             }
-            _ if in_event
-                && !matches!(
-                    key,
-                    "AddiSkinCount" | "ChildCount" | "PhysFileName" | "ECMHookCount"
-                ) =>
-            {
+            "AddiSkinCount" => {
+                // Declared count; the paths follow as AddiSkinPath entries. The
+                // count is validated after the loop rather than trusted.
+                additional_skin_count = Some(integer::<usize>(key, value)?);
+            }
+            "AddiSkinPath" => {
+                if !value.is_empty() {
+                    additional_skins.push(value.into());
+                }
+            }
+            _ if in_event && !matches!(key, "ChildCount" | "PhysFileName" | "ECMHookCount") => {
                 events
                     .last_mut()
                     .unwrap()
@@ -318,6 +335,19 @@ pub fn parse_ecm(bytes: &[u8]) -> Result<EcModel, String> {
         default_speed,
         actions,
         events,
+        additional_skins: {
+            // The declared count must agree with the paths actually seen, or the
+            // descriptor is malformed and we say so rather than guessing.
+            if let Some(n) = additional_skin_count {
+                if n != additional_skins.len() {
+                    return Err(format!(
+                        "ECM AddiSkinCount {n} but {} AddiSkinPath entries",
+                        additional_skins.len()
+                    ));
+                }
+            }
+            additional_skins
+        },
     })
 }
 /// Parse A3D skin-model descriptors (v1–v9), including animation and attachments.
@@ -436,6 +466,44 @@ pub fn parse_smd(bytes: &[u8]) -> Result<SkinModel, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn reads_the_descriptor_skin_list_the_client_actually_uses() {
+        // Values copied from models/宠物/精灵/冬/冬1.ecm: a full pack path with
+        // Windows separators and no leading `models/`, which is how the retail
+        // descriptors store it.
+        // The descriptor is GBK, not UTF-8: `parse_ecm` rejects bytes GBK cannot
+        // decode, so the fixture has to be encoded the way the client ships it.
+        let src = "MOXTVersion: 21\r\nSkinModelPath: Models\\NPCs\\宠物\\精灵\\冬\\冬.SMD\r\n\
+                   AddiSkinCount: 1\r\nAddiSkinPath: NPCs\\宠物\\精灵\\冬\\冬1.SKI\r\n";
+        let (bytes, _, unmappable) = encoding_rs::GBK.encode(src);
+        assert!(!unmappable, "the fixture must be representable in GBK");
+        let x = parse_ecm(&bytes).unwrap();
+        assert_eq!(x.additional_skins, ["NPCs\\宠物\\精灵\\冬\\冬1.SKI"]);
+    }
+    #[test]
+    fn a_skin_count_that_disagrees_with_its_paths_is_rejected() {
+        let base = "MOXTVersion: 21\r\nSkinModelPath: Models\\a.smd\r\n";
+        // Declared 2, one path.
+        let src = format!("{base}AddiSkinCount: 2\r\nAddiSkinPath: a\\b.ski\r\n");
+        assert!(parse_ecm(src.as_bytes()).is_err());
+        // Declared 1, two paths.
+        let src = format!(
+            "{base}AddiSkinCount: 1\r\nAddiSkinPath: a\\b.ski\r\nAddiSkinPath: a\\c.ski\r\n"
+        );
+        assert!(parse_ecm(src.as_bytes()).is_err());
+        // Matching counts are accepted.
+        let src = format!("{base}AddiSkinCount: 1\r\nAddiSkinPath: a\\b.ski\r\n");
+        assert_eq!(parse_ecm(src.as_bytes()).unwrap().additional_skins.len(), 1);
+    }
+    #[test]
+    fn descriptors_without_addi_skin_leave_the_list_empty() {
+        let src = "MOXTVersion: 21\r\nSkinModelPath: Models\\a.smd\r\n";
+        assert!(parse_ecm(src.as_bytes())
+            .unwrap()
+            .additional_skins
+            .is_empty());
+    }
+
     #[test]
     fn path_normalization() {
         assert_eq!(normalize("Models\\\\Stuff\\A.SMD"), "models/stuff/a.smd");

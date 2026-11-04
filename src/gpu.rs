@@ -505,12 +505,31 @@ fn build(
             }
         }
     }
+    // `0x653a30`: the resident grass grid is rebuilt at
+    // `step = 5 - ftol(cam[+0x678]*4 + 0.5)` cells and the native early-out
+    // drops every block when the budget yields 5. `cam[+0x678]` is the *first
+    // lane of a colour triple*: `0x41ed99`–`0x41ee16` registers three adjacent
+    // times the same authored scalar (`[env+0xa0]`, `[env+0x94]`, `[env+0x98]`)
+    // into `+0x66c/+0x678/+0x684` from one lerped `[0,1]` factor, and
+    // `0x41f5f1`–`0x41f661` advances each with `scalar = target` when the factor
+    // is zero or `scalar -= delta*factor` otherwise. `0x7c7fc4` allocates it as
+    // an 8-byte-stride array and `0x4211b9` blends it with neighbour colours, so
+    // it is a light/diffuse field, not a distance. The viewer has no scene
+    // colour field yet, so density keeps native full resolution (step 1) rather
+    // than inventing a depth; `density_step` stays the single place that will
+    // consume the recovered value.
+    let grass_step = crate::grass_wind::density_step(None);
     for area in &t.grass.areas {
         let half_x = area.width as f32 * area.grid * 0.5;
         let half_z = area.height as f32 * area.grid * 0.5;
-        const GRASS_RANGE: f32 = 200.0;
-        if (area.center[0] - cx).abs() > half_x + GRASS_RANGE
-            || (area.center[2] - cz).abs() > half_z + GRASS_RANGE
+        // A recovered step of 5 is the native "no grass" early-out.
+        let Some(step) = grass_step else {
+            break;
+        };
+        // `0x653a30` only keeps cells whose mask bit is set; distances use the
+        // client's own block extent rather than an invented 200-unit margin.
+        if (area.center[0] - cx).abs() > half_x + t.scene.block_size
+            || (area.center[2] - cz).abs() > half_z + t.scene.block_size
         {
             continue;
         }
@@ -660,7 +679,16 @@ fn build(
                     + (placement.col as f32 + placement.jitter_x) * area.grid;
                 let z = area.center[2] + half_z - placement.row as f32 * area.grid
                     + placement.jitter_z * area.grid;
-                if (x - cx) * (x - cx) + (z - cz) * (z - cz) > GRASS_RANGE * GRASS_RANGE {
+                // `0x653bd0`/`0x653c10`: the block walk visits every
+                // `step`-th cell on both axes, so anything off-stride is not a
+                // resident placement in the client.
+                if i64::from(placement.col) % i64::from(step) != 0
+                    || i64::from(placement.row) % i64::from(step) != 0
+                {
+                    continue;
+                }
+                let reach = half_x.max(half_z) + t.scene.block_size;
+                if (x - cx) * (x - cx) + (z - cz) * (z - cz) > reach * reach {
                     continue;
                 }
                 let gx = x / t.grid_spacing + t.width as f32 * 0.5;
@@ -684,7 +712,17 @@ fn build(
                 if grass_sample.is_none() {
                     grass_sample = Some([x, ground, z]);
                 }
-                let wind_index = (placement.wind_index + (x - 10000.).abs() * 2.).floor() % 80.;
+                // `0x653e93`-`0x653ec1`: the emitter stores
+                // `ftol(2*|y - 10000| + rand(0,10)) % 80` as the placement's
+                // wind-history slot, from that placement's own height and its
+                // RANMAR selector. The retail `grass_wave` vertex shader then
+                // reads `c[10 + v1.x]`, so the slot is per placement and only
+                // the scale `v1.y` varies per vertex.
+                // The height the scope has is `ground`, the same value the
+                // instance is placed at (`ground - 0.02`), so the CPU-computed
+                // slot matches the `y` the client hashed at `0x653e93`.
+                let wind_index =
+                    crate::grass_wind::history_index(ground, placement.wind_selector) as f32;
                 grass_builder.instance_for_area(
                     key,
                     [x, ground - 0.02, z],
@@ -1033,6 +1071,8 @@ struct Renderer {
     scenery_pipeline: wgpu::RenderPipeline,
     terrain_gpu: crate::terrain_gpu::TerrainGpu,
     sky: crate::sky_gpu::SkyGpu,
+    weather: crate::weather_gpu::WeatherGpu,
+    cloud: Option<crate::cloud_gpu::CloudGpu>,
     far_trees: crate::far_trees_gpu::FarTrees,
     grass: crate::grass_instances::Gpu,
     tree_center: (f32, f32),
@@ -1341,6 +1381,20 @@ impl Renderer {
             ],
         });
         let sky = crate::sky_gpu::SkyGpu::new(&device, &queue, format, &t.element)?;
+        let weather =
+            crate::weather_gpu::WeatherGpu::new(&device, &queue, &t.element, format, &t.water);
+        let cloud = t.cloud_surface.as_deref().and_then(|surface| {
+            match crate::cloud_gpu::CloudGpu::new(&device, &queue, format, &t.element, surface) {
+                Ok(cloud) => {
+                    eprintln!("Initialized indexed world cloud billboards from world.cld");
+                    Some(cloud)
+                }
+                Err(error) => {
+                    eprintln!("World cloud renderer unavailable: {error}");
+                    None
+                }
+            }
+        });
         let water =
             crate::water_gpu::WaterGpu::new(&device, &queue, format, w, h, &t.water_normals);
         let simple_water = crate::simple_water_gpu::SimpleWaterGpu::new(
@@ -1558,6 +1612,8 @@ impl Renderer {
             model_scene: t.scene.clone(),
             terrain_gpu,
             sky,
+            weather,
+            cloud,
             far_trees,
             grass,
             tree_center: m.tree_center,
@@ -1587,7 +1643,6 @@ impl Renderer {
             water_start: m.water_start,
             water_batches: m.water_batches,
             started: Instant::now(),
-            wind_last: Instant::now(),
             frame: FrameSnapshot::default(),
             world_glow: crate::post_gpu::WorldGlow::default(),
             celestial_visibility: crate::client_sun::Visibility::default(),
@@ -1597,6 +1652,9 @@ impl Renderer {
             retained_regional_light: None,
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
+            // `begin_frame` turns wall time into wind steps, so the anchor
+            // has to exist before the first frame.
+            wind_last: Instant::now(),
             atlas,
             vertex,
             index,
@@ -1920,13 +1978,24 @@ impl Renderer {
             camera.pos.z,
             if camera.grass_distance_fade { 1. } else { 0. },
         ];
+        // x is the recovered grass clock (`+0x15c`) for diagnostics, y is the
+        // on/off gate the shader tests (`> 0.5`). The client has no user scale:
+        // its target is authored data (+0x6c..0x74 = 1.0, -0.5, 0.0). The
+        // viewer's amplitude slider therefore scales the published history
+        // below instead of pretending to be a native gain.
         let grass_wind = [
-            elapsed,
-            camera.grass_wind_strength,
+            self.grass_wind_state.time(),
+            if camera.grass_wind_enabled { 1. } else { 0. },
             if camera.area_grass_lightmaps { 1. } else { 0. },
             0.,
         ];
-        let grass_history = self.grass_wind_state.history();
+        let grass_history = self
+            .grass_wind_state
+            .history_scaled(if camera.grass_wind_enabled {
+                camera.grass_wind_amplitude
+            } else {
+                1.
+            });
         let (mut fog_range, fog_color) = camera.fog_uniform();
         // Uniform fog_range.w is the terrain day/night factor; the shader reads
         // it instead of overloading sun.w (the lightmap-availability flag).
@@ -2327,6 +2396,16 @@ impl Renderer {
         // the same block walk the client runs before the level rule.
         self.terrain_runs = crate::terrain_residency::visible_runs(&self.spans, matrix);
         let frame = self.begin_frame(camera, w, h);
+        self.weather.advance(camera.logic_delta_ms);
+        let selected_weather = camera.regional_light.map_or(
+            crate::client_weather::WeatherSelection::default(),
+            |light| light.weather_selection(),
+        );
+        let main_weather = if camera.underwater_depth > 0.0 {
+            crate::client_weather::WeatherSelection::default()
+        } else {
+            selected_weather
+        };
         let glow_parameters = frame.glow_parameters;
         let direction = frame.direction;
         let daylight = frame.daylight;
@@ -2423,6 +2502,34 @@ impl Renderer {
             camera,
             Pass::Main,
             true,
+        );
+        if let Some(cloud) = &self.cloud {
+            cloud.draw(
+                &self.queue,
+                &mut e,
+                &scene_color,
+                &scene_depth,
+                matrix,
+                camera.yaw,
+                camera.pitch,
+                camera.cloud_detail,
+                daylight,
+                camera.active_fog(),
+                normal.clip,
+            );
+        }
+        self.weather.draw(
+            &self.queue,
+            &mut e,
+            &scene_color,
+            &scene_depth,
+            matrix,
+            camera.pos,
+            camera.yaw,
+            camera.pitch,
+            camera.active_fog(),
+            normal.clip,
+            main_weather,
         );
         self.water.copy_scene_to_refraction(&mut e);
         self.water.copy_depth(&mut e, &self.depth);
@@ -2659,6 +2766,34 @@ impl Renderer {
                     None,
                     None,
                 );
+                if let Some(cloud) = &self.cloud {
+                    cloud.draw(
+                        &self.queue,
+                        &mut re,
+                        &refraction,
+                        &reflect_depth,
+                        matrix,
+                        camera.yaw,
+                        camera.pitch,
+                        camera.cloud_detail,
+                        daylight,
+                        above_fog,
+                        above.clip,
+                    );
+                }
+                self.weather.draw(
+                    &self.queue,
+                    &mut re,
+                    &refraction,
+                    &reflect_depth,
+                    matrix,
+                    camera.pos,
+                    camera.yaw,
+                    camera.pitch,
+                    above_fog,
+                    above.clip,
+                    selected_weather,
+                );
                 // Ornamental EC models enter refraction only from underwater.
                 if camera.underwater_depth > 0. {
                     let raw = self.water.refraction_raw();
@@ -2714,12 +2849,7 @@ impl Renderer {
                     camera.pos.z,
                     if camera.grass_distance_fade { 1. } else { 0. },
                 ],
-                grass_wind: [
-                    frame.elapsed,
-                    camera.grass_wind_strength,
-                    if camera.area_grass_lightmaps { 1. } else { 0. },
-                    0.,
-                ],
+                grass_wind: frame.grass_wind,
                 grass_history: frame.grass_history,
                 fog_range: frame.fog_range,
                 fog_color: frame.fog_color,
@@ -2738,6 +2868,34 @@ impl Renderer {
                 Pass::Reflection,
                 None,
                 None,
+            );
+            if let Some(cloud) = &self.cloud {
+                cloud.draw(
+                    &self.queue,
+                    &mut e,
+                    &reflection,
+                    &reflect_depth,
+                    matrix * flip,
+                    camera.yaw,
+                    -camera.pitch,
+                    camera.cloud_detail,
+                    daylight,
+                    camera.active_fog(),
+                    reflected.clip,
+                );
+            }
+            self.weather.draw(
+                &self.queue,
+                &mut e,
+                &reflection,
+                &reflect_depth,
+                matrix * flip,
+                camera.pos,
+                camera.yaw,
+                -camera.pitch,
+                camera.active_fog(),
+                reflected.clip,
+                selected_weather,
             );
             let raw = self.water.reflection_raw();
             self.draw_models(
@@ -2816,6 +2974,7 @@ struct Camera {
     water_reflections: bool,
     atmospheric_fog: bool,
     celestial_discs: bool,
+    cloud_detail: bool,
     bloom: bool,
     sharpen: bool,
     bloom_strength: f32,
@@ -2839,7 +2998,12 @@ struct Camera {
     model_backface_culling: bool,
     tree_wind_strength: f32,
     client_tree_wind_preview: bool,
-    grass_wind_strength: f32,
+    /// Native wind has no user amplitude, only the on/off gate the old
+    /// "Grass wind" slider now provides.
+    grass_wind_enabled: bool,
+    /// Viewer-only multiplication of the published wind history. The client
+    /// has no such scale; 1.0 is the recovered amplitude.
+    grass_wind_amplitude: f32,
     regional_tree_lighting: bool,
     grass_distance_fade: bool,
     area_grass_lightmaps: bool,
@@ -2859,6 +3023,7 @@ impl Camera {
             water_reflections: true,
             atmospheric_fog: false,
             celestial_discs: false,
+            cloud_detail: true,
             bloom: false,
             sharpen: false,
             bloom_strength: 1.,
@@ -2876,7 +3041,8 @@ impl Camera {
             model_backface_culling: true,
             tree_wind_strength: 0.2,
             client_tree_wind_preview: false,
-            grass_wind_strength: 0.,
+            grass_wind_enabled: false,
+            grass_wind_amplitude: 1.,
             regional_tree_lighting: false,
             grass_distance_fade: true,
             area_grass_lightmaps: true,
@@ -3029,7 +3195,7 @@ pub fn run(
     camera.air_fog = t
         .environments
         .atmosphere(camera.pos.to_array(), camera.time_of_day);
-    let mut settings = ViewSettings::load();
+    let mut settings = ViewSettings::load_with_default_fog(t.environments.auto_fog_enabled());
     let vegetation_authored_mips = settings.vegetation_authored_mips
         || std::env::var_os("PW_VEGETATION_AUTHORED_MIPS").is_some();
     let mut residency = crate::terrain_residency::Residency::default();
@@ -3444,13 +3610,14 @@ pub fn run(
                     }}
                     camera.far = if settings.whole_world {settings.far.max(32000.)} else {settings.far};
                     camera.time_of_day = settings.time_of_day;
-                    camera.tree_wind_strength=settings.tree_wind_strength;camera.client_tree_wind_preview=settings.client_tree_wind_preview;camera.grass_wind_strength=settings.grass_wind_strength;
+                    camera.tree_wind_strength=settings.tree_wind_strength;camera.client_tree_wind_preview=settings.client_tree_wind_preview;camera.grass_wind_enabled=settings.grass_wind_enabled;camera.grass_wind_amplitude=settings.grass_wind_amplitude;
                     camera.regional_tree_lighting=settings.regional_tree_lighting;
                     camera.grass_distance_fade=settings.grass_distance_fade;
                     camera.area_grass_lightmaps=settings.area_grass_lightmaps;
                     camera.water_reflections=settings.water_reflections;
                     camera.atmospheric_fog=settings.atmospheric_fog;
                     camera.celestial_discs=settings.celestial_discs;
+                    camera.cloud_detail=settings.cloud_detail;
                     camera.bloom=settings.bloom;
                     camera.bloom_strength=settings.bloom_strength;
                     camera.bloom_mode=settings.bloom_mode;
@@ -3585,7 +3752,7 @@ pub fn run(
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
                                                     0=>{ui.heading("Graphics");marked_slider(ui,egui::Slider::new(&mut settings.resolution_scale,10.0..=200.0).integer().suffix("%"),"Resolution scale",defaults.resolution_scale,10.,200.,false,true);ui.label(egui::RichText::new("3D render resolution (10%–200% of the window). UI stays at native resolution.").small().weak());ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
-                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.client_tree_wind_preview,"Client wind signal (preview)").on_hover_text("Modulates the existing 16-second sampled leaf loop with the recovered client wind signal. This is an approximation, not the original live leaf animation.");marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon").on_hover_text("Native billboards: centre at direction*100, half extent 1.0 (1.146 degrees), gated on the recovered elevation curve and the 0.0003/ms visibility ramps. Sun adds its texture, moon alpha-blends it. The sun also carries its recovered sunshine.bmp shine quad at a viewer-chosen size; the moon carries none, because the client scales nothing for it and its retail halo is the screen-space flare chain this build does not draw. The status line below says both.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.vegetation_authored_mips,"Authored vegetation mips (experimental, restart)").on_hover_text("P4.07 opt-in: preserve authored DDS mip chains for vegetation and use SpeedTree PWTREE08 per-LOD branch/frond alpha references plus the verified leaf reference 84. Default off keeps the approved legacy path. Applied at startup; restart after changing. Native sampler parity, grass anisotropy, and deeper-than-LOD-7 tails remain unresolved.");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_strength,0.0..=1.0),"Grass wind (experimental)",defaults.grass_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
+                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.client_tree_wind_preview,"Client wind signal (preview)").on_hover_text("Modulates the existing 16-second sampled leaf loop with the recovered client wind signal. This is an approximation, not the original live leaf animation.");marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon").on_hover_text("Native billboards: centre at direction*100, half extent 1.0 (1.146 degrees), gated on the recovered elevation curve and the 0.0003/ms visibility ramps. Sun adds its texture, moon alpha-blends it. The sun also carries its recovered sunshine.bmp shine quad at a viewer-chosen size; the moon carries none, because the client scales nothing for it and its retail halo is the screen-space flare chain this build does not draw. The status line below says both.");ui.checkbox(&mut settings.cloud_detail,"Cloud detail (Client CloudDetail gate)").on_hover_text("Shows the native world.cld cloud surface. Point sizing and water-view parity remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.vegetation_authored_mips,"Authored vegetation mips (experimental, restart)").on_hover_text("P4.07 opt-in: preserve authored DDS mip chains for vegetation and use SpeedTree PWTREE08 per-LOD branch/frond alpha references plus the verified leaf reference 84. Default off keeps the approved legacy path. Applied at startup; restart after changing. Native sampler parity, grass anisotropy, and deeper-than-LOD-7 tails remain unresolved.");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");ui.checkbox(&mut settings.grass_wind_enabled,"Grass wind").on_hover_text("Native wind from the recovered logic clock. The client scales it with authored per-area data (+0x6c..+0x74), not a user setting, so this is an on/off switch.");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_amplitude,0.0..=2.0),"Grass wind sway",defaults.grass_wind_amplitude,0.,2.,false,settings.grass_wind_enabled).on_hover_text("Viewer-only multiplier on the wind history. The mark (1.0) is the recovered amplitude: the client's only wind inputs are the noise sample and the authored axis weights (+0x6c..+0x74 = 1.0, -0.5, 0.0), with no scale of its own, so there is no single retail number to show. The spring is critically damped at the recovered stiffness, which bounds the sway by that target instead of letting it resonate.");ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());let audio_diagnostic=music.diagnostic();if !audio_diagnostic.is_empty(){ui.label(audio_diagnostic);}ui.checkbox(&mut settings.ambience_enabled,"Play zone ambience (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.sound_volume,0.0..=1.0),"Ambience volume",defaults.sound_volume,0.,1.,false,true);ui.label(ambience.status());ui.checkbox(&mut settings.effects_enabled,"Play world effects (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.effects_volume,0.0..=1.0),"Effects volume",defaults.effects_volume,0.,1.,false,true);ui.label(world_audio.status());if let Some(error)=world_audio.diagnostic(){ui.label(error);}ui.label("Zone selection, world sound timing and spatialization are approximations. Gameplay, combat and weather effects are not implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();egui::ComboBox::from_label("Minimap style").selected_text(settings.minimap_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.minimap_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the world from above each frame; Original shows the client's own minimap tiles (surfaces/minimaps/world) at their native resolution.").small().weak());egui::ComboBox::from_label("Minimap shape").selected_text(settings.minimap_shape.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Square,"Square");ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Circular,"Circular");});egui::ComboBox::from_label("World map style").selected_text(settings.world_map_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.world_map_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.world_map_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the whole world from above; Original shows the client's map tiles (surfaces/maps).").small().weak());ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
                                                 }
@@ -3727,6 +3894,7 @@ pub fn preview(
             water_reflections: true,
             atmospheric_fog: false,
             celestial_discs: false,
+            cloud_detail: true,
             bloom: false,
             sharpen: false,
             bloom_strength: 1.,
@@ -3744,7 +3912,8 @@ pub fn preview(
             model_backface_culling: true,
             tree_wind_strength: 0.2,
             client_tree_wind_preview: false,
-            grass_wind_strength: 0.,
+            grass_wind_enabled: false,
+            grass_wind_amplitude: 1.,
             regional_tree_lighting: false,
             grass_distance_fade: true,
             area_grass_lightmaps: true,
