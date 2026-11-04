@@ -1,5 +1,66 @@
 # 11-sky-ctor-init  0x799570-0x799a40
-; resynced +0x70: window opened mid-instruction, dumping from 0x7995e0
+; resynced -0x30: nearest function boundary, dumping from 0x799540
+00799540: push ebx                                
+00799541: push ebp                                
+00799542: push esi                                
+00799543: mov esi, ecx                            
+00799545: push edi                                
+00799546: fld dword ptr [esi + 0xc]               
+00799549: fmul dword ptr [0x8f0ae8]                 ; f32 255
+0079954f: call 0x892e78                           
+00799554: fld dword ptr [esi]                     
+00799556: fmul dword ptr [0x8f0ae8]                 ; f32 255
+0079955c: mov edi, eax                            
+0079955e: call 0x892e78                           
+00799563: fld dword ptr [esi + 4]                 
+00799566: fmul dword ptr [0x8f0ae8]                 ; f32 255
+0079956c: mov ebx, eax                            
+0079956e: call 0x892e78                           
+00799573: fld dword ptr [esi + 8]                 
+00799576: fmul dword ptr [0x8f0ae8]                 ; f32 255
+0079957c: mov ebp, eax                            
+0079957e: call 0x892e78                           
+00799583: mov ecx, eax                            
+00799585: cmp edi, 0xff                           
+0079958b: mov eax, 0xff                           
+00799590: jg 0x799594                             
+00799592: mov eax, edi                            
+00799594: cmp ebx, 0xff                           
+0079959a: jle 0x7995a1                            
+0079959c: mov ebx, 0xff                           
+007995a1: cmp ebp, 0xff                           
+007995a7: mov edx, 0xff                           
+007995ac: jg 0x7995b0                             
+007995ae: mov edx, ebp                            
+007995b0: cmp ecx, 0xff                           
+007995b6: jle 0x7995bd                            
+007995b8: mov ecx, 0xff                           
+007995bd: shl eax, 8                              
+007995c0: or eax, ebx                             
+007995c2: pop edi                                 
+007995c3: shl eax, 8                              
+007995c6: or eax, edx                             
+007995c8: pop esi                                 
+007995c9: shl eax, 8                              
+007995cc: pop ebp                                 
+007995cd: or eax, ecx                             
+007995cf: pop ebx                                 
+007995d0: ret                                     
+007995d1: nop                                     
+007995d2: nop                                     
+007995d3: nop                                     
+007995d4: nop                                     
+007995d5: nop                                     
+007995d6: nop                                     
+007995d7: nop                                     
+007995d8: nop                                     
+007995d9: nop                                     
+007995da: nop                                     
+007995db: nop                                     
+007995dc: nop                                     
+007995dd: nop                                     
+007995de: nop                                     
+007995df: nop                                     
 007995e0: mov eax, ecx                            
 007995e2: mov ecx, 0x3c9374bc                     
 007995e7: mov dword ptr [eax + 4], ecx            

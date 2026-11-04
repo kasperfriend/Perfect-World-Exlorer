@@ -1,5 +1,17 @@
 # 01c-flare-stream-builder  0x4b6250-0x4b7000
-; resynced +0x20: window opened mid-instruction, dumping from 0x4b6270
+004b6250: fld dword ptr [ecx + 0x74]              
+004b6253: fcomp dword ptr [0x8d58a0]                ; f32 0
+004b6259: fnstsw ax                               
+004b625b: test ah, 0x40                           
+004b625e: mov eax, 0x249f00                       
+004b6263: jne 0x4b626a                            
+004b6265: mov eax, 0x1b7740                       
+004b626a: ret                                     
+004b626b: nop                                     
+004b626c: nop                                     
+004b626d: nop                                     
+004b626e: nop                                     
+004b626f: nop                                     
 004b6270: sub esp, 0x2ac                          
 004b6276: mov eax, dword ptr [esp + 0x2b0]        
 004b627d: push ebx                                

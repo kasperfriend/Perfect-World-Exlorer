@@ -1,11 +1,130 @@
 # 01-celestial-init  0x4b2e60-0x4b3e00
-004b2e60: or dword ptr [ebx + 0x1f08e8c8], ecx    
-004b2e66: sub eax, 0x3302eb00                     
-004b2e6b: ror byte ptr [ecx + 0xd8b3045], 0xec    
-004b2e72: wait                                    
-004b2e74: add byte ptr [edi + 0x6a], dl           
-004b2e77: add dword ptr [ebx + 0x6a570849], ecx   
-004b2e7d: push es                                 
+; resynced -0x130: nearest function boundary, dumping from 0x4b2d30
+004b2d30: jmp 0x4b3580                            
+004b2d35: nop                                     
+004b2d36: nop                                     
+004b2d37: nop                                     
+004b2d38: nop                                     
+004b2d39: nop                                     
+004b2d3a: nop                                     
+004b2d3b: nop                                     
+004b2d3c: nop                                     
+004b2d3d: nop                                     
+004b2d3e: nop                                     
+004b2d3f: nop                                     
+004b2d40: mov eax, dword ptr fs:[0]               
+004b2d46: push -1                                 
+004b2d48: push 0x8abfc1                           
+004b2d4d: push eax                                
+004b2d4e: mov dword ptr fs:[0], esp               
+004b2d55: sub esp, 0x28                           
+004b2d58: push ebx                                
+004b2d59: push ebp                                
+004b2d5a: push esi                                
+004b2d5b: push edi                                
+004b2d5c: mov ebp, ecx                            
+004b2d5e: call 0x4b3580                           
+004b2d63: xor edi, edi                            
+004b2d65: mov eax, 0x3f800000                     
+004b2d6a: or ebx, 0xffffffff                      
+004b2d6d: mov dword ptr [ebp + 0x68], edi         
+004b2d70: mov dword ptr [ebp + 0x3c], eax         
+004b2d73: mov dword ptr [ebp + 0x40], eax         
+004b2d76: mov dword ptr [ebp + 0x44], ebx         
+004b2d79: mov dword ptr [ebp + 0x48], ebx         
+004b2d7c: mov dword ptr [ebp + 0x4c], edi         
+004b2d7f: mov dword ptr [ebp + 0x50], edi         
+004b2d82: mov dword ptr [ebp + 0x60], edi         
+004b2d85: mov dword ptr [ebp + 0x6c], edi         
+004b2d88: mov dword ptr [ebp + 0x54], 0xbf800000  
+004b2d8f: mov dword ptr [ebp + 0x58], edi         
+004b2d92: mov dword ptr [ebp + 0x5c], edi         
+004b2d95: mov eax, dword ptr [0x9b3eec]             ; f32 0
+004b2d9a: push edi                                
+004b2d9b: push edi                                
+004b2d9c: mov eax, dword ptr [eax + 4]            
+004b2d9f: push ebp                                
+004b2da0: push 0x95aa84                             ; 'textures\\nature\\sun.bmp'
+004b2da5: mov esi, dword ptr [eax + 0x7c]         
+004b2da8: mov ecx, esi                            
+004b2daa: call 0x77c230                           
+004b2daf: test al, al                             
+004b2db1: jne 0x4b2dd7                            
+004b2db3: push 0x95aa54                             ; 'CECSunMoon::Init, Falied to load sun texture'
+004b2db8: push 1                                  
+004b2dba: call 0x764590                           
+004b2dbf: add esp, 8                              
+004b2dc2: xor al, al                              
+004b2dc4: pop edi                                 
+004b2dc5: pop esi                                 
+004b2dc6: pop ebp                                 
+004b2dc7: pop ebx                                 
+004b2dc8: mov ecx, dword ptr [esp + 0x28]         
+004b2dcc: mov dword ptr fs:[0], ecx               
+004b2dd3: add esp, 0x34                           
+004b2dd6: ret                                     
+004b2dd7: push edi                                
+004b2dd8: lea ecx, [ebp + 4]                      
+004b2ddb: push edi                                
+004b2ddc: push ecx                                
+004b2ddd: push 0x95aa34                             ; 'textures\\nature\\sunshine.bmp'
+004b2de2: mov ecx, esi                            
+004b2de4: call 0x77c230                           
+004b2de9: test al, al                             
+004b2deb: jne 0x4b2e11                            
+004b2ded: push 0x95aa00                             ; 'CECSunMoon::Init, Falied to load sun shine texture'
+004b2df2: push 1                                  
+004b2df4: call 0x764590                           
+004b2df9: add esp, 8                              
+004b2dfc: xor al, al                              
+004b2dfe: pop edi                                 
+004b2dff: pop esi                                 
+004b2e00: pop ebp                                 
+004b2e01: pop ebx                                 
+004b2e02: mov ecx, dword ptr [esp + 0x28]         
+004b2e06: mov dword ptr fs:[0], ecx               
+004b2e0d: add esp, 0x34                           
+004b2e10: ret                                     
+004b2e11: push edi                                
+004b2e12: lea edx, [ebp + 8]                      
+004b2e15: push edi                                
+004b2e16: push edx                                
+004b2e17: push 0x95a9e4                             ; 'textures\\nature\\moon.tga'
+004b2e1c: mov ecx, esi                            
+004b2e1e: call 0x77c230                           
+004b2e23: test al, al                             
+004b2e25: jne 0x4b2e4b                            
+004b2e27: push 0x95a9b4                             ; 'CECSunMoon::Init, Falied to load moon texture'
+004b2e2c: push 1                                  
+004b2e2e: call 0x764590                           
+004b2e33: add esp, 8                              
+004b2e36: xor al, al                              
+004b2e38: pop edi                                 
+004b2e39: pop esi                                 
+004b2e3a: pop ebp                                 
+004b2e3b: pop ebx                                 
+004b2e3c: mov ecx, dword ptr [esp + 0x28]         
+004b2e40: mov dword ptr fs:[0], ecx               
+004b2e47: add esp, 0x34                           
+004b2e4a: ret                                     
+004b2e4b: push 0x48                               
+004b2e4d: call 0x763250                           
+004b2e52: add esp, 4                              
+004b2e55: mov dword ptr [esp + 0x18], eax         
+004b2e59: cmp eax, edi                            
+004b2e5b: mov dword ptr [esp + 0x40], edi         
+004b2e5f: je 0x4b2e6a                               ; f32 4408.02
+004b2e61: mov ecx, eax                            
+004b2e63: call 0x784d70                             ; f32 -736281
+004b2e68: jmp 0x4b2e6c                            
+004b2e6a: xor eax, eax                            
+004b2e6c: mov dword ptr [ebp + 0x30], eax         
+004b2e6f: mov ecx, dword ptr [0x9b3eec]             ; f32 0
+004b2e75: push edi                                
+004b2e76: push 1                                  
+004b2e78: mov ecx, dword ptr [ecx + 8]            
+004b2e7b: push edi                                
+004b2e7c: push 6                                  
 004b2e7e: push 1                                  
 004b2e80: push ecx                                
 004b2e81: mov ecx, eax                            

@@ -1,5 +1,5 @@
 # 16-flare-helper  0x450900-0x450c40
-; resynced +0x2b0: window opened mid-instruction, dumping from 0x450bb0
+; resynced +0x2b0: nearest function boundary, dumping from 0x450bb0
 00450bb0: mov eax, dword ptr [esp + 4]            
 00450bb4: push ecx                                
 00450bb5: fild dword ptr [eax + 0xc]              
