@@ -374,9 +374,8 @@ fn worker(
             match OutputStream::try_default() {
                 Ok(stream) => output = Some(stream),
                 Err(error) => {
-                    let _ = status.send(Some(format!(
-                        "Character sound output unavailable: {error}"
-                    )));
+                    let _ =
+                        status.send(Some(format!("Character sound output unavailable: {error}")));
                     retry_output = Instant::now() + Duration::from_secs(2);
                 }
             }
@@ -421,9 +420,7 @@ fn worker(
                             Asset::Packed(entry) => std::fs::File::open(&archive)
                                 .map_err(|e| e.to_string())
                                 .and_then(|mut file| pck::read_entry(&mut file, entry)),
-                            Asset::Loose(path) => {
-                                std::fs::read(path).map_err(|e| e.to_string())
-                            }
+                            Asset::Loose(path) => std::fs::read(path).map_err(|e| e.to_string()),
                         };
                         read.map(|bytes| {
                             let bytes: Arc<[u8]> = bytes.into();
@@ -439,8 +436,7 @@ fn worker(
                         })
                     };
                     match bytes.and_then(|bytes| {
-                        Decoder::new(BufReader::new(Cursor::new(bytes)))
-                            .map_err(|e| e.to_string())
+                        Decoder::new(BufReader::new(Cursor::new(bytes))).map_err(|e| e.to_string())
                     }) {
                         Ok(source) => match Sink::try_new(handle) {
                             Ok(sink) => {
@@ -461,9 +457,8 @@ fn worker(
                             }
                             Err(error) => {
                                 had_error = true;
-                                let _ = status.send(Some(format!(
-                                    "Character sound output error: {error}"
-                                )));
+                                let _ = status
+                                    .send(Some(format!("Character sound output error: {error}")));
                             }
                         },
                         Err(error) => {

@@ -1,9 +1,7 @@
 //! Real player ECM/SMD/BON/SKI assembly and direct base-action playback.
 
 use super::{
-    audio::{
-        asset_key, SoundCommand, SoundCue, BODY_CHANNEL, FLIGHT_CHANNEL, MOUNT_CHANNEL,
-    },
+    audio::{asset_key, SoundCommand, SoundCue, BODY_CHANNEL, FLIGHT_CHANNEL, MOUNT_CHANNEL},
     gfx::CharacterGfx,
     physics::Body,
 };
@@ -450,8 +448,7 @@ fn action_sounds(
         }
         let start = clip_start + start as u32;
         let span = event_number::<i64>(event, "TimeSpan", -1);
-        let end = (span >= 0)
-            .then(|| start.saturating_add(span.min(u32::MAX as i64) as u32));
+        let end = (span >= 0).then(|| start.saturating_add(span.min(u32::MAX as i64) as u32));
         let paths = event
             .fields
             .iter()
@@ -615,9 +612,7 @@ impl ClipPlayer {
             }
             if sound.fired
                 && !sound.expired
-                && sound
-                    .end
-                    .is_some_and(|end| end >= lower && end <= upper)
+                && sound.end.is_some_and(|end| end >= lower && end <= upper)
             {
                 sound.expired = true;
                 self.pending.push(SoundCommand::Stop {
@@ -1742,7 +1737,10 @@ mod tests {
         player.tick(30);
         assert!(matches!(
             player.drain_sounds().as_slice(),
-            [SoundCommand::Stop { channel: BODY_CHANNEL, event: 7 }]
+            [SoundCommand::Stop {
+                channel: BODY_CHANNEL,
+                event: 7
+            }]
         ));
         player.tick(20);
         assert!(player.drain_sounds().is_empty());

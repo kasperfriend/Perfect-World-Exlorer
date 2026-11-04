@@ -78,9 +78,21 @@ pub fn trace_brush(
     for side in &brush.sides {
         let normal = Vec3::from_array(side.normal);
         let offset = Vec3::new(
-            if normal.x < 0.0 { extents.x } else { -extents.x },
-            if normal.y < 0.0 { extents.y } else { -extents.y },
-            if normal.z < 0.0 { extents.z } else { -extents.z },
+            if normal.x < 0.0 {
+                extents.x
+            } else {
+                -extents.x
+            },
+            if normal.y < 0.0 {
+                extents.y
+            } else {
+                -extents.y
+            },
+            if normal.z < 0.0 {
+                extents.z
+            } else {
+                -extents.z
+            },
         );
         let distance = side.distance - offset.dot(normal);
         let d1 = start.dot(normal) - distance;
@@ -378,7 +390,9 @@ fn parse_tbh(data: &[u8]) -> Result<Vec<CollisionBrush>, String> {
     let mut p = 0;
     let version = read_u32(data, &mut p)?;
     if version != 9 {
-        return Err(format!("unsupported TBH version {version}; native requires 9"));
+        return Err(format!(
+            "unsupported TBH version {version}; native requires 9"
+        ));
     }
     let count = read_u32(data, &mut p)? as usize;
     if count > 4096 {
@@ -417,7 +431,9 @@ fn tree_brushes(world: &mut CollisionWorld, element: &PathBuf, scene: &scene::Sc
         let key = tree.tree.to_lowercase().replace('\\', "/");
         let Some(stem) = key.strip_suffix(".spt") else {
             report.failed += 1;
-            report.errors.push(format!("{}: tree path is not SPT", tree.tree));
+            report
+                .errors
+                .push(format!("{}: tree path is not SPT", tree.tree));
             continue;
         };
         let path = format!("{stem}.tbh");
@@ -652,7 +668,10 @@ impl Collision {
             details.push(format!("{} BMD assets failed", self.building_failed));
         }
         if self.tree_report.failed > 0 {
-            details.push(format!("{} tree hull types failed", self.tree_report.failed));
+            details.push(format!(
+                "{} tree hull types failed",
+                self.tree_report.failed
+            ));
         }
         if self.tree_report.missing > 0 {
             details.push(format!(
@@ -787,11 +806,7 @@ mod tests {
     #[test]
     fn start_solid_can_escape_instead_of_trapping_the_player() {
         let collision = Collision::from_parts(vec![cube()]);
-        let result = collision.resolve(
-            Vec3::ZERO,
-            Vec3::new(3.0, 0.0, 0.0),
-            Vec3::splat(0.3),
-        );
+        let result = collision.resolve(Vec3::ZERO, Vec3::new(3.0, 0.0, 0.0), Vec3::splat(0.3));
         assert!(result.blocked);
         assert_eq!(result.feet, Vec3::new(3.0, 0.0, 0.0));
     }
