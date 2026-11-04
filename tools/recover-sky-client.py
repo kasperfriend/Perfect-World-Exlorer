@@ -125,6 +125,71 @@ def blob_head(code_off):
 PE_DATA = [b""]
 
 
+# A window can only show what someone already suspected. These are the whole
+# bodies instead: the entire sky module (ceiling, sphere, tick, textures) and
+# every function anywhere in the image that names a sky, flare, sun, moon, star
+# or cloud string. That is how the mesh, the UV maths and the sprite tables are
+# found without guessing a start address first.
+MODULES = {
+    "20-sky-module": (0x799500, 0x79C400),
+}
+
+XREF_HINT = re.compile(r"sky|flare|sun|moon|shine|cloud|star|night|day", re.I)
+FUNCTION_BACK_SCAN = 0x8000
+FUNCTION_LIMIT = 0x3000
+FUNCTION_HEADER = "# %#x-%#x  (%d bytes)%s\n"
+
+
+def function_start(pe, off):
+    """Offset of the function boundary nearest behind `off`."""
+    head = pe.d[max(0, off - FUNCTION_BACK_SCAN):off]
+    matches = list(BOUNDARY.finditer(head))
+    if not matches:
+        return None
+    return off - (len(head) - matches[-1].end())
+
+
+def function_extent(pe, start):
+    """Offset just past the first boundary after `start`, capped at the limit."""
+    match = BOUNDARY.search(pe.d[start:start + FUNCTION_LIMIT])
+    if match:
+        return start + match.end()
+    return start + FUNCTION_LIMIT
+
+
+def xref_functions(pe, text_strings, out):
+    """Disassemble every function that mentions a sky-related string."""
+    owners = {}
+    for address, text in text_strings.items():
+        if not XREF_HINT.search(text):
+            continue
+        for ref in pe.find_u32(address):
+            offset = pe.va2off(ref)
+            if offset is None:
+                continue
+            start = function_start(pe, offset)
+            if start is None:
+                continue
+            owners.setdefault(start, []).append("%#x %r" % (ref, text))
+    chunks = []
+    for start in sorted(owners):
+        end = function_extent(pe, start)
+        va = pe.off2va(start)
+        if va is None:
+            continue
+        notes = sorted(set(owners[start]))
+        end_va = pe.off2va(end) or (va + end - start)
+        chunks.append(FUNCTION_HEADER % (va, end_va, end - start,
+                                         "" if len(notes) < 6 else " (+%d refs)" % len(notes)))
+        for note in notes[:6]:
+            chunks.append("#   ref %s\n" % note)
+        chunks.append(disassemble(pe, va, pe.off2va(end) or (va + end - start),
+                                  text_strings))
+        chunks.append("\n")
+    (out / "asm-21-xref-functions.txt").write_text("".join(chunks))
+    return len(owners), len(chunks)
+
+
 def disassemble(pe, start, end, text_strings):
     """Disassemble [start, end) and annotate image addresses with their C string."""
     import capstone
@@ -353,11 +418,13 @@ def main():
         strings, hits = exe_strings(pe, out)
         report.append("elementclient.exe: base %#x, %d sections, %d sky strings" % (
             pe.base, len(pe.secs), hits))
-        for name, (start, end) in WINDOWS.items():
+        for name, (start, end) in list(WINDOWS.items()) + list(MODULES.items()):
             text = disassemble(pe, start, end, strings)
             (out / ("asm-%s.txt" % name)).write_text(
                 "# %s  %#x-%#x\n%s" % (name, start, end, text))
             report.append("  %s: %d lines" % (name, text.count("\n")))
+        count, chunks = xref_functions(pe, strings, out)
+        report.append("  xref functions: %d bodies" % count)
 
     (out / "SUMMARY.txt").write_text("\n".join(report) + "\n")
     print("\n".join(report))
