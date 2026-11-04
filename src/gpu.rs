@@ -438,8 +438,7 @@ fn build(
             for g in &surface.grid {
                 let (cell_x, cell_y, at) =
                     sample(x * TILE + g[0] as usize, y * TILE + g[1] as usize);
-                let n = terrain_reader.normal(at);
-                let height = terrain_reader.height(at);
+                let (height, n) = terrain_reader.cell(at)?;
                 let pos = [
                     (cell_x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
                     height,

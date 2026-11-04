@@ -797,7 +797,7 @@ impl TerrainGpu {
             multisample: Default::default(),
             multiview: None,
         });
-        let (vertices, indices, far_spans) = world_mesh(t, 4);
+        let (vertices, indices, far_spans) = world_mesh(t, 4)?;
         let count = indices.len() as u32;
         let vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("full-world terrain LOD vertices"),
@@ -1164,11 +1164,14 @@ struct FarVertex {
 fn world_mesh(
     t: &Terrain,
     step: usize,
-) -> (
-    Vec<FarVertex>,
-    Vec<u32>,
-    Vec<crate::terrain_residency::Span>,
-) {
+) -> Result<
+    (
+        Vec<FarVertex>,
+        Vec<u32>,
+        Vec<crate::terrain_residency::Span>,
+    ),
+    String,
+> {
     let xs = grid_axis(t.width, step);
     let ys = grid_axis(t.height, step);
     let mut v = Vec::with_capacity(xs.len() * ys.len());
@@ -1176,11 +1179,11 @@ fn world_mesh(
     for &y in &ys {
         for &x in &xs {
             let at = y * t.width + x;
-            let n = terrain_reader.normal(at);
+            let (height, n) = terrain_reader.cell(at)?;
             v.push(FarVertex {
                 pos: [
                     (x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
-                    terrain_reader.height(at),
+                    height,
                     (t.height as f32 * 0.5 - y as f32) * t.grid_spacing,
                 ],
                 normal: [n[0], n[1], n[2], 0],
@@ -1188,7 +1191,7 @@ fn world_mesh(
         }
     }
     let (indices, spans) = far_indices(&v, xs.len(), ys.len());
-    (v, indices, spans)
+    Ok((v, indices, spans))
 }
 
 fn far_indices(

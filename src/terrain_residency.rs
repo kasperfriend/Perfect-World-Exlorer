@@ -163,7 +163,21 @@ impl Residency {
         vertices: &mut Vec<Vertex>,
         indices: &mut Vec<u32>,
     ) -> Vec<Span> {
-        let mut spans = Vec::new();
+        // One exact allocation, not geometric growth of a second near mesh.
+        let (mut vertex_count, mut index_count) = (0, 0);
+        for y in window.y0..window.y1 {
+            for x in window.x0..window.x1 {
+                if let Some(block) = self.blocks.get(&(x, y)) {
+                    if !block.indices.is_empty() {
+                        vertex_count += block.vertices.len();
+                        index_count += block.indices.len();
+                    }
+                }
+            }
+        }
+        vertices.reserve_exact(vertex_count);
+        indices.reserve_exact(index_count);
+        let mut spans = Vec::with_capacity(window.blocks());
         for y in window.y0..window.y1 {
             for x in window.x0..window.x1 {
                 let Some(block) = self.blocks.get(&(x, y)) else {

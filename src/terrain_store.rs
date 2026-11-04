@@ -200,6 +200,18 @@ impl Reader {
         self.current = Some((id, page));
         Ok(local)
     }
+    pub fn cell(&mut self, index: usize) -> Result<(f32, [i8; 3]), String> {
+        if let Data::Memory(values) = &self.store.data {
+            return values
+                .get(index)
+                .copied()
+                .map(|h| (h, [0, 127, 0]))
+                .ok_or_else(|| format!("terrain cell {index} out of bounds"));
+        }
+        let local = self.page(index)?;
+        let page = &self.current.as_ref().unwrap().1;
+        Ok((page.heights[local], page.normals[local]))
+    }
     pub fn height(&mut self, index: usize) -> f32 {
         if let Data::Memory(values) = &self.store.data {
             return values[index];
@@ -293,6 +305,9 @@ impl Builder {
             || width
                 .checked_mul(height)
                 .is_none_or(|cells| cells > 100_000_000)
+            || (width / side)
+                .checked_mul(height / side)
+                .is_none_or(|pages| pages > 1_000_000)
         {
             return Err("invalid paged terrain dimensions".into());
         }

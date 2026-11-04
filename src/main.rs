@@ -530,9 +530,15 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     })
 }
 fn export_png(terrain: &Terrain, output: &Path) -> Result<(), String> {
-    let w = terrain.width;
-    let h = terrain.height;
-    let mut heights = terrain.heights.reader();
+    export_height_png(terrain.width, terrain.height, &terrain.heights, output)
+}
+fn export_height_png(
+    w: usize,
+    h: usize,
+    values: &terrain_store::Heights,
+    output: &Path,
+) -> Result<(), String> {
+    let mut heights = values.reader();
     let f = fs::File::create(output).map_err(|e| e.to_string())?;
     let mut enc = png::Encoder::new(BufWriter::new(f), w as u32, h as u32);
     enc.set_color(png::ColorType::Rgb);
@@ -644,5 +650,25 @@ fn main() {
         #[cfg(windows)]
         windows_setup::show_error(&e);
         std::process::exit(1)
+    }
+}
+
+#[cfg(test)]
+mod ram_export_tests {
+    #[test]
+    fn streamed_png_preserves_decoded_rgb() {
+        let path =
+            std::env::temp_dir().join(format!("pw-streamed-export-{}.png", std::process::id()));
+        let heights = vec![0.; 12].into();
+        super::export_height_png(4, 3, &heights, &path).unwrap();
+        let decoder = png::Decoder::new(std::fs::File::open(&path).unwrap());
+        let mut reader = decoder.read_info().unwrap();
+        let mut pixels = vec![0; reader.output_buffer_size()];
+        let frame = reader.next_frame(&mut pixels).unwrap();
+        assert_eq!((frame.width, frame.height), (4, 3));
+        assert_eq!(frame.color_type, png::ColorType::Rgb);
+        assert_eq!(&pixels[..frame.buffer_size()], &[76u8, 93, 60].repeat(12));
+        drop(reader);
+        std::fs::remove_file(path).unwrap();
     }
 }

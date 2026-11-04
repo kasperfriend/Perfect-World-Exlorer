@@ -18,3 +18,5 @@ This folder preserves research and open questions for the inspected client build
 - [Roadmap](Roadmap.md): implementation gaps and next investigations; some items reflect earlier milestones.
 
 These are engineering notes, not proof of visual equivalence or an independent verification of original engine behavior. Use legally obtained client files for further research and do not commit them.
+
+- [RAM-first lossless terrain paging follow-up (2026-11-04)](RAM-paging-2026-11-04.md): block-at-a-time disk backing, bounded shared hot set, smaller texture LRU and streamed PNG exports.
