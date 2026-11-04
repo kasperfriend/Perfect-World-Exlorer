@@ -78,10 +78,13 @@ fn present_encoded(c:vec3<f32>)->vec3<f32>{
 // right before the water draw (0x7cb444, 0x7cb502, 0x7cb94e) and D3D applies
 // the fixed-function fog stage to the source colour. The water shaders carry
 // no fog arithmetic of their own, so this is that stage, not a shader mix.
-fn surface_fog(c:vec3<f32>, depth:f32)->vec3<f32>{
+fn surface_fog(c:vec3<f32>, reciprocal_w:f32)->vec3<f32>{
+ // Fragment position.w is 1/clip.w, not view depth. The viewer's
+ // perspective matrix has clip.w = positive view Z (also in reversed Z).
+ let depth=1.0/max(reciprocal_w,0.0000001);
  if w.fog.z<0.5 {return c;}
- let span=max(w.fog.y-w.fog.x,0.000001);
- let f=clamp((w.fog.y-depth)/span,0.0,1.0);
+ let span=w.fog.y-w.fog.x;
+ let f=select(clamp((w.fog.y-depth)/select(span,0.001,abs(span)<0.001),0.0,1.0),select(1.,0.,depth>=w.fog.y),abs(span)<0.001);
  return mix(w.fog_color.rgb,c,f);
 }
 @fragment fn water_fs(i:Out)->@location(0) vec4<f32> {

@@ -2623,8 +2623,13 @@ impl Renderer {
                 fog_color: frame.active_fog_color,
             },
         );
-        self.simple_water
-            .update(&self.queue, matrix, frame.elapsed64);
+        self.simple_water.update(
+            &self.queue,
+            matrix,
+            frame.elapsed64,
+            frame.active_fog_range,
+            frame.active_fog_color,
+        );
         let reflection = self.water.reflection();
         let reflect_depth = self.water.depth();
         let refraction = self.water.refraction();

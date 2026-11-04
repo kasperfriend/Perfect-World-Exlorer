@@ -116,7 +116,7 @@ fn main() {
         let depth = gpu::depth(&device, 64, 64);
         let dv = depth.create_view(&Default::default());
         let mut outputs = Vec::new();
-        for (near_first, eye_y, shallow, clipped) in [
+        for (case, (near_first, eye_y, shallow, clipped)) in [
             (true, 2., false, false),
             (false, 2., false, false),
             (false, 200., false, false),
@@ -124,11 +124,26 @@ fn main() {
             (false, 2., true, true),
             (false, -2., false, true),
             (false, -0.05, false, true),
-        ] {
+            (false, 2., false, false), // full atmospheric fog
+            (false, 2., false, false), // halfway
+            (false, 2., false, false), // before fog start
+            (false, 2., false, false), // distant, fog disabled
+            (false, -2., false, true), // below-surface shader, full fog
+            (false, 2., false, false), // reflection disabled, full fog
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let distance = match case {
+                7 | 10 | 11 | 12 => 8.,
+                8 => 4.,
+                _ => 1.,
+            };
+            let fog_on = case >= 7 && case != 10;
             water.update(
                 &queue,
                 &water_gpu::WaterUniform {
-                    matrix: glam::Mat4::IDENTITY.to_cols_array_2d(),
+                    matrix: (glam::Mat4::IDENTITY * distance).to_cols_array_2d(),
                     inverse_matrix: glam::Mat4::from_translation(glam::Vec3::new(
                         0.,
                         if shallow { -0.33 } else { 0. },
@@ -136,11 +151,11 @@ fn main() {
                     ))
                     .to_cols_array_2d(),
                     eye_time: [0., eye_y, 1., 0.],
-                    size: [64., 64., 100., 1.],
+                    size: [64., 64., 100., if case == 12 { 0. } else { 1. }],
                     animation: [0., 100., 0., 0.],
                     edge_mode: [0.; 4],
-                    fog: [0., 1., 0., 0.],
-                    fog_color: [1., 1., 1., 1.],
+                    fog: [2., 6., if fog_on { 1. } else { 0. }, 0.],
+                    fog_color: [0.2, 0.4, 0.6, 1.],
                 },
             );
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -348,10 +363,17 @@ fn main() {
                 } else {
                     (255. * (aq * (1. - edge) + mixed * edge)).round() as i32
                 };
+                let f = if fog_on {
+                    ((distance - 2.) / 4f32).clamp(0., 1.)
+                } else {
+                    0.
+                };
+                let expected =
+                    (expected as f32 * (1. - f) + [51., 102., 153.][k] * f).round() as i32;
                 let observed = c[at + k] as i32;
                 assert!(
                     (observed - expected).abs() <= 2,
-                    "{format:?} channel {k}: {observed} vs {expected}"
+                    "{format:?} case {case} channel {k}: {observed} vs {expected}"
                 );
             }
             drop(c);
