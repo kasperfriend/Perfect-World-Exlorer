@@ -331,7 +331,10 @@ mod tests {
             &map,
         );
         assert_eq!(body.jump_count, 2);
-        assert!(body.vertical_velocity > first_velocity);
+        // The second jump replaces velocity with 10 m/s. After the same
+        // gravity step its velocity equals the first jump's post-step value;
+        // retaining the old velocity would make it strictly smaller.
+        assert!((body.vertical_velocity - first_velocity).abs() < 0.000_001);
         body.advance(
             STEP_SECONDS,
             &mechanics,
