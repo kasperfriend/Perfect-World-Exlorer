@@ -94,6 +94,37 @@ already recorded `exp2(...)` and warned in as many words that this is
 measures depth from the displaced vertex, the other two clamp above-plane
 depth to zero.
 
+## Grass wind: the default is 1.0 because there is no retail number
+
+The reported symptom ("sways too much, models go completely wild") was not a
+tuning preference. The recovered spring has no drag term — `0x6517f0` writes
+`+0x50 = 0.0` and nothing writes it again — which is stable in the client
+because the driver re-derives its force from its own arguments every frame.
+Reused as a driven oscillator it is not: the grass noise samples at 20 Hz into
+eight octaves (periods 12.8 s down to 0.1 s) that bracket the spring's
+`2*pi*sqrt(+0x48)` = 1.99 s natural period, so it resonated.
+
+| elapsed at 60 Hz | undamped displacement |
+|---|---|
+| 10 s | 0.90 |
+| 60 s | 5.10 |
+| 300 s | 1.07e5 |
+
+The viewer now adds **critical damping at the recovered natural frequency**
+(`2*omega`). No recovered constant changes, both gains derive from the same
+`omega` so it cannot be frame-rate dependent, and the travel is bounded by the
+target: 0.48 peak over ten minutes of logic time, against a 0.56 target bound.
+The literal undamped step is kept in the tests as `client_step`, so the
+transcription can still be checked against `tools/x87`.
+
+On the amplitude question: the client has **no user wind scale at all**. Its
+only wind inputs are the `CNoise` sample and the authored axis weights
+`+0x6c..0x74 = (1.0, -0.5, 0.0)`, fixed by the constructor `0x650b40`. So
+"the default game value" is 1.0 by construction — the recovered amplitude with
+no viewer multiplier — and that is what the slider's mark shows. The slider
+(`grass_wind_amplitude`, 0..2) scales the published history, never the driving
+target, so the spring is always solved from the recovered bound.
+
 ## Outstanding, deliberately not done
 
 `SkyGpu::new` again reads `sky_image01..03` from `configs/element_client.cfg`
