@@ -185,9 +185,8 @@ impl Equipment {
         self.set_native_default_armor(slot, false);
     }
     pub fn native_default_armor(&self, slot: super::catalog::ArmorSlot) -> bool {
-        slot.skin_index().is_some_and(|index| {
-            self.native_default_armor_mask & (1 << index) != 0
-        })
+        slot.skin_index()
+            .is_some_and(|index| self.native_default_armor_mask & (1 << index) != 0)
     }
     pub fn set_native_default_armor(&mut self, slot: super::catalog::ArmorSlot, enabled: bool) {
         if let Some(index) = slot.skin_index() {
@@ -876,8 +875,8 @@ impl SliderBounds {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::catalog::ArmorSlot;
+    use super::*;
 
     #[test]
     fn authentic_default_round_trip_preserves_ids_sliders_and_signed_argb() {

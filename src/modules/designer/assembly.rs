@@ -675,11 +675,8 @@ impl Character {
                     &[],
                     &[],
                 )?;
-                let child = model_asset::hook_matrix(
-                    &weapon.asset.skeleton,
-                    &reference,
-                    child_hook,
-                )?;
+                let child =
+                    model_asset::hook_matrix(&weapon.asset.skeleton, &reference, child_hook)?;
                 hanger_world(parent, child)?
             } else {
                 parent
@@ -1517,7 +1514,11 @@ mod tests {
             }
             let character = Character::assemble(design, &mut assets).unwrap();
             assert!(character.equipment.is_empty());
-            assert_eq!(character.body.skins.len(), 2, "base body + hidden native head only");
+            assert_eq!(
+                character.body.skins.len(),
+                2,
+                "base body + hidden native head only"
+            );
             assert_eq!(character.body.model.skins.len(), 2);
             let pose = character.bind_pose(Mat4::IDENTITY).unwrap();
             assert!(!character.meshes_from_pose(&pose).unwrap().body.is_empty());
@@ -1625,8 +1626,7 @@ mod tests {
                 assert_eq!(face.face_shaders[&key].gloss(), None);
                 eye = true;
             } else if mesh.name.eq_ignore_ascii_case("model人脸_5") {
-                let Some(FaceShader::EyeBall { color, highlight }) =
-                    face.face_shaders.get(&key)
+                let Some(FaceShader::EyeBall { color, highlight }) = face.face_shaders.get(&key)
                 else {
                     panic!("authentic eyeball mesh lost its native EyeBall shader");
                 };
@@ -1642,7 +1642,10 @@ mod tests {
             }
             assert!(!face.mesh_tints.contains_key(&key));
         }
-        assert!(eye && eyeball, "authentic face must contain Eye and EyeBall meshes");
+        assert!(
+            eye && eyeball,
+            "authentic face must contain Eye and EyeBall meshes"
+        );
     }
 
     #[test]

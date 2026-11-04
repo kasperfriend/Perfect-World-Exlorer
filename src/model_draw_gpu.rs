@@ -403,26 +403,15 @@ impl Draw {
             let view = textures[texture].create_view(&Default::default());
             let highlight =
                 textures[highlights[index].unwrap_or(texture)].create_view(&Default::default());
-            let gloss = textures[glosses[index].unwrap_or(texture)].create_view(&Default::default());
+            let gloss =
+                textures[glosses[index].unwrap_or(texture)].create_view(&Default::default());
             let vertices = vertices(m, frame.vertex_fog);
             let alpha = state.queue == model_queue::Queue::Alpha;
             let binding = match &alpha_receiver {
-                Some(receiver) if alpha => receiver.binding(
-                    device,
-                    &view,
-                    &highlight,
-                    &gloss,
-                    sampler,
-                    &params[index],
-                ),
-                _ => receiver.binding(
-                    device,
-                    &view,
-                    &highlight,
-                    &gloss,
-                    sampler,
-                    &params[index],
-                ),
+                Some(receiver) if alpha => {
+                    receiver.binding(device, &view, &highlight, &gloss, sampler, &params[index])
+                }
+                _ => receiver.binding(device, &view, &highlight, &gloss, sampler, &params[index]),
             }?;
             if alpha {
                 alpha_meshes.push(index);

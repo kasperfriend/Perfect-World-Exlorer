@@ -503,12 +503,7 @@ impl Walker {
                 TravelState::Mounted => {
                     let mut mechanics = self.settings.mechanics;
                     mechanics.move_speed = mount_speed?;
-                    body.advance(
-                        delta,
-                        &mechanics,
-                        Input { direction, jump },
-                        &map,
-                    );
+                    body.advance(delta, &mechanics, Input { direction, jump }, &map);
                 }
                 TravelState::Flying => body.advance_flight(
                     delta,
@@ -752,8 +747,9 @@ impl Walker {
                         |path| assets.read(path),
                     )?);
                 }
-                let decal_quads =
-                    character.gfx.quads(&character.assembly, &character.posed.pose)?;
+                let decal_quads = character
+                    .gfx
+                    .quads(&character.assembly, &character.posed.pose)?;
                 let gfx = gfx_decal_gpu::Draw::new(
                     device,
                     queue,
@@ -791,8 +787,9 @@ impl Walker {
             for (index, model) in models.into_iter().enumerate() {
                 gpu.draws[index].update(queue, model.asset, model.poses, frame)?;
             }
-            let decal_quads =
-                character.gfx.quads(&character.assembly, &character.posed.pose)?;
+            let decal_quads = character
+                .gfx
+                .quads(&character.assembly, &character.posed.pose)?;
             gpu.gfx
                 .update(queue, frame.matrix, frame.clip_plane, &decal_quads)?;
             Ok(())
