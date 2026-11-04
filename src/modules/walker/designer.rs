@@ -12,7 +12,7 @@ use crate::modules::designer::{
 pub(super) struct Designer {
     design: CharacterDesign,
     initialized: bool,
-    dirty: bool,
+    control_state: controls::ControlState,
     preset_name: String,
     status: String,
     status_error: bool,
@@ -23,7 +23,7 @@ impl Default for Designer {
         Self {
             design: CharacterDesign::new(Class::Blademaster, Gender::Male),
             initialized: false,
-            dirty: false,
+            control_state: controls::ControlState::default(),
             preset_name: String::new(),
             status: "Native profession starter armor will be equipped on spawn.".into(),
             status_error: false,
@@ -48,11 +48,9 @@ impl Designer {
     pub(super) fn restore_applied(&mut self, design: CharacterDesign) {
         self.design = design;
         self.initialized = true;
-        self.dirty = false;
     }
 
     pub(super) fn rebuild_succeeded(&mut self, equipment: usize, warnings: usize) {
-        self.dirty = false;
         self.status = format!(
             "Applied to this Walker — {equipment} equipment skin(s), {warnings} asset warning(s)."
         );
@@ -60,7 +58,6 @@ impl Designer {
     }
 
     pub(super) fn rebuild_failed(&mut self, error: &str) {
-        self.dirty = true;
         self.status =
             format!("Could not customize Walker: {error}. The previous character is still active.");
         self.status_error = true;
@@ -76,7 +73,6 @@ impl Designer {
             Ok(design) => {
                 self.design = design;
                 self.initialized = true;
-                self.dirty = false;
                 self.status_error = false;
                 Some(self.design.clone())
             }
@@ -94,7 +90,7 @@ impl Designer {
         ui.heading("Character Designer");
         ui.label(
             egui::RichText::new(
-                "Customize this Walker character. New and reset characters use the native profession upper, wrist, lower and foot starter armor.",
+                "Customize this Walker character; every change applies immediately. New and reset characters use native profession starter armor.",
             )
             .small()
             .weak(),
@@ -148,7 +144,6 @@ impl Designer {
             match assets.apply_preset(&mut design, &path) {
                 Ok(()) => {
                     self.design = design;
-                    self.dirty = false;
                     self.status_error = false;
                     rebuild = Some(self.design.clone());
                 }
@@ -159,22 +154,19 @@ impl Designer {
             }
         }
 
-        if controls::show(ui, &mut self.design, &assets.catalog, &assets.bounds) {
-            self.dirty = true;
+        if controls::show(
+            ui,
+            &mut self.design,
+            &assets.catalog,
+            &assets.bounds,
+            &mut self.control_state,
+        ) {
+            rebuild = Some(self.design.clone());
         }
 
-        ui.horizontal(|ui| {
-            if ui
-                .add_enabled(self.dirty, egui::Button::new("Apply to Walker"))
-                .clicked()
-            {
-                self.dirty = false;
-                rebuild = Some(self.design.clone());
-            }
-            if ui.button("Reset class and starter armor").clicked() {
-                rebuild = self.load_default(assets, self.design.class, self.design.gender);
-            }
-        });
+        if ui.button("Reset class and starter armor").clicked() {
+            rebuild = self.load_default(assets, self.design.class, self.design.gender);
+        }
         ui.horizontal(|ui| {
             ui.label("Preset name");
             ui.text_edit_singleline(&mut self.preset_name);
@@ -191,9 +183,6 @@ impl Designer {
                 }
             }
         });
-        if self.dirty {
-            ui.label(egui::RichText::new("Unapplied changes").small().weak());
-        }
         if self.status_error {
             ui.colored_label(egui::Color32::LIGHT_RED, &self.status);
         } else {

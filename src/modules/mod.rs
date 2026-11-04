@@ -47,10 +47,10 @@ impl Modules {
         let mut back = false;
         egui::Window::new("MODULES  |  ESC to go back")
             .default_pos(egui::pos2(16., 16.))
-            .default_size(egui::vec2(760., 500.))
-            .min_size(egui::vec2(560., 340.))
+            .default_size(egui::vec2(780., 650.))
+            .min_size(egui::vec2(560., 480.))
             .collapsible(false)
-            .resizable(true)
+            .resizable([true, true])
             .show(ctx, |ui| {
                 ui.label(
                     egui::RichText::new(

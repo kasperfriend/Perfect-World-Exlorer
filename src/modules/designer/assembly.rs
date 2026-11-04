@@ -70,7 +70,6 @@ pub struct Character {
     face_controls: Vec<BoneControl>,
     body_head: usize,
     face_neck: usize,
-    original_head: Mat4,
     original_neck: Mat4,
 }
 
@@ -288,10 +287,9 @@ impl Character {
             .ok_or("body skeleton has no Bip01 Head attachment bone")?;
         let face_neck = bone_index(&face_model.skeleton, "脖子对齐")
             .ok_or("face skeleton has no 脖子对齐 attachment bone")?;
-        let original_head = Mat4::from_cols_array(&body.skeleton.bones[body_head].relative);
         let original_neck = Mat4::from_cols_array(&face_model.skeleton.bones[face_neck].relative);
-        if !original_head.inverse().is_finite() || !original_neck.is_finite() {
-            return Err("non-invertible/non-finite native head attachment matrix".into());
+        if !original_neck.is_finite() || !original_neck.inverse().is_finite() {
+            return Err("non-invertible/non-finite native neck attachment matrix".into());
         }
         let body_scales = body_scales(&body.skeleton, &design);
 
@@ -311,7 +309,9 @@ impl Character {
                 (weapon.right_model, "HH_righthandweapon"),
                 (weapon.left_model, "HH_lefthandweapon"),
             ] {
-                if path.is_empty() {
+                // elements.data uses "0" for an absent hand model (for
+                // example weapon 19's left hand). It is not an archive path.
+                if path.is_empty() || path == "0" {
                     continue;
                 }
                 let asset = ModelAsset::load_with(&path, |path| assets.read(path))
@@ -339,7 +339,6 @@ impl Character {
             face_controls,
             body_head,
             face_neck,
-            original_head,
             original_neck,
         })
     }
@@ -394,11 +393,10 @@ impl Character {
             &[],
             &self.body_scales,
         )?;
-        // Native: InverseTM(originalHead) * originalNeck * headAbsolute.
+        // CECFace::Tick: InverseTM(originalNeck) * headAbsolute.
         // All matrices here are transposed native matrices, so reverse the
-        // product while preserving the original (not animated) bind offsets.
-        let face_world =
-            body.absolute[self.body_head] * self.original_neck * self.original_head.inverse();
+        // product. There is no body-bind/head-inverse term in the native code.
+        let face_world = body.absolute[self.body_head] * self.original_neck.inverse();
         if !face_world.is_finite() {
             return Err("non-finite face attachment transform".into());
         }
@@ -1089,6 +1087,19 @@ mod tests {
                     class.name(),
                     gender.name()
                 );
+                let expected =
+                    pose.body.absolute[character.body_head] * character.original_neck.inverse();
+                let actual = pose.face.model.to_cols_array();
+                let expected = expected.to_cols_array();
+                assert!(
+                    actual
+                        .iter()
+                        .zip(expected)
+                        .all(|(actual, expected)| (actual - expected).abs() < 1e-5),
+                    "incorrect native head attachment for {} {}",
+                    class.name(),
+                    gender.name()
+                );
                 evaluated += 1;
             }
         }
@@ -1096,14 +1107,30 @@ mod tests {
     }
 
     #[test]
-    fn native_head_attachment_product_is_reversed_for_glam() {
-        let head = Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0));
+    fn authentic_one_handed_weapon_skips_zero_placeholder_and_loads_real_model() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        assert_eq!(assets.catalog.weapon(19).unwrap().left_model, "0");
+        let mut design = assets
+            .default_design(Class::Blademaster, Gender::Male)
+            .unwrap();
+        design.equipment.weapon = 19;
+        let character = Character::assemble(design, &mut assets).unwrap();
+        assert_eq!(character.weapons.len(), 1);
+        assert_eq!(character.weapons[0].hook, "HH_righthandweapon");
+    }
+
+    #[test]
+    fn native_head_attachment_uses_inverse_neck_without_a_body_bind_inverse() {
         let neck = Mat4::from_translation(Vec3::new(0.0, 0.2, 0.1));
-        let absolute = Mat4::from_translation(Vec3::new(4.0, 3.0, 2.0)) * head;
-        let face = absolute * neck * head.inverse();
+        let absolute = Mat4::from_translation(Vec3::new(4.0, 3.0, 2.0));
+        let face = absolute * neck.inverse();
         let translation = face.w_axis.truncate();
         assert!(
-            (translation - Vec3::new(4.0, 3.2, 2.1)).length() < 1e-6,
+            (translation - Vec3::new(4.0, 2.8, 1.9)).length() < 1e-6,
             "{translation}"
         );
     }

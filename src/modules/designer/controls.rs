@@ -4,12 +4,21 @@ use super::{
     catalog::{ArmorSlot, Catalog},
     customize::{CharacterDesign, SliderBounds},
 };
+use std::collections::HashMap;
+
+const MAX_SEARCH_RESULTS: usize = 8;
+
+#[derive(Default)]
+pub(crate) struct ControlState {
+    searches: HashMap<String, String>,
+}
 
 pub(crate) fn show(
     ui: &mut egui::Ui,
     design: &mut CharacterDesign,
     catalog: &Catalog,
     bounds: &SliderBounds,
+    state: &mut ControlState,
 ) -> bool {
     let mut changed = false;
     macro_rules! slider {
@@ -84,8 +93,8 @@ pub(crate) fn show(
         });
 
     egui::CollapsingHeader::new("Face shape and complexion").show(ui, |ui| {
-        changed |= shape_combo(ui, catalog, design, 0, "Face shape 1", 0);
-        changed |= shape_combo(ui, catalog, design, 0, "Face shape 2", 1);
+        changed |= shape_combo(ui, state, catalog, design, 0, "Face shape 1", 0);
+        changed |= shape_combo(ui, state, catalog, design, 0, "Face shape 2", 1);
         slider!(
             ui,
             "BlendFace",
@@ -93,7 +102,7 @@ pub(crate) fn show(
             blend_face_shape,
             "Shape blend"
         );
-        changed |= texture_combo(ui, catalog, design, 0, "Face texture", FaceId::Face);
+        changed |= texture_combo(ui, state, catalog, design, 0, "Face texture", FaceId::Face);
         ui.horizontal(|ui| {
             id!(ui, id_third_eye, "Third-eye GFX ID");
         });
@@ -208,17 +217,34 @@ pub(crate) fn show(
     });
 
     egui::CollapsingHeader::new("Eyes and eyelids").show(ui, |ui| {
-        changed |= shape_combo(ui, catalog, design, 1, "Eye shape", 2);
-        changed |= texture_combo(ui, catalog, design, 1, "Eye base texture", FaceId::EyeBase);
+        changed |= shape_combo(ui, state, catalog, design, 1, "Eye shape", 2);
         changed |= texture_combo(
             ui,
+            state,
+            catalog,
+            design,
+            1,
+            "Eye base texture",
+            FaceId::EyeBase,
+        );
+        changed |= texture_combo(
+            ui,
+            state,
             catalog,
             design,
             1,
             "Eye highlight texture",
             FaceId::EyeHigh,
         );
-        changed |= texture_combo(ui, catalog, design, 6, "Eyeball texture", FaceId::Eyeball);
+        changed |= texture_combo(
+            ui,
+            state,
+            catalog,
+            design,
+            6,
+            "Eyeball texture",
+            FaceId::Eyeball,
+        );
         changed |= color(ui, "Eyelid color", &mut design.customize.face.color_eye);
         changed |= color(
             ui,
@@ -256,8 +282,8 @@ pub(crate) fn show(
     });
 
     egui::CollapsingHeader::new("Eyebrows").show(ui, |ui| {
-        changed |= shape_combo(ui, catalog, design, 2, "Brow shape", 3);
-        changed |= texture_combo(ui, catalog, design, 3, "Brow texture", FaceId::Brow);
+        changed |= shape_combo(ui, state, catalog, design, 2, "Brow shape", 3);
+        changed |= texture_combo(ui, state, catalog, design, 3, "Brow texture", FaceId::Brow);
         changed |= color(ui, "Brow color", &mut design.customize.face.color_brow);
         slider!(ui, "Brow", "scaleBrowH", scale_brow_h, "Width");
         slider!(ui, "Brow", "scaleBrowV", scale_brow_v, "Height");
@@ -292,9 +318,9 @@ pub(crate) fn show(
     });
 
     egui::CollapsingHeader::new("Nose").show(ui, |ui| {
-        changed |= shape_combo(ui, catalog, design, 3, "Nose tip shape", 4);
-        changed |= shape_combo(ui, catalog, design, 4, "Nose bridge shape", 5);
-        changed |= texture_combo(ui, catalog, design, 5, "Nose texture", FaceId::Nose);
+        changed |= shape_combo(ui, state, catalog, design, 3, "Nose tip shape", 4);
+        changed |= shape_combo(ui, state, catalog, design, 4, "Nose bridge shape", 5);
+        changed |= texture_combo(ui, state, catalog, design, 5, "Nose texture", FaceId::Nose);
         slider!(ui, "Nose", "scaleNoseTipH", scale_nose_tip_h, "Tip width");
         slider!(ui, "Nose", "scaleNoseTipV", scale_nose_tip_v, "Tip height");
         slider!(ui, "Nose", "scaleNoseTipZ", scale_nose_tip_z, "Tip depth");
@@ -322,10 +348,18 @@ pub(crate) fn show(
     });
 
     egui::CollapsingHeader::new("Mouth").show(ui, |ui| {
-        changed |= shape_combo(ui, catalog, design, 5, "Upper lip line", 6);
-        changed |= shape_combo(ui, catalog, design, 6, "Middle lip line", 7);
-        changed |= shape_combo(ui, catalog, design, 7, "Lower lip line", 8);
-        changed |= texture_combo(ui, catalog, design, 4, "Mouth texture", FaceId::Mouth);
+        changed |= shape_combo(ui, state, catalog, design, 5, "Upper lip line", 6);
+        changed |= shape_combo(ui, state, catalog, design, 6, "Middle lip line", 7);
+        changed |= shape_combo(ui, state, catalog, design, 7, "Lower lip line", 8);
+        changed |= texture_combo(
+            ui,
+            state,
+            catalog,
+            design,
+            4,
+            "Mouth texture",
+            FaceId::Mouth,
+        );
         changed |= color(ui, "Mouth color", &mut design.customize.face.color_mouth);
         slider!(
             ui,
@@ -368,22 +402,39 @@ pub(crate) fn show(
     });
 
     egui::CollapsingHeader::new("Ears, hair and facial hair").show(ui, |ui| {
-        changed |= shape_combo(ui, catalog, design, 8, "Ear shape", 9);
+        changed |= shape_combo(ui, state, catalog, design, 8, "Ear shape", 9);
         slider!(ui, "Ear", "scaleEar", scale_ear, "Ear scale");
         slider!(ui, "Ear", "offsetEarV", offset_ear_v, "Ear vertical offset");
-        changed |= hair_combo(ui, catalog, design);
-        changed |= texture_combo(ui, catalog, design, 8, "Hair texture", FaceId::Hair);
+        changed |= hair_combo(ui, state, catalog, design);
+        changed |= texture_combo(ui, state, catalog, design, 8, "Hair texture", FaceId::Hair);
         changed |= color(ui, "Hair color", &mut design.customize.face.color_hair);
         ui.horizontal(|ui| {
             id!(ui, id_moustache_skin, "Goatee skin ID");
         });
-        changed |= texture_combo(ui, catalog, design, 9, "Goatee texture", FaceId::Goatee);
+        changed |= texture_combo(
+            ui,
+            state,
+            catalog,
+            design,
+            9,
+            "Goatee texture",
+            FaceId::Goatee,
+        );
         ui.horizontal(|ui| {
             id!(ui, id_faling_skin, "Faling skin ID");
         });
-        changed |= texture_combo(ui, catalog, design, 10, "Faling texture", FaceId::Faling);
         changed |= texture_combo(
             ui,
+            state,
+            catalog,
+            design,
+            10,
+            "Faling texture",
+            FaceId::Faling,
+        );
+        changed |= texture_combo(
+            ui,
+            state,
             catalog,
             design,
             7,
@@ -404,7 +455,7 @@ pub(crate) fn show(
         {
             changed = true;
         }
-        changed |= weapon_combo(ui, catalog, design);
+        changed |= weapon_combo(ui, state, catalog, design);
         for (slot, label) in [
             (ArmorSlot::Head, "Head"),
             (ArmorSlot::Upper, "Upper body"),
@@ -412,8 +463,8 @@ pub(crate) fn show(
             (ArmorSlot::Lower, "Lower body"),
             (ArmorSlot::Foot, "Foot"),
         ] {
-            changed |= armor_combo(ui, catalog, design, slot, label);
-            changed |= fashion_combo(ui, catalog, design, slot, label);
+            changed |= armor_combo(ui, state, catalog, design, slot, label);
+            changed |= fashion_combo(ui, state, catalog, design, slot, label);
         }
     });
     changed
@@ -434,8 +485,74 @@ enum FaceId {
     Moustache,
 }
 
+fn item_matches(id: u32, name: &str, lowercase_query: &str) -> bool {
+    id.to_string().contains(lowercase_query) || name.to_lowercase().contains(lowercase_query)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn item_combo(
+    ui: &mut egui::Ui,
+    state: &mut ControlState,
+    label: String,
+    current: u32,
+    selected: String,
+    zero: Option<(u32, String)>,
+    options: impl FnOnce(&str) -> Vec<(u32, String)>,
+    mut set: impl FnMut(u32),
+) -> bool {
+    let mut changed = false;
+    let key = label.clone();
+    egui::ComboBox::from_label(label)
+        .selected_text(selected)
+        .show_ui(ui, |ui| {
+            let query = {
+                let search = state.searches.entry(key).or_default();
+                ui.label("Search by name or ID");
+                ui.text_edit_singleline(search);
+                search.trim().to_lowercase()
+            };
+            if let Some((id, text)) = zero {
+                if ui.selectable_label(current == id, text).clicked() && current != id {
+                    set(id);
+                    changed = true;
+                }
+                ui.separator();
+            }
+            if query.is_empty() {
+                ui.label(
+                    egui::RichText::new("Type to search; the full item list is not dumped here.")
+                        .small()
+                        .weak(),
+                );
+                return;
+            }
+            let mut matches = options(&query);
+            if matches.is_empty() {
+                ui.label("No matching items");
+                return;
+            }
+            let overflow = matches.len() > MAX_SEARCH_RESULTS;
+            matches.truncate(MAX_SEARCH_RESULTS);
+            for (id, text) in matches {
+                if ui.selectable_label(current == id, text).clicked() && current != id {
+                    set(id);
+                    changed = true;
+                }
+            }
+            if overflow {
+                ui.label(
+                    egui::RichText::new("More matches exist; refine the search.")
+                        .small()
+                        .weak(),
+                );
+            }
+        });
+    changed
+}
+
 fn texture_combo(
     ui: &mut egui::Ui,
+    state: &mut ControlState,
     catalog: &Catalog,
     design: &mut CharacterDesign,
     part: u32,
@@ -458,24 +575,34 @@ fn texture_combo(
         FaceId::Faling => &mut face.id_faling_tex,
         FaceId::Moustache => &mut face.id_moustache_tex,
     };
-    let old = *id;
-    let current = catalog.face_texture(old as u32);
-    let selected = current.map_or_else(
-        || format!("{old} (not in v27)"),
+    let current = *id as u32;
+    let selected = catalog.face_texture(current).map_or_else(
+        || format!("{current} (not in v27)"),
         |item| format!("{} — {}", item.id, item.name),
     );
-    egui::ComboBox::from_label(label)
-        .selected_text(selected)
-        .show_ui(ui, |ui| {
-            for item in catalog.texture_options(class, gender, part) {
-                ui.selectable_value(id, item.id as u16, format!("{} — {}", item.id, item.name));
-            }
-        });
-    old != *id
+    item_combo(
+        ui,
+        state,
+        label.into(),
+        current,
+        selected,
+        None,
+        |query| {
+            catalog
+                .texture_options(class, gender, part)
+                .into_iter()
+                .filter(|item| item_matches(item.id, &item.name, query))
+                .take(MAX_SEARCH_RESULTS + 1)
+                .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
+                .collect()
+        },
+        |new| *id = new as u16,
+    )
 }
 
 fn shape_combo(
     ui: &mut egui::Ui,
+    state: &mut ControlState,
     catalog: &Catalog,
     design: &mut CharacterDesign,
     part: u32,
@@ -497,122 +624,173 @@ fn shape_combo(
         8 => &mut face.id_mouth_down_lip_line,
         _ => &mut face.id_ear_shape,
     };
-    let old = *id;
-    let selected = catalog.face_shape(old as u32).map_or_else(
-        || format!("{old} (not in v27)"),
+    let current = *id as u32;
+    let selected = catalog.face_shape(current).map_or_else(
+        || format!("{current} (not in v27)"),
         |item| format!("{} — {}", item.id, item.name),
     );
-    egui::ComboBox::from_label(label)
-        .selected_text(selected)
-        .show_ui(ui, |ui| {
-            for item in catalog.shape_options(class, gender, part) {
-                ui.selectable_value(id, item.id as u16, format!("{} — {}", item.id, item.name));
-            }
-        });
-    old != *id
+    item_combo(
+        ui,
+        state,
+        label.into(),
+        current,
+        selected,
+        None,
+        |query| {
+            catalog
+                .shape_options(class, gender, part)
+                .into_iter()
+                .filter(|item| item_matches(item.id, &item.name, query))
+                .take(MAX_SEARCH_RESULTS + 1)
+                .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
+                .collect()
+        },
+        |new| *id = new as u16,
+    )
 }
 
-fn hair_combo(ui: &mut egui::Ui, catalog: &Catalog, design: &mut CharacterDesign) -> bool {
+fn hair_combo(
+    ui: &mut egui::Ui,
+    state: &mut ControlState,
+    catalog: &Catalog,
+    design: &mut CharacterDesign,
+) -> bool {
     let class = design.class;
     let gender = design.gender;
     let id = &mut design.customize.face.id_hair_model;
-    let old = *id;
-    let selected = catalog.hair_item(old as u32).map_or_else(
-        || format!("{old} (not in v27)"),
+    let current = *id as u32;
+    let selected = catalog.hair_item(current).map_or_else(
+        || format!("{current} (not in v27)"),
         |item| format!("{} — {}", item.id, item.name),
     );
-    egui::ComboBox::from_label("Hair model")
-        .selected_text(selected)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(id, 0, "0 — bald / no additional hair skin");
-            for item in catalog.hair_options(class, gender) {
-                ui.selectable_value(id, item.id as u16, format!("{} — {}", item.id, item.name));
-            }
-        });
-    old != *id
+    item_combo(
+        ui,
+        state,
+        "Hair model".into(),
+        current,
+        selected,
+        Some((0, "0 — bald / no additional hair skin".into())),
+        |query| {
+            catalog
+                .hair_options(class, gender)
+                .into_iter()
+                .filter(|item| item_matches(item.id, &item.name, query))
+                .take(MAX_SEARCH_RESULTS + 1)
+                .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
+                .collect()
+        },
+        |new| *id = new as u16,
+    )
 }
 
-fn weapon_combo(ui: &mut egui::Ui, catalog: &Catalog, design: &mut CharacterDesign) -> bool {
+fn weapon_combo(
+    ui: &mut egui::Ui,
+    state: &mut ControlState,
+    catalog: &Catalog,
+    design: &mut CharacterDesign,
+) -> bool {
     let class = design.class;
     let id = &mut design.equipment.weapon;
-    let old = *id;
-    let selected = catalog.weapon(old).map_or_else(
-        || format!("{old} — unarmed / not in v27"),
+    let current = *id;
+    let selected = catalog.weapon(current).map_or_else(
+        || format!("{current} — unarmed / not in v27"),
         |item| format!("{} — {}", item.id, item.name),
     );
-    egui::ComboBox::from_label("Weapon")
-        .selected_text(selected)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(id, 0, "0 — unarmed");
-            for item in catalog
+    item_combo(
+        ui,
+        state,
+        "Weapon".into(),
+        current,
+        selected,
+        Some((0, "0 — unarmed".into())),
+        |query| {
+            catalog
                 .weapons
                 .iter()
                 .filter(|item| item.class_mask & class.bit() != 0)
-            {
-                ui.selectable_value(id, item.id, format!("{} — {}", item.id, item.name));
-            }
-        });
-    old != *id
+                .filter(|item| item_matches(item.id, &item.name, query))
+                .take(MAX_SEARCH_RESULTS + 1)
+                .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
+                .collect()
+        },
+        |new| *id = new,
+    )
 }
 
 fn armor_combo(
     ui: &mut egui::Ui,
+    state: &mut ControlState,
     catalog: &Catalog,
     design: &mut CharacterDesign,
     slot: ArmorSlot,
     label: &str,
 ) -> bool {
     let class = design.class;
-    let old = design.equipment.armor(slot);
-    let mut id = old;
-    let selected = catalog.armor_item(old).map_or_else(
-        || format!("{old} — native default / not in v27"),
+    let current = design.equipment.armor(slot);
+    let mut id = current;
+    let selected = catalog.armor_item(current).map_or_else(
+        || format!("{current} — native default / not in v27"),
         |item| format!("{} — {}", item.id, item.name),
     );
-    egui::ComboBox::from_label(format!("{label} armor"))
-        .selected_text(selected)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut id, 0, "0 — profession default");
-            for item in catalog
+    let changed = item_combo(
+        ui,
+        state,
+        format!("{label} armor"),
+        current,
+        selected,
+        Some((0, "0 — profession default".into())),
+        |query| {
+            catalog
                 .armor
                 .iter()
                 .filter(|item| item.slot == slot && item.class_mask & class.bit() != 0)
-            {
-                ui.selectable_value(&mut id, item.id, format!("{} — {}", item.id, item.name));
-            }
-        });
+                .filter(|item| item_matches(item.id, &item.name, query))
+                .take(MAX_SEARCH_RESULTS + 1)
+                .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
+                .collect()
+        },
+        |new| id = new,
+    );
     design.equipment.set_armor(slot, id);
-    old != id
+    changed
 }
 
 fn fashion_combo(
     ui: &mut egui::Ui,
+    state: &mut ControlState,
     catalog: &Catalog,
     design: &mut CharacterDesign,
     slot: ArmorSlot,
     label: &str,
 ) -> bool {
     let gender = design.gender;
-    let old = design.equipment.fashion(slot);
-    let mut id = old;
-    let selected = catalog.fashion_item(old).map_or_else(
-        || format!("{old} — native default / not in v27"),
+    let current = design.equipment.fashion(slot);
+    let mut id = current;
+    let selected = catalog.fashion_item(current).map_or_else(
+        || format!("{current} — native default / not in v27"),
         |item| format!("{} — {}", item.id, item.name),
     );
-    egui::ComboBox::from_label(format!("{label} fashion"))
-        .selected_text(selected)
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut id, 0, "0 — native fashion default");
-            for item in catalog
+    let changed = item_combo(
+        ui,
+        state,
+        format!("{label} fashion"),
+        current,
+        selected,
+        Some((0, "0 — native fashion default".into())),
+        |query| {
+            catalog
                 .fashion
                 .iter()
                 .filter(|item| item.slot == slot && item.gender == gender as u32)
-            {
-                ui.selectable_value(&mut id, item.id, format!("{} — {}", item.id, item.name));
-            }
-        });
+                .filter(|item| item_matches(item.id, &item.name, query))
+                .take(MAX_SEARCH_RESULTS + 1)
+                .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
+                .collect()
+        },
+        |new| id = new,
+    );
     design.equipment.set_fashion(slot, id);
-    old != id
+    changed
 }
 
 fn color(ui: &mut egui::Ui, label: &str, argb: &mut u32) -> bool {
@@ -634,4 +812,17 @@ fn color(ui: &mut egui::Ui, label: &str, argb: &mut u32) -> bool {
         *argb = (c[3] << 24) | (c[0] << 16) | (c[1] << 8) | c[2];
     }
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::item_matches;
+
+    #[test]
+    fn item_search_matches_case_insensitive_names_ids_and_native_text() {
+        assert!(item_matches(19, "☆Bronze Sword", "bronze"));
+        assert!(item_matches(19, "☆Bronze Sword", "19"));
+        assert!(item_matches(19, "青铜剑", "青铜"));
+        assert!(!item_matches(19, "☆Bronze Sword", "axe"));
+    }
 }
