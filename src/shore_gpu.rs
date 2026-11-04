@@ -21,6 +21,9 @@ struct Uniform {
     eye_night: [f32; 4],
     offsets: [f32; 4],
     flags: [f32; 4],
+    bounds: [f32; 4],
+    fog_range: [f32; 4],
+    fog_color: [f32; 4],
 }
 
 // Client 0x766320/0x766910: seeded Park-Miller table, wrapped
@@ -203,14 +206,14 @@ fn wave_offset(seconds: f32, phase: f32, half: bool) -> f32 {
     -0.5 * bezier(a, b, c, d, t)
 }
 const SHADER: &str = r#"
-struct Uniform { matrix:mat4x4<f32>, eye_night:vec4<f32>, offsets:vec4<f32>, flags:vec4<f32> };
+struct Uniform { matrix:mat4x4<f32>, eye_night:vec4<f32>, offsets:vec4<f32>, flags:vec4<f32>, bounds:vec4<f32>, fog_range:vec4<f32>, fog_color:vec4<f32> };
 @group(0) @binding(0) var<uniform> u:Uniform;
 @group(0) @binding(1) var tex:texture_2d<f32>;
 @group(0) @binding(2) var samp:sampler;
 struct In { @location(0) p:vec3<f32>, @location(1) uv:vec2<f32>, @location(2) day:u32, @location(3) night:u32, @location(4) alpha:f32 };
-struct Out { @builtin(position) p:vec4<f32>, @location(0) uv:vec2<f32>, @location(1) color:vec4<f32> };
+struct Out { @builtin(position) p:vec4<f32>, @location(0) uv:vec2<f32>, @location(1) color:vec4<f32>, @location(2) world:vec2<f32> };
 @vertex fn vs(i:In)->Out {
- var o:Out; o.p=u.matrix*vec4<f32>(i.p,1.); o.uv=i.uv;
+ var o:Out; o.world=i.p.xz; o.p=u.matrix*vec4<f32>(i.p,1.); o.uv=i.uv;
  let n=u32(clamp(u.eye_night.w,0.,1.)*255.); let d=unpack4x8unorm(i.day).bgr*255.; let q=unpack4x8unorm(i.night).bgr*255.;
  let color=floor((d*f32(255u-n)+q*f32(n))/256.)/255.;
  let dist=i.p.xz-u.eye_night.xz; let fade=max(1.-dot(dist,dist)/(u.flags.y*u.flags.y),0.);
@@ -218,11 +221,18 @@ struct Out { @builtin(position) p:vec4<f32>, @location(0) uv:vec2<f32>, @locatio
 }
 fn linear(c:vec3<f32>)->vec3<f32> {let v=max(c,vec3<f32>(0.));return select(v/12.92,pow((v+0.055)/1.055,vec3<f32>(2.4)),v>vec3<f32>(0.04045));}
 @fragment fn fs(i:Out)->@location(0) vec4<f32> {
+ if u.flags.z>0.5 && (i.world.x<u.bounds.x || i.world.x>=u.bounds.y || i.world.y<u.bounds.z || i.world.y>=u.bounds.w) {discard;}
+
  let a=textureSample(tex,samp,i.uv+vec2<f32>(0.,u.offsets.x));
  let b=textureSample(tex,samp,i.uv+vec2<f32>(0.5,u.offsets.y));
  let c=textureSample(tex,samp,i.uv*0.5+vec2<f32>(0.,u.offsets.z));
  var r=vec4<f32>(c.rgb,c.a*0.5); r=mix(r,b,b.a); r=mix(r,a,a.a); r.a*=0.6;
- let color=clamp(i.color.rgb*r.rgb*2.,vec3<f32>(0.),vec3<f32>(1.));
+ var color=clamp(i.color.rgb*r.rgb*2.,vec3<f32>(0.),vec3<f32>(1.));
+ if u.fog_range.z>0.5 {
+  let z=1./max(i.p.w,0.0000001); let span=u.fog_range.y-u.fog_range.x;
+  let f=select(clamp((z-u.fog_range.x)/select(span,0.001,abs(span)<0.001),0.,1.),select(0.,1.,z>=u.fog_range.y),abs(span)<0.001);
+  color=mix(color,u.fog_color.rgb,f);
+ }
  return vec4<f32>(select(color,linear(color),u.flags.x>0.5),i.color.a*r.a);
 }
 "#;
@@ -311,6 +321,9 @@ impl ShoreGpu {
                 eye_night: [0.; 4],
                 offsets: [0.; 4],
                 flags: [0.; 4],
+                bounds: [0.; 4],
+                fog_range: [0.; 4],
+                fog_color: [0.; 4],
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -450,6 +463,9 @@ impl ShoreGpu {
         eye: Vec3,
         night: f32,
         seconds: f32,
+        bounds: Option<[f32; 4]>,
+        fog_range: [f32; 4],
+        fog_color: [f32; 4],
     ) {
         let u = Uniform {
             matrix: matrix.to_cols_array_2d(),
@@ -462,7 +478,15 @@ impl ShoreGpu {
             ],
             // flags.y is the wave sight range: wavevs takes it as c0.w =
             // 1/(range*range) rather than hard-coding the radius in the shader.
-            flags: [0., WAVE_SIGHT_RANGE, 0., 0.],
+            flags: [
+                0.,
+                WAVE_SIGHT_RANGE,
+                if bounds.is_some() { 1. } else { 0. },
+                0.,
+            ],
+            bounds: bounds.unwrap_or([0.; 4]),
+            fog_range,
+            fog_color,
         };
         queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&u));
         let mut e = device.create_command_encoder(&Default::default());
@@ -591,114 +615,143 @@ mod tests {
             None,
         ))
         .unwrap();
-        for format in [
-            wgpu::TextureFormat::Rgba8Unorm,
-            wgpu::TextureFormat::Rgba8UnormSrgb,
-        ] {
-            let alternate = [format.remove_srgb_suffix()];
-            let mk = |x, y| Vertex {
-                p: [x, y, 0.5],
-                uv: [0., 0.],
-                day: 0xffffffff,
-                night: 0xffffffff,
-                alpha: 1.,
-            };
-            let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([255, 255, 255, 255]));
-            let shore = ShoreGpu::from_images(
-                &dev,
-                &q,
-                format,
-                vec![img],
-                vec![mk(-1., -1.), mk(1., -1.), mk(0., 1.)],
-                vec![0, 1, 2],
-            );
-            let target = dev.create_texture(&wgpu::TextureDescriptor {
-                label: None,
-                size: wgpu::Extent3d {
-                    width: 32,
-                    height: 32,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-                view_formats: if format.is_srgb() { &alternate } else { &[] },
-            });
-            let depth = crate::gpu::depth(&dev, 32, 32);
-            let view = target.create_view(&Default::default());
-            let dv = depth.create_view(&Default::default());
-            let mut enc = dev.create_command_encoder(&Default::default());
-            {
-                let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+        for case in 0..3 {
+            for format in [
+                wgpu::TextureFormat::Rgba8Unorm,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+            ] {
+                let alternate = [format.remove_srgb_suffix()];
+                let mk = |x, y| Vertex {
+                    p: [x, y, 0.5],
+                    uv: [0., 0.],
+                    day: 0xffffffff,
+                    night: 0xffffffff,
+                    alpha: 1.,
+                };
+                let img = image::RgbaImage::from_pixel(2, 2, image::Rgba([255, 255, 255, 255]));
+                let shore = ShoreGpu::from_images(
+                    &dev,
+                    &q,
+                    format,
+                    vec![img],
+                    vec![mk(-1., -1.), mk(1., -1.), mk(0., 1.)],
+                    vec![0, 1, 2],
+                );
+                let target = dev.create_texture(&wgpu::TextureDescriptor {
                     label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &dv,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(0.),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-            }
-            q.submit(Some(enc.finish()));
-            let raw = target.create_view(&wgpu::TextureViewDescriptor {
-                format: Some(format.remove_srgb_suffix()),
-                ..Default::default()
-            });
-            shore.draw(&dev, &q, &raw, &dv, Mat4::IDENTITY, Vec3::ZERO, 0., 0.);
-            let buf = dev.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: 256 * 32,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            let mut enc = dev.create_command_encoder(&Default::default());
-            enc.copy_texture_to_buffer(
-                wgpu::ImageCopyTexture {
-                    texture: &target,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::ImageCopyBuffer {
-                    buffer: &buf,
-                    layout: wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(256),
-                        rows_per_image: Some(32),
+                    size: wgpu::Extent3d {
+                        width: 32,
+                        height: 32,
+                        depth_or_array_layers: 1,
                     },
-                },
-                wgpu::Extent3d {
-                    width: 32,
-                    height: 32,
-                    depth_or_array_layers: 1,
-                },
-            );
-            q.submit(Some(enc.finish()));
-            let slice = buf.slice(..);
-            let (tx, rx) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
-            dev.poll(wgpu::Maintain::Wait);
-            rx.recv().unwrap().unwrap();
-            let data = slice.get_mapped_range();
-            assert!(
-                (150..=155).contains(&data[16 * 256 + 16 * 4]),
-                "shoreline encoded blend incorrect: {:?}",
-                &data[16 * 256 + 16 * 4..16 * 256 + 16 * 4 + 4]
-            );
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                    view_formats: if format.is_srgb() { &alternate } else { &[] },
+                });
+                let depth = crate::gpu::depth(&dev, 32, 32);
+                let view = target.create_view(&Default::default());
+                let dv = depth.create_view(&Default::default());
+                let mut enc = dev.create_command_encoder(&Default::default());
+                {
+                    let _pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: None,
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &dv,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(0.),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                }
+                q.submit(Some(enc.finish()));
+                let raw = target.create_view(&wgpu::TextureViewDescriptor {
+                    format: Some(format.remove_srgb_suffix()),
+                    ..Default::default()
+                });
+                shore.draw(
+                    &dev,
+                    &q,
+                    &raw,
+                    &dv,
+                    Mat4::IDENTITY,
+                    Vec3::ZERO,
+                    0.,
+                    0.,
+                    if case == 1 {
+                        Some([100., 200., 100., 200.])
+                    } else {
+                        None
+                    },
+                    if case == 2 {
+                        [0., 0.5, 1., 0.]
+                    } else {
+                        [0.; 4]
+                    },
+                    [0.2, 0.4, 0.6, 1.],
+                );
+                let buf = dev.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: 256 * 32,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+                let mut enc = dev.create_command_encoder(&Default::default());
+                enc.copy_texture_to_buffer(
+                    wgpu::ImageCopyTexture {
+                        texture: &target,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::ImageCopyBuffer {
+                        buffer: &buf,
+                        layout: wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(256),
+                            rows_per_image: Some(32),
+                        },
+                    },
+                    wgpu::Extent3d {
+                        width: 32,
+                        height: 32,
+                        depth_or_array_layers: 1,
+                    },
+                );
+                q.submit(Some(enc.finish()));
+                let slice = buf.slice(..);
+                let (tx, rx) = std::sync::mpsc::channel();
+                slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+                dev.poll(wgpu::Maintain::Wait);
+                rx.recv().unwrap().unwrap();
+                let data = slice.get_mapped_range();
+                assert!(
+                    ((data[16 * 256 + 16 * 4] as i32)
+                        - (match case {
+                            0 => 153,
+                            1 => 0,
+                            _ => 31,
+                        }))
+                    .abs()
+                        <= 2,
+                    "shoreline encoded blend incorrect: {:?}",
+                    &data[16 * 256 + 16 * 4..16 * 256 + 16 * 4 + 4]
+                );
+            }
         }
     }
 }

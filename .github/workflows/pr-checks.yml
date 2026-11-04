@@ -96,6 +96,10 @@ jobs:
               | while IFS= read -r line; do [ -n "$line" ] && echo "::error::$line"; done
           fi
           exit "$status"
+      - name: Verify bounded lossless terrain RAM residency
+        run: |
+          cargo run --locked --bin terrain-memory-check
+          cargo run --locked --bin terrain-memory-check -- --full-world
       - name: Install software Vulkan for Phase 1 shader checks
         run: sudo apt-get install -y mesa-vulkan-drivers
       - name: Run Phase 1 production shader regressions
@@ -133,6 +137,7 @@ jobs:
           run_check bmd-sided-gpu-check
           run_check bmd-depth-gpu-check
           run_check scenery-pass-gpu-check
+          run_check world-atlas-gpu-check
           run_check grass-instance-gpu-check
           run_check model-light-gpu-check
           run_check skin-pose-gpu-check
@@ -169,6 +174,7 @@ jobs:
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
           test -n "$VK_ICD_FILENAMES"
           cargo run --locked --bin terrain-view-gpu-check
+          cargo test --locked --bin perfect-world-explorer cutoff_gpu_residency_repacking -- --ignored
 
       # Formatting is cosmetic: run it after the compile, test and shader steps
       # so a whitespace diff can never hide a real failure behind it.

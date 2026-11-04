@@ -103,8 +103,21 @@ fn main() {
         });
         let depth = gpu::depth(&device, 64, 64);
         let dv = depth.create_view(&Default::default());
-        for (seconds, frame) in [(0., 0u8), (0.034, 1u8)] {
-            simple.update(&queue, glam::Mat4::IDENTITY, seconds);
+        for (seconds, frame, distance, fog_on) in [
+            (0., 0u8, 1., false),
+            (0.034, 1, 1., false),
+            (0., 0, 1., true),
+            (0., 0, 4., true),
+            (0., 0, 8., true),
+            (0., 0, 8., false),
+        ] {
+            simple.update(
+                &queue,
+                glam::Mat4::IDENTITY * distance,
+                seconds,
+                [2., 6., if fog_on { 1. } else { 0. }, 0.],
+                [0.2, 0.4, 0.6, 1.],
+            );
             let mut e = device.create_command_encoder(&Default::default());
             {
                 let _p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -176,7 +189,13 @@ fn main() {
                 let t = [if frame == 1 { 160. } else { 64. }, 128., 192.][k];
                 let fact = [37., 79., 85.][k];
                 let color = fact * (1. - 64. / 255.) + t * (64. / 255.);
-                let expect = (color * alpha + base * (1. - alpha)).round() as i32;
+                let f = if fog_on {
+                    ((distance - 2.) / 4f32).clamp(0., 1.)
+                } else {
+                    0.
+                };
+                let fogged = color * (1. - f) + [51., 102., 153.][k] * f;
+                let expect = (fogged * alpha + base * (1. - alpha)).round() as i32;
                 assert!(
                     (bytes[at + k] as i32 - expect).abs() <= 1,
                     "{format:?} frame {frame} channel {k}: {} != {expect}",

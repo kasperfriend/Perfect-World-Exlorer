@@ -310,6 +310,76 @@ fn main() {
         &draw,
         [[64, 128, 191, 255], [191, 64, 128, 255]],
     );
+    // Independent instances must share immutable GPU resources, but changing
+    // one instance's constants must never change its neighbor's lighting.
+    let mut receivers = model_draw_gpu::ReceiverCache::default();
+    let mut shared = std::collections::HashMap::new();
+    let mut uploads = 0;
+    let mut copies = Vec::new();
+    let mut first_pipeline_count = 0;
+    for instance in 0..2 {
+        copies.push(
+            model_draw_gpu::Draw::with_textures(
+                &device,
+                &queue,
+                wgpu::TextureFormat::Rgba8Unorm,
+                None,
+                false,
+                &sampler,
+                &asset,
+                &poses(&asset),
+                frame,
+                &mut receivers,
+                |path| {
+                    if let Some(texture) = shared.get(path) {
+                        return Ok((std::sync::Arc::clone(texture), false));
+                    }
+                    uploads += 1;
+                    let texture = std::sync::Arc::new(model_texture_gpu::upload(
+                        &device,
+                        &queue,
+                        &white_dds(),
+                        model_texture_gpu::UploadMode::Auto,
+                    )?);
+                    shared.insert(path.to_string(), texture.clone());
+                    Ok((texture, false))
+                },
+            )
+            .unwrap(),
+        );
+        if instance == 0 {
+            first_pipeline_count = receivers.len();
+        } else {
+            assert_eq!(
+                receivers.len(),
+                first_pipeline_count,
+                "second placement reuses every pipeline variant"
+            );
+        }
+    }
+    assert_eq!(uploads, 1, "one texture allocation across two placements");
+    assert_eq!(
+        first_pipeline_count, 2,
+        "fixture exercises both base and alpha pipelines"
+    );
+    let mut half = frame;
+    half.lighting.environment_ambient = [0.5; 4];
+    copies[0].update_constants(&queue, &asset, half).unwrap();
+    check(
+        &device,
+        &queue,
+        &copies[0],
+        [[32, 64, 96, 255], [96, 32, 64, 255]],
+    );
+    check(
+        &device,
+        &queue,
+        &copies[1],
+        [[64, 128, 191, 255], [191, 64, 128, 255]],
+    );
+    println!(
+        "::notice::shared model textures/pipelines and independent constants-only updates passed"
+    );
     let mut dim = frame;
     dim.lighting.environment_ambient = [0.5; 4];
     draw.update(&queue, &asset, &poses(&asset), dim).unwrap();
@@ -832,6 +902,52 @@ fn main() {
     );
     println!("::notice::scene effect owner passed: ECWLD placement -> one-root-per-update load -> publication -> scene query -> receiving pixels, and region unload removes the light");
     assert_eq!(world.status(), (1, 0, 1));
+    // Terrain residency must release model geometry, not only deactivate FX.
+    assert!(world.residency_cache_counts().0 > 0);
+    assert!(world.residency_cache_counts().1 > 0);
+    world.set_resident_bounds(Some([4000., 4100., 4000., 4100.]));
+    assert_eq!(
+        world.residency_cache_counts(),
+        (0, 0),
+        "cold textures/pipelines were retained"
+    );
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        0,
+    );
+    assert_eq!(world.status(), (0, 0, 1));
+    check(&device, &queue, &world, [[0; 4]; 2]);
+    world.set_resident_bounds(Some([-100., 100., -100., 100.]));
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        0,
+    );
+    assert_eq!(world.status(), (1, 0, 1));
+    check(
+        &device,
+        &queue,
+        &world,
+        [[32, 64, 96, 136], [96, 32, 64, 136]],
+    );
+    assert!(world.residency_cache_counts().0 > 0);
+    let retained = world.residency_cache_counts();
+    world.set_resident_bounds(Some([-101., 101., -101., 101.]));
+    assert_eq!(
+        world.residency_cache_counts(),
+        retained,
+        "live draw's shared resources evicted"
+    );
+    world.set_resident_bounds(None);
     let mut unsupported = opaque_dim;
     unsupported.blend_enabled = true;
     world.update(

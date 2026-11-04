@@ -2,6 +2,7 @@
 
 This folder preserves research and open questions for the inspected client build. Addresses, counts and observations refer to that build; they should not be generalized to other versions without verification. Source data is not included. Historical entries reflect what was believed or implemented at the time and may be contradicted by later work.
 
+- [World-loading optimization — 4 November 2026](World-loading-optimization-2026-11-04.md): compact terrain loading, shared model resources, redundant-work removal, terrain seam/tiling repairs and glow alignment; includes verification and hardware limits.
 - [Full eight-phase reassessment — 2 November 2026](Eight-phase-reassessment-2026-11-02.md): current 76-point evidence matrix, implemented deliverables, partial implementations and remaining acceptance.
 - [Known unsupported client paths](Unsupported-client-paths.md): explicit nonempty register and completion policy.
 - [Eight-phase status](Eight-phase-status.md): the requested requirements, with explicit completion gates and no estimated parity percentage.
@@ -17,3 +18,5 @@ This folder preserves research and open questions for the inspected client build
 - [Roadmap](Roadmap.md): implementation gaps and next investigations; some items reflect earlier milestones.
 
 These are engineering notes, not proof of visual equivalence or an independent verification of original engine behavior. Use legally obtained client files for further research and do not commit them.
+
+- [RAM-first lossless terrain paging follow-up (2026-11-04)](RAM-paging-2026-11-04.md): block-at-a-time disk backing, bounded shared hot set, smaller texture LRU and streamed PNG exports.

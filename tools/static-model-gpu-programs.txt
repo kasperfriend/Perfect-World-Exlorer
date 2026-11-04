@@ -14,3 +14,5 @@ model-texture-gpu-check
 tree-lod-gpu-check
 grass-gpu-mip-check
 tree-authored-mip-gpu-check
+
+world-atlas-gpu-check

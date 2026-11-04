@@ -116,7 +116,7 @@ fn main() {
         let depth = gpu::depth(&device, 64, 64);
         let dv = depth.create_view(&Default::default());
         let mut outputs = Vec::new();
-        for (near_first, eye_y, shallow, clipped) in [
+        for (case, (near_first, eye_y, shallow, clipped)) in [
             (true, 2., false, false),
             (false, 2., false, false),
             (false, 200., false, false),
@@ -124,11 +124,26 @@ fn main() {
             (false, 2., true, true),
             (false, -2., false, true),
             (false, -0.05, false, true),
-        ] {
+            (false, 2., false, false), // full atmospheric fog
+            (false, 2., false, false), // halfway
+            (false, 2., false, false), // before fog start
+            (false, 2., false, false), // distant, fog disabled
+            (false, -2., false, true), // below-surface shader, full fog
+            (false, 2., false, false), // reflection disabled, full fog
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let distance = match case {
+                7 | 10 | 11 | 12 => 8.,
+                8 => 4.,
+                _ => 1.,
+            };
+            let fog_on = case >= 7 && case != 10;
             water.update(
                 &queue,
                 &water_gpu::WaterUniform {
-                    matrix: glam::Mat4::IDENTITY.to_cols_array_2d(),
+                    matrix: (glam::Mat4::IDENTITY * distance).to_cols_array_2d(),
                     inverse_matrix: glam::Mat4::from_translation(glam::Vec3::new(
                         0.,
                         if shallow { -0.33 } else { 0. },
@@ -136,11 +151,11 @@ fn main() {
                     ))
                     .to_cols_array_2d(),
                     eye_time: [0., eye_y, 1., 0.],
-                    size: [64., 64., 100., 1.],
+                    size: [64., 64., 100., if case == 12 { 0. } else { 1. }],
                     animation: [0., 100., 0., 0.],
                     edge_mode: [0.; 4],
-                    fog: [0., 1., 0., 0.],
-                    fog_color: [1., 1., 1., 1.],
+                    fog: [2., 6., if fog_on { 1. } else { 0. }, 0.],
+                    fog_color: [0.2, 0.4, 0.6, 1.],
                 },
             );
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -348,10 +363,17 @@ fn main() {
                 } else {
                     (255. * (aq * (1. - edge) + mixed * edge)).round() as i32
                 };
+                let f = if fog_on {
+                    ((distance - 2.) / 4f32).clamp(0., 1.)
+                } else {
+                    0.
+                };
+                let expected =
+                    (expected as f32 * (1. - f) + [51., 102., 153.][k] * f).round() as i32;
                 let observed = c[at + k] as i32;
                 assert!(
                     (observed - expected).abs() <= 2,
-                    "{format:?} channel {k}: {observed} vs {expected}"
+                    "{format:?} case {case} channel {k}: {observed} vs {expected}"
                 );
             }
             drop(c);
@@ -363,109 +385,111 @@ fn main() {
         );
         // Real alpha-only edge pass: preserve color, produce the client
         // height/depth ramp and respect nearer scene depth.
-        for occluded in [false, true] {
-            let mut e = device.create_command_encoder(&Default::default());
-            {
-                let edge_target = water.refraction();
-                let _p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("edge test clear"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &edge_target,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.2,
-                                g: 0.4,
-                                b: 0.6,
-                                a: 1.,
+        for cutoff in [false, true] {
+            for occluded in [false, true] {
+                let mut e = device.create_command_encoder(&Default::default());
+                {
+                    let edge_target = water.refraction();
+                    let _p = e.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("edge test clear"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &edge_target,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: 0.2,
+                                    g: 0.4,
+                                    b: 0.6,
+                                    a: 1.,
+                                }),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &dv,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(if occluded { 0.8 } else { 0. }),
+                                store: wgpu::StoreOp::Store,
                             }),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &dv,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(if occluded { 0.8 } else { 0. }),
-                            store: wgpu::StoreOp::Store,
+                            stencil_ops: None,
                         }),
-                        stencil_ops: None,
-                    }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-            }
-            queue.submit(Some(e.finish()));
-            water.render_edge(
-                &device,
-                &queue,
-                glam::Mat4::IDENTITY,
-                0.33,
-                [5., 6., 5., 6.],
-                &dv,
-                (&vb, &ib, 0),
-                (&vb, &ib, 6),
-            );
-            let read = device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: 64 * 64 * 4,
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-                mapped_at_creation: false,
-            });
-            let mut e = device.create_command_encoder(&Default::default());
-            e.copy_texture_to_buffer(
-                wgpu::ImageCopyTexture {
-                    texture: water.refraction_texture(),
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::ImageCopyBuffer {
-                    buffer: &read,
-                    layout: wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(256),
-                        rows_per_image: Some(64),
-                    },
-                },
-                wgpu::Extent3d {
-                    width: 64,
-                    height: 64,
-                    depth_or_array_layers: 1,
-                },
-            );
-            queue.submit(Some(e.finish()));
-            let slice = read.slice(..);
-            let (tx, rx) = std::sync::mpsc::channel();
-            slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
-            device.poll(wgpu::Maintain::Wait);
-            rx.recv().unwrap().unwrap();
-            let mapped = slice.get_mapped_range();
-            let at = (32 * 64 + 32) * 4;
-            let pixel = &mapped[at..at + 4];
-            let alpha = if occluded {
-                255
-            } else {
-                ((0.33f32 + 1. / 64.) / 0.66 * 255.).round() as i32
-            };
-            assert!(
-                (pixel[3] as i32 - alpha).abs() <= 2,
-                "{format:?} edge {occluded} pixel={pixel:?}, alpha={alpha}"
-            );
-            let encode = |x: f32| {
-                if format.is_srgb() {
-                    1.055 * x.powf(1. / 2.4) - 0.055
-                } else {
-                    x
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
                 }
-            };
-            for (i, x) in [0.2, 0.4, 0.6].into_iter().enumerate() {
-                assert!(
-                    (pixel[i] as i32 - (encode(x) * 255.).round() as i32).abs() <= 1,
-                    "edge RGB modified: {pixel:?}"
+                queue.submit(Some(e.finish()));
+                water.render_edge(
+                    &device,
+                    &queue,
+                    glam::Mat4::IDENTITY,
+                    0.33,
+                    [5., 6., 5., 6.],
+                    &dv,
+                    if cutoff { None } else { Some((&vb, &ib, 0)) },
+                    (&vb, &ib, 6),
                 );
+                let read = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: 64 * 64 * 4,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+                let mut e = device.create_command_encoder(&Default::default());
+                e.copy_texture_to_buffer(
+                    wgpu::ImageCopyTexture {
+                        texture: water.refraction_texture(),
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::ImageCopyBuffer {
+                        buffer: &read,
+                        layout: wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(256),
+                            rows_per_image: Some(64),
+                        },
+                    },
+                    wgpu::Extent3d {
+                        width: 64,
+                        height: 64,
+                        depth_or_array_layers: 1,
+                    },
+                );
+                queue.submit(Some(e.finish()));
+                let slice = read.slice(..);
+                let (tx, rx) = std::sync::mpsc::channel();
+                slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+                device.poll(wgpu::Maintain::Wait);
+                rx.recv().unwrap().unwrap();
+                let mapped = slice.get_mapped_range();
+                let at = (32 * 64 + 32) * 4;
+                let pixel = &mapped[at..at + 4];
+                let alpha = if occluded {
+                    255
+                } else {
+                    ((0.33f32 + 1. / 64.) / 0.66 * 255.).round() as i32
+                };
+                assert!(
+                    (pixel[3] as i32 - alpha).abs() <= 2,
+                    "{format:?} edge {occluded} pixel={pixel:?}, alpha={alpha}"
+                );
+                let encode = |x: f32| {
+                    if format.is_srgb() {
+                        1.055 * x.powf(1. / 2.4) - 0.055
+                    } else {
+                        x
+                    }
+                };
+                for (i, x) in [0.2, 0.4, 0.6].into_iter().enumerate() {
+                    assert!(
+                        (pixel[i] as i32 - (encode(x) * 255.).round() as i32).abs() <= 1,
+                        "edge RGB modified: {pixel:?}"
+                    );
+                }
+                drop(mapped);
+                read.unmap();
             }
-            drop(mapped);
-            read.unmap();
         }
         println!("Water {format:?}: near/far draw orders -> {outputs:?}; encoded blend and shallow-edge matched");
     }

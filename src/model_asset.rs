@@ -49,7 +49,7 @@ pub struct ModelAsset {
     pub skins: Vec<SkinAsset>,
     /// Same order as model.actions. None denotes the older embedded BON data,
     /// not permission to silently substitute another action's external tracks.
-    pub tracks: Vec<Option<animation::TrackSet>>,
+    pub tracks: Vec<Option<std::sync::Arc<animation::TrackSet>>>,
 }
 /// World matrix of a named skeleton hook for an evaluated pose (the native
 /// combination order is documented on `ModelAsset::hook_matrix`).
@@ -111,6 +111,11 @@ fn relative(descriptor: &str, reference: &str) -> String {
         ecmodel::normalize(&format!("{parent}/{reference}"))
     }
 }
+/// Track files are immutable and often shared by many authored ECM variants.
+/// Retain one parsed copy per archive path for the world, not per descriptor.
+#[derive(Default)]
+pub struct TrackCache(std::collections::HashMap<String, std::sync::Arc<animation::TrackSet>>);
+
 impl ModelAsset {
     /// The caller owns archive I/O and caching. Every read receives a normalized
     /// package path. Errors retain the actual dependency path, including GBK
@@ -118,6 +123,13 @@ impl ModelAsset {
     pub fn load_with(
         descriptor_path: &str,
         mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> Result<Self, String> {
+        Self::load_cached(descriptor_path, &mut read, &mut TrackCache::default())
+    }
+    pub fn load_cached(
+        descriptor_path: &str,
+        mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+        cache: &mut TrackCache,
     ) -> Result<Self, String> {
         let descriptor_path = ecmodel::normalize(descriptor_path);
         let mut bytes = |p: &str| read(p).map_err(|e| format!("{p}: {e}"));
@@ -219,14 +231,24 @@ impl ModelAsset {
         }
         let mut tracks = Vec::new();
         for action in &model.actions {
-            let set =
-                if let Some(path) = model.action_track_path(&descriptor.skin_model_path, action) {
-                    let t = animation::TrackSet::parse(&bytes(&path)?)?;
-                    t.validate_joint_count(skeleton.joints.len())?;
-                    Some(t)
-                } else {
-                    None
+            let set = if let Some(path) =
+                model.action_track_path(&descriptor.skin_model_path, action)
+            {
+                let path = ecmodel::normalize(&path);
+                let t = match cache.0.get(&path) {
+                    Some(t) => t.clone(),
+                    None => {
+                        let t = std::sync::Arc::new(animation::TrackSet::parse(&bytes(&path)?)?);
+                        cache.0.insert(path, t.clone());
+                        t
+                    }
                 };
+                // Each skeleton still validates its own binding, even on a hit.
+                t.validate_joint_count(skeleton.joints.len())?;
+                Some(t)
+            } else {
+                None
+            };
             tracks.push(set);
         }
         for combined in &descriptor.actions {

@@ -33,11 +33,116 @@ pub struct TerrainGpu {
     far_pipeline: wgpu::RenderPipeline,
     bind: wgpu::BindGroup,
     reflect_bind: wgpu::BindGroup,
+    far: Option<FarGpu>,
+    resources: MaterialBindings,
+    tex_map: Vec<u32>,
+    mask_bytes: usize,
+    pub grass_light_layout: wgpu::BindGroupLayout,
+    pub grass_light_bind: wgpu::BindGroup,
+}
+/// Owned worker result; dropped immediately after upload, never retained as a CPU mirror.
+pub struct TerrainUpload {
+    pub materials: crate::material::Materials,
+    pub far: Option<FarMesh>,
+}
+pub type FarMesh = (
+    Vec<FarVertex>,
+    Vec<u32>,
+    Vec<crate::terrain_residency::Span>,
+);
+struct FarGpu {
     vertex: wgpu::Buffer,
     index: wgpu::Buffer,
     count: u32,
-    pub grass_light_layout: wgpu::BindGroupLayout,
-    pub grass_light_bind: wgpu::BindGroup,
+    spans: Vec<crate::terrain_residency::Span>,
+}
+impl FarGpu {
+    fn upload(device: &wgpu::Device, mesh: &FarMesh) -> Self {
+        Self {
+            vertex: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("full-world terrain LOD vertices"),
+                contents: bytemuck::cast_slice(&mesh.0),
+                usage: wgpu::BufferUsages::VERTEX,
+            }),
+            index: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("full-world terrain LOD indices"),
+                contents: bytemuck::cast_slice(&mesh.1),
+                usage: wgpu::BufferUsages::INDEX,
+            }),
+            count: mesh.1.len() as u32,
+            spans: mesh.2.clone(),
+        }
+    }
+}
+// Only immutable shared textures/settings survive a mask-window transition.
+// Old bind groups are replaced, so they cannot pin the old whole-world atlas.
+struct MaterialBindings {
+    layout: wgpu::BindGroupLayout,
+    settings: wgpu::Buffer,
+    tv: wgpu::TextureView,
+    small_view: wgpu::TextureView,
+    full_view: wgpu::TextureView,
+    native_views: Vec<wgpu::TextureView>,
+    light_view: wgpu::TextureView,
+    sampler: wgpu::Sampler,
+    mask_sampler: wgpu::Sampler,
+}
+struct MaskResources {
+    #[cfg(test)]
+    texture: wgpu::Texture,
+    bytes: usize,
+    mv: wgpu::TextureView,
+    area_buffer: wgpu::Buffer,
+    layer_buffer: wgpu::Buffer,
+}
+impl MaterialBindings {
+    fn bind(
+        &self,
+        device: &wgpu::Device,
+        camera: &wgpu::Buffer,
+        masks: &MaskResources,
+    ) -> wgpu::BindGroup {
+        let Self {
+            layout,
+            settings,
+            tv,
+            small_view,
+            full_view,
+            native_views,
+            light_view,
+            sampler,
+            mask_sampler,
+        } = self;
+        let MaskResources {
+            mv,
+            area_buffer,
+            layer_buffer,
+            ..
+        } = masks;
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("resident terrain material bindings"),
+            layout,
+            entries: &[
+                entry(0, camera.as_entire_binding()),
+                entry(1, settings.as_entire_binding()),
+                entry(2, wgpu::BindingResource::TextureView(tv)),
+                entry(8, wgpu::BindingResource::TextureView(small_view)),
+                entry(9, wgpu::BindingResource::TextureView(full_view)),
+                entry(10, wgpu::BindingResource::TextureView(light_view)),
+                entry(11, wgpu::BindingResource::TextureView(&native_views[0])),
+                entry(12, wgpu::BindingResource::TextureView(&native_views[1])),
+                entry(13, wgpu::BindingResource::TextureView(&native_views[2])),
+                entry(14, wgpu::BindingResource::TextureView(&native_views[3])),
+                entry(15, wgpu::BindingResource::TextureView(&native_views[4])),
+                entry(16, wgpu::BindingResource::TextureView(&native_views[5])),
+                entry(3, wgpu::BindingResource::Sampler(sampler)),
+                entry(4, wgpu::BindingResource::TextureView(mv)),
+                entry(5, wgpu::BindingResource::Sampler(mask_sampler)),
+                entry(6, area_buffer.as_entire_binding()),
+                entry(7, layer_buffer.as_entire_binding()),
+            ],
+        })
+    }
 }
 const SHADER: &str = r#"
 struct Camera { matrix:mat4x4<f32>, direction:vec4<f32>, clip:vec4<f32>, bounds:vec4<f32>, tree_bounds:vec4<f32>, sun:vec4<f32>, light:vec4<f32>, region_ambient:vec4<f32>, region_diffuse:vec4<f32>, region_direction:vec4<f32>, grass_eye:vec4<f32>, grass_wind:vec4<f32>, grass_history:array<vec4<f32>,80>, fog_range:vec4<f32>, fog_color:vec4<f32> };
@@ -50,6 +155,12 @@ struct Layer { tex:u32,axis:u32,mask:u32,pad:u32,uv:vec2<f32>,pad2:vec2<f32> };
 @group(0) @binding(3) var terrain_sampler:sampler;
 @group(0) @binding(8) var terrain_small:texture_2d_array<f32>;
 @group(0) @binding(9) var terrain_full:texture_2d_array<f32>;
+@group(0) @binding(11) var terrain_bc0:texture_2d_array<f32>;
+@group(0) @binding(12) var terrain_bc1:texture_2d_array<f32>;
+@group(0) @binding(13) var terrain_bc2:texture_2d_array<f32>;
+@group(0) @binding(14) var terrain_bc3:texture_2d_array<f32>;
+@group(0) @binding(15) var terrain_bc4:texture_2d_array<f32>;
+@group(0) @binding(16) var terrain_bc5:texture_2d_array<f32>;
 @group(0) @binding(10) var lightmaps:texture_2d_array<f32>;
 @group(0) @binding(4) var masks:texture_2d_array<f32>;
 @group(0) @binding(5) var mask_sampler:sampler;
@@ -118,10 +229,19 @@ fn terrain_pass_fog(linear:vec3<f32>,reciprocal_w:f32,transmittance:f32)->vec3<f
  for(var k=0u;k<a.count;k=k+1u){let l=layers[a.start+k];var v=vec2<f32>(i.world.x,-i.world.z);if l.axis==0u {v=vec2<f32>(i.world.z,-i.world.y);}else if l.axis==2u {v=vec2<f32>(i.world.x,-i.world.y);}
  var dx=vec2<f32>(wx.x,-wx.z);var dy=vec2<f32>(wy.x,-wy.z);
  if l.axis==0u {dx=vec2<f32>(wx.z,-wx.y);dy=vec2<f32>(wy.z,-wy.y);}else if l.axis==2u {dx=vec2<f32>(wx.x,-wx.y);dy=vec2<f32>(wy.x,-wy.y);}
- dx*=l.uv;dy*=l.uv;let kind=l.tex>>30u;let index=i32(l.tex & 0x3fffffffu);
+ dx*=l.uv;dy*=l.uv;let kind=l.tex>>28u;let index=i32(l.tex & 0x0fffffffu);
  // Pass the true screen-space gradient, not a scalar max-footprint LOD.
  // The sampler can then preserve detail along the minor axis at grazing angles.
- var tex:vec3<f32>;if kind==2u {tex=textureSampleGrad(terrain_full,terrain_sampler,v*l.uv,index,dx,dy).rgb;}else if kind==1u {tex=textureSampleGrad(terrain,terrain_sampler,v*l.uv,index,dx,dy).rgb;}else {tex=textureSampleGrad(terrain_small,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
+ var tex:vec3<f32>;
+ if kind==3u {tex=textureSampleGrad(terrain_bc0,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
+ else if kind==4u {tex=textureSampleGrad(terrain_bc1,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
+ else if kind==5u {tex=textureSampleGrad(terrain_bc2,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
+ else if kind==6u {tex=textureSampleGrad(terrain_bc3,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
+ else if kind==7u {tex=textureSampleGrad(terrain_bc4,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
+ else if kind==8u {tex=textureSampleGrad(terrain_bc5,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
+ else if kind==2u {tex=textureSampleGrad(terrain_full,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
+ else if kind==1u {tex=textureSampleGrad(terrain,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
+ else {tex=textureSampleGrad(terrain_small,terrain_sampler,v*l.uv,index,dx,dy).rgb;}
  var alpha=1.;if k>0u {let slot=l.mask%settings.areas.w;let page=l.mask/settings.areas.w;let side=f32(settings.areas.y);let xy=vec2<f32>(f32(slot%settings.areas.z),f32(slot/settings.areas.z))*side;let local=clamp(fract(coord)*side,vec2<f32>(0.5),vec2<f32>(side-0.5));alpha=textureSampleLevel(masks,mask_sampler,(xy+local)/4096.,i32(page),0.).r;}
  if !lightmapped {tex=to_linear(tex);}
  color=mix(color,tex,alpha);}
@@ -141,14 +261,13 @@ impl TerrainGpu {
         queue: &wgpu::Queue,
         format: wgpu::TextureFormat,
         t: &Terrain,
+        upload: &TerrainUpload,
         normal: &wgpu::Buffer,
         reflection: &wgpu::Buffer,
     ) -> Result<Self, String> {
-        let m = &t.materials;
-        if m.textures.is_empty()
-            || m.textures.len() > device.limits().max_texture_array_layers as usize
-        {
-            return Err("GPU terrain texture layer limit exceeded".into());
+        let m = &upload.materials;
+        if m.textures.is_empty() {
+            return Err("terrain has no textures".into());
         }
         let masks_count = m
             .areas
@@ -168,12 +287,68 @@ impl TerrainGpu {
         if pages > device.limits().max_texture_array_layers as usize {
             return Err("GPU terrain mask layer limit exceeded".into());
         }
+        // Keep BC1/BC2 blocks in their authored GPU representation when the
+        // adapter supports it. No recompression, no mip regeneration, no
+        // downscaling. Unusual shapes/formats retain the decoded fallback.
+        let native_groups: Vec<Option<usize>> = m
+            .textures
+            .iter()
+            .map(|img| {
+                crate::terrain_upload::native_group(
+                    &img.source,
+                    device
+                        .features()
+                        .contains(wgpu::Features::TEXTURE_COMPRESSION_BC),
+                )
+            })
+            .collect();
+        let mut native_counts = [0usize; 6];
+        for group in native_groups.iter().flatten() {
+            native_counts[*group] += 1;
+        }
+        eprintln!("Terrain native BC upload: {} textures; {} decoded fallback textures (original resolution and authored mips retained)",
+            native_counts.iter().sum::<usize>(), m.textures.len() - native_counts.iter().sum::<usize>());
+        let native_textures: Vec<_> = (0..6)
+            .map(|group| {
+                let side = if native_counts[group] == 0 {
+                    4
+                } else {
+                    256u32 << (group % 3)
+                };
+                device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("authored compressed terrain"),
+                    size: wgpu::Extent3d {
+                        width: side,
+                        height: side,
+                        depth_or_array_layers: native_counts[group].max(1) as u32,
+                    },
+                    mip_level_count: side.ilog2() + 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: if device
+                        .features()
+                        .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
+                    {
+                        if group < 3 {
+                            wgpu::TextureFormat::Bc1RgbaUnorm
+                        } else {
+                            wgpu::TextureFormat::Bc2RgbaUnorm
+                        }
+                    } else {
+                        wgpu::TextureFormat::Rgba8Unorm
+                    },
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                })
+            })
+            .collect();
         // Avoid upscaling every 256px source into a 512px array: preserve
         // client resolutions in two arrays and save substantial GPU memory.
         let count_small = m
             .textures
             .iter()
-            .filter(|t| t.w <= 256 && t.h <= 256)
+            .enumerate()
+            .filter(|(i, t)| native_groups[*i].is_none() && t.w <= 256 && t.h <= 256)
             .count();
         // Fit one authored level into a square array slot.
         //
@@ -219,10 +394,23 @@ impl TerrainGpu {
         let count_large = m
             .textures
             .iter()
-            .filter(|t| (t.w > 256 || t.h > 256) && t.w <= 512 && t.h <= 512)
+            .enumerate()
+            .filter(|(i, t)| {
+                native_groups[*i].is_none() && (t.w > 256 || t.h > 256) && t.w <= 512 && t.h <= 512
+            })
             .count();
-        let count_full = m.textures.len() - count_small - count_large;
+        let count_full =
+            m.textures.len() - native_counts.iter().sum::<usize>() - count_small - count_large;
+        if native_counts
+            .iter()
+            .copied()
+            .chain([count_small, count_large, count_full])
+            .any(|count| count > device.limits().max_texture_array_layers as usize)
+        {
+            return Err("GPU terrain texture array layer limit exceeded".into());
+        }
         let create_array = |side: usize, count: usize| {
+            let side = if count == 0 { 4 } else { side };
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("original terrain texture array"),
                 size: wgpu::Extent3d {
@@ -246,7 +434,21 @@ impl TerrainGpu {
         let mut small_n = 0u32;
         let mut large_n = 0u32;
         let mut full_n = 0u32;
+        let mut native_n = [0u32; 6];
         for (image_number, img) in m.textures.iter().enumerate() {
+            if let Some(group) = native_groups[image_number] {
+                let index = native_n[group];
+                native_n[group] += 1;
+                tex_map.push(index | ((group as u32 + 3) << 28));
+                crate::terrain_upload::upload(queue, &native_textures[group], &img.source, index)?;
+                // A submit bounds upload staging; a wait every eight sources
+                // also caps in-flight allocations on shared-memory adapters.
+                if image_number % 8 == 7 || image_number + 1 == m.textures.len() {
+                    queue.submit(std::iter::empty());
+                    device.poll(wgpu::Maintain::Wait);
+                }
+                continue;
+            }
             let (image, base_side, index, kind) = if img.w > 512 || img.h > 512 {
                 let i = full_n;
                 full_n += 1;
@@ -260,13 +462,14 @@ impl TerrainGpu {
                 small_n += 1;
                 (&small_tex, 256, i, 0u32)
             };
-            tex_map.push(index | (kind << 30));
+            tex_map.push(index | (kind << 28));
             // Copy the authored chain level by level. Level 0 is fitted into the
             // array slot; every later level is taken straight from the file, so the
             // client's authored reductions survive. The client uploads what the DDS
             // carries (`0x7f7ef1`) and only generates a chain when the source has a
             // single level, which is the `generates_mips` case below.
-            let mut level = fit_level(&img.levels[0], base_side);
+            let decoded = img.decode()?;
+            let mut level = fit_level(&decoded[0], base_side);
             let mut side = base_side;
             for mip in 0..=base_side.ilog2() {
                 queue.write_texture(
@@ -296,7 +499,7 @@ impl TerrainGpu {
                     break;
                 }
                 let next = side / 2;
-                level = match img.levels.get(mip as usize + 1) {
+                level = match decoded.get(mip as usize + 1) {
                     // Authored level: use it as-is when it matches the slot size.
                     Some(authored)
                         if authored.width as usize == next && authored.height as usize == next =>
@@ -320,100 +523,9 @@ impl TerrainGpu {
                 device.poll(wgpu::Maintain::Wait);
             }
         }
-        let masktex = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("terrain layer masks"),
-            size: wgpu::Extent3d {
-                width: MASK_PAGE as u32,
-                height: MASK_PAGE as u32,
-                depth_or_array_layers: pages as u32,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let mut areas = Vec::new();
-        let mut layers = Vec::new();
-        let mut page = vec![0u8; MASK_PAGE * MASK_PAGE];
-        let mut layer_id = 0usize;
-        let mut page_id = 0usize;
-        let upload_page = |page: &[u8], id: usize| {
-            queue.write_texture(
-                wgpu::ImageCopyTexture {
-                    texture: &masktex,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: id as u32,
-                    },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                page,
-                wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(MASK_PAGE as u32),
-                    rows_per_image: Some(MASK_PAGE as u32),
-                },
-                wgpu::Extent3d {
-                    width: MASK_PAGE as u32,
-                    height: MASK_PAGE as u32,
-                    depth_or_array_layers: 1,
-                },
-            )
-        };
-        for a in &m.areas {
-            areas.push(Area {
-                start: layers.len() as u32,
-                count: a.layers.len() as u32,
-                _pad: [0; 2],
-            });
-            for (j, l) in a.layers.iter().enumerate() {
-                let id = if j == 0 {
-                    u32::MAX
-                } else {
-                    if layer_id / per_page != page_id {
-                        upload_page(&page, page_id);
-                        // Prevent queued 16 MiB mask pages from accumulating
-                        // alongside decoded terrain images and lightmaps.
-                        if page_id % 2 == 1 {
-                            queue.submit(std::iter::empty());
-                            device.poll(wgpu::Maintain::Wait);
-                        }
-                        page.fill(0);
-                        page_id += 1;
-                    }
-                    let slot = layer_id % per_page;
-                    let ox = slot % per_row * mask_side;
-                    let oy = slot / per_row * mask_side;
-                    for y in 0..mask_side {
-                        for x in 0..mask_side {
-                            let sx = x * l.mask_size / mask_side;
-                            let sy = y * l.mask_size / mask_side;
-                            page[(oy + y) * MASK_PAGE + ox + x] = l.mask[sy * l.mask_size + sx];
-                        }
-                    }
-                    let id = layer_id as u32;
-                    layer_id += 1;
-                    id
-                };
-                layers.push(Layer {
-                    tex: tex_map[l.texture],
-                    axis: l.axis as u32,
-                    mask: id,
-                    _pad: 0,
-                    uv: [l.u, l.v],
-                    _pad2: [0.; 2],
-                });
-            }
-        }
-        upload_page(&page, page_id);
-        queue.submit(std::iter::empty());
-        device.poll(wgpu::Maintain::Wait);
+        let masks = upload_masks(device, queue, m, &tex_map)?;
         let (lighttex, light_side, light_per_row, light_per_page, light_pages, availability) =
-            load_lightmaps(device, queue, t, mask_side)?;
+            load_lightmaps(device, queue, t, m, mask_side)?;
         let settings = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("terrain world settings"),
             contents: bytemuck::bytes_of(&Settings {
@@ -438,16 +550,6 @@ impl TerrainGpu {
             }),
             usage: wgpu::BufferUsages::UNIFORM,
         });
-        let area_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("terrain areas"),
-            contents: bytemuck::cast_slice(&areas),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
-        let layer_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("terrain layers"),
-            contents: bytemuck::cast_slice(&layers),
-            usage: wgpu::BufferUsages::STORAGE,
-        });
         let tv = tex.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
@@ -460,30 +562,24 @@ impl TerrainGpu {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
+        let native_views: Vec<_> = native_textures
+            .iter()
+            .map(|t| {
+                t.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2Array),
+                    ..Default::default()
+                })
+            })
+            .collect();
         let light_view = lighttex.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
-        let mv = masktex.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        });
-        // Native terrain layer sampler (`A3DTerrain2`, 0x7c14b0 / 0x7c1a20):
-        // D3DTSS_ADDRESSU/V = 2 = D3DTADDRESS_MIRROR and MAG/MIN/MIPFILTER = 2
-        // = D3DTEXF_LINEAR for stages 1..5. D3DTSS_MAXANISOTROPY(21) is never
-        // written anywhere in the terrain path (the 0x77a1b0/0x77a1d0 wrappers
-        // that write it have two call sites, neither inside the terrain
-        // functions), so the client runs trilinear mirror sampling with no
-        // anisotropic taps. The previous Repeat/16x request was not native.
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::MirrorRepeat,
-            address_mode_v: wgpu::AddressMode::MirrorRepeat,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            anisotropy_clamp: 1,
-            ..Default::default()
-        });
+        // These are repeating colour-layer UVs, not mask-stage coordinates.
+        // Mirroring the colour lookup invents a conspicuous 2x2 reflected
+        // pattern in rock/grass detail. Keep authored mips but wrap the colour
+        // sources, matching the CPU sampler and the colour-layer shader lane.
+        let sampler = crate::terrain_upload::color_sampler(device);
         // The mask/lightmap atlas is a packed page grid, not a tiled texture:
         // the fragment shader already clamps each tile's local UV to half a
         // texel inside its slot, so this sampler must never wrap or mirror
@@ -553,6 +649,12 @@ impl TerrainGpu {
                 texture(8),
                 texture(9),
                 texture(10),
+                texture(11),
+                texture(12),
+                texture(13),
+                texture(14),
+                texture(15),
+                texture(16),
                 sam(3),
                 texture(4),
                 sam(5),
@@ -568,34 +670,26 @@ impl TerrainGpu {
                 ),
             ],
         });
-        let bind = |camera: &wgpu::Buffer| {
-            device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("terrain material bindings"),
-                layout: &layout,
-                entries: &[
-                    entry(0, camera.as_entire_binding()),
-                    entry(1, settings.as_entire_binding()),
-                    entry(2, wgpu::BindingResource::TextureView(&tv)),
-                    entry(8, wgpu::BindingResource::TextureView(&small_view)),
-                    entry(9, wgpu::BindingResource::TextureView(&full_view)),
-                    entry(10, wgpu::BindingResource::TextureView(&light_view)),
-                    entry(3, wgpu::BindingResource::Sampler(&sampler)),
-                    entry(4, wgpu::BindingResource::TextureView(&mv)),
-                    entry(5, wgpu::BindingResource::Sampler(&mask_sampler)),
-                    entry(6, area_buffer.as_entire_binding()),
-                    entry(7, layer_buffer.as_entire_binding()),
-                ],
-            })
+        let resources = MaterialBindings {
+            layout,
+            settings,
+            tv,
+            small_view,
+            full_view,
+            native_views,
+            light_view,
+            sampler,
+            mask_sampler,
         };
-        let normal_bind = bind(normal);
-        let reflect_bind = bind(reflection);
+        let normal_bind = resources.bind(device, normal, &masks);
+        let reflect_bind = resources.bind(device, reflection, &masks);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("layered terrain GPU shader"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
         });
         let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("terrain pipeline"),
-            bind_group_layouts: &[&layout],
+            bind_group_layouts: &[&resources.layout],
             push_constant_ranges: &[],
         });
         // Variant selection and pass state come from the recovered native
@@ -686,39 +780,70 @@ impl TerrainGpu {
             multisample: Default::default(),
             multiview: None,
         });
-        let (vertices, indices) = world_mesh(t, 4);
-        let count = indices.len() as u32;
-        let vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("full-world terrain LOD vertices"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let index = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("full-world terrain LOD indices"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let far = upload.far.as_ref().map(|mesh| FarGpu::upload(device, mesh));
         eprintln!(
-            "Uploaded world terrain: {} vertices, {} triangles, {} textures, {} masks",
-            vertices.len(),
-            indices.len() / 3,
-            m.textures.len(),
-            masks_count
+            "Terrain residency: {} masks, {} atlas MiB, {} far indices",
+            masks_count,
+            pages * MASK_PAGE * MASK_PAGE / (1024 * 1024),
+            far.as_ref().map_or(0, |mesh| mesh.count)
         );
         Ok(Self {
             pipeline,
             far_pipeline,
             bind: normal_bind,
             reflect_bind,
-            vertex,
-            index,
-            count,
+            far,
+            resources,
+            tex_map,
+            mask_bytes: masks.bytes,
             grass_light_layout,
             grass_light_bind,
         })
     }
-    pub fn edge_mesh(&self) -> (&wgpu::Buffer, &wgpu::Buffer, u32) {
-        (&self.vertex, &self.index, self.count)
+    pub fn residency_label(&self) -> String {
+        let far_bytes = self
+            .far
+            .as_ref()
+            .map_or(0, |far| far.vertex.size() + far.index.size());
+        format!(
+            "Terrain: {}; blend masks {:.1} MiB; far geometry {:.1} MiB",
+            if self.far.is_none() {
+                "native cutoff"
+            } else {
+                "full extent"
+            },
+            self.mask_bytes as f64 / 1048576.,
+            far_bytes as f64 / 1048576.
+        )
+    }
+    pub fn visible_far_runs(&self, matrix: glam::Mat4) -> Vec<(u32, u32)> {
+        self.far.as_ref().map_or_else(Vec::new, |far| {
+            crate::terrain_residency::visible_runs(&far.spans, matrix)
+        })
+    }
+    pub fn edge_mesh(&self) -> Option<(&wgpu::Buffer, &wgpu::Buffer, u32)> {
+        self.far
+            .as_ref()
+            .map(|far| (&far.vertex, &far.index, far.count))
+    }
+    pub fn update_residency(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        normal: &wgpu::Buffer,
+        reflection: &wgpu::Buffer,
+        upload: &TerrainUpload,
+    ) -> Result<(), String> {
+        let masks = upload_masks(device, queue, &upload.materials, &self.tex_map)?;
+        self.mask_bytes = masks.bytes;
+        self.bind = self.resources.bind(device, normal, &masks);
+        self.reflect_bind = self.resources.bind(device, reflection, &masks);
+        self.far = upload.far.as_ref().map(|mesh| FarGpu::upload(device, mesh));
+        // Submit/poll also retires old in-flight atlas/buffer references. No
+        // permanent full-world allocation remains behind the cutoff checkbox.
+        queue.submit(std::iter::empty());
+        device.poll(wgpu::Maintain::Wait);
+        Ok(())
     }
     /// `runs` is the per-view visibility result (`block+0x74`): `None` draws the
     /// whole window mesh, `Some` submits only the ranges the view kept.
@@ -730,6 +855,7 @@ impl TerrainGpu {
         near_index: &'a wgpu::Buffer,
         near_end: u32,
         runs: Option<&[(u32, u32)]>,
+        far_runs: Option<&[(u32, u32)]>,
     ) {
         p.set_pipeline(&self.far_pipeline);
         p.set_bind_group(
@@ -741,9 +867,18 @@ impl TerrainGpu {
             },
             &[],
         );
-        p.set_vertex_buffer(0, self.vertex.slice(..));
-        p.set_index_buffer(self.index.slice(..), wgpu::IndexFormat::Uint32);
-        p.draw_indexed(0..self.count, 0, 0..1);
+        if let Some(far) = &self.far {
+            p.set_vertex_buffer(0, far.vertex.slice(..));
+            p.set_index_buffer(far.index.slice(..), wgpu::IndexFormat::Uint32);
+            match far_runs {
+                Some(runs) => {
+                    for &(start, count) in runs {
+                        p.draw_indexed(start..start + count, 0, 0..1);
+                    }
+                }
+                None => p.draw_indexed(0..far.count, 0, 0..1),
+            }
+        }
         p.set_pipeline(&self.pipeline);
         p.set_vertex_buffer(0, near_vertex.slice(..));
         p.set_index_buffer(near_index.slice(..), wgpu::IndexFormat::Uint32);
@@ -756,6 +891,166 @@ impl TerrainGpu {
             None => p.draw_indexed(0..near_end, 0, 0..1),
         }
     }
+}
+fn upload_masks(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    m: &crate::material::Materials,
+    tex_map: &[u32],
+) -> Result<MaskResources, String> {
+    let masks_count = m
+        .areas
+        .iter()
+        .map(|a| a.layers.len().saturating_sub(1))
+        .sum::<usize>();
+    let mask_side = if std::env::var_os("PW_SMALL_MASK_ATLAS").is_some() {
+        128
+    } else {
+        256
+    };
+    let per_row = MASK_PAGE / mask_side;
+    let per_page = per_row * per_row;
+    let pages = ((masks_count + per_page - 1) / per_page).max(1);
+    if pages > device.limits().max_texture_array_layers as usize {
+        return Err("GPU terrain mask layer limit exceeded".into());
+    }
+    let masktex = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("terrain layer masks"),
+        size: wgpu::Extent3d {
+            width: MASK_PAGE as u32,
+            height: MASK_PAGE as u32,
+            depth_or_array_layers: pages as u32,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | if cfg!(test) {
+                wgpu::TextureUsages::COPY_SRC
+            } else {
+                wgpu::TextureUsages::empty()
+            },
+        view_formats: &[],
+    });
+    let mut areas = Vec::new();
+    let mut layers = Vec::new();
+    let mut page = vec![0u8; MASK_PAGE * MASK_PAGE];
+    let mut layer_id = 0usize;
+    let mut page_id = 0usize;
+    let upload_page = |page: &[u8], id: usize| {
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &masktex,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: id as u32,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            page,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(MASK_PAGE as u32),
+                rows_per_image: Some(MASK_PAGE as u32),
+            },
+            wgpu::Extent3d {
+                width: MASK_PAGE as u32,
+                height: MASK_PAGE as u32,
+                depth_or_array_layers: 1,
+            },
+        )
+    };
+    for a in &m.areas {
+        areas.push(Area {
+            start: layers.len() as u32,
+            count: a.layers.len() as u32,
+            _pad: [0; 2],
+        });
+        for (j, l) in a.layers.iter().enumerate() {
+            let id = if j == 0 {
+                u32::MAX
+            } else {
+                if layer_id / per_page != page_id {
+                    upload_page(&page, page_id);
+                    // Prevent queued 16 MiB mask pages from accumulating
+                    // alongside decoded terrain images and lightmaps.
+                    if page_id % 2 == 1 {
+                        queue.submit(std::iter::empty());
+                        device.poll(wgpu::Maintain::Wait);
+                    }
+                    page.fill(0);
+                    page_id += 1;
+                }
+                let slot = layer_id % per_page;
+                let ox = slot % per_row * mask_side;
+                let oy = slot / per_row * mask_side;
+                let decoded_mask = l.mask.decode(l.mask_size)?;
+                for y in 0..mask_side {
+                    for x in 0..mask_side {
+                        let sx = x * l.mask_size / mask_side;
+                        let sy = y * l.mask_size / mask_side;
+                        page[(oy + y) * MASK_PAGE + ox + x] = decoded_mask[sy * l.mask_size + sx];
+                    }
+                }
+                let id = layer_id as u32;
+                layer_id += 1;
+                id
+            };
+            layers.push(Layer {
+                tex: tex_map[l.texture],
+                axis: l.axis as u32,
+                mask: id,
+                _pad: 0,
+                uv: [l.u, l.v],
+                _pad2: [0.; 2],
+            });
+        }
+    }
+    upload_page(&page, page_id);
+    queue.submit(std::iter::empty());
+    device.poll(wgpu::Maintain::Wait);
+    drop(page);
+    let area_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("terrain areas"),
+        contents: bytemuck::cast_slice(&areas),
+        usage: wgpu::BufferUsages::STORAGE
+            | if cfg!(test) {
+                wgpu::BufferUsages::COPY_SRC
+            } else {
+                wgpu::BufferUsages::empty()
+            },
+    });
+    // A camera outside the map can have no resident layers. Keep the storage
+    // binding valid even though there are no terrain triangles to sample it.
+    if layers.is_empty() {
+        layers.push(Layer::zeroed());
+    }
+    let layer_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("terrain layers"),
+        contents: bytemuck::cast_slice(&layers),
+        usage: wgpu::BufferUsages::STORAGE
+            | if cfg!(test) {
+                wgpu::BufferUsages::COPY_SRC
+            } else {
+                wgpu::BufferUsages::empty()
+            },
+    });
+    let mv = masktex.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    Ok(MaskResources {
+        #[cfg(test)]
+        texture: masktex,
+        bytes: pages * MASK_PAGE * MASK_PAGE,
+        mv,
+        area_buffer,
+        layer_buffer,
+    })
 }
 fn buf(
     binding: u32,
@@ -802,9 +1097,9 @@ fn load_lightmaps(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     t: &Terrain,
+    m: &crate::material::Materials,
     side: usize,
 ) -> Result<(wgpu::Texture, usize, usize, usize, usize, Vec<u32>), String> {
-    let m = &t.materials;
     if std::env::var_os("PW_TEST_NO_LIGHTMAPS").is_some() {
         let per_row = 16usize;
         let per_page = 256usize;
@@ -1034,38 +1329,83 @@ fn neutral_tile(side: usize, bc: bool) -> Vec<u8> {
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
-struct FarVertex {
+pub struct FarVertex {
     pos: [f32; 3],
     normal: [i8; 4],
 }
-fn world_mesh(t: &Terrain, step: usize) -> (Vec<FarVertex>, Vec<u32>) {
+pub fn world_mesh(
+    t: &Terrain,
+    step: usize,
+) -> Result<
+    (
+        Vec<FarVertex>,
+        Vec<u32>,
+        Vec<crate::terrain_residency::Span>,
+    ),
+    String,
+> {
     let xs = grid_axis(t.width, step);
     let ys = grid_axis(t.height, step);
     let mut v = Vec::with_capacity(xs.len() * ys.len());
+    let mut terrain_reader = t.heights.reader();
     for &y in &ys {
         for &x in &xs {
             let at = y * t.width + x;
-            let n = t.normals[at];
+            let (height, n) = terrain_reader.cell(at)?;
             v.push(FarVertex {
                 pos: [
                     (x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
-                    t.heights[at],
+                    height,
                     (t.height as f32 * 0.5 - y as f32) * t.grid_spacing,
                 ],
                 normal: [n[0], n[1], n[2], 0],
             });
         }
     }
-    let mut indices = Vec::with_capacity((xs.len() - 1) * (ys.len() - 1) * 6);
-    for y in 0..ys.len() - 1 {
-        for x in 0..xs.len() - 1 {
-            let a = (y * xs.len() + x) as u32;
-            let b = a + 1;
-            let c = a + xs.len() as u32;
-            indices.extend_from_slice(&[a, b, c, b, c + 1, c]);
+    let (indices, spans) = far_indices(&v, xs.len(), ys.len());
+    Ok((v, indices, spans))
+}
+
+fn far_indices(
+    vertices: &[FarVertex],
+    cols: usize,
+    rows: usize,
+) -> (Vec<u32>, Vec<crate::terrain_residency::Span>) {
+    let mut indices = Vec::with_capacity((cols - 1) * (rows - 1) * 6);
+    // Preserve every original triangle, but group index ranges into bounded
+    // patches so the main view never transforms the entire off-screen world.
+    let mut spans = Vec::new();
+    for py in (0..rows - 1).step_by(32) {
+        for px in (0..cols - 1).step_by(32) {
+            let end_x = (px + 32).min(cols - 1);
+            let end_y = (py + 32).min(rows - 1);
+            let start = indices.len() as u32;
+            let mut low = [f32::INFINITY; 3];
+            let mut high = [f32::NEG_INFINITY; 3];
+            for y in py..=end_y {
+                for x in px..=end_x {
+                    for axis in 0..3 {
+                        let value = vertices[y * cols + x].pos[axis];
+                        low[axis] = low[axis].min(value);
+                        high[axis] = high[axis].max(value);
+                    }
+                    if x < end_x && y < end_y {
+                        let a = (y * cols + x) as u32;
+                        let b = a + 1;
+                        let c = a + cols as u32;
+                        indices.extend_from_slice(&[a, b, c, b, c + 1, c]);
+                    }
+                }
+            }
+            spans.push(crate::terrain_residency::Span {
+                block: (px, py),
+                start,
+                count: indices.len() as u32 - start,
+                bounds: [low[0], low[1], low[2], high[0], high[1], high[2]],
+            });
         }
     }
-    (v, indices)
+    (indices, spans)
 }
 
 fn grid_axis(size: usize, step: usize) -> Vec<usize> {
@@ -1079,6 +1419,47 @@ fn grid_axis(size: usize, step: usize) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn far_patches_preserve_every_triangle_and_bound_all_their_vertices() {
+        let (cols, rows) = (70, 50);
+        let vertices: Vec<_> = (0..rows)
+            .flat_map(|y| {
+                (0..cols).map(move |x| FarVertex {
+                    pos: [x as f32, ((x * 7 + y * 11) % 31) as f32, y as f32],
+                    normal: [0, 127, 0, 0],
+                })
+            })
+            .collect();
+        let (indices, spans) = far_indices(&vertices, cols, rows);
+        let mut expected = std::collections::BTreeSet::new();
+        for y in 0..rows - 1 {
+            for x in 0..cols - 1 {
+                let a = (y * cols + x) as u32;
+                let c = a + cols as u32;
+                expected.insert([a, a + 1, c]);
+                expected.insert([a + 1, c + 1, c]);
+            }
+        }
+        let actual: std::collections::BTreeSet<_> = indices
+            .chunks_exact(3)
+            .map(|t| [t[0], t[1], t[2]])
+            .collect();
+        assert_eq!(actual, expected);
+        assert_eq!(indices.len(), expected.len() * 3, "no duplicate triangles");
+        assert_eq!(
+            spans.iter().map(|s| s.count as usize).sum::<usize>(),
+            indices.len()
+        );
+        for span in spans {
+            for &index in &indices[span.start as usize..(span.start + span.count) as usize] {
+                let p = vertices[index as usize].pos;
+                for axis in 0..3 {
+                    assert!(p[axis] >= span.bounds[axis] && p[axis] <= span.bounds[axis + 3]);
+                }
+            }
+        }
+    }
+
     #[test]
     fn neutral_tiles_match_the_atlas_block_layout() {
         let rgba = super::neutral_tile(256, false);
@@ -1095,5 +1476,123 @@ mod tests {
         assert_eq!(grid_axis(17, 8), vec![0, 8, 16]);
         assert_eq!(grid_axis(18, 8), vec![0, 8, 16, 17]);
         assert_eq!(grid_axis(1, 8), vec![0]);
+    }
+    #[test]
+    #[ignore = "requires a headless GPU; run explicitly after software Vulkan setup"]
+    fn cutoff_gpu_residency_repacking() {
+        assert!(
+            std::env::var_os("PW_SMALL_MASK_ATLAS").is_none(),
+            "test native masks, not diagnostic downsampling"
+        );
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+            .expect("headless adapter");
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("cutoff residency test"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+            },
+            None,
+        ))
+        .unwrap();
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut m = crate::material::cutoff_mask_fixture();
+        let full = upload_masks(&device, &queue, &m, &[0]).unwrap();
+        assert_eq!(full.bytes, 32 * 1024 * 1024);
+        drop(full);
+        let near = m.take_window(Some([2, 3, 5, 6]));
+        let compact = upload_masks(&device, &queue, &near, &[0]).unwrap();
+        assert_eq!(compact.bytes, 16 * 1024 * 1024);
+        // Read actual GPU records: cold global IDs must be empty, not aliased
+        // to a neighbouring area; retained layers must use compact mask slots.
+        fn read_buffer(
+            device: &wgpu::Device,
+            queue: &wgpu::Queue,
+            source: &wgpu::Buffer,
+        ) -> Vec<u8> {
+            let out = device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: source.size(),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut e = device.create_command_encoder(&Default::default());
+            e.copy_buffer_to_buffer(source, 0, &out, 0, source.size());
+            queue.submit(Some(e.finish()));
+            mapped(device, &out)
+        }
+        fn mapped(device: &wgpu::Device, out: &wgpu::Buffer) -> Vec<u8> {
+            let (tx, rx) = std::sync::mpsc::channel();
+            out.slice(..)
+                .map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+            device.poll(wgpu::Maintain::Wait);
+            rx.recv().unwrap().unwrap();
+            let bytes = out.slice(..).get_mapped_range().to_vec();
+            out.unmap();
+            bytes
+        }
+        let areas = read_buffer(&device, &queue, &compact.area_buffer);
+        let layers = read_buffer(&device, &queue, &compact.layer_buffer);
+        let mut slot = 0;
+        for id in 0..400 {
+            let a: Area = bytemuck::pod_read_unaligned(&areas[id * 16..id * 16 + 16]);
+            if (2..5).contains(&(id % 20)) && (3..6).contains(&(id / 20)) {
+                assert_eq!(a.count, 2);
+                let base = a.start as usize * std::mem::size_of::<Layer>();
+                let layer: Layer = bytemuck::pod_read_unaligned(&layers[base + 32..base + 64]);
+                assert_eq!(layer.mask, slot);
+                assert_eq!(layer.tex, 0);
+                assert_eq!(layer.axis, 1);
+                assert_eq!(layer.uv, [1., 1.]);
+                // Read every native texel, not just a representative pixel.
+                let out = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: 256 * 256,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+                let mut e = device.create_command_encoder(&Default::default());
+                e.copy_texture_to_buffer(
+                    wgpu::ImageCopyTexture {
+                        texture: &compact.texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d {
+                            x: slot * 256,
+                            y: 0,
+                            z: 0,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::ImageCopyBuffer {
+                        buffer: &out,
+                        layout: wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(256),
+                            rows_per_image: Some(256),
+                        },
+                    },
+                    wgpu::Extent3d {
+                        width: 256,
+                        height: 256,
+                        depth_or_array_layers: 1,
+                    },
+                );
+                queue.submit(Some(e.finish()));
+                assert!(mapped(&device, &out).iter().all(|&b| b == id as u8));
+                slot += 1;
+            } else {
+                assert_eq!(a.count, 0);
+            }
+        }
+        assert_eq!(slot, 9);
+        drop(compact);
+        // A camera beyond the map has no layers but still needs a valid binding.
+        let mut fixture = crate::material::cutoff_mask_fixture();
+        let empty = fixture.take_window(Some([0, 0, 0, 0]));
+        let empty_gpu = upload_masks(&device, &queue, &empty, &[0]).unwrap();
+        assert!(empty_gpu.layer_buffer.size() >= std::mem::size_of::<Layer>() as u64);
+        device.poll(wgpu::Maintain::Wait);
+        assert!(pollster::block_on(device.pop_error_scope()).is_none());
     }
 }

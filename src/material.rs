@@ -10,14 +10,63 @@ use std::{
 pub(crate) struct Texture {
     pub(crate) w: usize,
     pub(crate) h: usize,
-    /// The authored mip chain, level 0 first, each level RGBA8.
-    ///
-    /// The archive's terrain sources all carry a complete chain, and `0x7f7ef1`
-    /// uploads it as authored. Keeping the chain here means the renderer copies
-    /// level *n* into mip slot *n* instead of dropping the chain and rebuilding it
-    /// with a box filter, which would replace the client's authored reductions
-    /// with a different filter.
-    pub(crate) levels: Vec<crate::dxt::Level>,
+    /// Retain DDS blocks, not a world-sized decoded RGBA copy.
+    pub(crate) source: Vec<u8>,
+    pub(crate) levels: std::sync::OnceLock<Vec<crate::dxt::Level>>,
+}
+impl Texture {
+    pub(crate) fn decode(&self) -> Result<Vec<crate::dxt::Level>, String> {
+        let info = crate::terrain_sampling::parse_terrain_dds(&self.source)?;
+        crate::dxt::decode_chain(
+            info.format.four_cc(),
+            &self.source[128..],
+            info.width,
+            info.height,
+            info.authored_mips,
+        )
+    }
+    fn cpu_levels(&self) -> &[crate::dxt::Level] {
+        self.levels
+            .get_or_init(|| self.decode().expect("validated terrain DDS"))
+    }
+}
+
+/// Original zlib payload stays compressed until upload. CPU preview sampling
+/// memoizes only masks it actually visits; desktop uploads use a temporary.
+pub(crate) struct Mask {
+    bytes: Vec<u8>,
+    compressed: bool,
+    decoded: std::sync::OnceLock<Vec<u8>>,
+}
+impl Mask {
+    fn raw(bytes: Vec<u8>) -> Self {
+        Self {
+            bytes,
+            compressed: false,
+            decoded: Default::default(),
+        }
+    }
+    pub(crate) fn decode(&self, side: usize) -> Result<std::borrow::Cow<'_, [u8]>, String> {
+        if !self.compressed {
+            return Ok(std::borrow::Cow::Borrowed(&self.bytes));
+        }
+        let mut out = Vec::with_capacity(side * side);
+        ZlibDecoder::new(self.bytes.as_slice())
+            .take((side * side + 1) as u64)
+            .read_to_end(&mut out)
+            .map_err(|e| e.to_string())?;
+        if out.len() != side * side {
+            return Err("invalid decoded mask size".into());
+        }
+        Ok(std::borrow::Cow::Owned(out))
+    }
+    fn cpu_bytes(&self, side: usize) -> &[u8] {
+        if !self.compressed {
+            return &self.bytes;
+        }
+        self.decoded
+            .get_or_init(|| self.decode(side).expect("validated mask").into_owned())
+    }
 }
 pub(crate) struct Layer {
     pub(crate) texture: usize,
@@ -25,7 +74,7 @@ pub(crate) struct Layer {
     pub(crate) u: f32,
     pub(crate) v: f32,
     pub(crate) mask_size: usize,
-    pub(crate) mask: Vec<u8>,
+    pub(crate) mask: Mask,
 }
 pub(crate) struct Area {
     pub(crate) layers: Vec<Layer>,
@@ -74,6 +123,12 @@ pub(crate) fn layer_uv(axis: u8, x: f32, y: f32, z: f32) -> (f32, f32) {
     }
 }
 
+fn in_window(id: usize, cols: usize, window: Option<[usize; 4]>) -> bool {
+    window.map_or(true, |[x0, y0, x1, y1]| {
+        let (x, y) = (id % cols, id / cols);
+        x >= x0 && x < x1 && y >= y0 && y < y1
+    })
+}
 impl Materials {
     pub fn load(
         dir: &Path,
@@ -82,6 +137,20 @@ impl Materials {
         width: usize,
         height: usize,
         spacing: f32,
+    ) -> Result<Self, String> {
+        Self::load_window(dir, trn, names, width, height, spacing, None, true)
+    }
+    /// Load only masks used by the resident terrain. Global area indices stay
+    /// unchanged; the GPU packs the surviving masks into a compact atlas.
+    pub fn load_window(
+        dir: &Path,
+        trn: &[u8],
+        names: &[String],
+        width: usize,
+        height: usize,
+        spacing: f32,
+        window: Option<[usize; 4]>,
+        colors: bool,
     ) -> Result<Self, String> {
         let mask_grid = u32at(trn, 48)? as usize;
         let subgrid = u32at(trn, 64)? as usize;
@@ -108,9 +177,13 @@ impl Materials {
         let element = dir.parent().and_then(Path::parent).ok_or("bad map path")?;
         let mut file =
             File::open(element.join("textures.pck")).map_err(|e| format!("textures.pck: {e}"))?;
-        let entries = pck::directory(&mut file)?;
+        let entries = if colors {
+            pck::directory(&mut file)?
+        } else {
+            Vec::new()
+        };
         let mut textures = Vec::new();
-        for path in &paths {
+        for path in paths.iter().filter(|_| colors) {
             let entry = entries
                 .iter()
                 .find(|e| e.name.eq_ignore_ascii_case(path))
@@ -122,31 +195,24 @@ impl Materials {
             // format the native device would have rejected.
             let info = crate::terrain_sampling::parse_terrain_dds(&raw)
                 .map_err(|e| format!("texture {path}: {e}"))?;
-            // Decode the authored chain exactly. `parse_terrain_dds` has already
-            // proved the payload covers precisely the declared levels, so a
-            // decode failure here is a real defect and never a silent fallback.
-            let levels = crate::dxt::decode_chain(
-                info.format.four_cc(),
-                &raw[128..],
-                info.width,
-                info.height,
-                info.authored_mips,
-            )
-            .map_err(|e| format!("texture {path}: {e}"))?;
-            if levels.len() as u32 != info.authored_mips {
-                return Err(format!(
-                    "texture {path}: decoded {} of {} authored levels",
-                    levels.len(),
-                    info.authored_mips
-                ));
-            }
             let (w, h) = (info.width as usize, info.height as usize);
-            textures.push(Texture { w, h, levels });
+            textures.push(Texture {
+                w,
+                h,
+                source: raw,
+                levels: Default::default(),
+            });
         }
         let mut areas: Vec<Area> = (0..areas_x * areas_y)
             .map(|_| Area { layers: Vec::new() })
             .collect();
         for (si, name) in names.iter().enumerate() {
+            if let Some([x0, y0, x1, y1]) = window {
+                let (sx, sy) = ((si % subs_x) * sub_areas, (si / subs_x) * sub_areas);
+                if sx >= x1 || sy >= y1 || sx + sub_areas <= x0 || sy + sub_areas <= y0 {
+                    continue;
+                }
+            }
             let data = fs::read(dir.join(format!("{name}.t2mk"))).map_err(|e| e.to_string())?;
             if u32at(&data, 0)? != 0x544d4b42 || u32at(&data, 4)? != 2 {
                 return Err(format!("{name}: unsupported T2MK"));
@@ -166,6 +232,9 @@ impl Materials {
                 let dst = ((si / subs_x) * sub_areas + ai / sub_areas) * areas_x
                     + (si % subs_x) * sub_areas
                     + ai % sub_areas;
+                if !in_window(dst, areas_x, window) {
+                    continue;
+                }
                 let area = areas.get_mut(dst).ok_or("mask area outside world")?;
                 for li in 0..n {
                     let r = p + 4 + li * 12;
@@ -175,7 +244,7 @@ impl Materials {
                     }
                     let lp = layerstart + idx * 28;
                     let texture = u32at(&data, lp)? as usize;
-                    if texture >= textures.len() {
+                    if texture >= count {
                         return Err("texture index out of bounds".into());
                     }
                     let mut size = if li == 0 {
@@ -187,6 +256,7 @@ impl Materials {
                         return Err("invalid mask size".into());
                     }
                     let mut mask = Vec::new();
+                    let mut packed = None;
                     if li > 0 {
                         let off = u32at(&data, r + 4)? as usize;
                         let len = u32at(&data, r + 8)? as usize;
@@ -194,6 +264,7 @@ impl Materials {
                             .get(off..off.checked_add(len).ok_or("mask overflow")?)
                             .ok_or("truncated mask")?;
                         if u32at(&data, 16)? != 0 {
+                            packed = Some(bytes.to_vec());
                             ZlibDecoder::new(bytes)
                                 .take((size * size + 1) as u64)
                                 .read_to_end(&mut mask)
@@ -219,6 +290,7 @@ impl Materials {
                                         as u8;
                                 }
                             }
+                            packed = None;
                             mask = half;
                             size = 128;
                         }
@@ -229,11 +301,45 @@ impl Materials {
                         u: f32at(&data, lp + 16)?,
                         v: f32at(&data, lp + 20)?,
                         mask_size: size,
-                        mask,
+                        mask: match packed {
+                            Some(bytes) => Mask {
+                                bytes,
+                                compressed: true,
+                                decoded: Default::default(),
+                            },
+                            None => Mask::raw(mask),
+                        },
                     });
                 }
             }
         }
+        let packed_bytes: usize = textures.iter().map(|t| t.source.len()).sum::<usize>()
+            + areas
+                .iter()
+                .flat_map(|a| &a.layers)
+                .map(|l| l.mask.bytes.len())
+                .sum::<usize>();
+        let expanded_bytes: usize = textures
+            .iter()
+            .map(|t| {
+                let info =
+                    crate::terrain_sampling::parse_terrain_dds(&t.source).expect("validated DDS");
+                (0..info.authored_mips)
+                    .map(|mip| {
+                        ((info.width >> mip).max(1) as usize)
+                            * ((info.height >> mip).max(1) as usize)
+                            * 4
+                    })
+                    .sum::<usize>()
+            })
+            .sum::<usize>()
+            + areas
+                .iter()
+                .flat_map(|a| &a.layers)
+                .map(|l| l.mask_size * l.mask_size)
+                .sum::<usize>();
+        eprintln!("Terrain CPU sources: {:.1} MiB packed; eager RGBA/masks would use {:.1} MiB (temporary decode per upload)",
+            packed_bytes as f64 / 1048576., expanded_bytes as f64 / 1048576.);
         Ok(Self {
             textures,
             areas,
@@ -245,6 +351,23 @@ impl Materials {
         })
     }
     /// The desktop GPU owns uploaded copies and no longer CPU-bakes terrain.
+    /// Transfer upload ownership without retaining DDS/mask payloads on the worker.
+    pub fn take_window(&mut self, window: Option<[usize; 4]>) -> Self {
+        for (id, area) in self.areas.iter_mut().enumerate() {
+            if !in_window(id, self.areas_x, window) {
+                area.layers = Vec::new();
+            }
+        }
+        Self {
+            textures: std::mem::take(&mut self.textures),
+            areas: std::mem::take(&mut self.areas),
+            areas_x: self.areas_x,
+            mask_grid: self.mask_grid,
+            width: self.width,
+            height: self.height,
+            spacing: self.spacing,
+        }
+    }
     pub fn release_gpu_source(&mut self) {
         self.areas.clear();
         self.textures.clear();
@@ -280,7 +403,7 @@ impl Materials {
                 let xx = x.rem_euclid(tex.w as isize) as usize;
                 let yy = y.rem_euclid(tex.h as isize) as usize;
                 // CPU terrain colouring samples level 0 of the authored chain.
-                tex.levels[0].rgba[(yy * tex.w + xx) * 4 + k] as f32
+                tex.cpu_levels()[0].rgba[(yy * tex.w + xx) * 4 + k] as f32
             };
             let alpha = if i == 0 {
                 1.
@@ -298,7 +421,7 @@ impl Materials {
                 let mask = |x: isize, y: isize| -> f32 {
                     let x = x.clamp(0, l.mask_size as isize - 1) as usize;
                     let y = y.clamp(0, l.mask_size as isize - 1) as usize;
-                    l.mask[y * l.mask_size + x] as f32 / 255.
+                    l.mask.cpu_bytes(l.mask_size)[y * l.mask_size + x] as f32 / 255.
                 };
                 let top = mask(ix, iy) * (1. - dx) + mask(ix + 1, iy) * dx;
                 let bottom = mask(ix, iy + 1) * (1. - dx) + mask(ix + 1, iy + 1) * dx;
@@ -315,9 +438,68 @@ impl Materials {
     }
 }
 
+/// Asset-free production-upload fixture: one base plus one distinct 256² mask
+/// per area, enough areas to cross an atlas page boundary.
+#[cfg(test)]
+pub(crate) fn cutoff_mask_fixture() -> Materials {
+    Materials {
+        textures: vec![],
+        areas_x: 20,
+        mask_grid: 128,
+        width: 2560,
+        height: 2560,
+        spacing: 2.,
+        areas: (0..400)
+            .map(|id| Area {
+                layers: vec![
+                    Layer {
+                        texture: 0,
+                        axis: 1,
+                        u: 1.,
+                        v: 1.,
+                        mask_size: 0,
+                        mask: Mask::raw(vec![]),
+                    },
+                    Layer {
+                        texture: 0,
+                        axis: 1,
+                        u: 1.,
+                        v: 1.,
+                        mask_size: 256,
+                        mask: Mask::raw(vec![id as u8; 256 * 256]),
+                    },
+                ],
+            })
+            .collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn packed_masks_upload_losslessly_without_retaining_expanded_pixels() {
+        use std::io::Write;
+        let expected: Vec<u8> = (0..256 * 256)
+            .map(|i| ((i / 256 + i % 256) % 256) as u8)
+            .collect();
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&expected).unwrap();
+        let mask = Mask {
+            bytes: encoder.finish().unwrap(),
+            compressed: true,
+            decoded: Default::default(),
+        };
+        assert!(mask.bytes.len() < expected.len() / 4);
+        assert_eq!(mask.decode(256).unwrap().as_ref(), expected);
+        assert!(mask.decoded.get().is_none(), "GPU decode must be temporary");
+        assert_eq!(mask.cpu_bytes(256), expected);
+        assert!(
+            mask.decode(128).is_err(),
+            "wrong size is rejected, not truncated"
+        );
+    }
+
     #[test]
     fn blends_real_mask_weight() {
         let m = Materials {
@@ -325,20 +507,22 @@ mod tests {
                 Texture {
                     w: 1,
                     h: 1,
-                    levels: vec![crate::dxt::Level {
+                    source: vec![],
+                    levels: std::sync::OnceLock::from(vec![crate::dxt::Level {
                         width: 1,
                         height: 1,
                         rgba: vec![200, 0, 0, 255],
-                    }],
+                    }]),
                 },
                 Texture {
                     w: 1,
                     h: 1,
-                    levels: vec![crate::dxt::Level {
+                    source: vec![],
+                    levels: std::sync::OnceLock::from(vec![crate::dxt::Level {
                         width: 1,
                         height: 1,
                         rgba: vec![0, 0, 200, 255],
-                    }],
+                    }]),
                 },
             ],
             areas: vec![Area {
@@ -349,7 +533,7 @@ mod tests {
                         u: 1.,
                         v: 1.,
                         mask_size: 0,
-                        mask: vec![],
+                        mask: Mask::raw(vec![]),
                     },
                     Layer {
                         texture: 1,
@@ -357,7 +541,7 @@ mod tests {
                         u: 1.,
                         v: 1.,
                         mask_size: 1,
-                        mask: vec![128],
+                        mask: Mask::raw(vec![128]),
                     },
                 ],
             }],
@@ -395,5 +579,40 @@ mod tests {
         // matching the (x, y, z) arguments above - so the two agree term for term.
         assert_eq!(layer_uv(0, x, y, z).0, z);
         assert_eq!(layer_uv(2, x, y, z).1, -y);
+    }
+    #[test]
+    fn cutoff_transfers_only_resident_payloads_without_renumbering_areas() {
+        let mut m = Materials {
+            textures: vec![],
+            areas: (0..16)
+                .map(|id| Area {
+                    layers: vec![Layer {
+                        texture: 0,
+                        axis: 1,
+                        u: 1.,
+                        v: 1.,
+                        mask_size: 1,
+                        mask: Mask::raw(vec![id as u8]),
+                    }],
+                })
+                .collect(),
+            areas_x: 4,
+            mask_grid: 128,
+            width: 512,
+            height: 512,
+            spacing: 2.,
+        };
+        let upload = m.take_window(Some([1, 1, 3, 3]));
+        assert!(m.areas.is_empty());
+        assert!(m.textures.is_empty());
+        assert_eq!(m.mask_grid, 128);
+        assert_eq!(upload.areas.len(), 16);
+        for (id, a) in upload.areas.iter().enumerate() {
+            if [5, 6, 9, 10].contains(&id) {
+                assert_eq!(a.layers[0].mask.decode(1).unwrap().as_ref(), &[id as u8]);
+            } else {
+                assert!(a.layers.is_empty());
+            }
+        }
     }
 }

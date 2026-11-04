@@ -1,5 +1,7 @@
 //! GPU-instanced, runtime-derived far-tree LOD covering all scene placements.
 use crate::{gpu::Vertex, trees::Trees};
+#[path = "terrain_cutoff.rs"]
+mod cutoff_residency;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 #[repr(C)]
@@ -27,6 +29,7 @@ pub struct FarTrees {
     batches: Vec<Batch>,
     groups: Vec<Group>,
     staging: Vec<Instance>,
+    last_resident_update: Option<([f32; 3], f32, Option<[f32; 4]>)>,
 }
 const SHADER: &str = r#"
 struct Camera {matrix:mat4x4<f32>,direction:vec4<f32>,clip:vec4<f32>,bounds:vec4<f32>,tree_bounds:vec4<f32>,sun:vec4<f32>,light:vec4<f32>,region_ambient:vec4<f32>,region_diffuse:vec4<f32>,region_direction:vec4<f32>,grass_eye:vec4<f32>,grass_wind:vec4<f32>,grass_history:array<vec4<f32>,80>,fog_range:vec4<f32>,fog_color:vec4<f32>};
@@ -637,7 +640,70 @@ impl FarTrees {
             batches,
             groups,
             staging,
+            last_resident_update: None,
         }
+    }
+    /// Compact only admitted placements. This releases the former world-sized
+    /// instance buffer on cutoff and avoids re-uploading an unchanged camera.
+    pub fn update_resident_lods(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        camera: [f32; 3],
+        scale: f32,
+        bounds: Option<[f32; 4]>,
+    ) {
+        let key = (camera, scale, bounds);
+        if self.last_resident_update == Some(key) {
+            return;
+        }
+        let mut staging = Vec::new();
+        for group in &self.groups {
+            let mut levels: [Vec<Instance>; 3] = Default::default();
+            for &p in &group.positions {
+                if !cutoff_residency::contains(bounds, p) {
+                    continue;
+                }
+                let Some(dist) = crate::tree_lod::client_distance(p, camera) else {
+                    continue;
+                };
+                let selection = crate::tree_lod::select(dist, group.height, scale);
+                levels[selection.primary].push(Instance {
+                    position: p,
+                    info: if selection.secondary.is_some() {
+                        [selection.fraction, 1.]
+                    } else {
+                        [0., 0.]
+                    },
+                });
+                if let Some(level) = selection.secondary {
+                    levels[level].push(Instance {
+                        position: p,
+                        info: [selection.fraction, 2.],
+                    });
+                }
+            }
+            for (level, mut instances) in levels.into_iter().enumerate() {
+                let start = staging.len() as u32;
+                staging.append(&mut instances);
+                self.batches[group.first_batch + level].instances = start..staging.len() as u32;
+            }
+        }
+        let bytes = (staging.len().max(1) * std::mem::size_of::<Instance>()) as u64;
+        if self.instances.size() != bytes {
+            self.instances = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("resident tree instances"),
+                size: bytes,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !staging.is_empty() {
+            queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&staging));
+        }
+        // Do not keep the old all-world CPU staging allocation as spare capacity.
+        self.staging = staging;
+        self.last_resident_update = Some(key);
     }
     pub fn update_lods(&mut self, queue: &wgpu::Queue, camera: [f32; 3], scale: f32) {
         // Group the small set of placements on the CPU; all tree geometry and
@@ -684,6 +750,9 @@ impl FarTrees {
         }
         queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&self.staging));
     }
+    pub fn residency_stats(&self) -> (usize, u64) {
+        (self.staging.len(), self.instances.size())
+    }
     pub fn draw<'a>(&'a self, p: &mut wgpu::RenderPass<'a>, reflected: bool) {
         p.set_pipeline(&self.pipeline);
         p.set_bind_group(
@@ -699,6 +768,9 @@ impl FarTrees {
         p.set_vertex_buffer(1, self.instances.slice(..));
         p.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
         for b in &self.batches {
+            if b.instances.is_empty() {
+                continue;
+            }
             p.draw_indexed(b.indices.clone(), 0, b.instances.clone());
         }
     }

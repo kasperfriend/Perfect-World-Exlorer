@@ -3,6 +3,8 @@
 mod navigation;
 #[path = "../pck.rs"]
 mod pck;
+#[path = "../terrain_store.rs"]
+mod terrain_store;
 fn main() {
     let root = std::path::PathBuf::from(std::env::args().nth(1).expect("element folder"));
     let d = navigation::destinations(&root.join("maps/world/world_targets.txt")).unwrap();
@@ -18,7 +20,7 @@ fn main() {
         width: 4096,
         height: 5632,
         spacing: 2.,
-        heights: std::sync::Arc::from(vec![0.; 4096 * 5632]),
+        heights: vec![0.; 4].into(),
     };
     for name in [
         "City of a Thousand Streams",

@@ -61,7 +61,7 @@ impl Ranmar {
         x
     }
 }
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placement {
     pub col: u32,
     pub row: u32,
@@ -75,6 +75,113 @@ pub struct Placement {
     /// placement rather than a phase offset.
     pub wind_selector: f32,
 }
+/// Constant-space traversal of packed MSB-first placement bits. Only the
+/// current 16x16 patch owns RNG state; no full-world transforms or cell IDs.
+pub struct PlacementIter<'a> {
+    width: usize,
+    height: usize,
+    bits: std::borrow::Cow<'a, [u8]>,
+    base: f32,
+    variation: f32,
+    patch: usize,
+    cell: usize,
+    last_cell: usize,
+    rng: Option<Ranmar>,
+}
+impl<'a> PlacementIter<'a> {
+    pub fn new(width: usize, height: usize, bits: &'a [u8], base: f32, variation: f32) -> Self {
+        Self {
+            width,
+            height,
+            bits: std::borrow::Cow::Borrowed(bits),
+            base,
+            variation,
+            patch: 0,
+            cell: 0,
+            last_cell: 0,
+            rng: None,
+        }
+    }
+    fn active(&self, col: usize, row: usize) -> bool {
+        let bit = row * self.width + col;
+        self.bits
+            .get(bit / 8)
+            .is_some_and(|byte| byte & (0x80 >> (bit % 8)) != 0)
+    }
+}
+impl PlacementIter<'static> {
+    pub fn owned(width: usize, height: usize, bits: Vec<u8>, base: f32, variation: f32) -> Self {
+        Self {
+            width,
+            height,
+            bits: std::borrow::Cow::Owned(bits),
+            base,
+            variation,
+            patch: 0,
+            cell: 0,
+            last_cell: 0,
+            rng: None,
+        }
+    }
+}
+impl Iterator for PlacementIter<'_> {
+    type Item = Placement;
+    fn next(&mut self) -> Option<Placement> {
+        if self.width == 0 || self.height == 0 {
+            return None;
+        }
+        let patches_x = self.width.div_ceil(16);
+        let patches_y = self.height.div_ceil(16);
+        while self.patch < patches_x * patches_y {
+            let px = self.patch % patches_x * 16;
+            let py = self.patch / patches_x * 16;
+            let w = (self.width - px).min(16);
+            let h = (self.height - py).min(16);
+            if self.rng.is_none() {
+                let Some(last) = (0..w * h)
+                    .rev()
+                    .find(|&cell| self.active(px + cell % w, py + cell / w))
+                else {
+                    self.patch += 1;
+                    continue;
+                };
+                self.last_cell = last + 1;
+                let seed = (px + py) as u32;
+                self.rng = Some(Ranmar::new(seed % 31328, seed % 30081));
+                self.cell = 0;
+            }
+            while self.cell < self.last_cell {
+                let col = px + self.cell % w;
+                let row = py + self.cell / w;
+                self.cell += 1;
+                let active = self.active(col, row);
+                let rng = self.rng.as_mut().unwrap();
+                // Empty cells still consume exactly the native five draws.
+                let jitter_x = rng.next() as f32 - 0.5;
+                let jitter_z = rng.next() as f32 - 0.5;
+                let yaw = rng.next() as f32 * 6.28;
+                let scale =
+                    self.base * (1. - self.variation + 2. * self.variation * rng.next() as f32);
+                let wind_selector = rng.next() as f32 * 10.;
+                if active {
+                    return Some(Placement {
+                        col: col as u32,
+                        row: row as u32,
+                        jitter_x,
+                        jitter_z,
+                        yaw,
+                        scale,
+                        wind_selector,
+                    });
+                }
+            }
+            self.patch += 1;
+            self.rng = None;
+        }
+        None
+    }
+}
+
 /// Generates retail patch randomization for every masked cell. The client's
 /// `step = 5 - ftol(colour*4 + 0.5)` grid walk (`0x653b6e`) is applied when the
 /// placements are drawn, so the selector stream stays identical at any density.
@@ -137,6 +244,36 @@ pub fn placements(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn packed_iterator_is_bit_exact_to_eager_patch_transforms() {
+        for (width, height) in [(8usize, 3usize), (16, 16), (24, 33), (48, 32), (64, 65)] {
+            for pattern in 0..4 {
+                let active: Vec<u32> = (0..width * height)
+                    .filter(|i| match pattern {
+                        0 => true,
+                        1 => i % 17 == 0,
+                        2 => i % 7 < 2,
+                        _ => false,
+                    })
+                    .map(|i| i as u32)
+                    .collect();
+                let mut bits = vec![0; (width * height).div_ceil(8)];
+                for &bit in &active {
+                    bits[bit as usize / 8] |= 0x80 >> (bit % 8);
+                }
+                assert_eq!(
+                    PlacementIter::owned(width, height, bits.clone(), 2., 0.3).collect::<Vec<_>>(),
+                    placements(width, height, &active, 2., 0.3)
+                );
+                assert_eq!(
+                    PlacementIter::new(width, height, &bits, 2., 0.3).collect::<Vec<_>>(),
+                    placements(width, height, &active, 2., 0.3),
+                    "{width}x{height}, pattern {pattern}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn ranmar_reference() {
         let mut r = Ranmar::new(1802, 9373);

@@ -31,12 +31,12 @@ struct Camera {
 fn camera_vertex(t: &Terrain, c: &Camera, x: usize, y: usize) -> Vertex {
     let dx = x as f32 - c.x;
     let dy = y as f32 - c.y;
-    let dz = t.heights[y * t.width + x] / t.grid_spacing - c.altitude;
+    let dz = t.heights.at(y * t.width + x) / t.grid_spacing - c.altitude;
     let (s, co) = c.yaw.sin_cos();
     let right = dx * co - dy * s;
     let forward = dx * s + dy * co;
     let (sp, cp) = c.pitch.sin_cos();
-    let n = t.normals[y * t.width + x];
+    let n = t.normals.at(y * t.width + x);
     let lighting = (0.55
         + (n[0] as f32 * -0.32 + n[1] as f32 * 0.82 + n[2] as f32 * 0.46).max(0.) / 127. * 0.45)
         .clamp(0.35, 1.0);
@@ -46,7 +46,7 @@ fn camera_vertex(t: &Terrain, c: &Camera, x: usize, y: usize) -> Vertex {
         z: forward * cp + dz * sp,
         wx: x as f32,
         wy: y as f32,
-        wh: t.heights[y * t.width + x],
+        wh: t.heights.at(y * t.width + x),
         light: lighting,
         tu: 0.,
         tv: 0.,
@@ -192,7 +192,7 @@ fn default_camera(t: &Terrain) -> Camera {
     Camera {
         x: x as f32,
         y: y as f32,
-        altitude: t.heights[y * t.width + x] / t.grid_spacing + 80.,
+        altitude: t.heights.at(y * t.width + x) / t.grid_spacing + 80.,
         yaw: 0.,
         pitch: -0.15,
     }

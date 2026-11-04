@@ -75,7 +75,7 @@ fn main() {
 }
 @fragment fn test_fs(@builtin(position) p:vec4<f32>)->@location(0) vec4<f32> {
  let c=vec3<f32>(0.21404114,0.05087609,0.52252155);
- return vec4<f32>(surface_fog(c,p.x),1.);
+ return vec4<f32>(surface_fog(c,1./p.x),1.);
 }
 "#;
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {

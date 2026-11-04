@@ -8,9 +8,11 @@ use wgpu::util::DeviceExt;
 struct Uniform {
     matrix: [[f32; 4]; 4],
     data: [f32; 4],
+    fog: [f32; 4],
+    fog_color: [f32; 4],
 }
 const SHADER: &str = r#"
-struct U {matrix:mat4x4<f32>,data:vec4<f32>};
+struct U {matrix:mat4x4<f32>,data:vec4<f32>,fog:vec4<f32>,fog_color:vec4<f32>};
 @group(0) @binding(0) var<uniform> u:U;
 @group(0) @binding(1) var tex:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
@@ -24,7 +26,15 @@ struct O {@builtin(position) p:vec4<f32>,@location(0) uv:vec2<f32>};
  // Stage 1's MODULATEALPHA_ADDCOLOR adds specular, which the
  // paired water vertex shader outputs as zero. Alpha stage adds
  // texture alpha and the 0xa0 factor alpha, saturating as D3D does.
- let rgb=mix(vec3<f32>(37.,79.,85.)/255.,t.rgb,t.a);
+ var rgb=mix(vec3<f32>(37.,79.,85.)/255.,t.rgb,t.a);
+ // Same encoded-colour table-fog stage as reflected water and terrain.
+ // Blend on the raw attachment, preserving the authored texture alpha.
+ if u.fog.z>0.5 {
+  let depth=1./max(i.p.w,0.0000001);
+  let span=u.fog.y-u.fog.x;
+  let f=select(clamp((depth-u.fog.x)/select(span,0.001,abs(span)<0.001),0.,1.),select(0.,1.,depth>=u.fog.y),abs(span)<0.001);
+  rgb=mix(rgb,u.fog_color.rgb,f);
+ }
  let a=min(t.a+160./255.,1.);
  return vec4<f32>(rgb,a);
 }
@@ -102,6 +112,8 @@ impl SimpleWaterGpu {
             contents: bytemuck::bytes_of(&Uniform {
                 matrix: glam::Mat4::IDENTITY.to_cols_array_2d(),
                 data: [0.; 4],
+                fog: [0.; 4],
+                fog_color: [0.; 4],
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -215,7 +227,14 @@ impl SimpleWaterGpu {
             uniform,
         }
     }
-    pub fn update(&self, queue: &wgpu::Queue, matrix: glam::Mat4, seconds: f64) {
+    pub fn update(
+        &self,
+        queue: &wgpu::Queue,
+        matrix: glam::Mat4,
+        seconds: f64,
+        fog: [f32; 4],
+        fog_color: [f32; 4],
+    ) {
         let phase = if seconds.is_finite() {
             seconds.max(0.)
         } else {
@@ -229,6 +248,8 @@ impl SimpleWaterGpu {
             bytemuck::bytes_of(&Uniform {
                 matrix: matrix.to_cols_array_2d(),
                 data: [frame, angle, 0., 0.],
+                fog,
+                fog_color,
             }),
         );
     }
