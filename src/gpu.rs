@@ -964,8 +964,15 @@ fn build(
             (a.color & 255) as f32 / 255.,
             1.,
         ];
-        for row in 0..a.rows {
-            for col in 0..a.columns {
+        let [col0, row0, col1, row1] = crate::terrain_cutoff::cell_window(
+            resident_bounds,
+            [a.center[0] - hx, a.center[2] + hz],
+            a.grid_size,
+            a.columns,
+            a.rows,
+        );
+        for row in row0..row1 {
+            for col in col0..col1 {
                 if a.mask[row * a.columns + col] & 1 == 0 {
                     continue;
                 }
@@ -1002,8 +1009,16 @@ fn build(
                 );
                 // Retail mesh adds an integer per-cell base, then spans one
                 // UV unit within each cell; integer bases wrap identically.
-                for vertex in &mut vertices[first..] {
-                    vertex.uv = [(vertex.pos[0] - x) / s, (z - vertex.pos[2]) / s];
+                let clipped = left != x || right != x + s || bottom != z - s || top != z;
+                for (vertex, uv) in vertices[first..]
+                    .iter_mut()
+                    .zip(crate::water_gpu::cell_base_uv())
+                {
+                    vertex.uv = if clipped {
+                        [(vertex.pos[0] - x) / s, (z - vertex.pos[2]) / s]
+                    } else {
+                        uv
+                    };
                 }
             }
         }

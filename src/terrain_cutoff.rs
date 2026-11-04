@@ -110,3 +110,51 @@ mod residency_tests {
         assert_eq!(fog_cap([-1., 1., -1., 1.], [5., 0., 0.], 1.), None);
     }
 }
+
+/// Visit only cells intersecting residency, instead of scanning a whole ocean
+/// on every near-mesh rebuild. Origin is the area's left/top corner in XZ.
+pub fn cell_window(
+    bounds: Option<[f32; 4]>,
+    origin: [f32; 2],
+    size: f32,
+    cols: usize,
+    rows: usize,
+) -> [usize; 4] {
+    bounds.map_or([0, 0, cols, rows], |b| {
+        [
+            (((b[0] - origin[0]) / size).floor().max(0.) as usize).min(cols),
+            (((origin[1] - b[3]) / size).floor().max(0.) as usize).min(rows),
+            (((b[1] - origin[0]) / size).ceil().max(0.) as usize).min(cols),
+            (((origin[1] - b[2]) / size).ceil().max(0.) as usize).min(rows),
+        ]
+    })
+}
+#[cfg(test)]
+mod water_tests {
+    use super::*;
+    #[test]
+    fn ocean_scan_is_windowed_and_partial_cells_are_preserved() {
+        assert_eq!(
+            cell_window(None, [0., 100.], 8., 1024, 1024),
+            [0, 0, 1024, 1024]
+        );
+        assert_eq!(
+            cell_window(Some([1., 17., 82., 99.]), [0., 100.], 8., 1024, 1024),
+            [0, 0, 3, 3]
+        );
+        assert_eq!(
+            cell_window(Some([-20., -10., 110., 120.]), [0., 100.], 8., 1024, 1024),
+            [0, 0, 0, 0]
+        );
+        assert_eq!(
+            cell_window(
+                Some([9000., 10000., -10000., -9000.]),
+                [0., 100.],
+                8.,
+                1024,
+                1024
+            ),
+            [1024, 1024, 1024, 1024]
+        );
+    }
+}
