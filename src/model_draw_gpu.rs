@@ -171,14 +171,12 @@ impl Draw {
                 let mut result = None;
                 for path in &m.texture_paths {
                     let attempt = read(path).and_then(|bytes| {
-                        let alpha = crate::model_dds::Dds::parse(&bytes)?.format.alpha_texture();
-                        model_texture_gpu::upload(
+                        model_texture_gpu::upload_with_alpha(
                             device,
                             queue,
                             &bytes,
                             model_texture_gpu::UploadMode::Auto,
                         )
-                        .map(|texture| (texture, alpha))
                     });
                     match attempt {
                         Ok(t) => {

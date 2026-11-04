@@ -47,55 +47,99 @@ impl Modules {
         let mut back = false;
         egui::Window::new("MODULES  |  ESC to go back")
             .default_pos(egui::pos2(16., 16.))
-            .default_size(egui::vec2(500., 390.))
-            .min_size(egui::vec2(350., 280.))
+            .default_size(egui::vec2(760., 500.))
+            .min_size(egui::vec2(560., 340.))
             .collapsible(false)
             .resizable(true)
-            .vscroll(true)
             .show(ctx, |ui| {
                 ui.label(
                     egui::RichText::new(
-                        "Optional, independent add-ons. Enable only what you want; core features and settings remain unchanged.",
+                        "Optional, independent add-ons. Select a module on the left to read its full description and controls.",
                     )
                     .small()
                     .weak(),
                 );
-                ui.add_space(8.);
-                ui.heading("Installed modules");
-                let mut selected = self.selected;
-                for (index, installed) in self.packages.packages.iter().enumerate() {
-                    if ui
-                        .selectable_label(selected == index, &installed.name)
-                        .clicked()
-                    {
-                        selected = index;
-                    }
-                }
-                self.selected = selected;
-                if self.packages.packages.is_empty() {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "No module packages found in {}.",
-                            self.packages.root.display()
-                        ))
-                        .small()
-                        .weak(),
-                    );
-                    ui.label(
-                        egui::RichText::new(
-                            "Keep the shipped Modules folder beside Perfect-World-Explorer.exe.",
-                        )
-                        .small()
-                        .weak(),
-                    );
-                }
                 for error in &self.packages.errors {
                     ui.colored_label(egui::Color32::LIGHT_RED, error);
                 }
-                ui.separator();
-                if let Some(installed) = self.packages.packages.get(self.selected).cloned() {
-                    self.selected_module_ui(ui, installed, spawn, yaw);
-                }
+                ui.add_space(8.);
+
+                let content_height = (ui.available_height() - 42.).max(120.);
+                let mut selected = self.selected;
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.set_width(190.);
+                        ui.heading("Installed modules");
+                        ui.separator();
+                        egui::ScrollArea::vertical()
+                            .id_source("installed_module_list")
+                            .auto_shrink([false, false])
+                            .max_height((content_height - 34.).max(80.))
+                            .show(ui, |ui| {
+                                for (index, installed) in
+                                    self.packages.packages.iter().enumerate()
+                                {
+                                    let enabled =
+                                        installed.id == "walker" && self.walker.is_active();
+                                    let text = if enabled {
+                                        egui::RichText::new(format!("● {}", installed.name))
+                                            .color(egui::Color32::LIGHT_GREEN)
+                                            .strong()
+                                    } else {
+                                        egui::RichText::new(installed.name.as_str())
+                                    };
+                                    let width = ui.available_width();
+                                    if ui
+                                        .add_sized(
+                                            [width, 28.],
+                                            egui::SelectableLabel::new(selected == index, text),
+                                        )
+                                        .clicked()
+                                    {
+                                        selected = index;
+                                    }
+                                }
+                                if self.packages.packages.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new(format!(
+                                            "No module packages found in {}.",
+                                            self.packages.root.display()
+                                        ))
+                                        .small()
+                                        .weak(),
+                                    );
+                                    ui.label(
+                                        egui::RichText::new(
+                                            "Keep the shipped Modules folder beside Perfect-World-Explorer.exe.",
+                                        )
+                                        .small()
+                                        .weak(),
+                                    );
+                                }
+                            });
+                    });
+                    ui.separator();
+                    ui.vertical(|ui| {
+                        let width = ui.available_width();
+                        ui.set_width(width);
+                        egui::ScrollArea::vertical()
+                            .id_source("selected_module_description")
+                            .auto_shrink([false, false])
+                            .max_height(content_height)
+                            .show(ui, |ui| {
+                                if let Some(installed) =
+                                    self.packages.packages.get(selected).cloned()
+                                {
+                                    self.selected_module_ui(ui, installed, spawn, yaw);
+                                } else {
+                                    ui.heading("Module details");
+                                    ui.label("Select a module on the left.");
+                                }
+                            });
+                    });
+                });
+                self.selected = selected;
+
                 ui.separator();
                 if ui.button("Back to menu").clicked() {
                     back = true;
