@@ -1,6 +1,8 @@
 //! Retained asset -> texture retry/cache -> material -> raster/update regression.
 //! Synthetic asset, not a claim of world action scheduling or client screenshots.
 #![allow(dead_code)]
+#[path = "../angelica_pck.rs"]
+mod angelica_pck;
 #[path = "../animation.rs"]
 mod animation;
 #[path = "../client_regional_light.rs"]
@@ -39,12 +41,8 @@ mod model_receiver_class;
 mod model_receiver_gpu;
 #[path = "../model_texture_gpu.rs"]
 mod model_texture_gpu;
-#[path = "../angelica_pck.rs"]
-mod angelica_pck;
 #[path = "../pck.rs"]
 mod pck;
-#[path = "../sky_config.rs"]
-mod sky_config;
 #[path = "../scene.rs"]
 mod scene;
 #[path = "../scene_lights.rs"]
@@ -57,6 +55,8 @@ mod skeleton_pose;
 mod skin;
 #[path = "../skin_pose.rs"]
 mod skin_pose;
+#[path = "../sky_config.rs"]
+mod sky_config;
 #[path = "../sky_gpu.rs"]
 mod sky_gpu;
 #[path = "../world_models.rs"]

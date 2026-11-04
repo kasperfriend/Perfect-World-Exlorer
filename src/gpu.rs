@@ -1723,10 +1723,9 @@ impl Renderer {
         // (`sky_id_day = 0`, `sky_id_night = 1` for this build) after the
         // `sky.lst` rows have been loaded. The machine starts on the day set;
         // the first frame's phase drives the native swap.
-        let mut sky_transition =
-            crate::sky_transition::Machine::new(crate::sky_transition::Triple(
-                sky.day_set().min(2) as u8,
-            ));
+        let mut sky_transition = crate::sky_transition::Machine::new(
+            crate::sky_transition::Triple(sky.day_set().min(2) as u8),
+        );
         let _ = sky_transition.author(
             crate::sky_transition::Triple(sky.day_set().min(2) as u8),
             crate::sky_transition::Triple(sky.night_set().min(2) as u8),

@@ -19,10 +19,10 @@
 mod angelica_pck;
 #[path = "../pck.rs"]
 mod pck;
-#[path = "../sky_config.rs"]
-mod sky_config;
 #[path = "../scenery_visibility.rs"]
 mod scenery_visibility;
+#[path = "../sky_config.rs"]
+mod sky_config;
 #[path = "../sky_gpu.rs"]
 mod sky_gpu;
 #[path = "../sky_transition.rs"]

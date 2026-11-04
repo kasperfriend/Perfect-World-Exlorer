@@ -1,9 +1,9 @@
 //! Render instanced grass and CPU-expanded reference through the same shader.
 #![allow(dead_code)]
-#[path = "../bmd.rs"]
-mod bmd;
 #[path = "../angelica_pck.rs"]
 mod angelica_pck;
+#[path = "../bmd.rs"]
+mod bmd;
 #[path = "../client_weather.rs"]
 mod client_weather;
 #[path = "../environment.rs"]

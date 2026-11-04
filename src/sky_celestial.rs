@@ -324,13 +324,7 @@ pub fn discs(
 ) -> [Result<Disc, CelestialError>; 2] {
     [
         disc(DiscKind::Sun, state, sun_fade, sun_asset, night_strength),
-        disc(
-            DiscKind::Moon,
-            state,
-            moon_fade,
-            moon_asset,
-            night_strength,
-        ),
+        disc(DiscKind::Moon, state, moon_fade, moon_asset, night_strength),
     ]
 }
 
