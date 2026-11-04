@@ -240,7 +240,7 @@ impl CharacterAudio {
         if enabled {
             self.status.push_str(" (audio playback is Windows-only)");
         }
-        let commands = if enabled {
+        let commands: Vec<WorkerCommand> = if enabled {
             #[cfg(windows)]
             {
                 commands
