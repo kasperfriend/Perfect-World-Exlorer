@@ -316,7 +316,8 @@ fn main() {
     let mut shared = std::collections::HashMap::new();
     let mut uploads = 0;
     let mut copies = Vec::new();
-    for _ in 0..2 {
+    let mut first_pipeline_count = 0;
+    for instance in 0..2 {
         copies.push(
             model_draw_gpu::Draw::with_textures(
                 &device,
@@ -346,9 +347,21 @@ fn main() {
             )
             .unwrap(),
         );
+        if instance == 0 {
+            first_pipeline_count = receivers.len();
+        } else {
+            assert_eq!(
+                receivers.len(),
+                first_pipeline_count,
+                "second placement reuses every pipeline variant"
+            );
+        }
     }
     assert_eq!(uploads, 1, "one texture allocation across two placements");
-    assert_eq!(receivers.len(), 1, "one pipeline across two placements");
+    assert_eq!(
+        first_pipeline_count, 2,
+        "fixture exercises both base and alpha pipelines"
+    );
     let mut half = frame;
     half.lighting.environment_ambient = [0.5; 4];
     copies[0].update_constants(&queue, &asset, half).unwrap();

@@ -25,7 +25,7 @@ This change targets avoidable allocations and repeated work, not a new low-quali
 - The documented 4096 × 5632 world previously allocated **88 MiB** for the unused RGBA grid, plus a possible transient copy when converting it to `Arc`.
 - Existing repository corpus evidence reports 4,521 full-size masks totaling **282.6 MiB expanded**, while all 88 source T2MK files together total approximately **76 MiB**, including headers and other records. Keeping original payloads removes the expanded-mask residency during normal-quality startup; the exact packed-mask total is printed for the supplied client. The GPU mask atlas itself is still uncompressed R8.
 - BC1 blocks use roughly **one eighth** of RGBA8 storage; BC2 uses roughly **one quarter**, apart from tiny mip/block and allocation rounding. These ratios apply to eligible color textures, **not total application memory**.
-- Model texture/pipeline/track savings depend on how many placements/variants reuse each resource. The synthetic regression checks two placements sharing one texture allocation and one pipeline, with independent lighting.
+- Model texture/pipeline/track savings depend on how many placements/variants reuse each resource. The synthetic regression checks two placements sharing one texture allocation and the same two base/alpha pipeline variants, with independent lighting.
 
 ## CPU/GPU work
 
