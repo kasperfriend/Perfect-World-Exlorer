@@ -62,8 +62,9 @@ into `+0x4cc`, at `0x79b042` into `+0x4e8`), but the caller in `0x4203f4` passes
 
 So the ceiling UV arrives at the sampler as `8 * uv + drift`, with the drift
 growing `0.003 / 30` per 30 Hz tick in both axes — `0.003` texture units per
-second, one full texture per 5.5 minutes, and roughly 2.4 repeats of
-`clear/roof.bmp` across the visible cap (whose UV span is `0.35 .. 0.65`).
+second, i.e. one full sheet per 5.5 minutes. The cap's own UVs span the whole
+sheet (`0.5 + p.xz / 30.070580`), so the 8x scale means the sheet repeats up to
+eight times from the zenith to the horizon.
 
 The viewer implements exactly this: `SKY_DRIFT_SCALE = 8.0`,
 `SKY_DRIFT_RATE = 0.003`, the accumulator advances by
@@ -72,6 +73,24 @@ second at 30 Hz and framerate independent elsewhere), and the cap samples
 `cap_uv(...) * p.skyrot.w + p.skyrot.xy` through the repeat sampler. The
 curtain is untouched. The unit test
 `the_ceiling_runs_through_the_recovered_texture_matrix` pins all of it.
+
+### The cap's lookup, corrected
+
+`0x79aa73` divides by `R * sin(+0x4c4)` = 15.035290 and halves the sum
+(`(1 + p.x / 15.035290) / 2`), so the stored vertex UVs are
+`0.5 + p.xz / (2 R sin(step))` = `0.5 + p.xz / 30.070580`: the whole texture
+spans the cap, its centre overhead and its rim on the horizon. Because `Render`
+drops the object by `cos(step) * R` = 47.685848, the eye sits that far above the
+sphere's centre, and a ray of elevation `dy` reaches the sheet at
+`t = -47.685848*dy + sqrt(2500 - 2273.9399*(1 - dy*dy))` (15.035290 at the
+horizon, 2.314152 overhead). The lookup is therefore `0.5 + t * d.xz / 30.070580`.
+
+The previous viewer used `0.5 - 0.5*sin(acos(0.95371695*dy) - asin(dy))`, which
+is right only at the horizon and collapses the whole sky above 45 degrees onto
+the sheet's centre; that radial collapse is what read as a dome. The corrected
+lookup is exact against the vertex buffer:
+`projection_agrees_with_the_vertex_buffer_inside_the_cap` casts the ray from the
+dropped eye and reproduces every stored UV to 1e-4.
 
 ## 2. The flare sprite metric is the viewport height
 

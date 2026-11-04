@@ -273,8 +273,10 @@ fn shine_ramp(n:f32)->f32{
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
-// The ceiling's planar lookup stays inside one tile (`u, v` in [0.35, 0.65]),
-// so this sampler only has to behave sanely at the 0.5 UV the zenith uses.
+// The ceiling's lookup runs `0.5 + t * d.xz / 30.070580`, so it reaches the
+// sheet's rim (0 and 1) on the horizon; with the stage-0 matrix's 8x scale that
+// is `2.8 .. 5.2`, i.e. the repeat addressing the client enables with
+// `0x77a1f0(0, 2)` (`D3DTTFF_COUNT2`) is what carries the sheet.
 @group(0) @binding(3) var smpw:sampler;
 struct O {@builtin(position) pos:vec4<f32>,@location(0) clip:vec2<f32>};
 @vertex fn vs(@builtin(vertex_index) i:u32)->O {var o:O;let x=f32((i<<1u)&2u);let y=f32(i&2u);o.clip=vec2<f32>(x*2.-1.,1.-y*2.);o.pos=vec4<f32>(o.clip,0.999999,1.);return o;}
@@ -310,16 +312,19 @@ const SKIRT_BOTTOM_Y:f32=-10.602875;
 // therefore covers the whole upper hemisphere as a very shallow bowl: 2.32 units
 // of sag over a 15 unit radius, which is why the retail sky reads as a plane.
 //
-// The vertex UVs are planar (`0x79aa73`): `u = (1 - x/50) / 2`, `v = (1 - z/50) / 2`,
-// so one texture spans the 100-unit diameter of the whole sphere and the visible
-// sky is only the central 30 percent of the art, from 0.35 to 0.65 - always
-// inside one tile, which is why the client never repeats it.
-fn cap_uv(d:vec3<f32>,flat:f32)->vec2<f32>{
- // A ray at elevation `e` meets the cap where `cos(t + e) = cos(17.5) * cos(e)`,
- // and the planar UV of that point is `0.5 - sin(t)/2 * d.xz`.
- let ce=clamp(d.y,0.0,1.0);
- let t=max(acos(clamp(0.95371695*ce,0.0,1.0))-asin(ce),0.0);
- return vec2<f32>(0.5)-d.xz/flat*(0.5*sin(t));
+// The vertex UVs are planar and normalized by the cap's own disc (`0x79aa73`,
+// where the builder divides by `R * sin(+0x4c4) = 15.035290` and then halves):
+// `u = (1 + x / (R sin(step))) / 2`, so the sheet spans the whole cap with its
+// centre overhead and its rim on the horizon. `Render` drops the object by
+// `cos(+0x4c4) * [+0x4c8] = 47.685848` (`0x799a53`), so the eye sits that far
+// below the sphere's centre and a ray of elevation `dy` reaches the surface at
+// `t = -47.685848*dy + sqrt(2500 - 2273.9399*(1 - dy*dy))`: 15.035290 at the
+// horizon, 2.314152 overhead. The lookup is therefore
+// `0.5 + t * d.xz / 30.070580`, the disc being `2 R sin(step)`.
+fn cap_uv(d:vec3<f32>)->vec2<f32>{
+ let dy=clamp(d.y,0.0,1.0);
+ let t=-47.685848*dy+sqrt(226.05995+2273.93991*dy*dy);
+ return vec2<f32>(0.5)+d.xz*(t/30.070580);
 }
 fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let tn=clamp(tint,vec3<f32>(0.0),vec3<f32>(1.0));
@@ -327,7 +332,7 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  // Above the horizon the client draws the cap described in `cap_uv`; nothing
  // else is in front of it (the surround's upper rows are behind the cap).
  if d.y>=0.0 {
-  let roof=textureSampleLevel(skies,smpw,cap_uv(d,flat)*p.skyrot.w+p.skyrot.xy,base+2,0.).rgb*tn;
+  let roof=textureSampleLevel(skies,smpw,cap_uv(d)*p.skyrot.w+p.skyrot.xy,base+2,0.).rgb*tn;
   return vec4<f32>(roof,1.0);
  }
  // Below the horizon `A3DSkySphere` is the visible surface. Only its two lowest
@@ -1406,7 +1411,7 @@ mod reflection_tests {
         let shader = &shader[..shader.find("\"#;").expect("shader end")];
         // The ceiling samples through the matrix...
         assert!(
-            shader.contains("cap_uv(d,flat)*p.skyrot.w+p.skyrot.xy"),
+            shader.contains("cap_uv(d)*p.skyrot.w+p.skyrot.xy"),
             "the ceiling must run its planar UV through the stage-0 matrix"
         );
         // ...and the curtain must not: it inherits the identity stage-1 matrix.
