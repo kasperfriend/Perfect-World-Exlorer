@@ -1686,6 +1686,18 @@ blocks, then consume min(queue count, load-speed) FIFO attempts. Stale and
 already-loaded candidates consume budget; old candidates survive teleports.
 This is not a time-raced worker completion order.
 
+Follow-up narrowed the queue cap in the scene object. `0x41cb20` uses
+`min(pending_count, scene+0x534)`. Scene construction initializes the cap to
+1 at `0x41b495`; environment setup assigns 2 at `0x42aaaa`; the per-update
+path `0x42ae60..0x42af64` computes a fractional quota using the pending count,
+global frame-time state (`global+0x49c`), configured grid size (`scene+0x560`)
+and another runtime scalar, carries the fractional remainder in the owner, and
+stores the integer quota back to `scene+0x534`. This is dynamic and is not the
+RDTSC timestamp path. `0x7845f0` writes `+0x530/+0x534` on a separate render
+object; the matching field offsets were a false cross-class association.
+Viewer scheduling remains a fixed one-attempt-per-frame approximation until
+those quota inputs and carry are implemented/validated.
+
 Production `RegionStreaming` now uses shared `client_region_stream::Window`
 instead of immediately loading every exposed region block and returning
 early while stationary. Four standalone scheduler tests pass; a real

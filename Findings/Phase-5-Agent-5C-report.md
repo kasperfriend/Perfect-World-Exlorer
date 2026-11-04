@@ -91,7 +91,7 @@ that thirty ticks are exactly one second.
 | sky correct in reflections | same inverse, mirrored about the water plane (`from_scale(1,-1,1)`), and the reflected uniform receives the **same** `(hour, celestial, alpha, sets, blend)` tuple | `reflection_mirrors_entire_ray_basis`, `sky_rays_follow_horizontally_corrected_camera_and_reflections`, GPU diagnostic requires the mirrored frame to differ from the normal frame |
 | one per-frame snapshot | `Renderer::begin_frame` drives and steps the machine once, then uploads to both buffers; `sky_transition::view_sets` is the documented per-view gate | `gpu.rs::frame_snapshot_tests::one_snapshot_is_computed_per_frame_and_secondary_views_reuse_it` (existing) plus `phase5-sky-transition-gpu-check` iterating all six passes and asserting the counter is unchanged |
 | a secondary view never advances time | mirrors keep `logic_delta_ms = 0` / `advances_time = false`; nothing outside `begin_frame` touches `sky_transition` | as above |
-| clouds/precipitation in reflected/clipped views | **gap, with a named reason.** P5.05 is not implemented and the viewer has no authored weather to load, so the shader deliberately has **no** weather lane (a cloud layer sampled from a panorama would be invented content). When it lands it needs no new code: the reflection and refraction targets call the same fragment entry point with a mirrored basis and the same snapshot. | asserted: the WGSL contains no `p.weather` |
+| clouds/precipitation in reflected/clipped views | **Partial runtime, not parity.** The separate weather renderer now loads the supplied textures and `.cld` data, selects rain/snow from EC-BSD flags, and dispatches fogged cloud/precipitation passes for main, reflection and above-water refraction. The sky shader still has no invented panorama weather lane. The camera-centered precipitation and cloud billboards remain approximations; reflection, altitude, collision, wind, lifetime and transition parity remain unvalidated. | source: `src/cloud_gpu.rs`, `src/weather_gpu.rs`, `src/gpu.rs`; tests are not a live-client parity check |
 
 ---
 
@@ -195,14 +195,14 @@ full `cargo check`/`cargo run` happens in CI):
 
 ## 5. Decision and remaining boundaries
 
-**P5.07, P5.08 and P5.09 are `Implemented` (Yes).** The last honest gap — the
-substituted sky clock — is closed by evidence, not by redefinition: `0x79a040`
-is reached only through the `A3DSkySphere` vtable slot `0x8f14b0`, `0x8f14bc`
-holds `1/30` s, and `0x4b6250` returns the day length, so a count is milliseconds
-and the viewer now feeds the recovered clock and ticks on elapsed time. What
-remains below are recorded limitations of the *content* available to this
-workspace, not unmet requirements of the three points; they are listed so nothing
-is hidden.
+**P5.07 and P5.09 are `Implemented`; P5.08 is `Partial`, not Yes.** The last
+sky-transition clock gap is closed by evidence, not redefinition: `0x79a040` is
+reached through the `A3DSkySphere` vtable slot `0x8f14b0`, `0x8f14bc` holds
+`1/30` s, and `0x4b6250` returns the day length, so a count is milliseconds and
+the viewer ticks on elapsed time. Sky altitude/reflection behavior is covered;
+cloud and precipitation dispatch now exists in reflection/refraction, but native
+weather parity and those view behaviors have not been validated. P5.08 therefore
+remains open, with the evidence and outstanding boundaries recorded below.
 
 
 1. **Region sky *art* is not re-authored (content, not requirement).** `sky_id_day`/`sky_id_night` are
@@ -216,8 +216,7 @@ is hidden.
    (`0x8f14bc`), so a count is milliseconds and the longest counted fade is half
    a game day. `VIEWER_CLOCK_MS` is gone; the viewer feeds the recovered
    `DAY_CLOCK_MS` and ticks on elapsed time.
-3. **Weather in reflections (P5.08's cloud/precipitation clause).** Blocked on
-   P5.05; no weather lane exists, by design rather than by omission.
+3. **Weather in reflections (P5.08's cloud/precipitation clause).** The source-authored cloud and precipitation passes now submit in reflection and above-water refraction; the precipitation volume is camera-centered and cloud geometry is billboarding, so reflected motion/altitude and native runtime parity remain unverified.
 4. **Sky seams are arithmetic, not authored pixels.** `src/bin/phase5-sky-seam-check.rs` now
    covers the meridian arithmetic (both boundaries, both sides, the half-open
    band edges, and `sky_transition::frame_sets` never mixing resource groups

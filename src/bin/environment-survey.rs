@@ -1,3 +1,5 @@
+#[path = "../client_weather.rs"]
+mod client_weather;
 #[allow(dead_code)]
 #[path = "../environment.rs"]
 mod environment;
@@ -7,6 +9,8 @@ mod pck;
 #[allow(dead_code)]
 #[path = "../scene.rs"]
 mod scene;
+#[path = "../sky_config.rs"]
+mod sky_config;
 #[allow(dead_code)]
 #[path = "../water.rs"]
 mod water;
