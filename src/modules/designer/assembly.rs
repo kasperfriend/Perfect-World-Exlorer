@@ -106,7 +106,7 @@ impl Character {
         }
         let mut warnings = Vec::new();
         let mut effective_design = design.clone();
-        apply_head_hair_override(&effective_design, &design, &assets.catalog)?;
+        apply_head_hair_override(&mut effective_design, &design, &assets.catalog)?;
 
         let equipment = plan_equipment(&design, &assets.catalog)?;
         let body_path = design.class.body_model(design.gender);
@@ -118,8 +118,13 @@ impl Character {
         let body_skin_path = design
             .class
             .body_skin(design.gender, design.customize.body_id);
-        let mut body_skins = vec![load_skin(assets, &body_skin_path)?];
-        let mut body_skin_paths = vec![body_skin_path];
+        let head_skin_path = design
+            .class
+            .head_skin(design.gender, design.customize.body_id);
+        let head_skin = load_skin(assets, &head_skin_path)?;
+        let head_mesh_count = head_skin.data.meshes.len();
+        let mut body_skins = vec![load_skin(assets, &body_skin_path)?, head_skin];
+        let mut body_skin_paths = vec![body_skin_path, head_skin_path];
         for part in &equipment {
             match load_skin(assets, &part.path) {
                 Ok(skin) if part.visible => {
@@ -141,6 +146,7 @@ impl Character {
         body.model.skins = body_skin_paths;
         body.texture_overrides = HashMap::new();
         body.mesh_tints = HashMap::new();
+        body.hidden_meshes = (0..head_mesh_count).map(|mesh| (1, mesh)).collect();
         let body_color = if design.class == Class::Barbarian {
             // CECPlayer::SetBodyColor explicitly disables Orc skin tinting.
             u32::MAX

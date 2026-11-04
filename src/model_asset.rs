@@ -3,7 +3,7 @@
 //! are implied by successfully loading this asset.
 use crate::{animation, ecmodel, skeleton, skeleton_pose, skin, skin_pose};
 use glam::Mat4;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct SkinAsset {
     pub path: String,
@@ -57,6 +57,9 @@ pub struct ModelAsset {
     pub texture_overrides: HashMap<(usize, usize), String>,
     /// Per-mesh ARGB modulation used by the native body/face TFactor shaders.
     pub mesh_tints: HashMap<(usize, usize), u32>,
+    /// Native per-skin visibility, notably the body head hidden by CECFace.
+    /// Hidden meshes remain fully posed and validated but are not submitted.
+    pub hidden_meshes: HashSet<(usize, usize)>,
 }
 /// World matrix of a named skeleton hook for an evaluated pose (the native
 /// combination order is documented on `ModelAsset::hook_matrix`).
@@ -254,6 +257,7 @@ impl ModelAsset {
             tracks,
             texture_overrides: HashMap::new(),
             mesh_tints: HashMap::new(),
+            hidden_meshes: HashSet::new(),
         })
     }
 
@@ -303,6 +307,7 @@ impl ModelAsset {
             tracks: Vec::new(),
             texture_overrides: HashMap::new(),
             mesh_tints: HashMap::new(),
+            hidden_meshes: HashSet::new(),
         })
     }
 

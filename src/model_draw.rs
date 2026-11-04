@@ -116,6 +116,9 @@ pub fn prepare<'a>(
                 uv: source.uv,
             });
         }
+        if asset.hidden_meshes.contains(&(pose.skin, pose.mesh)) {
+            continue;
+        }
         result.push(PreparedMesh {
             skin: pose.skin,
             mesh: pose.mesh,
@@ -204,6 +207,14 @@ mod tests {
         );
         assert!(p[0].material.two_sided);
         assert_eq!(p[0].indices, [0, 1, 2]);
+    }
+    #[test]
+    fn hidden_native_skin_is_validated_but_not_submitted() {
+        let (mut asset, mut poses) = fixture();
+        asset.hidden_meshes.insert((0, 0));
+        assert!(prepare(&asset, &poses).unwrap().is_empty());
+        poses[0].vertices.pop();
+        assert!(prepare(&asset, &poses).is_err());
     }
     #[test]
     fn rejects_incomplete_duplicate_and_changed_poses() {

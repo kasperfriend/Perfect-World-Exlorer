@@ -71,6 +71,7 @@ pub fn fixture() -> (ModelAsset, Vec<PosedMesh>) {
         }],
         texture_overrides: Default::default(),
         mesh_tints: Default::default(),
+        hidden_meshes: Default::default(),
     };
     let pose = PosedMesh {
         skin: 0,
