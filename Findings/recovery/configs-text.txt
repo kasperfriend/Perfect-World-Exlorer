@@ -1,0 +1,2160 @@
+===== configs/angelica.cfg (508 bytes) =====
+[a3d]
+run_env = 0
+detail_scene = 1
+detail_model = 1
+detail_terrain = 1
+lightmap_scene = 1	
+dynamic_light = 1
+high_quality_sky = 1
+high_quality_tex = 1
+trilinear = 1
+no_textures = 0
+num_vert_blend_mat = 4
+texture_quality = -1
+motion_blur = 0
+num_t2_block_grid = 32
+
+[amedia]
+run_env = 0
+force_feed_back = 1
+sound_quality = 0
+sound_update_interval = 100
+3d_sound_group_num = 2
+3d_sound_group_size = 100, 100
+2d_sound_buffer_num = 30
+max_cached_file_size = 0
+max_file_cache_size = 0
+
+===== configs/element_client.cfg (466 bytes) =====
+[PathFile]
+
+login_ui_dcf = LoginUI.dcf
+ingame_ui_dcf = InGame.dcf
+
+[Settings]
+
+code_page = 936
+console = 1
+runtime_debug = 2
+max_name_len = 12
+
+[DefEnv]
+
+fog_start = 60
+fog_end = 400
+fog_color = 70, 77, 91
+fog_density = 1
+
+sky_image01 = Sky\clear\Roof.bmp
+sky_image02 = Sky\clear\01.bmp
+sky_image03 = Sky\clear\02.bmp
+
+ambient = 180, 180, 180
+light_diffuse = 255, 255, 255
+light_specular = 255, 255, 255
+light_dir = 0.15, -0.70, 0.695
+
+===== configs/autofamilyconfigs/autoscene.cfg (1195 bytes) =====
+[World]
+num_block_row = 8
+num_block_col = 8
+world_width = 1024.0
+world_length = 1024.0
+block_size = 128.0
+
+[Sun]
+sun_dir = 0.152431, -0.619779, 0.769830
+sun_color_day = 255, 255, 255
+ambient_day = 220, 220, 220
+sun_color_night = 128, 128, 128
+ambient_night = 128, 128, 128
+
+[Sky]
+sky_id_day = 0
+sky_id_night = 1
+
+[Fog]
+fog_enable = 1
+fog_start_day = 20.000000
+fog_end_day = 500.000000
+fog_color_day = 192, 192, 192
+fog_start_night = 50.000000
+fog_end_night = 200.000000
+fog_color_night = 192, 192, 192
+fog_color_water = 255, 255, 255
+
+[Texture]
+default = 6
+main_terrain_main = 0
+main_terrain_patch = 1
+hill_main = 2
+hill_patch = 3
+part_main = 4
+part_patch = 5
+water_main = 6
+water_patch = 7
+road_main = 2
+road_patch = 3
+
+[Resource]
+tree_list = Configs\AutoFamilyConfigs\Trees.lst
+land_grass_list = Configs\AutoFamilyConfigs\LandGrass.lst
+water_grass_list = Configs\AutoFamilyConfigs\WaterGrass.lst
+texture_list = Configs\AutoFamilyConfigs\Texture.lst
+model_list = Configs\AutoFamilyConfigs\Models.lst
+sky_list = Configs\AutoFamilyConfigs\sky.lst
+scene_path = cache\EditMaps\Scene00
+border_file = Configs\AutoFamilyConfigs\borders\scene00.border
+
+===== configs/autofamilyconfigs/autoterrain.cfg (845 bytes) =====
+[Lightmap]
+day_weight = 0.000000
+day_night_type = 3
+sun_color = 255, 255, 255
+ambient = 128, 128, 128
+sun_color_night = 128, 128, 128
+ambient_night = 128, 128, 128
+hardware_lightmap = 1
+software_high_speed = 0
+software_tree_shadow = 1
+software_building_shadow = 1
+
+[Speed]
+camera_speed = 1.000000
+npc_speed = 5.000000
+translate_speed = 1.000000
+rotate_speed = 1.000000
+
+[Fog]
+fog_enable_day = 0
+fog_start_day = 20.000000
+fog_end_day = 500.000000
+fog_color_day = 192, 192, 192
+fog_enable_night = 1
+fog_start_night = 50.000000
+fog_end_night = 200.000000
+fog_color_night = 192, 192, 192
+fog_color_water = 255, 255, 255
+
+[Texture]
+default = 6
+main_terrain_main = 0
+main_terrain_patch = 1
+hill_main = 2
+hill_patch = 3
+part_main = 4
+part_patch = 5
+water_main = 6
+water_patch = 7
+road_main = 3
+road_patch = 2
+
+===== configs/autofamilyconfigs/landgrass.lst (4477 bytes) =====
+102
+0
+剑麻
+Grasses\做好的花\剑麻.mox
+0
+1
+向日葵01
+Grasses\做好的花\向日葵01.mox
+0
+2
+向日葵02
+Grasses\做好的花\向日葵02.mox
+0
+3
+小黄花01
+Grasses\做好的花\小黄花01.mox
+0
+4
+小黄花02
+Grasses\做好的花\小黄花02.mox
+0
+5
+小黄花03
+Grasses\做好的花\小黄花03.mox
+0
+6
+小黄花04
+Grasses\做好的花\小黄花04.mox
+0
+7
+小黄花05
+Grasses\做好的花\小黄花05.mox
+0
+8
+狗尾草
+Grasses\做好的花\狗尾草.mox
+0
+9
+睡莲01
+Grasses\做好的花\睡莲01.mox
+0
+10
+粉康萘薪01
+Grasses\做好的花\粉康萘薪01.mox
+0
+11
+粉康萘薪02
+Grasses\做好的花\粉康萘薪02.mox
+0
+12
+紫铅牛
+Grasses\做好的花\紫铅牛.mox
+0
+13
+红花
+Grasses\做好的花\红花.mox
+0
+14
+芦苇
+Grasses\做好的花\芦苇.mox
+0
+15
+芦苇02
+Grasses\做好的花\芦苇02.mox
+0
+16
+芦苇03
+Grasses\做好的花\芦苇03.mox
+0
+17
+荷叶01
+Grasses\做好的花\荷叶01.mox
+0
+18
+陆地03
+Grasses\做好的花\陆地03.mox
+0
+19
+陆地04
+Grasses\做好的花\陆地04.mox
+0
+20
+灰绿草01
+Grasses\做好的草\灰绿草01.mox
+0
+21
+灰绿草02
+Grasses\做好的草\灰绿草02.mox
+0
+22
+灰绿草03
+Grasses\做好的草\灰绿草03.mox
+0
+23
+灰绿草04
+Grasses\做好的草\灰绿草04.mox
+0
+24
+灰绿草05
+Grasses\做好的草\灰绿草05.mox
+0
+25
+灰绿草06
+Grasses\做好的草\灰绿草06.mox
+0
+26
+绿草01
+Grasses\做好的草\绿草01.mox
+0
+27
+绿草02
+Grasses\做好的草\绿草02.mox
+0
+28
+绿草03
+Grasses\做好的草\绿草03.mox
+0
+29
+绿草04
+Grasses\做好的草\绿草04.mox
+0
+30
+绿草05
+Grasses\做好的草\绿草05.mox
+0
+31
+绿草07
+Grasses\做好的草\绿草07.mox
+0
+32
+绿草08
+Grasses\做好的草\绿草08.mox
+0
+33
+绿草09
+Grasses\做好的草\绿草09.mox
+0
+34
+花草
+Grasses\做好的草\花草.mox
+0
+35
+黄绿草01
+Grasses\做好的草\黄绿草01.mox
+0
+36
+黄绿草02
+Grasses\做好的草\黄绿草02.mox
+0
+37
+黄绿草03
+Grasses\做好的草\黄绿草03.mox
+0
+38
+黄草01
+Grasses\做好的草\黄草01.mox
+0
+39
+黄草02
+Grasses\做好的草\黄草02.mox
+0
+40
+黄草03
+Grasses\做好的草\黄草03.mox
+0
+41
+黄草04
+Grasses\做好的草\黄草04.mox
+0
+42
+黄草05
+Grasses\做好的草\黄草05.mox
+0
+43
+01
+Grasses\小草\01.mox
+0
+44
+02
+Grasses\小草\02.mox
+0
+45
+hong
+Grasses\小草\hong.mox
+0
+46
+huang
+Grasses\小草\huang.mox
+0
+47
+xiaohua
+Grasses\小草\xiaohua.mox
+0
+48
+xincao
+Grasses\小草\xincao.mox
+0
+49
+剑麻
+Grasses\新花草\剑麻.mox
+0
+50
+千层红
+Grasses\新花草\千层红.mox
+0
+51
+向日葵01
+Grasses\新花草\向日葵01.mox
+0
+52
+向日葵02
+Grasses\新花草\向日葵02.mox
+0
+53
+大朵黄花
+Grasses\新花草\大朵黄花.mox
+0
+54
+大朵黄花02
+Grasses\新花草\大朵黄花02.mox
+0
+55
+小碎黄花01
+Grasses\新花草\小碎黄花01.mox
+0
+56
+小碎黄花02
+Grasses\新花草\小碎黄花02.mox
+0
+57
+小碎黄花03
+Grasses\新花草\小碎黄花03.mox
+0
+58
+小黄花01
+Grasses\新花草\小黄花01.mox
+0
+59
+小黄花02
+Grasses\新花草\小黄花02.mox
+0
+60
+康奈薪
+Grasses\新花草\康奈薪.mox
+0
+61
+康奈薪02
+Grasses\新花草\康奈薪02.mox
+0
+62
+桃金娘
+Grasses\新花草\桃金娘.mox
+0
+63
+狭叶番
+Grasses\新花草\狭叶番.mox
+0
+64
+玉米
+Grasses\新花草\玉米.mox
+0
+65
+紫色小花
+Grasses\新花草\紫色小花.mox
+0
+66
+芦苇
+Grasses\新花草\芦苇.mox
+0
+67
+芦苇02
+Grasses\新花草\芦苇02.mox
+0
+68
+芦苇03
+Grasses\新花草\芦苇03.mox
+0
+69
+芦苇花
+Grasses\新花草\芦苇花.mox
+0
+70
+花腾
+Grasses\新花草\花腾.mox
+0
+71
+蝴蝶花
+Grasses\新花草\蝴蝶花.mox
+0
+72
+麦子
+Grasses\新花草\麦子.mox
+0
+73
+灌木01
+Grasses\蕨类、灌木\灌木01.mox
+0
+74
+灌木02
+Grasses\蕨类、灌木\灌木02.mox
+0
+75
+灌木03
+Grasses\蕨类、灌木\灌木03.mox
+0
+76
+灌木04
+Grasses\蕨类、灌木\灌木04.mox
+0
+77
+灌木05
+Grasses\蕨类、灌木\灌木05.mox
+0
+78
+灌木06
+Grasses\蕨类、灌木\灌木06.mox
+0
+79
+灌木07
+Grasses\蕨类、灌木\灌木07.mox
+0
+80
+灌木球
+Grasses\蕨类、灌木\灌木球.mox
+0
+81
+狗尾球
+Grasses\蕨类、灌木\狗尾球.mox
+0
+82
+草藤01
+Grasses\蕨类、灌木\草藤01.mox
+0
+83
+草藤02
+Grasses\蕨类、灌木\草藤02.mox
+0
+84
+草藤03
+Grasses\蕨类、灌木\草藤03.mox
+0
+85
+草藤04
+Grasses\蕨类、灌木\草藤04.mox
+0
+86
+草藤05
+Grasses\蕨类、灌木\草藤05.mox
+0
+87
+蕨类01
+Grasses\蕨类、灌木\蕨类01.mox
+0
+88
+高灌木01
+Grasses\蕨类、灌木\高灌木01.mox
+0
+89
+高灌木02
+Grasses\蕨类、灌木\高灌木02.mox
+0
+90
+高灌木03
+Grasses\蕨类、灌木\高灌木03.mox
+0
+91
+高灌木04
+Grasses\蕨类、灌木\高灌木04.mox
+0
+92
+高灌木05
+Grasses\蕨类、灌木\高灌木05.mox
+0
+93
+黄叶
+Grasses\蕨类、灌木\黄叶.mox
+0
+94
+黄绿灌木
+Grasses\蕨类、灌木\黄绿灌木.mox
+0
+95
+01
+Grasses\雪草\01.mox
+0
+96
+02
+Grasses\雪草\02.mox
+0
+97
+03
+Grasses\雪草\03.mox
+0
+98
+04
+Grasses\雪草\04.mox
+0
+99
+05
+Grasses\雪草\05.mox
+0
+100
+06
+Grasses\雪草\06.mox
+0
+101
+07
+Grasses\雪草\07.mox
+0
+
+===== configs/autofamilyconfigs/models.lst (12711 bytes) =====
+102
+0
+紫檀木圆脚橱
+Models\Home\物品\紫檀木圆脚橱\紫檀木圆脚橱.mox
+Models\Home\物品\紫檀木圆脚橱\紫檀木圆脚橱.chf
+家具
+0
+1
+紫檀方角小四件炕柜
+Models\Home\物品\紫檀方角小四件炕柜\紫檀方角小四件炕柜.mox
+Models\Home\物品\紫檀方角小四件炕柜\紫檀方角小四件炕柜.chf
+家具
+0
+2
+床简陋一级
+Models\Home\物品\床简陋一级\床简陋一级.mox
+Models\Home\物品\床简陋一级\床简陋一级.chf
+家具
+0
+3
+浮字画
+Models\Home\物品\浮字画\浮字画.mox
+Models\Home\物品\浮字画\浮字画.chf
+家具
+0
+4
+柜立柜
+Models\Home\物品\柜立柜\柜立柜.mox
+Models\Home\物品\柜立柜\柜立柜.chf
+家具
+0
+5
+坛小酒坛
+Models\Home\物品\坛小酒坛\坛小酒坛.mox
+Models\Home\物品\坛小酒坛\坛小酒坛.chf
+家具
+0
+6
+椅太师
+Models\Home\物品\椅太师\椅太师.mox
+Models\Home\物品\椅太师\椅太师.chf
+家具
+0
+7
+桌八仙
+Models\Home\物品\桌八仙\桌八仙.mox
+Models\Home\物品\桌八仙\桌八仙.chf
+家具
+0
+8
+桌低面楼花
+Models\Home\物品\桌低面楼花\桌低面楼花.mox
+Models\Home\物品\桌低面楼花\桌低面楼花.chf
+家具
+0
+9
+柜三面雕花
+Models\Home\物品\柜三面雕花\柜三面雕花.mox
+Models\Home\物品\柜三面雕花\柜三面雕花.chf
+家具
+0
+10
+柜架书多屉
+Models\Home\物品\柜架书多屉\柜架书多屉.mox
+Models\Home\物品\柜架书多屉\柜架书多屉.chf
+家具
+0
+11
+椅四方红木镂花
+Models\Home\物品\椅四方红木镂花\椅四方红木镂花.mox
+Models\Home\物品\椅四方红木镂花\椅四方红木镂花.chf
+家具
+0
+12
+椅桂花鸡翅
+Models\Home\物品\椅桂花鸡翅\椅桂花鸡翅.mox
+Models\Home\物品\椅桂花鸡翅\椅桂花鸡翅.chf
+家具
+0
+13
+床罗汉
+Models\Home\物品\床罗汉\床罗汉.mox
+Models\Home\物品\床罗汉\床罗汉.chf
+家具
+0
+14
+桌矮木螺纹
+Models\Home\物品\桌矮木螺纹\桌矮木螺纹.mox
+Models\Home\物品\桌矮木螺纹\桌矮木螺纹.chf
+家具
+0
+15
+柜上下镂空
+Models\Home\物品\柜上下镂空\柜上下镂空.mox
+Models\Home\物品\柜上下镂空\柜上下镂空.chf
+家具
+0
+16
+柜梳妆台镂空
+Models\Home\物品\柜梳妆台镂空\柜梳妆台镂空.mox
+Models\Home\物品\柜梳妆台镂空\柜梳妆台镂空.chf
+家具
+0
+17
+柜双开红木
+Models\Home\物品\柜双开红木\柜双开红木.mox
+Models\Home\物品\柜双开红木\柜双开红木.chf
+家具
+0
+18
+椅太爷双人
+Models\Home\物品\椅太爷双人\椅太爷双人.mox
+Models\Home\物品\椅太爷双人\椅太爷双人.chf
+家具
+0
+19
+物浴桶桃木
+Models\Home\物品\物浴桶桃木\物浴桶桃木.mox
+Models\Home\物品\物浴桶桃木\物浴桶桃木.chf
+家具
+0
+20
+桌无脚
+Models\Home\物品\桌无脚\桌无脚.mox
+Models\Home\物品\桌无脚\桌无脚.chf
+家具
+0
+21
+椅仿藤式墩
+Models\Home\物品\椅仿藤式墩\椅仿藤式墩.mox
+Models\Home\物品\椅仿藤式墩\椅仿藤式墩.chf
+家具
+0
+22
+椅躺椅黄花梨
+Models\Home\物品\椅躺椅黄花梨\椅躺椅黄花梨.mox
+Models\Home\物品\椅躺椅黄花梨\椅躺椅黄花梨.chf
+家具
+0
+23
+椅榉木夹头榫小条凳
+Models\Home\物品\椅榉木夹头榫小条凳\椅榉木夹头榫小条凳.mox
+Models\Home\物品\椅榉木夹头榫小条凳\椅榉木夹头榫小条凳.chf
+家具
+0
+24
+椅靠背矮笔梗
+Models\Home\物品\椅靠背矮笔梗\椅靠背矮笔梗.mox
+Models\Home\物品\椅靠背矮笔梗\椅靠背矮笔梗.chf
+家具
+0
+25
+椅靠背笔梗
+Models\Home\物品\椅靠背笔梗\椅靠背笔梗.mox
+Models\Home\物品\椅靠背笔梗\椅靠背笔梗.chf
+家具
+0
+26
+椅方凳十字档
+Models\Home\物品\椅方凳十字档\椅方凳十字档.mox
+Models\Home\物品\椅方凳十字档\椅方凳十字档.chf
+家具
+0
+27
+椅镶瓷板靠背椅
+Models\Home\物品\椅镶瓷板靠背椅\椅镶瓷板靠背椅.mox
+Models\Home\物品\椅镶瓷板靠背椅\椅镶瓷板靠背椅.chf
+家具
+0
+28
+椅小交杌
+Models\Home\物品\椅小交杌\椅小交杌.mox
+Models\Home\物品\椅小交杌\椅小交杌.chf
+家具
+0
+29
+椅柞木枕凳
+Models\Home\物品\椅柞木枕凳\椅柞木枕凳.mox
+Models\Home\物品\椅柞木枕凳\椅柞木枕凳.chf
+家具
+0
+30
+床中式镂花
+Models\Home\物品\床中式镂花\床中式镂花.mox
+Models\Home\物品\床中式镂花\床中式镂花.chf
+家具
+0
+31
+包边彩绘宽脚柜
+Models\Home\物品\包边彩绘宽脚柜\包边彩绘宽脚柜.mox
+Models\Home\物品\包边彩绘宽脚柜\包边彩绘宽脚柜.chf
+家具
+0
+32
+雕花案
+Models\Home\物品\雕花案\雕花案.mox
+Models\Home\物品\雕花案\雕花案.chf
+家具
+0
+33
+桂圆木小圆角柜
+Models\Home\物品\桂圆木小圆角柜\桂圆木小圆角柜.mox
+Models\Home\物品\桂圆木小圆角柜\桂圆木小圆角柜.chf
+家具
+0
+34
+红木双层高脚柜
+Models\Home\物品\红木双层高脚柜\红木双层高脚柜.mox
+Models\Home\物品\红木双层高脚柜\红木双层高脚柜.chf
+家具
+0
+35
+红木双层双门书橱
+Models\Home\物品\红木双层双门书橱\红木双层双门书橱.mox
+Models\Home\物品\红木双层双门书橱\红木双层双门书橱.chf
+家具
+0
+36
+红木小储藏柜
+Models\Home\物品\红木小储藏柜\红木小储藏柜.mox
+Models\Home\物品\红木小储藏柜\红木小储藏柜.chf
+家具
+0
+37
+黄花梨长条矮脚柜
+Models\Home\物品\黄花梨长条矮脚柜\黄花梨长条矮脚柜.mox
+Models\Home\物品\黄花梨长条矮脚柜\黄花梨长条矮脚柜.chf
+家具
+0
+38
+黄花梨龙纹联二橱
+Models\Home\物品\黄花梨龙纹联二橱\黄花梨龙纹联二橱.mox
+Models\Home\物品\黄花梨龙纹联二橱\黄花梨龙纹联二橱.chf
+家具
+0
+39
+黄花梨双格橱
+Models\Home\物品\黄花梨双格橱\黄花梨双格橱.mox
+Models\Home\物品\黄花梨双格橱\黄花梨双格橱.chf
+家具
+0
+40
+黄花梨双开门柜
+Models\Home\物品\黄花梨双开门柜\黄花梨双开门柜.mox
+Models\Home\物品\黄花梨双开门柜\黄花梨双开门柜.chf
+家具
+0
+41
+黄花梨万历柜
+Models\Home\物品\黄花梨万历柜\黄花梨万历柜.mox
+Models\Home\物品\黄花梨万历柜\黄花梨万历柜.chf
+家具
+0
+42
+黄梨木多格柜
+Models\Home\物品\黄梨木多格柜\黄梨木多格柜.mox
+Models\Home\物品\黄梨木多格柜\黄梨木多格柜.chf
+家具
+0
+43
+黄木多格柜
+Models\Home\物品\黄木多格柜\黄木多格柜.mox
+Models\Home\物品\黄木多格柜\黄木多格柜.chf
+家具
+0
+44
+黄木立柜
+Models\Home\物品\黄木立柜\黄木立柜.mox
+Models\Home\物品\黄木立柜\黄木立柜.chf
+家具
+0
+45
+黄木双门小柜
+Models\Home\物品\黄木双门小柜\黄木双门小柜.mox
+Models\Home\物品\黄木双门小柜\黄木双门小柜.chf
+家具
+0
+46
+榉木雕花双层立柜
+Models\Home\物品\榉木雕花双层立柜\榉木雕花双层立柜.mox
+Models\Home\物品\榉木雕花双层立柜\榉木雕花双层立柜.chf
+家具
+0
+47
+民间迎门柜
+Models\Home\物品\民间迎门柜\民间迎门柜.mox
+Models\Home\物品\民间迎门柜\民间迎门柜.chf
+家具
+0
+48
+椅木胎朱漆交
+Models\Home\物品\椅木胎朱漆交\椅木胎朱漆交.mox
+Models\Home\物品\椅木胎朱漆交\椅木胎朱漆交.chf
+家具
+0
+49
+楠木大立柜
+Models\Home\物品\楠木大立柜\楠木大立柜.mox
+Models\Home\物品\楠木大立柜\楠木大立柜.chf
+家具
+0
+50
+双门矮柜
+Models\Home\物品\双门矮柜\双门矮柜.mox
+Models\Home\物品\双门矮柜\双门矮柜.chf
+家具
+0
+51
+乌木迎门柜
+Models\Home\物品\乌木迎门柜\乌木迎门柜.mox
+Models\Home\物品\乌木迎门柜\乌木迎门柜.chf
+家具
+0
+52
+硬木包铁边立柜
+Models\Home\物品\硬木包铁边立柜\硬木包铁边立柜.mox
+Models\Home\物品\硬木包铁边立柜\硬木包铁边立柜.chf
+家具
+0
+53
+朱漆彩绘雕花矮角柜
+Models\Home\物品\朱漆彩绘雕花矮角柜\朱漆彩绘雕花矮角柜.mox
+Models\Home\物品\朱漆彩绘雕花矮角柜\朱漆彩绘雕花矮角柜.chf
+家具
+0
+54
+红木长书桌
+Models\Home\物品\红木长书桌\红木长书桌.mox
+Models\Home\物品\红木长书桌\红木长书桌.chf
+家具
+0
+55
+红木攉脚花牙方凳
+Models\Home\物品\红木攉脚花牙方凳\红木攉脚花牙方凳.mox
+Models\Home\物品\红木攉脚花牙方凳\红木攉脚花牙方凳.chf
+家具
+0
+56
+红木桥梁档文椅
+Models\Home\物品\红木桥梁档文椅\红木桥梁档文椅.mox
+Models\Home\物品\红木桥梁档文椅\红木桥梁档文椅.chf
+家具
+0
+57
+红木镶云石高背文椅
+Models\Home\物品\红木镶云石高背文椅\红木镶云石高背文椅.mox
+Models\Home\物品\红木镶云石高背文椅\红木镶云石高背文椅.chf
+家具
+0
+58
+黄花梨八足圆凳
+Models\Home\物品\黄花梨八足圆凳\黄花梨八足圆凳.mox
+Models\Home\物品\黄花梨八足圆凳\黄花梨八足圆凳.chf
+家具
+0
+59
+鸡翅木无联帮棍四出头扶手椅
+Models\Home\物品\鸡翅木无联帮棍四出头扶手椅\鸡翅木无联帮棍四出头扶手椅.mox
+Models\Home\物品\鸡翅木无联帮棍四出头扶手椅\鸡翅木无联帮棍四出头扶手椅.chf
+家具
+0
+60
+鸡翅木云钩扶手搭脑太师椅
+Models\Home\物品\鸡翅木云钩扶手搭脑太师椅\鸡翅木云钩扶手搭脑太师椅.mox
+Models\Home\物品\鸡翅木云钩扶手搭脑太师椅\鸡翅木云钩扶手搭脑太师椅.chf
+家具
+0
+61
+榉木平直牙条玫瑰
+Models\Home\物品\榉木平直牙条玫瑰\榉木平直牙条玫瑰.mox
+Models\Home\物品\榉木平直牙条玫瑰\榉木平直牙条玫瑰.chf
+家具
+0
+62
+木胎黑漆直后背双人交椅
+Models\Home\物品\木胎黑漆直后背双人交椅\木胎黑漆直后背双人交椅.mox
+Models\Home\物品\木胎黑漆直后背双人交椅\木胎黑漆直后背双人交椅.chf
+家具
+0
+63
+椅梗云矮背扶手椅
+Models\Home\物品\椅梗云矮背扶手椅\椅梗云矮背扶手椅.mox
+Models\Home\物品\椅梗云矮背扶手椅\椅梗云矮背扶手椅.chf
+家具
+0
+64
+紫檀四面平罗锅枨马蹄足大长方凳
+Models\Home\物品\紫檀四面平罗锅枨马蹄足大长方凳\紫檀四面平罗锅枨马蹄足大长方凳.mox
+Models\Home\物品\紫檀四面平罗锅枨马蹄足大长方凳\紫檀四面平罗锅枨马蹄足大长方凳.chf
+家具
+0
+65
+紫檀无束腰管脚枨方凳
+Models\Home\物品\紫檀无束腰管脚枨方凳\紫檀无束腰管脚枨方凳.mox
+Models\Home\物品\紫檀无束腰管脚枨方凳\紫檀无束腰管脚枨方凳.chf
+家具
+0
+66
+紫檀五开光鼓墩
+Models\Home\物品\紫檀五开光鼓墩\紫檀五开光鼓墩.mox
+Models\Home\物品\紫檀五开光鼓墩\紫檀五开光鼓墩.chf
+家具
+0
+67
+紫檀五屏式扶手椅
+Models\Home\物品\紫檀五屏式扶手椅\紫檀五屏式扶手椅.mox
+Models\Home\物品\紫檀五屏式扶手椅\紫檀五屏式扶手椅.chf
+家具
+0
+68
+紫檀直棂式坐墩
+Models\Home\物品\紫檀直棂式坐墩\紫檀直棂式坐墩.mox
+Models\Home\物品\紫檀直棂式坐墩\紫檀直棂式坐墩.chf
+家具
+0
+69
+红木带抽屉平方小书案
+Models\Home\物品\红木带抽屉平方小书案\红木带抽屉平方小书案.mox
+Models\Home\物品\红木带抽屉平方小书案\红木带抽屉平方小书案.chf
+家具
+0
+70
+红木绳壁档茶几
+Models\Home\物品\红木绳壁档茶几\红木绳壁档茶几.mox
+Models\Home\物品\红木绳壁档茶几\红木绳壁档茶几.chf
+家具
+0
+71
+鸡翅木夹头榫大画案
+Models\Home\物品\鸡翅木夹头榫大画案\鸡翅木夹头榫大画案.mox
+Models\Home\物品\鸡翅木夹头榫大画案\鸡翅木夹头榫大画案.chf
+家具
+0
+72
+民间门户桌
+Models\Home\物品\民间门户桌\民间门户桌.mox
+Models\Home\物品\民间门户桌\民间门户桌.chf
+家具
+0
+73
+鸡翅木床
+Models\Home\物品\鸡翅木床\鸡翅木床.mox
+Models\Home\物品\鸡翅木床\鸡翅木床.chf
+家具
+0
+74
+木雕
+Models\Home\物品\木雕\木雕.mox
+Models\Home\物品\木雕\木雕.chf
+家具
+0
+75
+石雕
+Models\Home\物品\石雕\石雕.mox
+Models\Home\物品\石雕\石雕.chf
+家具
+0
+76
+火盆
+Models\Home\物品\火盆\火盆.mox
+Models\Home\物品\火盆\火盆.chf
+家具
+0
+77
+大理石亭子
+Models\Home\物品\大理石亭子\大理石亭子.mox
+Models\Home\物品\大理石亭子\大理石亭子.chf
+家具
+0
+78
+剑台
+Models\Home\物品\剑台\剑台.mox
+Models\Home\物品\剑台\剑台.chf
+家具
+0
+79
+恐龙雕塑
+Models\Home\物品\恐龙雕塑\恐龙雕塑.mox
+Models\Home\物品\恐龙雕塑\恐龙雕塑.chf
+家具
+0
+80
+飞蛇雕塑
+Models\Home\物品\飞蛇雕塑\飞蛇雕塑.mox
+Models\Home\物品\飞蛇雕塑\飞蛇雕塑.chf
+家具
+0
+81
+石凳
+Models\Home\物品\石凳\石凳.mox
+Models\Home\物品\石凳\石凳.chf
+家具
+0
+82
+人族房屋二级
+Models\Home\建筑\人族房屋二级\人族房屋二级.mox
+Models\Home\建筑\人族房屋二级\人族房屋二级.chf
+房屋
+0
+83
+人族房屋三级
+Models\Home\建筑\人族房屋三级\人族房屋三级.mox
+Models\Home\建筑\人族房屋三级\人族房屋三级.chf
+房屋
+0
+84
+人族房屋四级
+Models\Home\建筑\人族房屋四级\人族房屋四级.mox
+Models\Home\建筑\人族房屋四级\人族房屋四级.chf
+房屋
+0
+85
+人族房屋五级
+Models\Home\建筑\人族房屋五级\人族房屋五级.mox
+Models\Home\建筑\人族房屋五级\人族房屋五级.chf
+房屋
+0
+86
+人族房屋一级
+Models\Home\建筑\人族房屋一级\人族房屋一级.mox
+Models\Home\建筑\人族房屋一级\人族房屋一级.chf
+房屋
+0
+87
+兽族房屋二级
+Models\Home\建筑\兽族房屋二级\兽族房屋二级.mox
+Models\Home\建筑\兽族房屋二级\兽族房屋二级.chf
+房屋
+0
+88
+兽族房屋三级
+Models\Home\建筑\兽族房屋三级\兽族房屋三级.mox
+Models\Home\建筑\兽族房屋三级\兽族房屋三级.chf
+房屋
+0
+89
+兽族房屋四级
+Models\Home\建筑\兽族房屋四级\兽族房屋四级.mox
+Models\Home\建筑\兽族房屋四级\兽族房屋四级.chf
+房屋
+0
+90
+兽族房屋五级
+Models\Home\建筑\兽族房屋五级\兽族房屋五级.mox
+Models\Home\建筑\兽族房屋五级\兽族房屋五级.chf
+房屋
+0
+91
+兽族房屋一级
+Models\Home\建筑\兽族房屋一级\兽族房屋一级.mox
+Models\Home\建筑\兽族房屋一级\兽族房屋一级.chf
+房屋
+0
+92
+羽族房屋二级
+Models\Home\建筑\羽族房屋二级\羽族房屋二级.mox
+Models\Home\建筑\羽族房屋二级\羽族房屋二级.chf
+房屋
+0
+93
+羽族房屋三级
+Models\Home\建筑\羽族房屋三级\羽族房屋三级.mox
+Models\Home\建筑\羽族房屋三级\羽族房屋三级.chf
+房屋
+0
+94
+羽族房屋四级
+Models\Home\建筑\羽族房屋四级\羽族房屋四级.mox
+Models\Home\建筑\羽族房屋四级\羽族房屋四级.chf
+房屋
+0
+95
+羽族房屋五级
+Models\Home\建筑\羽族房屋五级\羽族房屋五级.mox
+Models\Home\建筑\羽族房屋五级\羽族房屋五级.chf
+房屋
+0
+96
+羽族房屋一级
+Models\Home\建筑\羽族房屋一级\羽族房屋一级.mox
+Models\Home\建筑\羽族房屋一级\羽族房屋一级.chf
+房屋
+0
+97
+榉木独板素围屏榻
+Models\Home\物品\榉木独板素围屏榻\榉木独板素围屏榻.mox
+Models\Home\物品\榉木独板素围屏榻\榉木独板素围屏榻.chf
+家具
+0
+98
+红木鼓腿抛牙镶云石弥陀榻
+Models\Home\物品\红木鼓腿抛牙镶云石弥陀榻\红木鼓腿抛牙镶云石弥陀榻.mox
+Models\Home\物品\红木鼓腿抛牙镶云石弥陀榻\红木鼓腿抛牙镶云石弥陀榻.chf
+家具
+0
+99
+红木粉彩瓷面八仙桌
+Models\Home\物品\红木粉彩瓷面八仙桌\红木粉彩瓷面八仙桌.mox
+Models\Home\物品\红木粉彩瓷面八仙桌\红木粉彩瓷面八仙桌.chf
+家具
+0
+100
+红木方回纹插角楠木面供桌
+Models\Home\物品\红木方回纹插角楠木面供桌\红木方回纹插角楠木面供桌.mox
+Models\Home\物品\红木方回纹插角楠木面供桌\红木方回纹插角楠木面供桌.chf
+家具
+0
+101
+紫檀禅墩
+Models\Home\物品\紫檀禅墩\紫檀禅墩.mox
+Models\Home\物品\紫檀禅墩\紫檀禅墩.chf
+家具
+0
+
+===== configs/autofamilyconfigs/sky.lst (170 bytes) =====
+3
+0
+晴天
+clear\roof.bmp
+clear\01.bmp
+clear\02.bmp
+0
+1
+阴天
+阴天01\roof.bmp
+阴天01\01.bmp
+阴天01\02.bmp
+0
+2
+夕阳
+夕阳\wwwww.bmp
+夕阳\01.bmp
+夕阳\02.bmp
+0
+
+===== configs/autofamilyconfigs/texture.lst (533 bytes) =====
+8
+0
+深翠绿色草
+Textures\Maps\DDS地面贴图\草地\寒带绿草\深翠绿色草.dds
+0
+1
+黄土杂茸草
+Textures\Maps\DDS地面贴图\草地\寒带绿草\黄土杂茸草.dds
+0
+2
+锈红土
+Textures\Maps\DDS地面贴图\土壤\粗土\锈红土.dds
+0
+3
+灰色土
+Textures\Maps\DDS地面贴图\土壤\细土\灰色土.dds
+0
+4
+雪地03
+Textures\Maps\DDS地面贴图\土壤\雪地\雪地03.dds
+0
+5
+浅灰黄土
+Textures\Maps\DDS地面贴图\土壤\粗土\浅灰黄土.dds
+0
+6
+河床
+Textures\Maps\DDS地面贴图\土壤\粗土\河床.dds
+0
+7
+小绿杂草棕沙
+Textures\Maps\DDS地面贴图\土壤\沙土\小绿杂草棕沙.dds
+0
+
+===== configs/autofamilyconfigs/trees.lst (10784 bytes) =====
+98
+0
+东北当归
+Trees\精简树木\东北当归\ManchurianAngelicaTree.spt
+Trees\精简树木\东北当归\ManchurianAngelica_Leaves.dds
+2.000000
+0
+1
+仙人柱
+Trees\精简树木\仙人柱\Saguaro3.spt
+Trees\精简树木\仙人柱\saguarroleaves.dds
+2.000000
+0
+2
+仙界树木
+Trees\精简树木\仙界树木\xianshumu.spt
+Trees\精简树木\仙界树木\xianleaves.dds
+2.000000
+0
+3
+像树
+Trees\精简树木\仙界树木\像树\GhostGum1.spt
+Trees\精简树木\仙界树木\像树\ghostleaves.dds
+2.000000
+0
+4
+印度榕
+Trees\精简树木\仙界树木\印度榕\PagodaTree1.spt
+Trees\精简树木\仙界树木\印度榕\pagodaleaves.dds
+2.000000
+0
+5
+外脖白树
+Trees\精简树木\仙界树木\外脖白树\仙界树.spt
+Trees\精简树木\仙界树木\外脖白树\xianjieleaves.dds
+2.000000
+0
+6
+橡胶树
+Trees\精简树木\仙界树木\橡胶树\BlackGum.spt
+Trees\精简树木\仙界树木\橡胶树\blackgumleaves.dds
+2.000000
+0
+7
+沙树
+Trees\精简树木\仙界树木\沙树\Sassafras_RT_Fall.spt
+Trees\精简树木\仙界树木\沙树\
+2.000000
+0
+8
+沙树
+Trees\精简树木\仙界树木\沙树\Sassafras_RT_Fall2.spt
+Trees\精简树木\仙界树木\沙树\
+2.000000
+0
+9
+英格兰像树
+Trees\精简树木\仙界树木\英格兰像树\EnglishOak_RT.spt
+Trees\精简树木\仙界树木\英格兰像树\
+2.000000
+0
+10
+长叶松
+Trees\精简树木\仙界树木\长叶松\LongleafPine_RT.spt
+Trees\精简树木\仙界树木\长叶松\pineleaves.dds
+2.000000
+0
+11
+长叶松
+Trees\精简树木\仙界树木\长叶松\LongleafPine_RT2.spt
+Trees\精简树木\仙界树木\长叶松\pineleaves.dds
+2.000000
+0
+12
+长松树
+Trees\精简树木\仙界树木\长松树\DouglasFir.spt
+Trees\精简树木\仙界树木\长松树\firleaves.dds
+2.000000
+0
+13
+长松树
+Trees\精简树木\仙界树木\长松树\DouglasFir2.spt
+Trees\精简树木\仙界树木\长松树\firleaves.dds
+2.000000
+0
+14
+俄国橄榄
+Trees\精简树木\俄国橄榄\RussianOlive2.spt
+Trees\精简树木\俄国橄榄\oliveleaves.dds
+2.000000
+0
+15
+修改绿色英国像树
+Trees\精简树木\修改绿色英国像树\ColumnarEnglishGreen1.spt
+Trees\精简树木\修改绿色英国像树\greenleaves.dds
+2.000000
+0
+16
+大像树
+Trees\精简树木\大像树\ColumnarBig5.spt
+Trees\精简树木\大像树\Compositeleaves.dds
+2.000000
+0
+17
+绿色像树2
+Trees\精简树木\大像树\绿色像树2\ColumnarBig9.spt
+Trees\精简树木\大像树\绿色像树2\greenleaves.dds
+2.000000
+0
+18
+绿色大像树
+Trees\精简树木\大像树\绿色大像树\ColumnarBig6.spt
+Trees\精简树木\大像树\绿色大像树\
+2.000000
+0
+19
+绿色大像树
+Trees\精简树木\大像树\绿色大像树\ColumnarBig7.spt
+Trees\精简树木\大像树\绿色大像树\
+2.000000
+0
+20
+大槐树
+Trees\精简树木\大槐树\huai1.spt
+Trees\精简树木\大槐树\
+2.000000
+0
+21
+大槐树
+Trees\精简树木\大槐树\huai3.spt
+Trees\精简树木\大槐树\
+2.000000
+0
+22
+巨大毛榉
+Trees\精简树木\巨大毛榉\Beech7.spt
+Trees\精简树木\巨大毛榉\Beechleaves.dds
+2.000000
+0
+23
+巨大毛榉
+Trees\精简树木\巨大毛榉\Beech9.spt
+Trees\精简树木\巨大毛榉\Beechleaves.dds
+2.000000
+0
+24
+带雪毛榉
+Trees\精简树木\巨大毛榉\带雪毛榉\Beechsnow2.spt
+Trees\精简树木\巨大毛榉\带雪毛榉\
+2.100000
+0
+25
+新毛榉
+Trees\精简树木\巨大毛榉\新毛榉\Beech7.spt
+Trees\精简树木\巨大毛榉\新毛榉\beech7leaves.dds
+2.000000
+0
+26
+巨松
+Trees\精简树木\巨松\SnowPineBig3.spt
+Trees\精简树木\巨松\pinebigleaves.dds
+2.000000
+0
+27
+怪异松树
+Trees\精简树木\怪异松树\ScotchPine_RT.spt
+Trees\精简树木\怪异松树\scotchleaves.dds
+2.000000
+0
+28
+怪异松树
+Trees\精简树木\怪异松树\ScotchPine_RT2.spt
+Trees\精简树木\怪异松树\scotchleaves.dds
+2.000000
+0
+29
+杉树
+Trees\精简树木\杉树\杉树2.spt
+Trees\精简树木\杉树\shashuleaves.dds
+2.000000
+0
+30
+雪杉树
+Trees\精简树木\杉树\雪杉树\雪杉树4.spt
+Trees\精简树木\杉树\雪杉树\snowshanshuleaves.dds
+2.000000
+0
+31
+松树小
+Trees\精简树木\松树小\OrientalSpruce.spt
+Trees\精简树木\松树小\spruceleaves.dds
+2.000000
+0
+32
+松树小
+Trees\精简树木\松树小\OrientalSpruce2.spt
+Trees\精简树木\松树小\spruceleaves.dds
+2.000000
+0
+33
+松树小
+Trees\精简树木\松树小\OrientalSpruce3.spt
+Trees\精简树木\松树小\spruceleaves.dds
+2.000000
+0
+34
+枯树
+Trees\精简树木\枯树\PlaneKushu.spt
+Trees\精简树木\枯树\Kushuleaves.dds
+2.000000
+0
+35
+枯树
+Trees\精简树木\枯树\PlaneKushu2.spt
+Trees\精简树木\枯树\Kushuleaves.dds
+2.000000
+0
+36
+磨牙镇枯树
+Trees\精简树木\枯树\磨牙镇枯树\PlaneKushuhigh2.spt
+Trees\精简树木\枯树\磨牙镇枯树\planekushuleaves.dds
+2.000000
+0
+37
+磨牙镇枯树
+Trees\精简树木\枯树\磨牙镇枯树\PlaneKushuhigh4.spt
+Trees\精简树木\枯树\磨牙镇枯树\planekushuleaves.dds
+2.000000
+0
+38
+柳树
+Trees\精简树木\柳树\WeepingWillow2.spt
+Trees\精简树木\柳树\weepingleaves.dds
+2.000000
+0
+39
+桃树
+Trees\精简树木\桃树\Taoshu4.spt
+Trees\精简树木\桃树\taoshuleaves.dds
+2.000000
+0
+40
+桃树小
+Trees\精简树木\桃树\桃树小\Taoshu3small.spt
+Trees\精简树木\桃树\桃树小\taoshuleaves.dds
+2.000000
+0
+41
+桃树小
+Trees\精简树木\桃树\桃树小\Taoshu3small3.spt
+Trees\精简树木\桃树\桃树小\taoshuleaves.dds
+2.000000
+0
+42
+桑树
+Trees\精简树木\桑树\LondonPlane_RT5.spt
+Trees\精简树木\桑树\londonleaves.dds
+2.000000
+0
+43
+梨树
+Trees\精简树木\梨树\梨树1.spt
+Trees\精简树木\梨树\peartreeleaves.dds
+2.000000
+0
+44
+梨树
+Trees\精简树木\梨树\梨树2.spt
+Trees\精简树木\梨树\peartreeleaves.dds
+2.000000
+0
+45
+棕榈
+Trees\精简树木\棕榈\Palm1.spt
+Trees\精简树木\棕榈\palmleaves.dds
+2.000000
+0
+46
+棕榈
+Trees\精简树木\棕榈\Palm4.spt
+Trees\精简树木\棕榈\palmleaves.dds
+2.000000
+0
+47
+椰子树
+Trees\精简树木\椰子树\Coconutyellow1.spt
+Trees\精简树木\椰子树\coconutyellowleaves.dds
+2.000000
+0
+48
+椰子树
+Trees\精简树木\椰子树\Coconutyellow4.spt
+Trees\精简树木\椰子树\coconutyellowleaves.dds
+2.000000
+0
+49
+榕树
+Trees\精简树木\榕树\Rong1.spt
+Trees\精简树木\榕树\
+2.000000
+0
+50
+榕树
+Trees\精简树木\榕树\Rong2.spt
+Trees\精简树木\榕树\
+2.000000
+0
+51
+榕树
+Trees\精简树木\榕树\Rong3.spt
+Trees\精简树木\榕树\
+2.000000
+0
+52
+槐树
+Trees\精简树木\槐树\huaishu_1.spt
+Trees\精简树木\槐树\Leaves.dds
+2.000000
+0
+53
+槐树
+Trees\精简树木\槐树\huaishu_2.spt
+Trees\精简树木\槐树\Leaves.dds
+2.000000
+0
+54
+歪脖枯树
+Trees\精简树木\歪脖枯树\waibo1.spt
+Trees\精简树木\歪脖枯树\
+2.000000
+0
+55
+歪脖枯树
+Trees\精简树木\歪脖枯树\waibo2.spt
+Trees\精简树木\歪脖枯树\
+2.000000
+0
+56
+歪脖枯树
+Trees\精简树木\歪脖枯树\waibo3.spt
+Trees\精简树木\歪脖枯树\
+2.000000
+0
+57
+歪脖枯树
+Trees\精简树木\歪脖枯树\waibo4.spt
+Trees\精简树木\歪脖枯树\
+2.000000
+0
+58
+白杨
+Trees\精简树木\白杨\Baiyang2.spt
+Trees\精简树木\白杨\baiyangleaves.dds
+2.000000
+0
+59
+白树
+Trees\精简树木\白树\AmurCork_RT_Low.spt
+Trees\精简树木\白树\corkleaves.dds
+2.000000
+0
+60
+白树2
+Trees\精简树木\白树\白树2\AmurCork_RT_Low2.spt
+Trees\精简树木\白树\白树2\baishuleaves.dds
+2.000000
+0
+61
+竹林
+Trees\精简树木\竹林\Bamboos1.spt
+Trees\精简树木\竹林\
+2.000000
+0
+62
+竹林
+Trees\精简树木\竹林\Bamboos2.spt
+Trees\精简树木\竹林\
+2.000000
+0
+63
+竹林
+Trees\精简树木\竹林\Bamboos3.spt
+Trees\精简树木\竹林\
+2.000000
+0
+64
+竹林
+Trees\精简树木\竹林\Bamboos4.spt
+Trees\精简树木\竹林\
+2.000000
+0
+65
+糖梧桐
+Trees\精简树木\糖梧桐\SugarMaple.spt
+Trees\精简树木\糖梧桐\Leaves.dds
+2.000000
+0
+66
+糖梧桐
+Trees\精简树木\糖梧桐\SugarMaple2.spt
+Trees\精简树木\糖梧桐\Leaves.dds
+2.000000
+0
+67
+红松
+Trees\精简树木\红松\GiantSequoia.spt
+Trees\精简树木\红松\sequoialeaves.dds
+2.000000
+0
+68
+带雪红松
+Trees\精简树木\红松\带雪红松\GiantSequoiasnow2.spt
+Trees\精简树木\红松\带雪红松\snowgiantleaves.dds
+2.000000
+0
+69
+英国像树
+Trees\精简树木\英国像树\ColumnarEnglishOak3.spt
+Trees\精简树木\英国像树\englishleaves.dds
+2.000000
+0
+70
+草原的树
+Trees\精简树木\草原的树\Gimlet.spt
+Trees\精简树木\草原的树\Gimletleaves.dds
+2.000000
+0
+71
+草原的树
+Trees\精简树木\草原的树\Gimlet2.spt
+Trees\精简树木\草原的树\Gimletleaves.dds
+2.000000
+0
+72
+菩提树
+Trees\精简树木\菩提树\putishu1.spt
+Trees\精简树木\菩提树\putileaves.dds
+2.000000
+0
+73
+菩提树
+Trees\精简树木\菩提树\putishu3.spt
+Trees\精简树木\菩提树\putileaves.dds
+2.000000
+0
+74
+雨林像树
+Trees\精简树木\雨林树木\雨林像树\yulinSycamore.spt
+Trees\精简树木\雨林树木\雨林像树\
+2.000000
+0
+75
+雨林像树垂钓
+Trees\精简树木\雨林树木\雨林像树垂钓\xiangshu1.spt
+Trees\精简树木\雨林树木\雨林像树垂钓\xiangshuleaves.dds
+2.000000
+0
+76
+雨林像树垂钓
+Trees\精简树木\雨林树木\雨林像树垂钓\xiangshu2.spt
+Trees\精简树木\雨林树木\雨林像树垂钓\xiangshuleaves.dds
+2.000000
+0
+77
+雨林树1
+Trees\精简树木\雨林树木\雨林树1\Sycamore.spt
+Trees\精简树木\雨林树木\雨林树1\sycamoreleaves.dds
+2.000000
+0
+78
+雨林树1
+Trees\精简树木\雨林树木\雨林树1\Sycamore2.spt
+Trees\精简树木\雨林树木\雨林树1\sycamoreleaves.dds
+2.000000
+0
+79
+雨林灌木
+Trees\精简树木\雨林树木\雨林灌木\guanmu1.spt
+Trees\精简树木\雨林树木\雨林灌木\guanmuleaves.dds
+2.000000
+0
+80
+雨林灌木
+Trees\精简树木\雨林树木\雨林灌木\guanmu3.spt
+Trees\精简树木\雨林树木\雨林灌木\guanmuleaves.dds
+2.000000
+0
+81
+雪松
+Trees\精简树木\雪松\SnowPineWithSnow1.spt
+Trees\精简树木\雪松\snowleaves.dds
+2.000000
+0
+82
+面包树
+Trees\精简树木\面包树\Baobab6.spt
+Trees\精简树木\面包树\
+2.000000
+0
+83
+面包树
+Trees\精简树木\面包树\Baobab8.spt
+Trees\精简树木\面包树\
+2.000000
+0
+84
+面包树2
+Trees\精简树木\面包树\面包树2\Baobab1.spt
+Trees\精简树木\面包树\面包树2\BababLeaves.dds
+2.000000
+0
+85
+魔界树木
+Trees\精简树木\魔界树木\xiangshu5.spt
+Trees\精简树木\魔界树木\
+2.000000
+0
+86
+红魔界树木1
+Trees\精简树木\魔界树木\红魔界树木1\hongxiangshu5.spt
+Trees\精简树木\魔界树木\红魔界树木1\xiangshugaoleaves.dds
+2.000000
+0
+87
+红魔界树木1
+Trees\精简树木\魔界树木\红魔界树木1\hongxiangshugao.spt
+Trees\精简树木\魔界树木\红魔界树木1\xiangshugaoleaves.dds
+2.000000
+0
+88
+红魔界树木2
+Trees\精简树木\魔界树木\红魔界树木2\Gimlesoul.spt
+Trees\精简树木\魔界树木\红魔界树木2\gimlesoulleaves.dds
+2.000000
+0
+89
+魔界树木1
+Trees\精简树木\魔界树木\魔界树木1\xiangshu5.spt
+Trees\精简树木\魔界树木\魔界树木1\xiangshugaoleaves.dds
+2.000000
+0
+90
+魔界树木1
+Trees\精简树木\魔界树木\魔界树木1\xiangshugao.spt
+Trees\精简树木\魔界树木\魔界树木1\xiangshugaoleaves.dds
+2.000000
+0
+91
+魔界树木2
+Trees\精简树木\魔界树木\魔界树木2\Gimlesoul.spt
+Trees\精简树木\魔界树木\魔界树木2\gimlesoulleaves.dds
+2.000000
+0
+92
+鹅卵石像树大
+Trees\精简树木\鹅卵石像树大\ShingleOak4.spt
+Trees\精简树木\鹅卵石像树大\
+2.000000
+0
+93
+鹅卵石象树
+Trees\精简树木\鹅卵石像树大\鹅卵石象树\Shingleoak.spt
+Trees\精简树木\鹅卵石像树大\鹅卵石象树\Shingleoak_leaves.dds
+2.000000
+0
+94
+鹅卵石象树
+Trees\精简树木\鹅卵石像树大\鹅卵石象树\Shingleoak2.spt
+Trees\精简树木\鹅卵石像树大\鹅卵石象树\Shingleoak_leaves.dds
+2.000000
+0
+95
+鹅卵石象树
+Trees\精简树木\鹅卵石像树大\鹅卵石象树\Shingleoak3.spt
+Trees\精简树木\鹅卵石像树大\鹅卵石象树\Shingleoak_leaves.dds
+2.000000
+0
+96
+鹅卵石象树
+Trees\精简树木\鹅卵石像树大\鹅卵石象树\Shingleoak4.spt
+Trees\精简树木\鹅卵石像树大\鹅卵石象树\Shingleoak_leaves.dds
+2.000000
+0
+97
+鹅卵石象树
+Trees\精简树木\鹅卵石像树大\鹅卵石象树\ShingleOak_Kushu.spt
+Trees\精简树木\鹅卵石像树大\鹅卵石象树\Shingleoak_leaves.dds
+2.000000
+0
+
+===== configs/autofamilyconfigs/watergrass.lst (1316 bytes) =====
+30
+100000
+水草01
+Grasses\水草\水草01.mox
+0
+100001
+水草02
+Grasses\水草\水草02.mox
+0
+100002
+水草03
+Grasses\水草\水草03.mox
+0
+100003
+水草04
+Grasses\水草\水草04.mox
+0
+100004
+水草05
+Grasses\水草\水草05.mox
+0
+100005
+水草06
+Grasses\水草\水草06.mox
+0
+100006
+水草07
+Grasses\水草\水草07.mox
+0
+100007
+水草08
+Grasses\水草\水草08.mox
+0
+100008
+水草09
+Grasses\水草\水草09.mox
+0
+100009
+水草10
+Grasses\水草\水草10.mox
+0
+100010
+水草11
+Grasses\水草\水草11.mox
+0
+100011
+水草12
+Grasses\水草\水草12.mox
+0
+100012
+水草13
+Grasses\水草\水草13.mox
+0
+100013
+水草14
+Grasses\水草\水草14.mox
+0
+100014
+水草15
+Grasses\水草\水草15.mox
+0
+100015
+水草16
+Grasses\水草\水草16.mox
+0
+100016
+水草17
+Grasses\水草\水草17.mox
+0
+100017
+水草18
+Grasses\水草\水草18.mox
+0
+100018
+水草19
+Grasses\水草\水草19.mox
+0
+100019
+水草20
+Grasses\水草\水草20.mox
+0
+100020
+水草21
+Grasses\水草\水草21.mox
+0
+100021
+水草22
+Grasses\水草\水草22.mox
+0
+100022
+水草23
+Grasses\水草\水草23.mox
+0
+100023
+水草24
+Grasses\水草\水草24.mox
+0
+100024
+水草25
+Grasses\水草\水草25.mox
+0
+100025
+水草26
+Grasses\水草\水草26.mox
+0
+100026
+水草27
+Grasses\水草\水草27.mox
+0
+100027
+水草28
+Grasses\水草\水草28.mox
+0
+100028
+长01
+Grasses\水草\长01.mox
+0
+100029
+长02
+Grasses\水草\长02.mox
+0
+
+===== configs/autofamilyconfigs/borders/vssver2.scc (113 bytes) =====
+4 ì3VæGr^M»3Ü¸yÿDÃ²©¬%     ­%  ö6´ay»   $/CElement/CBin/Configs/AutoFamilyConfigs/borders scene00.border 
+
+===== configs/autofamilyconfigs/parameters/局部纹理/1.ini (61 bytes) =====
+[part_texture]
+border_scope = 0.700000
+texture_type = 1
+
+===== configs/autofamilyconfigs/parameters/局部纹理/2.ini (61 bytes) =====
+[part_texture]
+border_scope = 0.700000
+texture_type = 1
+
+===== configs/autofamilyconfigs/parameters/山/2.ini (209 bytes) =====
+[hill]
+max_height = 42.000000
+main_smooth = 1.540000
+part_smooth = 0.000000
+bridge_scope = 0.120000
+bridge_depth = 0.090000
+border_erode = 0.050000
+line_width = 34.000000
+hill_up = 0
+hill_seed = 5
+
+===== configs/autofamilyconfigs/parameters/山/3.ini (699 bytes) =====
+[hill]
+max_height = 150.000000
+main_smooth = 3.000000
+part_smooth = 0.400000
+bridge_scope = 0.600000
+bridge_depth = 0.200000
+border_erode = 0.400000
+line_width = 100.000000
+hill_up = 1
+hill_seed = 1
+height_curve_number = 7
+height_curve_0 = 1.000000
+height_curve_1 = 0.940000
+height_curve_2 = 0.800000
+height_curve_3 = 0.600000
+height_curve_4 = 0.400000
+height_curve_5 = 0.250000
+height_curve_6 = 0.200000
+line_curve_number = 10
+line_curve_0 = 0.600000
+line_curve_1 = 0.940000
+line_curve_2 = 0.800000
+line_curve_3 = 0.600000
+line_curve_4 = 0.400000
+line_curve_5 = 0.250000
+line_curve_6 = 0.200000
+line_curve_7 = 0.300000
+line_curve_8 = 0.400000
+line_curve_9 = 0.500000
+
+===== configs/autofamilyconfigs/parameters/山/1.ini (699 bytes) =====
+[hill]
+max_height = 150.000000
+main_smooth = 3.000000
+part_smooth = 0.400000
+bridge_scope = 0.600000
+bridge_depth = 0.200000
+border_erode = 0.400000
+line_width = 100.000000
+hill_up = 1
+hill_seed = 1
+height_curve_number = 7
+height_curve_0 = 1.000000
+height_curve_1 = 0.940000
+height_curve_2 = 0.800000
+height_curve_3 = 0.600000
+height_curve_4 = 0.400000
+height_curve_5 = 0.250000
+height_curve_6 = 0.200000
+line_curve_number = 10
+line_curve_0 = 0.600000
+line_curve_1 = 0.940000
+line_curve_2 = 0.800000
+line_curve_3 = 0.600000
+line_curve_4 = 0.400000
+line_curve_5 = 0.250000
+line_curve_6 = 0.200000
+line_curve_7 = 0.300000
+line_curve_8 = 0.400000
+line_curve_9 = 0.500000
+
+===== configs/autofamilyconfigs/parameters/整体高度/1.ini (101 bytes) =====
+[main_Terrain_Height]
+max_height = 100.000000
+main_smooth = 4
+part_smooth = 0.300000
+seed = 4
+
+===== configs/autofamilyconfigs/parameters/整体高度/2.ini (101 bytes) =====
+[main_Terrain_Height]
+max_height = 250.000000
+main_smooth = 8
+part_smooth = 0.800000
+seed = 9
+
+===== configs/autofamilyconfigs/parameters/纹理/1.ini (293 bytes) =====
+[texture]
+texture_ratio = 0.200000
+main_texture = 0.400000
+patch_texture = 1.200000
+patch_division = 30.000000
+main_texture_u = 10.000000
+main_texture_v = 10.000000
+patch_texture_u = 10.000000
+patch_texture_v = 10.000000
+texture_seed = 1
+main_texture_id = 0
+patch_texture_id = 1
+
+===== configs/autofamilyconfigs/parameters/纹理/2.ini (293 bytes) =====
+[texture]
+texture_ratio = 0.740000
+main_texture = 0.860000
+patch_texture = 3.440000
+patch_division = 82.000000
+main_texture_u = 10.000000
+main_texture_v = 10.000000
+patch_texture_u = 10.000000
+patch_texture_v = 10.000000
+texture_seed = 5
+main_texture_id = 2
+patch_texture_id = 3
+
+===== configs/autofamilyconfigs/parameters/路/1.ini (137 bytes) =====
+[road]
+max_height = 10.000000
+main_smooth = 50.000000
+part_smooth = 0.200000
+road_width = 20.000000
+flat_road = 0
+road_seed = 1
+
+===== configs/autofamilyconfigs/parameters/路/2.ini (137 bytes) =====
+[road]
+max_height = 10.000000
+main_smooth = 50.000000
+part_smooth = 0.200000
+road_width = 20.000000
+flat_road = 0
+road_seed = 1
+
+===== configs/autofamilyconfigs/parameters/预设/多边形山.lst (151 bytes) =====
+2
+0
+基础地形01
+Configs\AutoFamilyConfigs\parameters\山\1.ini
+图标路径01
+1
+基础地形02
+Configs\AutoFamilyConfigs\parameters\山\3.ini
+图标路径02
+
+===== configs/autofamilyconfigs/parameters/预设/局部纹理.lst (163 bytes) =====
+2
+0
+基础地形01
+Configs\AutoFamilyConfigs\parameters\局部纹理\1.ini
+图标路径01
+1
+基础地形02
+Configs\AutoFamilyConfigs\parameters\局部纹理\2.ini
+图标路径02
+
+===== configs/autofamilyconfigs/parameters/预设/整体高度.lst (163 bytes) =====
+2
+0
+整体高度01
+Configs\AutoFamilyConfigs\parameters\整体高度\1.ini
+图标路径01
+1
+整体高度02
+Configs\AutoFamilyConfigs\parameters\整体高度\2.ini
+图标路径02
+
+===== configs/autofamilyconfigs/parameters/预设/纹理.lst (155 bytes) =====
+2
+0
+基础地形01
+Configs\AutoFamilyConfigs\parameters\纹理\1.ini
+图标路径01
+1
+基础地形02
+Configs\AutoFamilyConfigs\parameters\纹理\2.ini
+图标路径02
+
+===== configs/autofamilyconfigs/parameters/预设/线形山.lst (151 bytes) =====
+2
+0
+基础地形01
+Configs\AutoFamilyConfigs\parameters\山\1.ini
+图标路径01
+1
+基础地形02
+Configs\AutoFamilyConfigs\parameters\山\3.ini
+图标路径02
+
+===== configs/autofamilyconfigs/parameters/预设/路.lst (151 bytes) =====
+2
+0
+基础地形01
+Configs\AutoFamilyConfigs\parameters\路\1.ini
+图标路径01
+1
+基础地形02
+Configs\AutoFamilyConfigs\parameters\路\2.ini
+图标路径02

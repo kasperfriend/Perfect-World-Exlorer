@@ -1,0 +1,186 @@
+# 05-sky-band-object  0x799e00-0x79a040
+00799e00: call 0x77a290                           
+00799e05: mov eax, dword ptr [ebx + 0x5b4]        
+00799e0b: test eax, eax                           
+00799e0d: mov dword ptr [esp + 0x10], eax         
+00799e11: je 0x799fc6                             
+00799e17: mov al, byte ptr [ebx + 0x5b9]          
+00799e1d: test al, al                             
+00799e1f: jne 0x799fc6                            
+00799e25: fild dword ptr [esp + 0x10]             
+00799e29: fidiv dword ptr [ebx + 0x5b0]           
+00799e2f: fsubr dword ptr [0x8effa0]                ; f32 1
+00799e35: fmul dword ptr [0x8f0ae8]                 ; f32 255
+00799e3b: call 0x892e78                           
+00799e40: mov dword ptr [esp + 0x10], eax         
+00799e44: lea eax, [esp + 0x18]                   
+00799e48: push eax                                
+00799e49: call 0x787fa0                           
+00799e4e: lea ecx, [esp + 0x5c]                   
+00799e52: push ecx                                
+00799e53: call 0x787fa0                           
+00799e58: fild dword ptr [esp + 0x18]             
+00799e5c: mov ecx, dword ptr [ebx + 0x54]         
+00799e5f: add esp, 8                              
+00799e62: fmul dword ptr [0x8f0928]                 ; f32 0.00392157
+00799e68: push 1                                  
+00799e6a: fst dword ptr [esp + 0x3c]              
+00799e6e: fld dword ptr [0x8effa0]                  ; f32 1
+00799e74: fsub st(1)                              
+00799e76: fmul dword ptr [0x8f0af8]                 ; f32 4
+00799e7c: fstp dword ptr [esp + 0x7c]             
+00799e80: mov edx, dword ptr [ecx]                
+00799e82: fstp st(0)                              
+00799e84: call dword ptr [edx + 0x18]             
+00799e87: mov ecx, dword ptr [ebx + 0xc]          
+00799e8a: push 2                                  
+00799e8c: push 1                                  
+00799e8e: call 0x779fc0                           
+00799e93: mov ecx, dword ptr [ebx + 0xc]          
+00799e96: push 4                                  
+00799e98: push 1                                  
+00799e9a: call 0x77a020                           
+00799e9f: mov ecx, dword ptr [ebx + 0xc]          
+00799ea2: push 2                                  
+00799ea4: push 1                                  
+00799ea6: push 1                                  
+00799ea8: call 0x779fe0                           
+00799ead: mov ecx, dword ptr [ebx + 0xc]          
+00799eb0: push 2                                  
+00799eb2: push 1                                  
+00799eb4: push 1                                  
+00799eb6: call 0x77a040                           
+00799ebb: mov ecx, dword ptr [ebx + 0xc]          
+00799ebe: push 1                                  
+00799ec0: push 1                                  
+00799ec2: call 0x77a120                           
+00799ec7: mov ecx, dword ptr [ebx + 0xc]          
+00799eca: push 2                                  
+00799ecc: push 1                                  
+00799ece: call 0x77a1f0                           
+00799ed3: mov ecx, dword ptr [ebx + 0xc]          
+00799ed6: push 3                                  
+00799ed8: push 3                                  
+00799eda: push 1                                  
+00799edc: call 0x77a0e0                           
+00799ee1: mov ecx, dword ptr [ebx + 0xc]          
+00799ee4: push 1                                  
+00799ee6: push 1                                  
+00799ee8: call 0x779fc0                           
+00799eed: mov ecx, dword ptr [ebx + 0xc]          
+00799ef0: push 1                                  
+00799ef2: push 1                                  
+00799ef4: call 0x77a020                           
+00799ef9: mov eax, dword ptr [ebx + 0x5ac]        
+00799eff: push 0                                  
+00799f01: push eax                                
+00799f02: mov ecx, ebx                            
+00799f04: call 0x799a40                           
+00799f09: lea ecx, [esp + 0x18]                   
+00799f0d: push ecx                                
+00799f0e: mov ecx, dword ptr [ebx + 0xc]          
+00799f11: push 1                                  
+00799f13: call 0x779da0                           
+00799f18: mov ecx, dword ptr [ebx + 0xc]          
+00799f1b: push 2                                  
+00799f1d: push 1                                  
+00799f1f: call 0x779fc0                           
+00799f24: push 4                                  
+00799f26: mov ecx, dword ptr [ebx + 0xc]          
+00799f29: push 1                                  
+00799f2b: call 0x77a020                           
+00799f30: mov edx, dword ptr [ebx + 0x8d0]        
+00799f36: push 1                                  
+00799f38: push edx                                
+00799f39: mov ecx, ebx                            
+00799f3b: call 0x799a40                           
+00799f40: mov ecx, dword ptr [ebx + 0xc]          
+00799f43: lea eax, [esp + 0x58]                   
+00799f47: push eax                                
+00799f48: push 1                                  
+00799f4a: call 0x779da0                           
+00799f4f: mov ecx, dword ptr [ebx + 0x5a8]        
+00799f55: mov edx, dword ptr [ebx + 0x5a4]        
+00799f5b: push ecx                                
+00799f5c: push edx                                
+00799f5d: mov ecx, ebx                            
+00799f5f: call 0x799b40                           
+00799f64: mov ecx, dword ptr [ebx + 0xc]          
+00799f67: lea eax, [esp + 0x18]                   
+00799f6b: push eax                                
+00799f6c: push 1                                  
+00799f6e: call 0x779da0                           
+00799f73: mov ecx, dword ptr [ebx + 0x8cc]        
+00799f79: mov edx, dword ptr [ebx + 0x8c8]        
+00799f7f: push ecx                                
+00799f80: push edx                                
+00799f81: mov ecx, ebx                            
+00799f83: call 0x799b40                           
+00799f88: mov ecx, dword ptr [ebx + 0x54]         
+00799f8b: push 1                                  
+00799f8d: mov eax, dword ptr [ecx]                
+00799f8f: call dword ptr [eax + 0x1c]             
+00799f92: mov ecx, dword ptr [ebx + 0xc]          
+00799f95: push 0                                  
+00799f97: push 1                                  
+00799f99: call 0x77a1f0                           
+00799f9e: mov ecx, dword ptr [ebx + 0xc]          
+00799fa1: push 1                                  
+00799fa3: push 1                                  
+00799fa5: push 1                                  
+00799fa7: call 0x77a0e0                           
+00799fac: mov ecx, dword ptr [ebx + 0xc]          
+00799faf: push 1                                  
+00799fb1: push 1                                  
+00799fb3: call 0x779fc0                           
+00799fb8: mov ecx, dword ptr [ebx + 0xc]          
+00799fbb: push 1                                  
+00799fbd: push 1                                  
+00799fbf: call 0x77a020                           
+00799fc4: jmp 0x799feb                            
+00799fc6: mov ecx, dword ptr [ebx + 0x5ac]        
+00799fcc: push 0                                  
+00799fce: push ecx                                
+00799fcf: mov ecx, ebx                            
+00799fd1: call 0x799a40                           
+00799fd6: mov edx, dword ptr [ebx + 0x5a8]        
+00799fdc: mov eax, dword ptr [ebx + 0x5a4]        
+00799fe2: push edx                                
+00799fe3: push eax                                
+00799fe4: mov ecx, ebx                            
+00799fe6: call 0x799b40                           
+00799feb: mov ecx, dword ptr [ebx + 0xc]          
+00799fee: push 1                                  
+00799ff0: call 0x77a230                           
+00799ff5: mov ecx, dword ptr [ebx + 0xc]          
+00799ff8: push 1                                  
+00799ffa: call 0x77a210                           
+00799fff: mov ecx, dword ptr [ebx + 0xc]          
+0079a002: push 1                                  
+0079a004: call 0x77a3c0                           
+0079a009: mov ecx, dword ptr [esp + 0x14]         
+0079a00d: push ecx                                
+0079a00e: mov ecx, dword ptr [ebx + 0xc]          
+0079a011: call 0x77ab10                           
+0079a016: mov ecx, dword ptr [ebx + 0xc]          
+0079a019: push 5                                  
+0079a01b: call 0x77a2c0                           
+0079a020: mov ecx, dword ptr [ebx + 0xc]          
+0079a023: push 6                                  
+0079a025: call 0x77a2f0                           
+0079a02a: mov al, 1                               
+0079a02c: pop ebx                                 
+0079a02d: add esp, 0xa0                           
+0079a033: ret                                     
+0079a034: nop                                     
+0079a035: nop                                     
+0079a036: nop                                     
+0079a037: nop                                     
+0079a038: nop                                     
+0079a039: nop                                     
+0079a03a: nop                                     
+0079a03b: nop                                     
+0079a03c: nop                                     
+0079a03d: nop                                     
+0079a03e: nop                                     
+0079a03f: nop                                     

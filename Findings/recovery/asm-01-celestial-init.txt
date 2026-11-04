@@ -1,0 +1,1167 @@
+# 01-celestial-init  0x4b2e60-0x4b3e00
+004b2e60: or dword ptr [ebx + 0x1f08e8c8], ecx    
+004b2e66: sub eax, 0x3302eb00                     
+004b2e6b: ror byte ptr [ecx + 0xd8b3045], 0xec    
+004b2e72: wait                                    
+004b2e74: add byte ptr [edi + 0x6a], dl           
+004b2e77: add dword ptr [ebx + 0x6a570849], ecx   
+004b2e7d: push es                                 
+004b2e7e: push 1                                  
+004b2e80: push ecx                                
+004b2e81: mov ecx, eax                            
+004b2e83: mov dword ptr [esp + 0x58], ebx         
+004b2e87: call 0x784dd0                           
+004b2e8c: test al, al                             
+004b2e8e: jne 0x4b2eb4                            
+004b2e90: push 0x95a984                             ; 'CECSunMoon::Init, Falied to create sun stream'
+004b2e95: push 1                                  
+004b2e97: call 0x764590                           
+004b2e9c: add esp, 8                              
+004b2e9f: xor al, al                              
+004b2ea1: pop edi                                 
+004b2ea2: pop esi                                 
+004b2ea3: pop ebp                                 
+004b2ea4: pop ebx                                 
+004b2ea5: mov ecx, dword ptr [esp + 0x28]         
+004b2ea9: mov dword ptr fs:[0], ecx               
+004b2eb0: add esp, 0x34                           
+004b2eb3: ret                                     
+004b2eb4: push 0x48                               
+004b2eb6: call 0x763250                           
+004b2ebb: add esp, 4                              
+004b2ebe: mov dword ptr [esp + 0x18], eax         
+004b2ec2: cmp eax, edi                            
+004b2ec4: mov dword ptr [esp + 0x40], 1           
+004b2ecc: je 0x4b2ed7                               ; f32 4408.02
+004b2ece: mov ecx, eax                            
+004b2ed0: call 0x784d70                             ; f32 -736281
+004b2ed5: jmp 0x4b2ed9                            
+004b2ed7: xor eax, eax                            
+004b2ed9: mov dword ptr [ebp + 0x34], eax         
+004b2edc: mov edx, dword ptr [0x9b3eec]             ; f32 0
+004b2ee2: push 1                                  
+004b2ee4: push 1                                  
+004b2ee6: mov ecx, dword ptr [edx + 8]            
+004b2ee9: push 0x12                               
+004b2eeb: push 8                                  
+004b2eed: push 1                                  
+004b2eef: push ecx                                
+004b2ef0: mov ecx, eax                            
+004b2ef2: mov dword ptr [esp + 0x58], ebx         
+004b2ef6: call 0x784dd0                           
+004b2efb: test al, al                             
+004b2efd: jne 0x4b2f23                            
+004b2eff: push 0x95a950                             ; 'CECSunMoon::Init, Falied to create sun shine stream'
+004b2f04: push 1                                  
+004b2f06: call 0x764590                           
+004b2f0b: add esp, 8                              
+004b2f0e: xor al, al                              
+004b2f10: pop edi                                 
+004b2f11: pop esi                                 
+004b2f12: pop ebp                                 
+004b2f13: pop ebx                                 
+004b2f14: mov ecx, dword ptr [esp + 0x28]         
+004b2f18: mov dword ptr fs:[0], ecx               
+004b2f1f: add esp, 0x34                           
+004b2f22: ret                                     
+004b2f23: push 0x48                               
+004b2f25: call 0x763250                           
+004b2f2a: add esp, 4                              
+004b2f2d: mov dword ptr [esp + 0x18], eax         
+004b2f31: cmp eax, edi                            
+004b2f33: mov dword ptr [esp + 0x40], 2           
+004b2f3b: je 0x4b2f46                               ; f32 4408.02
+004b2f3d: mov ecx, eax                            
+004b2f3f: call 0x784d70                             ; f32 -736281
+004b2f44: jmp 0x4b2f48                            
+004b2f46: xor eax, eax                            
+004b2f48: mov dword ptr [ebp + 0x38], eax         
+004b2f4b: mov ecx, dword ptr [0x9b3eec]             ; f32 0
+004b2f51: push edi                                
+004b2f52: push 1                                  
+004b2f54: mov ecx, dword ptr [ecx + 8]            
+004b2f57: push edi                                
+004b2f58: push 6                                  
+004b2f5a: push 1                                  
+004b2f5c: push ecx                                
+004b2f5d: mov ecx, eax                            
+004b2f5f: mov dword ptr [esp + 0x58], ebx         
+004b2f63: call 0x784dd0                           
+004b2f68: test al, al                             
+004b2f6a: jne 0x4b2f90                            
+004b2f6c: push 0x95a920                             ; 'CECSunMoon::Init, Falied to create moon stream'
+004b2f71: push 1                                  
+004b2f73: call 0x764590                           
+004b2f78: add esp, 8                              
+004b2f7b: xor al, al                              
+004b2f7d: pop edi                                 
+004b2f7e: pop esi                                 
+004b2f7f: pop ebp                                 
+004b2f80: pop ebx                                 
+004b2f81: mov ecx, dword ptr [esp + 0x28]         
+004b2f85: mov dword ptr fs:[0], ecx               
+004b2f8c: add esp, 0x34                           
+004b2f8f: ret                                     
+004b2f90: mov ecx, dword ptr [ebp + 0x30]         
+004b2f93: lea edx, [esp + 0x10]                   
+004b2f97: push edi                                
+004b2f98: push edx                                
+004b2f99: push edi                                
+004b2f9a: push edi                                
+004b2f9b: mov dword ptr [esp + 0x20], edi         
+004b2f9f: call 0x7855c0                           
+004b2fa4: test al, al                             
+004b2fa6: jne 0x4b2fcc                            
+004b2fa8: push 0x95a8f0                             ; 'CECSunMoon::Init, failed to lock sun stream!'
+004b2fad: push 1                                  
+004b2faf: call 0x764590                           
+004b2fb4: add esp, 8                              
+004b2fb7: xor al, al                              
+004b2fb9: pop edi                                 
+004b2fba: pop esi                                 
+004b2fbb: pop ebp                                 
+004b2fbc: pop ebx                                 
+004b2fbd: mov ecx, dword ptr [esp + 0x28]         
+004b2fc1: mov dword ptr fs:[0], ecx               
+004b2fc8: add esp, 0x34                           
+004b2fcb: ret                                     
+004b2fcc: mov edi, dword ptr [esp + 0x10]         
+004b2fd0: mov edx, 0xff000000                     
+004b2fd5: mov ecx, 7                              
+004b2fda: lea esi, [esp + 0x1c]                   
+004b2fde: mov dword ptr [esp + 0x1c], 0xc1200000  
+004b2fe6: mov dword ptr [esp + 0x20], 0           
+004b2fee: mov dword ptr [esp + 0x24], 0           
+004b2ff6: mov dword ptr [esp + 0x28], ebx         
+004b2ffa: mov dword ptr [esp + 0x2c], edx         
+004b2ffe: mov dword ptr [esp + 0x30], 0           
+004b3006: mov dword ptr [esp + 0x34], 0           
+004b300e: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3010: mov eax, dword ptr [esp + 0x10]         
+004b3014: mov ecx, 7                              
+004b3019: lea esi, [esp + 0x1c]                   
+004b301d: mov dword ptr [esp + 0x1c], 0x41200000  
+004b3025: lea edi, [eax + 0x1c]                   
+004b3028: mov dword ptr [esp + 0x20], 0           
+004b3030: mov dword ptr [esp + 0x24], 0           
+004b3038: mov dword ptr [esp + 0x28], ebx         
+004b303c: mov dword ptr [esp + 0x2c], edx         
+004b3040: mov dword ptr [esp + 0x30], 0x3f800000  
+004b3048: mov dword ptr [esp + 0x34], 0           
+004b3050: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3052: mov ecx, dword ptr [esp + 0x10]         
+004b3056: lea esi, [esp + 0x1c]                   
+004b305a: mov dword ptr [esp + 0x1c], 0xc1200000  
+004b3062: mov dword ptr [esp + 0x20], 0xc1a00000  
+004b306a: lea edi, [ecx + 0x38]                   
+004b306d: mov ecx, 7                              
+004b3072: mov dword ptr [esp + 0x24], 0           
+004b307a: mov dword ptr [esp + 0x28], ebx         
+004b307e: mov dword ptr [esp + 0x2c], edx         
+004b3082: mov dword ptr [esp + 0x30], 0           
+004b308a: mov dword ptr [esp + 0x34], 0x3f800000  
+004b3092: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3094: mov eax, dword ptr [esp + 0x10]         
+004b3098: mov ecx, 7                              
+004b309d: mov dword ptr [esp + 0x2c], edx         
+004b30a1: mov dword ptr [esp + 0x1c], 0x41200000  
+004b30a9: lea esi, [eax + 0x38]                   
+004b30ac: lea edi, [eax + 0x54]                   
+004b30af: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b30b1: mov eax, dword ptr [esp + 0x10]         
+004b30b5: mov ecx, 7                              
+004b30ba: mov dword ptr [esp + 0x20], 0xc1a00000  
+004b30c2: mov dword ptr [esp + 0x24], 0           
+004b30ca: lea esi, [eax + 0x1c]                   
+004b30cd: lea edi, [eax + 0x70]                   
+004b30d0: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b30d2: mov edx, dword ptr [esp + 0x10]         
+004b30d6: mov ecx, 7                              
+004b30db: lea esi, [esp + 0x1c]                   
+004b30df: mov dword ptr [esp + 0x28], ebx         
+004b30e3: lea edi, [edx + 0x8c]                   
+004b30e9: mov dword ptr [esp + 0x30], 0x3f800000  
+004b30f1: mov dword ptr [esp + 0x34], 0x3f800000  
+004b30f9: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b30fb: mov ecx, dword ptr [ebp + 0x30]         
+004b30fe: call 0x7856d0                           
+004b3103: mov ecx, dword ptr [ebp + 0x34]         
+004b3106: lea eax, [esp + 0x10]                   
+004b310a: push 0                                  
+004b310c: push eax                                
+004b310d: push 0                                  
+004b310f: push 0                                  
+004b3111: call 0x7855c0                           
+004b3116: test al, al                             
+004b3118: je 0x4b3360                             
+004b311e: mov edi, dword ptr [esp + 0x10]         
+004b3122: mov eax, 0xff000000                     
+004b3127: mov ecx, 7                              
+004b312c: lea esi, [esp + 0x1c]                   
+004b3130: mov dword ptr [esp + 0x1c], 0xc2700000  
+004b3138: mov dword ptr [esp + 0x20], 0x41200000  
+004b3140: mov dword ptr [esp + 0x24], 0           
+004b3148: mov dword ptr [esp + 0x28], ebx         
+004b314c: mov dword ptr [esp + 0x2c], eax         
+004b3150: mov dword ptr [esp + 0x30], 0           
+004b3158: mov dword ptr [esp + 0x34], 0           
+004b3160: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3162: mov ecx, dword ptr [esp + 0x10]         
+004b3166: lea esi, [esp + 0x1c]                   
+004b316a: mov dword ptr [esp + 0x1c], 0xc1a00000  
+004b3172: mov dword ptr [esp + 0x20], 0x41200000  
+004b317a: lea edi, [ecx + 0x1c]                   
+004b317d: mov ecx, 7                              
+004b3182: mov dword ptr [esp + 0x24], 0           
+004b318a: mov dword ptr [esp + 0x28], ebx         
+004b318e: mov dword ptr [esp + 0x2c], eax         
+004b3192: mov dword ptr [esp + 0x30], 0x3eaaaaab  
+004b319a: mov dword ptr [esp + 0x34], 0           
+004b31a2: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b31a4: mov edx, dword ptr [esp + 0x10]         
+004b31a8: mov ecx, 7                              
+004b31ad: lea esi, [esp + 0x1c]                   
+004b31b1: mov dword ptr [esp + 0x1c], 0x41a00000  
+004b31b9: lea edi, [edx + 0x38]                   
+004b31bc: mov dword ptr [esp + 0x20], 0x41200000  
+004b31c4: mov dword ptr [esp + 0x24], 0           
+004b31cc: mov dword ptr [esp + 0x28], ebx         
+004b31d0: mov dword ptr [esp + 0x2c], eax         
+004b31d4: mov dword ptr [esp + 0x30], 0x3f2aaaab  
+004b31dc: mov dword ptr [esp + 0x34], 0           
+004b31e4: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b31e6: mov ecx, dword ptr [esp + 0x10]         
+004b31ea: lea esi, [esp + 0x1c]                   
+004b31ee: mov dword ptr [esp + 0x1c], 0x42700000  
+004b31f6: mov dword ptr [esp + 0x20], 0x41200000  
+004b31fe: lea edi, [ecx + 0x54]                   
+004b3201: mov ecx, 7                              
+004b3206: mov dword ptr [esp + 0x24], 0           
+004b320e: mov dword ptr [esp + 0x28], ebx         
+004b3212: mov dword ptr [esp + 0x2c], eax         
+004b3216: mov dword ptr [esp + 0x30], 0x3f800000  
+004b321e: mov dword ptr [esp + 0x34], 0           
+004b3226: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3228: mov edx, dword ptr [esp + 0x10]         
+004b322c: mov ecx, 7                              
+004b3231: lea esi, [esp + 0x1c]                   
+004b3235: mov dword ptr [esp + 0x1c], 0xc2700000  
+004b323d: lea edi, [edx + 0x70]                   
+004b3240: mov dword ptr [esp + 0x20], 0xc1f00000  
+004b3248: mov dword ptr [esp + 0x24], 0           
+004b3250: mov dword ptr [esp + 0x28], ebx         
+004b3254: mov dword ptr [esp + 0x2c], eax         
+004b3258: mov dword ptr [esp + 0x30], 0           
+004b3260: mov dword ptr [esp + 0x34], 0x3f800000  
+004b3268: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b326a: mov ecx, dword ptr [esp + 0x10]         
+004b326e: lea esi, [esp + 0x1c]                   
+004b3272: mov dword ptr [esp + 0x1c], 0xc1a00000  
+004b327a: mov dword ptr [esp + 0x20], 0xc1f00000  
+004b3282: lea edi, [ecx + 0x8c]                   
+004b3288: mov ecx, 7                              
+004b328d: mov dword ptr [esp + 0x24], 0           
+004b3295: mov dword ptr [esp + 0x28], ebx         
+004b3299: mov dword ptr [esp + 0x2c], eax         
+004b329d: mov dword ptr [esp + 0x30], 0x3eaaaaab  
+004b32a5: mov dword ptr [esp + 0x34], 0x3f800000  
+004b32ad: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b32af: mov edx, dword ptr [esp + 0x10]         
+004b32b3: mov dword ptr [esp + 0x1c], 0x41a00000  
+004b32bb: mov dword ptr [esp + 0x20], 0xc1f00000  
+004b32c3: mov dword ptr [esp + 0x24], 0           
+004b32cb: mov dword ptr [esp + 0x28], ebx         
+004b32cf: mov dword ptr [esp + 0x2c], eax         
+004b32d3: mov dword ptr [esp + 0x30], 0x3f2aaaab  
+004b32db: mov dword ptr [esp + 0x34], 0x3f800000  
+004b32e3: lea edi, [edx + 0xa8]                   
+004b32e9: mov ecx, 7                              
+004b32ee: lea esi, [esp + 0x1c]                   
+004b32f2: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b32f4: mov dword ptr [esp + 0x2c], eax         
+004b32f8: mov eax, dword ptr [esp + 0x10]         
+004b32fc: mov ecx, 7                              
+004b3301: lea esi, [esp + 0x1c]                   
+004b3305: lea edi, [eax + 0xc4]                   
+004b330b: mov dword ptr [esp + 0x1c], 0x42700000  
+004b3313: mov dword ptr [esp + 0x20], 0xc1f00000  
+004b331b: mov dword ptr [esp + 0x24], 0           
+004b3323: mov dword ptr [esp + 0x28], ebx         
+004b3327: mov dword ptr [esp + 0x30], 0x3f800000  
+004b332f: mov dword ptr [esp + 0x34], 0x3f800000  
+004b3337: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3339: mov ecx, dword ptr [ebp + 0x34]         
+004b333c: call 0x7856d0                           
+004b3341: lea ecx, [esp + 0x14]                   
+004b3345: push 0                                  
+004b3347: push ecx                                
+004b3348: mov ecx, dword ptr [ebp + 0x34]         
+004b334b: push 0                                  
+004b334d: push 0                                  
+004b334f: mov dword ptr [esp + 0x24], 0           
+004b3357: call 0x785700                           
+004b335c: test al, al                             
+004b335e: jne 0x4b3384                              ; f32 -2.80916
+004b3360: push 0x95a8bc                             ; 'CECSunMoon::Init, failed to lock sun shine stream!'
+004b3365: push 1                                  
+004b3367: call 0x764590                           
+004b336c: add esp, 8                              
+004b336f: xor al, al                              
+004b3371: pop edi                                 
+004b3372: pop esi                                 
+004b3373: pop ebp                                 
+004b3374: pop ebx                                 
+004b3375: mov ecx, dword ptr [esp + 0x28]         
+004b3379: mov dword ptr fs:[0], ecx               
+004b3380: add esp, 0x34                           
+004b3383: ret                                     
+004b3384: xor ecx, ecx                            
+004b3386: xor eax, eax                            
+004b3388: mov edx, dword ptr [esp + 0x14]         
+004b338c: add eax, 0xc                            
+004b338f: mov word ptr [eax + edx - 0xc], cx      
+004b3394: mov esi, dword ptr [esp + 0x14]         
+004b3398: lea edx, [ecx + 1]                      
+004b339b: mov word ptr [eax + esi - 0xa], dx      
+004b33a0: mov edi, dword ptr [esp + 0x14]         
+004b33a4: lea esi, [ecx + 4]                      
+004b33a7: mov word ptr [eax + edi - 8], si        
+004b33ac: mov edi, dword ptr [esp + 0x14]         
+004b33b0: mov word ptr [eax + edi - 6], si        
+004b33b5: mov esi, dword ptr [esp + 0x14]         
+004b33b9: mov word ptr [eax + esi - 4], dx        
+004b33be: mov esi, dword ptr [esp + 0x14]         
+004b33c2: lea edx, [ecx + 5]                      
+004b33c5: inc ecx                                 
+004b33c6: mov word ptr [eax + esi - 2], dx        
+004b33cb: cmp eax, 0x24                           
+004b33ce: jl 0x4b3388                             
+004b33d0: mov ecx, dword ptr [ebp + 0x34]         
+004b33d3: call 0x785810                           
+004b33d8: mov ecx, dword ptr [ebp + 0x38]         
+004b33db: lea eax, [esp + 0x10]                   
+004b33df: push 0                                  
+004b33e1: push eax                                
+004b33e2: push 0                                  
+004b33e4: push 0                                  
+004b33e6: call 0x7855c0                           
+004b33eb: test al, al                             
+004b33ed: jne 0x4b3413                            
+004b33ef: push 0x95a88c                             ; 'CECSunMoon::Init, failed to lock moon stream!'
+004b33f4: push 1                                  
+004b33f6: call 0x764590                           
+004b33fb: add esp, 8                              
+004b33fe: xor al, al                              
+004b3400: pop edi                                 
+004b3401: pop esi                                 
+004b3402: pop ebp                                 
+004b3403: pop ebx                                 
+004b3404: mov ecx, dword ptr [esp + 0x28]         
+004b3408: mov dword ptr fs:[0], ecx               
+004b340f: add esp, 0x34                           
+004b3412: ret                                     
+004b3413: mov edi, dword ptr [esp + 0x10]         
+004b3417: mov edx, 0xff000000                     
+004b341c: mov ecx, 7                              
+004b3421: lea esi, [esp + 0x1c]                   
+004b3425: mov dword ptr [esp + 0x1c], 0xc1a00000  
+004b342d: mov dword ptr [esp + 0x20], 0           
+004b3435: mov dword ptr [esp + 0x24], 0           
+004b343d: mov dword ptr [esp + 0x28], ebx         
+004b3441: mov dword ptr [esp + 0x2c], edx         
+004b3445: mov dword ptr [esp + 0x30], 0           
+004b344d: mov dword ptr [esp + 0x34], 0           
+004b3455: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3457: mov ecx, dword ptr [esp + 0x10]         
+004b345b: lea esi, [esp + 0x1c]                   
+004b345f: mov dword ptr [esp + 0x1c], 0x41a00000  
+004b3467: mov dword ptr [esp + 0x20], 0           
+004b346f: lea edi, [ecx + 0x1c]                   
+004b3472: mov ecx, 7                              
+004b3477: mov dword ptr [esp + 0x24], 0           
+004b347f: mov dword ptr [esp + 0x28], ebx         
+004b3483: mov dword ptr [esp + 0x2c], edx         
+004b3487: mov dword ptr [esp + 0x30], 0x3f800000  
+004b348f: mov dword ptr [esp + 0x34], 0           
+004b3497: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3499: mov eax, dword ptr [esp + 0x10]         
+004b349d: mov ecx, 7                              
+004b34a2: lea esi, [esp + 0x1c]                   
+004b34a6: mov dword ptr [esp + 0x1c], 0xc1a00000  
+004b34ae: lea edi, [eax + 0x38]                   
+004b34b1: mov dword ptr [esp + 0x20], 0xc2200000  
+004b34b9: mov dword ptr [esp + 0x24], 0           
+004b34c1: mov dword ptr [esp + 0x28], ebx         
+004b34c5: mov dword ptr [esp + 0x2c], edx         
+004b34c9: mov dword ptr [esp + 0x30], 0           
+004b34d1: mov dword ptr [esp + 0x34], 0x3f800000  
+004b34d9: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b34db: mov eax, dword ptr [esp + 0x10]         
+004b34df: mov ecx, 7                              
+004b34e4: mov dword ptr [esp + 0x1c], 0x41a00000  
+004b34ec: mov dword ptr [esp + 0x20], 0xc2200000  
+004b34f4: lea esi, [eax + 0x38]                   
+004b34f7: lea edi, [eax + 0x54]                   
+004b34fa: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b34fc: mov eax, dword ptr [esp + 0x10]         
+004b3500: mov ecx, 7                              
+004b3505: mov dword ptr [esp + 0x24], 0           
+004b350d: mov dword ptr [esp + 0x28], ebx         
+004b3511: lea esi, [eax + 0x1c]                   
+004b3514: lea edi, [eax + 0x70]                   
+004b3517: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3519: mov ecx, dword ptr [esp + 0x10]         
+004b351d: lea esi, [esp + 0x1c]                   
+004b3521: mov dword ptr [esp + 0x2c], edx         
+004b3525: mov dword ptr [esp + 0x30], 0x3f800000  
+004b352d: lea edi, [ecx + 0x8c]                   
+004b3533: mov ecx, 7                              
+004b3538: mov dword ptr [esp + 0x34], 0x3f800000  
+004b3540: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3542: mov ecx, dword ptr [ebp + 0x38]         
+004b3545: call 0x7856d0                           
+004b354a: mov ecx, ebp                            
+004b354c: mov byte ptr [ebp + 0xc], 0             
+004b3550: call 0x4b3650                           
+004b3555: test al, al                             
+004b3557: jne 0x4b3560                              ; f32 3.91719e-05
+004b3559: mov ecx, ebp                            
+004b355b: call 0x4b3930                           
+004b3560: mov ecx, dword ptr [esp + 0x38]         
+004b3564: pop edi                                 
+004b3565: mov byte ptr [ebp + 0xc], 1             
+004b3569: pop esi                                 
+004b356a: pop ebp                                 
+004b356b: mov al, 1                               
+004b356d: pop ebx                                 
+004b356e: mov dword ptr fs:[0], ecx               
+004b3575: add esp, 0x34                           
+004b3578: ret                                     
+004b3579: nop                                     
+004b357a: nop                                     
+004b357b: nop                                     
+004b357c: nop                                     
+004b357d: nop                                     
+004b357e: nop                                     
+004b357f: nop                                     
+004b3580: mov eax, dword ptr [0x9b3eec]             ; f32 0
+004b3585: push ebx                                
+004b3586: push esi                                
+004b3587: mov esi, ecx                            
+004b3589: mov ecx, dword ptr [eax + 4]            
+004b358c: push edi                                
+004b358d: mov eax, dword ptr [esi]                
+004b358f: mov ebx, dword ptr [ecx + 0x7c]         
+004b3592: test eax, eax                           
+004b3594: je 0x4b35a4                             
+004b3596: push esi                                
+004b3597: mov ecx, ebx                            
+004b3599: call 0x77c560                           
+004b359e: mov dword ptr [esi], 0                  
+004b35a4: mov eax, dword ptr [esi + 4]            
+004b35a7: lea edi, [esi + 4]                      
+004b35aa: test eax, eax                           
+004b35ac: je 0x4b35bc                             
+004b35ae: push edi                                
+004b35af: mov ecx, ebx                            
+004b35b1: call 0x77c560                           
+004b35b6: mov dword ptr [edi], 0                  
+004b35bc: mov eax, dword ptr [esi + 8]            
+004b35bf: lea edi, [esi + 8]                      
+004b35c2: test eax, eax                           
+004b35c4: je 0x4b35d4                             
+004b35c6: push edi                                
+004b35c7: mov ecx, ebx                            
+004b35c9: call 0x77c560                           
+004b35ce: mov dword ptr [edi], 0                  
+004b35d4: mov ecx, dword ptr [esi + 0x30]         
+004b35d7: test ecx, ecx                           
+004b35d9: je 0x4b35f4                             
+004b35db: call 0x785220                           
+004b35e0: mov ecx, dword ptr [esi + 0x30]         
+004b35e3: test ecx, ecx                           
+004b35e5: je 0x4b35ed                             
+004b35e7: mov edx, dword ptr [ecx]                
+004b35e9: push 1                                  
+004b35eb: call dword ptr [edx]                    
+004b35ed: mov dword ptr [esi + 0x30], 0           
+004b35f4: mov ecx, dword ptr [esi + 0x34]         
+004b35f7: test ecx, ecx                           
+004b35f9: je 0x4b3614                             
+004b35fb: call 0x785220                           
+004b3600: mov ecx, dword ptr [esi + 0x34]         
+004b3603: test ecx, ecx                           
+004b3605: je 0x4b360d                             
+004b3607: mov eax, dword ptr [ecx]                
+004b3609: push 1                                  
+004b360b: call dword ptr [eax]                    
+004b360d: mov dword ptr [esi + 0x34], 0           
+004b3614: mov ecx, dword ptr [esi + 0x38]         
+004b3617: test ecx, ecx                           
+004b3619: je 0x4b3634                             
+004b361b: call 0x785220                           
+004b3620: mov ecx, dword ptr [esi + 0x38]         
+004b3623: test ecx, ecx                           
+004b3625: je 0x4b362d                             
+004b3627: mov edx, dword ptr [ecx]                
+004b3629: push 1                                  
+004b362b: call dword ptr [edx]                    
+004b362d: mov dword ptr [esi + 0x38], 0           
+004b3634: mov ecx, esi                            
+004b3636: call 0x4b3930                           
+004b363b: pop edi                                 
+004b363c: pop esi                                 
+004b363d: mov al, 1                               
+004b363f: pop ebx                                 
+004b3640: ret                                     
+004b3641: nop                                     
+004b3642: nop                                     
+004b3643: nop                                     
+004b3644: nop                                     
+004b3645: nop                                     
+004b3646: nop                                     
+004b3647: nop                                     
+004b3648: nop                                     
+004b3649: nop                                     
+004b364a: nop                                     
+004b364b: nop                                     
+004b364c: nop                                     
+004b364d: nop                                     
+004b364e: nop                                     
+004b364f: nop                                     
+004b3650: mov eax, dword ptr fs:[0]               
+004b3656: push -1                                 
+004b3658: push 0x8abffc                           
+004b365d: push eax                                
+004b365e: mov eax, dword ptr [0x9b3eec]             ; f32 0
+004b3663: mov dword ptr fs:[0], esp               
+004b366a: sub esp, 0x20                           
+004b366d: mov eax, dword ptr [eax + 4]            
+004b3670: push ebx                                
+004b3671: push esi                                
+004b3672: mov esi, ecx                            
+004b3674: xor ebx, ebx                            
+004b3676: push edi                                
+004b3677: mov edi, dword ptr [eax + 0x7c]         
+004b367a: push ebx                                
+004b367b: lea ecx, [esi + 0x24]                   
+004b367e: push ebx                                
+004b367f: push ecx                                
+004b3680: push 0x95ac3c                             ; 'textures\\nature\\sunflare.bmp'
+004b3685: mov ecx, edi                            
+004b3687: call 0x77c230                           
+004b368c: test al, al                             
+004b368e: je 0x4b36a6                             
+004b3690: push ebx                                
+004b3691: lea edx, [esi + 0x28]                   
+004b3694: push ebx                                
+004b3695: push edx                                
+004b3696: push 0x95ac1c                             ; 'textures\\nature\\moonflare.bmp'
+004b369b: mov ecx, edi                            
+004b369d: call 0x77c230                           
+004b36a2: test al, al                             
+004b36a4: jne 0x4b36c9                            
+004b36a6: push 0x95a9b4                             ; 'CECSunMoon::Init, Falied to load moon texture'
+004b36ab: push 1                                  
+004b36ad: call 0x764590                           
+004b36b2: add esp, 8                              
+004b36b5: xor al, al                              
+004b36b7: pop edi                                 
+004b36b8: pop esi                                 
+004b36b9: pop ebx                                 
+004b36ba: mov ecx, dword ptr [esp + 0x20]         
+004b36be: mov dword ptr fs:[0], ecx               
+004b36c5: add esp, 0x2c                           
+004b36c8: ret                                     
+004b36c9: push ebx                                
+004b36ca: lea eax, [esi + 0x1c]                   
+004b36cd: push ebx                                
+004b36ce: push eax                                
+004b36cf: push 0x95ac00                             ; 'textures\\nature\\flares.bmp'
+004b36d4: mov ecx, edi                            
+004b36d6: call 0x77c230                           
+004b36db: test al, al                             
+004b36dd: jne 0x4b3702                            
+004b36df: push 0x95abd0                             ; 'CECSunMoon::Init, Falied to load flares texture'
+004b36e4: push 1                                  
+004b36e6: call 0x764590                           
+004b36eb: add esp, 8                              
+004b36ee: xor al, al                              
+004b36f0: pop edi                                 
+004b36f1: pop esi                                 
+004b36f2: pop ebx                                 
+004b36f3: mov ecx, dword ptr [esp + 0x20]         
+004b36f7: mov dword ptr fs:[0], ecx               
+004b36fe: add esp, 0x2c                           
+004b3701: ret                                     
+004b3702: push 0x54                               
+004b3704: mov dword ptr [esp + 0x20], ebx         
+004b3708: mov byte ptr [esp + 0x2c], bl           
+004b370c: mov byte ptr [esp + 0x2d], bl           
+004b3710: mov byte ptr [esp + 0x14], 1            
+004b3715: mov dword ptr [esp + 0x18], 1           
+004b371d: mov dword ptr [esp + 0x1c], 1           
+004b3725: mov dword ptr [esp + 0x24], 0x15        
+004b372d: mov dword ptr [esp + 0x28], 0x4d        
+004b3735: call 0x763250                           
+004b373a: add esp, 4                              
+004b373d: mov dword ptr [esp + 0xc], eax          
+004b3741: cmp eax, ebx                            
+004b3743: mov dword ptr [esp + 0x34], ebx         
+004b3747: je 0x4b3752                               ; f32 17632.1
+004b3749: mov ecx, eax                            
+004b374b: call 0x786840                             ; f32 -5.5551e-05
+004b3750: jmp 0x4b3754                            
+004b3752: xor eax, eax                            
+004b3754: mov dword ptr [esi + 0x10], eax         
+004b3757: mov ecx, dword ptr [0x9b3eec]             ; f32 0
+004b375d: push ebx                                
+004b375e: lea edx, [esp + 0x14]                   
+004b3762: mov ecx, dword ptr [ecx + 8]            
+004b3765: push 1                                  
+004b3767: push edx                                
+004b3768: or edi, 0xffffffff                      
+004b376b: push ecx                                
+004b376c: mov ecx, eax                            
+004b376e: mov dword ptr [esp + 0x44], edi         
+004b3772: call 0x786960                           
+004b3777: test al, al                             
+004b3779: jne 0x4b379e                            
+004b377b: push 0x95ab8c                             ; 'CECSunMoon::Init, failed to create flare alpha accumulat target!'
+004b3780: push 1                                  
+004b3782: call 0x764590                           
+004b3787: add esp, 8                              
+004b378a: xor al, al                              
+004b378c: pop edi                                 
+004b378d: pop esi                                 
+004b378e: pop ebx                                 
+004b378f: mov ecx, dword ptr [esp + 0x20]         
+004b3793: mov dword ptr fs:[0], ecx               
+004b379a: add esp, 0x2c                           
+004b379d: ret                                     
+004b379e: mov eax, dword ptr [0x9b3eec]             ; f32 0
+004b37a3: push ebx                                
+004b37a4: push 0x95ab6c                             ; 'shaders\\ps\\solarflare_14.txt'
+004b37a9: mov eax, dword ptr [eax + 4]            
+004b37ac: mov eax, dword ptr [eax + 0x80]         
+004b37b2: mov ecx, eax                            
+004b37b4: call 0x785fa0                           
+004b37b9: cmp eax, ebx                            
+004b37bb: mov dword ptr [esi + 0x14], eax         
+004b37be: jne 0x4b37cf                            
+004b37c0: push 0x95ab3c                             ; 'CECSunMoon::Init, failed to load solar shade!'
+004b37c5: push 1                                  
+004b37c7: call 0x764590                           
+004b37cc: add esp, 8                              
+004b37cf: push 0x48                               
+004b37d1: call 0x763250                           
+004b37d6: add esp, 4                              
+004b37d9: mov dword ptr [esp + 0xc], eax          
+004b37dd: cmp eax, ebx                            
+004b37df: mov dword ptr [esp + 0x34], 1           
+004b37e7: je 0x4b37f2                               ; f32 17632.1
+004b37e9: mov ecx, eax                            
+004b37eb: call 0x784d70                             ; f32 -736281
+004b37f0: jmp 0x4b37f4                            
+004b37f2: xor eax, eax                            
+004b37f4: mov dword ptr [esi + 0x2c], eax         
+004b37f7: mov ecx, dword ptr [0x9b3eec]             ; f32 0
+004b37fd: push ebx                                
+004b37fe: push 2                                  
+004b3800: mov ecx, dword ptr [ecx + 8]            
+004b3803: push ebx                                
+004b3804: push 0x36                               
+004b3806: push 2                                  
+004b3808: push ecx                                
+004b3809: mov ecx, eax                            
+004b380b: mov dword ptr [esp + 0x4c], edi         
+004b380f: call 0x784dd0                           
+004b3814: test al, al                             
+004b3816: jne 0x4b383b                            
+004b3818: push 0x95ab08                             ; 'CECSunMoon::Init, Falied to create sun point stream'
+004b381d: push 1                                  
+004b381f: call 0x764590                           
+004b3824: add esp, 8                              
+004b3827: xor al, al                              
+004b3829: pop edi                                 
+004b382a: pop esi                                 
+004b382b: pop ebx                                 
+004b382c: mov ecx, dword ptr [esp + 0x20]         
+004b3830: mov dword ptr fs:[0], ecx               
+004b3837: add esp, 0x2c                           
+004b383a: ret                                     
+004b383b: push 0x48                               
+004b383d: call 0x763250                           
+004b3842: add esp, 4                              
+004b3845: mov dword ptr [esp + 0xc], eax          
+004b3849: cmp eax, ebx                            
+004b384b: mov dword ptr [esp + 0x34], 2           
+004b3853: je 0x4b385e                               ; f32 17632.1
+004b3855: mov ecx, eax                            
+004b3857: call 0x784d70                             ; f32 -736281
+004b385c: jmp 0x4b3860                            
+004b385e: xor eax, eax                            
+004b3860: mov dword ptr [esi + 0x18], eax         
+004b3863: mov edx, dword ptr [0x9b3eec]             ; f32 0
+004b3869: push ebx                                
+004b386a: push 2                                  
+004b386c: mov ecx, dword ptr [edx + 8]            
+004b386f: push ebx                                
+004b3870: push 1                                  
+004b3872: push 0x644                              
+004b3877: push 0x44                               
+004b3879: push ecx                                
+004b387a: mov ecx, eax                            
+004b387c: mov dword ptr [esp + 0x50], edi         
+004b3880: call 0x784f10                           
+004b3885: test al, al                             
+004b3887: jne 0x4b38ac                            
+004b3889: push 0x95aad0                             ; 'CECSunMoon::Init, Falied to create flare alpha stream'
+004b388e: push 1                                  
+004b3890: call 0x764590                           
+004b3895: add esp, 8                              
+004b3898: xor al, al                              
+004b389a: pop edi                                 
+004b389b: pop esi                                 
+004b389c: pop ebx                                 
+004b389d: mov ecx, dword ptr [esp + 0x20]         
+004b38a1: mov dword ptr fs:[0], ecx               
+004b38a8: add esp, 0x2c                           
+004b38ab: ret                                     
+004b38ac: push 0x48                               
+004b38ae: call 0x763250                           
+004b38b3: add esp, 4                              
+004b38b6: mov dword ptr [esp + 0xc], eax          
+004b38ba: cmp eax, ebx                            
+004b38bc: mov dword ptr [esp + 0x34], 3           
+004b38c4: je 0x4b38cf                               ; f32 17632.1
+004b38c6: mov ecx, eax                            
+004b38c8: call 0x784d70                             ; f32 -736281
+004b38cd: jmp 0x4b38d1                            
+004b38cf: xor eax, eax                            
+004b38d1: mov dword ptr [esi + 0x20], eax         
+004b38d4: mov ecx, dword ptr [0x9b3eec]             ; f32 0
+004b38da: push ebx                                
+004b38db: push 2                                  
+004b38dd: mov ecx, dword ptr [ecx + 8]            
+004b38e0: push ebx                                
+004b38e1: push 0x5a                               
+004b38e3: push 2                                  
+004b38e5: push ecx                                
+004b38e6: mov ecx, eax                            
+004b38e8: mov dword ptr [esp + 0x4c], edi         
+004b38ec: call 0x784dd0                           
+004b38f1: test al, al                             
+004b38f3: jne 0x4b3918                            
+004b38f5: push 0x95aa9c                             ; 'CECSunMoon::Init, Falied to create flares stream'
+004b38fa: push 1                                  
+004b38fc: call 0x764590                           
+004b3901: add esp, 8                              
+004b3904: xor al, al                              
+004b3906: pop edi                                 
+004b3907: pop esi                                 
+004b3908: pop ebx                                 
+004b3909: mov ecx, dword ptr [esp + 0x20]         
+004b390d: mov dword ptr fs:[0], ecx               
+004b3914: add esp, 0x2c                           
+004b3917: ret                                     
+004b3918: mov ecx, dword ptr [esp + 0x2c]         
+004b391c: pop edi                                 
+004b391d: pop esi                                 
+004b391e: mov al, 1                               
+004b3920: pop ebx                                 
+004b3921: mov dword ptr fs:[0], ecx               
+004b3928: add esp, 0x2c                           
+004b392b: ret                                     
+004b392c: nop                                     
+004b392d: nop                                     
+004b392e: nop                                     
+004b392f: nop                                     
+004b3930: mov eax, dword ptr [0x9b3eec]             ; f32 0
+004b3935: push ebx                                
+004b3936: push ebp                                
+004b3937: push esi                                
+004b3938: mov esi, ecx                            
+004b393a: push edi                                
+004b393b: mov ecx, dword ptr [eax + 4]            
+004b393e: xor ebp, ebp                            
+004b3940: mov eax, dword ptr [esi + 0x24]         
+004b3943: lea edi, [esi + 0x24]                   
+004b3946: mov ebx, dword ptr [ecx + 0x7c]         
+004b3949: cmp eax, ebp                            
+004b394b: je 0x4b3957                             
+004b394d: push edi                                
+004b394e: mov ecx, ebx                            
+004b3950: call 0x77c560                           
+004b3955: mov dword ptr [edi], ebp                
+004b3957: mov eax, dword ptr [esi + 0x28]         
+004b395a: lea edi, [esi + 0x28]                   
+004b395d: cmp eax, ebp                            
+004b395f: je 0x4b396b                             
+004b3961: push edi                                
+004b3962: mov ecx, ebx                            
+004b3964: call 0x77c560                           
+004b3969: mov dword ptr [edi], ebp                
+004b396b: mov eax, dword ptr [esi + 0x1c]         
+004b396e: lea edi, [esi + 0x1c]                   
+004b3971: cmp eax, ebp                            
+004b3973: je 0x4b397f                             
+004b3975: push edi                                
+004b3976: mov ecx, ebx                            
+004b3978: call 0x77c560                           
+004b397d: mov dword ptr [edi], ebp                
+004b397f: mov eax, dword ptr [esi + 0x14]         
+004b3982: lea edi, [esi + 0x14]                   
+004b3985: cmp eax, ebp                            
+004b3987: je 0x4b39a0                               ; f32 0.00220195
+004b3989: mov edx, dword ptr [0x9b3eec]             ; f32 0
+004b398f: push edi                                
+004b3990: mov eax, dword ptr [edx + 4]            
+004b3993: mov ecx, dword ptr [eax + 0x80]         
+004b3999: call 0x786290                             ; f32 5.5551e-05
+004b399e: mov dword ptr [edi], ebp                
+004b39a0: mov ecx, dword ptr [esi + 0x10]         
+004b39a3: cmp ecx, ebp                            
+004b39a5: je 0x4b39bc                               ; f32 0.00262919
+004b39a7: call 0x786ac0                           
+004b39ac: mov ecx, dword ptr [esi + 0x10]         
+004b39af: cmp ecx, ebp                            
+004b39b1: je 0x4b39b9                             
+004b39b3: mov edx, dword ptr [ecx]                
+004b39b5: push 1                                  
+004b39b7: call dword ptr [edx]                    
+004b39b9: mov dword ptr [esi + 0x10], ebp         
+004b39bc: mov ecx, dword ptr [esi + 0x2c]         
+004b39bf: cmp ecx, ebp                            
+004b39c1: je 0x4b39d8                               ; f32 0.00232402
+004b39c3: call 0x785220                           
+004b39c8: mov ecx, dword ptr [esi + 0x2c]         
+004b39cb: cmp ecx, ebp                            
+004b39cd: je 0x4b39d5                             
+004b39cf: mov eax, dword ptr [ecx]                
+004b39d1: push 1                                  
+004b39d3: call dword ptr [eax]                    
+004b39d5: mov dword ptr [esi + 0x2c], ebp         
+004b39d8: mov ecx, dword ptr [esi + 0x18]         
+004b39db: cmp ecx, ebp                            
+004b39dd: je 0x4b39f4                               ; f32 0.00244609
+004b39df: call 0x785220                           
+004b39e4: mov ecx, dword ptr [esi + 0x18]         
+004b39e7: cmp ecx, ebp                            
+004b39e9: je 0x4b39f1                             
+004b39eb: mov edx, dword ptr [ecx]                
+004b39ed: push 1                                  
+004b39ef: call dword ptr [edx]                    
+004b39f1: mov dword ptr [esi + 0x18], ebp         
+004b39f4: mov ecx, dword ptr [esi + 0x20]         
+004b39f7: cmp ecx, ebp                            
+004b39f9: je 0x4b3a10                             
+004b39fb: call 0x785220                           
+004b3a00: mov ecx, dword ptr [esi + 0x20]         
+004b3a03: cmp ecx, ebp                            
+004b3a05: je 0x4b3a0d                             
+004b3a07: mov eax, dword ptr [ecx]                
+004b3a09: push 1                                  
+004b3a0b: call dword ptr [eax]                    
+004b3a0d: mov dword ptr [esi + 0x20], ebp         
+004b3a10: pop edi                                 
+004b3a11: pop esi                                 
+004b3a12: pop ebp                                 
+004b3a13: mov al, 1                               
+004b3a15: pop ebx                                 
+004b3a16: ret                                     
+004b3a17: nop                                     
+004b3a18: nop                                     
+004b3a19: nop                                     
+004b3a1a: nop                                     
+004b3a1b: nop                                     
+004b3a1c: nop                                     
+004b3a1d: nop                                     
+004b3a1e: nop                                     
+004b3a1f: nop                                     
+004b3a20: sub esp, 0x128                          
+004b3a26: push ebx                                
+004b3a27: mov ebx, ecx                            
+004b3a29: mov al, byte ptr [ebx + 0x78]           
+004b3a2c: test al, al                             
+004b3a2e: je 0x4b4279                             
+004b3a34: mov al, byte ptr [ebx + 0x79]           
+004b3a37: test al, al                             
+004b3a39: je 0x4b4279                             
+004b3a3f: mov eax, dword ptr [0x9b3eec]             ; f32 0
+004b3a44: push ebp                                
+004b3a45: push esi                                
+004b3a46: push edi                                
+004b3a47: mov ecx, dword ptr [eax + 8]            
+004b3a4a: push 0x98                               
+004b3a4f: call 0x77bd50                           
+004b3a54: mov ecx, dword ptr [esp + 0x13c]        
+004b3a5b: mov dword ptr [esp + 0x70], eax         
+004b3a5f: mov ebp, dword ptr [ecx + 8]            
+004b3a62: mov al, byte ptr [ebp + 0x22c]          
+004b3a68: test al, al                             
+004b3a6a: je 0x4b3af6                             
+004b3a70: mov ecx, dword ptr [ebp + 0x1e8]        
+004b3a76: call 0x7744f0                           
+004b3a7b: mov edx, dword ptr [eax]                
+004b3a7d: lea esi, [ebp + 0x1ec]                  
+004b3a83: mov dword ptr [esp + 0x20], edx         
+004b3a87: mov ecx, dword ptr [eax + 4]            
+004b3a8a: mov dword ptr [esp + 0x24], ecx         
+004b3a8e: mov edx, dword ptr [eax + 8]            
+004b3a91: mov ecx, 0x10                           
+004b3a96: lea edi, [esp + 0x78]                   
+004b3a9a: mov dword ptr [esp + 0x28], edx         
+004b3a9e: lea eax, [esp + 0x78]                   
+004b3aa2: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b3aa4: lea ecx, [esp + 0xb8]                   
+004b3aab: push eax                                
+004b3aac: push ecx                                
+004b3aad: call 0x788570                           
+004b3ab2: lea edx, [esp + 0xc0]                   
+004b3ab9: lea eax, [esp + 0x28]                   
+004b3abd: push edx                                
+004b3abe: lea ecx, [esp + 0x70]                   
+004b3ac2: push eax                                
+004b3ac3: push ecx                                
+004b3ac4: call 0x787290                           
+004b3ac9: mov edx, dword ptr [eax]                
+004b3acb: add esp, 0x14                           
+004b3ace: mov dword ptr [esp + 0x20], edx         
+004b3ad2: mov ecx, dword ptr [eax + 4]            
+004b3ad5: mov dword ptr [esp + 0x24], ecx         
+004b3ad9: mov edx, dword ptr [eax + 8]            
+004b3adc: mov eax, dword ptr [0x9b3eec]             ; f32 0
+004b3ae1: mov dword ptr [esp + 0x28], edx         
+004b3ae5: push 0                                  
+004b3ae7: push 0x98                               
+004b3aec: mov ecx, dword ptr [eax + 8]            
+004b3aef: call 0x77bd00                           
+004b3af4: jmp 0x4b3b11                              ; f32 0.461041
+004b3af6: mov ecx, ebp                            
+004b3af8: call 0x7744f0                           
+004b3afd: mov ecx, dword ptr [eax]                
+004b3aff: mov dword ptr [esp + 0x20], ecx         
+004b3b03: mov edx, dword ptr [eax + 4]            
+004b3b06: mov dword ptr [esp + 0x24], edx         
+004b3b0a: mov eax, dword ptr [eax + 8]            
+004b3b0d: mov dword ptr [esp + 0x28], eax         
+004b3b11: mov ecx, dword ptr [0x9b3eec]             ; f32 0
+004b3b17: push 4                                  
+004b3b19: push 1                                  
+004b3b1b: mov esi, dword ptr [ecx + 8]            
+004b3b1e: mov ecx, esi                            
+004b3b20: call 0x779fc0                           
+004b3b25: push 1                                  
+004b3b27: push 3                                  
+004b3b29: push 1                                  
+004b3b2b: mov ecx, esi                            
+004b3b2d: call 0x779fe0                           
+004b3b32: push 4                                  
+004b3b34: push 1                                  
+004b3b36: mov ecx, esi                            
+004b3b38: call 0x77a020                           
+004b3b3d: push 1                                  
+004b3b3f: push 3                                  
+004b3b41: push 1                                  
+004b3b43: mov ecx, esi                            
+004b3b45: call 0x77a040                           
+004b3b4a: push 0                                  
+004b3b4c: mov ecx, esi                            
+004b3b4e: call 0x77a3c0                           
+004b3b53: push 5                                  
+004b3b55: mov ecx, esi                            
+004b3b57: call 0x77a2c0                           
+004b3b5c: push 2                                  
+004b3b5e: mov ecx, esi                            
+004b3b60: call 0x77a2f0                           
+004b3b65: push 0                                  
+004b3b67: mov ecx, esi                            
+004b3b69: call 0x77a230                           
+004b3b6e: push 0                                  
+004b3b70: mov ecx, esi                            
+004b3b72: call 0x77a210                           
+004b3b77: push 0                                  
+004b3b79: mov ecx, esi                            
+004b3b7b: call 0x77ab10                           
+004b3b80: fld dword ptr [ebx + 0x7c]              
+004b3b83: fmul dword ptr [0x8d65a8]                 ; f32 255
+004b3b89: call 0x892e78                           
+004b3b8e: fld dword ptr [ebx + 0x80]              
+004b3b94: fmul dword ptr [0x8d65a8]                 ; f32 255
+004b3b9a: mov byte ptr [esp + 0x10], al           
+004b3b9e: call 0x892e78                           
+004b3ba3: fld dword ptr [ebx + 0x4c]              
+004b3ba6: fcomp dword ptr [0x8d58a0]                ; f32 0
+004b3bac: mov edi, dword ptr [esp + 0x10]         
+004b3bb0: mov byte ptr [esp + 0x74], al           
+004b3bb4: fnstsw ax                               
+004b3bb6: test ah, 0x41                           
+004b3bb9: jne 0x4b3d8a                            
+004b3bbf: mov ecx, dword ptr [ebx + 0x30]         
+004b3bc2: push 1                                  
+004b3bc4: push 0                                  
+004b3bc6: call 0x785550                           
+004b3bcb: mov ecx, dword ptr [ebx]                
+004b3bcd: push 0                                  
+004b3bcf: mov edx, dword ptr [ecx]                
+004b3bd1: call dword ptr [edx + 0x18]             
+004b3bd4: mov eax, dword ptr [ebx + 0x44]         
+004b3bd7: mov ecx, edi                            
+004b3bd9: and ecx, 0xff                           
+004b3bdf: and eax, 0xffffff                       
+004b3be4: shl ecx, 0x18                           
+004b3be7: or eax, ecx                             
+004b3be9: mov ecx, esi                            
+004b3beb: push eax                                
+004b3bec: call 0x77aaf0                           
+004b3bf1: fld dword ptr [ebx + 0x4c]              
+004b3bf4: fcos                                    
+004b3bf6: mov dword ptr [esp + 0x30], 0           
+004b3bfe: lea ecx, [esp + 0x54]                   
+004b3c02: fld dword ptr [ebx + 0x60]              
+004b3c05: fcos                                    
+004b3c07: fmul st(1)                              
+004b3c09: fstp dword ptr [esp + 0x14]             
+004b3c0d: fld dword ptr [ebx + 0x4c]              
+004b3c10: fsin                                    
+004b3c12: fstp dword ptr [esp + 0x18]             
+004b3c16: fld dword ptr [ebx + 0x60]              
+004b3c19: fsin                                    
+004b3c1b: fmul st(1)                              
+004b3c1d: fstp dword ptr [esp + 0x1c]             
+004b3c21: fstp st(0)                              
+004b3c23: fld dword ptr [0x8d58a0]                  ; f32 0
+004b3c29: fld dword ptr [esp + 0x1c]              
+004b3c2d: fsub st(1)                              
+004b3c2f: fstp dword ptr [esp + 0x2c]             
+004b3c33: fsub dword ptr [esp + 0x14]             
+004b3c37: fld st(0)                               
+004b3c39: fmul dword ptr [esp + 0x18]             
+004b3c3d: fld dword ptr [esp + 0x30]              
+004b3c41: fmul dword ptr [esp + 0x1c]             
+004b3c45: fsubp st(1)                             
+004b3c47: fstp dword ptr [esp + 0x54]             
+004b3c4b: fld dword ptr [esp + 0x1c]              
+004b3c4f: fmul dword ptr [esp + 0x2c]             
+004b3c53: fxch st(1)                              
+004b3c55: fmul dword ptr [esp + 0x14]             
+004b3c59: fsubp st(1)                             
+004b3c5b: fstp dword ptr [esp + 0x58]             
+004b3c5f: fld dword ptr [esp + 0x30]              
+004b3c63: fmul dword ptr [esp + 0x14]             
+004b3c67: fld dword ptr [esp + 0x18]              
+004b3c6b: fmul dword ptr [esp + 0x2c]             
+004b3c6f: fsubp st(1)                             
+004b3c71: fstp dword ptr [esp + 0x5c]             
+004b3c75: call 0x40a5f0                           
+004b3c7a: fst dword ptr [esp + 0x10]              
+004b3c7e: fcomp qword ptr [0x8d5c38]              
+004b3c84: fnstsw ax                               
+004b3c86: test ah, 1                              
+004b3c89: je 0x4b3ca9                             
+004b3c8b: fld dword ptr [esp + 0x10]              
+004b3c8f: fcomp qword ptr [0x8d5c30]              
+004b3c95: fnstsw ax                               
+004b3c97: test ah, 0x41                           
+004b3c9a: jne 0x4b3ca9                            
+004b3c9c: push 0                                  
+004b3c9e: lea ecx, [esp + 0x68]                   
+004b3ca2: call 0x40af10                           
+004b3ca7: jmp 0x4b3cc0                            
+004b3ca9: mov edx, dword ptr [esp + 0x10]         
+004b3cad: lea eax, [esp + 0x54]                   
+004b3cb1: push edx                                
+004b3cb2: lea ecx, [esp + 0x68]                   
+004b3cb6: push eax                                
+004b3cb7: push ecx                                
+004b3cb8: call 0x408020                           
+004b3cbd: add esp, 0xc                            
+004b3cc0: fld dword ptr [esp + 0x14]              
+004b3cc4: fmul dword ptr [0x8d6a9c]                 ; f32 100
+004b3cca: fld dword ptr [esp + 0x18]              
+004b3cce: fmul dword ptr [0x8d6a9c]                 ; f32 100
+004b3cd4: lea edx, [esp + 0x44]                   
+004b3cd8: lea eax, [esp + 0x64]                   
+004b3cdc: push edx                                
+004b3cdd: lea ecx, [esp + 0x18]                   
+004b3ce1: fstp dword ptr [esp + 0x40]             
+004b3ce5: fld dword ptr [esp + 0x20]              
+004b3ce9: fmul dword ptr [0x8d6a9c]                 ; f32 100
+004b3cef: push eax                                
+004b3cf0: lea edx, [esp + 0xc0]                   
+004b3cf7: push ecx                                
+004b3cf8: push edx                                
+004b3cf9: fstp dword ptr [esp + 0x50]             
+004b3cfd: fadd dword ptr [esp + 0x30]             
+004b3d01: fstp dword ptr [esp + 0x54]             
+004b3d05: fld dword ptr [esp + 0x34]              
+004b3d09: fadd dword ptr [esp + 0x4c]             
+004b3d0d: fstp dword ptr [esp + 0x58]             
+004b3d11: fld dword ptr [esp + 0x38]              
+004b3d15: fadd dword ptr [esp + 0x50]             
+004b3d19: fstp dword ptr [esp + 0x5c]             
+004b3d1d: fld dword ptr [ebx + 0x70]              
+004b3d20: fadd st(0), st(0)                       
+004b3d22: fadd dword ptr [0x8d5c28]                 ; f32 1
+004b3d28: fstp dword ptr [esp + 0x20]             
+004b3d2c: call 0x788960                           
+004b3d31: mov eax, dword ptr [esp + 0x20]         
+004b3d35: push eax                                
+004b3d36: push eax                                
+004b3d37: push eax                                
+004b3d38: lea eax, [esp + 0x94]                   
+004b3d3f: push eax                                
+004b3d40: call 0x788ff0                           
+004b3d45: lea ecx, [esp + 0xd8]                   
+004b3d4c: lea edx, [esp + 0x98]                   
+004b3d53: push ecx                                
+004b3d54: lea eax, [esp + 0x11c]                  
+004b3d5b: push edx                                
+004b3d5c: push eax                                
+004b3d5d: call 0x7873a0                           
+004b3d62: add esp, 0x2c                           
+004b3d65: lea ecx, [esp + 0xf8]                   
+004b3d6c: push ecx                                
+004b3d6d: mov ecx, esi                            
+004b3d6f: call 0x779ca0                           
+004b3d74: push 2                                  
+004b3d76: push 0                                  
+004b3d78: push 4                                  
+004b3d7a: mov ecx, esi                            
+004b3d7c: call 0x77a690                           
+004b3d81: mov ecx, dword ptr [ebx]                
+004b3d83: push 0                                  
+004b3d85: mov edx, dword ptr [ecx]                
+004b3d87: call dword ptr [edx + 0x1c]             
+004b3d8a: fld dword ptr [ebx + 0x70]              
+004b3d8d: fcomp dword ptr [0x8d58a0]                ; f32 0
+004b3d93: fnstsw ax                               
+004b3d95: test ah, 0x40                           
+004b3d98: jne 0x4b4035                            
+004b3d9e: cmp dword ptr [ebx + 0x70], 0x3f800000  
+004b3da5: je 0x4b4035                             
+004b3dab: mov ecx, dword ptr [ebx + 0x34]         
+004b3dae: push 1                                  
+004b3db0: push 0                                  
+004b3db2: call 0x785550                           
+004b3db7: mov ecx, dword ptr [ebx + 4]            
+004b3dba: push 0                                  
+004b3dbc: mov eax, dword ptr [ecx]                
+004b3dbe: call dword ptr [eax + 0x18]             
+004b3dc1: fld dword ptr [ebx + 0x70]              
+004b3dc4: fcomp dword ptr [0x8d5890]                ; f32 0.3
+004b3dca: fnstsw ax                               
+004b3dcc: test ah, 1                              
+004b3dcf: je 0x4b3ddb                             
+004b3dd1: mov dword ptr [esp + 0x10], 0           
+004b3dd9: jmp 0x4b3e26                            
+004b3ddb: fld dword ptr [ebx + 0x70]              
+004b3dde: fcomp dword ptr [0x8d75d4]                ; f32 0.6
+004b3de4: fld dword ptr [ebx + 0x70]              
+004b3de7: fnstsw ax                               
+004b3de9: test ah, 1                              
+004b3dec: je 0x4b3dfc                             
+004b3dee: fsub dword ptr [0x8d5890]                 ; f32 0.3
+004b3df4: fmul dword ptr [0x8db0fc]                 ; 'UUU@'
+004b3dfa: jmp 0x4b3e22                            
