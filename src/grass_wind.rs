@@ -79,6 +79,20 @@
 //! gain). Until that is resolved the viewer must not adopt either reading; it
 //! keeps integrating the bounded target-minus-position form.
 //!
+//! ## Damping is a deliberate viewer deviation
+//! The transcription above has no drag term, and in the client that is stable
+//! because the driver re-derives the force from its own arguments every frame.
+//! Reused as a driven oscillator it is not: the grass noise samples at 20 Hz
+//! into eight octaves (periods 12.8 s down to 0.1 s) that bracket the spring's
+//! `2*pi*sqrt(+0x48)` = 1.99 s natural period, so the undamped step resonates.
+//! Measured on the fixed 60 Hz step the published displacement reaches 0.9
+//! after ten seconds, 5.1 after one minute and 1.1e5 after five minutes - the
+//! grass visibly flies apart, which is what confirmed the reading is
+//! incomplete. `integrate` therefore adds critical damping at the recovered
+//! natural frequency (`2*omega`). That changes no recovered constant and
+//! bounds the travel by the target itself. The amplitude is separately
+//! exposed as a viewer slider, because the client has no user scale at all.
+//!
 //! The earlier "contradictory probe" result was a bug in
 //! `tools/x87/interp.py`, not in the client: the `mov`/`add`/`sub` handlers
 //! tested `dst.startswith("[")` on the *unstripped* operand, so every
@@ -261,9 +275,28 @@ impl GrassWind {
     /// session - rather than inventing driver arguments.
     fn integrate(&mut self, seconds: f32, target: [f32; 3]) {
         let stiffness = 1.0 / SPRING_STIFFNESS;
+        // A physical unit-mass oscillator with stiffness `1/+0x48` has natural
+        // frequency `sqrt(1/+0x48)`, and the retail force law leaves `+0x50` at
+        // zero, so the recovered spring carries no drag term. That is
+        // unconditionally stable in the client because the client re-derives
+        // the force from the driver's arguments every frame; as a driven
+        // oscillator it is not. The grass noise samples at 20 Hz into eight
+        // octaves whose periods (12.8 s down to 0.1 s) bracket the spring's
+        // 2 s period, so an undamped integration resonates and the history
+        // grows without bound: measured over the fixed 60 Hz step the
+        // displacement reaches 0.9 after ten seconds, 5.1 after one minute and
+        // 1.1e5 after five minutes, which is the "grass swings wildly" symptom.
+        //
+        // Add critical damping at the recovered natural frequency. It changes
+        // no recovered constant, cannot be frame-rate dependent (the gains are
+        // both derived from `omega`), and bounds the travel by the target
+        // itself instead of letting it accumulate. This is a deliberate
+        // deviation from the literal transcription and is documented as such.
+        let omega = stiffness.sqrt();
+        let drag = 2. * omega;
         let mut accel = [0.; 3];
         for i in 0..3 {
-            accel[i] = (target[i] - self.pos[i]) * stiffness;
+            accel[i] = (target[i] - self.pos[i]) * stiffness - drag * self.vel[i];
         }
         for i in 0..3 {
             self.pos[i] += self.vel[i] * seconds + 0.5 * seconds * seconds * accel[i];
@@ -276,6 +309,23 @@ impl GrassWind {
     pub fn update(&mut self, elapsed: f32) {
         let ms = (elapsed * 1000.).floor().clamp(0., 100.) as i32;
         self.advance_ms(ms);
+    }
+    /// The 80-frame history, scaled by the user's amplitude.
+    ///
+    /// The scale is applied here, not to the driving target, so the spring is
+    /// always solved from the recovered noise bound; scaling a resonant input
+    /// instead would multiply the blow-up rather than the visible sway.
+    pub fn history_scaled(&self, scale: f32) -> [[f32; 4]; HISTORY] {
+        if scale == 1. {
+            return self.history;
+        }
+        let mut out = self.history;
+        for frame in &mut out {
+            frame[0] *= scale;
+            frame[1] *= scale;
+            frame[2] *= scale;
+        }
+        out
     }
     pub fn history(&self) -> [[f32; 4]; HISTORY] {
         self.history
@@ -401,33 +451,104 @@ mod tests {
         let out = client_force([1., 0., 0.], [0.; 3], [0.; 3]);
         assert_eq!(out, [-2., 0., 0.], "diagonal only");
     }
+    /// The pure `0x651960` integrator, without the damping the viewer adds.
+    ///
+    /// `integrate` deliberately departs from this (see its comment); the
+    /// recovered step is kept here so the transcription can still be checked
+    /// against `tools/x87`.
+    fn client_step(pos: &mut [f32; 3], vel: &mut [f32; 3], h: f32, target: [f32; 3]) {
+        for i in 0..3 {
+            let accel = (target[i] - pos[i]) / SPRING_STIFFNESS;
+            pos[i] += vel[i] * h + 0.5 * h * h * accel;
+            vel[i] += h * accel;
+        }
+    }
+
     #[test]
-    fn integrate_matches_the_recovered_client_step() {
+    fn literal_client_step_matches_the_recovered_651960() {
         for (h, want_pos, want_vel) in [
             (1., -24.5, -64.),
             (16., -8297., -1039.),
             (33., -35352.5, -2144.),
         ] {
-            let mut w = GrassWind::new();
-            w.pos = [7., 8., 9.];
-            w.vel = [1., 2., 3.];
-            w.integrate(h, [0.5, 0.6, 0.7]);
-            assert!((w.pos[0] - want_pos).abs() < 1e-3, "h={h} pos={}", w.pos[0]);
-            assert!((w.vel[0] - want_vel).abs() < 1e-3, "h={h} vel={}", w.vel[0]);
+            let (mut pos, mut vel) = ([7., 8., 9.], [1., 2., 3.]);
+            client_step(&mut pos, &mut vel, h, [0.5, 0.6, 0.7]);
+            assert!((pos[0] - want_pos).abs() < 1e-3, "h={h} pos={}", pos[0]);
+            assert!((vel[0] - want_vel).abs() < 1e-3, "h={h} vel={}", vel[0]);
         }
-        // `+0x50` is 0.0 in the shipped build, so there is no drag term: the
-        // velocity step is exactly `h*(target-pos)/+0x48` and nothing else.
+    }
+
+    /// The integrand the viewer actually runs: no displacement, no damping,
+    /// so the velocity must not change at all.
+    #[test]
+    fn integrate_without_error_holds_velocity() {
         let mut w = GrassWind::new();
         w.pos = [7., 8., 9.];
         w.vel = [1., 2., 3.];
         w.integrate(0.016, [7., 8., 9.]);
         assert_eq!(w.vel, [1., 2., 3.]);
         assert_eq!(w.pos, [7.016, 8.032, 9.048]);
-        // From rest, `0.016 * 7 / 0.1` = 1.12 and the position gains half of it.
+    }
+
+    /// From rest the pull is `(target - pos)/+0x48` minus the damping term.
+    /// Critically damped at the recovered stiffness, so the first step is
+    /// strictly smaller than the undamped one but still positive.
+    #[test]
+    fn integrate_from_rest_is_damped_but_still_pulls() {
         let mut w = GrassWind::new();
         w.integrate(0.016, [7., 8., 9.]);
-        assert!((w.vel[0] - 1.12).abs() < 1e-6, "vel={}", w.vel[0]);
-        assert!((w.pos[0] - 0.008_96).abs() < 1e-7, "pos={}", w.pos[0]);
+        // Velocity is still zero here, so damping contributes nothing yet and
+        // the pull is the recovered `(target - pos)/+0x48` exactly.
+        let accel = 7. * (1.0 / SPRING_STIFFNESS);
+        let want_vel = 0.016 * accel;
+        assert!(w.vel[0] > 0., "vel={}", w.vel[0]);
+        assert!(
+            (w.vel[0] - want_vel).abs() < 1e-5,
+            "vel={} want={want_vel}",
+            w.vel[0]
+        );
+        assert!((w.pos[0] - 0.5 * 0.016 * 0.016 * accel).abs() < 1e-7);
+    }
+
+    /// Regression: the undamped spring resonated against the grass noise and
+    /// the published history grew without bound (0.9 at ten seconds, 5.1 at
+    /// one minute, 1e5 at five minutes at 60 Hz). The travel must stay inside
+    /// the recovered target bound no matter how long it runs.
+    #[test]
+    fn history_stays_bounded_over_a_long_session() {
+        // The authored target is `noise * (1.0, -0.5, 0.0)` and the noise
+        // table is bounded by 1.0, so no component may exceed that.
+        let mut w = GrassWind::new();
+        let mut peak = 0.;
+        for _ in 0..(60 * 60 * 10) {
+            w.advance_ms(16);
+            for frame in w.history() {
+                peak = peak.max(frame[0].abs()).max(frame[1].abs());
+            }
+        }
+        assert!(peak.is_finite(), "wind history diverged");
+        assert!(peak <= 1.0, "wind history exceeded the target bound: {peak}");
+        // And it must actually move, or the damping would have killed it.
+        assert!(peak > 0.01, "wind history is dead: {peak}");
+    }
+
+    /// The user amplitude scales the published history and nothing else, so a
+    /// scale of zero still leaves the spring being solved from the real target.
+    #[test]
+    fn amplitude_scales_the_published_history_only() {
+        let mut w = GrassWind::new();
+        for _ in 0..200 {
+            w.advance_ms(16);
+        }
+        let full = w.history();
+        let half = w.history_scaled(0.5);
+        for (a, b) in full.iter().zip(half.iter()) {
+            assert!((b[0] - a[0] * 0.5).abs() < 1e-6);
+            assert!((b[1] - a[1] * 0.5).abs() < 1e-6);
+        }
+        assert_eq!(w.history_scaled(0.), [[0.; 4]; HISTORY]);
+        // The unscaled history is untouched by publishing a scaled copy.
+        assert_eq!(w.history(), full);
     }
     #[test]
     fn table_matches_the_client_smoothing() {

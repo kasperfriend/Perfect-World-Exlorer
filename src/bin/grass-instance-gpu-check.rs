@@ -1565,7 +1565,20 @@ fn main() {
     uni[22] = 0.;
     uni[23] = 0.;
     uni[55] = 0.;
-    uni[60] = 0.5;
+    // The vertex stage reads `camera.grass_history[extra.z]`, so the fixture
+    // needs a history to displace the geometry. `Uniform` is matrix(16) +
+    // eleven vec4s + the 80-frame history, so the history spans `uni[60..380]`
+    // and `uni[380..384]` is `fog_range`, which the refraction rows above
+    // depend on.
+    //
+    // This test asks only whether the history reaches the vertex stage and
+    // whether zeroing the gate restores the image, so it uses a strong,
+    // explicit history and measures one thing at a time. Real amplitudes live
+    // in `grass_wind` and are covered by its own unit tests.
+    for i in 0..80 {
+        let x = 0.3 * (i as f32 * 0.5).sin();
+        uni[60 + i * 4..64 + i * 4].copy_from_slice(&[x, -0.5 * x, 0., 0.]);
+    }
     let mut wind_frames = Vec::new();
     // `grass_wind.y` is an enable gate, not an amplitude: the viewer writes 1.0
     // when the user turns wind on (gpu.rs uploads

@@ -124,8 +124,13 @@ pub struct ViewSettings {
     pub tree_wind_strength: f32,
     pub client_tree_wind_preview: bool,
     /// Native wind has no user scale: `+0x6c/+0x70/+0x74` are authored data
-    /// (`0x650b40`) and nothing else writes them, so this is an on/off switch.
+    /// (`0x650b40`) and nothing else writes them. This flag is the on/off gate
+    /// the shader tests; `grass_wind_amplitude` is the viewer-only multiplier.
     pub grass_wind_enabled: bool,
+    /// Viewer-only multiplier on the published wind history, so the sway can
+    /// be dialled down without claiming a retail value that does not exist.
+    /// 1.0 is the recovered amplitude; see the grass_wind module docs.
+    pub grass_wind_amplitude: f32,
     pub regional_tree_lighting: bool,
     pub streamed_regions: bool,
     pub grass_distance_fade: bool,
@@ -177,6 +182,7 @@ impl Default for ViewSettings {
             tree_wind_strength: 0.2,
             client_tree_wind_preview: false,
             grass_wind_enabled: true,
+            grass_wind_amplitude: 1.,
             regional_tree_lighting: false,
             streamed_regions: false,
             grass_distance_fade: true,
@@ -237,6 +243,7 @@ impl ViewSettings {
                 "far" => number!(s.far, 2000., 24000.),
                 "time_of_day" => number!(s.time_of_day, 0., 24.),
                 "grass_wind_enabled" => flag!(s.grass_wind_enabled),
+                "grass_wind_amplitude" => number!(s.grass_wind_amplitude, 0., 2.),
                 // Older files stored the removed strength slider: any value
                 // above the old gate keeps the wind on.
                 "grass_wind_strength" => {
@@ -310,11 +317,11 @@ impl ViewSettings {
             "radius={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.sharpen,self.resolution_scale,
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
             self.minimap_shape.label())
     }
