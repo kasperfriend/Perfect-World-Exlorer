@@ -956,6 +956,7 @@ mod tests {
             areas: vec![global, local, second],
             id_to_index: ids,
             streaming: Some(layout),
+            auto_fog: None,
         };
         let mut active = env.streaming().unwrap();
         let p = [-1700., 0., 0.];
@@ -1012,6 +1013,7 @@ mod tests {
             areas: env.areas.clone(),
             id_to_index: env.id_to_index.clone(),
             streaming: Some(delayed_layout),
+            auto_fog: None,
         };
         let mut delayed = delayed_env.streaming().unwrap();
         assert_eq!(delayed.endpoints(&delayed_env, p).key, Some(1));
@@ -1125,6 +1127,7 @@ mod tests {
             areas: vec![global, local, second],
             id_to_index: ids,
             streaming: Some(layout),
+            auto_fog: None,
         };
         let active = env.streaming().unwrap();
         Streamed { env, active }
@@ -1395,6 +1398,7 @@ mod tests {
                     vec![1],
                 ],
             }),
+            auto_fog: None,
         };
         let mut active = env.streaming().unwrap();
         let mut transition = FogTransition::new_streamed(&env, &mut active, [-1700., 0., 0.]);
