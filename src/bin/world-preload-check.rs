@@ -51,7 +51,10 @@ fn main() {
                 verts += p.vertices.len();
                 atlas_bytes += p.atlas.len();
                 tris += p.indices.len() / 3;
-                println!("Page {pages}: {} placements, {verts} vertices", p.processed)
+                println!(
+                    "Page {pages}: {} placements, {verts} vertices; shared atlas {:?}",
+                    p.processed, p.shared_atlas
+                )
             }
             world_objects::Message::Done {
                 processed,
@@ -70,6 +73,10 @@ fn main() {
                     stats.resolver.archive_hits, stats.resolver.disk_hits, stats.resolver.missing, stats.resolver.missing_quiet,
                     stats.resolver.nrf_derived, stats.resolver.nrf_derived_present, stats.resolver.nrf_default_fallback,
                     stats.resolver.shader_registry_file_backed, stats.unresolved_rows, stats.pages
+                );
+                println!(
+                    "Unique GPU atlases: {}, exact bytes including mips: {}",
+                    stats.atlas_pages, stats.atlas_bytes
                 );
                 println!("Done {processed}/{count}, {pages} pages, {verts} vertices, {tris} triangles, {skipped} missing-texture meshes; atlas base {:.1} MiB, with mips ~{:.1} MiB",atlas_bytes as f64/1048576.,atlas_bytes as f64/1048576.*(1.-1./65536.)/0.75);
                 return;

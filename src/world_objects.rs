@@ -1,5 +1,5 @@
-//! Incremental whole-world BMD preload. Each chunk has its own texture atlas;
-//! geometry is retained on the GPU rather than rebuilt with nearby terrain.
+//! Incremental whole-world BMD preload. Native-size texture atlases are shared
+//! globally across geometry chunks, rather than duplicated at every page turn.
 use crate::{
     gpu::Vertex,
     objects::Objects,
@@ -34,6 +34,8 @@ pub struct Page {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
     pub atlas: Vec<u8>,
+    /// Earlier emitted page whose immutable atlas this geometry reuses.
+    pub shared_atlas: Option<usize>,
     pub processed: usize,
     pub used_height: usize,
     pub mips: Vec<Vec<u8>>,
@@ -52,6 +54,10 @@ impl Page {
         self.atlas.truncate(SIDE * height * 4);
         self.atlas.shrink_to_fit();
         self.used_height = height;
+        if self.shared_atlas.is_some() {
+            assert!(self.atlas.is_empty() && self.mips.is_empty());
+            return self;
+        }
         // Mip generation is done by the background scene worker, not the UI thread.
         let (mut w, mut h) = (SIDE, height);
         for level in 1..8 {
@@ -95,6 +101,8 @@ pub struct DoneStats {
     pub unresolved_rows: usize,
     /// Pages emitted by this preload.
     pub pages: usize,
+    pub atlas_pages: usize,
+    pub atlas_bytes: usize,
 }
 pub enum Message {
     Page(Page),
@@ -117,6 +125,7 @@ struct Builder {
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
     atlas: Vec<u8>,
+    shared_atlas: Option<usize>,
     slots: HashMap<String, crate::texture_atlas::Slot>,
     packing: crate::texture_atlas::Atlas,
     used_height: usize,
@@ -128,9 +137,22 @@ impl Builder {
             vertices: Vec::new(),
             indices: Vec::new(),
             atlas: vec![0; SIDE * SIDE * 4],
+            shared_atlas: None,
             slots: HashMap::new(),
             packing: crate::texture_atlas::Atlas::new(),
             used_height: 0,
+            placements: Vec::new(),
+        }
+    }
+    fn shared(source: usize, height: usize) -> Self {
+        Self {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            atlas: Vec::new(),
+            shared_atlas: Some(source),
+            slots: HashMap::new(),
+            packing: crate::texture_atlas::Atlas::new(),
+            used_height: height,
             placements: Vec::new(),
         }
     }
@@ -139,6 +161,7 @@ impl Builder {
             vertices: self.vertices,
             indices: self.indices,
             atlas: self.atlas,
+            shared_atlas: self.shared_atlas,
             processed,
             used_height: self.used_height,
             mips: Vec::new(),
@@ -146,6 +169,34 @@ impl Builder {
         }
         .finish()
     }
+}
+#[derive(Clone, Copy)]
+struct SharedSlot {
+    source: usize,
+    height: usize,
+    slot: crate::texture_atlas::Slot,
+}
+fn remember_atlas(page: &Builder, source: usize, slots: &mut HashMap<String, SharedSlot>) {
+    assert!(page.shared_atlas.is_none());
+    let height = page.used_height.clamp(crate::texture_atlas::UNIT, SIDE);
+    for (key, &slot) in &page.slots {
+        // Atlas content, slot coordinates and mip chain are immutable after
+        // emission. Later chunks reuse them without resampling/re-encoding.
+        slots.insert(
+            key.clone(),
+            SharedSlot {
+                source,
+                height,
+                slot,
+            },
+        );
+    }
+}
+fn atlas_mip_bytes(height: usize) -> usize {
+    let height = height.clamp(crate::texture_atlas::UNIT, SIDE);
+    (0..8)
+        .map(|level| (SIDE >> level) * (height >> level) * 4)
+        .sum()
 }
 /// Allocates (or reuses) the atlas slot for one texture inside a page and
 /// blits native-resolution pixels. The slot key is the texture's CONTENT
@@ -217,8 +268,12 @@ fn run(
         .unwrap_or(objects.ornaments.len());
     let limit = first.saturating_add(count).min(objects.ornaments.len());
     let mut page = Builder::new();
+    let mut shared_slots = HashMap::new();
+    let mut shared_geometry = HashMap::<usize, Builder>::new();
     let mut skipped = 0usize;
     let mut pages = 0usize;
+    let mut atlas_pages = 0usize;
+    let mut atlas_bytes = 0usize;
     let fallback = crate::objects::Texture {
         width: 1,
         height: 1,
@@ -279,18 +334,44 @@ fn run(
                     && !page.indices.is_empty()
                 {
                     let finished = std::mem::replace(&mut page, Builder::new());
+                    atlas_pages += 1;
+                    atlas_bytes += atlas_mip_bytes(finished.used_height);
+                    remember_atlas(&finished, pages, &mut shared_slots);
                     pages += 1;
                     if tx.send(Message::Page(finished.page(id))).is_err() {
                         return Ok(());
                     }
                 }
-                let (slot, turned) = allocate_slot(&mut page, &key, tex)?;
-                if let Some(finished) = turned {
-                    pages += 1;
-                    if tx.send(Message::Page(finished.page(id))).is_err() {
-                        return Ok(());
+                let (page, slot) = if let Some(shared) = shared_slots.get(&key).copied() {
+                    let target = shared_geometry
+                        .entry(shared.source)
+                        .or_insert_with(|| Builder::shared(shared.source, shared.height));
+                    if target.vertices.len() + mesh.vertices.len() > MAX_VERTICES
+                        && !target.indices.is_empty()
+                    {
+                        let ready = std::mem::replace(
+                            target,
+                            Builder::shared(shared.source, shared.height),
+                        );
+                        pages += 1;
+                        if tx.send(Message::Page(ready.page(id))).is_err() {
+                            return Ok(());
+                        }
                     }
-                }
+                    (target, shared.slot)
+                } else {
+                    let (slot, turned) = allocate_slot(&mut page, &key, tex)?;
+                    if let Some(finished) = turned {
+                        atlas_pages += 1;
+                        atlas_bytes += atlas_mip_bytes(finished.used_height);
+                        remember_atlas(&finished, pages, &mut shared_slots);
+                        pages += 1;
+                        if tx.send(Message::Page(finished.page(id))).is_err() {
+                            return Ok(());
+                        }
+                    }
+                    (&mut page, slot)
+                };
                 let base = page.vertices.len() as u32;
                 let range_start = page.indices.len() as u32;
                 let ox = slot.x as f32 / SIDE as f32;
@@ -327,8 +408,22 @@ fn run(
                 }
             }
         }
+        // A batch holds at most 32 placements' reused-atlas geometry; unlike
+        // keeping every atlas builder alive this never retains world pixels.
+        let mut ready: Vec<_> = shared_geometry.drain().collect();
+        ready.sort_by_key(|(source, _)| *source);
+        for (_, builder) in ready {
+            if !builder.indices.is_empty() {
+                pages += 1;
+                if tx.send(Message::Page(builder.page(end))).is_err() {
+                    return Ok(());
+                }
+            }
+        }
     }
     if !page.indices.is_empty() {
+        atlas_pages += 1;
+        atlas_bytes += atlas_mip_bytes(page.used_height);
         pages += 1;
         if tx.send(Message::Page(page.page(limit))).is_err() {
             return Ok(());
@@ -342,6 +437,8 @@ fn run(
             resolver: objects.resolver_stats(),
             unresolved_rows: objects.unresolved().len(),
             pages,
+            atlas_pages,
+            atlas_bytes,
         },
     });
     Ok(())
@@ -350,8 +447,8 @@ pub struct GpuPage {
     vertex: wgpu::Buffer,
     index: wgpu::Buffer,
     count: u32,
-    normal: wgpu::BindGroup,
-    reflected: wgpu::BindGroup,
+    normal: Arc<wgpu::BindGroup>,
+    reflected: Arc<wgpu::BindGroup>,
     placements: Vec<PlacementRange>,
 }
 impl GpuPage {
@@ -364,7 +461,10 @@ impl GpuPage {
         reflected: &wgpu::Buffer,
         page: Page,
     ) -> Self {
-        use wgpu::util::DeviceExt;
+        assert!(
+            page.shared_atlas.is_none(),
+            "shared atlas requires upload_world"
+        );
         let image = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("whole-world object atlas"),
             size: wgpu::Extent3d {
@@ -433,8 +533,43 @@ impl GpuPage {
                 ],
             })
         };
-        let normal = make(normal);
-        let reflected = make(reflected);
+        let normal = Arc::new(make(normal));
+        let reflected = Arc::new(make(reflected));
+        Self::geometry(device, page, normal, reflected)
+    }
+    /// Upload only geometry for a reused atlas. Bind groups keep the exact
+    /// original texture/view alive; no second allocation or texture upload.
+    pub fn upload_world(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        normal: &wgpu::Buffer,
+        reflected: &wgpu::Buffer,
+        existing: &[Self],
+        page: Page,
+    ) -> Self {
+        if let Some(source) = page.shared_atlas {
+            let source = existing
+                .get(source)
+                .expect("shared atlas must precede its geometry");
+            Self::geometry(
+                device,
+                page,
+                Arc::clone(&source.normal),
+                Arc::clone(&source.reflected),
+            )
+        } else {
+            Self::upload(device, queue, layout, sampler, normal, reflected, page)
+        }
+    }
+    fn geometry(
+        device: &wgpu::Device,
+        page: Page,
+        normal: Arc<wgpu::BindGroup>,
+        reflected: Arc<wgpu::BindGroup>,
+    ) -> Self {
+        use wgpu::util::DeviceExt;
         let vertex = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("whole-world object vertices"),
             contents: bytemuck::cast_slice(&page.vertices),
@@ -485,6 +620,9 @@ impl GpuPage {
             }
         }
     }
+    pub fn shares_atlas_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.normal, &other.normal) && Arc::ptr_eq(&self.reflected, &other.reflected)
+    }
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, reflected: bool) {
         self.draw_selected(pass, reflected, Pass::Main);
     }
@@ -499,6 +637,40 @@ mod page_tests {
             height: side,
             rgba: vec![fill; side * side * 4],
         }
+    }
+    #[test]
+    fn emitted_atlas_reuses_slots_without_pixels_or_mip_allocations() {
+        let mut original = Builder::new();
+        let texture = solid(71, 128);
+        let (slot, _) = allocate_slot(&mut original, "shared", &texture).unwrap();
+        let mut slots = HashMap::new();
+        remember_atlas(&original, 3, &mut slots);
+        let reference = slots["shared"];
+        assert_eq!(reference.source, 3);
+        assert_eq!(reference.height, 128);
+        assert_eq!(reference.slot.x, slot.x);
+        let vertex = Vertex {
+            pos: [0.; 3],
+            normal: [0.; 3],
+            uv: [0.01, 0.015625],
+            color: [0., 0., 0.03125, 0.03125],
+            kind: 2.,
+            diffuse: 0,
+            night_diffuse: 0,
+        };
+        let mut geometry = Builder::shared(reference.source, reference.height);
+        geometry.vertices.push(vertex);
+        geometry.indices.push(0);
+        let page = geometry.page(32);
+        assert_eq!(page.shared_atlas, Some(3));
+        assert!(page.atlas.is_empty() && page.mips.is_empty());
+        assert_eq!(page.vertices[0].uv[1], 0.5);
+        assert_eq!(page.vertices[0].color[3], 1.);
+        // Geometry chunks no longer multiply the source texture's pixel cost.
+        assert_eq!(
+            atlas_mip_bytes(128),
+            (0..8).map(|l| (4096 >> l) * (128 >> l) * 4).sum::<usize>()
+        );
     }
     #[test]
     fn content_dedup_reduces_page_turns() {
@@ -561,6 +733,7 @@ mod page_tests {
             night_diffuse: 0xffff_ffff,
         };
         let page = Page {
+            shared_atlas: None,
             vertices: vec![vertex],
             indices: vec![0],
             atlas: vec![255; SIDE * 256 * 4],

@@ -27,14 +27,46 @@ pub struct Mesh {
 pub struct Model {
     pub meshes: Vec<Mesh>,
 }
+/// Retain the original compressed source instead of IDs and eager transforms.
+pub struct ActiveMask {
+    packed: Vec<u8>,
+    count: usize,
+}
+impl ActiveMask {
+    pub fn len(&self) -> usize {
+        self.count
+    }
+}
 pub struct Area {
     pub type_id: usize,
     pub center: [f32; 3],
     pub grid: f32,
     pub width: usize,
     pub height: usize,
-    pub active: Vec<u32>,
-    pub placements: Vec<random::Placement>,
+    pub active: ActiveMask,
+}
+impl Area {
+    pub fn placements(
+        &self,
+        typ: &scene::GrassType,
+    ) -> Result<random::PlacementIter<'static>, String> {
+        let size = self.width * self.height / 8;
+        let mut bits = Vec::with_capacity(size);
+        ZlibDecoder::new(self.active.packed.as_slice())
+            .take((size + 1) as u64)
+            .read_to_end(&mut bits)
+            .map_err(|e| e.to_string())?;
+        if bits.len() != size {
+            return Err("bad grass bitmap length".into());
+        }
+        Ok(random::PlacementIter::owned(
+            self.width,
+            self.height,
+            bits,
+            typ.size,
+            typ.size_variation,
+        ))
+    }
 }
 pub struct Grass {
     pub areas: Vec<Area>,
@@ -239,6 +271,7 @@ fn parse_model(b: &[u8], name: &str) -> Result<Model, String> {
     }
     Ok(Model { meshes })
 }
+#[cfg(test)]
 fn mask(b: &[u8], expected: usize) -> Result<Vec<u32>, String> {
     if b.len() != expected {
         return Err("bad grass bitmap length".into());
@@ -268,7 +301,9 @@ impl Grass {
         for _ in 0..n {
             names.push(water::path_string(&b, &mut p)?)
         }
-        let mut files: HashMap<usize, Vec<u8>> = HashMap::new();
+        let mut file_index = None;
+        let mut file_data = Vec::new();
+        let mut records = Vec::new();
         let mut seen = HashMap::new();
         let mut areas = Vec::new();
         for block in &scene.blocks {
@@ -280,74 +315,93 @@ impl Grass {
                     continue;
                 }
                 let off = r.offset as usize;
-                let type_id = u(&b, off)? as usize;
-                if type_id >= scene.grass_types.len() {
-                    return Err("grass type index".into());
-                }
-                let center = [f(&b, off + 4)?, f(&b, off + 8)?, f(&b, off + 12)?];
-                let grid = f(&b, off + 16)?;
-                let width = u(&b, off + 20)? as usize;
-                let height = u(&b, off + 24)? as usize;
-                if width == 0
-                    || height == 0
-                    || width > 4096
-                    || height > 4096
-                    || width % 8 != 0
-                    || grid <= 0.
-                    || grid > 10000.
-                {
-                    return Err("invalid grass bitmap dimensions".into());
-                }
-                let bytes = width.checked_mul(height).ok_or("grass mask overflow")? / 8;
-                let index = u(&b, off + 28)? as usize;
-                let rec = u(&b, off + 32)? as usize;
-                if !files.contains_key(&index) {
-                    let name = names.get(index).ok_or("grass BSData index")?;
-                    let data = fs::read(water::resolve_case_insensitive(dir, name)?)
-                        .map_err(|e| e.to_string())?;
-                    files.insert(index, data);
-                }
-                let data = &files[&index];
-                if u(data, 0)? != 0x42584f4d || u(data, 4)? != 2 {
-                    return Err("unsupported grass BSData".into());
-                }
-                let tail = data.len().checked_sub(4).ok_or("short grass BSData")?;
-                let count = u(data, tail)? as usize;
-                let table = tail
-                    .checked_sub(count.checked_mul(4).ok_or("grass table overflow")?)
-                    .ok_or("bad grass table")?;
-                if rec >= count {
-                    return Err("grass record index".into());
-                }
-                let start = u(data, table + rec * 4)? as usize;
-                let stored = u(data, start)? as usize;
-                let raw = u(data, start + 4)? as usize;
-                if raw != bytes || stored > bytes * 2 + 1024 {
-                    return Err("invalid grass compressed size".into());
-                }
-                let src = data
-                    .get(start + 8..start + 8 + stored)
-                    .ok_or("short grass compressed bitmap")?;
-                let mut output = Vec::new();
-                ZlibDecoder::new(src)
-                    .take((bytes + 1) as u64)
-                    .read_to_end(&mut output)
+                records.push((u(&b, off + 28)? as usize, records.len(), off));
+            }
+        }
+        // Read each BSData file exactly once, retaining only one at a time.
+        // Restore original area order afterwards so draw order stays unchanged.
+        records.sort_by_key(|r| r.0);
+        for (index, order, off) in records {
+            let type_id = u(&b, off)? as usize;
+            if type_id >= scene.grass_types.len() {
+                return Err("grass type index".into());
+            }
+            let center = [f(&b, off + 4)?, f(&b, off + 8)?, f(&b, off + 12)?];
+            let grid = f(&b, off + 16)?;
+            let width = u(&b, off + 20)? as usize;
+            let height = u(&b, off + 24)? as usize;
+            if width == 0
+                || height == 0
+                || width > 4096
+                || height > 4096
+                || width % 8 != 0
+                || grid <= 0.
+                || grid > 10000.
+            {
+                return Err("invalid grass bitmap dimensions".into());
+            }
+            let bytes = width.checked_mul(height).ok_or("grass mask overflow")? / 8;
+            let rec = u(&b, off + 32)? as usize;
+            if file_index != Some(index) {
+                let name = names.get(index).ok_or("grass BSData index")?;
+                drop(std::mem::take(&mut file_data));
+                file_data = fs::read(water::resolve_case_insensitive(dir, name)?)
                     .map_err(|e| e.to_string())?;
-                let active = mask(&output, bytes)?;
-                let typ = &scene.grass_types[type_id];
-                let placements =
-                    random::placements(width, height, &active, typ.size, typ.size_variation);
-                areas.push(Area {
+                file_index = Some(index);
+            }
+            let data = &file_data;
+            if u(data, 0)? != 0x42584f4d || u(data, 4)? != 2 {
+                return Err("unsupported grass BSData".into());
+            }
+            let tail = data.len().checked_sub(4).ok_or("short grass BSData")?;
+            let count = u(data, tail)? as usize;
+            let table = tail
+                .checked_sub(count.checked_mul(4).ok_or("grass table overflow")?)
+                .ok_or("bad grass table")?;
+            if rec >= count {
+                return Err("grass record index".into());
+            }
+            let start = u(data, table + rec * 4)? as usize;
+            let stored = u(data, start)? as usize;
+            let raw = u(data, start + 4)? as usize;
+            if raw != bytes || stored > bytes * 2 + 1024 {
+                return Err("invalid grass compressed size".into());
+            }
+            let src = data
+                .get(start + 8..start + 8 + stored)
+                .ok_or("short grass compressed bitmap")?;
+            let mut output = Vec::with_capacity(bytes);
+            ZlibDecoder::new(src)
+                .take((bytes + 1) as u64)
+                .read_to_end(&mut output)
+                .map_err(|e| e.to_string())?;
+            if output.len() != bytes {
+                return Err("bad grass bitmap length".into());
+            }
+            let count = output.iter().map(|byte| byte.count_ones() as usize).sum();
+            let active = ActiveMask {
+                packed: src.to_vec(),
+                count,
+            };
+            areas.push((
+                order,
+                Area {
                     type_id,
                     center,
                     grid,
                     width,
                     height,
                     active,
-                    placements,
-                });
-            }
+                },
+            ));
         }
+        drop(file_data);
+        areas.sort_by_key(|a| a.0);
+        let areas: Vec<_> = areas.into_iter().map(|(_, area)| area).collect();
+        let packed: usize = areas.iter().map(|a| a.active.packed.len()).sum();
+        let active: usize = areas.iter().map(|a| a.active.len()).sum();
+        eprintln!("Grass placement residency: {:.2} MiB compressed bitmaps; {} live cells; avoided {:.2} MiB of eager IDs/transforms", packed as f64 / 1048576., active,
+            active as f64 * (4 + std::mem::size_of::<random::Placement>()) as f64 / 1048576.);
         let mut archive = File::open(element.join("grasses.pck")).map_err(|e| e.to_string())?;
         let entries: HashMap<_, _> = pck::directory(&mut archive)?
             .into_iter()

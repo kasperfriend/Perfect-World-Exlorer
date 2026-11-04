@@ -133,6 +133,7 @@ jobs:
           run_check bmd-sided-gpu-check
           run_check bmd-depth-gpu-check
           run_check scenery-pass-gpu-check
+          run_check world-atlas-gpu-check
           run_check grass-instance-gpu-check
           run_check model-light-gpu-check
           run_check skin-pose-gpu-check
