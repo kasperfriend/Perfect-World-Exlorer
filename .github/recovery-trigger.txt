@@ -1,1 +1,1 @@
-Client recovery run: 2026-11-04 round 3 (rotation matrix helpers 0x789e60, the flare caller frame and its 0x450b30 helper).
+round 4: resync + sky trans/loadsky/flare occlusion

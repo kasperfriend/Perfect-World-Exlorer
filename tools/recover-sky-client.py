@@ -68,14 +68,34 @@ WINDOWS = {
     "11-sky-ctor-init": (0x799570, 0x799A40),
     "13-sky-matrix-helpers": (0x789E60, 0x789FC0),
     "14-sky-draws": (0x799A40, 0x799E00),
-    "15-flare-caller": (0x4B5900, 0x4B5B60),
+    "15-flare-caller": (0x4B5700, 0x4B5B60),
     "16-flare-helper": (0x450A80, 0x450C40),
     "12-sky-load": (0x951900, 0x951C80),
+    # The star question: `A3DSkySphere::TransSky` and the world/scene sky name.
+    "17-sky-trans": (0x79B200, 0x79B600),
+    # `CECWorld::LoadSky`, the caller of the `Textures\Sky\%s` template.
+    "18-world-loadsky": (0x951600, 0x951940),
+    # The 54-point occlusion mask that gates the flare, and the flare alpha cover.
+    "19-flare-occlusion": (0x4B5B60, 0x4B6100),
 }
 
 # Archive entries whose text can name a sky set, a flare program or a zone rule.
 TEXT_HINT = re.compile(rb"sky|flare|sunshine|autofamily|autoscene", re.I)
 NAME_HINT = re.compile(r"sky|flare|solar|scene", re.I)
+
+
+# A frame-pointer prologue. Windows are chosen from call sites and string
+# cross-references, so many of them open in the middle of an instruction; the
+# dump is worth little until it starts on a real function boundary, and every
+# earlier round mis-read an operand because of that.
+PROLOGUE = re.compile(rb"\x55\x8b\xec|\x8b\xff\x55\x8b\xec")
+PROLOGUE_SCAN = 0x100
+
+
+def resync(blob):
+    """Offset of the first frame-pointer prologue in the head of a window."""
+    match = PROLOGUE.search(blob[:PROLOGUE_SCAN])
+    return match.start() if match else 0
 
 
 def disassemble(pe, start, end, text_strings):
@@ -86,9 +106,17 @@ def disassemble(pe, start, end, text_strings):
     if code_off is None:
         return "; window %#x is not inside the image\n" % start
     blob = pe.d[code_off:pe.va2off(end) or len(pe.d)]
+    out = []
+    skip = resync(blob)
+    if skip:
+        out.append(
+            "; resynced +%#x: window opened mid-instruction, dumping from %#x"
+            % (skip, start + skip)
+        )
+        blob = blob[skip:]
+        start += skip
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
     md.detail = False
-    out = []
     for insn in md.disasm(blob, start):
         note = ""
         for token in re.findall(r"0x[0-9a-f]{5,8}", insn.op_str):
