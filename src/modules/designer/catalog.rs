@@ -96,12 +96,15 @@ impl Class {
             Gender::Male
         }
     }
-    /// `CECPlayer::_body_skin` / `_head_skin`, including the shared human
-    /// Blademaster/Wizard assets and the shared female winged-race face assets.
+    /// `CECPlayer::_body_skin` / `_head_skin` body/head folders. These are
+    /// profession-specific even though `CECFace::_face_skin` shares the two
+    /// human face rigs below.
     pub fn body_folder(self, gender: Gender) -> &'static str {
         match (self, gender) {
-            (Self::Blademaster | Self::Wizard, Gender::Male) => "武侠男",
-            (Self::Blademaster | Self::Wizard, Gender::Female) => "法师女",
+            (Self::Blademaster, Gender::Male) => "武侠男",
+            (Self::Blademaster, Gender::Female) => "武侠女",
+            (Self::Wizard, Gender::Male) => "法师男",
+            (Self::Wizard, Gender::Female) => "法师女",
             (Self::Psychic, Gender::Male) => "巫师男",
             (Self::Psychic, Gender::Female) => "巫师女",
             (Self::Venomancer, Gender::Female) => "妖精",
@@ -115,6 +118,8 @@ impl Class {
             _ => unreachable!("invalid class/gender combination"),
         }
     }
+    /// `CECFace::_face_skin` stems. Face sharing is independent of the
+    /// profession-specific body/head folders above.
     pub fn face_stem(self, gender: Gender) -> &'static str {
         match (self, gender) {
             (Self::Blademaster | Self::Wizard, Gender::Male) => "武侠男标准脸",
@@ -182,7 +187,7 @@ impl Class {
         } else {
             String::new()
         };
-        format!("models/players/形象/{folder}/头部/{folder}{suffix}.ski")
+        format!("models/players/形象/{folder}/头/{folder}头{suffix}.ski")
     }
     pub fn face_asset(self, gender: Gender, body_id: u16, extension: &str) -> String {
         let stem = self.face_stem(gender);
@@ -884,11 +889,19 @@ mod tests {
     fn authentic_paths_keep_class_specific_and_shared_assets_distinct() {
         assert_eq!(
             Class::Blademaster.body_skin(Gender::Female, 0),
-            "models/players/形象/法师女/躯干/法师女.ski"
+            "models/players/形象/武侠女/躯干/武侠女.ski"
+        );
+        assert_eq!(
+            Class::Wizard.body_model(Gender::Male),
+            "models/players/形象/法师男/躯干/法师男.ecm"
+        );
+        assert_eq!(
+            Class::Blademaster.head_skin(Gender::Male, 0),
+            "models/players/形象/武侠男/头/武侠男头.ski"
         );
         assert_eq!(
             Class::Psychic.head_skin(Gender::Male, 3),
-            "models/players/形象/巫师男/头部/巫师男4.ski"
+            "models/players/形象/巫师男/头/巫师男头4.ski"
         );
         assert_eq!(
             Class::Barbarian

@@ -110,7 +110,7 @@ impl Character {
 
         let equipment = plan_equipment(&design, &assets.catalog)?;
         let body_path = design.class.body_model(design.gender);
-        let mut body = ModelAsset::load_with(&body_path, |path| assets.read(path))?;
+        let mut body = ModelAsset::load_without_skins_with(&body_path, |path| assets.read(path))?;
 
         // SMD owns the skeleton/actions; CECPlayer replaces its skin slots.
         // Keep those native slots isolated rather than modifying shared skin
@@ -717,6 +717,19 @@ fn choice_base_high(texture: FaceTexture) -> TextureChoice {
     }
 }
 
+fn native_face_texture(class: Class, path: &str) -> String {
+    let path = ecmodel::normalize(path);
+    // CECFace::ChangeFaceTexture selects the `rw_` face texture for Monk and
+    // Ghost (and for later classes not present in this PW 1.4.2 catalog).
+    if !matches!(class, Class::Psychic | Class::Assassin) {
+        return path;
+    }
+    match path.rsplit_once('/') {
+        Some((directory, file)) => format!("{directory}/rw_{file}"),
+        None => format!("rw_{path}"),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn apply_face_textures_and_colors(
     design: &CharacterDesign,
@@ -727,7 +740,18 @@ fn apply_face_textures_and_colors(
     warnings: &mut Vec<String>,
 ) -> Result<(), String> {
     let data = &design.customize.face;
-    let face_choice = texture_choice(assets, data.id_face_tex, "face", warnings).map(choice_base);
+    let face_choice = texture_choice(assets, data.id_face_tex, "face", warnings)
+        .map(choice_base)
+        .and_then(|mut choice| {
+            // Orc ChangeFaceTexture returns before inspecting or loading the
+            // path. Keep any absent-ID warning above, but do not invent a
+            // missing-file warning for a texture the native client never uses.
+            if design.class == Class::Barbarian {
+                return None;
+            }
+            choice.base = native_face_texture(design.class, &choice.base);
+            Some(choice)
+        });
     let eye_base = texture_choice(assets, data.id_eye_base_tex, "eye base", warnings);
     let eye_high = texture_choice(assets, data.id_eye_high_tex, "eye highlight", warnings);
     let eye_choice = match (eye_base, eye_high) {
@@ -827,17 +851,23 @@ fn apply_face_part(
     warnings: &mut Vec<String>,
 ) -> Result<(), String> {
     let name = format!("model人脸_{part}");
-    let (mesh, texture) = model.skins[skin]
-        .data
-        .meshes
-        .iter()
-        .enumerate()
-        .find_map(|(index, mesh)| {
-            mesh.name
-                .eq_ignore_ascii_case(&name)
-                .then_some((index, mesh.texture))
-        })
-        .ok_or_else(|| format!("face SKI is missing native mesh {name}"))?;
+    let Some((mesh, texture)) =
+        model.skins[skin]
+            .data
+            .meshes
+            .iter()
+            .enumerate()
+            .find_map(|(index, mesh)| {
+                mesh.name
+                    .eq_ignore_ascii_case(&name)
+                    .then_some((index, mesh.texture))
+            })
+    else {
+        // CECFace::SetPartShader treats an absent part as an unavailable
+        // shader, not a load failure. Several authentic rigs (for example
+        // 巫师男标准脸1.ski) contain only the base face and eyeball meshes.
+        return Ok(());
+    };
     model.mesh_tints.insert((skin, mesh), color);
     if let Some(choice) = choice {
         apply_texture_choice(model, skin, mesh, texture, choice, assets, stages, warnings);
@@ -952,11 +982,83 @@ mod tests {
     }
 
     #[test]
+    fn native_rewu_face_texture_prefix_is_class_specific() {
+        assert_eq!(
+            native_face_texture(
+                Class::Psychic,
+                "Models\\Face\\巫师男标准脸\\Tex_巫师男标准脸5\\头05.DDS"
+            ),
+            "models/face/巫师男标准脸/tex_巫师男标准脸5/rw_头05.dds"
+        );
+        assert_eq!(
+            native_face_texture(Class::Blademaster, "Textures\\Face\\头05.DDS"),
+            "textures/face/头05.dds"
+        );
+    }
+
+    #[test]
+    fn authentic_default_characters_assemble_and_deform() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let mut evaluated = 0;
+        for class in Class::ALL {
+            for gender in Gender::ALL {
+                if !class.allows(gender) {
+                    continue;
+                }
+                let default_path = class.default_ini(gender);
+                let bytes = assets.read(&default_path).unwrap();
+                let design = CharacterDesign::from_default_ini(class, gender, &bytes).unwrap();
+                let character = Character::assemble(design, &mut assets).unwrap_or_else(|error| {
+                    panic!("{} {} assembly: {error}", class.name(), gender.name())
+                });
+                let pose = character.bind_pose(Mat4::IDENTITY).unwrap_or_else(|error| {
+                    panic!("{} {} pose: {error}", class.name(), gender.name())
+                });
+                let meshes = character.meshes_from_pose(&pose).unwrap_or_else(|error| {
+                    panic!("{} {} deformation: {error}", class.name(), gender.name())
+                });
+                let mut vertices = 0;
+                for mesh in meshes.body.iter().chain(&meshes.face) {
+                    for vertex in &mesh.vertices {
+                        assert!(
+                            vertex
+                                .position
+                                .iter()
+                                .chain(&vertex.normal)
+                                .all(|value| value.is_finite()),
+                            "{} {} produced non-finite geometry",
+                            class.name(),
+                            gender.name()
+                        );
+                    }
+                    vertices += mesh.vertices.len();
+                }
+                assert!(
+                    vertices > 0,
+                    "{} {} produced no body/face geometry",
+                    class.name(),
+                    gender.name()
+                );
+                evaluated += 1;
+            }
+        }
+        assert_eq!(evaluated, 14);
+    }
+
+    #[test]
     fn native_head_attachment_product_is_reversed_for_glam() {
         let head = Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0));
         let neck = Mat4::from_translation(Vec3::new(0.0, 0.2, 0.1));
         let absolute = Mat4::from_translation(Vec3::new(4.0, 3.0, 2.0)) * head;
         let face = absolute * neck * head.inverse();
-        assert_eq!(face.w_axis.truncate(), Vec3::new(4.0, 3.2, 2.1));
+        let translation = face.w_axis.truncate();
+        assert!(
+            (translation - Vec3::new(4.0, 3.2, 2.1)).length() < 1e-6,
+            "{translation}"
+        );
     }
 }

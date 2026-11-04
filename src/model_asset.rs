@@ -127,7 +127,25 @@ impl ModelAsset {
     /// names, instead of replacing missing geometry with a placeholder.
     pub fn load_with(
         descriptor_path: &str,
+        read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> Result<Self, String> {
+        Self::load_impl(descriptor_path, read, true)
+    }
+
+    /// Load an ECM/SMD/BON rig without reading its authored skin menu. This is
+    /// the native `A3DSkinModel::LSF_NOSKIN` path used by `CECPlayer`: the
+    /// caller installs its selected body/equipment/head skins afterwards.
+    pub fn load_without_skins_with(
+        descriptor_path: &str,
+        read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> Result<Self, String> {
+        Self::load_impl(descriptor_path, read, false)
+    }
+
+    fn load_impl(
+        descriptor_path: &str,
         mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+        load_skins: bool,
     ) -> Result<Self, String> {
         let descriptor_path = ecmodel::normalize(descriptor_path);
         let mut bytes = |p: &str| read(p).map_err(|e| format!("{p}: {e}"));
@@ -156,7 +174,9 @@ impl ModelAsset {
             .skin_model_path
             .rsplit_once('/')
             .map(|p| p.0.to_string());
-        let references: Vec<(String, String)> = if descriptor.additional_skins.is_empty() {
+        let references: Vec<(String, String)> = if !load_skins {
+            Vec::new()
+        } else if descriptor.additional_skins.is_empty() {
             model
                 .skins
                 .iter()
@@ -239,13 +259,20 @@ impl ModelAsset {
                 };
             tracks.push(set);
         }
-        for combined in &descriptor.actions {
-            for base in &combined.bases {
-                if !model.actions.iter().any(|a| a.name == base.name) {
-                    return Err(format!(
-                        "{descriptor_path}: {} -> missing SMD action {}",
-                        combined.name, base.name
-                    ));
+        // Full model loads retain strict combined-action validation. The
+        // skinless player-rig path only needs the direct bind/action data:
+        // authentic Wizard ECMs contain two `回城循环` references while their
+        // SMD calls that action `回城循环_通用`. Do not let that combined-action
+        // alias prevent the static body/head/equipment assembly from loading.
+        if load_skins {
+            for combined in &descriptor.actions {
+                for base in &combined.bases {
+                    if !model.actions.iter().any(|a| a.name == base.name) {
+                        return Err(format!(
+                            "{descriptor_path}: {} -> missing SMD action {}",
+                            combined.name, base.name
+                        ));
+                    }
                 }
             }
         }
@@ -595,6 +622,76 @@ mod tests {
         bad.hooks[0].matrix[0] = f32::NAN;
         let error = hook_matrix(&bad, &pose, "weapon").unwrap_err();
         assert!(error.contains("non-finite matrix"), "{error}");
+    }
+
+    fn put_u32(bytes: &mut Vec<u8>, value: u32) {
+        bytes.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn put_string(bytes: &mut Vec<u8>, value: &str) {
+        put_u32(bytes, value.len() as u32);
+        bytes.extend_from_slice(value.as_bytes());
+    }
+
+    fn rig_files(skin_count: u32) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let ecm = b"MOXTVersion: 40\r\nSkinModelPath: Models\\a.smd\r\n\
+                    ComActCount: 1\r\nCombineActName: combined\r\n\
+                    BaseActCount: 1\r\nBaseActName: missing\r\nEventCount: 0\r\n"
+            .to_vec();
+        let mut smd = b"MOXBDMSA".to_vec();
+        for value in [8, skin_count, 0, 0, 0] {
+            put_u32(&mut smd, value);
+        }
+        smd.resize(88, 0);
+        put_string(&mut smd, "rig.bon");
+        for _ in 0..skin_count {
+            put_string(&mut smd, "unselected.ski");
+        }
+        put_string(&mut smd, "");
+        put_string(&mut smd, "");
+
+        let mut bon = b"MOXBEKSA".to_vec();
+        for value in [6, 0, 0, 0, 0, 0, 0] {
+            put_u32(&mut bon, value);
+        }
+        bon.resize(bon.len() + 64, 0);
+        (ecm, smd, bon)
+    }
+
+    fn read_rig(path: &str, files: &(Vec<u8>, Vec<u8>, Vec<u8>)) -> Result<Vec<u8>, String> {
+        match path {
+            "models/a.ecm" => Ok(files.0.clone()),
+            "models/a.smd" => Ok(files.1.clone()),
+            "models/rig.bon" => Ok(files.2.clone()),
+            _ => Err(format!("unexpected read {path}")),
+        }
+    }
+
+    #[test]
+    fn skinless_player_rig_ignores_smd_skin_menu_and_combined_aliases() {
+        let files = rig_files(1);
+        let mut reads = Vec::new();
+        let asset = ModelAsset::load_without_skins_with("Models\\a.ecm", |path| {
+            reads.push(path.to_owned());
+            read_rig(path, &files)
+        })
+        .unwrap();
+        assert!(asset.skins.is_empty());
+        assert_eq!(asset.model.skins, ["unselected.ski"]);
+        assert_eq!(reads, ["models/a.ecm", "models/a.smd", "models/rig.bon"]);
+    }
+
+    #[test]
+    fn ordinary_load_still_rejects_missing_combined_action_base() {
+        let files = rig_files(0);
+        let error = match ModelAsset::load_with("Models\\a.ecm", |path| read_rig(path, &files)) {
+            Ok(_) => panic!("missing combined-action base was accepted"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error,
+            "models/a.ecm: combined -> missing SMD action missing"
+        );
     }
 
     #[test]
