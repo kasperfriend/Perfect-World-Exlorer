@@ -89,8 +89,7 @@ pub fn enters_water(
     };
     let sample = position.y + constants.half_height;
     let surface = water - constants.water_surface;
-    sample < surface - 0.001
-        || (sample < surface + 0.0001 && position.y - ground_height >= 0.01)
+    sample < surface - 0.001 || (sample < surface + 0.0001 && position.y - ground_height >= 0.01)
 }
 
 pub fn can_take_off_water(
@@ -454,20 +453,18 @@ impl Body {
         };
         let wish = direction + Vec3::Y * vertical;
         self.moving = wish.length_squared() > 0.5;
-        let near_surface = level.is_some_and(|water| {
-            self.position.y > water - 2.0 && self.position.y > support.height
-        });
+        let near_surface = level
+            .is_some_and(|water| self.position.y > water - 2.0 && self.position.y > support.height);
         let move_speed = if near_surface {
             mechanics.move_speed.min(swim_speed)
         } else {
             swim_speed
         };
         let mut velocity = wish.normalize_or_zero() * move_speed;
-        let resting_surface = level.map(|water| {
-            water - constants.half_height - constants.water_surface
-        });
-        let sinking_to_rest = wish == Vec3::ZERO
-            && resting_surface.is_some_and(|surface| self.position.y > surface);
+        let resting_surface =
+            level.map(|water| water - constants.half_height - constants.water_surface);
+        let sinking_to_rest =
+            wish == Vec3::ZERO && resting_surface.is_some_and(|surface| self.position.y > surface);
         if sinking_to_rest {
             // CECHPWorkStand::Tick_FlySwim sinks a character who entered
             // water too close to the surface for the authored water action.
@@ -483,8 +480,8 @@ impl Body {
                 }
             }
         }
-        let floor = ground(map, self.position.x, self.position.z).height
-            + constants.min_water_height;
+        let floor =
+            ground(map, self.position.x, self.position.z).height + constants.min_water_height;
         if self.position.y < floor {
             self.position.y = floor;
             self.vertical_velocity = 0.0;
@@ -843,9 +840,7 @@ mod tests {
         }
         assert!(body.swimming);
         assert!(!body.grounded);
-        assert!(
-            ((body.position - Vec3::new(0.0, 12.0, 0.0)).length() - 3.0).abs() < 0.0001
-        );
+        assert!(((body.position - Vec3::new(0.0, 12.0, 0.0)).length() - 3.0).abs() < 0.0001);
         assert!(body.moving);
     }
 

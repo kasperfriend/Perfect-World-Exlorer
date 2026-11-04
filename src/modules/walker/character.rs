@@ -493,11 +493,11 @@ pub struct Posed {
 fn starter_loadout(class: Class) -> (u32, [u32; 4]) {
     use Class::*;
     let weapon = match class {
-        Blademaster => 2097,  // Wooden Sword
-        Barbarian => 2258,    // Splintered Club
-        Archer => 2250,       // Wooden Bow
-        Assassin => 26331,    // Bonerazor (Assassin-only record)
-        Psychic => 26332,     // Lesser Soulsphere (Psychic-only record)
+        Blademaster => 2097,                  // Wooden Sword
+        Barbarian => 2258,                    // Splintered Club
+        Archer => 2250,                       // Wooden Bow
+        Assassin => 26331,                    // Bonerazor (Assassin-only record)
+        Psychic => 26332,                     // Lesser Soulsphere (Psychic-only record)
         Wizard | Venomancer | Cleric => 2251, // Wand
     };
     // Heavy, light, and arcane armor respectively: upper, wrist, lower, foot.
@@ -1013,11 +1013,7 @@ mod tests {
 
         let mount = MountActionSet::new(
             &[],
-            &[
-                action("跳跃起"),
-                action("跳跃循环"),
-                action("跳跃落"),
-            ],
+            &[action("跳跃起"), action("跳跃循环"), action("跳跃落")],
         );
         assert_eq!(mount.jump_start, Some(0));
         assert_eq!(mount.jump_loop, Some(1));

@@ -245,8 +245,7 @@ impl Walker {
             return false;
         };
         let design = &character.assembly.design;
-        let constants =
-            physics::MovementConstants::new(design.class, design.gender);
+        let constants = physics::MovementConstants::new(design.class, design.gender);
         let (min_y, max_y) = body.aabb_y(constants);
         let (reflect, refract) = physics::water_pass_visibility(min_y, max_y, plane);
         if reflection {
@@ -512,35 +511,24 @@ impl Walker {
             .character
             .as_ref()
             .and_then(|character| character.assembly.mount.as_ref().map(|mount| mount.speed));
-        let (movement_constants, swim_speed) = self
-            .character
-            .as_ref()
-            .map(|character| {
-                let design = &character.assembly.design;
-                (
-                    physics::MovementConstants::new(design.class, design.gender),
-                    character.assembly.class_speeds.swim,
-                )
-            })?;
+        let (movement_constants, swim_speed) = self.character.as_ref().map(|character| {
+            let design = &character.assembly.design;
+            (
+                physics::MovementConstants::new(design.class, design.gender),
+                character.assembly.class_speeds.swim,
+            )
+        })?;
         let water_vertical = if input_enabled && self.travel == TravelState::Ground {
             let ascend = keys.contains(&KeyCode::ArrowUp);
             let descend = keys.contains(&KeyCode::ArrowDown) || keys.contains(&KeyCode::KeyZ);
             let deep_space = space
                 && self.body.as_ref().is_some_and(|body| {
-                    let level = physics::water_height(
-                        &self.water,
-                        body.position.x,
-                        body.position.z,
-                    );
+                    let level =
+                        physics::water_height(&self.water, body.position.x, body.position.z);
                     level.is_some()
-                        && !physics::can_take_off_water(
-                            body.position,
-                            level,
-                            movement_constants,
-                        )
+                        && !physics::can_take_off_water(body.position, level, movement_constants)
                 });
-            (if ascend || deep_space { 1.0 } else { 0.0 })
-                - if descend { 1.0 } else { 0.0 }
+            (if ascend || deep_space { 1.0 } else { 0.0 }) - if descend { 1.0 } else { 0.0 }
         } else {
             0.0
         };
