@@ -162,7 +162,10 @@ fn camera_in_mapped_water(camera: vec3<f32>) -> bool {
     let speed_spread = select(p.motion.y, p.motion.w, snow);
     let speed = speed_base * (1.0 + (hash(seed + 11.0) * 2.0 - 1.0) * speed_spread);
     let seconds = p.clock_weather.x * 0.033;
-    let fall = fract(phase + seconds * speed) * 110.0 - 55.0;
+    // Y must *decrease* with time. `fract` grows, so the particle has to walk
+    // from +55 down to -55; the earlier expression added the growing phase,
+    // which made every drop and flake climb - the reported "rain goes up".
+    let fall = 55.0 - fract(phase + seconds * speed) * 110.0;
     let center = p.camera.xyz + p.right.xyz * x + p.forward.xyz * z + vec3<f32>(0.0, fall, 0.0);
     // Native CECWorld render admission tests the camera against the terrain
     // water mask and skips precipitation for a submerged view.

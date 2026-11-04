@@ -360,29 +360,28 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,nigh
     out=clamp(out+textureSampleLevel(skies,smp,suv,glow,0.).rgb*(alpha*strength)*p.tint.rgb,vec3<f32>(0.),vec3<f32>(1.));
    }
   }
- } else {
-  // Every retail moon halo is the flare chain's `moonflare.bmp`; the moon block
-  // itself scales nothing, so the halo spans the recovered 40-unit quad.
-  let huv=plane/(2.0*MOON_HALF)+vec2<f32>(0.5);
-  if huv.x>=0.0 && huv.x<=1.0 && huv.y>=0.0 && huv.y<=1.0 {
-   out=clamp(out+textureSampleLevel(skies,smp,huv,glow,0.).rgb*(alpha*0.5),vec3<f32>(0.),vec3<f32>(1.));
-  }
  }
+ // The moon draws no halo quad. Every retail moon halo comes from the flare
+ // chain (`moonflare.bmp` through the `0x786840` accumulation target), which the
+ // moon's own render block never touches, and drawing `moonflare.bmp`
+ // concentrically at the recovered 40-unit quad was a viewer invention. It also
+ // produced a second, smaller glowing disc inside the moon: `moon.tga`'s art does
+ // not sit at the centre of its own quad (alpha bbox 11..438 x 69..493 of 512),
+ // so a centred halo lands off the painted disc.
  // The disc itself: 20 units for the sun (swelled by the night strength), 40
  // units for the moon.
  let half=select(MOON_HALF,SUN_HALF*swell,is_sun);
  let uv=plane/(2.0*half)+vec2<f32>(0.5);
  if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {return out;}
  let t=textureSampleLevel(skies,smp,uv,disc,0.);
- // `sun.bmp` is a white radial disc, so a half-white core is still a white blob
- // against the day sky. The client's diffuse is the object's own colour, and the
- // only colour the object holds is light data (`+0x44` for the shine strip,
- // `+0x48` for the disc); nothing in the read disassembly writes `+0x48`, so the
- // viewer tints the sun with the region's light colour - the same lane the strip
- // and the panorama use - and leaves the moon white, because the night light
- // would all but extinguish it.
- let tintmul=select(vec3<f32>(1.0),p.tint.rgb,is_sun);
- if is_sun {return clamp(out+t.rgb*disc_brightness()*tintmul*alpha,vec3<f32>(0.),vec3<f32>(1.));}
+ // The disc is the texture at `disc_brightness`. That lane carries the recovered
+ // half colour of `0x4b405f` only when the tester asks for it: the halved discs
+ // read as dim grey circles, so the World tab defaults to 1.0 (the texture
+ // itself) and the recovered value stays one slider move away. The region light
+ // is NOT multiplied in here - it turned the discs grey as well; it stays on the
+ // shine strip and the flare sprites, where `0x4b3e22` really does multiply by
+ // the `+0x44` colour.
+ if is_sun {return clamp(out+t.rgb*disc_brightness()*alpha,vec3<f32>(0.),vec3<f32>(1.));}
  return mix(out,t.rgb*disc_brightness(),t.a*alpha);
 }
 // The client's flare chain, in screen space.
@@ -459,9 +458,13 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32
 }
 "#;
 
-/// The recovered disc brightness: `([+0x48] & 0xfefefe | 0x01010100) >> 1` on
-/// the object's white, i.e. 127/255.
-pub const DISC_BRIGHTNESS: f32 = 127.0 / 255.0;
+/// Default disc brightness: the texture as it is.
+///
+/// `0x4b405f` packs the disc diffuse as `([+0x48] & 0xfefefe | 0x01010100) >> 1`
+/// — half the object colour — but drawn that way the discs read as dim grey
+/// circles on screen, so the default is the unmodulated texture and the World
+/// tab's Star brightness slider still reaches the recovered 127/255.
+pub const DISC_BRIGHTNESS: f32 = 1.0;
 
 /// The vertical field of view `update` builds its projection with.
 pub(crate) const FOV_DEGREES: f32 = 70.;

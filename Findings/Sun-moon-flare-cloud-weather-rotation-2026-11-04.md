@@ -455,3 +455,80 @@ viewer defect.
 5. Weather population: count, spawn box, fall range, streak length, lifetime.
 6. Sky-dome rotation: recovered mechanism, **zero rate** in retail — nothing to
    implement (§4).
+
+---
+
+## 7. Third render pass, 2026-11-04
+
+### 7.1 Brightness reverted; the recovered half colour is still reachable
+
+The halved disc read as dim grey circles, so the default is back to the texture
+itself: `celestial_brightness = 1.0`, the region light is **not** multiplied into
+the discs, and the World tab keeps 127/255 (`0x4b405f`) one slider move away. The
+recovered operation is still documented and still selectable; it is simply not
+the default, because the value it needs (`+0x48`) is the one field the read
+disassembly never writes.
+
+The shine strip and the flare sprites keep the region light multiply: `0x4b3e22`
+really does apply the `+0x44` colour there, and the strip is only drawn in the
+recovered dusk window, so it cannot wash out a daylight sun.
+
+### 7.2 The smaller glowing circle inside the moon
+
+It was the viewer's own halo quad, not the moon. `CECSunMoon::Render` draws one
+quad per object; every retail moon halo comes from the flare chain
+(`moonflare.bmp` through the `0x786840` accumulation target), which the moon's
+render block never touches. The viewer additionally drew `moonflare.bmp` — which
+is byte-identical to `sun.bmp` — concentrically over the recovered 40-unit quad.
+Because `moon.tga`'s art does not sit at the centre of its own texture (alpha
+bbox `11..438 x 69..493` of 512), a centred halo lands **off** the painted disc:
+that is the smaller, brighter circle seen inside the moon. The halo quad is gone;
+the moon is now the disc alone.
+
+### 7.3 Sun smaller than the moon — correct
+
+Both quads and their painted extent, from `CECSunMoon::Init` and the packed
+textures:
+
+| | quad at distance 100 | angular size | painted extent |
+| --- | --- | --- | --- |
+| sun | `x -10..10`, `y 0..-20` (20 units) | 11.42 deg | 50 %-peak at 60.4 % of the quad = **6.9 deg** disc |
+| moon | `x -20..20`, `y 0..-40` (40 units) | 22.62 deg | alpha bbox 83.6 % of the quad = **18.9 deg** disc |
+
+So the moon is drawn about 2.7x the sun's disc, and the sun only looks large
+because its glow reaches its own quad edge and, at dusk, because `sunshine.bmp`
+spreads 61.9 x 22.6 deg. A smaller sun is the client's own geometry.
+
+### 7.4 The sun vanishing in some zones is the zone's flag word
+
+`0x420992` takes the sun from **bit 3** and the moon from **bit 4** of the default
+area's `+0x80` word (EC-BSD record `+4`), every render. A zone authored without
+bit 3 therefore has no sun disc in the client either, while its sky set and its
+lighting record are unaffected — exactly the reported symptom. The viewer latches
+that word verbatim; it substitutes `0x18` only when *neither* disc bit is set, or
+when the enumeration found no default box at all.
+
+Two additions so the two causes can be told apart without guessing:
+
+* the World tab has **Ignore area sun/moon flags** (persisted as
+  `ignore_celestial_flags`), which latches `0x18` whatever the zone says;
+* `Renderer::celestial_status` now names the case: `source 0x10 clears the sun
+  bit; 0x420992 hides the sun disc`.
+
+The sun/moon elevation curve, the disc fade and the flare chain's horizon gate are
+all area-independent, so they cannot hide the sun for one zone and not another.
+
+### 7.5 Precipitiation fell upwards
+
+`weather_gpu`'s vertex stage added the growing phase to the camera-relative
+height:
+
+```wgsl
+let fall = fract(phase + seconds * speed) * 110.0 - 55.0;   // rises
+```
+
+`fract` grows with time, so every drop and flake climbed. It is now
+`55.0 - fract(phase + seconds * speed) * 110.0`, which walks the same 110-unit
+slab downwards. This was a viewer bug from the first precipitation shader, not a
+recovered one; the spawn box, the 33 ms clock, the two objects' own particle
+constants and the submerged-view mask are unchanged.
