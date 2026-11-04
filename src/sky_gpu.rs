@@ -29,7 +29,7 @@
 //! switches between crossfade over 3.4 degrees instead of meeting at a hard
 //! seam.
 use crate::pck;
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec3};
 use std::{collections::HashMap, fs::File, path::Path};
 use wgpu::util::DeviceExt;
 
@@ -440,7 +440,7 @@ fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> 
     );
     // Point 100 units along the sun's own direction, so the projection's
     // near/far planes behave exactly as they do for the disc quad.
-    let clip = projection * view * Vec4::new(direction * 100., 1.);
+    let clip = projection * view * (direction * 100.).extend(1.);
     if reflected || sun[0] <= 0. || clip.w <= 1e-6 {
         return ([0., 0.], 0.);
     }
