@@ -440,12 +440,12 @@ fn flare_uv_size(i:i32)->f32{
 fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,metric:f32,flare:i32,ring:i32)->vec3<f32>{
  if weight<=0.0 {return color;}
  let sun=p.glow_center.zw;
- // Everything below is in NDC-height units, so `p.sky.z` (2/height) turns the
- // table's pixels into the same space.
+ // Everything below is in NDC-height units, so `p.skyrot.z` (2/height) turns
+ // the table's pixels into the same space.
  let s=vec2<f32>(sun.x*aspect,sun.y);
  let len=length(s);
  let dir=select(vec2<f32>(0.0,-1.0),-s/max(len,1e-6),len>1e-6);
- let px=2.0*p.sky.z;
+ let px=2.0*p.skyrot.z;
  var out=color;
  for(var i:i32=0;i<15;i=i+1){
   let c=s+dir*(flare_offset(i)*px);
