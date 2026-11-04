@@ -1578,13 +1578,17 @@ fn main() {
     // whether zeroing the gate restores the image, so it uses a strong,
     // explicit history and measures one thing at a time. Real amplitudes live
     // in `grass_wind` and are covered by its own unit tests.
+    // Every frame carries the same non-zero displacement on purpose. Both
+    // fixture placements use wind slot 0, and a per-frame curve that happens
+    // to start at zero (a plain sine does) would sample an empty entry and the
+    // test would silently measure nothing. This test is about the history
+    // reaching the vertex stage, not about slot selection.
     for i in 0..80 {
-        let x = 0.3 * (i as f32 * 0.5).sin();
-        uni[60 + i * 4..64 + i * 4].copy_from_slice(&[x, -0.5 * x, 0., 0.]);
+        uni[60 + i * 4..64 + i * 4].copy_from_slice(&[0.3, -0.15, 0., 0.]);
     }
     // Keep the refraction rows above untouched: they read fog_range at 380.
     assert_eq!(uni.len(), 388, "Camera uniform layout changed");
-    assert_eq!(uni[60], 0.0, "history[0].x is written from i = 0");
+    assert_eq!(uni[60], 0.3, "history[0] carries the displacement");
     let mut wind_frames = Vec::new();
     // `grass_wind.y` is an enable gate, not an amplitude: the viewer writes 1.0
     // when the user turns wind on (gpu.rs uploads
