@@ -77,6 +77,16 @@ WINDOWS = {
     "18-world-loadsky": (0x951300, 0x951940),
     # The 54-point occlusion mask that gates the flare, and the flare alpha cover.
     "19-flare-occlusion": (0x4B5A00, 0x4B6100),
+    # The flare's sprite metric: `0x4b6270` copies six dwords from `arg1+0x14`
+    # and scales every sprite by `[arg1+0x24]` as an integer. This is the getter
+    # that produces `arg1`.
+    "22-flare-metric-source": (0x4360A0, 0x436220),
+    # `A3DSky::Tick` sets the drift matrix through this call, so its identity
+    # decides whether the drift is a texture transform or a world transform.
+    "23-device-stage-matrix": (0x779D20, 0x779E60),
+    # The 3x3/4x4 helpers `A3DSky::TickMatrix` composes the drift from:
+    # 0x787170 multiply, 0x787240 translation, 0x787260 rotation, 0x787460 copy.
+    "24-matrix-math": (0x787100, 0x787300),
 }
 
 # Archive entries whose text can name a sky set, a flare program or a zone rule.
