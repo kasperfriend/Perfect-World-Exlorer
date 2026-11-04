@@ -69,6 +69,7 @@ jobs:
             --configs client/configs.pck \
             --shaders client/shaders.pck \
             --textures client/textures.pck \
+            --all-configs --ascii \
             --out Findings/recovery
           echo "--- SUMMARY ---"
           cat Findings/recovery/SUMMARY.txt

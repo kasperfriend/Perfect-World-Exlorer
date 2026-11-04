@@ -1,1 +1,1 @@
-Client recovery run: 2026-11-04 round 1 (sky band object, flare sizes, sky sets, star scoring).
+Client recovery run: 2026-11-04 round 2 (flare stream builder 0x4b6270, sky ctor/init rotation, LoadSky, all configs, ASCII sky previews).

@@ -54,6 +54,8 @@ PCK = _load("angelica_pck", HERE / "extract-angelic-pck.py")
 # named after the question it settles so the dump stays readable.
 WINDOWS = {
     "01-celestial-init": (0x4B2E60, 0x4B3E00),
+    "01b-celestial-init-tail": (0x4B392C, 0x4B4290),
+    "01c-flare-stream-builder": (0x4B6250, 0x4B7000),
     "02-sun-moon-render": (0x4B3D00, 0x4B4290),
     "03-flare-fill": (0x4B4290, 0x4B5F00),
     "04-celestial-clock": (0x4B5F00, 0x4B6100),
@@ -63,6 +65,8 @@ WINDOWS = {
     "08-sky-textures": (0x79AC00, 0x79B200),
     "09-sky-set-select": (0x4203E0, 0x420700),
     "10-sky-timers": (0x79B150, 0x79B1D0),
+    "11-sky-ctor-init": (0x799570, 0x799A40),
+    "12-sky-load": (0x951900, 0x951C80),
 }
 
 # Archive entries whose text can name a sky set, a flare program or a zone rule.
@@ -121,7 +125,7 @@ def image_strings(pe, limit=40000):
     return found
 
 
-def archive_dump(blob, tag, out, names=None, texts=None):
+def archive_dump(blob, tag, out, names=None, texts=None, all_texts=False):
     """Write an archive listing plus any text entry whose content looks related."""
     info = PCK.header(blob)
     entries = PCK.directory(blob)
@@ -137,6 +141,9 @@ def archive_dump(blob, tag, out, names=None, texts=None):
     for entry in entries:
         name = entry[0]
         if names and NAME_HINT.search(name):
+            wanted.append(entry)
+            continue
+        if all_texts and entry[2] <= 65536:
             wanted.append(entry)
             continue
         if texts and entry[2] <= 262144:
@@ -158,7 +165,29 @@ def archive_dump(blob, tag, out, names=None, texts=None):
     return len(wanted)
 
 
-def sky_sets(blob, out):
+RAMP = " .:-=+*#%@"
+
+
+def ascii_preview(image, columns=64, rows=32):
+    """Max-pool luminance so single-pixel stars survive the downsample."""
+    step_x = max(1, image.width // columns)
+    step_y = max(1, image.height // rows)
+    pixels = image.load()
+    lines = []
+    for row in range(rows):
+        line = []
+        for column in range(columns):
+            best = 0
+            for y in range(row * step_y, min((row + 1) * step_y, image.height), 2):
+                for x in range(column * step_x, min((column + 1) * step_x, image.width), 2):
+                    r, g, b = pixels[x, y]
+                    best = max(best, (r * 299 + g * 587 + b * 114) // 1000)
+            line.append(RAMP[min(len(RAMP) - 1, best * len(RAMP) // 256)])
+        lines.append("".join(line))
+    return lines
+
+
+def sky_sets(blob, out, preview=False):
     """Group `textures/sky/*` members by folder and score each image for stars."""
     entries = PCK.directory(blob)
     folders = {}
@@ -173,6 +202,7 @@ def sky_sets(blob, out):
 
     lines = ["# %d sky folders, %d files" % (len(folders), sum(len(v) for v in folders.values()))]
     scores = []
+    previews = []
     try:
         from PIL import Image
         import io
@@ -201,7 +231,15 @@ def sky_sets(blob, out):
             specks = sum(1 for v in luma if v > median + 60)
             scores.append((folder, entry[0].rsplit("/", 1)[-1], len(luma),
                            mean, float(specks) * 1000. / len(luma), median))
+            if preview and (median < 80 or "night" in folder.lower() or "夜" in folder):
+                previews.append("--- %s/%s  mean %.0f median %d ---" % (
+                    folder, entry[0].rsplit("/", 1)[-1], mean, median))
+                previews.extend(ascii_preview(image))
+                previews.append("")
     (out / "textures-sky-folders.txt").write_text("\n".join(lines) + "\n")
+
+    if preview:
+        (out / "textures-sky-ascii.txt").write_text("\n".join(previews) + "\n")
 
     scores.sort(key=lambda row: -row[4])
     table = ["\t".join(("folder", "file", "pixels", "mean", "specks_per_1000", "median"))]
@@ -228,6 +266,10 @@ def main():
     parser.add_argument("--shaders", help="shaders.pck")
     parser.add_argument("--textures", help="textures.pck")
     parser.add_argument("--out", default="Findings/recovery")
+    parser.add_argument("--all-configs", action="store_true",
+                        help="also dump every configs.pck text entry under 64 KiB")
+    parser.add_argument("--ascii", action="store_true",
+                        help="render a coarse ASCII preview of each dark sky image")
     args = parser.parse_args()
 
     out = pathlib.Path(args.out)
@@ -236,7 +278,7 @@ def main():
 
     if args.configs:
         blob = pathlib.Path(args.configs).read_bytes()
-        kept = archive_dump(blob, "configs", out, texts=True)
+        kept = archive_dump(blob, "configs", out, texts=True, all_texts=args.all_configs)
         report.append("configs.pck: %d entries, %d related text entries" % (len(PCK.directory(blob)), kept))
     if args.shaders:
         blob = pathlib.Path(args.shaders).read_bytes()
@@ -244,7 +286,7 @@ def main():
         report.append("shaders.pck: %d entries, %d related text entries" % (len(PCK.directory(blob)), kept))
     if args.textures:
         blob = pathlib.Path(args.textures).read_bytes()
-        report.append("textures.pck: %d sky folders" % sky_sets(blob, out))
+        report.append("textures.pck: %d sky folders" % sky_sets(blob, out, args.ascii))
     if args.exe:
         pe = PE.PE(args.exe)
         strings, hits = exe_strings(pe, out)
