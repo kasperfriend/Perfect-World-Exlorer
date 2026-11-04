@@ -108,7 +108,7 @@ def resync(code_off, blob):
     contains the window's opening address; with no such run close behind, the
     window is mid-instruction and the first boundary ahead is used instead.
     """
-    head = BOUNDARY and blob_head(code_off)
+    head = blob_head(code_off)
     matches = list(BOUNDARY.finditer(head))
     if matches:
         return matches[-1].end() - len(head)
@@ -121,7 +121,7 @@ def blob_head(code_off):
     return PE_DATA[0][max(0, code_off - BACK_SCAN):code_off]
 
 
-# The image bytes `disassemble` resyncs against; set once per dump run.
+# The image bytes `resync` searches behind a window; set once per dump run.
 PE_DATA = [b""]
 
 
