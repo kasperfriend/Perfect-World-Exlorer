@@ -67,7 +67,7 @@ and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.m
 - [ ] P4.03 — Replace the sampled leaf-motion approximation with the client’s actual runtime animation behavior where technically possible.
 - [ ] P4.04 — Reproduce the client’s wind modes, timing, camera inputs and per-tree parameters; do not invent movement for components the client leaves static.
 - [ ] P4.05 — Complete grass placement, terrain height alignment, density, type selection, patch visibility and distance LOD.
-- [ ] P4.06 — Finish the client’s grass wind history, shader constants, fading, alpha tests and material behavior.
+- [x] P4.06 — Finish the client’s grass wind history, shader constants, fading, alpha tests and material behavior.
 - [x] P4.07 — Implement the best-supported vegetation material path from available evidence and document deferred native-only parity gaps (user-approved scope closeout; not a native-parity claim).
 - [x] P4.08 — Keep existing approved tree rendering available until the replacement path is complete.
 - [x] P4.09 — Add tests for tree LOD boundaries, foliage animation, grass placement, wind, alpha coverage and lighting.
