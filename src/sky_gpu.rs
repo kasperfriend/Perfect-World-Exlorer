@@ -686,7 +686,9 @@ pub(crate) fn sky_images_from_config(text: &str) -> [String; 3] {
             continue;
         }
         if line.starts_with('[') && line.ends_with(']') {
-            in_defenv = line[1..line.len() - 1].trim().eq_ignore_ascii_case("DefEnv");
+            in_defenv = line[1..line.len() - 1]
+                .trim()
+                .eq_ignore_ascii_case("DefEnv");
             continue;
         }
         if !in_defenv {
@@ -710,9 +712,15 @@ pub(crate) fn sky_images_from_config(text: &str) -> [String; 3] {
         }
     }
     [
-        out[0].clone().unwrap_or_else(|| SKY_DEFAULTS[0].to_string()),
-        out[1].clone().unwrap_or_else(|| SKY_DEFAULTS[1].to_string()),
-        out[2].clone().unwrap_or_else(|| SKY_DEFAULTS[2].to_string()),
+        out[0]
+            .clone()
+            .unwrap_or_else(|| SKY_DEFAULTS[0].to_string()),
+        out[1]
+            .clone()
+            .unwrap_or_else(|| SKY_DEFAULTS[1].to_string()),
+        out[2]
+            .clone()
+            .unwrap_or_else(|| SKY_DEFAULTS[2].to_string()),
     ]
 }
 

@@ -715,9 +715,11 @@ fn main() {
                 [0.5, 0.25, 0.75]
             );
         }
-        failures.extend(report.into_iter().map(|r| {
-            format!("bmd={bmd} plane={plane} wind={wind} {r}")
-        }));
+        failures.extend(
+            report
+                .into_iter()
+                .map(|r| format!("bmd={bmd} plane={plane} wind={wind} {r}")),
+        );
         drop(bytes);
         read.unmap();
     }
