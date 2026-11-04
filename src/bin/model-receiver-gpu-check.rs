@@ -605,6 +605,36 @@ fn main() {
         );
     }
 
+    // Mouth.sdr / mouthrender.txt keeps surrounding skin on colorFace and
+    // applies colorMouth only to the highlight. Lip gloss is interpolated
+    // after vertex lighting, not multiplied by the lip colour or light again.
+    let lip = [0.8, 0.45, 0.35, 1.];
+    let mut mouth_params = params;
+    mouth_params.alpha = [1., 6., 0., 0.];
+    mouth_params.face_color = lip;
+    mouth_params.face_skin = skin;
+    let actual = render_face("native mouth raster", &mouth_params);
+    let opacity = ambient[3] * texel[3] as f32 / 255.;
+    for c in 0..4 {
+        let src = if c == 3 {
+            opacity
+        } else {
+            let base = texel[c] as f32 / 255. * skin[c];
+            let high = highlight_texel[c] as f32 / 255. * lip[c];
+            let a = highlight_texel[3] as f32 / 255.;
+            let lit = (base * (1. - a) + high * a) * ambient[c];
+            let ga = gloss_texel[3] as f32 / 255.;
+            lit * (1. - ga) + gloss_texel[c] as f32 / 255. * ga
+        };
+        let expected =
+            ((src * opacity + background[c] as f32 / 255. * (1. - opacity)) * 255.).round() as u8;
+        assert!(
+            (actual[c] as i32 - expected as i32).abs() <= 1,
+            "native mouth channel {c}: {} != {expected}",
+            actual[c]
+        );
+    }
+
     // EyeBall.sdr / eyeballrender.txt applies eye colour to the base, mixes
     // the uncoloured highlight, lights the result, and only then interpolates
     // the independent eyereflect gloss stage by gloss alpha.
@@ -640,5 +670,6 @@ fn main() {
     println!("::notice::1 native body raster RGBA check passed (texture-alpha colour mask and diffuse-alpha opacity)");
     println!("::notice::1 native face raster RGBA check passed (base/face colour, untinted light route and base-alpha opacity)");
     println!("::notice::1 native eye raster RGBA check passed (face/eye colours, highlight-alpha lerp and base-alpha opacity)");
+    println!("::notice::1 native mouth raster RGBA check passed (face/lip colours, highlight-alpha lerp, post-lighting lipreflect gloss and base-alpha opacity)");
     println!("::notice::1 native eyeball raster RGBA check passed (pupil/highlight, post-lighting eyereflect gloss and base-alpha opacity)");
 }

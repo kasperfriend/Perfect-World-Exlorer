@@ -340,7 +340,13 @@ struct Output {@builtin(position) position:vec4<f32>,@location(0) uv:vec2<f32>,@
  // Native armor/fashion write v0.a. Other ordinary model shaders use base
  // alpha as opacity too; dedicated shaders below override that calculation.
  var opacity=v.diffuse.a*mix(1.,t.a,p.alpha.x);
- if p.alpha.y>4.5 {
+ if p.alpha.y>5.5 {
+  // Shaders/ps/facerender/mouthrender.txt (ps.1.1):
+  // lrp(t1.a, t1*c0, t0*c1) * v0, then lrp(t2.a, t2, r0).
+  // The lip gloss replaces post-lighting colour; there is no +v1 term.
+  rgb=mix(t.rgb*p.face_skin.rgb,h.rgb*p.face_color.rgb,h.a);
+  opacity=v.diffuse.a*t.a;
+ } else if p.alpha.y>4.5 {
   // Shaders/ps/facerender/facerender.txt and noserender.txt:
   // t0*c0 (or c1 for nose), then ordinary untinted v0/v1 and t0.a*v0.a.
   rgb=t.rgb*p.face_color.rgb;
@@ -383,7 +389,7 @@ struct Output {@builtin(position) position:vec4<f32>,@location(0) uv:vec2<f32>,@
  }
  if !alpha_pass {discard;}
  var encoded=clamp(rgb*v.diffuse.rgb+v.specular,vec3<f32>(0.),vec3<f32>(1.));
- if p.alpha.y>3.5 && p.alpha.y<4.5 {
+ if (p.alpha.y>3.5 && p.alpha.y<4.5) || p.alpha.y>5.5 {
   encoded=clamp(mix(rgb*v.diffuse.rgb,g.rgb,g.a),vec3<f32>(0.),vec3<f32>(1.));
  }
  var fog=v.fog;

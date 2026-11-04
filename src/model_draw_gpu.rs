@@ -99,6 +99,20 @@ impl Frame {
                 face_color = argb(*color);
                 face_skin = argb(*skin_color);
             }
+            Some(crate::model_asset::FaceShader::Moustache {
+                color, skin_color, ..
+            }) => {
+                face_mode = 1.;
+                face_color = argb(*color);
+                face_skin = argb(*skin_color);
+            }
+            Some(crate::model_asset::FaceShader::Mouth {
+                color, skin_color, ..
+            }) => {
+                face_mode = 6.;
+                face_color = argb(*color);
+                face_skin = argb(*skin_color);
+            }
             Some(crate::model_asset::FaceShader::EyeBall { color, .. }) => {
                 face_mode = 4.;
                 face_color = argb(*color);

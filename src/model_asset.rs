@@ -67,6 +67,22 @@ pub enum FaceShader {
         skin_color: u32,
         highlight: String,
     },
+    /// `Shaders/ps/facerender/mouthrender.txt`: base × face colour and
+    /// highlight × lip colour, highlight-alpha interpolation, then lipreflect
+    /// gloss after vertex lighting. The mouth mesh includes surrounding skin;
+    /// tinting that entire mesh with the lip colour causes a lower-face seam.
+    Mouth {
+        color: u32,
+        skin_color: u32,
+        highlight: String,
+    },
+    /// `Shaders/ps/facerender/moustacherender.txt`: the same two-colour
+    /// operation as Brow, with moustache colour restricted to the highlight.
+    Moustache {
+        color: u32,
+        skin_color: u32,
+        highlight: String,
+    },
     /// `Shaders/ps/facerender/eyeballrender.txt`: pupil-coloured base mixed
     /// with the highlight, vertex lighting, then the eyereflect gloss stage.
     EyeBall { color: u32, highlight: String },
@@ -81,6 +97,8 @@ impl FaceShader {
         match self {
             Self::Brow { highlight, .. }
             | Self::Eye { highlight, .. }
+            | Self::Mouth { highlight, .. }
+            | Self::Moustache { highlight, .. }
             | Self::EyeBall { highlight, .. } => Some(highlight),
             Self::Face { .. } | Self::Body { .. } => None,
         }
@@ -88,6 +106,7 @@ impl FaceShader {
 
     pub fn gloss(&self) -> Option<&'static str> {
         match self {
+            Self::Mouth { .. } => Some("textures/face/lipreflect.tga"),
             Self::EyeBall { .. } => Some("textures/face/eyereflect.tga"),
             _ => None,
         }

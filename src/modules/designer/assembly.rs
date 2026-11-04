@@ -1347,7 +1347,7 @@ fn apply_face_part(
     if let Some(choice) = choice {
         let stage =
             apply_texture_choice(model, skin, mesh, texture, choice, assets, stages, warnings);
-        if matches!(part, 1 | 2 | 5) {
+        if matches!(part, 1 | 2 | 3 | 5 | 6) {
             if let Some(highlight) = stage.and_then(|stage| stage.high) {
                 model.mesh_tints.remove(&(skin, mesh));
                 let shader = match part {
@@ -1361,7 +1361,17 @@ fn apply_face_part(
                         skin_color,
                         highlight,
                     },
+                    3 => FaceShader::Mouth {
+                        color,
+                        skin_color,
+                        highlight,
+                    },
                     5 => FaceShader::EyeBall { color, highlight },
+                    6 => FaceShader::Moustache {
+                        color,
+                        skin_color,
+                        highlight,
+                    },
                     _ => unreachable!(),
                 };
                 model.face_shaders.insert((skin, mesh), shader);
@@ -1613,6 +1623,18 @@ mod tests {
         for class in [Class::Blademaster, Class::Archer, Class::Cleric] {
             let design = assets.default_design(class, Gender::Male).unwrap();
             let skin_color = design.customize.face.color_face;
+            let mouth_color = design.customize.face.color_mouth;
+            let mouth_highlight = assets
+                .catalog
+                .face_texture(design.customize.face.id_mouth_tex as u32)
+                .unwrap()
+                .high
+                .clone();
+            let moustache_color = design.customize.face.color_moustache;
+            let moustache_highlight = assets
+                .catalog
+                .face_texture(design.customize.face.id_moustache_tex as u32)
+                .map(|texture| texture.high.clone());
             let character = Character::assemble(design, &mut assets).unwrap();
             let face = &character.face;
             for part in [0, 4] {
@@ -1634,12 +1656,46 @@ mod tests {
                 assert!(!face.mesh_tints.contains_key(&key));
                 evaluated += 1;
             }
+            let (mesh, _) = face.skins[character.face_skins.face]
+                .data
+                .meshes
+                .iter()
+                .enumerate()
+                .find(|(_, mesh)| mesh.name.eq_ignore_ascii_case("model人脸_3"))
+                .unwrap_or_else(|| panic!("{} is missing the mouth mesh", class.name()));
+            let key = (character.face_skins.face, mesh);
+            let mouth = FaceShader::Mouth {
+                color: mouth_color,
+                skin_color,
+                highlight: ecmodel::normalize(&mouth_highlight),
+            };
+            assert_eq!(face.face_shaders.get(&key), Some(&mouth));
+            assert_eq!(mouth.gloss(), Some("textures/face/lipreflect.tga"));
+            assert!(!face.mesh_tints.contains_key(&key));
+            evaluated += 1;
+            if let Some(highlight) = moustache_highlight.filter(|path| !path.is_empty()) {
+                let (mesh, _) = face.skins[character.face_skins.face]
+                    .data
+                    .meshes
+                    .iter()
+                    .enumerate()
+                    .find(|(_, mesh)| mesh.name.eq_ignore_ascii_case("model人脸_6"))
+                    .unwrap_or_else(|| panic!("{} is missing the moustache mesh", class.name()));
+                let key = (character.face_skins.face, mesh);
+                let moustache = FaceShader::Moustache {
+                    color: moustache_color,
+                    skin_color,
+                    highlight: ecmodel::normalize(&highlight),
+                };
+                assert_eq!(face.face_shaders.get(&key), Some(&moustache));
+                assert!(!face.mesh_tints.contains_key(&key));
+            }
             for material in &face.skins[character.face_skins.face].data.materials {
                 assert_eq!(material.specular, [50. / 255., 50. / 255., 50. / 255., 1.]);
                 assert_eq!(material.power, 10.);
             }
         }
-        assert_eq!(evaluated, 6);
+        assert_eq!(evaluated, 9);
     }
 
     #[test]

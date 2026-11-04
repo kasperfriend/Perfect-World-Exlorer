@@ -242,6 +242,38 @@ mod tests {
     }
 
     #[test]
+    fn native_mouth_shader_keeps_skin_lip_highlight_and_gloss_separate() {
+        let (mut asset, poses) = fixture();
+        let mouth = FaceShader::Mouth {
+            color: 0xffe19486,
+            skin_color: 0xfff6f0e9,
+            highlight: "facedata/mouth-a.dds".into(),
+        };
+        assert_eq!(mouth.highlight(), Some("facedata/mouth-a.dds"));
+        assert_eq!(mouth.gloss(), Some("textures/face/lipreflect.tga"));
+        asset.face_shaders.insert((0, 0), mouth.clone());
+        let prepared = prepare(&asset, &poses).unwrap();
+        assert_eq!(prepared[0].color, u32::MAX);
+        assert_eq!(prepared[0].face_shader, Some(&mouth));
+    }
+
+    #[test]
+    fn native_moustache_shader_preserves_skin_color_and_has_no_gloss() {
+        let (mut asset, poses) = fixture();
+        let moustache = FaceShader::Moustache {
+            color: 0xffe8c6ae,
+            skin_color: 0xfff6f0e9,
+            highlight: "facedata/moustache-a.dds".into(),
+        };
+        assert_eq!(moustache.highlight(), Some("facedata/moustache-a.dds"));
+        assert_eq!(moustache.gloss(), None);
+        asset.face_shaders.insert((0, 0), moustache.clone());
+        let prepared = prepare(&asset, &poses).unwrap();
+        assert_eq!(prepared[0].color, u32::MAX);
+        assert_eq!(prepared[0].face_shader, Some(&moustache));
+    }
+
+    #[test]
     fn native_equipment_alpha_mode_is_per_mesh() {
         let (mut asset, poses) = fixture();
         assert!(!prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);
