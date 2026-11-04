@@ -545,6 +545,14 @@ fn main() {
         .map(|v| {
             let mut v = *v;
             v.kind = 2.1;
+            // `kind < 2.5` makes the vertex stage take `color.w` as the
+            // vertical scale, so leaving the shared `color` at its
+            // `[0, 0, 1, 0.5]` value silently halved this fixture's geometry
+            // and moved it away from the positions the reference expansion
+            // below reconstructs. Keep the scale uniform, as the sibling BMD
+            // fixtures do, so the pixel the oracle reads is the pixel it
+            // predicts.
+            v.color = [0., 0., 1., 1.];
             v.diffuse = 0xffffffff;
             v.night_diffuse = 0xffffffff;
             v
