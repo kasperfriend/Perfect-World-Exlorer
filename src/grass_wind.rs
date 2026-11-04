@@ -512,15 +512,16 @@ mod tests {
 
     /// Regression: the undamped spring resonated against the grass noise and
     /// the published history grew without bound (0.9 at ten seconds, 5.1 at
-    /// one minute, 1e5 at five minutes at 60 Hz). The travel must stay inside
-    /// the recovered target bound no matter how long it runs.
+    /// one minute, 1e5 at five minutes at 60 Hz). Ten minutes of logic time is
+    /// well past the point where the old step had already left the map.
     #[test]
     fn history_stays_bounded_over_a_long_session() {
         // The authored target is `noise * (1.0, -0.5, 0.0)` and the noise
         // table is bounded by 1.0, so no component may exceed that.
+        const STEPS_16MS: usize = 37_500; // 600 s of logic time
         let mut w = GrassWind::new();
-        let mut peak = 0.;
-        for _ in 0..(60 * 60 * 10) {
+        let mut peak = 0.0f32;
+        for _ in 0..STEPS_16MS {
             w.advance_ms(16);
             for frame in w.history() {
                 peak = peak.max(frame[0].abs()).max(frame[1].abs());
