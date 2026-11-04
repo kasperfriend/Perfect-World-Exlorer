@@ -1965,7 +1965,8 @@ impl Renderer {
         } else {
             source_flags
         };
-        self.celestial_visibility.update(camera.logic_delta_ms, latched_flags);
+        self.celestial_visibility
+            .update(camera.logic_delta_ms, latched_flags);
         // Disc placement follows the render path 0x4b3e00: each object uses its
         // own recovered elevation curve and the shared regional azimuth.
         // `sun_dir` is a light direction, which 0x4b60b0 stores negated.
