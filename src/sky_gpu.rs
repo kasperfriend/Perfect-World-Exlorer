@@ -781,6 +781,10 @@ impl SkyGpu {
                     // hour blend untouched until `begin_frame` uploads a frame.
                     sets: [0., 0., 0., 12.],
                     glow_center,
+                    // No rotation until `begin_frame` uploads the first frame:
+                    // the sphere's angles start at zero in the client too
+                    // (`0x7995e0` clears +0x10..+0x18).
+                    sky: [0.; 4],
                 }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             })
@@ -964,7 +968,7 @@ impl SkyGpu {
                 flare_ndc[0],
                 flare_ndc[1],
             ],
-            skyrot: [
+            sky: [
                 frame.sky_angles[0],
                 frame.sky_angles[1],
                 2. / h.max(1) as f32,
