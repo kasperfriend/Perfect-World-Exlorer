@@ -48,7 +48,7 @@ impl<T> Context<T> for Option<T> {
     }
 }
 use encoding_rs::GBK;
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Quat, Vec3, Vec4};
 
 use super::assets::Assets;
 use crate::skeleton::Skeleton;
@@ -673,15 +673,21 @@ fn combine_matrix_list(matrices: &[Mat4], weights: &[f32]) -> Mat4 {
     // (q - A3DQUATERNION(0,0,0)) * weight, then adds the three-angle Euler
     // identity once. Starting at identity and accumulating deltas is exactly
     // the same sum. Glam's four-float constructor is (x,y,z,w).
-    let mut rotation = Quat::IDENTITY;
+    let mut rotation = Vec4::W;
     for (&matrix, &weight) in matrices.iter().zip(weights) {
         let (matrix_scale, matrix_rotation, matrix_position) =
             matrix.to_scale_rotation_translation();
         position += matrix_position * weight;
         scale += (matrix_scale - Vec3::ONE) * weight;
-        rotation += (matrix_rotation - Quat::IDENTITY) * weight;
+        rotation += Vec4::new(
+            matrix_rotation.x,
+            matrix_rotation.y,
+            matrix_rotation.z,
+            matrix_rotation.w - 1.0,
+        ) * weight;
     }
-    Mat4::from_scale_rotation_translation(scale + Vec3::ONE, rotation.normalize(), position)
+    let rotation = Quat::from_xyzw(rotation.x, rotation.y, rotation.z, rotation.w).normalize();
+    Mat4::from_scale_rotation_translation(scale + Vec3::ONE, rotation, position)
 }
 
 fn scale(value: u8, factor: f32) -> f32 {
