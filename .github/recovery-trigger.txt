@@ -1,1 +1,1 @@
-round 6: backward boundary resync
+round 7: backward boundary resync, race-proof push

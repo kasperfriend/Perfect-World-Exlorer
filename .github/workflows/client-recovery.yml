@@ -86,5 +86,9 @@ jobs:
             echo "nothing new to commit"
           else
             git commit -m "Client recovery dumps (sky, flare and sky-set windows) [skip ci]"
+            # Another push may land while the runner disassembles (a human edit
+            # or a follow-up fix), which used to reject this push and throw the
+            # whole dump away. Rebase onto whatever landed, then push.
+            git pull --rebase origin "${GITHUB_REF_NAME}"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
