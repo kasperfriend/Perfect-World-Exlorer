@@ -88,6 +88,27 @@ pub struct PosedMesh {
     pub mesh: usize,
     pub vertices: Vec<skin_pose::PosedVertex>,
 }
+/// Strip one trailing `amd` segment from the *directory* of a path.
+///
+/// The retail pack ships skin-less duplicate folders where only the leaf
+/// directory carries the suffix: `models/npcs/npc/女npc21amd/女npc21.ski` does
+/// not exist, while `models/npcs/npc/女npc21/女npc21.ski` does and the two
+/// `.smd` files are otherwise identical. Matched case-insensitively and only as
+/// a whole segment, so an ordinary name that merely ends in those letters is
+/// left alone. Returns the input unchanged when there is nothing to strip.
+fn without_variant_suffix(path: &str) -> String {
+    let Some((dir, leaf)) = path.rsplit_once('/') else {
+        return path.to_string();
+    };
+    let Some((head, folder)) = dir.rsplit_once('/') else {
+        return path.to_string();
+    };
+    if folder.len() <= 3 || !folder.to_lowercase().ends_with("amd") {
+        return path.to_string();
+    }
+    let base = &folder[..folder.len() - 3];
+    format!("{head}/{base}/{leaf}")
+}
 fn relative(descriptor: &str, reference: &str) -> String {
     let reference = ecmodel::normalize(reference);
     if reference.starts_with("models/") {
@@ -115,9 +136,92 @@ impl ModelAsset {
         let skeleton = skeleton::Skeleton::parse(&bytes(&skeleton_path)?)
             .map_err(|e| format!("{skeleton_path}: {e}"))?;
         let mut skins = Vec::new();
-        for reference in &model.skins {
-            let path = relative(&descriptor.skin_model_path, reference);
-            let data = skin::Skin::parse(&bytes(&path)?).map_err(|e| format!("{path}: {e}"))?;
+        // The descriptor's own AddiSkinPath list is authoritative. The `.smd`
+        // list is a menu of skins that exist for the model family; in
+        // models.pck 228 of its 247 unresolvable entries are simply the naming
+        // of a variant that the `.ecm` selects explicitly (`冬1.ecm` ->
+        // `冬1.SKI`). Using the descriptor list first is what keeps those
+        // models drawable instead of failing the whole load.
+        //
+        // `AddiSkinPath` values are stored *pack-root relative but without the
+        // `models/` prefix*: `NPCs\\怪物\\31水生其它\\旋龟\\浮游锯齿.ski` is
+        // `models/npcs/怪物/31水生其它/旋龟/浮游锯齿.ski` in the archive.
+        // Prefixing `models/` resolves 1,455 of the 1,473 references; resolving
+        // against the `.ecm`'s own directory instead resolves almost none,
+        // because these values already carry their full directory.
+        let smd_dir = descriptor
+            .skin_model_path
+            .rsplit_once('/')
+            .map(|p| p.0.to_string());
+        let references: Vec<(String, String)> = if descriptor.additional_skins.is_empty() {
+            model
+                .skins
+                .iter()
+                .map(|r| (relative(&descriptor.skin_model_path, r), String::new()))
+                .collect()
+        } else {
+            descriptor
+                .additional_skins
+                .iter()
+                .map(|r| {
+                    // Keep the directory the value already carries; only add the
+                    // missing `models/` prefix.
+                    let full = ecmodel::normalize(r);
+                    let primary = if full.starts_with("models/") {
+                        full.clone()
+                    } else {
+                        format!("models/{full}")
+                    };
+                    // Secondary: the bare leaf next to the `.smd`, which is how
+                    // the remaining family variants are found.
+                    let leaf = full.rsplit('/').next().unwrap_or(full.as_str());
+                    let beside = smd_dir.as_ref().map(|d| format!("{d}/{leaf}"));
+                    (primary, beside.unwrap_or_default())
+                })
+                .collect()
+        };
+        for (primary, smd_fallback) in &references {
+            let smd_fallback = smd_fallback.clone();
+            // Some authored model variants are skin-less siblings: an `amd`
+            // folder carries its own .ecm/.smd/.bon but reuses the base
+            // model's skin from the sibling folder without the suffix. In
+            // models.pck that accounts for 247 of 2,228 .smd models, so
+            // failing the whole model on a missing .ski would drop ~11% of the
+            // character set. Retry against the base folder before giving up,
+            // and still fail loudly if neither resolves - the client has no
+            // placeholder geometry either.
+            // `path` is reassigned to whichever candidate actually loaded, so
+            // the stored asset names its real source rather than the first
+            // guess.
+            let mut path = primary.clone();
+            let data = match bytes(&path) {
+                Ok(b) => skin::Skin::parse(&b).map_err(|e| format!("{path}: {e}"))?,
+                Err(first) => {
+                    // Try the same name relative to the `.smd`, then the
+                    // skin-less `amd` sibling folder, and only then give up.
+                    let candidates = [smd_fallback.clone(), without_variant_suffix(&path)];
+                    let mut parsed = None;
+                    for candidate in candidates
+                        .iter()
+                        .filter(|c| !c.is_empty() && **c != *primary)
+                    {
+                        // Go through `bytes`, not the raw `read`: `read` is
+                        // already mutably borrowed by that wrapper, and it also
+                        // adds the failing path to the error.
+                        if let Ok(b) = bytes(candidate) {
+                            parsed = Some(
+                                skin::Skin::parse(&b).map_err(|e| format!("{candidate}: {e}"))?,
+                            );
+                            path = candidate.clone();
+                            break;
+                        }
+                    }
+                    match parsed {
+                        Some(skin) => skin,
+                        None => return Err(format!("{path}: {first}")),
+                    }
+                }
+            };
             skins.push(SkinAsset { path, data });
         }
         let mut tracks = Vec::new();

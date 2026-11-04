@@ -82,6 +82,8 @@ impl Builder {
         wind_index: f32,
         area_center: [f32; 3],
     ) {
+        // `wind_index` is the placement's history slot (`0x653e93`), which the
+        // retail vertex shader consumes as `v1.x`.
         if let Some(g) = self.groups.get_mut(&key) {
             let (sn, cs) = yaw.sin_cos();
             g.instances.push([
@@ -197,7 +199,19 @@ impl Gpu {
         );
         let marker = "o.pos=camera.matrix*vec4<f32>(pos,1.);";
         assert!(source.contains(marker));
-        source = source.replacen(marker,"o.grass_area=area_center; o.grass_scale_y=i.grass_scale_y; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0. && weight>=0. && weight<100. {let history_index=u32(clamp(extra.z,0.,79.)); pos+=camera.grass_history[history_index].xyz*weight*camera.grass_wind.y;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
+        // The retail `grass_wave` vertex shader, verbatim from
+        // `shaders/vs/grass_wave.txt` in the client's shaders.pck:
+        //
+        //     mov a0.x, v1.x
+        //     mul r1, v1.y, c[10+a0.x]
+        //     add r0, v0, r1
+        //
+        // so the slot is a per-vertex attribute (`v1.x`) and the applied vector
+        // is scaled by `v1.y`. The emitter computes `ftol(2*|y-10000| +
+        // rand(0,10)) % 80` once per placement (`0x653e93`-`0x653ec1`) from the
+        // placement's own height, so the instance carries that slot and the
+        // mesh vertex keeps its weight.
+        source = source.replacen(marker,"o.grass_area=area_center; o.grass_scale_y=i.grass_scale_y; o.grass_fade=1.; let original=pos; let sight=bitcast<f32>(i.diffuse); if camera.grass_eye.w>0.5 && sight>0. && sight<10000. {let delta=pos-camera.grass_eye.xyz; o.grass_fade=max(1.-dot(delta,delta)/(sight*sight),0.);} let weight=bitcast<f32>(i.night_diffuse); if camera.grass_wind.y>0.5 && weight>=0. && weight<100. {let slot=i32(round(extra.z))%80; let wrapped=select(slot,slot+80,slot<0); let history_index=u32(wrapped); pos+=camera.grass_history[history_index].xyz*weight;} o.grass_refraction=1.; if camera.clip.y<0. {o.grass_refraction=grass_refraction_transmittance(original,pos,camera.grass_eye.xyz,camera.clip.x);} o.pos=camera.matrix*vec4<f32>(pos,1.);",1);
         let marker = "tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9)";
         assert!(source.contains(marker));
         source = source.replacen(
@@ -429,6 +443,50 @@ mod tests {
         ));
     }
 
+    /// `shaders/vs/grass_wave.txt` (client shaders.pck) is
+    /// `mov a0.x, v1.x` / `mul r1, v1.y, c[10+a0.x]` / `add r0, v0, r1`: the
+    /// slot is per placement and only the scale is per vertex, so the injected
+    /// vertex stage must read the instance slot once and multiply by the vertex
+    /// weight, not hash the vertex height again.
+    #[test]
+    fn wind_stage_matches_the_retail_grass_wave_shader() {
+        // `include_str!` also captures the tests, so cut the file at the first
+        // test module before looking for strings the tests have to spell out.
+        // Main added a second test module (`scale_y_tests`) *above* the shader,
+        // so cutting at the first `#[cfg(test)]` threw the shader away with it.
+        // Only this module has to go, and it is the last thing in the file.
+        let source = include_str!("grass_instances.rs");
+        let injected = &source[..source.find("mod tests").expect("this test module")];
+        assert!(injected.contains("let slot=i32(round(extra.z))%80;"));
+        assert!(injected.contains("let weight=bitcast<f32>(i.night_diffuse);"));
+        assert!(injected.contains("pos+=camera.grass_history[history_index].xyz*weight;"));
+        // The frozen per-vertex hash must be gone: the native emitter computes
+        // the slot on the CPU and passes it as `v1.x`.
+        assert!(
+            !injected.contains("pos.y-10000."),
+            "the vertex stage must not re-hash the vertex height"
+        );
+    }
+    #[test]
+    fn injected_vertex_stage_is_valid_wgsl() {
+        // WGSL has no ternary operator. A `cond ? a : b` slipped into this
+        // injection once and only failed at runtime, when wgpu parsed the
+        // shader on a real adapter ("expected ')', found '?'"), because the
+        // GPU checks were not actually gating. Keep the whole injected line
+        // free of `?`, and keep the slot wrap in `select`, which is the WGSL
+        // spelling of the same arithmetic.
+        let source = include_str!("grass_instances.rs");
+        let injected = &source[..source.find("mod tests").expect("this test module")];
+        let line = injected
+            .lines()
+            .find(|l| l.contains("o.grass_area=area_center;"))
+            .expect("the injected vertex stage");
+        assert!(
+            !line.contains('?'),
+            "WGSL has no ternary operator; use select(): {line}"
+        );
+        assert!(line.contains("select(slot,slot+80,slot<0)"));
+    }
     #[test]
     fn area_center_is_preserved_per_instance() {
         let mut builder = Builder::default();

@@ -146,6 +146,12 @@ pub struct RegionalLight {
     pub celestial_flags: u32,
 }
 impl RegionalLight {
+    /// The native region selector independently reads the rain and snow bits
+    /// from the selected default area's authored flags (`0x421520`).
+    pub fn weather_selection(&self) -> crate::client_weather::WeatherSelection {
+        crate::client_weather::WeatherSelection::from_area_flags(self.celestial_flags)
+    }
+
     /// Authored region direction, normalized exactly like the previous inline
     /// renderer code (glam `normalize_or_zero`, i.e. reciprocal multiply).
     /// Hidden celestial flags never alter this value: they hide discs
@@ -342,6 +348,7 @@ pub struct Environments {
     areas: Vec<BoxArea>,
     id_to_index: BTreeMap<u32, usize>,
     streaming: Option<RegionLayout>,
+    auto_fog: Option<crate::sky_config::AutoFogConfig>,
 }
 /// Block references retained for runtime regional environment selection.
 #[derive(Clone)]
@@ -549,15 +556,35 @@ impl Environments {
             cols: scene.cols,
             boxes,
         });
+        // AutoFamily fog is a scene-level fallback only. EC-BSD area fog stays
+        // authoritative whenever an area is selected.
+        let auto_fog = (|| -> Result<crate::sky_config::AutoFogConfig, String> {
+            let mut file = fs::File::open(dir.join("configs.pck")).map_err(|e| e.to_string())?;
+            let entries = crate::pck::directory(&mut file)?;
+            let entry = entries
+                .iter()
+                .find(|entry| {
+                    entry
+                        .name
+                        .eq_ignore_ascii_case("configs/autofamilyconfigs/autoscene.cfg")
+                })
+                .ok_or("missing AutoFamily autoscene.cfg in configs.pck")?;
+            crate::sky_config::parse_autofog(&crate::pck::read_entry(&mut file, entry)?)
+        })()
+        .ok();
         eprintln!("Loaded {} client environment boxes", areas.len());
         Ok(Self {
             areas,
             id_to_index,
             streaming,
+            auto_fog,
         })
     }
     pub fn streaming(&self) -> Option<RegionStreaming> {
         self.streaming.clone().map(RegionStreaming::new)
+    }
+    pub fn auto_fog_enabled(&self) -> bool {
+        self.auto_fog.is_some_and(|fog| fog.enabled)
     }
     pub fn underwater(&self, p: [f32; 3], hour: f32) -> Fog {
         self.sample(p, hour, true)
@@ -622,20 +649,46 @@ impl Environments {
                 a.transition_ms,
             );
         }
-        let air = Fog {
-            start: 60.,
-            end: 400.,
-            density: 1.,
-            color: [70. / 255., 77. / 255., 91. / 255.],
+        let (air_day, air_night, water_day, water_night) = if let Some(fog) = self.auto_fog {
+            (
+                Fog {
+                    start: fog.day_start,
+                    end: fog.day_end,
+                    density: 1.,
+                    color: fog.day_color,
+                },
+                Fog {
+                    start: fog.night_start,
+                    end: fog.night_end,
+                    density: 1.,
+                    color: fog.night_color,
+                },
+                Fog {
+                    color: fog.water_color,
+                    ..Fog::default()
+                },
+                Fog {
+                    color: fog.water_color,
+                    ..Fog::default()
+                },
+            )
+        } else {
+            let air = Fog {
+                start: 60.,
+                end: 400.,
+                density: 1.,
+                color: [70. / 255., 77. / 255., 91. / 255.],
+            };
+            let water = Fog::default();
+            (air, air, water, water)
         };
-        let water = Fog::default();
         (
             None,
             FogEndpoints {
-                air_day: air,
-                air_night: air,
-                water_day: water,
-                water_night: water,
+                air_day,
+                air_night,
+                water_day,
+                water_night,
                 ambient_day: [0.; 3],
                 ambient_night: [0.; 3],
                 diffuse_day: [0.; 3],
@@ -668,6 +721,28 @@ mod tests {
     }
 
     use super::*;
+    #[test]
+    fn autofamily_fog_is_used_only_as_the_no_area_fallback() {
+        let mut env = Environments::default();
+        env.auto_fog = Some(crate::sky_config::AutoFogConfig {
+            enabled: true,
+            day_start: 2500.,
+            day_end: 12000.,
+            day_color: [0.1, 0.2, 0.3],
+            night_start: 1800.,
+            night_end: 8000.,
+            night_color: [0.4, 0.5, 0.6],
+            water_color: [0.02, 0.04, 0.08],
+        });
+        let (_, fallback, _) = env.endpoints_for(None);
+        assert_eq!(fallback.air_day.start, 2500.);
+        assert_eq!(fallback.air_day.end, 12000.);
+        assert_eq!(fallback.air_day.color, [0.1, 0.2, 0.3]);
+        assert_eq!(fallback.air_night.color, [0.4, 0.5, 0.6]);
+        assert_eq!(fallback.water_day.color, [0.02, 0.04, 0.08]);
+        assert_eq!(fallback.water_night.color, [0.02, 0.04, 0.08]);
+    }
+
     #[test]
     fn client_v12_box_fog_and_priority() {
         let mut b = vec![0u8; 224];
@@ -881,6 +956,7 @@ mod tests {
             areas: vec![global, local, second],
             id_to_index: ids,
             streaming: Some(layout),
+            auto_fog: None,
         };
         let mut active = env.streaming().unwrap();
         let p = [-1700., 0., 0.];
@@ -937,6 +1013,7 @@ mod tests {
             areas: env.areas.clone(),
             id_to_index: env.id_to_index.clone(),
             streaming: Some(delayed_layout),
+            auto_fog: None,
         };
         let mut delayed = delayed_env.streaming().unwrap();
         assert_eq!(delayed.endpoints(&delayed_env, p).key, Some(1));
@@ -1050,6 +1127,7 @@ mod tests {
             areas: vec![global, local, second],
             id_to_index: ids,
             streaming: Some(layout),
+            auto_fog: None,
         };
         let active = env.streaming().unwrap();
         Streamed { env, active }
@@ -1320,6 +1398,7 @@ mod tests {
                     vec![1],
                 ],
             }),
+            auto_fog: None,
         };
         let mut active = env.streaming().unwrap();
         let mut transition = FogTransition::new_streamed(&env, &mut active, [-1700., 0., 0.]);

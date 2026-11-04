@@ -287,21 +287,34 @@ impl SkyGpu {
             .into_iter()
             .map(|e| (e.name.to_lowercase(), e))
             .collect();
-        // `element_client.cfg` names `Sky\clear` for all three `sky_image`
-        // slots, so the authored set is loaded once and the shader uses it for
-        // both phases. The extra folders stay loaded so the layer indices (0..2
-        // set, 9 sun, 10 moon) do not move.
-        // One authored set covers both phases: `element_client.cfg` names
-        // `Sky\clear` for all three `sky_image` slots, and the packed
-        // `night2/01.bmp` carries a painted moon that would sit next to the
-        // recovered billboard. The three groups stay so the `sky_transition`
-        // swap lane keeps real layer indices; they are the same art, so a swap
-        // is a visual no-op until a second authored set exists.
-        let names = ["clear", "clear", "clear"];
+        // The client does not hardcode a sky folder: `CECConfigs::Init` reads
+        // `sky_image01..03` from `configs/element_client.cfg` `[DefEnv]`, and
+        // the archive proves a filename pattern is unsafe - only 16 of 59 sky
+        // folders carry a canonical 01/02/roof triple, the rest use names like
+        // `roog.bmp` or `sky_spire.bmp`. The retail config names
+        // `Sky\clear\Roof.bmp`, `Sky\clear\01.bmp` and `Sky\clear\02.bmp`.
+        //
+        // The atlas still lays each group out as `[01, 02, roof]` at
+        // `set * 3`, because that is the order `sky_geometry` samples
+        // (`Layer::Front = 0`, `Back = 1`, `Roof = 2`); only the folder is
+        // configuration-driven. One authored set covers both phases, so all
+        // three groups hold the same art and a `sky_transition` swap is a
+        // visual no-op until a second authored set exists.
+        let configured = sky_folders(element);
         let mut frames = Vec::new();
-        for folder in names {
-            for name in ["01.bmp", "02.bmp", "roof.bmp"] {
+        for folder in configured {
+            for name in ATLAS_ORDER {
                 let key = format!("textures/sky/{folder}/{name}");
+                let key = if entries.contains_key(&key) {
+                    key
+                } else {
+                    // A configured folder without the canonical triple must not
+                    // stop the world loading: fall back to the shipped clear set
+                    // for that slot and say so.
+                    let fallback = format!("textures/sky/clear/{name}");
+                    eprintln!("configured sky texture {key} absent; using {fallback}");
+                    fallback
+                };
                 let entry = entries
                     .get(&key)
                     .ok_or_else(|| format!("missing client sky texture {key}"))?;
@@ -647,6 +660,130 @@ impl SkyGpu {
 /// placement but never its ray directions. Dropping the translation here makes
 /// that structural rather than incidental: the camera position cannot leak into
 /// the sky, and a reflected view is the same ray mirrored about the water plane.
+/// Atlas order inside one group: `Layer::Front`, `Layer::Back`, `Layer::Roof`.
+/// `sky_geometry` samples these by index, so the order is not free.
+const ATLAS_ORDER: [&str; 3] = ["01.bmp", "02.bmp", "roof.bmp"];
+
+/// The three `sky_image` values the retail client ships, used when
+/// `configs/element_client.cfg` is absent or unreadable.
+pub(crate) const SKY_DEFAULTS: [&str; 3] = [
+    "Sky\\clear\\Roof.bmp",
+    "Sky\\clear\\01.bmp",
+    "Sky\\clear\\02.bmp",
+];
+
+/// Read `sky_image01..03` out of `configs/element_client.cfg` (`[DefEnv]`).
+///
+/// The file is a plain INI with CRLF endings and `key = value` entries. Only
+/// `[DefEnv]` supplies these keys; other sections are ignored so a later
+/// section cannot silently win.
+pub(crate) fn sky_images_from_config(text: &str) -> [String; 3] {
+    let mut out: [Option<String>; 3] = [None, None, None];
+    let mut in_defenv = false;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        if line.starts_with('[') && line.ends_with(']') {
+            in_defenv = line[1..line.len() - 1]
+                .trim()
+                .eq_ignore_ascii_case("DefEnv");
+            continue;
+        }
+        if !in_defenv {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let (key, value) = (key.trim(), value.trim());
+        let slot = if key.eq_ignore_ascii_case("sky_image01") {
+            0
+        } else if key.eq_ignore_ascii_case("sky_image02") {
+            1
+        } else if key.eq_ignore_ascii_case("sky_image03") {
+            2
+        } else {
+            continue;
+        };
+        if !value.is_empty() {
+            out[slot] = Some(value.to_string());
+        }
+    }
+    [
+        out[0]
+            .clone()
+            .unwrap_or_else(|| SKY_DEFAULTS[0].to_string()),
+        out[1]
+            .clone()
+            .unwrap_or_else(|| SKY_DEFAULTS[1].to_string()),
+        out[2]
+            .clone()
+            .unwrap_or_else(|| SKY_DEFAULTS[2].to_string()),
+    ]
+}
+
+/// Turn a configured client path into a pack key.
+///
+/// Configs use Windows separators; the pack index is lowercased, so normalise
+/// to `textures/sky/<folder>/<file>`.
+pub(crate) fn sky_pack_key(configured: &str) -> String {
+    let normalised = configured.replace('\\', "/").to_lowercase();
+    let trimmed = normalised.trim_start_matches("./");
+    if trimmed.starts_with("textures/") {
+        trimmed.to_string()
+    } else {
+        format!("textures/{trimmed}")
+    }
+}
+
+/// The folder each of the three atlas groups should load.
+///
+/// Derived from `sky_image01..03`: the retail config names
+/// `Sky\clear\Roof.bmp`, `Sky\clear\01.bmp`, `Sky\clear\02.bmp`, so all
+/// three resolve to `clear`. If a configured image names a different folder
+/// than its siblings, each group keeps its own folder so the configuration is
+/// honoured rather than silently collapsed.
+fn sky_folders(element: &Path) -> [String; 3] {
+    let configured = read_sky_images(element);
+    let mut out: [String; 3] = Default::default();
+    for (slot, path) in configured.iter().enumerate() {
+        // Only the `textures/sky/<folder>/<file>` shape names a folder; a bare
+        // filename (some sets ship one) keeps the shipped `clear` art.
+        let key = sky_pack_key(path);
+        out[slot] = match key.rsplit_once('/') {
+            Some((dir, _)) if dir.starts_with("textures/sky/") => dir
+                .rsplit_once('/')
+                .map_or_else(|| "clear".to_string(), |(_, f)| f.to_string()),
+            _ => "clear".to_string(),
+        };
+    }
+    out
+}
+
+/// Best-effort read of `configs/element_client.cfg`; any failure falls back to
+/// the shipped defaults rather than failing the load.
+fn read_sky_images(element: &Path) -> Vec<String> {
+    let defaults = || SKY_DEFAULTS.map(str::to_string).to_vec();
+    let Ok(mut cfg_file) = File::open(element.join("configs.pck")) else {
+        return defaults();
+    };
+    let Ok(dir) = pck::directory(&mut cfg_file) else {
+        return defaults();
+    };
+    let entries: HashMap<_, _> = dir
+        .into_iter()
+        .map(|e| (e.name.to_lowercase(), e))
+        .collect();
+    match entries.get("configs/element_client.cfg") {
+        Some(entry) => pck::read_entry(&mut cfg_file, entry)
+            .map(|b| sky_images_from_config(&String::from_utf8_lossy(&b)).to_vec())
+            .unwrap_or_else(|_| defaults()),
+        None => defaults(),
+    }
+}
+
 fn sky_inverse(projection: Mat4, view: Mat4, reflected: bool) -> Mat4 {
     let mut rotation = view;
     rotation.w_axis = glam::Vec4::W;
