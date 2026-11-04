@@ -1,1 +1,1 @@
-round 7: backward boundary resync, race-proof push
+round 8: 8 KiB backward resync for the flare helper

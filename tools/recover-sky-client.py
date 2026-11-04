@@ -98,7 +98,7 @@ BOUNDARY_SCAN = 0x300
 # How far before a window to look for the padding that ends the previous
 # function. Windows are picked from call sites, so the enclosing function almost
 # always starts earlier than the window does.
-BACK_SCAN = 0x400
+BACK_SCAN = 0x2000
 
 
 def resync(code_off, blob):
