@@ -174,6 +174,7 @@ jobs:
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
           test -n "$VK_ICD_FILENAMES"
           cargo run --locked --bin terrain-view-gpu-check
+          cargo test --locked --bin perfect-world-explorer cutoff_gpu_residency_repacking -- --ignored
 
       # Formatting is cosmetic: run it after the compile, test and shader steps
       # so a whitespace diff can never hide a real failure behind it.

@@ -88,6 +88,8 @@ struct MaterialBindings {
     mask_sampler: wgpu::Sampler,
 }
 struct MaskResources {
+    #[cfg(test)]
+    texture: wgpu::Texture,
     bytes: usize,
     mv: wgpu::TextureView,
     area_buffer: wgpu::Buffer,
@@ -923,7 +925,13 @@ fn upload_masks(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::R8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | if cfg!(test) {
+                wgpu::TextureUsages::COPY_SRC
+            } else {
+                wgpu::TextureUsages::empty()
+            },
         view_formats: &[],
     });
     let mut areas = Vec::new();
@@ -1009,7 +1017,12 @@ fn upload_masks(
     let area_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("terrain areas"),
         contents: bytemuck::cast_slice(&areas),
-        usage: wgpu::BufferUsages::STORAGE,
+        usage: wgpu::BufferUsages::STORAGE
+            | if cfg!(test) {
+                wgpu::BufferUsages::COPY_SRC
+            } else {
+                wgpu::BufferUsages::empty()
+            },
     });
     // A camera outside the map can have no resident layers. Keep the storage
     // binding valid even though there are no terrain triangles to sample it.
@@ -1019,13 +1032,20 @@ fn upload_masks(
     let layer_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("terrain layers"),
         contents: bytemuck::cast_slice(&layers),
-        usage: wgpu::BufferUsages::STORAGE,
+        usage: wgpu::BufferUsages::STORAGE
+            | if cfg!(test) {
+                wgpu::BufferUsages::COPY_SRC
+            } else {
+                wgpu::BufferUsages::empty()
+            },
     });
     let mv = masktex.create_view(&wgpu::TextureViewDescriptor {
         dimension: Some(wgpu::TextureViewDimension::D2Array),
         ..Default::default()
     });
     Ok(MaskResources {
+        #[cfg(test)]
+        texture: masktex,
         bytes: pages * MASK_PAGE * MASK_PAGE,
         mv,
         area_buffer,
@@ -1456,5 +1476,123 @@ mod tests {
         assert_eq!(grid_axis(17, 8), vec![0, 8, 16]);
         assert_eq!(grid_axis(18, 8), vec![0, 8, 16, 17]);
         assert_eq!(grid_axis(1, 8), vec![0]);
+    }
+    #[test]
+    #[ignore = "requires a headless GPU; run explicitly after software Vulkan setup"]
+    fn cutoff_gpu_residency_repacking() {
+        assert!(
+            std::env::var_os("PW_SMALL_MASK_ATLAS").is_none(),
+            "test native masks, not diagnostic downsampling"
+        );
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+            .expect("headless adapter");
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("cutoff residency test"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+            },
+            None,
+        ))
+        .unwrap();
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut m = crate::material::cutoff_mask_fixture();
+        let full = upload_masks(&device, &queue, &m, &[0]).unwrap();
+        assert_eq!(full.bytes, 32 * 1024 * 1024);
+        drop(full);
+        let near = m.take_window(Some([2, 3, 5, 6]));
+        let compact = upload_masks(&device, &queue, &near, &[0]).unwrap();
+        assert_eq!(compact.bytes, 16 * 1024 * 1024);
+        // Read actual GPU records: cold global IDs must be empty, not aliased
+        // to a neighbouring area; retained layers must use compact mask slots.
+        fn read_buffer(
+            device: &wgpu::Device,
+            queue: &wgpu::Queue,
+            source: &wgpu::Buffer,
+        ) -> Vec<u8> {
+            let out = device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: source.size(),
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut e = device.create_command_encoder(&Default::default());
+            e.copy_buffer_to_buffer(source, 0, &out, 0, source.size());
+            queue.submit(Some(e.finish()));
+            mapped(device, &out)
+        }
+        fn mapped(device: &wgpu::Device, out: &wgpu::Buffer) -> Vec<u8> {
+            let (tx, rx) = std::sync::mpsc::channel();
+            out.slice(..)
+                .map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+            device.poll(wgpu::Maintain::Wait);
+            rx.recv().unwrap().unwrap();
+            let bytes = out.slice(..).get_mapped_range().to_vec();
+            out.unmap();
+            bytes
+        }
+        let areas = read_buffer(&device, &queue, &compact.area_buffer);
+        let layers = read_buffer(&device, &queue, &compact.layer_buffer);
+        let mut slot = 0;
+        for id in 0..400 {
+            let a: Area = bytemuck::pod_read_unaligned(&areas[id * 16..id * 16 + 16]);
+            if (2..5).contains(&(id % 20)) && (3..6).contains(&(id / 20)) {
+                assert_eq!(a.count, 2);
+                let base = a.start as usize * std::mem::size_of::<Layer>();
+                let layer: Layer = bytemuck::pod_read_unaligned(&layers[base + 32..base + 64]);
+                assert_eq!(layer.mask, slot);
+                assert_eq!(layer.tex, 0);
+                assert_eq!(layer.axis, 1);
+                assert_eq!(layer.uv, [1., 1.]);
+                // Read every native texel, not just a representative pixel.
+                let out = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: 256 * 256,
+                    usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                    mapped_at_creation: false,
+                });
+                let mut e = device.create_command_encoder(&Default::default());
+                e.copy_texture_to_buffer(
+                    wgpu::ImageCopyTexture {
+                        texture: &compact.texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d {
+                            x: slot * 256,
+                            y: 0,
+                            z: 0,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::ImageCopyBuffer {
+                        buffer: &out,
+                        layout: wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(256),
+                            rows_per_image: Some(256),
+                        },
+                    },
+                    wgpu::Extent3d {
+                        width: 256,
+                        height: 256,
+                        depth_or_array_layers: 1,
+                    },
+                );
+                queue.submit(Some(e.finish()));
+                assert!(mapped(&device, &out).iter().all(|&b| b == id as u8));
+                slot += 1;
+            } else {
+                assert_eq!(a.count, 0);
+            }
+        }
+        assert_eq!(slot, 9);
+        drop(compact);
+        // A camera beyond the map has no layers but still needs a valid binding.
+        let mut fixture = crate::material::cutoff_mask_fixture();
+        let empty = fixture.take_window(Some([0, 0, 0, 0]));
+        let empty_gpu = upload_masks(&device, &queue, &empty, &[0]).unwrap();
+        assert!(empty_gpu.layer_buffer.size() >= std::mem::size_of::<Layer>() as u64);
+        device.poll(wgpu::Maintain::Wait);
+        assert!(pollster::block_on(device.pop_error_scope()).is_none());
     }
 }

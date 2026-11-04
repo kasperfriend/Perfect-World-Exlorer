@@ -438,6 +438,42 @@ impl Materials {
     }
 }
 
+/// Asset-free production-upload fixture: one base plus one distinct 256² mask
+/// per area, enough areas to cross an atlas page boundary.
+#[cfg(test)]
+pub(crate) fn cutoff_mask_fixture() -> Materials {
+    Materials {
+        textures: vec![],
+        areas_x: 20,
+        mask_grid: 128,
+        width: 2560,
+        height: 2560,
+        spacing: 2.,
+        areas: (0..400)
+            .map(|id| Area {
+                layers: vec![
+                    Layer {
+                        texture: 0,
+                        axis: 1,
+                        u: 1.,
+                        v: 1.,
+                        mask_size: 0,
+                        mask: Mask::raw(vec![]),
+                    },
+                    Layer {
+                        texture: 0,
+                        axis: 1,
+                        u: 1.,
+                        v: 1.,
+                        mask_size: 256,
+                        mask: Mask::raw(vec![id as u8; 256 * 256]),
+                    },
+                ],
+            })
+            .collect(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
