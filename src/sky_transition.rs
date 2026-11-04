@@ -1105,7 +1105,8 @@ mod tests {
         m.step();
         let frame = frame_sets(&m);
         assert_eq!(frame.0, 0);
-        assert_eq!(frame.1, 2);
+        assert_eq!(frame.1, Triple::NIGHT.0, "the night set");
+
         assert!(frame.2 > 0.);
         let counter = m.counter();
         for secondary in [false, false, true, true, true, true] {
