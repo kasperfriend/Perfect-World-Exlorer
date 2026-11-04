@@ -538,7 +538,10 @@ mod tests {
             }
         }
         assert!(peak.is_finite(), "wind history diverged");
-        assert!(peak <= 1.0, "wind history exceeded the target bound: {peak}");
+        assert!(
+            peak <= 1.0,
+            "wind history exceeded the target bound: {peak}"
+        );
         // And it must actually move, or the damping would have killed it.
         assert!(peak > 0.01, "wind history is dead: {peak}");
     }

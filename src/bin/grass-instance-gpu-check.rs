@@ -1662,7 +1662,8 @@ fn main() {
         "zero wind should restore image"
     );
     let lit = |f: &[u8]| f.chunks_exact(4).filter(|p| p[1] > 0).count();
-    let mean = |f: &[u8]| f.iter().skip(1).step_by(4).map(|v| *v as u32).sum::<u32>() as f32 / 16384.;
+    let mean =
+        |f: &[u8]| f.iter().skip(1).step_by(4).map(|v| *v as u32).sum::<u32>() as f32 / 16384.;
     let changes = wind_frames[0]
         .chunks_exact(4)
         .zip(wind_frames[1].chunks_exact(4))
