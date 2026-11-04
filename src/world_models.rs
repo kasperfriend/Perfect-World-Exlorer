@@ -32,12 +32,13 @@ impl Assets {
             unloaded: vec![],
         };
         let mut cache: HashMap<String, Option<usize>> = HashMap::new();
+        let mut tracks = crate::model_asset::TrackCache::default();
         for placement in placements {
             let path = ecmodel::normalize(&placement.path);
             let asset = if let Some(index) = cache.get(&path) {
                 *index
             } else {
-                let index = match ModelAsset::load_with(&path, &mut read) {
+                let index = match ModelAsset::load_cached(&path, &mut read, &mut tracks) {
                     Ok(asset) => {
                         let index = result.assets.len();
                         result.assets.push(asset);

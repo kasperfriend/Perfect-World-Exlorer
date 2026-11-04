@@ -38,6 +38,7 @@ struct HookBinding {
 /// This frame's pose and deformed meshes for one slot. Secondary views reuse
 /// it so reflection/refraction never advance playback or re-sample a hook.
 struct SlotPose {
+    sample: Option<(usize, f32)>,
     pose: crate::skeleton_pose::Pose,
     meshes: Vec<crate::model_asset::PosedMesh>,
 }
@@ -48,6 +49,8 @@ struct Slot {
     transform: Result<glam::Mat4, String>,
     /// Last evaluated pose, reused by every pass of the same frame.
     posed: Option<Result<SlotPose, String>>,
+    geometry_dirty: bool,
+    vertex_fog: Option<f32>,
 }
 
 /// Per-frame alpha-pass diagnostics; see [`World::alpha_status`].
@@ -139,6 +142,8 @@ impl World {
                 failed: false,
                 transform: crate::world_models::transform(&i.placement),
                 posed: None,
+                geometry_dirty: true,
+                vertex_fog: None,
             })
             .collect();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -441,19 +446,38 @@ impl World {
                 continue;
             }
             let asset = &self.assets.assets[instance.asset];
+            let sample = match instance.playback.as_mut() {
+                Ok(clock) => {
+                    if delta_ms != 0 {
+                        if let Err(e) = clock.tick(delta_ms) {
+                            slot.posed = Some(Err(e));
+                            continue;
+                        }
+                    }
+                    clock.sample()
+                }
+                Err(e) => {
+                    slot.posed = Some(Err(e.clone()));
+                    continue;
+                }
+            };
+            if matches!(&slot.posed, Some(Ok(previous)) if previous.sample == sample) {
+                continue;
+            }
             let result = (|| -> Result<SlotPose, String> {
                 let transform = *slot.transform.as_ref().map_err(Clone::clone)?;
-                let clock = instance.playback.as_mut().map_err(|e| e.clone())?;
-                if delta_ms != 0 {
-                    clock.tick(delta_ms)?;
-                }
-                let pose = match clock.sample() {
+                let pose = match sample {
                     Some((action, time)) => asset.action_pose(action, time, transform)?,
                     None => asset.bind_pose(transform)?,
                 };
                 let meshes = asset.meshes_from_pose(&pose)?;
-                Ok(SlotPose { pose, meshes })
+                Ok(SlotPose {
+                    sample,
+                    pose,
+                    meshes,
+                })
             })();
+            slot.geometry_dirty = true;
             slot.posed = Some(result);
         }
     }
@@ -725,7 +749,14 @@ fn draw_one(
         f.attenuation = point.stored_attenuation;
     }
     if let Some(draw) = &slot.draw {
-        return draw.update(queue, asset, &posed.meshes, f);
+        if slot.geometry_dirty || slot.vertex_fog != Some(f.vertex_fog) {
+            draw.update(queue, asset, &posed.meshes, f)?;
+            slot.geometry_dirty = false;
+            slot.vertex_fog = Some(f.vertex_fog);
+        } else {
+            draw.update_constants(queue, asset, f)?;
+        }
+        return Ok(());
     }
     let created = Draw::with_textures(
         device,
@@ -757,6 +788,8 @@ fn draw_one(
             Ok((texture, alpha))
         },
     )?;
+    slot.geometry_dirty = false;
+    slot.vertex_fog = Some(f.vertex_fog);
     slot.draw = Some(created);
     Ok(())
 }

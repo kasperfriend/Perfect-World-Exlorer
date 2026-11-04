@@ -1442,6 +1442,14 @@ impl Renderer {
             &reflected_uniform,
             vegetation_authored_mips,
         );
+        // Immutable tree meshes/motion samples and water frames now live on
+        // the GPU. The streaming worker never reads these sources again.
+        t.trees.types.clear();
+        t.trees.types.shrink_to_fit();
+        t.trees.placements.clear();
+        t.trees.placements.shrink_to_fit();
+        t.water_normals.clear();
+        t.water_simple_frames.clear();
         let terrain_gpu = crate::terrain_gpu::TerrainGpu::new(
             &device,
             &queue,

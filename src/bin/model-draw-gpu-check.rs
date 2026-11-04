@@ -310,6 +310,63 @@ fn main() {
         &draw,
         [[64, 128, 191, 255], [191, 64, 128, 255]],
     );
+    // Independent instances must share immutable GPU resources, but changing
+    // one instance's constants must never change its neighbor's lighting.
+    let mut receivers = model_draw_gpu::ReceiverCache::default();
+    let mut shared = std::collections::HashMap::new();
+    let mut uploads = 0;
+    let mut copies = Vec::new();
+    for _ in 0..2 {
+        copies.push(
+            model_draw_gpu::Draw::with_textures(
+                &device,
+                &queue,
+                wgpu::TextureFormat::Rgba8Unorm,
+                None,
+                false,
+                &sampler,
+                &asset,
+                &poses(&asset),
+                frame,
+                &mut receivers,
+                |path| {
+                    if let Some(texture) = shared.get(path) {
+                        return Ok((std::sync::Arc::clone(texture), false));
+                    }
+                    uploads += 1;
+                    let texture = std::sync::Arc::new(model_texture_gpu::upload(
+                        &device,
+                        &queue,
+                        &white_dds(),
+                        model_texture_gpu::UploadMode::Auto,
+                    )?);
+                    shared.insert(path.to_string(), texture.clone());
+                    Ok((texture, false))
+                },
+            )
+            .unwrap(),
+        );
+    }
+    assert_eq!(uploads, 1, "one texture allocation across two placements");
+    assert_eq!(receivers.len(), 1, "one pipeline across two placements");
+    let mut half = frame;
+    half.lighting.environment_ambient = [0.5; 4];
+    copies[0].update_constants(&queue, &asset, half).unwrap();
+    check(
+        &device,
+        &queue,
+        &copies[0],
+        [[32, 64, 96, 255], [96, 32, 64, 255]],
+    );
+    check(
+        &device,
+        &queue,
+        &copies[1],
+        [[64, 128, 191, 255], [191, 64, 128, 255]],
+    );
+    println!(
+        "::notice::shared model textures/pipelines and independent constants-only updates passed"
+    );
     let mut dim = frame;
     dim.lighting.environment_ambient = [0.5; 4];
     draw.update(&queue, &asset, &poses(&asset), dim).unwrap();

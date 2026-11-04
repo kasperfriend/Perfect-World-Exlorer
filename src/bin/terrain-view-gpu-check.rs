@@ -26,6 +26,11 @@
 //! sequencing rule the viewer must keep — one snapshot, five submissions, no
 //! per-view rebuild — by re-reading the storage after every pass.
 use wgpu::util::DeviceExt;
+#[path = "../terrain_sampling.rs"]
+#[allow(dead_code)]
+mod terrain_sampling;
+#[path = "../terrain_upload.rs"]
+mod terrain_upload;
 
 /// Rows copied out of a texture must be a multiple of 256 bytes.
 const PADDED_ROW: u32 = 256;
@@ -76,12 +81,14 @@ fn main() {
     let (device, queue) = pollster::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
             label: None,
-            required_features: wgpu::Features::empty(),
+            required_features: adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC,
             required_limits: wgpu::Limits::downlevel_defaults(),
         },
         None,
     ))
     .unwrap();
+
+    check_compressed_upload(&device, &queue);
 
     // Production WGSL. This is the exact string the viewer hands to wgpu.
     let source = include_str!("../terrain_gpu.rs")
@@ -827,4 +834,97 @@ fn far_vertex(device: &wgpu::Device) -> wgpu::Buffer {
         contents: &data,
         usage: wgpu::BufferUsages::VERTEX,
     })
+}
+
+/// Exercise the exact production uploader, including its 2x2 and 1x1 block
+/// extents. Read the tail back byte-for-byte: no hidden mip generation allowed.
+fn check_compressed_upload(device: &wgpu::Device, queue: &wgpu::Queue) {
+    if !device
+        .features()
+        .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
+    {
+        println!("::notice::native terrain BC upload unavailable on this adapter; decoded shader path still tested");
+        return;
+    }
+    for (fourcc, format, block) in [
+        (b"DXT1", wgpu::TextureFormat::Bc1RgbaUnorm, 8usize),
+        (b"DXT3", wgpu::TextureFormat::Bc2RgbaUnorm, 16usize),
+    ] {
+        let mut source = vec![0u8; 128];
+        source[..4].copy_from_slice(b"DDS ");
+        for (offset, value) in [
+            (4, 124u32),
+            (12, 256),
+            (16, 256),
+            (28, 9),
+            (76, 32),
+            (80, 4),
+        ] {
+            source[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        source[84..88].copy_from_slice(fourcc);
+        for mip in 0..9 {
+            let blocks = (256u32 >> mip).max(1).div_ceil(4) as usize;
+            source.resize(source.len() + blocks * blocks * block, (mip + 1) as u8);
+        }
+        assert!(terrain_upload::native_group(&source, true).is_some());
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("production terrain BC upload regression"),
+            size: wgpu::Extent3d {
+                width: 256,
+                height: 256,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 9,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        terrain_upload::upload(queue, &texture, &source, 0).unwrap();
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 768,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        for (i, mip) in [6u32, 7, 8].into_iter().enumerate() {
+            encoder.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: mip,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &buffer,
+                    layout: wgpu::ImageDataLayout {
+                        offset: i as u64 * 256,
+                        bytes_per_row: Some(256),
+                        rows_per_image: Some(1),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: 4,
+                    height: 4,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        queue.submit(Some(encoder.finish()));
+        let slice = buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv().unwrap().unwrap();
+        let bytes = slice.get_mapped_range();
+        for (i, value) in [7u8, 8, 9].into_iter().enumerate() {
+            assert_eq!(&bytes[i * 256..i * 256 + block], vec![value; block]);
+        }
+        drop(bytes);
+        buffer.unmap();
+    }
+    println!("::notice::production terrain BC1/BC2 uploads preserve authored tiny mip blocks byte-for-byte");
 }

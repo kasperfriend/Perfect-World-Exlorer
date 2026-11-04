@@ -191,27 +191,12 @@ impl TerrainGpu {
             .textures
             .iter()
             .map(|img| {
-                if !device
-                    .features()
-                    .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
-                    || img.w != img.h
-                    || ![256, 512, 1024].contains(&img.w)
-                {
-                    return None;
-                }
-                let info = crate::terrain_sampling::parse_terrain_dds(&img.source).ok()?;
-                if info.authored_mips != img.w.ilog2() + 1 {
-                    return None;
-                }
-                let fourcc = &img.source[84..88];
-                let format = if fourcc == b"DXT1" {
-                    0
-                } else if fourcc == b"DXT3" {
-                    1
-                } else {
-                    return None;
-                };
-                Some(format * 3 + img.w.ilog2() as usize - 8)
+                crate::terrain_upload::native_group(
+                    &img.source,
+                    device
+                        .features()
+                        .contains(wgpu::Features::TEXTURE_COMPRESSION_BC),
+                )
             })
             .collect();
         let mut native_counts = [0usize; 6];
@@ -339,41 +324,10 @@ impl TerrainGpu {
         let mut native_n = [0u32; 6];
         for (image_number, img) in m.textures.iter().enumerate() {
             if let Some(group) = native_groups[image_number] {
-                let info = crate::terrain_sampling::parse_terrain_dds(&img.source)?;
                 let index = native_n[group];
                 native_n[group] += 1;
                 tex_map.push(index | ((group as u32 + 3) << 28));
-                let mut offset = 128;
-                for mip in 0..info.authored_mips {
-                    let side = (img.w as u32 >> mip).max(1);
-                    let blocks = (side + 3) / 4;
-                    let row = blocks * info.format.block_bytes() as u32;
-                    let len = (row * blocks) as usize;
-                    queue.write_texture(
-                        wgpu::ImageCopyTexture {
-                            texture: &native_textures[group],
-                            mip_level: mip,
-                            origin: wgpu::Origin3d {
-                                x: 0,
-                                y: 0,
-                                z: index,
-                            },
-                            aspect: wgpu::TextureAspect::All,
-                        },
-                        &img.source[offset..offset + len],
-                        wgpu::ImageDataLayout {
-                            offset: 0,
-                            bytes_per_row: Some(row),
-                            rows_per_image: Some(blocks),
-                        },
-                        wgpu::Extent3d {
-                            width: side.max(4),
-                            height: side.max(4),
-                            depth_or_array_layers: 1,
-                        },
-                    );
-                    offset += len;
-                }
+                crate::terrain_upload::upload(queue, &native_textures[group], &img.source, index)?;
                 // A submit bounds upload staging; a wait every eight sources
                 // also caps in-flight allocations on shared-memory adapters.
                 if image_number % 8 == 7 || image_number + 1 == m.textures.len() {

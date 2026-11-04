@@ -144,6 +144,10 @@ pub struct Draw {
 #[derive(Default)]
 pub struct ReceiverCache(std::collections::HashMap<String, std::sync::Arc<raster::Receiver>>);
 impl ReceiverCache {
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
     fn get(
         &mut self,
         key: String,
@@ -374,6 +378,38 @@ impl Draw {
         }
         Ok(())
     }
+    /// World-owned immutable topology: pass changes only require constants,
+    /// not another prepare/copy/upload of the exact same posed vertices.
+    pub fn update_constants(
+        &self,
+        queue: &wgpu::Queue,
+        asset: &ModelAsset,
+        frame: Frame,
+    ) -> Result<(), String> {
+        if frame.blend_enabled != self.blend_enabled {
+            return Err("model pass blending changed; rebuild its pipeline".into());
+        }
+        let original = asset.descriptor.render_settings().original_color;
+        let mut updates = Vec::new();
+        for mesh in self.meshes.iter().flatten() {
+            let skin = asset.skins.get(mesh.key.0).ok_or("missing retained skin")?;
+            let source = skin
+                .data
+                .meshes
+                .get(mesh.key.1)
+                .ok_or("missing retained mesh")?;
+            let material = usize::try_from(source.material)
+                .ok()
+                .and_then(|i| skin.data.materials.get(i))
+                .ok_or("missing retained material")?;
+            updates.push((&mesh.binding, frame.params(material, original)?));
+        }
+        for (binding, params) in updates {
+            binding.update(queue, &params)?;
+        }
+        Ok(())
+    }
+
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         self.draw_opaque(pass);
         for &mesh in &self.alpha_meshes {
