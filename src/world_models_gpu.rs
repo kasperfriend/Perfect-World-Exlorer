@@ -816,13 +816,13 @@ fn draw_one(
                 return Ok(texture.clone());
             }
             let data = read(path)?;
-            let alpha = crate::model_dds::Dds::parse(&data)?.format.alpha_texture();
-            let texture = std::sync::Arc::new(crate::model_texture_gpu::upload(
+            let (texture, alpha) = crate::model_texture_gpu::upload_with_alpha(
                 device,
                 queue,
                 &data,
                 crate::model_texture_gpu::UploadMode::Auto,
-            )?);
+            )?;
+            let texture = std::sync::Arc::new(texture);
             textures.insert(path.into(), (texture.clone(), alpha));
             Ok((texture, alpha))
         },

@@ -1,9 +1,10 @@
 //! Validated retained-asset -> ordinary drawing contract. Animation time and
 //! action selection are caller inputs, never inferred from the first SMD action.
 use crate::{
-    model_asset::{ModelAsset, PosedMesh},
+    model_asset::{FaceShader, ModelAsset, PosedMesh},
     skin,
 };
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Vertex {
@@ -15,9 +16,12 @@ pub struct PreparedMesh<'a> {
     pub skin: usize,
     pub mesh: usize,
     pub vertices: Vec<Vertex>,
-    pub indices: &'a [u16],
+    pub indices: Cow<'a, [u16]>,
     pub material: &'a skin::Material,
+    pub color: u32,
     pub texture_paths: [String; 2],
+    pub diffuse_alpha_only: bool,
+    pub face_shader: Option<&'a FaceShader>,
 }
 /// Validate the complete set before any GPU uploads. Missing/duplicate poses,
 /// changed topology and unsupported render overrides are errors, not permission
@@ -32,8 +36,10 @@ pub fn prepare<'a>(
     // equivalent still fail here instead of being approximated.
     crate::model_queue::blend_factor(settings.source_blend)?;
     crate::model_queue::blend_factor(settings.destination_blend)?;
-    if settings.original_color >> 24 != 255 {
-        return Err("ordinary model draw does not implement an ECM color override".into());
+    if settings.original_color >> 24 != 255
+        || asset.mesh_tints.values().any(|color| color >> 24 != 255)
+    {
+        return Err("ordinary model draw requires opaque ARGB color overrides".into());
     }
     let expected: usize = asset.skins.iter().map(|s| s.data.meshes.len()).sum();
     if poses.len() != expected {
@@ -91,7 +97,18 @@ pub fn prepare<'a>(
         }
         let texture = usize::try_from(mesh.texture)
             .map_err(|_| "untextured ordinary model draw is not implemented")?;
-        let texture_paths = skin.texture_paths(texture)?;
+        let texture_paths = asset.texture_paths(pose.skin, texture)?;
+        let face_shader = asset.face_shaders.get(&(pose.skin, pose.mesh));
+        // Dedicated native pixel shaders consume their own constants. Native
+        // does not also modulate the material by the part/body colour.
+        let color = if face_shader.is_some() {
+            u32::MAX
+        } else {
+            asset.mesh_color(pose.skin, pose.mesh, settings.original_color)
+        };
+        if color >> 24 != 255 {
+            return Err("ordinary model draw requires an opaque mesh color".into());
+        }
         let mut vertices = Vec::with_capacity(pose.vertices.len());
         for (source, posed) in mesh.vertices.iter().zip(&pose.vertices) {
             if posed
@@ -109,13 +126,27 @@ pub fn prepare<'a>(
                 uv: source.uv,
             });
         }
+        if asset.hidden_meshes.contains(&(pose.skin, pose.mesh)) {
+            continue;
+        }
+        let indices: Cow<'_, [u16]> = crate::model_asset::indices_without_nonfinite_weights(mesh)
+            .map(Cow::Owned)
+            .unwrap_or_else(|| Cow::Borrowed(mesh.indices.as_slice()));
+        // A fault can remove the last triangle without invalidating the rest
+        // of the model. Do not submit an empty GPU mesh for that native no-op.
+        if indices.is_empty() {
+            continue;
+        }
         result.push(PreparedMesh {
             skin: pose.skin,
             mesh: pose.mesh,
             vertices,
-            indices: &mesh.indices,
+            indices,
             material,
+            color,
             texture_paths,
+            diffuse_alpha_only: asset.diffuse_alpha_meshes.contains(&(pose.skin, pose.mesh)),
+            face_shader,
         });
     }
     Ok(result)
@@ -195,7 +226,99 @@ mod tests {
             ["models/a/tex_a/a.dds", "models/a/textures/a.dds"]
         );
         assert!(p[0].material.two_sided);
-        assert_eq!(p[0].indices, [0, 1, 2]);
+        assert_eq!(p[0].indices.as_ref(), [0, 1, 2]);
+    }
+    #[test]
+    fn native_face_shader_owns_skin_color_without_generic_material_tint() {
+        let (mut asset, poses) = fixture();
+        let color = 0xfff6f0e9;
+        asset.mesh_tints.insert((0, 0), color);
+        asset
+            .face_shaders
+            .insert((0, 0), FaceShader::Face { color });
+        let prepared = prepare(&asset, &poses).unwrap();
+        assert_eq!(prepared[0].color, u32::MAX);
+        assert_eq!(prepared[0].face_shader, Some(&FaceShader::Face { color }));
+    }
+
+    #[test]
+    fn native_mouth_shader_keeps_skin_lip_highlight_and_gloss_separate() {
+        let (mut asset, poses) = fixture();
+        let mouth = FaceShader::Mouth {
+            color: 0xffe19486,
+            skin_color: 0xfff6f0e9,
+            highlight: "facedata/mouth-a.dds".into(),
+        };
+        assert_eq!(mouth.highlight(), Some("facedata/mouth-a.dds"));
+        assert_eq!(mouth.gloss(), Some("textures/face/lipreflect.tga"));
+        asset.face_shaders.insert((0, 0), mouth.clone());
+        let prepared = prepare(&asset, &poses).unwrap();
+        assert_eq!(prepared[0].color, u32::MAX);
+        assert_eq!(prepared[0].face_shader, Some(&mouth));
+    }
+
+    #[test]
+    fn native_moustache_shader_preserves_skin_color_and_has_no_gloss() {
+        let (mut asset, poses) = fixture();
+        let moustache = FaceShader::Moustache {
+            color: 0xffe8c6ae,
+            skin_color: 0xfff6f0e9,
+            highlight: "facedata/moustache-a.dds".into(),
+        };
+        assert_eq!(moustache.highlight(), Some("facedata/moustache-a.dds"));
+        assert_eq!(moustache.gloss(), None);
+        asset.face_shaders.insert((0, 0), moustache.clone());
+        let prepared = prepare(&asset, &poses).unwrap();
+        assert_eq!(prepared[0].color, u32::MAX);
+        assert_eq!(prepared[0].face_shader, Some(&moustache));
+    }
+
+    #[test]
+    fn native_equipment_alpha_mode_is_per_mesh() {
+        let (mut asset, poses) = fixture();
+        assert!(!prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);
+        asset.diffuse_alpha_meshes.insert((0, 0));
+        assert!(prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);
+        asset.diffuse_alpha_meshes.insert((1, 0));
+        assert!(prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);
+        asset.diffuse_alpha_meshes.remove(&(0, 0));
+        assert!(!prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);
+    }
+    #[test]
+    fn nonfinite_weight_recovery_preserves_unrelated_triangles_and_source_data() {
+        let (mut asset, mut poses) = fixture();
+        let mesh = &mut asset.skins[0].data.meshes[0];
+        mesh.vertices = (0..6)
+            .map(|i| skin::Vertex {
+                position: [i as f32, 0., 0.],
+                normal: [0., 1., 0.],
+                uv: [i as f32 / 5., 0.],
+                weights: [1., 0., 0., 0.],
+                joints: [0; 4],
+            })
+            .collect();
+        mesh.indices = vec![0, 1, 2, 3, 4, 5];
+        mesh.vertices[2].weights = [f32::NAN; 4];
+        poses[0].vertices = (0..6)
+            .map(|i| crate::skin_pose::PosedVertex {
+                position: [i as f32, 2., 3.],
+                normal: [0., 0., 1.],
+            })
+            .collect();
+        let prepared = prepare(&asset, &poses).unwrap();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].indices.as_ref(), [3, 4, 5]);
+        assert_eq!(asset.skins[0].data.meshes[0].indices, [0, 1, 2, 3, 4, 5]);
+        assert!(asset.skins[0].data.meshes[0].vertices[2].weights[0].is_nan());
+    }
+
+    #[test]
+    fn hidden_native_skin_is_validated_but_not_submitted() {
+        let (mut asset, mut poses) = fixture();
+        asset.hidden_meshes.insert((0, 0));
+        assert!(prepare(&asset, &poses).unwrap().is_empty());
+        poses[0].vertices.pop();
+        assert!(prepare(&asset, &poses).is_err());
     }
     #[test]
     fn rejects_incomplete_duplicate_and_changed_poses() {

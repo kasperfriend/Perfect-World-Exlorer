@@ -14,7 +14,7 @@ use std::{
 };
 use wgpu::util::DeviceExt;
 use winit::{
-    event::{DeviceEvent, ElementState, Event, MouseButton, WindowEvent},
+    event::{DeviceEvent, ElementState, Event, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::EventLoop,
     keyboard::{KeyCode, PhysicalKey},
     window::{CursorGrabMode, Fullscreen, WindowBuilder},
@@ -203,6 +203,7 @@ fn marked_slider(
 enum MenuPage {
     Closed,
     Main,
+    Modules,
     Settings,
     Teleports,
     WorldMap,
@@ -212,7 +213,7 @@ impl MenuPage {
         match self {
             Self::Closed => Self::Main,
             Self::Main => Self::Closed,
-            Self::Settings | Self::Teleports => Self::Main,
+            Self::Modules | Self::Settings | Self::Teleports => Self::Main,
             Self::WorldMap => Self::Closed,
         }
     }
@@ -1146,6 +1147,9 @@ fn bmd_baked_rgb(day:u32, night:u32, night_factor:f32)->vec3<u32> {
 @fragment fn fs(i:VOut, @builtin(front_facing) front:bool)->@location(0) vec4<f32> { if ((i.kind>1.05 && i.kind<1.15) || (i.kind>1.5 && i.kind<2.05)) && camera.clip.w == 0. && (front == (camera.clip.z != 0.)) {discard;} if camera.clip.y != 0.0 && (i.world.y-camera.clip.x)*camera.clip.y < 0.0 {discard;} if i.kind>0.5 && i.kind<1.05 {return vec4<f32>(fogged(i.color.rgb,i.pos.w),1.);} if i.kind>1.05 && i.kind<1.25 {return vec4<f32>(bmd_pass_fog(clamp(i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.)),i.pos.w,i.bmd_refraction),1.);} let uv_dx=dpdx(i.uv);let uv_dy=dpdy(i.uv);var uv=i.uv; if i.kind>1.5 {let scale=vec2<f32>(i.color.z,select(i.color.z,i.color.w,i.kind<2.5));let dims=vec2<f32>(textureDimensions(atlas));let mip=clamp(log2(max(max(length(uv_dx*dims),length(uv_dy*dims)),1.)),0.,7.);let border=0.5*exp2(mip);let half_pixel=min(vec2<f32>(border)/dims,scale*0.499);let local=fract((i.uv-i.color.xy)/scale)*scale;uv=i.color.xy+clamp(local,half_pixel,scale-half_pixel);} let raw_tex=textureSampleGrad(atlas,atlas_sampler,uv,uv_dx,uv_dy);let encoded=raw_tex.rgb;let linear=select(encoded/12.92,pow((encoded+0.055)/1.055,vec3<f32>(2.4)),encoded>vec3<f32>(0.04045));let tex=vec4<f32>(linear,raw_tex.a);if ((i.kind>1.5 && i.kind<2.5) || i.kind>3.5) && tex.a<select(0.5,i.color.w,i.kind>3.5 && i.kind<3.9) {discard;} if i.kind>1.5 && i.kind<2.5 {let c=clamp(raw_tex.rgb*i.diffuse*2.,vec3<f32>(0.),vec3<f32>(1.));let rgb=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));return vec4<f32>(bmd_pass_fog(rgb,i.pos.w,i.bmd_refraction),1.);} let light=camera.light.x+camera.light.y*max(dot(normalize(i.normal),normalize(camera.sun.xyz)),0.);return vec4<f32>(fogged(tex.rgb*light*camera.light.zww,i.pos.w),1.);}
 "#;
 struct Renderer {
+    /// Optional add-ons; default-disabled and absent from headless previews.
+    modules: crate::modules::Modules,
+    module_format: wgpu::TextureFormat,
     models: Option<crate::world_models_gpu::World>,
     model_lights: std::sync::Arc<crate::scene_lights::SceneLights>,
     model_scene: std::sync::Arc<crate::scene::Scene>,
@@ -1731,6 +1735,8 @@ impl Renderer {
             crate::sky_transition::Triple(sky.night_set().min(2) as u8),
         );
         Ok(Self {
+            modules: crate::modules::Modules::default(),
+            module_format: format.remove_srgb_suffix(),
             models,
             model_lights: t.scene_lights.clone(),
             model_scene: t.scene.clone(),
@@ -2425,35 +2431,7 @@ impl Renderer {
             // included all asset-loading time on the first receiving-model draw.
             // Water passes reuse the sampled pose; never tick again per view.
             let delta = if advance { camera.logic_delta_ms } else { 0 };
-            // Authored EC-BSD direction only (light_consumers::DirectionSource
-            // ::Authored). The animated celestial curve never reaches here.
-            let d = light.material_direction().travel();
-            let frame = crate::model_draw_gpu::Frame {
-                blend_enabled: false,
-                matrix: uniform.matrix,
-                lighting: crate::model_material::Lighting {
-                    environment_ambient: [light.ambient[0], light.ambient[1], light.ambient[2], 1.],
-                    additional_ambient: [0.; 4],
-                    directional_diffuse: [light.diffuse[0], light.diffuse[1], light.diffuse[2], 1.],
-                    point_ambient: [0.; 4],
-                    point_diffuse: [0.; 4],
-                    transparency: -1.,
-                    point_enabled: false,
-                },
-                direction: d,
-                point_position: [0.; 3],
-                attenuation: [0., 0.4, 0.],
-                eye_direction: uniform.direction[..3].try_into().unwrap(),
-                directional_specular: [light.specular[0], light.specular[1], light.specular[2], 1.],
-                specular_variant: true,
-                vertex_fog: crate::fog_matrix::MODEL_VERTEX_FOG,
-                fog_color: uniform.fog_color,
-                fog_range: uniform.fog_range,
-                clip_plane: [0., uniform.clip[1], 0., -uniform.clip[0] * uniform.clip[1]],
-                reverse_front: uniform.clip[2] != 0.,
-                alpha_compare: 5,
-                alpha_reference: 84. / 255.,
-            };
+            let frame = receiving_model_frame(uniform, camera, light);
             models.update_pass(
                 &self.device,
                 &self.queue,
@@ -2488,6 +2466,48 @@ impl Renderer {
             models.draw(&mut pass);
         }
     }
+
+    /// The host player is not an ornamental EC model: WaterEffect 0 must not
+    /// suppress it. Native host-player reflection/refraction uses its feet-based
+    /// profession AABB, independently of the world-model class gate above.
+    fn draw_walker(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        depth: &wgpu::TextureView,
+        uniform: &Uniform,
+        camera: &Camera,
+        view: Pass,
+    ) {
+        let visible = match view {
+            Pass::Reflection => self
+                .modules
+                .walker_visible_in_water_pass(uniform.clip[0], true),
+            Pass::Refraction => self
+                .modules
+                .walker_visible_in_water_pass(uniform.clip[0], false),
+            _ => self.modules.walker_active(),
+        };
+        if !visible {
+            return;
+        }
+        if let Some(light) = camera.regional_light {
+            self.retained_regional_light = Some(light);
+        }
+        if let Some(light) = camera.regional_light.or(self.retained_regional_light) {
+            let frame = receiving_model_frame(uniform, camera, light);
+            self.modules.render(
+                &self.device,
+                &self.queue,
+                self.module_format,
+                encoder,
+                target,
+                depth,
+                frame,
+            );
+        }
+    }
+
     /// Render the actual loaded terrain and scenery from a north-up orthographic camera.
     /// Water is drawn as its real client grid with a flat color in this map pass.
     fn render_minimap(
@@ -2700,6 +2720,14 @@ impl Renderer {
             camera,
             Pass::Main,
             true,
+        );
+        self.draw_walker(
+            &mut e,
+            &model_target,
+            &scene_depth,
+            &normal,
+            camera,
+            Pass::Main,
         );
         if let Some(cloud) = &self.cloud {
             cloud.draw(
@@ -2926,6 +2954,15 @@ impl Renderer {
                         a: 1.,
                     }),
                 );
+                let model_view = self.water.refraction_raw();
+                self.draw_walker(
+                    &mut re,
+                    &model_view,
+                    &reflect_depth,
+                    &refracted,
+                    camera,
+                    Pass::Refraction,
+                );
                 self.queue.submit(Some(re.finish()));
                 self.water.render_edge(
                     &self.device,
@@ -2995,12 +3032,13 @@ impl Renderer {
                     above.clip,
                     selected_weather,
                 );
-                // Ornamental EC models enter refraction only from underwater.
+                // Ornamental EC models enter refraction only from underwater;
+                // the host player follows its own AABB gate in either view.
+                let model_view = self.water.refraction_raw();
                 if camera.underwater_depth > 0. {
-                    let raw = self.water.refraction_raw();
                     self.draw_models(
                         &mut re,
-                        &raw,
+                        &model_view,
                         &reflect_depth,
                         &above,
                         camera,
@@ -3008,6 +3046,14 @@ impl Renderer {
                         false,
                     );
                 }
+                self.draw_walker(
+                    &mut re,
+                    &model_view,
+                    &reflect_depth,
+                    &above,
+                    camera,
+                    Pass::Refraction,
+                );
                 self.water.draw_water(
                     &mut re,
                     scene_target,
@@ -3098,15 +3144,23 @@ impl Renderer {
                 reflected.clip,
                 selected_weather,
             );
-            let raw = self.water.reflection_raw();
+            let model_view = self.water.reflection_raw();
             self.draw_models(
                 &mut e,
-                &raw,
+                &model_view,
                 &reflect_depth,
                 &reflected,
                 camera,
                 Pass::Reflection,
                 false,
+            );
+            self.draw_walker(
+                &mut e,
+                &model_view,
+                &reflect_depth,
+                &reflected,
+                camera,
+                Pass::Reflection,
             );
             self.water.draw_water(
                 &mut e,
@@ -3314,6 +3368,41 @@ impl Camera {
             * Mat4::look_to_rh(self.pos, self.direction(), Vec3::Y)
     }
 }
+fn receiving_model_frame(
+    uniform: &Uniform,
+    camera: &Camera,
+    light: crate::environment::RegionalLight,
+) -> crate::model_draw_gpu::Frame {
+    // Authored EC-BSD direction only; the animated celestial curve is not a
+    // material-light input for either core world models or add-on characters.
+    let d = light.material_direction().travel();
+    crate::model_draw_gpu::Frame {
+        blend_enabled: false,
+        matrix: uniform.matrix,
+        lighting: crate::model_material::Lighting {
+            environment_ambient: [light.ambient[0], light.ambient[1], light.ambient[2], 1.],
+            additional_ambient: [0.; 4],
+            directional_diffuse: [light.diffuse[0], light.diffuse[1], light.diffuse[2], 1.],
+            point_ambient: [0.; 4],
+            point_diffuse: [0.; 4],
+            transparency: -1.,
+            point_enabled: false,
+        },
+        direction: d,
+        point_position: [0.; 3],
+        attenuation: [0., 0.4, 0.],
+        eye_direction: uniform.direction[..3].try_into().unwrap(),
+        directional_specular: [light.specular[0], light.specular[1], light.specular[2], 1.],
+        specular_variant: true,
+        vertex_fog: crate::fog_matrix::MODEL_VERTEX_FOG,
+        fog_color: uniform.fog_color,
+        fog_range: uniform.fog_range,
+        clip_plane: [0., uniform.clip[1], 0., -uniform.clip[0] * uniform.clip[1]],
+        reverse_front: uniform.clip[2] != 0.,
+        alpha_compare: 5,
+        alpha_reference: 84. / 255.,
+    }
+}
 async fn adapter(
     instance: &wgpu::Instance,
     surface: Option<&wgpu::Surface<'_>>,
@@ -3490,9 +3579,16 @@ pub fn run(
         spacing: t.grid_spacing,
         heights: t.heights.clone(),
     };
+    let whole_ornaments = t.objects.ornaments.clone();
+    renderer.modules = crate::modules::Modules::new(
+        whole_element.clone(),
+        map_space.clone(),
+        water_areas.clone(),
+        &t.scene,
+        whole_ornaments.clone(),
+    );
     let destinations =
         crate::navigation::destinations(&whole_element.join("maps/world/world_targets.txt"));
-    let whole_ornaments = t.objects.ornaments.clone();
     let mut world_rx: Option<std::sync::mpsc::Receiver<crate::world_objects::Message>> = None;
     let mut world_cancel: Option<Arc<std::sync::atomic::AtomicBool>> = None;
     let mut world_enabled = false;
@@ -3637,6 +3733,18 @@ pub fn run(
                         return;
                     }
                 }
+                // Track keys before the menu's early return. Walker hotkey
+                // rebinding runs while movement input is disabled, so discarding
+                // these events here leaves its capture on "Press a key" forever.
+                if let WindowEvent::KeyboardInput { ref event, .. } = event {
+                    if let PhysicalKey::Code(k) = event.physical_key {
+                        if event.state == ElementState::Pressed {
+                            keys.insert(k);
+                        } else {
+                            keys.remove(&k);
+                        }
+                    }
+                }
                 // egui must receive focus changes even while the menu is closed;
                 // otherwise it believes the window is unfocused and ignores clicks.
                 if menu_page.is_open() || matches!(event,WindowEvent::Focused(_)) {
@@ -3645,14 +3753,13 @@ pub fn run(
                 }
                 match event {
                 WindowEvent::CloseRequested => { if let Err(e)=settings.save(){eprintln!("Settings save: {e}");} target.exit(); },
-                WindowEvent::KeyboardInput { event, .. } => {
-                    if let PhysicalKey::Code(k) = event.physical_key {
-                        if event.state == ElementState::Pressed {
-                            keys.insert(k);
-                        } else {
-                            keys.remove(&k);
-                        }
-                    }
+                WindowEvent::KeyboardInput { .. } => {}
+                WindowEvent::MouseWheel { delta, .. } if captured && !menu_page.is_open() => {
+                    let steps = match delta {
+                        MouseScrollDelta::LineDelta(_, y) => y,
+                        MouseScrollDelta::PixelDelta(position) => position.y as f32 / 120.0,
+                    };
+                    renderer.modules.walker_zoom(steps);
                 }
                 WindowEvent::MouseInput {
                     state: ElementState::Pressed,
@@ -3702,31 +3809,39 @@ pub fn run(
                     }
                     let dt = last.elapsed().as_secs_f32().min(0.1);
                     last = Instant::now();
-                    let speed = if menu_page.is_open() { 0. } else if keys.contains(&KeyCode::ShiftLeft) {
-                        settings.camera_speed * settings.boost
+                    // Add-ons get an optional camera-owner hook. `None` leaves
+                    // the original free-flight controls completely untouched.
+                    let addon_camera = renderer.modules.update(dt, !menu_page.is_open(), &keys, camera.yaw, camera.pitch);
+                    renderer.modules.update_walker_audio(settings.effects_enabled, settings.effects_volume);
+                    if let Some(position) = addon_camera {
+                        camera.pos = position;
                     } else {
-                        settings.camera_speed
-                    };
-                    let (s, c) = camera.yaw.sin_cos();
-                    let f = Vec3::new(s, 0., -c);
-                    let r = Vec3::new(-c, 0., -s);
-                    if keys.contains(&KeyCode::KeyW) {
-                        camera.pos += f * speed * dt
-                    }
-                    if keys.contains(&KeyCode::KeyS) {
-                        camera.pos -= f * speed * dt
-                    }
-                    if keys.contains(&KeyCode::KeyA) {
-                        camera.pos -= r * speed * dt
-                    }
-                    if keys.contains(&KeyCode::KeyD) {
-                        camera.pos += r * speed * dt
-                    }
-                    if keys.contains(&KeyCode::KeyE) || keys.contains(&KeyCode::Space) {
-                        camera.pos.y += speed * dt
-                    }
-                    if keys.contains(&KeyCode::KeyQ) || keys.contains(&KeyCode::ControlLeft) {
-                        camera.pos.y -= speed * dt
+                        let speed = if menu_page.is_open() { 0. } else if keys.contains(&KeyCode::ShiftLeft) {
+                            settings.camera_speed * settings.boost
+                        } else {
+                            settings.camera_speed
+                        };
+                        let (s, c) = camera.yaw.sin_cos();
+                        let f = Vec3::new(s, 0., -c);
+                        let r = Vec3::new(-c, 0., -s);
+                        if keys.contains(&KeyCode::KeyW) {
+                            camera.pos += f * speed * dt
+                        }
+                        if keys.contains(&KeyCode::KeyS) {
+                            camera.pos -= f * speed * dt
+                        }
+                        if keys.contains(&KeyCode::KeyA) {
+                            camera.pos -= r * speed * dt
+                        }
+                        if keys.contains(&KeyCode::KeyD) {
+                            camera.pos += r * speed * dt
+                        }
+                        if keys.contains(&KeyCode::KeyE) || keys.contains(&KeyCode::Space) {
+                            camera.pos.y += speed * dt
+                        }
+                        if keys.contains(&KeyCode::KeyQ) || keys.contains(&KeyCode::ControlLeft) {
+                            camera.pos.y -= speed * dt
+                        }
                     }
                     if keys.contains(&KeyCode::ArrowLeft) {
                         camera.yaw += dt
@@ -3941,7 +4056,7 @@ pub fn run(
                                 let output=egui_ctx.run(input,|ctx| {
                                     if menu_page==MenuPage::Main {
                                         egui::Window::new("PERFECT WORLD EXPLORER  |  ESC MENU")
-                                            .default_pos(egui::pos2(16.,16.)).default_size(egui::vec2(380.,270.)).min_size(egui::vec2(280.,220.)).collapsible(false).resizable(true).vscroll(true)
+                                            .default_pos(egui::pos2(16.,16.)).default_size(egui::vec2(380.,330.)).min_size(egui::vec2(280.,260.)).collapsible(false).resizable(true).vscroll(true)
                                             .show(ctx,|ui|{
                                                 ui.set_min_height(ui.available_height());
                                                 ui.add_space(8.);ui.vertical_centered(|ui|{
@@ -3952,6 +4067,8 @@ pub fn run(
                                                     ui.add_space(8.);
                                                     if ui.add_sized([button_width,52.],egui::Button::new(egui::RichText::new("SETTINGS").size(22.).strong()).fill(egui::Color32::from_rgb(38,83,116))).clicked(){settings_tab=0;menu_page=MenuPage::Settings;}
                                                     ui.add_space(8.);
+                                                    if ui.add_sized([button_width,42.],egui::Button::new(egui::RichText::new("MODULES").size(18.).strong())).clicked(){menu_page=MenuPage::Modules;}
+                                                    ui.add_space(8.);
                                                     if ui.add_sized([button_width,40.],egui::Button::new(egui::RichText::new("TELEPORT LIST").size(17.))).clicked(){menu_page=MenuPage::Teleports;}
                                                     ui.add_space(8.);
                                                     if ui.add_sized([button_width,40.],egui::Button::new(egui::RichText::new("WORLD MAP  [M]").size(17.))).clicked(){menu_page=MenuPage::WorldMap;map_refresh=Instant::now()-std::time::Duration::from_secs(10);}
@@ -3959,6 +4076,9 @@ pub fn run(
                                                     if ui.add_sized([button_width,36.],egui::Button::new("Exit Explorer")).clicked(){if let Err(e)=settings.save(){eprintln!("Settings save: {e}");}target.exit();}
                                                 });
                                             });
+                                    }
+                                    if menu_page==MenuPage::Modules {
+                                        if renderer.modules.menu_ui(ctx,camera.pos,camera.yaw){menu_page=MenuPage::Main;}
                                     }
                                     if menu_page==MenuPage::Settings {
                                         egui::Window::new("SETTINGS  |  ESC to go back")
@@ -4032,6 +4152,7 @@ pub fn run(
                                             }
                                         } else { ui.add(egui::Image::new((map_id,egui::vec2(MINIMAP_HUD,MINIMAP_HUD))).rounding(round)) };
                                         let center=image.rect.center();let dir=egui::vec2(camera.yaw.sin(),camera.yaw.cos());let side=egui::vec2(-dir.y,dir.x);let points=vec![center+dir*10.,center-dir*7.+side*5.,center-dir*7.-side*5.];ui.painter().add(egui::Shape::convex_polygon(points,egui::Color32::from_rgb(255,225,130),egui::Stroke::new(1.0f32,egui::Color32::BLACK)));ui.painter().text(image.rect.left_top()+egui::vec2(5.,5.),egui::Align2::LEFT_TOP,"N",egui::FontId::proportional(14.),egui::Color32::WHITE);});});}
+                                    if menu_page.is_open(){renderer.modules.settings_panel(ctx,config.width as f32/window.scale_factor() as f32);}
                                     if settings.show_zone_entry {if let Some((name,started))=&zone_banner {let elapsed=started.elapsed().as_secs_f32();if elapsed<4. {let alpha=(elapsed.min(4.-elapsed)*2.).clamp(0.,1.);egui::Area::new(egui::Id::new("zone-entry")).anchor(egui::Align2::CENTER_TOP,egui::vec2(0.,65.)).interactable(false).show(ctx,|ui|{ui.label(egui::RichText::new(format!("Entering {name}")).size(24.).color(egui::Color32::from_white_alpha((alpha*255.) as u8)));});}}}
                                 });
                                 egui_state.handle_platform_output(&window,output.platform_output);

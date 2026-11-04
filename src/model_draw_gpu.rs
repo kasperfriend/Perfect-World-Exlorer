@@ -38,6 +38,8 @@ impl Frame {
         self,
         material: &crate::skin::Material,
         original_color: u32,
+        diffuse_alpha_only: bool,
+        face_shader: Option<&crate::model_asset::FaceShader>,
     ) -> Result<Params, String> {
         if self.alpha_compare > 8 || !self.vertex_fog.is_finite() {
             return Err("invalid model frame alpha comparison/vertex fog".into());
@@ -63,6 +65,60 @@ impl Frame {
         };
         let c = material.light_constants(self.lighting);
         let vector = |v: [f32; 3]| [v[0], v[1], v[2], 0.];
+        let argb = |color: u32| {
+            [
+                ((color >> 16) & 255) as f32 / 255.,
+                ((color >> 8) & 255) as f32 / 255.,
+                (color & 255) as f32 / 255.,
+                ((color >> 24) & 255) as f32 / 255.,
+            ]
+        };
+        let mut face_mode = 0.;
+        let mut face_color = [1.; 4];
+        let mut face_skin = [1.; 4];
+        match face_shader {
+            Some(crate::model_asset::FaceShader::Face { color }) => {
+                face_mode = 5.;
+                face_color = argb(*color);
+            }
+            Some(crate::model_asset::FaceShader::Brow {
+                color, skin_color, ..
+            }) => {
+                face_mode = 1.;
+                face_color = argb(*color);
+                face_skin = argb(*skin_color);
+            }
+            Some(crate::model_asset::FaceShader::Body { color }) => {
+                face_mode = 2.;
+                face_color = argb(*color);
+            }
+            Some(crate::model_asset::FaceShader::Eye {
+                color, skin_color, ..
+            }) => {
+                face_mode = 3.;
+                face_color = argb(*color);
+                face_skin = argb(*skin_color);
+            }
+            Some(crate::model_asset::FaceShader::Moustache {
+                color, skin_color, ..
+            }) => {
+                face_mode = 1.;
+                face_color = argb(*color);
+                face_skin = argb(*skin_color);
+            }
+            Some(crate::model_asset::FaceShader::Mouth {
+                color, skin_color, ..
+            }) => {
+                face_mode = 6.;
+                face_color = argb(*color);
+                face_skin = argb(*skin_color);
+            }
+            Some(crate::model_asset::FaceShader::EyeBall { color, .. }) => {
+                face_mode = 4.;
+                face_color = argb(*color);
+            }
+            None => {}
+        }
         let p = Params {
             matrix: self.matrix,
             ambient: c.ambient,
@@ -89,6 +145,9 @@ impl Frame {
                 self.alpha_compare as f32,
                 self.alpha_reference,
             ],
+            alpha: [if diffuse_alpha_only { 0. } else { 1. }, face_mode, 0., 0.],
+            face_color,
+            face_skin,
         };
         if bytemuck::cast_slice::<Params, f32>(std::slice::from_ref(&p))
             .iter()
@@ -123,6 +182,7 @@ struct Mesh {
     indices: Vec<u16>,
     vertices: usize,
     alpha_texture: bool,
+    face_shader: Option<crate::model_asset::FaceShader>,
     /// Initial (bind-pose) mesh AABB in model space, used by the retail alpha
     /// sort: 0x7a5460 measures the eight transformed initial-box corners.
     bounds: ([f32; 3], [f32; 3]),
@@ -194,8 +254,7 @@ impl Draw {
             &mut ReceiverCache::default(),
             |path| {
                 let bytes = read(path)?;
-                let alpha = crate::model_dds::Dds::parse(&bytes)?.format.alpha_texture();
-                let texture = model_texture_gpu::upload(
+                let (texture, alpha) = model_texture_gpu::upload_with_alpha(
                     device,
                     queue,
                     &bytes,
@@ -226,7 +285,7 @@ impl Draw {
         // Validate every frame/material before allocating or uploading anything.
         let params: Vec<_> = prepared
             .iter()
-            .map(|m| frame.params(m.material, settings.original_color))
+            .map(|m| frame.params(m.material, m.color, m.diffuse_alpha_only, m.face_shader))
             .collect::<Result<_, _>>()?;
         let mut textures: Vec<std::sync::Arc<wgpu::Texture>> = Vec::new();
         let mut cache: std::collections::HashMap<[String; 2], (usize, bool)> =
@@ -255,6 +314,49 @@ impl Draw {
                 (index, alpha)
             };
             loaded.push((texture, alpha_texture));
+        }
+        let mut highlight_cache = std::collections::HashMap::<String, usize>::new();
+        let mut highlights = Vec::with_capacity(prepared.len());
+        for m in &prepared {
+            let index = match m.face_shader.and_then(|shader| shader.highlight()) {
+                Some(highlight) => {
+                    if highlight.is_empty() {
+                        return Err("native face shader has an empty highlight texture".into());
+                    }
+                    if let Some(&index) = highlight_cache.get(highlight) {
+                        Some(index)
+                    } else {
+                        let (texture, _) =
+                            load(highlight).map_err(|error| format!("{highlight}: {error}"))?;
+                        let index = textures.len();
+                        textures.push(texture);
+                        highlight_cache.insert(highlight.to_owned(), index);
+                        Some(index)
+                    }
+                }
+                None => None,
+            };
+            highlights.push(index);
+        }
+        let mut gloss_cache = std::collections::HashMap::<String, usize>::new();
+        let mut glosses = Vec::with_capacity(prepared.len());
+        for m in &prepared {
+            let index = match m.face_shader.and_then(|shader| shader.gloss()) {
+                Some(gloss) => {
+                    if let Some(&index) = gloss_cache.get(gloss) {
+                        Some(index)
+                    } else {
+                        let (texture, _) =
+                            load(gloss).map_err(|error| format!("{gloss}: {error}"))?;
+                        let index = textures.len();
+                        textures.push(texture);
+                        gloss_cache.insert(gloss.to_owned(), index);
+                        Some(index)
+                    }
+                }
+                None => None,
+            };
+            glosses.push(index);
         }
         // Queue classification uses the recovered 1.4.2 rule. `0x7a5830`
         // reads `invisible`, `transparency` and the authored blend pair from
@@ -317,11 +419,17 @@ impl Draw {
             let (texture, alpha_texture) = loaded[index];
             let bounds = initial_bounds(asset, m.skin, m.mesh)?;
             let view = textures[texture].create_view(&Default::default());
+            let highlight =
+                textures[highlights[index].unwrap_or(texture)].create_view(&Default::default());
+            let gloss =
+                textures[glosses[index].unwrap_or(texture)].create_view(&Default::default());
             let vertices = vertices(m, frame.vertex_fog);
             let alpha = state.queue == model_queue::Queue::Alpha;
             let binding = match &alpha_receiver {
-                Some(receiver) if alpha => receiver.binding(device, &view, sampler, &params[index]),
-                _ => receiver.binding(device, &view, sampler, &params[index]),
+                Some(receiver) if alpha => {
+                    receiver.binding(device, &view, &highlight, &gloss, sampler, &params[index])
+                }
+                _ => receiver.binding(device, &view, &highlight, &gloss, sampler, &params[index]),
             }?;
             if alpha {
                 alpha_meshes.push(index);
@@ -332,8 +440,9 @@ impl Draw {
                 indices: m.indices.to_vec(),
                 vertices: vertices.len(),
                 alpha_texture,
+                face_shader: m.face_shader.cloned(),
                 bounds,
-                mesh: raster::Mesh::new(device, &vertices, m.indices)?,
+                mesh: raster::Mesh::new(device, &vertices, m.indices.as_ref())?,
                 binding,
             }));
         }
@@ -362,14 +471,14 @@ impl Draw {
         if prepared.len() != self.meshes.len() {
             return Err("model draw mesh count changed".into());
         }
-        let settings = asset.descriptor.render_settings();
         let mut updates = Vec::with_capacity(prepared.len());
         for (index, m) in prepared.iter().enumerate() {
-            let params = frame.params(m.material, settings.original_color)?;
+            let params = frame.params(m.material, m.color, m.diffuse_alpha_only, m.face_shader)?;
             if let Some(gpu) = &self.meshes[index] {
                 if (m.skin, m.mesh) != gpu.key
                     || m.texture_paths != gpu.paths
-                    || m.indices != gpu.indices
+                    || m.face_shader != gpu.face_shader.as_ref()
+                    || m.indices.as_ref() != gpu.indices.as_slice()
                     || m.vertices.len() != gpu.vertices
                 {
                     return Err("model draw topology/texture assignment changed".into());
@@ -409,7 +518,21 @@ impl Draw {
                 .ok()
                 .and_then(|i| skin.data.materials.get(i))
                 .ok_or("missing retained material")?;
-            updates.push((&mesh.binding, frame.params(material, original)?));
+            let color = if mesh.face_shader.is_some() {
+                u32::MAX
+            } else {
+                asset.mesh_color(mesh.key.0, mesh.key.1, original)
+            };
+            let diffuse_alpha_only = asset.diffuse_alpha_meshes.contains(&mesh.key);
+            updates.push((
+                &mesh.binding,
+                frame.params(
+                    material,
+                    color,
+                    diffuse_alpha_only,
+                    mesh.face_shader.as_ref(),
+                )?,
+            ));
         }
         for (binding, params) in updates {
             binding.update(queue, &params)?;
@@ -418,14 +541,36 @@ impl Draw {
     }
 
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
-        self.draw_opaque(pass);
-        for &mesh in &self.alpha_meshes {
-            self.draw_alpha_mesh(pass, mesh);
+        self.draw_filtered(pass, |_| true);
+    }
+    /// Keep all poses and bindings intact while changing only mesh submission.
+    /// Used by native first-person visibility, which must not violate the
+    /// renderer's complete-retained-mesh validation contract.
+    pub fn draw_filtered<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        mut visible: impl FnMut((usize, usize)) -> bool,
+    ) {
+        self.draw_opaque_filtered(pass, &mut visible);
+        for &index in &self.alpha_meshes {
+            let visible = self.meshes[index]
+                .as_ref()
+                .is_some_and(|mesh| visible(mesh.key));
+            if visible {
+                self.draw_alpha_mesh(pass, index);
+            }
         }
     }
     /// Non-alpha queue only. `World` submits the alpha list afterwards so the
     /// retail insertion order spans models, not just one model's meshes.
     pub fn draw_opaque<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        self.draw_opaque_filtered(pass, &mut |_| true);
+    }
+    fn draw_opaque_filtered<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        visible: &mut impl FnMut((usize, usize)) -> bool,
+    ) {
         for (index, mesh) in self.meshes.iter().enumerate() {
             let Some(mesh) = mesh else {
                 continue;
@@ -434,7 +579,7 @@ impl Draw {
             // pipeline owns a different implicit bind-group layout. Submitting
             // them here would be a layout mismatch, so `draw_alpha_mesh` owns
             // them instead.
-            if self.alpha_meshes.contains(&index) {
+            if self.alpha_meshes.contains(&index) || !visible(mesh.key) {
                 continue;
             }
             self.receiver.draw(pass, &mesh.mesh, &mesh.binding);
