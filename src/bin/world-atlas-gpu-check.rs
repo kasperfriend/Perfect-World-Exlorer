@@ -37,11 +37,8 @@ use wgpu::util::DeviceExt;
 use world_objects::{GpuPage, Page};
 const SIDE: usize = 4096;
 fn page(right: bool, shared: bool) -> Page {
-    let positions = if right {
-        [[0., -1., 0.], [1., -1., 0.], [1., 1., 0.]]
-    } else {
-        [[-1., -1., 0.], [0., -1., 0.], [-1., 1., 0.]]
-    };
+    // Coincident triangles deliberately make submission order observable.
+    let positions = [[-1., -1., 0.], [1., -1., 0.], [-1., 1., 0.]];
     let vertices = positions
         .into_iter()
         .map(|pos| gpu::Vertex {
@@ -50,7 +47,7 @@ fn page(right: bool, shared: bool) -> Page {
             uv: [64. / SIDE as f32, 64. / SIDE as f32],
             color: [0., 0., 128. / SIDE as f32, 128. / SIDE as f32],
             kind: 2.,
-            diffuse: 0xffffffff,
+            diffuse: if right { 0xffff0000 } else { 0xffffffff },
             night_diffuse: 0xffffffff,
         })
         .collect();
@@ -67,7 +64,16 @@ fn page(right: bool, shared: bool) -> Page {
         processed: 1,
         used_height: 128,
         mips: Vec::new(),
-        placements: Vec::new(),
+        placements: vec![world_objects::PlacementRange {
+            start: 0,
+            end: 3,
+            export_id: 1,
+            order: u64::from(right),
+            visibility: scenery_visibility::Visibility {
+                reflect: true,
+                refract: true,
+            },
+        }],
     }
     .finish()
 }
@@ -116,9 +122,14 @@ fn render(
             occlusion_query_set: None,
         });
         pass.set_pipeline(pipeline);
-        for page in pages {
-            page.draw(&mut pass, reflected);
-        }
+        let order = GpuPage::draw_order(pages);
+        GpuPage::draw_ordered(
+            pages,
+            &order,
+            &mut pass,
+            reflected,
+            scenery_visibility::Pass::Main,
+        );
     }
     e.copy_texture_to_buffer(
         target.as_image_copy(),
@@ -239,7 +250,7 @@ fn main() {
             &sampler,
             &normal,
             &reflected,
-            page(false, false),
+            page(true, false),
         ),
         GpuPage::upload(
             &d,
@@ -248,23 +259,26 @@ fn main() {
             &sampler,
             &normal,
             &reflected,
-            page(true, false),
+            page(false, false),
         ),
     ];
     assert!(!reference[0].shares_atlas_with(&reference[1]));
+    assert_eq!(GpuPage::draw_order(&reference), vec![(1, 0), (0, 0)]);
+    assert_eq!(GpuPage::draw_order(&shared), vec![(0, 0), (1, 0)]);
     let shader = d.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
         source: wgpu::ShaderSource::Wgsl(
             r#"
-struct Out { @builtin(position) pos:vec4<f32>, @location(0) uv:vec2<f32> };
+struct Out { @builtin(position) pos:vec4<f32>, @location(0) uv:vec2<f32>, @location(1) tint:vec3<f32> };
 @group(0) @binding(0) var<uniform> params:vec4<f32>;
 @group(0) @binding(1) var atlas:texture_2d<f32>;
 @group(0) @binding(2) var smp:sampler;
-@vertex fn vs(@location(0) pos:vec3<f32>,@location(1) uv:vec2<f32>)->Out {
-    var o:Out; o.pos=vec4<f32>(pos,1.); o.uv=uv; return o;
+@vertex fn vs(@location(0) pos:vec3<f32>,@location(1) uv:vec2<f32>,@location(2) diffuse:u32)->Out {
+    var o:Out; o.pos=vec4<f32>(pos,1.); o.uv=uv;
+    o.tint=vec3<f32>(f32((diffuse>>16u)&255u),f32((diffuse>>8u)&255u),f32(diffuse&255u))/255.; return o;
 }
 @fragment fn fs(o:Out)->@location(0) vec4<f32> {
-    return vec4<f32>(textureSampleLevel(atlas,smp,o.uv,params.x).rgb * params.y,1.);
+    return vec4<f32>(textureSampleLevel(atlas,smp,o.uv,params.x).rgb * params.y * o.tint,1.);
 }
 "#
             .into(),
@@ -285,6 +299,11 @@ struct Out { @builtin(position) pos:vec4<f32>, @location(0) uv:vec2<f32> };
                 array_stride: std::mem::size_of::<gpu::Vertex>() as u64,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &[
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Uint32,
+                        offset: 52,
+                        shader_location: 2,
+                    },
                     wgpu::VertexAttribute {
                         format: wgpu::VertexFormat::Float32x3,
                         offset: 0,
@@ -325,6 +344,10 @@ struct Out { @builtin(position) pos:vec4<f32>, @location(0) uv:vec2<f32> };
             assert!(
                 got.chunks(4).filter(|p| p[0] > 0).count() > 64,
                 "nonempty geometry"
+            );
+            assert!(
+                got.chunks_exact(4).all(|p| p[1] == 0 && p[2] == 0),
+                "original last-drawn red triangle must win"
             );
             assert_eq!(
                 got, expected,

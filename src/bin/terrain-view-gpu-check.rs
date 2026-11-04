@@ -89,6 +89,7 @@ fn main() {
     .unwrap();
 
     check_compressed_upload(&device, &queue);
+    check_color_wrap(&device, &queue);
 
     // Production WGSL. This is the exact string the viewer hands to wgpu.
     let source = include_str!("../terrain_gpu.rs")
@@ -237,17 +238,8 @@ fn main() {
         ..Default::default()
     });
 
-    // Native sampler policy: MAG/MIN/MIP = 2 = D3DTEXF_LINEAR and ADDRESSU/V = 2
-    // = D3DTADDRESS_MIRROR (0x7c14b0), with no D3DTSS_MAXANISOTROPY write.
-    let layer_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        address_mode_u: wgpu::AddressMode::Repeat,
-        address_mode_v: wgpu::AddressMode::Repeat,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::FilterMode::Linear,
-        anisotropy_clamp: 1,
-        ..Default::default()
-    });
+    // Exercise the actual production colour sampler, not a copied descriptor.
+    let layer_sampler = terrain_upload::color_sampler(&device);
     let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
         layout: &layout,
@@ -927,4 +919,154 @@ fn check_compressed_upload(device: &wgpu::Device, queue: &wgpu::Queue) {
         buffer.unmap();
     }
     println!("::notice::production terrain BC1/BC2 uploads preserve authored tiny mip blocks byte-for-byte");
+}
+
+/// Asymmetric source pixels expose mirrored repetition in either UV axis,
+/// including negative world coordinates. Uses the production sampler factory.
+fn check_color_wrap(device: &wgpu::Device, queue: &wgpu::Queue) {
+    let source = device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let mut pixels = Vec::new();
+    for y in 0..4u8 {
+        for x in 0..4u8 {
+            pixels.extend_from_slice(&[20 + x * 40, 30 + y * 50, 100, 255]);
+        }
+    }
+    queue.write_texture(
+        source.as_image_copy(),
+        &pixels,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(16),
+            rows_per_image: Some(4),
+        },
+        wgpu::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        },
+    );
+    let view = source.create_view(&Default::default());
+    let sampler = terrain_upload::color_sampler(device);
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(
+            r#"
+@group(0) @binding(0) var tex:texture_2d<f32>;
+@group(0) @binding(1) var smp:sampler;
+@vertex fn vs(@builtin(vertex_index) i:u32)->@builtin(position) vec4<f32> {
+    var p=array<vec2<f32>,3>(vec2<f32>(-1.,-1.),vec2<f32>(3.,-1.),vec2<f32>(-1.,3.));
+    return vec4<f32>(p[i],0.,1.);
+}
+@fragment fn fs(@builtin(position) p:vec4<f32>)->@location(0) vec4<f32> {
+    var uv=array<vec2<f32>,8>(vec2<f32>(.125,.125),vec2<f32>(1.125,.125),
+        vec2<f32>(-.875,.125),vec2<f32>(.125,1.125),vec2<f32>(.125,-.875),
+        vec2<f32>(.875,.875),vec2<f32>(1.875,1.875),vec2<f32>(-.125,-.125));
+    return textureSampleLevel(tex,smp,uv[u32(p.x)%8u],0.);
+}
+"#
+            .into(),
+        ),
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: None,
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs",
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: Default::default(),
+        depth_stencil: None,
+        multisample: Default::default(),
+        multiview: None,
+    });
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    });
+    let target = new_target(device, "terrain colour wrap regression");
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target.view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    encoder.copy_texture_to_buffer(
+        target.texture.as_image_copy(),
+        wgpu::ImageCopyBuffer {
+            buffer: &target.read,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(PADDED_ROW),
+                rows_per_image: Some(target.size),
+            },
+        },
+        wgpu::Extent3d {
+            width: target.size,
+            height: target.size,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+    let pixels = read_target(device, &target);
+    for i in 0..8 {
+        assert_eq!(
+            &pixels[i * 4..i * 4 + 4],
+            if i < 5 {
+                &[20, 30, 100, 255]
+            } else {
+                &[140, 180, 100, 255]
+            },
+            "terrain colour wrap sample {i} is mirrored or clamped"
+        );
+    }
+    println!(
+        "Terrain colour wrap: 8/8 asymmetric pixel checks passed across positive and negative U/V"
+    );
 }

@@ -444,7 +444,7 @@ fn main() {
     let disc = image::RgbaImage::from_fn(W, H, |x, y| {
         image::Rgba([
             0,
-            if (30..34).contains(&x) && (30..34).contains(&y) {
+            if (24..40).contains(&x) && (24..40).contains(&y) {
                 255
             } else {
                 0
@@ -546,6 +546,10 @@ fn main() {
                 &roof_sampler,
                 &t,
                 &params,
+            );
+            assert!(
+                pixels.chunks_exact(4).any(|p| p[1] > 0),
+                "missing sun disc: mirrored={mirrored}, pitch={pitch}"
             );
             let d = core_center(&pixels, 1);
             let g = core_center(&pixels, 0);

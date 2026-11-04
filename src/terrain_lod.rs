@@ -647,19 +647,13 @@ mod tests {
     #[test]
     fn every_block_surface_covers_its_block_exactly_once() {
         for level in 1..=MAX_LEVEL {
-            for cases in [
-                [0, 0, 0, 0],
-                [1, 0, 0, 0],
-                [0, 1, 0, 0],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1],
-                [1, 1, 1, 1],
-                [2, 2, 2, 2],
-                [2, 0, 2, 0],
-                [0, 2, 0, 2],
-                [2, 2, 2, 2],
-                [1, 2, 1, 2],
-            ] {
+            for encoded in 0..81 {
+                let cases = [
+                    encoded / 27 % 3,
+                    encoded / 9 % 3,
+                    encoded / 3 % 3,
+                    encoded % 3,
+                ];
                 let s = block_surface(level, cases);
                 assert!(!s.indices.is_empty(), "level {level} {cases:?} empty");
                 let cell = step(level) as f32;

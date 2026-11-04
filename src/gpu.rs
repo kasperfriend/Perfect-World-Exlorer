@@ -919,6 +919,7 @@ fn build(
                     start: range_start,
                     end: range_end,
                     export_id: t.objects.ornaments[id].export_id,
+                    order: 0,
                     visibility,
                 });
             }
@@ -1105,6 +1106,7 @@ struct Renderer {
     object_start: u32,
     local_pages: Vec<crate::world_objects::GpuPage>,
     world_pages: Vec<crate::world_objects::GpuPage>,
+    world_draw_order: Vec<(usize, usize)>,
     world_done: bool,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -1653,6 +1655,7 @@ impl Renderer {
             object_start: m.object_start,
             local_pages,
             world_pages: Vec::new(),
+            world_draw_order: Vec::new(),
             world_done: false,
             layout,
             sampler,
@@ -2219,9 +2222,13 @@ impl Renderer {
         // ornaments while preload is in progress: the coplanar duplicates
         // caused depth flicker. Switch atomically only after all pages arrive.
         if self.world_done {
-            for page in &self.world_pages {
-                page.draw_selected(&mut p, reflected, pass_kind);
-            }
+            crate::world_objects::GpuPage::draw_ordered(
+                &self.world_pages,
+                &self.world_draw_order,
+                &mut p,
+                reflected,
+                pass_kind,
+            );
         }
     }
     fn draw_models(
@@ -3611,7 +3618,7 @@ pub fn run(
                     if settings.whole_world != world_enabled {
                         world_enabled=settings.whole_world;
                         if let Some(c)=world_cancel.take(){c.store(true,std::sync::atomic::Ordering::Relaxed);}
-                        world_rx=None;renderer.world_pages.clear();renderer.world_done=false;
+                        world_rx=None;renderer.world_pages.clear();renderer.world_draw_order.clear();renderer.world_done=false;
                         if world_enabled {
                             let (tx,rx)=std::sync::mpsc::sync_channel(1);let cancel=Arc::new(std::sync::atomic::AtomicBool::new(false));
                             let c=cancel.clone();let root=whole_element.clone();let ornaments=whole_ornaments.clone();
@@ -3626,7 +3633,7 @@ pub fn run(
                             renderer.world_pages.push(uploaded);world_status=format!("Loading: {processed}/{} objects, {} GPU chunks",whole_ornaments.len(),renderer.world_pages.len());
                             eprintln!("{world_status}");
                         },
-                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture; {} geometry chunks, {} shared atlases ({} MiB); peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits",stats.pages,stats.atlas_pages,stats.atlas_bytes>>20,stats.residency.peak_resident_bytes>>20,stats.residency.budget_bytes>>20,stats.residency.evictions,stats.residency.alias_hits);eprintln!("{world_status}");},
+                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_draw_order=crate::world_objects::GpuPage::draw_order(&renderer.world_pages);renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture; {} geometry chunks, {} shared atlases ({} MiB); peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits",stats.pages,stats.atlas_pages,stats.atlas_bytes>>20,stats.residency.peak_resident_bytes>>20,stats.residency.budget_bytes>>20,stats.residency.evictions,stats.residency.alias_hits);eprintln!("{world_status}");},
                         Ok(crate::world_objects::Message::Error(e))=>{world_status=format!("World load failed: {e}");eprintln!("{world_status}");},
                         Err(_)=>{}
                     }}
@@ -4038,6 +4045,8 @@ pub fn preview(
                         stats.residency.budget_bytes >> 20,
                         stats.residency.evictions
                     );
+                    renderer.world_draw_order =
+                        crate::world_objects::GpuPage::draw_order(&renderer.world_pages);
                     renderer.world_done = true;
                     break;
                 }

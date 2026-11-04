@@ -262,6 +262,10 @@ mod tests {
                     bits[bit as usize / 8] |= 0x80 >> (bit % 8);
                 }
                 assert_eq!(
+                    PlacementIter::owned(width, height, bits.clone(), 2., 0.3).collect::<Vec<_>>(),
+                    placements(width, height, &active, 2., 0.3)
+                );
+                assert_eq!(
                     PlacementIter::new(width, height, &bits, 2., 0.3).collect::<Vec<_>>(),
                     placements(width, height, &active, 2., 0.3),
                     "{width}x{height}, pattern {pattern}"

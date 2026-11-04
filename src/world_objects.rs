@@ -27,6 +27,8 @@ pub struct PlacementRange {
     pub start: u32,
     pub end: u32,
     pub export_id: u32,
+    /// Original model/mesh encounter order, independent of storage chunking.
+    pub order: u64,
     pub visibility: Visibility,
 }
 
@@ -300,7 +302,7 @@ fn run(
             let z = basis(model.direction);
             let y = basis(model.up);
             let x = y.cross(z).normalize_or_zero();
-            for mesh in &model.meshes {
+            for (mesh_index, mesh) in model.meshes.iter().enumerate() {
                 // Stage, culling and alpha state come from the single recovered
                 // table, not from per-asset guesses.
                 let kind = match crate::bmd_baked::classify(
@@ -403,6 +405,7 @@ fn run(
                         start: range_start,
                         end: range_end,
                         export_id: objects.ornaments[id].export_id,
+                        order: ((id as u64) << 32) | mesh_index as u64,
                         visibility,
                     });
                 }
@@ -618,6 +621,53 @@ impl GpuPage {
             if allows_with_context(view, r.visibility, RenderContext::default()) {
                 pass.draw_indexed(r.start..r.end, 0, 0..1);
             }
+        }
+    }
+    /// Freeze the original submission sequence once loading is complete.
+    /// Texture sharing changes storage, never coplanar/depth-tie winners.
+    pub fn draw_order(pages: &[Self]) -> Vec<(usize, usize)> {
+        let mut order = Vec::new();
+        for (page, p) in pages.iter().enumerate() {
+            if p.placements.is_empty() {
+                order.push((u64::MAX, page, usize::MAX));
+            } else {
+                for (range, r) in p.placements.iter().enumerate() {
+                    order.push((r.order, page, range));
+                }
+            }
+        }
+        order.sort_unstable();
+        order
+            .into_iter()
+            .map(|(_, page, range)| (page, range))
+            .collect()
+    }
+    pub fn draw_ordered<'a>(
+        pages: &'a [Self],
+        order: &[(usize, usize)],
+        pass: &mut wgpu::RenderPass<'a>,
+        reflected: bool,
+        view: Pass,
+    ) {
+        let mut bound = None;
+        for &(page, range) in order {
+            let p = &pages[page];
+            let indices = if range == usize::MAX {
+                0..p.count
+            } else {
+                let r = &p.placements[range];
+                if !allows_with_context(view, r.visibility, RenderContext::default()) {
+                    continue;
+                }
+                r.start..r.end
+            };
+            if bound != Some(page) {
+                pass.set_bind_group(0, if reflected { &p.reflected } else { &p.normal }, &[]);
+                pass.set_vertex_buffer(0, p.vertex.slice(..));
+                pass.set_index_buffer(p.index.slice(..), wgpu::IndexFormat::Uint32);
+                bound = Some(page);
+            }
+            pass.draw_indexed(indices, 0, 0..1);
         }
     }
     pub fn shares_atlas_with(&self, other: &Self) -> bool {

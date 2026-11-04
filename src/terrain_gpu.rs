@@ -582,15 +582,7 @@ impl TerrainGpu {
         // Mirroring the colour lookup invents a conspicuous 2x2 reflected
         // pattern in rock/grass detail. Keep authored mips but wrap the colour
         // sources, matching the CPU sampler and the colour-layer shader lane.
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            anisotropy_clamp: 1,
-            ..Default::default()
-        });
+        let sampler = crate::terrain_upload::color_sampler(device);
         // The mask/lightmap atlas is a packed page grid, not a tiled texture:
         // the fragment shader already clamps each tile's local UV to half a
         // texel inside its slot, so this sampler must never wrap or mirror

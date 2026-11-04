@@ -1,6 +1,20 @@
 //! Lossless authored terrain DDS uploads. No encoder or image resampler is
 //! involved: the original BC blocks, including the tiny tail mips, reach wgpu.
 
+/// Viewer colour layers tile without mirrored 2x2 motifs. Masks/lightmaps
+/// deliberately use a separate clamped sampler; authored mips stay intact.
+pub fn color_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+    device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Linear,
+        anisotropy_clamp: 1,
+        ..Default::default()
+    })
+}
+
 /// Native array groups: BC1 256/512/1024, then BC2 256/512/1024.
 /// Incomplete chains and non-square/other formats use the decoded fallback.
 pub fn native_group(source: &[u8], enabled: bool) -> Option<usize> {
