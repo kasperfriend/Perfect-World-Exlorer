@@ -565,6 +565,23 @@ matrix. A uniform scale cannot change a direction, so in a ray projector the
 whole effect is `Rx(-ax) * Ry(-ay) * d` on the texture lookup - the sky drifts,
 while the sun, moon and flare stay where `CECSunMoon` puts them.
 
+The dumps settle the composition as well. `0x789f20(out, ax, ay)` builds a
+two-angle matrix (`0x787240`) and multiplies it (`0x787170`); `0x789ec0` is the
+same thing with the Z angle composed on top, and `0x79a0e0` skips it while the Z
+rate is zero. The result reaches the draw directly: `0x799a40` (`A3DSky::Render`)
+takes the rotation matrix at `+0x504` - or its Z-mirrored twin at `+0x544` when
+the reflected flag is set - and hands it to `0x779da0` as the world transform,
+and `0x799b40` (`A3DSkySphere::Render`) does the same for the surround, drawing
+it twice: once with the object matrix and once with a matrix built by `0x787fa0`
+and `0x7873a0` seeded with two `-1.0` constants, i.e. the same mesh flipped. The
+surround indices come from `0x789de0`, a strip generator whose row count is 6
+(5 segments) or 4 (3 segments) - the mesh really is horizontal rows, which is
+what makes the drawn sky a stretched panorama rather than a disc.
+
+The draw also shows the ceiling's own height: `0x799a40` computes
+`[+0x4c8] * cos([+0x4c4])` and subtracts it from the band's vertical offset,
+so the ceiling is placed by a cosine of an authored angle, not by a projection.
+
 Implemented as `sky_gpu::SKY_ROTATION_RATE` / `SKY_ROTATION_TICK_SECONDS`, the
 `SkyFrame::sky_angles` pair, the `skyrot` uniform lane and the `sky_local()`
 shader function. The viewer advances the angles on the logic delta, so the drift
