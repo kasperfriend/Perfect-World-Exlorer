@@ -48,8 +48,12 @@ named by this build's `sky.lst` and is not used.
 
 `CECSunMoon::Render` (`0x4b3e00`) submits one 4-vertex billboard per object:
 
-* centre `direction * 100.0` (`ds:0x8d6a9c`), corners `±1.0` (`0x8d6a94` /
-  `0x8d6a98`), so the quad subtends `2 * atan(1/100) = 1.1459°`;
+* centre `direction * 100.0` (`ds:0x8d6a9c`), and the quad comes from the
+  template vertex stream `CECSunMoon::Init` fills, not from a scale factor:
+  `x -10..10`, `y 0..-20` for the sun and `x -20..20`, `y 0..-40` for the moon,
+  so the quads subtend `2 * atan(10/100) = 11.421°` and `2 * atan(20/100) =
+  22.619°`. **This corrects the "corners ±1.0, 1.1459°" reading below**; see
+  `Sun-moon-flare-cloud-weather-rotation-2026-11-04.md` §1;
 * gated on the object's own elevation (`+0x4c` sun, `+0x50` moon) `> 0`;
 * alpha is the visibility fade (`+0x7c` sun, `+0x80` moon) in the diffuse
   alpha byte.
@@ -113,10 +117,11 @@ accumulator (`0x429378`). The viewer's `client_weather` clock and
    was `2` (`night2`), but `sky.lst` has no `night2` row and `autoscene.cfg`
    names night `1` (overcast). The transition machine was switching to a set
    the loader never sampled.
-3. **The sun and moon discs were drawn at `DISC_SCALE = 2.0`.** The native
-   billboard is 1.146°; doubling it made the discs 2.29° and the moon texture
-   (already 75% of its frame) oversized. The retail larger look comes from the
-   flare chain, not the billboard.
+3. **The sun and moon discs were drawn at `DISC_SCALE = 2.0` on a 1.146° quad.**
+   The quad itself was wrong: the client's templates are 20 x 20 and 40 x 40
+   world units at distance 100 (11.42° and 22.62°), and the sun grows by
+   `1 + 2 * night_strength`. Corrected 2026-11-04 in `sky_celestial` /
+   `sky_gpu`; see `Sun-moon-flare-cloud-weather-rotation-2026-11-04.md`.
 4. **The flare chain was absent.** `sunshine.bmp` was drawn as a 12× shine
    quad; `moonflare.bmp`, `sunflare.bmp` and `flares.bmp` were loaded but not
    used. The moon had no halo.

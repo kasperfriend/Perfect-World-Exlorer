@@ -1837,6 +1837,7 @@ impl Renderer {
             self.celestial_visibility.fade(false),
             true,
             true,
+            state.night_strength,
         ) {
             match disc {
                 Ok(disc) => {
@@ -1850,23 +1851,20 @@ impl Renderer {
                     if !self.sky.disc_texture_present(sun) {
                         out.push_str(" (client texture missing)");
                     }
-                    // The sun's additive shine quad is what makes the retail
-                    // disc read large; its size is the viewer's, so say which
-                    // half is not the client's rather than implying the
-                    // billboard is wrong. The moon carries no shine quad in the
-                    // client's own block, and its retail halo is the flare
-                    // chain (0x4b374b..) that this build does not draw.
+                    // The quad sizes below are the client's own stream
+                    // templates; only the flare-sprite sizes are still the
+                    // viewer's. The sun's shine strip is the recovered
+                    // 120 x 40 quad, drawn inside the recovered night-strength
+                    // window.
                     if sun {
-                        let factor = crate::sky_celestial::glow_texture_factor(
+                        let strength = crate::sky_celestial::shine_ramp(
                             state.night_strength,
                             state.night_flag,
                         );
-                        let weight = (factor / 5.).clamp(0., 1.);
                         if self.sky.shine_texture_present(true) {
                             out.push_str(&format!(
-                                " + sunshine.bmp x{:.0} at {:.0}% (viewer size)",
-                                crate::sky_gpu::GLOW_SCALE,
-                                weight * 100.
+                                " + sunshine.bmp 120x40 units at {:.0}%",
+                                strength * 100.
                             ));
                         } else {
                             out.push_str(" (sunshine.bmp missing)");

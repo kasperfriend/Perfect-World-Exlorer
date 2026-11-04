@@ -33,31 +33,51 @@ use glam::{Mat4, Vec3};
 use std::{collections::HashMap, fs::File, path::Path};
 use wgpu::util::DeviceExt;
 
-/// Viewer disc scale. The recovered billboards subtend 1.146 degrees, which is
-/// what the client draws. The retail sun and moon read larger because of the
-/// `CECSunMoon` flare chain (`sunshine.bmp`, `moonflare.bmp`, `sunflare.bmp`,
-/// `flares.bmp`, `ps/solarflare_14`), not because the billboard itself is
-/// larger. The viewer now draws that chain, so the disc is restored to the
-/// native 1.0; the halo comes from the client's own flare textures.
-pub const DISC_SCALE: f32 = 1.0;
-
-/// Viewer shine quad for the sun, as a multiple of the native billboard's half
-/// extent. `CECSunMoon::Init` builds a separate sun-shine stream over
-/// `sunshine.bmp`; its quad size is not recovered (P5.03 section 3.2). The
-/// viewer draws the 2:1 anamorphic streak at 6x the billboard, which is a
-/// viewer-sized approximation; the circular halo and ghosts come from the
-/// recovered flare textures in the shader below. The disc itself stays at
-/// [`DISC_SCALE`] x 1.146 degrees.
-pub const GLOW_SCALE: f32 = 6.0;
+/// The viewer draws the client's celestial geometry as analytic billboards in
+/// the sky fragment shader. `CECSunMoon::Init` fills three template streams whose
+/// vertices are world units in a plane 100 units from the camera:
+///
+/// | stream | template | angular size at distance 100 |
+/// | --- | --- | --- |
+/// | sun | `x -10..10`, `y 0..-20` | 11.42 deg |
+/// | sun shine | `x -60..60`, `y 10..-30` | 61.93 x 22.62 deg |
+/// | moon | `x -20..20`, `y 0..-40` | 22.62 deg |
+///
+/// so the sun is drawn at 10 units and the moon at 20 units half extent, not at
+/// the single 1-unit quad this viewer used to draw for both. See
+/// `sky_celestial::SUN_HALF_EXTENT`, [`crate::sky_celestial::sun_half_extent`]
+/// and [`crate::sky_celestial::shine_ramp`].
+pub const SUN_HALF_EXTENT: f32 = crate::sky_celestial::SUN_HALF_EXTENT;
+/// Moon template half extent in the same plane.
+pub const MOON_HALF_EXTENT: f32 = crate::sky_celestial::MOON_HALF_EXTENT;
+/// Sun-shine template half width (`x` in `-60..60`).
+pub const SUNSHINE_HALF_WIDTH: f32 = crate::sky_celestial::SUNSHINE_HALF_WIDTH;
+/// Sun-shine template half height (`y` in `10..-30`).
+pub const SUNSHINE_HALF_HEIGHT: f32 = crate::sky_celestial::SUNSHINE_HALF_HEIGHT;
+/// Sun-shine template centre offset: the strip is centred 10 units below the
+/// emitted direction (`y` runs `10..-30`).
+pub const SUNSHINE_CENTRE_OFFSET: f32 = 10.0;
+/// Flare-chain sprite half extents in the same plane. The client's flare stream
+/// quads are generated per frame and their sizes are not recovered; the viewer
+/// anchors them to the recovered templates (`20 x 20` sun, `40 x 40` moon).
+pub const FLARE_HALF_EXTENTS: [f32; 3] = [SUN_HALF_EXTENT, 2.0 * SUN_HALF_EXTENT, 4.0 * SUN_HALF_EXTENT];
+/// Ring (`flares.bmp`) half extents: one step larger than the sun-flare sprites.
+pub const RING_HALF_EXTENTS: [f32; 3] = [
+    2.0 * SUN_HALF_EXTENT,
+    4.0 * SUN_HALF_EXTENT,
+    8.0 * SUN_HALF_EXTENT,
+];
 
 /// Per-frame sky inputs, all recovered values.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SkyFrame {
     /// Authored hour, `0..24`. Used for diagnostics only.
     pub hour: f32,
-    /// Day/night switch weight from [`crate::sky_time::night_weight`]. Kept for
-    /// diagnostics; the shader uses the `sky_transition` set pair and
-    /// [`Self::tint`] for the regional light darkening.
+    /// Day/night switch weight from [`crate::sky_time::night_weight`] — the
+    /// recovered `+0x70` strength. The shader consumes it twice: the sun's
+    /// `1 + 2 * n` swell and the recovered sun-shine window, both through
+    /// `Params::sets.w`. The sky darkening itself is [`Self::tint`] plus the
+    /// `sky_transition` set pair.
     pub night_weight: f32,
     /// Sun: `[fade, elevation, azimuth, shine strength 0..1]`. The shine is the
     /// recovered stage-1 texture factor of `sunshine.sdr`
@@ -159,14 +179,23 @@ fn luminous_center(image: &image::RgbaImage) -> [f32; 2] {
     ]
 }
 
-/// Align the authored bright cores in the same billboard coordinate system.
+/// Align the authored bright cores of the disc and the shine strip.
+///
+/// The recovered geometry maps `sunshine.bmp` across the whole 120 x 40 strip
+/// and `sun.bmp`/`moon.tga` across the whole disc quad, so the shader no longer
+/// needs the sun's alignment: the strip is sampled with the recovered UV
+/// rectangle. The moon's halo (`moonflare.bmp`, a radial disc identical to
+/// `sun.bmp`) is sampled from its own centre, which is the `.zw` pair.
 pub(crate) fn glow_lookup_center(disc: &image::RgbaImage, glow: &image::RgbaImage) -> [f32; 4] {
     let core = luminous_center(disc);
     let shine = luminous_center(glow);
-    let ratio = DISC_SCALE / GLOW_SCALE;
+    // Same disc frame, per axis: the strip is 6x wider and 2x taller than the
+    // sun quad (`120 x 40` against `20 x 20`).
+    let ratio_x = SUN_HALF_EXTENT / SUNSHINE_HALF_WIDTH;
+    let ratio_y = SUN_HALF_EXTENT / SUNSHINE_HALF_HEIGHT;
     [
-        shine[0] - (core[0] - 0.5) * ratio,
-        shine[1] - (core[1] - 0.5) * ratio,
+        shine[0] - (core[0] - 0.5) * ratio_x,
+        shine[1] - (core[1] - 0.5) * ratio_y,
         0.5,
         0.5,
     ]
@@ -174,8 +203,22 @@ pub(crate) fn glow_lookup_center(disc: &image::RgbaImage, glow: &image::RgbaImag
 
 pub(crate) const SHADER: &str = r#"
 struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>,glow_center:vec4<f32>};
-// Mirrors the Rust `GLOW_SCALE`: the shine quad is this many billboards wide.
-const GLOW_SCALE:f32=6.0;
+// Recovered `CECSunMoon::Init` templates: world units in the disc plane at
+// distance 100. Mirrors `sky_celestial::SUN_HALF_EXTENT` and friends.
+const SUN_HALF:f32=10.0;
+const MOON_HALF:f32=20.0;
+const SHINE_HALF_WIDTH:f32=60.0;
+const SHINE_HALF_HEIGHT:f32=20.0;
+const SHINE_CENTRE_OFFSET:f32=10.0;
+
+// `CECSunMoon::Render` sun-shine strength (0x4b3dc1..0x4b3e22): zero until the
+// night strength passes 0.3, ramp to 1 at 0.6, hold to 0.8, then `(1-n)*5`.
+fn shine_ramp(n:f32)->f32{
+ if n<=0.3 {return 0.0;}
+ if n<0.6 {return (n-0.3)*(1.0/0.3);}
+ if n<0.8 {return 1.0;}
+ return clamp((1.0-n)*5.0,0.0,1.0);
+}
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
@@ -267,56 +310,71 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  // instead of into the pass clear colour.
  return vec4<f32>(mix(roof,tex.rgb*tn,curtain_alpha(sy)),1.0);
 }
-// One native billboard: centre at direction*100, half extent 1.0, so the disc
-// subtends 1.146 degrees, plus the sun's additive shine quad (the moon's weight
-// is 0 until the flare chain exists). Gated on elevation and fade exactly like
-// 0x4b3e00.
-fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,flare:i32,ring:i32,tint:vec3<f32>)->vec3<f32>{
+// The client's celestial billboards, as the templates recovered from
+// `CECSunMoon::Init` describe them: a 20x20-unit sun quad, a 120x40 sun-shine
+// strip and a 40x40 moon quad, all in a plane 100 units from the camera. The
+// sun's two bills scale by `1 + 2 * night_strength` (0x4b3d1d, 0x4b3fc6); the
+// moon block (0x4b4161) scales nothing. Gated on elevation and fade exactly
+// like 0x4b3e00.
+fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,flare:i32,ring:i32,tint:vec3<f32>,night:f32)->vec3<f32>{
  let alpha=params.x;let el=params.y;let az=params.z;
- // Recovered stage-1 texture factor of `sunshine.sdr`, normalised by its full
- // strength (5.0) so it can tint an additive quad. 0 at full night.
- let shine=clamp(params.w,0.0,1.0);
  if alpha<=0.0 || el<=0.0 {return color;}
+ let is_sun=disc==9;
+ let n=clamp(night,0.0,1.0);
+ // `1 + 2 * n` on the sun's disc and shine quad; the moon keeps its own size.
+ let swell=select(1.0,1.0+2.0*n,is_sun);
  let c=vec3<f32>(cos(az)*cos(el),sin(el),sin(az)*cos(el));
  let z=dot(d,c);
  if z<=0.0 {return color;}
  let right=normalize(cross(vec3<f32>(0.,1.,0.),c)+vec3<f32>(0.000001,0.,0.));
  let up=cross(c,right);
- let axis=vec2<f32>(dot(d,right),-dot(d,up));
+ // Tangent-plane position in world units at distance 100.
+ let plane=vec2<f32>(dot(d,right),-dot(d,up))*(100.0/z);
  var out=color;
- // Shine/halo quad. The sun uses `sunshine.bmp` (layer 11) with the recovered
- // stage-1 factor; the moon uses `moonflare.bmp` (layer 12) at half weight,
- // because the client's moon block halves its colour and scales nothing.
- let centre=select(p.glow_center.zw,p.glow_center.xy,disc==9);
- let guv=axis/(2.0*0.01*GLOW_SCALE*z)+centre;
- let glow_weight=select(alpha*0.5,alpha*shine,disc==9);
- if guv.x>=0.0 && guv.x<=1.0 && guv.y>=0.0 && guv.y<=1.0 {
-  out=clamp(out+textureSampleLevel(skies,smp,guv,glow,0.).rgb*glow_weight,vec3<f32>(0.),vec3<f32>(1.));
+ if is_sun {
+  // The recovered sun-shine strip: 120 wide, 40 tall, centred 10 units below
+  // the sun, sampled with `sunshine.bmp` across the whole rectangle. Drawn only
+  // inside the recovered night-strength window.
+  let strength=shine_ramp(n);
+  if strength>0.0 {
+   let suv=vec2<f32>(plane.x/(2.0*SHINE_HALF_WIDTH*swell)+0.5,(plane.y+SHINE_CENTRE_OFFSET)/(2.0*SHINE_HALF_HEIGHT*swell)+0.5);
+   if suv.x>=0.0 && suv.x<=1.0 && suv.y>=0.0 && suv.y<=1.0 {
+    out=clamp(out+textureSampleLevel(skies,smp,suv,glow,0.).rgb*(alpha*strength),vec3<f32>(0.),vec3<f32>(1.));
+   }
+  }
+ } else {
+  // Every retail moon halo is the flare chain's `moonflare.bmp`; the moon block
+  // itself scales nothing, so the halo spans the recovered 40-unit quad.
+  let huv=plane/(2.0*MOON_HALF)+vec2<f32>(0.5);
+  if huv.x>=0.0 && huv.x<=1.0 && huv.y>=0.0 && huv.y<=1.0 {
+   out=clamp(out+textureSampleLevel(skies,smp,huv,glow,0.).rgb*(alpha*0.5),vec3<f32>(0.),vec3<f32>(1.));
+  }
  }
  // Flare chain. `CECSunMoon::Init` loads `sunflare.bmp` and `flares.bmp` and
- // `ps/solarflare_14` sums six flare-alpha samples at weight 0.4. Six samples
- // are drawn here: three `sunflare` scales and three `flares` scales, each
- // 0.4, tinted warm for the sun and cool for the moon. The sizes are viewer
- // approximations; the textures, the 0.4 weight and the six-sample structure
- // are the client's.
- let flare_scales=array<f32,3>(2.0,4.0,8.0);
- let ring_scales=array<f32,3>(3.0,6.0,12.0);
+ // `ps/solarflare_14` sums six flare-alpha samples at weight 0.4. The sprite
+ // sizes are the one part of the chain still generated at run time; the viewer
+ // anchors them to the recovered quad sizes instead of inventing a scale.
+ // Half extents are `SUN_HALF * 2^i` and `2 * SUN_HALF * 2^i`; the scales are
+ // computed instead of indexed from a table because naga rejects a runtime
+ // index into an immutable local array.
  for(var i=0;i<3;i=i+1){
-  let fuv=axis/(2.0*0.01*flare_scales[i]*z)+vec2<f32>(0.5);
+  let k=pow(2.0,f32(i));
+  let fuv=plane/(2.0*SUN_HALF*k)+vec2<f32>(0.5);
   if fuv.x>=0.0 && fuv.x<=1.0 && fuv.y>=0.0 && fuv.y<=1.0 {
    out=clamp(out+textureSampleLevel(skies,smp,fuv,flare,0.).rgb*(alpha*0.4*tint),vec3<f32>(0.),vec3<f32>(1.));
   }
-  let ruv=axis/(2.0*0.01*ring_scales[i]*z)+vec2<f32>(0.5);
+  let ruv=plane/(2.0*(2.0*SUN_HALF)*k)+vec2<f32>(0.5);
   if ruv.x>=0.0 && ruv.x<=1.0 && ruv.y>=0.0 && ruv.y<=1.0 {
    out=clamp(out+textureSampleLevel(skies,smp,ruv,ring,0.).rgb*(alpha*0.4*tint),vec3<f32>(0.),vec3<f32>(1.));
   }
  }
- // p.tint.w is the viewer disc scale (1 is the native 1.146 degree quad).
- let scale=max(p.tint.w,0.25);
- let uv=axis/(2.0*0.01*scale*z)+vec2<f32>(0.5);
+ // The disc itself: 20 units for the sun (swelled by the night strength), 40
+ // units for the moon.
+ let half=select(MOON_HALF,SUN_HALF*swell,is_sun);
+ let uv=plane/(2.0*half)+vec2<f32>(0.5);
  if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {return out;}
  let t=textureSampleLevel(skies,smp,uv,disc,0.);
- if disc==9 {return clamp(out+t.rgb*alpha,vec3<f32>(0.),vec3<f32>(1.));}
+ if is_sun {return clamp(out+t.rgb*alpha,vec3<f32>(0.),vec3<f32>(1.));}
  return mix(out,t.rgb,t.a*alpha);
 }
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
@@ -344,8 +402,9 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,flar
   let fog=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));
   color=mix(fog,color,smoothstep(0.,0.08,d.y));
  }
- color=celestial(color,d,p.celestial,9,11,13,14,vec3<f32>(1.0,0.72,0.42));
- color=celestial(color,d,p.celestial2,10,12,13,14,vec3<f32>(0.62,0.76,1.0));
+ let night=clamp(p.sets.w,0.0,1.0);
+ color=celestial(color,d,p.celestial,9,11,13,14,vec3<f32>(1.0,0.72,0.42),night);
+ color=celestial(color,d,p.celestial2,10,12,13,14,vec3<f32>(0.62,0.76,1.0),night);
  return vec4<f32>(color,1.);
 }
 "#;
@@ -739,10 +798,13 @@ impl SkyGpu {
                 frame.tint[0],
                 frame.tint[1],
                 frame.tint[2],
-                // `p.tint.w` carries the disc scale into `celestial`.
-                DISC_SCALE,
+                // Unused by `celestial` now that the recovered templates give
+                // each object its own size; kept so the uniform layout is fixed.
+                1.0,
             ],
-            sets: [sets.0 as f32, sets.1 as f32, sets.2, frame.hour],
+            // `sets.w` carries the night strength into `celestial` (the sun's
+            // `1 + 2 * n` swell and the recovered shine ramp).
+            sets: [sets.0 as f32, sets.1 as f32, sets.2, frame.night_weight],
             glow_center: self.glow_center,
         };
         queue.write_buffer(

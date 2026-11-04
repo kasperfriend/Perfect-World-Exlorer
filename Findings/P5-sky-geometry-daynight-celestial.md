@@ -1,5 +1,13 @@
 # P5.01–P5.03 — Sky geometry, day/night switch, sun and moon
 
+> **Update 2026-11-04 (later):** the celestial sizes in section 3 are **wrong**
+> and are corrected here. `CECSunMoon::Init` fills the vertex streams with
+> explicit quad templates — 20 x 20 units (sun), 120 x 40 (sun shine) and
+> 40 x 40 (moon) in a plane 100 units from the camera — so the native quads
+> subtend 11.42 and 22.62 degrees, not 1.146. The `ds:0x8d6a94` / `ds:0x8d6a98`
+> pair the old extent was inferred from is not referenced by the celestial code
+> at all. See `Sun-moon-flare-cloud-weather-rotation-2026-11-04.md`.
+>
 > **Update 2026-11-04:** the viewer now reads `configs.pck` with the new
 > `angelica_pck` reader, loads the `sky.lst` day/night pair (clear / overcast)
 > and draws the client's flare chain. Section 2.3 and 3.2 below are corrected
@@ -323,12 +331,14 @@ Two consequences that shaped the third round:
   `Sky\clear` for all three `sky_image` slots, so a faithful default draws no
   painted moon at all; the viewer's earlier `night2` substitution is what put a
   motionless moon next to the billboard. It stays removed.
-* **The billboard is small but the art is not.** `sun.bmp`'s solid disc is
-  `1.146° * 0.55 = 0.63°` and `moon.tga`'s is `1.146° * 0.75 = 0.86°`, so the
-  disc itself is correct and what the retail sun and moon "have" beyond it is the
-  flare pass of section 3.2. The viewer keeps `sky_gpu::DISC_SCALE` as a single
-  labelled constant (shipped at `2.0`) so the disc can read like the flared
-  original until that pass exists; `1.0` is the native size.
+* **The billboard is not small.** Corrected 2026-11-04: the quad templates are
+  20 x 20 units for the sun and 40 x 40 for the moon at distance 100, i.e.
+  11.42° and 22.62° (and the sun swells by `1 + 2 * night_strength` at dusk).
+  `moon.tga`'s alpha fills 83.6% of its quad, so the retail moon disc is 18.9°;
+  `sun.bmp`'s 50%-peak contour is 60% of its quad, so the retail sun disc is
+  6.9° inside an 11.42° glow. The 1.146°/0.63°/0.86° numbers this bullet used to
+  carry came from `ds:0x8d6a94`/`ds:0x8d6a98`, which the celestial code never
+  reads. See `Sun-moon-flare-cloud-weather-rotation-2026-11-04.md` §1.
 
 ---
 
@@ -339,7 +349,7 @@ Two consequences that shaped the third round:
 | Render | `0x4b3e00`–`0x4b41ee` | one 4-vertex, 6-index billboard per object (`push 0x6` at `0x4b401a`) |
 | Gate | `0x4b4035` | `fcomp ds:0x8d58a0` (0.0) on the object's own elevation |
 | Placement | `0x4b3f69`–`0x4b3fb6` | `direction * ds:0x8d6a9c` = **100.0** |
-| Extent | `0x8d6a94` = -0.5, `0x8d6a98` = 2.0 | corners at `±1.0` world units |
+| Extent | `0x4b2fde`..`0x4b30f9` (sun fill), `0x4b3425`..`0x4b3517` (moon fill) | sun `±10` x, `0..-20` y; moon `±20` x, `0..-40` y — **20 x 20 and 40 x 40 world units**; `0x8d6a94`/`0x8d6a98` are not referenced by this code |
 | Direction | `0x4b4085`–`0x4b40b1` | `(cos az cos el, sin el, sin az cos el)` |
 | Alpha | `0x4b405f`–`0x4b4080` | packed diffuse `([+0x48] & 0xfefefe | 0x01010100) >> 1 | fade << 24` |
 | Fades | `0x4b5f63`–`0x4b6021` | `+0x7c` sun, `+0x80` moon, `± ms * ds:0x8db100` (0.0003), clamped to [0, 1]; targets `+0x84`/`+0x85` |
