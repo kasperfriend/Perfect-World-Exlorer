@@ -662,12 +662,15 @@ fn main() {
             // reads it off the pixel probe: (-3, 2, 1).
             let eye = [-3., 2., 1.];
             let displaced = [pos[0], displaced_y, pos[2]];
-            // Both fixtures draw the grass vertex stage; `kind` only steers the
-            // fragment blend, so the above-plane clamp in `bmd_transmittance`
-            // (which belongs to the lit-model shader) does not apply here. The
-            // reference expansion keeps the vertex height as authored, and the
-            // grass shader takes the original Y unclamped.
-            factor += refraction_fog::grass_transmittance(pos, displaced, eye, plane) * w;
+            // `refpipe` draws the raw scene shader, and its vertex stage
+            // routes `kind` 1.5..2.5 through `bmd_refraction_transmittance`:
+            // above-plane vertices get zero submerged depth (the clamp), while
+            // the grass fixture keeps the original Y unclamped.
+            factor += if bmd {
+                refraction_fog::bmd_transmittance(pos, eye, plane) * w
+            } else {
+                refraction_fog::grass_transmittance(pos, displaced, eye, plane) * w
+            };
         }
         factor = factor.clamp(0., 1.);
         let pixel = &bytes[(py * 128 + px) * 4..][..3];
