@@ -619,12 +619,19 @@ Two things are still unpinned and are why this is not implemented yet:
   the author intended, or a benign overrun that is clipped. The host block is a
   viewport-like `{x, y, w, h, ..}` at `arg1+0x14`, so the metric is the width or
   the height; they differ by `aspect`.
-* **the direction vector itself.** It is written by `0x450b30`, whose dump
-  drifted (the window did not start on an instruction boundary) and needs a
-  window that starts exactly at the function address.
+* **the direction vector itself.** The caller reaches it through `0x4071f0`
+  (which builds a matrix and a vector) and `0x450b30` (which transforms one into
+  the other), inside a camera-view wrapper whose own fields are `[+0x754]` and a
+  time delta at `[0x9b3eec]+0x490` scaled by `0.005` - so the sprite direction is
+  the view's, not a constant. The enclosing body had to be resynced 0xbd0 bytes
+  backwards (`0x44fd30`) before it read; it turns out to be a property
+  dispatcher over ids `0xc8`..`0x191`, which is why three rounds of reading it
+  in isolation produced nonsense operands.
 
-Both are cheap to settle with one more aligned dump (`0x450b30`,
-`0x789ec0`, `0x789f20`, `0x799a40`). The viewer keeps its six-ghost chain until
+Both are cheap to settle now that `tools/recover-sky-client.py` resyncs a
+window onto the function boundary behind it (the client has no frame pointers,
+so the boundary is a `ret` followed by `int3`/`nop` padding, and the scan looks
+8 KiB back). The viewer keeps its six-ghost chain until
 then rather than shipping a second approximation: the retail flare is fifteen
 atlas cells within ~100 px of the sun with sizes up to 0.45 of a viewport
 dimension, i.e. far larger and far more concentrated than the current chain, and
