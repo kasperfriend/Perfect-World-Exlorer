@@ -5,7 +5,7 @@ use super::{
     customize::{CharacterDesign, SliderBounds},
 };
 
-pub(super) fn show(
+pub(crate) fn show(
     ui: &mut egui::Ui,
     design: &mut CharacterDesign,
     catalog: &Catalog,

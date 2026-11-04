@@ -4,17 +4,16 @@
 
 pub(crate) mod archive;
 mod character;
+mod designer;
 pub(crate) mod physics;
 pub(crate) mod pose;
-mod race;
 
 use self::{
-    archive::Archive,
     character::{character_transform, Character},
+    designer::Designer,
     physics::{Body, Input, Mechanics},
-    race::Race,
 };
-use crate::{model_draw_gpu, navigation::MapSpace};
+use crate::{model_draw_gpu, modules::designer::assets::Assets, navigation::MapSpace};
 use glam::Vec3;
 use std::{collections::HashSet, path::PathBuf};
 use winit::keyboard::KeyCode;
@@ -23,7 +22,6 @@ const THIRD_PERSON_DISTANCE: f32 = 4.5;
 
 #[derive(Clone, Copy, Debug)]
 struct Settings {
-    race: Race,
     mechanics: Mechanics,
     first_person: bool,
 }
@@ -31,7 +29,6 @@ struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            race: Race::Human,
             mechanics: Mechanics::default(),
             first_person: false,
         }
@@ -39,7 +36,7 @@ impl Default for Settings {
 }
 
 struct Gpu {
-    draw: model_draw_gpu::Draw,
+    draws: Vec<model_draw_gpu::Draw>,
     // Keep the sampler alive alongside bind groups that reference it.
     _sampler: wgpu::Sampler,
 }
@@ -47,7 +44,8 @@ struct Gpu {
 pub struct Walker {
     element: Option<PathBuf>,
     map: Option<MapSpace>,
-    archive: Option<Archive>,
+    assets: Option<Assets>,
+    designer: Designer,
     settings: Settings,
     body: Option<Body>,
     character: Option<Character>,
@@ -63,7 +61,8 @@ impl Default for Walker {
         Self {
             element: None,
             map: None,
-            archive: None,
+            assets: None,
+            designer: Designer::default(),
             settings: Settings::default(),
             body: None,
             character: None,
@@ -93,8 +92,12 @@ impl Walker {
         if let Some(error) = &self.last_error {
             return error.clone();
         }
-        if self.is_active() {
-            format!("Active — {}", self.settings.race.label())
+        if let Some(character) = &self.character {
+            format!(
+                "Active — {} {}",
+                character.assembly.design.class.name(),
+                character.assembly.design.gender.name()
+            )
         } else {
             "Disabled".into()
         }
@@ -102,6 +105,10 @@ impl Walker {
 
     pub fn set_active(&mut self, active: bool, spawn: Vec3, facing: Vec3) {
         if !active {
+            if let Some(character) = &self.character {
+                self.designer
+                    .restore_applied(character.assembly.design.clone());
+            }
             self.body = None;
             self.character = None;
             self.gpu = None;
@@ -119,8 +126,8 @@ impl Walker {
                 .as_ref()
                 .ok_or("Walker has no client asset host in this mode")?;
             let map = self.map.as_ref().ok_or("Walker has no terrain host")?;
-            if self.archive.is_none() {
-                self.archive = Some(Archive::open(element)?);
+            if self.assets.is_none() {
+                self.assets = Some(Assets::open(element)?);
             }
             let ground = physics::ground(map, spawn.x, spawn.z);
             let position = Vec3::new(spawn.x, ground.height, spawn.z);
@@ -130,11 +137,9 @@ impl Walker {
             } else {
                 facing
             };
-            let character = Character::load(
-                self.archive.as_mut().unwrap(),
-                self.settings.race,
-                character_transform(position, facing),
-            )?;
+            let assets = self.assets.as_mut().unwrap();
+            let design = self.designer.ensure_initialized(assets)?;
+            let character = Character::load(assets, design, character_transform(position, facing))?;
             self.body = Some(Body::new(position));
             self.character = Some(character);
             self.facing = facing;
@@ -151,35 +156,32 @@ impl Walker {
         }
     }
 
-    fn change_race(&mut self, race: Race) {
-        if race == self.settings.race {
-            return;
-        }
-        let previous = self.settings.race;
-        self.settings.race = race;
+    fn change_design(&mut self, design: crate::modules::designer::customize::CharacterDesign) {
         if !self.is_active() {
             return;
         }
         let result = (|| -> Result<Character, String> {
             let body = self.body.as_ref().ok_or("Walker body is not active")?;
             Character::load(
-                self.archive
-                    .as_mut()
-                    .ok_or("Walker model archive is not open")?,
-                race,
+                self.assets.as_mut().ok_or("Walker assets are not open")?,
+                design,
                 character_transform(body.position, self.facing),
             )
         })();
         match result {
             Ok(character) => {
+                self.designer.rebuild_succeeded(
+                    character.assembly.equipment.len(),
+                    character.assembly.warnings.len(),
+                );
                 self.character = Some(character);
                 self.gpu = None;
                 self.gpu_failed = false;
                 self.last_error = None;
             }
             Err(error) => {
-                self.settings.race = previous;
-                self.last_error = Some(format!("Could not load {}: {error}", race.label()));
+                self.designer.rebuild_failed(&error);
+                self.last_error = Some(format!("Could not customize Walker: {error}"));
             }
         }
     }
@@ -252,18 +254,17 @@ impl Walker {
     }
 
     pub fn settings_ui(&mut self, ui: &mut egui::Ui) {
-        let mut race = self.settings.race;
-        egui::ComboBox::from_label("Race / representative profession")
-            .selected_text(race.label())
-            .show_ui(ui, |ui| {
-                for choice in Race::ALL {
-                    ui.selectable_value(&mut race, choice, choice.label());
-                }
-            });
-        if race != self.settings.race {
-            self.change_race(race);
+        let rebuild = if let Some(assets) = self.assets.as_mut() {
+            self.designer.ui(ui, assets)
+        } else {
+            None
+        };
+        if let Some(design) = rebuild {
+            self.change_design(design);
         }
 
+        ui.separator();
+        ui.heading("Movement and camera");
         let mut speed = self.settings.mechanics.move_speed;
         if ui
             .add(egui::Slider::new(&mut speed, 0.5..=20.0).suffix(" m/s"))
@@ -352,32 +353,45 @@ impl Walker {
                 mipmap_filter: wgpu::FilterMode::Linear,
                 ..Default::default()
             });
-            let result = (|| -> Result<model_draw_gpu::Draw, String> {
+            let result = (|| -> Result<Gpu, String> {
                 let character = self.character.as_ref().ok_or("Walker character missing")?;
-                let archive = self.archive.as_mut().ok_or("Walker archive missing")?;
-                model_draw_gpu::Draw::new(
-                    device,
-                    queue,
-                    format,
-                    Some((
-                        wgpu::TextureFormat::Depth32Float,
-                        wgpu::CompareFunction::Greater,
-                    )),
-                    true,
-                    &sampler,
-                    &character.asset,
-                    &character.posed.meshes,
-                    frame,
-                    |path| archive.read(path),
-                )
+                let assets = self.assets.as_mut().ok_or("Walker assets missing")?;
+                let assembly = &character.assembly;
+                let meshes = &character.posed.meshes;
+                let mut draws = Vec::with_capacity(2 + assembly.weapons.len());
+                for (asset, posed) in std::iter::once((&assembly.body, &meshes.body))
+                    .chain(std::iter::once((&assembly.face, &meshes.face)))
+                    .chain(
+                        assembly
+                            .weapons
+                            .iter()
+                            .zip(&meshes.weapons)
+                            .map(|(weapon, posed)| (&weapon.asset, posed)),
+                    )
+                {
+                    draws.push(model_draw_gpu::Draw::new(
+                        device,
+                        queue,
+                        format,
+                        Some((
+                            wgpu::TextureFormat::Depth32Float,
+                            wgpu::CompareFunction::Greater,
+                        )),
+                        true,
+                        &sampler,
+                        asset,
+                        posed,
+                        frame,
+                        |path| assets.read(path),
+                    )?);
+                }
+                Ok(Gpu {
+                    draws,
+                    _sampler: sampler,
+                })
             })();
             match result {
-                Ok(draw) => {
-                    self.gpu = Some(Gpu {
-                        draw,
-                        _sampler: sampler,
-                    })
-                }
+                Ok(gpu) => self.gpu = Some(gpu),
                 Err(error) => {
                     self.last_error = Some(format!("Walker rendering: {error}"));
                     self.gpu_failed = true;
@@ -385,13 +399,27 @@ impl Walker {
                 }
             }
         }
-        let update = match (&self.gpu, &self.character) {
-            (Some(gpu), Some(character)) => {
-                gpu.draw
-                    .update(queue, &character.asset, &character.posed.meshes, frame)
+        let update = (|| -> Result<(), String> {
+            let gpu = self.gpu.as_ref().ok_or("Walker GPU draws missing")?;
+            let character = self.character.as_ref().ok_or("Walker character missing")?;
+            let assembly = &character.assembly;
+            let meshes = &character.posed.meshes;
+            let mut index = 0;
+            for (asset, posed) in std::iter::once((&assembly.body, &meshes.body))
+                .chain(std::iter::once((&assembly.face, &meshes.face)))
+                .chain(
+                    assembly
+                        .weapons
+                        .iter()
+                        .zip(&meshes.weapons)
+                        .map(|(weapon, posed)| (&weapon.asset, posed)),
+                )
+            {
+                gpu.draws[index].update(queue, asset, posed, frame)?;
+                index += 1;
             }
-            _ => return,
-        };
+            Ok(())
+        })();
         if let Err(error) = update {
             self.last_error = Some(format!("Walker rendering: {error}"));
             self.gpu_failed = true;
@@ -420,7 +448,9 @@ impl Walker {
             occlusion_query_set: None,
         });
         if let Some(gpu) = &self.gpu {
-            gpu.draw.draw(&mut pass);
+            for draw in &gpu.draws {
+                draw.draw(&mut pass);
+            }
         }
     }
 }

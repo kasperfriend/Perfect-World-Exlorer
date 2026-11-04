@@ -7,7 +7,6 @@ mod package;
 mod walker;
 
 use crate::{model_draw_gpu, navigation::MapSpace};
-use designer::Designer;
 use glam::Vec3;
 use package::{Package, Registry};
 use std::{collections::HashSet, path::PathBuf};
@@ -16,7 +15,6 @@ use winit::keyboard::KeyCode;
 
 pub struct Modules {
     walker: Walker,
-    designer: Designer,
     packages: Registry,
     selected: usize,
 }
@@ -25,7 +23,6 @@ impl Default for Modules {
     fn default() -> Self {
         Self {
             walker: Walker::default(),
-            designer: Designer::default(),
             packages: Registry::discover(package::default_root()),
             selected: 0,
         }
@@ -35,8 +32,7 @@ impl Default for Modules {
 impl Modules {
     pub fn new(element: PathBuf, map: MapSpace) -> Self {
         Self {
-            walker: Walker::with_host(element.clone(), map.clone()),
-            designer: Designer::with_host(element, map),
+            walker: Walker::with_host(element, map),
             packages: Registry::discover(package::default_root()),
             selected: 0,
         }
@@ -75,13 +71,6 @@ impl Modules {
                         selected = index;
                     }
                 }
-                let designer_index = self.packages.packages.len();
-                if ui
-                    .selectable_label(selected == designer_index, "Character Designer (built in)")
-                    .clicked()
-                {
-                    selected = designer_index;
-                }
                 self.selected = selected;
                 if self.packages.packages.is_empty() {
                     ui.label(
@@ -104,10 +93,7 @@ impl Modules {
                     ui.colored_label(egui::Color32::LIGHT_RED, error);
                 }
                 ui.separator();
-                if self.selected == designer_index {
-                    ui.heading("Character Designer");
-                    self.designer.menu_ui(ui, spawn, yaw);
-                } else if let Some(installed) = self.packages.packages.get(self.selected).cloned() {
+                if let Some(installed) = self.packages.packages.get(self.selected).cloned() {
                     self.selected_module_ui(ui, installed, spawn, yaw);
                 }
                 ui.separator();
@@ -167,7 +153,7 @@ impl Modules {
         }
         ui.label(
             egui::RichText::new(
-                "While enabled: WASD moves, Space jumps (press again for the client's second jump), and the mouse looks around. Open Escape to adjust Walker beneath the minimap.",
+                "While enabled: WASD moves, Space jumps (press again for the client's second jump), and the mouse looks around. Open Escape to use the integrated Character Designer and movement settings beneath the minimap. New characters start with native profession armor.",
             )
             .small()
             .weak(),
@@ -181,9 +167,9 @@ impl Modules {
             return;
         }
         egui::Window::new("Walker settings")
-            .default_pos(egui::pos2((screen_width - 306.).max(16.), 294.))
-            .default_size(egui::vec2(290., 250.))
-            .min_size(egui::vec2(245., 190.))
+            .default_pos(egui::pos2((screen_width - 406.).max(16.), 294.))
+            .default_size(egui::vec2(390., 540.))
+            .min_size(egui::vec2(300., 280.))
             .collapsible(true)
             .resizable(true)
             .vscroll(true)
@@ -213,8 +199,6 @@ impl Modules {
         frame: model_draw_gpu::Frame,
     ) {
         self.walker
-            .render(device, queue, format, encoder, target, depth, frame);
-        self.designer
             .render(device, queue, format, encoder, target, depth, frame);
     }
 }

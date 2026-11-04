@@ -147,6 +147,13 @@ impl Character {
         body.texture_overrides = HashMap::new();
         body.mesh_tints = HashMap::new();
         body.hidden_meshes = (0..head_mesh_count).map(|mesh| (1, mesh)).collect();
+        if let Some(base) = body.skins.first_mut() {
+            // CECPlayer::LoadBodySkin's default body material override.
+            for material in &mut base.data.materials {
+                material.specular = [58. / 255., 58. / 255., 58. / 255., 1.];
+                material.power = 10.;
+            }
+        }
         let body_color = if design.class == Class::Barbarian {
             // CECPlayer::SetBodyColor explicitly disables Orc skin tinting.
             u32::MAX
@@ -337,13 +344,52 @@ impl Character {
         })
     }
 
-    /// Evaluate the authored idle/bind pose, including body scales, face-bone
+    /// Evaluate the authored bind pose, including body scales, face-bone
     /// controllers, head attachment, and weapon hooks.
     pub fn bind_pose(&self, world: Mat4) -> Result<CharacterPose, String> {
+        self.evaluate_pose(None, world)
+    }
+
+    /// Evaluate one direct SMD base action while preserving the customized
+    /// body scales, face controllers, head attachment, and weapon hooks.
+    pub fn action_pose(
+        &self,
+        action: usize,
+        seconds: f32,
+        world: Mat4,
+    ) -> Result<CharacterPose, String> {
+        self.evaluate_pose(Some((action, seconds)), world)
+    }
+
+    fn evaluate_pose(
+        &self,
+        sample: Option<(usize, f32)>,
+        world: Mat4,
+    ) -> Result<CharacterPose, String> {
+        let (tracks, seconds): (&[crate::animation::BoneTrack], f32) = match sample {
+            Some((action, seconds)) => {
+                let set = self
+                    .body
+                    .tracks
+                    .get(action)
+                    .ok_or("character action index out of range")?;
+                let tracks = match set {
+                    Some(tracks) => &tracks.tracks,
+                    None if !self.body.skeleton.embedded_tracks.is_empty() => {
+                        &self.body.skeleton.embedded_tracks
+                    }
+                    None => {
+                        return Err("character action has no external or embedded tracks".into())
+                    }
+                };
+                (tracks, seconds)
+            }
+            None => (&[], 0.0),
+        };
         let body = pose::evaluate_controlled(
             &self.body.skeleton,
-            &[],
-            0.0,
+            tracks,
+            seconds,
             world,
             &[],
             &self.body_scales,
