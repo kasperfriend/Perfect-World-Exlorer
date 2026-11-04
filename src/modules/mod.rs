@@ -97,22 +97,19 @@ impl Modules {
         spawn: Vec3,
         yaw: f32,
     ) {
-        let content_height = ui.available_height();
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.set_width(190.);
+        egui::SidePanel::left("installed_module_browser")
+            .exact_width(190.)
+            .resizable(false)
+            .frame(egui::Frame::default())
+            .show_inside(ui, |ui| {
                 ui.heading("Installed modules");
                 ui.separator();
                 egui::ScrollArea::vertical()
                     .id_source("installed_module_list")
                     .auto_shrink([false, false])
-                    .max_height((content_height - 34.).max(80.))
                     .show(ui, |ui| {
-                        for (index, installed) in
-                            self.packages.packages.iter().enumerate()
-                        {
-                            let enabled =
-                                installed.id == "walker" && self.walker.is_active();
+                        for (index, installed) in self.packages.packages.iter().enumerate() {
+                            let enabled = installed.id == "walker" && self.walker.is_active();
                             let text = if enabled {
                                 egui::RichText::new(format!("● {}", installed.name))
                                     .color(egui::Color32::LIGHT_GREEN)
@@ -150,18 +147,18 @@ impl Modules {
                         }
                     });
             });
-            ui.separator();
-            ui.vertical(|ui| {
+        egui::CentralPanel::default()
+            .frame(egui::Frame::default())
+            .show_inside(ui, |ui| {
                 let width = ui.available_width();
-                ui.set_width(width);
                 egui::ScrollArea::vertical()
                     .id_source("selected_module_description")
                     .auto_shrink([false, false])
-                    .max_height(content_height)
                     .show(ui, |ui| {
-                        if let Some(installed) =
-                            self.packages.packages.get(*selected).cloned()
-                        {
+                        // Cap the content at the pane's existing width. Long
+                        // descriptions must wrap, never size the outer Window.
+                        ui.set_max_width(width);
+                        if let Some(installed) = self.packages.packages.get(*selected).cloned() {
                             self.selected_module_ui(ui, installed, spawn, yaw);
                         } else {
                             ui.heading("Module details");
@@ -169,7 +166,6 @@ impl Modules {
                         }
                     });
             });
-        });
     }
 
     fn selected_module_ui(&mut self, ui: &mut egui::Ui, installed: Package, spawn: Vec3, yaw: f32) {
@@ -327,6 +323,51 @@ mod tests {
             "bottom drag should persist without content forcing the old height: {} -> {}",
             before.height(),
             after.height()
+        );
+    }
+
+    #[test]
+    fn long_module_description_wraps_without_resizing_the_window() {
+        let context = egui::Context::default();
+        let mut modules = Modules::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280., 1000.));
+        fn frame(context: &egui::Context, modules: &mut Modules, screen: egui::Rect) {
+            let _ = context.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    ..Default::default()
+                },
+                |context| {
+                    modules.menu_ui(context, Vec3::ZERO, 0.);
+                },
+            );
+        }
+        frame(&context, &mut modules, screen);
+        frame(&context, &mut modules, screen);
+        let id = egui::Id::new("MODULES  |  ESC to go back");
+        let before = context
+            .memory(|memory| memory.area_rect(id))
+            .expect("Modules window area");
+        modules.packages.packages.push(package::Package {
+            id: "long-description".into(),
+            name: "Long description".into(),
+            version: "1".into(),
+            description: "wrap this native module description without growing the window "
+                .repeat(160),
+            directory: PathBuf::from("Modules/long-description"),
+        });
+        frame(&context, &mut modules, screen);
+        frame(&context, &mut modules, screen);
+        frame(&context, &mut modules, screen);
+        let after = context
+            .memory(|memory| memory.area_rect(id))
+            .expect("Modules window with long description");
+        assert!(
+            (after.width() - before.width()).abs() < 1.
+                && (after.height() - before.height()).abs() < 1.,
+            "description fed back into window size: {:?} -> {:?}",
+            before,
+            after
         );
     }
 }

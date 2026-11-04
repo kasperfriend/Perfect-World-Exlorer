@@ -11,7 +11,7 @@ use glam::{Mat4, Vec3};
 
 use super::{
     assets::Assets,
-    catalog::{ArmorSlot, Catalog, Class, FaceTexture, Gender},
+    catalog::{ArmorSlot, Catalog, Class, ClassSpeeds, FaceTexture, FlightMode, Gender},
     customize::CharacterDesign,
     face::{self, FaceConfig, FaceResources},
 };
@@ -57,11 +57,67 @@ pub struct WeaponModel {
     pub hook: &'static str,
 }
 
+/// The armor-reflection shader writes diffuse alpha directly; texture alpha is
+/// a specular input, not opacity. Native ChangeWing uses this shader too.
+fn apply_armor_reflect_shader(asset: &mut ModelAsset) {
+    for (skin_index, skin) in asset.skins.iter().enumerate() {
+        asset
+            .diffuse_alpha_meshes
+            .extend((0..skin.data.meshes.len()).map(|mesh| (skin_index, mesh)));
+    }
+}
+
+/// CECPlayer::_SetWeaponMaterial additionally overrides every hand-weapon
+/// material. ChangeWing does not perform this override on flight models.
+fn apply_weapon_material(asset: &mut ModelAsset) {
+    for skin in &mut asset.skins {
+        for material in &mut skin.data.materials {
+            material.specular = [0.0, 0.0, 0.0, 1.0];
+            material.power = 15.0;
+        }
+    }
+    apply_armor_reflect_shader(asset);
+}
+
+pub struct FlightModel {
+    pub asset: ModelAsset,
+    pub model_path: String,
+    pub mode: FlightMode,
+    pub parent_hook: &'static str,
+    pub child_hook: &'static str,
+    pub normal_speed: (f32, f32),
+    pub rush_speed: Option<(f32, f32)>,
+}
+
+pub struct MountModel {
+    pub asset: ModelAsset,
+    pub speed: f32,
+    pub speed_per_level: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TravelState {
+    #[default]
+    Ground,
+    Mounted,
+    Flying,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TravelAnimation {
+    pub state: TravelState,
+    pub mount: Option<(usize, f32)>,
+    pub flight: Option<(usize, f32)>,
+}
+
 pub struct Character {
     pub design: CharacterDesign,
     pub body: ModelAsset,
     pub face: ModelAsset,
     pub weapons: Vec<WeaponModel>,
+    pub flight: Option<FlightModel>,
+    pub mount: Option<MountModel>,
+    pub class_speeds: ClassSpeeds,
     pub equipment: Vec<EquipmentPart>,
     pub face_skins: FaceSkinSlots,
     pub face_texture_stages: Vec<FaceTextureStage>,
@@ -77,12 +133,17 @@ pub struct CharacterPose {
     pub body: Pose,
     pub face: Pose,
     pub weapons: Vec<Pose>,
+    pub flight: Option<Pose>,
+    pub mount: Option<Pose>,
+    pub travel: TravelState,
 }
 
 pub struct CharacterMeshes {
     pub body: Vec<PosedMesh>,
     pub face: Vec<PosedMesh>,
     pub weapons: Vec<Vec<PosedMesh>>,
+    pub flight: Vec<PosedMesh>,
+    pub mount: Vec<PosedMesh>,
 }
 
 impl Character {
@@ -324,11 +385,93 @@ impl Character {
                 if path.is_empty() || path == "0" {
                     continue;
                 }
-                let asset = ModelAsset::load_with(&path, |path| assets.read(path))
+                let mut asset = ModelAsset::load_with(&path, |path| assets.read(path))
                     .map_err(|error| format!("weapon {} ({path}): {error}", weapon.id))?;
+                apply_weapon_material(&mut asset);
                 weapons.push(WeaponModel { asset, hook });
             }
         }
+        let class_speeds = assets
+            .catalog
+            .speeds(design.class)
+            .ok_or_else(|| format!("missing native class speeds for {}", design.class.name()))?;
+        let flight = if design.equipment.flight == 0 {
+            None
+        } else {
+            let item = assets
+                .catalog
+                .flight(design.equipment.flight)
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "flight item {} is absent from PW 1.4.2 elements.data",
+                        design.equipment.flight
+                    )
+                })?;
+            if !item.allows(design.class) {
+                return Err(format!(
+                    "flight item {} does not allow {}",
+                    item.id,
+                    design.class.name()
+                ));
+            }
+            if item.model.is_empty() || item.model == "0" {
+                return Err(format!("flight item {} has no model", item.id));
+            }
+            let (parent_hook, child_hook) = match item.mode {
+                FlightMode::FlySword => ("HH_feijian", "CC_feijian"),
+                FlightMode::Wing => ("HH_chibang", "CC_chibang"),
+                FlightMode::DoubleWheel => {
+                    return Err(format!(
+                        "flight item {} uses double-wheel hangers, which have no v27 records",
+                        item.id
+                    ))
+                }
+            };
+            let mut asset = ModelAsset::load_with(&item.model, |path| assets.read(path))
+                .map_err(|error| format!("flight item {} ({}): {error}", item.id, item.model))?;
+            apply_armor_reflect_shader(&mut asset);
+            Some(FlightModel {
+                asset,
+                model_path: item.model,
+                mode: item.mode,
+                parent_hook,
+                child_hook,
+                normal_speed: item.normal_speed,
+                rush_speed: item.rush_speed,
+            })
+        };
+        let mount = if design.equipment.mount == 0 {
+            None
+        } else {
+            let item = assets
+                .catalog
+                .mount(design.equipment.mount)
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "mount {} is absent from PW 1.4.2 Ride-pet records",
+                        design.equipment.mount
+                    )
+                })?;
+            if item.class_mask & design.class.bit() == 0 {
+                return Err(format!(
+                    "mount {} does not allow {}",
+                    item.id,
+                    design.class.name()
+                ));
+            }
+            if !item.has_loadable_model() {
+                return Err(format!("mount {} has no loadable model path", item.id));
+            }
+            let asset = ModelAsset::load_with(&item.model, |path| assets.read(path))
+                .map_err(|error| format!("mount {} ({}): {error}", item.id, item.model))?;
+            Some(MountModel {
+                asset,
+                speed: item.speed_a,
+                speed_per_level: item.speed_b,
+            })
+        };
         if customized.id_third_eye != 0 {
             warnings.push(format!(
                 "third-eye GFX ID {} is retained in the design but is not part of the static character assembly",
@@ -341,6 +484,9 @@ impl Character {
             body,
             face: face_model,
             weapons,
+            flight,
+            mount,
+            class_speeds,
             equipment,
             face_skins,
             face_texture_stages: texture_stages,
@@ -356,7 +502,7 @@ impl Character {
     /// Evaluate the authored bind pose, including body scales, face-bone
     /// controllers, head attachment, and weapon hooks.
     pub fn bind_pose(&self, world: Mat4) -> Result<CharacterPose, String> {
-        self.evaluate_pose(None, world)
+        self.sampled_pose(None, world, TravelAnimation::default())
     }
 
     /// Evaluate one direct SMD base action while preserving the customized
@@ -367,42 +513,63 @@ impl Character {
         seconds: f32,
         world: Mat4,
     ) -> Result<CharacterPose, String> {
-        self.evaluate_pose(Some((action, seconds)), world)
+        self.sampled_pose(Some((action, seconds)), world, TravelAnimation::default())
     }
 
-    fn evaluate_pose(
+    pub fn sampled_pose(
         &self,
         sample: Option<(usize, f32)>,
         world: Mat4,
+        travel: TravelAnimation,
     ) -> Result<CharacterPose, String> {
-        let (tracks, seconds): (&[crate::animation::BoneTrack], f32) = match sample {
-            Some((action, seconds)) => {
-                let set = self
-                    .body
-                    .tracks
-                    .get(action)
-                    .ok_or("character action index out of range")?;
-                let tracks = match set {
-                    Some(tracks) => &tracks.tracks,
-                    None if !self.body.skeleton.embedded_tracks.is_empty() => {
-                        &self.body.skeleton.embedded_tracks
-                    }
-                    None => {
-                        return Err("character action has no external or embedded tracks".into())
-                    }
-                };
-                (tracks, seconds)
-            }
-            None => (&[], 0.0),
+        let evaluate_body = |world| -> Result<Pose, String> {
+            let (tracks, seconds): (&[crate::animation::BoneTrack], f32) = match sample {
+                Some((action, seconds)) => {
+                    let set = self
+                        .body
+                        .tracks
+                        .get(action)
+                        .ok_or("character action index out of range")?;
+                    let tracks = match set {
+                        Some(tracks) => &tracks.tracks,
+                        None if !self.body.skeleton.embedded_tracks.is_empty() => {
+                            &self.body.skeleton.embedded_tracks
+                        }
+                        None => {
+                            return Err("character action has no external or embedded tracks".into())
+                        }
+                    };
+                    (tracks, seconds)
+                }
+                None => (&[], 0.0),
+            };
+            pose::evaluate_controlled(
+                &self.body.skeleton,
+                tracks,
+                seconds,
+                world,
+                &[],
+                &self.body_scales,
+            )
         };
-        let body = pose::evaluate_controlled(
-            &self.body.skeleton,
-            tracks,
-            seconds,
-            world,
-            &[],
-            &self.body_scales,
-        )?;
+        let mut mount_pose = None;
+        let body_world = if travel.state == TravelState::Mounted {
+            let model = self
+                .mount
+                .as_ref()
+                .ok_or("mounted state requires an assembled Ride pet")?;
+            let mount = evaluate_asset(&model.asset, travel.mount, world)?;
+            // Native riding hangs the player on the pet, not the pet on the
+            // player. Evaluate the rider's animated CC hook at identity first.
+            let rider_reference = evaluate_body(Mat4::IDENTITY)?;
+            let rider = model_asset::hook_matrix(&self.body.skeleton, &rider_reference, "CC_ride")?;
+            let parent = model_asset::hook_matrix(&model.asset.skeleton, &mount, "HH_ride")?;
+            mount_pose = Some(mount);
+            hanger_world(parent, rider)?
+        } else {
+            world
+        };
+        let body = evaluate_body(body_world)?;
         // CECFace::Tick: InverseTM(originalNeck) * headAbsolute.
         // All matrices here are transposed native matrices, so reverse the
         // product. There is no body-bind/head-inverse term in the native code.
@@ -430,10 +597,27 @@ impl Character {
                 &[],
             )?);
         }
+        let flight_pose = if travel.state == TravelState::Flying {
+            let model = self
+                .flight
+                .as_ref()
+                .ok_or("flying state requires an assembled flight item")?;
+            let reference = evaluate_asset(&model.asset, travel.flight, Mat4::IDENTITY)?;
+            let child =
+                model_asset::hook_matrix(&model.asset.skeleton, &reference, model.child_hook)?;
+            let parent = model_asset::hook_matrix(&self.body.skeleton, &body, model.parent_hook)?;
+            let attached = hanger_world(parent, child)?;
+            Some(evaluate_asset(&model.asset, travel.flight, attached)?)
+        } else {
+            None
+        };
         Ok(CharacterPose {
             body,
             face,
             weapons: weapon_poses,
+            flight: flight_pose,
+            mount: mount_pose,
+            travel: travel.state,
         })
     }
 
@@ -443,22 +627,80 @@ impl Character {
         }
         let body = self.body.meshes_from_pose(&pose.body)?;
         let face = self.face.meshes_from_pose(&pose.face)?;
-        let weapons = self
-            .weapons
-            .iter()
-            .zip(&pose.weapons)
-            .map(|(weapon, pose)| weapon.asset.meshes_from_pose(pose))
-            .collect::<Result<Vec<_>, _>>()?;
+        let weapons = if pose.travel == TravelState::Mounted {
+            // CECPlayer hides hand weapons while riding.
+            Vec::new()
+        } else {
+            self.weapons
+                .iter()
+                .zip(&pose.weapons)
+                .map(|(weapon, pose)| weapon.asset.meshes_from_pose(pose))
+                .collect::<Result<Vec<_>, _>>()?
+        };
+        let flight = match (&self.flight, &pose.flight) {
+            (Some(model), Some(pose)) => model.asset.meshes_from_pose(pose)?,
+            (None, None) | (Some(_), None) => Vec::new(),
+            (None, Some(_)) => return Err("flight pose has no assembled flight model".into()),
+        };
+        let mount = match (&self.mount, &pose.mount) {
+            (Some(model), Some(pose)) => model.asset.meshes_from_pose(pose)?,
+            (None, None) | (Some(_), None) => Vec::new(),
+            (None, Some(_)) => return Err("mount pose has no assembled Ride pet".into()),
+        };
         Ok(CharacterMeshes {
             body,
             face,
             weapons,
+            flight,
+            mount,
         })
     }
 
     pub fn face_neck_bone(&self) -> usize {
         self.face_neck
     }
+}
+
+fn evaluate_asset(
+    asset: &ModelAsset,
+    sample: Option<(usize, f32)>,
+    world: Mat4,
+) -> Result<Pose, String> {
+    let (tracks, seconds): (&[crate::animation::BoneTrack], f32) = match sample {
+        Some((action, seconds)) => {
+            let set = asset
+                .tracks
+                .get(action)
+                .ok_or("travel model action index out of range")?;
+            let tracks = match set {
+                Some(tracks) => &tracks.tracks,
+                None if !asset.skeleton.embedded_tracks.is_empty() => {
+                    &asset.skeleton.embedded_tracks
+                }
+                None => return Err("travel model action has no external or embedded tracks".into()),
+            };
+            (tracks, seconds)
+        }
+        None => (&[], 0.0),
+    };
+    // Player travel rigs use the same fake/flipped and controller-only joints
+    // as bodies and weapons. Non-animation joints retain their authored local
+    // transforms instead of being misread as animation tracks.
+    pose::evaluate(&asset.skeleton, tracks, seconds, world)
+}
+
+/// Column-transform equivalent of the native row-vector hanger update
+/// `inverse(CC) * offset * parent_HH`, with the identity offset used by these
+/// player/pet models. The child CC pose is always evaluated at identity first.
+fn hanger_world(parent: Mat4, child: Mat4) -> Result<Mat4, String> {
+    if !parent.is_finite() || !child.is_finite() {
+        return Err("non-finite native hanger input".into());
+    }
+    let world = parent * child.inverse();
+    if !world.is_finite() {
+        return Err("non-invertible/non-finite native hanger transform".into());
+    }
+    Ok(world)
 }
 
 fn bone_index(skeleton: &Skeleton, name: &str) -> Option<usize> {
@@ -1131,6 +1373,157 @@ mod tests {
         let character = Character::assemble(design, &mut assets).unwrap();
         assert_eq!(character.weapons.len(), 1);
         assert_eq!(character.weapons[0].hook, "HH_righthandweapon");
+    }
+
+    #[test]
+    fn authentic_weapons_use_native_material_and_diffuse_only_alpha() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        for weapon_id in [6, 11] {
+            let mut design = assets
+                .default_design(Class::Blademaster, Gender::Male)
+                .unwrap();
+            design.equipment.weapon = weapon_id;
+            let character = Character::assemble(design, &mut assets).unwrap();
+            assert!(!character.weapons.is_empty());
+            for weapon in &character.weapons {
+                for (skin_index, skin) in weapon.asset.skins.iter().enumerate() {
+                    for material in &skin.data.materials {
+                        assert_eq!(material.specular, [0.0, 0.0, 0.0, 1.0]);
+                        assert_eq!(material.power, 15.0);
+                    }
+                    for mesh in 0..skin.data.meshes.len() {
+                        assert!(weapon
+                            .asset
+                            .diffuse_alpha_meshes
+                            .contains(&(skin_index, mesh)));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_hanger_uses_parent_times_inverse_child_hook() {
+        let parent = Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0))
+            * Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        let child = Mat4::from_translation(Vec3::X);
+        let world = hanger_world(parent, child).unwrap();
+        let origin = world.transform_point3(Vec3::ZERO);
+        assert!((origin - Vec3::new(10.0, -1.0, 0.0)).length() < 1e-5);
+    }
+
+    #[test]
+    fn authentic_mount_parents_rider_and_hides_weapons() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let mut design = assets
+            .default_design(Class::Blademaster, Gender::Male)
+            .unwrap();
+        design.equipment.weapon = 6;
+        design.equipment.mount = 9061;
+        let character = Character::assemble(design, &mut assets).unwrap();
+        assert_eq!(character.mount.as_ref().unwrap().speed, 8.0);
+
+        let ground = character.bind_pose(Mat4::IDENTITY).unwrap();
+        assert!(!character
+            .meshes_from_pose(&ground)
+            .unwrap()
+            .weapons
+            .is_empty());
+        let mounted = character
+            .sampled_pose(
+                None,
+                Mat4::IDENTITY,
+                TravelAnimation {
+                    state: TravelState::Mounted,
+                    ..TravelAnimation::default()
+                },
+            )
+            .unwrap();
+        let meshes = character.meshes_from_pose(&mounted).unwrap();
+        assert!(!meshes.mount.is_empty());
+        assert!(meshes.weapons.is_empty());
+        assert!(meshes.flight.is_empty());
+        for vertex in meshes
+            .body
+            .iter()
+            .chain(&meshes.face)
+            .chain(&meshes.mount)
+            .flat_map(|mesh| &mesh.vertices)
+        {
+            assert!(vertex.position.iter().all(|value| value.is_finite()));
+        }
+    }
+
+    #[test]
+    fn authentic_wing_and_fly_sword_use_their_native_hangers() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        for (class, gender, item, mode) in [
+            (Class::Cleric, Gender::Male, 2092, FlightMode::Wing),
+            (
+                Class::Blademaster,
+                Gender::Male,
+                27210,
+                FlightMode::FlySword,
+            ),
+        ] {
+            let mut design = assets.default_design(class, gender).unwrap();
+            design.equipment.flight = item;
+            let character = Character::assemble(design, &mut assets)
+                .unwrap_or_else(|error| panic!("flight item {item}: {error}"));
+            assert_eq!(character.flight.as_ref().unwrap().mode, mode);
+            let model_path = character.flight.as_ref().unwrap().model_path.clone();
+            let original = ModelAsset::load_with(&model_path, |path| assets.read(path))
+                .unwrap_or_else(|error| panic!("raw flight item {item}: {error}"));
+            let flight = character.flight.as_ref().unwrap();
+            for (skin_index, (before, after)) in
+                original.skins.iter().zip(&flight.asset.skins).enumerate()
+            {
+                for (before, after) in before.data.materials.iter().zip(&after.data.materials) {
+                    assert_eq!(after.specular, before.specular);
+                    assert_eq!(after.power, before.power);
+                }
+                for mesh in 0..after.data.meshes.len() {
+                    assert!(flight
+                        .asset
+                        .diffuse_alpha_meshes
+                        .contains(&(skin_index, mesh)));
+                }
+            }
+            let flying = character
+                .sampled_pose(
+                    None,
+                    Mat4::IDENTITY,
+                    TravelAnimation {
+                        state: TravelState::Flying,
+                        ..TravelAnimation::default()
+                    },
+                )
+                .unwrap_or_else(|error| panic!("flight item {item} hanger: {error}"));
+            let meshes = character.meshes_from_pose(&flying).unwrap();
+            assert!(!meshes.flight.is_empty());
+            assert!(meshes.mount.is_empty());
+            for vertex in meshes
+                .body
+                .iter()
+                .chain(&meshes.face)
+                .chain(&meshes.flight)
+                .flat_map(|mesh| &mesh.vertices)
+            {
+                assert!(vertex.position.iter().all(|value| value.is_finite()));
+            }
+        }
     }
 
     #[test]

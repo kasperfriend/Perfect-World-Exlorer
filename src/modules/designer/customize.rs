@@ -153,6 +153,10 @@ pub struct Equipment {
     pub fashion_lower: u32,
     pub fashion_foot: u32,
     pub fashion_mode: bool,
+    /// Section-23/24 flight item, hidden until flight is activated.
+    pub flight: u32,
+    /// Section-95 Ride pet, hidden until riding is activated.
+    pub mount: u32,
 }
 impl Equipment {
     pub fn armor(&self, slot: super::catalog::ArmorSlot) -> u32 {
@@ -875,12 +879,33 @@ mod tests {
     #[test]
     fn preset_missing_body_fields_retain_native_zero_not_neutral_substitution() {
         let mut design = CharacterDesign::new(Class::Blademaster, Gender::Male);
+        design.equipment.weapon = 6;
+        design.equipment.upper = 100;
+        design.equipment.flight = 2092;
+        design.equipment.mount = 9061;
+        let equipment = design.equipment.clone();
         design
             .apply_preset_ini(b"[Body]\r\nbodyID = 2\r\n")
             .unwrap();
         assert_eq!(design.customize.body_id, 2);
         assert_eq!(design.customize.head_scale, 0);
         assert_eq!(design.customize.color_body, 0);
+        assert_eq!(design.equipment, equipment);
+    }
+    #[test]
+    fn malformed_preset_does_not_partially_replace_the_character() {
+        let mut design = CharacterDesign::new(Class::Blademaster, Gender::Male);
+        design.equipment.weapon = 6;
+        design.equipment.flight = 2092;
+        design.equipment.mount = 9061;
+        design.customize.body_id = 7;
+        let customize = design.customize.clone();
+        let equipment = design.equipment.clone();
+        assert!(design
+            .apply_preset_ini(b"[Body]\r\nbodyID = 2\r\n\x81")
+            .is_err());
+        assert_eq!(design.customize, customize);
+        assert_eq!(design.equipment, equipment);
     }
     #[test]
     fn ini_keys_match_native_mixed_case_spellings() {

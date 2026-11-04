@@ -466,6 +466,20 @@ pub(crate) fn show(
             changed |= fashion_combo(ui, state, catalog, design, slot, label);
         }
     });
+
+    egui::CollapsingHeader::new("Mounts and flight")
+        .default_open(true)
+        .show(ui, |ui| {
+            changed |= flight_combo(ui, state, catalog, design);
+            changed |= mount_combo(ui, state, catalog, design);
+            ui.label(
+                egui::RichText::new(
+                    "Equip a travel item here, then use the Walker travel controls to activate it.",
+                )
+                .small()
+                .weak(),
+            );
+        });
     changed
 }
 
@@ -739,6 +753,89 @@ fn weapon_combo(
                 .filter(|item| item.class_mask & class.bit() != 0)
                 .filter(|item| item_matches(item.id, &item.name, query))
                 .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
+                .collect()
+        },
+        |new| *id = new,
+    )
+}
+
+fn flight_combo(
+    ui: &mut egui::Ui,
+    state: &mut ControlState,
+    catalog: &Catalog,
+    design: &mut CharacterDesign,
+) -> bool {
+    let class = design.class;
+    let id = &mut design.equipment.flight;
+    let current = *id;
+    let selected = catalog.flight(current).map_or_else(
+        || format!("{current} — none / not in v27"),
+        |item| format!("{} — {} [{}]", item.id, item.name, item.mode.name()),
+    );
+    item_combo(
+        ui,
+        state,
+        "Flight item".into(),
+        current,
+        selected,
+        Some((0, "0 — no flight item".into())),
+        |query| {
+            catalog
+                .flight_options(class)
+                .into_iter()
+                .filter(|item| item_matches(item.id, &item.name, query))
+                .map(|item| {
+                    (
+                        item.id,
+                        format!(
+                            "{} — {} [{} • Lv{}]",
+                            item.id,
+                            item.name,
+                            item.mode.name(),
+                            item.required_level
+                        ),
+                    )
+                })
+                .collect()
+        },
+        |new| *id = new,
+    )
+}
+
+fn mount_combo(
+    ui: &mut egui::Ui,
+    state: &mut ControlState,
+    catalog: &Catalog,
+    design: &mut CharacterDesign,
+) -> bool {
+    let class = design.class;
+    let id = &mut design.equipment.mount;
+    let current = *id;
+    let selected = catalog.mount(current).map_or_else(
+        || format!("{current} — none / not a Ride pet"),
+        |item| format!("{} — {}", item.id, item.name),
+    );
+    item_combo(
+        ui,
+        state,
+        "Ride pet".into(),
+        current,
+        selected,
+        Some((0, "0 — no mount".into())),
+        |query| {
+            catalog
+                .mount_options(class)
+                .into_iter()
+                .filter(|item| item_matches(item.id, &item.name, query))
+                .map(|item| {
+                    (
+                        item.id,
+                        format!(
+                            "{} — {} [Lv{} • {:.1} m/s]",
+                            item.id, item.name, item.required_level, item.speed_a
+                        ),
+                    )
+                })
                 .collect()
         },
         |new| *id = new,

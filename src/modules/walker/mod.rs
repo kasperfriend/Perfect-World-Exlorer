@@ -11,9 +11,13 @@ pub(crate) mod pose;
 use self::{
     character::{character_transform, Character},
     designer::Designer,
-    physics::{Body, Input, Mechanics},
+    physics::{Body, FlightInput, Input, Mechanics},
 };
-use crate::{model_draw_gpu, modules::designer::assets::Assets, navigation::MapSpace};
+use crate::{
+    model_draw_gpu,
+    modules::designer::{assembly::TravelState, assets::Assets},
+    navigation::MapSpace,
+};
 use glam::Vec3;
 use std::{collections::HashSet, path::PathBuf};
 use winit::keyboard::KeyCode;
@@ -35,6 +39,48 @@ impl Default for Settings {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum HotkeyAction {
+    Flight,
+    Mount,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Hotkey {
+    key: KeyCode,
+    control: bool,
+}
+
+impl Hotkey {
+    fn is_down(self, keys: &HashSet<KeyCode>) -> bool {
+        let control = keys.contains(&KeyCode::ControlLeft) || keys.contains(&KeyCode::ControlRight);
+        control == self.control && keys.contains(&self.key)
+    }
+
+    fn label(self) -> String {
+        format!("{}{:?}", if self.control { "Ctrl+" } else { "" }, self.key).replace("Key", "")
+    }
+}
+
+fn captured_hotkey(keys: &HashSet<KeyCode>) -> Option<Hotkey> {
+    let key = keys.iter().copied().find(|key| {
+        !matches!(
+            key,
+            KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::ShiftLeft | KeyCode::ShiftRight
+        )
+    })?;
+    Some(Hotkey {
+        key,
+        control: keys.contains(&KeyCode::ControlLeft) || keys.contains(&KeyCode::ControlRight),
+    })
+}
+
+fn edge_triggered(down: bool, was_down: &mut bool) -> bool {
+    let triggered = down && !*was_down;
+    *was_down = down;
+    triggered
+}
+
 struct Gpu {
     draws: Vec<model_draw_gpu::Draw>,
     // Keep the sampler alive alongside bind groups that reference it.
@@ -50,6 +96,13 @@ pub struct Walker {
     body: Option<Body>,
     character: Option<Character>,
     facing: Vec3,
+    travel: TravelState,
+    flight_hotkey: Hotkey,
+    mount_hotkey: Hotkey,
+    capture: Option<HotkeyAction>,
+    capture_wait_release: bool,
+    flight_was_down: bool,
+    mount_was_down: bool,
     jump_was_down: bool,
     gpu: Option<Gpu>,
     gpu_failed: bool,
@@ -67,6 +120,19 @@ impl Default for Walker {
             body: None,
             character: None,
             facing: Vec3::NEG_Z,
+            travel: TravelState::Ground,
+            flight_hotkey: Hotkey {
+                key: KeyCode::KeyF,
+                control: true,
+            },
+            mount_hotkey: Hotkey {
+                key: KeyCode::KeyH,
+                control: true,
+            },
+            capture: None,
+            capture_wait_release: false,
+            flight_was_down: false,
+            mount_was_down: false,
             jump_was_down: false,
             gpu: None,
             gpu_failed: false,
@@ -115,6 +181,10 @@ impl Walker {
             self.gpu_failed = false;
             self.last_error = None;
             self.jump_was_down = false;
+            self.travel = TravelState::Ground;
+            self.capture = None;
+            self.flight_was_down = false;
+            self.mount_was_down = false;
             return;
         }
         if self.is_active() {
@@ -174,16 +244,65 @@ impl Walker {
                     character.assembly.equipment.len(),
                     character.assembly.warnings.len(),
                 );
+                if (self.travel == TravelState::Flying && character.assembly.flight.is_none())
+                    || (self.travel == TravelState::Mounted && character.assembly.mount.is_none())
+                {
+                    self.travel = TravelState::Ground;
+                }
                 self.character = Some(character);
                 self.gpu = None;
                 self.gpu_failed = false;
                 self.last_error = None;
             }
             Err(error) => {
+                if let Some(character) = &self.character {
+                    self.designer
+                        .restore_applied(character.assembly.design.clone());
+                }
                 self.designer.rebuild_failed(&error);
                 self.last_error = Some(format!("Could not customize Walker: {error}"));
             }
         }
+    }
+
+    fn activate_travel(&mut self, requested: TravelState) {
+        let next = if self.travel == requested {
+            TravelState::Ground
+        } else {
+            requested
+        };
+        match next {
+            TravelState::Ground => {}
+            TravelState::Mounted => {
+                if self
+                    .character
+                    .as_ref()
+                    .and_then(|character| character.assembly.mount.as_ref())
+                    .is_none()
+                {
+                    self.last_error = Some("Select a Ride pet before mounting.".into());
+                    return;
+                }
+            }
+            TravelState::Flying => {
+                if self
+                    .character
+                    .as_ref()
+                    .and_then(|character| character.assembly.flight.as_ref())
+                    .is_none()
+                {
+                    self.last_error = Some("Select a wing or fly-sword before flying.".into());
+                    return;
+                }
+                if let Some(body) = &mut self.body {
+                    body.begin_flight();
+                }
+            }
+        }
+        self.travel = next;
+        self.gpu = None;
+        self.gpu_failed = false;
+        self.last_error = None;
     }
 
     /// Returns the add-on camera position only while Walker owns movement.
@@ -198,6 +317,37 @@ impl Walker {
     ) -> Option<Vec3> {
         if !self.is_active() {
             return None;
+        }
+        let mut captured = false;
+        if let Some(action) = self.capture {
+            if self.capture_wait_release {
+                if captured_hotkey(keys).is_none() {
+                    self.capture_wait_release = false;
+                }
+            } else if let Some(hotkey) = captured_hotkey(keys) {
+                match action {
+                    HotkeyAction::Flight => self.flight_hotkey = hotkey,
+                    HotkeyAction::Mount => self.mount_hotkey = hotkey,
+                }
+                self.capture = None;
+                captured = true;
+            }
+        }
+        let flight_down = self.flight_hotkey.is_down(keys);
+        let mount_down = self.mount_hotkey.is_down(keys);
+        if captured {
+            self.flight_was_down = flight_down;
+            self.mount_was_down = mount_down;
+        } else if input_enabled {
+            if edge_triggered(flight_down, &mut self.flight_was_down) {
+                self.activate_travel(TravelState::Flying);
+            }
+            if edge_triggered(mount_down, &mut self.mount_was_down) {
+                self.activate_travel(TravelState::Mounted);
+            }
+        } else {
+            self.flight_was_down = flight_down;
+            self.mount_was_down = mount_down;
         }
         let (s, c) = yaw.sin_cos();
         let forward = Vec3::new(s, 0., -c);
@@ -222,21 +372,80 @@ impl Walker {
             self.facing = direction;
         }
         let space = input_enabled && keys.contains(&KeyCode::Space);
-        let jump = space && !self.jump_was_down;
+        let jump = space && !self.jump_was_down && self.travel == TravelState::Ground;
         self.jump_was_down = space;
+        let rushing = input_enabled
+            && self.travel == TravelState::Flying
+            && (keys.contains(&KeyCode::ShiftLeft) || keys.contains(&KeyCode::ShiftRight))
+            && self
+                .character
+                .as_ref()
+                .and_then(|character| character.assembly.flight.as_ref())
+                .and_then(|flight| flight.rush_speed)
+                .is_some();
+        let vertical = if input_enabled && self.travel == TravelState::Flying {
+            (if space { 1.0 } else { 0.0 })
+                - if keys.contains(&KeyCode::KeyC) {
+                    1.0
+                } else {
+                    0.0
+                }
+        } else {
+            0.0
+        };
+        let flight_speed = self.character.as_ref().and_then(|character| {
+            character.assembly.flight.as_ref().map(|flight| {
+                let range = if rushing {
+                    flight.rush_speed.unwrap_or(flight.normal_speed)
+                } else {
+                    flight.normal_speed
+                };
+                character.assembly.class_speeds.fly + range.0
+            })
+        });
+        let mount_speed = self
+            .character
+            .as_ref()
+            .and_then(|character| character.assembly.mount.as_ref().map(|mount| mount.speed));
 
         let map = self.map.as_ref()?.clone();
         let body = self.body.as_mut()?;
         if input_enabled {
-            body.advance(
-                delta,
-                &self.settings.mechanics,
-                Input { direction, jump },
-                &map,
-            );
+            match self.travel {
+                TravelState::Ground => body.advance(
+                    delta,
+                    &self.settings.mechanics,
+                    Input { direction, jump },
+                    &map,
+                ),
+                TravelState::Mounted => {
+                    let mut mechanics = self.settings.mechanics;
+                    mechanics.move_speed = mount_speed?;
+                    body.advance(
+                        delta,
+                        &mechanics,
+                        Input {
+                            direction,
+                            jump: false,
+                        },
+                        &map,
+                    );
+                }
+                TravelState::Flying => body.advance_flight(
+                    delta,
+                    FlightInput {
+                        direction,
+                        vertical,
+                        speed: flight_speed?,
+                    },
+                    &map,
+                ),
+            }
         }
         if let Some(character) = &mut self.character {
-            if let Err(error) = character.update(delta, body, self.facing) {
+            if let Err(error) =
+                character.update(delta, body, self.facing, self.travel, rushing, vertical)
+            {
                 self.last_error = Some(format!("Walker animation: {error}"));
             }
             let eye = character.eye;
@@ -264,6 +473,89 @@ impl Walker {
         }
 
         ui.separator();
+        ui.heading("Mounts and flight");
+        ui.horizontal(|ui| {
+            let flight = if self.travel == TravelState::Flying {
+                "Land"
+            } else {
+                "Fly"
+            };
+            if ui.button(flight).clicked() {
+                self.activate_travel(TravelState::Flying);
+            }
+            let mount = if self.travel == TravelState::Mounted {
+                "Dismount"
+            } else {
+                "Mount"
+            };
+            if ui.button(mount).clicked() {
+                self.activate_travel(TravelState::Mounted);
+            }
+            if ui.button("Ground").clicked() {
+                self.activate_travel(self.travel);
+            }
+        });
+        ui.horizontal(|ui| {
+            let flight_label = if self.capture == Some(HotkeyAction::Flight) {
+                "Flight: press a key…".to_owned()
+            } else {
+                format!("Flight: {}", self.flight_hotkey.label())
+            };
+            if ui.button(flight_label).clicked() {
+                self.capture = Some(HotkeyAction::Flight);
+                self.capture_wait_release = true;
+            }
+            let mount_label = if self.capture == Some(HotkeyAction::Mount) {
+                "Mount: press a key…".to_owned()
+            } else {
+                format!("Mount: {}", self.mount_hotkey.label())
+            };
+            if ui.button(mount_label).clicked() {
+                self.capture = Some(HotkeyAction::Mount);
+                self.capture_wait_release = true;
+            }
+        });
+        if let Some(character) = &self.character {
+            if let Some(flight) = &character.assembly.flight {
+                let base = character.assembly.class_speeds.fly;
+                let normal = flight.normal_speed;
+                let rush = flight.rush_speed;
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} • base {base:.1} m/s • normal bonus +{:.1}–{:.1}{}",
+                        flight.mode.name(),
+                        normal.0,
+                        normal.1,
+                        rush.map_or_else(
+                            || " • no rush-flight range".to_owned(),
+                            |range| format!(" • rush bonus +{:.1}–{:.1}", range.0, range.1)
+                        )
+                    ))
+                    .small()
+                    .weak(),
+                )
+                .on_hover_text("Flight movement uses the selected range's lower bound. Hold Shift for rush flight when the authentic record provides it.");
+            }
+            if let Some(mount) = &character.assembly.mount {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Ride level 1: {:.1} m/s • native per-level coefficient {:.3}",
+                        mount.speed, mount.speed_per_level
+                    ))
+                    .small()
+                    .weak(),
+                );
+            }
+        }
+        ui.label(
+            egui::RichText::new(
+                "Fly: WASD, Space up, C down; hold Shift for rush. Mount: WASD. Hotkeys trigger once per press.",
+            )
+            .small()
+            .weak(),
+        );
+
+        ui.separator();
         ui.heading("Movement and camera");
         let mut speed = self.settings.mechanics.move_speed;
         if ui
@@ -272,7 +564,7 @@ impl Walker {
         {
             self.settings.mechanics.set_move_speed(speed);
         }
-        ui.label("Move speed (native default 5.0 m/s)")
+        ui.label("Ground move speed (native default 5.0 m/s)")
             .on_hover_text("CECConfigs' default ground run speed. Server-side class, equipment and buff modifiers are not present in this offline explorer.");
 
         let mut height = self.settings.mechanics.jump_height;
@@ -295,16 +587,20 @@ impl Walker {
         }
         ui.separator();
         ui.label(
-            egui::RichText::new("WASD move  •  Space jump / double jump  •  Mouse look").small(),
+            egui::RichText::new(
+                "Ground: WASD + Space jump/double jump • Travel controls above • Mouse look",
+            )
+            .small(),
         );
         if let Some(body) = &self.body {
             ui.label(
                 egui::RichText::new(format!(
                     "{}  •  jumps {}/{}  •  xyz {:.1}, {:.1}, {:.1}",
-                    if body.grounded {
-                        "Grounded"
-                    } else {
-                        "Airborne"
+                    match self.travel {
+                        TravelState::Flying => "Flying",
+                        TravelState::Mounted => "Riding",
+                        TravelState::Ground if body.grounded => "Grounded",
+                        TravelState::Ground => "Airborne",
                     },
                     body.jump_count,
                     physics::MAX_JUMPS,
@@ -358,17 +654,33 @@ impl Walker {
                 let assets = self.assets.as_mut().ok_or("Walker assets missing")?;
                 let assembly = &character.assembly;
                 let meshes = &character.posed.meshes;
-                let mut draws = Vec::with_capacity(2 + assembly.weapons.len());
-                for (asset, posed) in std::iter::once((&assembly.body, &meshes.body))
-                    .chain(std::iter::once((&assembly.face, &meshes.face)))
-                    .chain(
-                        assembly
-                            .weapons
-                            .iter()
-                            .zip(&meshes.weapons)
-                            .map(|(weapon, posed)| (&weapon.asset, posed)),
-                    )
-                {
+                let mut draws = Vec::with_capacity(4 + assembly.weapons.len());
+                let mut models = vec![
+                    (&assembly.body, &meshes.body),
+                    (&assembly.face, &meshes.face),
+                ];
+                models.extend(
+                    assembly
+                        .weapons
+                        .iter()
+                        .zip(&meshes.weapons)
+                        .map(|(weapon, posed)| (&weapon.asset, posed)),
+                );
+                if !meshes.flight.is_empty() {
+                    let flight = assembly
+                        .flight
+                        .as_ref()
+                        .ok_or("flight meshes have no asset")?;
+                    models.push((&flight.asset, &meshes.flight));
+                }
+                if !meshes.mount.is_empty() {
+                    let mount = assembly
+                        .mount
+                        .as_ref()
+                        .ok_or("mount meshes have no asset")?;
+                    models.push((&mount.asset, &meshes.mount));
+                }
+                for (asset, posed) in models {
                     draws.push(model_draw_gpu::Draw::new(
                         device,
                         queue,
@@ -404,19 +716,36 @@ impl Walker {
             let character = self.character.as_ref().ok_or("Walker character missing")?;
             let assembly = &character.assembly;
             let meshes = &character.posed.meshes;
-            let mut index = 0;
-            for (asset, posed) in std::iter::once((&assembly.body, &meshes.body))
-                .chain(std::iter::once((&assembly.face, &meshes.face)))
-                .chain(
-                    assembly
-                        .weapons
-                        .iter()
-                        .zip(&meshes.weapons)
-                        .map(|(weapon, posed)| (&weapon.asset, posed)),
-                )
-            {
+            let mut models = vec![
+                (&assembly.body, &meshes.body),
+                (&assembly.face, &meshes.face),
+            ];
+            models.extend(
+                assembly
+                    .weapons
+                    .iter()
+                    .zip(&meshes.weapons)
+                    .map(|(weapon, posed)| (&weapon.asset, posed)),
+            );
+            if !meshes.flight.is_empty() {
+                let flight = assembly
+                    .flight
+                    .as_ref()
+                    .ok_or("flight meshes have no asset")?;
+                models.push((&flight.asset, &meshes.flight));
+            }
+            if !meshes.mount.is_empty() {
+                let mount = assembly
+                    .mount
+                    .as_ref()
+                    .ok_or("mount meshes have no asset")?;
+                models.push((&mount.asset, &meshes.mount));
+            }
+            if models.len() != gpu.draws.len() {
+                return Err("travel draw count changed without rebuilding GPU resources".into());
+            }
+            for (index, (asset, posed)) in models.into_iter().enumerate() {
                 gpu.draws[index].update(queue, asset, posed, frame)?;
-                index += 1;
             }
             Ok(())
         })();
@@ -452,5 +781,40 @@ impl Walker {
                 draw.draw(&mut pass);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hotkeys_require_their_modifier_and_trigger_only_on_press_edges() {
+        let hotkey = Hotkey {
+            key: KeyCode::KeyF,
+            control: true,
+        };
+        let mut keys = HashSet::from([KeyCode::KeyF]);
+        assert!(!hotkey.is_down(&keys));
+        keys.insert(KeyCode::ControlLeft);
+        assert!(hotkey.is_down(&keys));
+
+        let mut was_down = false;
+        assert!(edge_triggered(true, &mut was_down));
+        assert!(!edge_triggered(true, &mut was_down));
+        assert!(!edge_triggered(false, &mut was_down));
+        assert!(edge_triggered(true, &mut was_down));
+    }
+
+    #[test]
+    fn capture_ignores_modifier_only_keys_and_retains_control_state() {
+        assert_eq!(
+            captured_hotkey(&HashSet::from([KeyCode::ControlLeft])),
+            None
+        );
+        let captured =
+            captured_hotkey(&HashSet::from([KeyCode::ControlRight, KeyCode::KeyH])).unwrap();
+        assert_eq!(captured.key, KeyCode::KeyH);
+        assert!(captured.control);
     }
 }

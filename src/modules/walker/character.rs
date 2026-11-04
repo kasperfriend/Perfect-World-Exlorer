@@ -5,9 +5,11 @@ use crate::{
     ecmodel,
     model_asset::ModelAsset,
     modules::designer::{
-        assembly::{Character as Assembly, CharacterMeshes, CharacterPose},
+        assembly::{
+            Character as Assembly, CharacterMeshes, CharacterPose, TravelAnimation, TravelState,
+        },
         assets::Assets,
-        catalog::{ArmorSlot, Class, Gender},
+        catalog::{ArmorSlot, Class, FlightMode, Gender},
         customize::CharacterDesign,
     },
 };
@@ -22,6 +24,210 @@ enum Motion {
     JumpStart,
     JumpLoop,
     Land,
+    RideStand,
+    RideRun,
+    FlyTakeoff,
+    FlyHover,
+    FlyForward,
+    FlyDescendHigh,
+    FlyDescendLow,
+    FlyLand,
+}
+
+#[derive(Default)]
+struct FlightActionSet {
+    takeoff: Option<usize>,
+    hover: Option<usize>,
+    forward: Option<usize>,
+    descend_high: Option<usize>,
+    descend_low: Option<usize>,
+    land: Option<usize>,
+}
+
+impl FlightActionSet {
+    fn body(
+        combined: &[ecmodel::CombinedAction],
+        actions: &[ecmodel::Action],
+        mode: FlightMode,
+    ) -> Self {
+        let prefix = match mode {
+            FlightMode::Wing => "翅膀",
+            FlightMode::FlySword | FlightMode::DoubleWheel => "飞剑",
+        };
+        Self {
+            takeoff: find_prefixed(combined, actions, &[prefix], &["起飞_通用", "起飞"]),
+            hover: find_prefixed(combined, actions, &[prefix], &["悬停_通用", "悬停"]),
+            forward: find_prefixed(combined, actions, &[prefix], &["前进_通用", "前进"]),
+            descend_high: find_prefixed(
+                combined,
+                actions,
+                &[prefix],
+                &["高空下降_通用", "高空下降"],
+            ),
+            descend_low: find_prefixed(
+                combined,
+                actions,
+                &[prefix],
+                &["低空下降_通用", "低空下降"],
+            ),
+            land: find_prefixed(combined, actions, &[prefix], &["落地_通用", "落地"]),
+        }
+    }
+
+    fn child(actions: &[ecmodel::Action], mode: FlightMode, model_path: &str) -> Self {
+        let no_combined = &[];
+        match mode {
+            FlightMode::Wing => {
+                let stem = std::path::Path::new(model_path)
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default();
+                let prefixes = &[stem, ""];
+                Self {
+                    takeoff: find_prefixed(
+                        no_combined,
+                        actions,
+                        prefixes,
+                        &["_起飞", "起飞", "展开"],
+                    ),
+                    hover: find_prefixed(
+                        no_combined,
+                        actions,
+                        prefixes,
+                        &["_飞行悬停", "飞行悬停", "_悬停", "悬停"],
+                    ),
+                    forward: find_prefixed(
+                        no_combined,
+                        actions,
+                        prefixes,
+                        &["_飞行前进", "飞行前进", "_前进", "前进"],
+                    ),
+                    descend_high: find_prefixed(
+                        no_combined,
+                        actions,
+                        prefixes,
+                        &["_高空下降", "高空下降"],
+                    ),
+                    descend_low: find_prefixed(
+                        no_combined,
+                        actions,
+                        prefixes,
+                        &[
+                            "_地空下降",
+                            "地空下降",
+                            "_飞行下降",
+                            "飞行下降",
+                            "_低空下降",
+                            "低空下降",
+                        ],
+                    ),
+                    land: find_prefixed(
+                        no_combined,
+                        actions,
+                        prefixes,
+                        &["_飞行落地", "飞行落地", "_落地", "落地"],
+                    ),
+                }
+            }
+            FlightMode::FlySword | FlightMode::DoubleWheel => Self {
+                takeoff: find_action(no_combined, actions, &["飞剑静止", "飞剑悬停"]),
+                hover: find_action(no_combined, actions, &["飞剑悬停"]),
+                forward: find_action(no_combined, actions, &["飞剑前进"]),
+                descend_high: find_action(no_combined, actions, &["飞剑高空下降"]),
+                descend_low: find_action(no_combined, actions, &["飞剑低空下降"]),
+                land: find_action(no_combined, actions, &["飞剑静止", "飞剑悬停"]),
+            },
+        }
+    }
+
+    fn get(&self, motion: Motion) -> Option<usize> {
+        match motion {
+            Motion::FlyTakeoff => self.takeoff,
+            Motion::FlyHover => self.hover,
+            Motion::FlyForward => self.forward,
+            Motion::FlyDescendHigh => self.descend_high,
+            Motion::FlyDescendLow => self.descend_low,
+            Motion::FlyLand => self.land,
+            _ => None,
+        }
+    }
+
+    fn warnings(&self, label: &str) -> Vec<String> {
+        let mut warnings = Vec::new();
+        for (name, present) in [
+            ("takeoff", self.takeoff),
+            ("hover", self.hover),
+            ("forward", self.forward),
+            ("high descent", self.descend_high),
+            ("low descent", self.descend_low),
+            ("landing", self.land),
+        ] {
+            if present.is_none() {
+                warnings.push(format!(
+                    "No authored {label} {name} action was found; that state uses the bind pose."
+                ));
+            }
+        }
+        warnings
+    }
+}
+
+#[derive(Default)]
+struct MountActionSet {
+    stand: Option<usize>,
+    run: Option<usize>,
+}
+
+impl MountActionSet {
+    fn new(actions: &[ecmodel::Action]) -> Self {
+        Self {
+            stand: find_action(&[], actions, &["站立"]),
+            run: find_action(&[], actions, &["快速移动"]),
+        }
+    }
+}
+
+fn resolve_action(
+    combined: &[ecmodel::CombinedAction],
+    actions: &[ecmodel::Action],
+    wanted: &str,
+) -> Option<usize> {
+    if let Some(combined) = combined.iter().find(|action| action.name == wanted) {
+        // These locomotion states are single-base native actions. Do not
+        // flatten a multi-stage action or substitute a broken binding variant.
+        let [base] = combined.bases.as_slice() else {
+            return None;
+        };
+        return actions.iter().position(|action| action.name == base.name);
+    }
+    actions.iter().position(|action| action.name == wanted)
+}
+
+fn find_action(
+    combined: &[ecmodel::CombinedAction],
+    actions: &[ecmodel::Action],
+    names: &[&str],
+) -> Option<usize> {
+    names
+        .iter()
+        .find_map(|wanted| resolve_action(combined, actions, wanted))
+}
+
+fn find_prefixed(
+    combined: &[ecmodel::CombinedAction],
+    actions: &[ecmodel::Action],
+    prefixes: &[&str],
+    suffixes: &[&str],
+) -> Option<usize> {
+    for suffix in suffixes {
+        for prefix in prefixes {
+            let name = format!("{prefix}{suffix}");
+            if let Some(action) = resolve_action(combined, actions, &name) {
+                return Some(action);
+            }
+        }
+    }
+    None
 }
 
 struct ActionSet {
@@ -30,6 +236,10 @@ struct ActionSet {
     jump_start: Option<usize>,
     jump_loop: Option<usize>,
     land: Option<usize>,
+    ride_stand: Option<usize>,
+    ride_run: Option<usize>,
+    wing: FlightActionSet,
+    sword: FlightActionSet,
 }
 
 impl ActionSet {
@@ -37,38 +247,13 @@ impl ActionSet {
         combined: &[ecmodel::CombinedAction],
         actions: &[ecmodel::Action],
     ) -> (Self, Vec<String>) {
-        fn resolve(
-            combined: &[ecmodel::CombinedAction],
-            actions: &[ecmodel::Action],
-            wanted: &str,
-        ) -> Option<usize> {
-            if let Some(combined) = combined.iter().find(|action| action.name == wanted) {
-                // These locomotion states are single-base native actions. Do
-                // not flatten a multi-stage action or substitute a broken
-                // binding variant for the ordinary unarmed one.
-                let [base] = combined.bases.as_slice() else {
-                    return None;
-                };
-                return actions.iter().position(|action| action.name == base.name);
-            }
-            actions.iter().position(|action| action.name == wanted)
-        }
-        fn find(
-            combined: &[ecmodel::CombinedAction],
-            actions: &[ecmodel::Action],
-            names: &[&str],
-        ) -> Option<usize> {
-            names
-                .iter()
-                .find_map(|wanted| resolve(combined, actions, wanted))
-        }
         let set = Self {
-            stand: find(
+            stand: find_action(
                 combined,
                 actions,
                 &["站立_通用", "站立_空手", "站立_徒手", "站立_法宝", "站立"],
             ),
-            run: find(
+            run: find_action(
                 combined,
                 actions,
                 &[
@@ -82,12 +267,12 @@ impl ActionSet {
                     "跑步",
                 ],
             ),
-            jump_start: find(
+            jump_start: find_action(
                 combined,
                 actions,
                 &["起跳_通用", "起跳_空手", "跳跃开始", "起跳"],
             ),
-            jump_loop: find(
+            jump_loop: find_action(
                 combined,
                 actions,
                 &[
@@ -98,11 +283,15 @@ impl ActionSet {
                     "空中",
                 ],
             ),
-            land: find(
+            land: find_action(
                 combined,
                 actions,
                 &["跳跃落地_通用", "落地_空手", "跳跃结束", "落地"],
             ),
+            ride_stand: find_action(combined, actions, &["站立_骑乘_通用"]),
+            ride_run: find_action(combined, actions, &["奔跑_骑乘_通用"]),
+            wing: FlightActionSet::body(combined, actions, FlightMode::Wing),
+            sword: FlightActionSet::body(combined, actions, FlightMode::FlySword),
         };
         let mut warnings = Vec::new();
         for (name, present) in [
@@ -128,6 +317,16 @@ impl ActionSet {
             Motion::JumpStart => self.jump_start,
             Motion::JumpLoop => self.jump_loop,
             Motion::Land => self.land,
+            Motion::RideStand => self.ride_stand,
+            Motion::RideRun => self.ride_run,
+            _ => None,
+        }
+    }
+
+    fn flight(&self, mode: FlightMode) -> &FlightActionSet {
+        match mode {
+            FlightMode::Wing => &self.wing,
+            FlightMode::FlySword | FlightMode::DoubleWheel => &self.sword,
         }
     }
 }
@@ -184,7 +383,18 @@ impl ClipPlayer {
             start,
             end,
             current: start,
-            looping: matches!(motion, Motion::Stand | Motion::Run | Motion::JumpLoop),
+            looping: matches!(
+                motion,
+                Motion::Stand
+                    | Motion::Run
+                    | Motion::JumpLoop
+                    | Motion::RideStand
+                    | Motion::RideRun
+                    | Motion::FlyHover
+                    | Motion::FlyForward
+                    | Motion::FlyDescendHigh
+                    | Motion::FlyDescendLow
+            ),
             speed,
         })
     }
@@ -271,6 +481,11 @@ pub struct Character {
     pub warnings: Vec<String>,
     actions: ActionSet,
     player: ClipPlayer,
+    flight_actions: FlightActionSet,
+    flight_player: Option<ClipPlayer>,
+    mount_actions: MountActionSet,
+    mount_player: Option<ClipPlayer>,
+    travel: TravelState,
     head_bone: Option<usize>,
     last_jump: u64,
     last_landing: u64,
@@ -296,10 +511,34 @@ impl Character {
                     name.contains("head") && !name.contains("nub")
                 })
             });
+        let mut travel_warnings = Vec::new();
+        let (flight_actions, flight_player) = if let Some(model) = &assembly.flight {
+            let actions =
+                FlightActionSet::child(&model.asset.model.actions, model.mode, &model.model_path);
+            travel_warnings.extend(actions.warnings("flight child"));
+            let player = ClipPlayer::new(&model.asset, Motion::FlyHover, actions.hover)?;
+            (actions, Some(player))
+        } else {
+            (FlightActionSet::default(), None)
+        };
+        let (mount_actions, mount_player) = if let Some(model) = &assembly.mount {
+            let actions = MountActionSet::new(&model.asset.model.actions);
+            if actions.stand.is_none() || actions.run.is_none() {
+                travel_warnings.push(
+                    "Ride pet is missing 站立 or 快速移动; the missing state uses its bind pose."
+                        .into(),
+                );
+            }
+            let player = ClipPlayer::new(&model.asset, Motion::RideStand, actions.stand)?;
+            (actions, Some(player))
+        } else {
+            (MountActionSet::default(), None)
+        };
         let posed = evaluate(&assembly, player.sample(), world)?;
         let eye = eye_position(&posed, head_bone)?;
         let mut warnings = assembly.warnings.clone();
         warnings.extend(action_warnings);
+        warnings.extend(travel_warnings);
         Ok(Self {
             assembly,
             posed,
@@ -307,52 +546,169 @@ impl Character {
             warnings,
             actions,
             player,
+            flight_actions,
+            flight_player,
+            mount_actions,
+            mount_player,
+            travel: TravelState::Ground,
             head_bone,
             last_jump: 0,
             last_landing: 0,
         })
     }
 
-    pub fn update(&mut self, delta: f32, body: &Body, facing: Vec3) -> Result<(), String> {
+    pub fn update(
+        &mut self,
+        delta: f32,
+        body: &Body,
+        facing: Vec3,
+        travel: TravelState,
+        rushing: bool,
+        vertical: f32,
+    ) -> Result<(), String> {
+        let previous = self.travel;
+        self.travel = travel;
         let jumped = self.last_jump != body.jump_generation;
         let landed = self.last_landing != body.landed_generation;
         self.last_jump = body.jump_generation;
         self.last_landing = body.landed_generation;
-        if jumped {
-            self.player.set(
-                &self.assembly.body,
-                Motion::JumpStart,
-                self.actions.jump_start,
-                true,
-            )?;
-        } else if landed && self.actions.land.is_some() {
-            self.player
-                .set(&self.assembly.body, Motion::Land, self.actions.land, true)?;
+
+        match travel {
+            TravelState::Mounted => {
+                let motion = if body.moving {
+                    Motion::RideRun
+                } else {
+                    Motion::RideStand
+                };
+                self.player
+                    .set(&self.assembly.body, motion, self.actions.get(motion), false)?;
+                if let Some(model) = &self.assembly.mount {
+                    let action = if motion == Motion::RideRun {
+                        self.mount_actions.run
+                    } else {
+                        self.mount_actions.stand
+                    };
+                    if let Some(player) = &mut self.mount_player {
+                        player.set(&model.asset, motion, action, false)?;
+                    }
+                }
+            }
+            TravelState::Flying => {
+                let mode = self
+                    .assembly
+                    .flight
+                    .as_ref()
+                    .ok_or("flight activated without a flight model")?
+                    .mode;
+                let entering = previous != TravelState::Flying;
+                if entering {
+                    let action = self.actions.flight(mode).get(Motion::FlyTakeoff);
+                    self.player
+                        .set(&self.assembly.body, Motion::FlyTakeoff, action, true)?;
+                } else if self.player.motion == Motion::FlyTakeoff && !self.player.finished() {
+                    // Let the authored takeoff finish before hovering or moving.
+                } else {
+                    let motion = if vertical < -0.1 {
+                        if rushing {
+                            Motion::FlyDescendHigh
+                        } else {
+                            Motion::FlyDescendLow
+                        }
+                    } else if body.moving {
+                        Motion::FlyForward
+                    } else {
+                        Motion::FlyHover
+                    };
+                    let action = self.actions.flight(mode).get(motion);
+                    self.player
+                        .set(&self.assembly.body, motion, action, false)?;
+                }
+                if let Some(model) = &self.assembly.flight {
+                    let motion = self.player.motion;
+                    let action = self.flight_actions.get(motion);
+                    if let Some(player) = &mut self.flight_player {
+                        player.set(&model.asset, motion, action, entering)?;
+                    }
+                }
+            }
+            TravelState::Ground => {
+                if previous == TravelState::Flying {
+                    if let Some(model) = &self.assembly.flight {
+                        let action = self.actions.flight(model.mode).get(Motion::FlyLand);
+                        self.player
+                            .set(&self.assembly.body, Motion::FlyLand, action, true)?;
+                    }
+                }
+                if self.player.motion == Motion::FlyLand && !self.player.finished() {
+                    // Preserve the native wing/fly-sword landing action.
+                } else if jumped {
+                    self.player.set(
+                        &self.assembly.body,
+                        Motion::JumpStart,
+                        self.actions.jump_start,
+                        true,
+                    )?;
+                } else if landed && self.actions.land.is_some() {
+                    self.player
+                        .set(&self.assembly.body, Motion::Land, self.actions.land, true)?;
+                }
+
+                if self.player.motion == Motion::FlyLand && !self.player.finished() {
+                    // Still landing from flight.
+                } else if !body.grounded {
+                    if self.player.motion != Motion::JumpStart || self.player.finished() {
+                        self.player.set(
+                            &self.assembly.body,
+                            Motion::JumpLoop,
+                            self.actions.jump_loop,
+                            false,
+                        )?;
+                    }
+                } else if self.player.motion == Motion::Land && !self.player.finished() {
+                    // Let the authored landing action finish before standing/running.
+                } else {
+                    let motion = if body.moving {
+                        Motion::Run
+                    } else {
+                        Motion::Stand
+                    };
+                    self.player.set(
+                        &self.assembly.body,
+                        motion,
+                        self.actions.get(motion),
+                        false,
+                    )?;
+                }
+            }
         }
 
-        if !body.grounded {
-            if self.player.motion != Motion::JumpStart || self.player.finished() {
-                self.player.set(
-                    &self.assembly.body,
-                    Motion::JumpLoop,
-                    self.actions.jump_loop,
-                    false,
-                )?;
+        let delta_ms = (delta.max(0.) * 1000.) as u32;
+        self.player.tick(delta_ms);
+        if travel == TravelState::Mounted {
+            if let Some(player) = &mut self.mount_player {
+                player.tick(delta_ms);
             }
-        } else if self.player.motion == Motion::Land && !self.player.finished() {
-            // Let the authored landing action finish before standing/running.
-        } else {
-            let motion = if body.moving {
-                Motion::Run
-            } else {
-                Motion::Stand
-            };
-            self.player
-                .set(&self.assembly.body, motion, self.actions.get(motion), false)?;
         }
-        self.player.tick((delta.max(0.) * 1000.) as u32);
+        if travel == TravelState::Flying {
+            if let Some(player) = &mut self.flight_player {
+                player.tick(delta_ms);
+            }
+        }
         let world = character_transform(body.position, facing);
-        let posed = evaluate(&self.assembly, self.player.sample(), world)?;
+        let animation = TravelAnimation {
+            state: travel,
+            mount: if travel == TravelState::Mounted {
+                self.mount_player.as_ref().and_then(ClipPlayer::sample)
+            } else {
+                None
+            },
+            flight: if travel == TravelState::Flying {
+                self.flight_player.as_ref().and_then(ClipPlayer::sample)
+            } else {
+                None
+            },
+        };
+        let posed = evaluate_travel(&self.assembly, self.player.sample(), world, animation)?;
         self.eye = eye_position(&posed, self.head_bone)?;
         self.posed = posed;
         Ok(())
@@ -380,11 +736,16 @@ fn evaluate(
     sample: Option<(usize, f32)>,
     world: Mat4,
 ) -> Result<Posed, String> {
-    let pose = if let Some((action, seconds)) = sample {
-        assembly.action_pose(action, seconds, world)?
-    } else {
-        assembly.bind_pose(world)?
-    };
+    evaluate_travel(assembly, sample, world, TravelAnimation::default())
+}
+
+fn evaluate_travel(
+    assembly: &Assembly,
+    sample: Option<(usize, f32)>,
+    world: Mat4,
+    travel: TravelAnimation,
+) -> Result<Posed, String> {
+    let pose = assembly.sampled_pose(sample, world, travel)?;
     let meshes = assembly.meshes_from_pose(&pose)?;
     Ok(Posed { pose, meshes })
 }
@@ -582,6 +943,106 @@ mod tests {
             evaluated += 1;
         }
         assert_eq!(evaluated, 4);
+    }
+
+    #[test]
+    fn authentic_mount_animates_rider_and_pet_with_independent_native_clips() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let mut design = starter_design(&mut assets, Class::Blademaster, Gender::Male).unwrap();
+        design.equipment.weapon = 6;
+        design.equipment.mount = 9061;
+        let mut character = Character::load(&mut assets, design, Mat4::IDENTITY).unwrap();
+        let mut body = Body::new(Vec3::ZERO);
+        character
+            .update(
+                1.0 / 60.0,
+                &body,
+                Vec3::NEG_Z,
+                TravelState::Mounted,
+                false,
+                0.0,
+            )
+            .unwrap();
+        assert_eq!(character.player.motion, Motion::RideStand);
+        assert!(!character.posed.meshes.mount.is_empty());
+        assert!(character.posed.meshes.weapons.is_empty());
+
+        body.moving = true;
+        character
+            .update(
+                1.0 / 60.0,
+                &body,
+                Vec3::NEG_Z,
+                TravelState::Mounted,
+                false,
+                0.0,
+            )
+            .unwrap();
+        assert_eq!(character.player.motion, Motion::RideRun);
+        assert_eq!(
+            character.mount_player.as_ref().unwrap().motion,
+            Motion::RideRun
+        );
+        assert_eq!(
+            character.mount_player.as_ref().unwrap().action,
+            character.mount_actions.run
+        );
+    }
+
+    #[test]
+    fn authentic_flight_animates_body_and_child_after_takeoff() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        for (class, gender, item) in [
+            (Class::Cleric, Gender::Male, 2092),
+            (Class::Blademaster, Gender::Male, 27210),
+        ] {
+            let mut design = starter_design(&mut assets, class, gender).unwrap();
+            design.equipment.flight = item;
+            let mut character = Character::load(&mut assets, design, Mat4::IDENTITY)
+                .unwrap_or_else(|error| panic!("flight {item}: {error}"));
+            let mut body = Body::new(Vec3::new(0.0, 10.0, 0.0));
+            body.grounded = false;
+            character
+                .update(
+                    1.0 / 60.0,
+                    &body,
+                    Vec3::NEG_Z,
+                    TravelState::Flying,
+                    false,
+                    0.0,
+                )
+                .unwrap_or_else(|error| panic!("flight {item} animation: {error}"));
+            for _ in 0..40 {
+                character
+                    .update(0.25, &body, Vec3::NEG_Z, TravelState::Flying, false, 0.0)
+                    .unwrap_or_else(|error| panic!("flight {item} animation: {error}"));
+                if character.player.motion == Motion::FlyHover {
+                    break;
+                }
+            }
+            assert_eq!(
+                character.player.motion,
+                Motion::FlyHover,
+                "flight {item}: current {} end {} speed {}",
+                character.player.current,
+                character.player.end,
+                character.player.speed
+            );
+            assert_eq!(
+                character.flight_player.as_ref().unwrap().motion,
+                Motion::FlyHover
+            );
+            assert_eq!(character.posed.pose.travel, TravelState::Flying);
+            assert!(!character.posed.meshes.flight.is_empty());
+        }
     }
 
     #[test]

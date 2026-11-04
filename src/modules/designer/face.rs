@@ -345,6 +345,17 @@ fn load_shape(
 
 /// Evaluated face-bone state.  `tm` values are controlled matrices consumed
 /// by the skeleton's ordinary bone-matrix controller path.
+/// Native `MirrorSelectFromRightToLeft` replaces each selected right-side
+/// controller with its left-side counterpart. It does not retain the right
+/// selection or append a second set of indices.
+fn mirror_right_bones(selection: &mut [usize]) {
+    for bone in selection {
+        if *bone < RIGHT_BONES {
+            *bone += ACTIVE_BONES;
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct FaceRig {
     skeleton_bones: [usize; TOTAL_BONES],
@@ -414,13 +425,7 @@ impl FaceRig {
     }
 
     fn mirror_selection(&mut self) {
-        // Native code does not deduplicate this operation.
-        let selected = self.selection.clone();
-        for bone in selected {
-            if bone < RIGHT_BONES {
-                self.selection.push(bone + ACTIVE_BONES);
-            }
-        }
+        mirror_right_bones(&mut self.selection);
     }
 
     fn add_shape(&mut self, expressions: &[(&Expression, f32)]) {
@@ -1120,6 +1125,24 @@ fn calculate_mouth(rig: &mut FaceRig, data: &super::customize::FaceCustomize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mirror_selection_replaces_native_eye_and_brow_groups() {
+        let mut eye = (14..=21).chain(std::iter::once(13)).collect::<Vec<_>>();
+        mirror_right_bones(&mut eye);
+        assert_eq!(
+            eye,
+            (79..=86).chain(std::iter::once(78)).collect::<Vec<_>>()
+        );
+
+        let mut brow = vec![22, 23, 24, 25];
+        mirror_right_bones(&mut brow);
+        assert_eq!(brow, vec![87, 88, 89, 90]);
+
+        let mut centre_and_left = vec![46, 78];
+        mirror_right_bones(&mut centre_and_left);
+        assert_eq!(centre_and_left, vec![46, 78]);
+    }
 
     #[test]
     fn expression_uses_native_rows_as_glam_columns() {

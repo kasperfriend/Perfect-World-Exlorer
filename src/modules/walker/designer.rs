@@ -3,7 +3,7 @@
 
 use super::character::starter_design;
 use crate::modules::designer::{
-    assets::Assets,
+    assets::{Assets, UserPreset},
     catalog::{Class, Gender},
     controls,
     customize::CharacterDesign,
@@ -14,6 +14,8 @@ pub(super) struct Designer {
     initialized: bool,
     control_state: controls::ControlState,
     preset_name: String,
+    user_presets: Vec<UserPreset>,
+    user_presets_for: Option<(Class, Gender)>,
     status: String,
     status_error: bool,
 }
@@ -25,6 +27,8 @@ impl Default for Designer {
             initialized: false,
             control_state: controls::ControlState::default(),
             preset_name: String::new(),
+            user_presets: Vec::new(),
+            user_presets_for: None,
             status: "Native profession starter armor will be equipped on spawn.".into(),
             status_error: false,
         }
@@ -154,6 +158,52 @@ impl Designer {
             }
         }
 
+        let preset_class = self.design.class;
+        let preset_gender = self.design.gender;
+        if self.user_presets_for != Some((preset_class, preset_gender)) {
+            match assets.user_presets(preset_class, preset_gender) {
+                Ok(presets) => {
+                    self.user_presets = presets;
+                    self.user_presets_for = Some((preset_class, preset_gender));
+                }
+                Err(error) => {
+                    self.user_presets.clear();
+                    self.user_presets_for = Some((preset_class, preset_gender));
+                    self.status = format!("Could not list saved presets: {error}");
+                    self.status_error = true;
+                }
+            }
+        }
+        let mut selected_user_preset = None;
+        egui::ComboBox::from_label("Saved preset")
+            .selected_text(if self.user_presets.is_empty() {
+                "No saved presets for this character"
+            } else {
+                "Choose a saved preset to apply"
+            })
+            .show_ui(ui, |ui| {
+                for preset in &self.user_presets {
+                    if ui.selectable_label(false, &preset.name).clicked() {
+                        selected_user_preset = Some(preset.path.clone());
+                    }
+                }
+            });
+        if let Some(path) = selected_user_preset {
+            let mut design = self.design.clone();
+            match assets.apply_user_preset(&mut design, &path) {
+                Ok(()) => {
+                    self.design = design;
+                    self.status_error = false;
+                    rebuild = Some(self.design.clone());
+                }
+                Err(error) => {
+                    self.status =
+                        format!("Could not apply saved preset {}: {error}", path.display());
+                    self.status_error = true;
+                }
+            }
+        }
+
         if controls::show(
             ui,
             &mut self.design,
@@ -175,6 +225,7 @@ impl Designer {
                     Ok(path) => {
                         self.status = format!("Saved {}", path.display());
                         self.status_error = false;
+                        self.user_presets_for = None;
                     }
                     Err(error) => {
                         self.status = format!("Could not save preset: {error}");

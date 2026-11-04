@@ -134,6 +134,13 @@ pub struct Input {
     pub jump: bool,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct FlightInput {
+    pub direction: Vec3,
+    pub vertical: f32,
+    pub speed: f32,
+}
+
 #[derive(Debug)]
 pub struct Body {
     pub position: Vec3,
@@ -174,6 +181,53 @@ impl Body {
                 self.accumulator = 0.;
             }
             self.step(mechanics, input.direction, map);
+        }
+    }
+
+    pub fn begin_flight(&mut self) {
+        self.grounded = false;
+        self.vertical_velocity = 0.0;
+        self.jump_count = 0;
+        self.jump_queued = false;
+        self.accumulator = 0.0;
+    }
+
+    /// Air movement uses the equipped item's speed bonus over the class fly
+    /// speed. The complete 3D wish velocity is clamped, matching AirWaterMove;
+    /// gravity and ground jump rules are not applied while flying.
+    pub fn advance_flight(&mut self, delta: f32, input: FlightInput, map: &MapSpace) {
+        if !delta.is_finite() || delta <= 0.0 || !input.speed.is_finite() {
+            return;
+        }
+        self.accumulator = (self.accumulator + delta.min(0.25)).min(0.25);
+        while self.accumulator + f32::EPSILON >= STEP_SECONDS {
+            self.accumulator -= STEP_SECONDS;
+            if self.accumulator < 0.0 {
+                self.accumulator = 0.0;
+            }
+            let direction =
+                Vec3::new(input.direction.x, 0.0, input.direction.z).normalize_or_zero();
+            self.moving = direction.length_squared() > 0.5;
+            let vertical = if input.vertical.is_finite() {
+                input.vertical.clamp(-1.0, 1.0)
+            } else {
+                0.0
+            };
+            let velocity =
+                (direction + Vec3::Y * vertical).normalize_or_zero() * input.speed.max(0.0);
+            self.grounded = false;
+            self.vertical_velocity = velocity.y;
+            self.position += velocity * STEP_SECONDS;
+            let support = ground(map, self.position.x, self.position.z);
+            if self.position.y < support.height
+                || (self.position.y <= support.height && velocity.y < 0.0)
+            {
+                self.position.y = support.height;
+                self.vertical_velocity = 0.0;
+                self.grounded = true;
+                self.jump_count = 0;
+                self.landed_generation = self.landed_generation.wrapping_add(1);
+            }
         }
     }
 
@@ -370,6 +424,42 @@ mod tests {
         );
         assert_eq!(body.jump_count, 0);
         assert!(body.vertical_velocity < 0.);
+    }
+
+    #[test]
+    fn flight_clamps_complete_3d_velocity_and_lands_on_descent() {
+        let map = flat_map();
+        let mut body = Body::new(Vec3::new(0.0, 12.0, 0.0));
+        body.begin_flight();
+        for _ in 0..60 {
+            body.advance_flight(
+                STEP_SECONDS,
+                FlightInput {
+                    direction: Vec3::new(1.0, 0.0, 1.0),
+                    vertical: 1.0,
+                    speed: 9.0,
+                },
+                &map,
+            );
+        }
+        let displacement = body.position - Vec3::new(0.0, 12.0, 0.0);
+        assert!((displacement.length() - 9.0).abs() < 0.000_1);
+        assert!(!body.grounded);
+
+        for _ in 0..300 {
+            body.advance_flight(
+                STEP_SECONDS,
+                FlightInput {
+                    direction: Vec3::ZERO,
+                    vertical: -1.0,
+                    speed: 9.0,
+                },
+                &map,
+            );
+        }
+        assert!(body.grounded);
+        assert_eq!(body.position.y, 10.0);
+        assert_eq!(body.vertical_velocity, 0.0);
     }
 
     #[test]
