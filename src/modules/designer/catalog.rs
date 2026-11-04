@@ -897,7 +897,7 @@ mod tests {
             "models/players/装备/男/默认上衣/妖兽默认上衣一级.ski"
         );
         assert_eq!(
-            Class::Archer.face_asset(Gender::Female, 0, "bon"),
+            Class::Cleric.face_asset(Gender::Female, 0, "bon"),
             "models/face/羽灵女标准脸/羽灵女标准脸.bon"
         );
     }

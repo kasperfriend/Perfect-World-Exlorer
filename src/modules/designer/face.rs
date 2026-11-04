@@ -1155,4 +1155,53 @@ mod tests {
         assert_eq!(offset(0, 0.02), -0.02);
         assert_eq!(offset(128, 0.02), 0.0);
     }
+
+    #[test]
+    fn authentic_default_face_rigs_produce_finite_controller_matrices() {
+        use crate::modules::designer::{
+            catalog::{Class, Gender},
+            customize::CharacterDesign,
+        };
+
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("facedata.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let config = FaceConfig::load(&mut assets).unwrap();
+        let mut evaluated = 0;
+        for class in Class::ALL {
+            for gender in Gender::ALL {
+                if !class.allows(gender) {
+                    continue;
+                }
+                let default_path = class.default_ini(gender);
+                let bytes = assets.read(&default_path).unwrap();
+                let design = CharacterDesign::from_default_ini(class, gender, &bytes).unwrap();
+                let skeleton_path = class.face_asset(gender, design.customize.body_id, "bon");
+                let skeleton = Skeleton::parse(&assets.read(&skeleton_path).unwrap()).unwrap();
+                let mut warnings = Vec::new();
+                let resources = FaceResources::load(&design, &mut assets, &mut warnings);
+                let rig = evaluate_face(&skeleton, config.clone(), &design, &resources)
+                    .unwrap_or_else(|error| panic!("{} {}: {error}", class.name(), gender.name()));
+                let controls = rig.controlled_bones().collect::<Vec<_>>();
+                assert!(
+                    !controls.is_empty(),
+                    "{} {} produced no face controls",
+                    class.name(),
+                    gender.name()
+                );
+                for (bone, matrix) in controls {
+                    assert!(
+                        matrix.is_finite(),
+                        "{} {} bone {bone} produced a non-finite matrix",
+                        class.name(),
+                        gender.name()
+                    );
+                }
+                evaluated += 1;
+            }
+        }
+        assert_eq!(evaluated, 14);
+    }
 }
