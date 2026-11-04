@@ -95,17 +95,34 @@ NAME_HINT = re.compile(r"sky|flare|solar|scene", re.I)
 # padding.
 BOUNDARY = re.compile(rb"(?:\xc3|\xc2..)[\xcc\x90]{2,}")
 BOUNDARY_SCAN = 0x300
+# How far before a window to look for the padding that ends the previous
+# function. Windows are picked from call sites, so the enclosing function almost
+# always starts earlier than the window does.
+BACK_SCAN = 0x400
 
 
-def resync(blob):
-    """Offset just past the first inter-function padding run in the window head.
+def resync(code_off, blob):
+    """Offset (possibly negative) of the nearest function boundary.
 
-    A window that opens mid-instruction is nudged forward onto the next real
-    function start; a window that opens inside the function it is meant to
-    explain is widened (see `WINDOWS`) so that boundary is still in the head.
+    The last padding run before the window is the start of the function that
+    contains the window's opening address; with no such run close behind, the
+    window is mid-instruction and the first boundary ahead is used instead.
     """
+    head = BOUNDARY and blob_head(code_off)
+    matches = list(BOUNDARY.finditer(head))
+    if matches:
+        return matches[-1].end() - len(head)
     match = BOUNDARY.search(blob[:BOUNDARY_SCAN])
     return match.end() if match else 0
+
+
+def blob_head(code_off):
+    """The BACK_SCAN bytes of image that precede a window."""
+    return PE_DATA[0][max(0, code_off - BACK_SCAN):code_off]
+
+
+# The image bytes `disassemble` resyncs against; set once per dump run.
+PE_DATA = [b""]
 
 
 def disassemble(pe, start, end, text_strings):
@@ -115,15 +132,17 @@ def disassemble(pe, start, end, text_strings):
     code_off = pe.va2off(start)
     if code_off is None:
         return "; window %#x is not inside the image\n" % start
-    blob = pe.d[code_off:pe.va2off(end) or len(pe.d)]
+    PE_DATA[0] = pe.d
+    end_off = pe.va2off(end) or len(pe.d)
+    blob = pe.d[code_off:end_off]
     out = []
-    skip = resync(blob)
+    skip = resync(code_off, blob)
     if skip:
         out.append(
-            "; resynced +%#x: window opened mid-instruction, dumping from %#x"
+            "; resynced %+#x: nearest function boundary, dumping from %#x"
             % (skip, start + skip)
         )
-        blob = blob[skip:]
+        blob = pe.d[code_off + skip:end_off]
         start += skip
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
     md.detail = False
