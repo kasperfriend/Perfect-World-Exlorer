@@ -370,6 +370,7 @@ fn main() {
         u[..16].copy_from_slice(&inv.to_cols_array());
         u[16] = 19.; // hour
         u[17] = 0.; // night weight: this probe is about sets and altitude
+        u[19] = 0.5; // disc brightness: the recovered half colour
         u[20] = 0.3; // celestial direction
         u[21] = 0.4;
         u[22] = -0.5;
@@ -377,11 +378,11 @@ fn main() {
         u[28] = 0.2; // pass background the open band blends with
         u[29] = 0.3;
         u[30] = 0.4;
-        u[31] = 1.;
+        u[31] = 0.143; // the sun's own NDC half extent, as `update` writes it
         u[32] = 1.; // tint: no phase darkening here
         u[33] = 1.;
         u[34] = 1.;
-        u[35] = 1.; // retired disc-scale lane, kept so the layout stays fixed
+        u[35] = W as f32 / H as f32; // screen aspect for the flare chain
         u[36] = sets.0;
         u[37] = sets.1;
         u[38] = sets.2;

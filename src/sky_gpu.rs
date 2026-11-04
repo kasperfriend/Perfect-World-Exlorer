@@ -93,6 +93,12 @@ pub struct SkyFrame {
     /// regional light colour, so the single authored set darkens through dusk
     /// and night instead of swapping to a second texture set.
     pub tint: [f32; 3],
+    /// How strongly the two discs are drawn. `CECSunMoon::Render` packs each
+    /// disc's diffuse as `([+0x48] & 0xfefefe | 0x01010100) >> 1`, i.e. half the
+    /// object colour, so the recovered value is 127/255. Which record writes
+    /// `+0x48` is not recovered, so the World tab exposes it and this lane
+    /// carries whatever the tester settles on; 127/255 is the default.
+    pub disc_brightness: f32,
 }
 
 impl Default for SkyFrame {
@@ -105,6 +111,7 @@ impl Default for SkyFrame {
             background: [0.18, 0.32, 0.48],
             fog_enabled: false,
             tint: [1.0; 3],
+            disc_brightness: DISC_BRIGHTNESS,
         }
     }
 }
@@ -113,6 +120,7 @@ impl Default for SkyFrame {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniform {
     inv: [[f32; 4]; 4],
+    /// `x` hour, `y` night weight, `z` fog gate, `w` disc brightness.
     time: [f32; 4],
     celestial: [f32; 4],
     celestial2: [f32; 4],
@@ -210,12 +218,10 @@ const SHINE_HALF_HEIGHT:f32=20.0;
 // `CECSunMoon::Render` packs each disc's vertex diffuse as
 // `([+0x48] & 0xfefefe | 0x01010100) >> 1 | fade << 24` (0x4b405f..0x4b4080):
 // the object colour is halved, and the `| 0x01010100` floor only makes sense for
-// an opaque white, which is the only value that leaves the operation a pure
-// 0.5. The viewer multiplied by the texture alone, i.e. at twice the recovered
-// strength, which is what made the sun read as a white blob. Which record fills
-// `+0x48` is not recovered, so this is the recovered *operation* applied to the
-// white default, not a measured per-region tint.
-const HALFCOLOUR:f32=0.49803922;
+// an opaque white. The recovered operation is what `p.time.w` carries - the
+// World tab starts it at 127/255 - because the record that fills `+0x48` is not
+// recovered and the reviewer could see the difference.
+fn disc_brightness()->f32{return p.time.w;}
 
 // `CECSunMoon::Render` sun-shine strength (0x4b3dc1..0x4b3e22): zero until the
 // night strength passes 0.3, ramp to 1 at 0.6, hold to 0.8, then `(1-n)*5`.
@@ -347,7 +353,11 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,nigh
   if strength>0.0 {
    let suv=vec2<f32>(plane.x/(2.0*SHINE_HALF_WIDTH*swell),plane.y/(2.0*SHINE_HALF_HEIGHT*swell))+p.glow_center.xy;
    if suv.x>=0.0 && suv.x<=1.0 && suv.y>=0.0 && suv.y<=1.0 {
-    out=clamp(out+textureSampleLevel(skies,smp,suv,glow,0.).rgb*(alpha*strength),vec3<f32>(0.),vec3<f32>(1.));
+    // `0x4b3e22` multiplies the `+0x44` light colour by the factor before
+    // submission, so the strip is the region's own light colour, not white:
+    // `p.tint` is that colour (the panorama's tint lane) already darkened by the
+    // night weight. Without it the dusk strip was a white sheet.
+    out=clamp(out+textureSampleLevel(skies,smp,suv,glow,0.).rgb*(alpha*strength)*p.tint.rgb,vec3<f32>(0.),vec3<f32>(1.));
    }
   }
  } else {
@@ -364,46 +374,54 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,nigh
  let uv=plane/(2.0*half)+vec2<f32>(0.5);
  if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {return out;}
  let t=textureSampleLevel(skies,smp,uv,disc,0.);
- if is_sun {return clamp(out+t.rgb*HALFCOLOUR*alpha,vec3<f32>(0.),vec3<f32>(1.));}
- return mix(out,t.rgb*HALFCOLOUR,t.a*alpha);
+ // `sun.bmp` is a white radial disc, so a half-white core is still a white blob
+ // against the day sky. The client's diffuse is the object's own colour, and the
+ // only colour the object holds is light data (`+0x44` for the shine strip,
+ // `+0x48` for the disc); nothing in the read disassembly writes `+0x48`, so the
+ // viewer tints the sun with the region's light colour - the same lane the strip
+ // and the panorama use - and leaves the moon white, because the night light
+ // would all but extinguish it.
+ let tintmul=select(vec3<f32>(1.0),p.tint.rgb,is_sun);
+ if is_sun {return clamp(out+t.rgb*disc_brightness()*tintmul*alpha,vec3<f32>(0.),vec3<f32>(1.));}
+ return mix(out,t.rgb*disc_brightness(),t.a*alpha);
 }
 // The client's flare chain, in screen space.
 //
 // `CECSunMoon::Init` owns a flare stream (90 vertices, drawn as a strip at
 // `0x4b5b74`), a flare-alpha stream (68 vertices, 1604 indices) and the
-// `0x786840` accumulation target; `ps/solarflare_14` builds a sprite's coverage
-// from six flare-alpha samples at weight 0.4, saturates the sum and multiplies
-// it into the sprite colour, which is the object's own half colour below.
+// `0x786840` accumulation target; `ps/solarflare_14` sums six flare-alpha
+// samples at weight 0.4 and multiplies the saturated sum into the sprite colour.
 //
-// The stream that *places* those sprites is filled at run time from the sun's
-// screen position and a 54-point occlusion mask, and that fill
-// (`0x4b4290`-`0x4b5ef4`) is still not reduced, so the viewer cannot put a
-// sprite anywhere but where it is certain of the position: concentric with the
-// sun. It therefore draws the one sprite that reads as a flare from there — the
-// `flares.bmp` ring at twice the sun's own quad — and multiplies it by the
-// recovered six-sample coverage instead of inventing ghost positions along the
-// screen diagonal. The ring is the sprite that leaves the sun's own core alone:
-// its art is empty at the centre, unlike `sunflare.bmp`, which would add its
-// bright middle on top of the disc that is already there.
+// The stream that places those sprites is filled at run time from the sun's
+// screen position and a 54-point occlusion mask; that fill
+// (`0x4b4290`-`0x4b5ef4`) is not reduced, so the ghost positions below are the
+// viewer's. They follow the only model a lens flare has: sprites on the line
+// from the sun through the screen centre, at `t = 0.35 .. 2.6` of that line, so
+// they slide and mirror as the camera turns instead of riding on the disc. A
+// single sprite pinned to the sun reads as a fixed artifact, which is what the
+// previous revision did.
+//
 // Neither flare BMP has an alpha channel, so their own colour is the alpha the
-// client accumulates.
+// client accumulates, and the sprite colour is the object colour: the same half
+// colour and region light tint as the disc and the shine strip.
 fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32,flare:i32,ring:i32)->vec3<f32>{
  if weight<=0.0 || disc_half<=0.0 {return color;}
  let sun=p.glow_center.zw;
- let q=vec2<f32>((ndc.x-sun.x)*aspect,ndc.y-sun.y);
- // The recovered coverage: six flare-alpha samples, 0.4 each, saturated.
- var mask=0.0;
+ var out=color;
+ // Six samples at the recovered 0.4 weight, alternating the radial sprite and
+ // the ring; naga rejects a runtime index into an immutable local array, so both
+ // ladders are arithmetic.
  for(var i=0;i<6;i=i+1){
-  let sz=disc_half*(1.5+0.5*f32(i));
+  let t=0.35+0.45*f32(i);
+  let ghost=sun*(1.0-t);
+  let q=vec2<f32>((ndc.x-ghost.x)*aspect,ndc.y-ghost.y);
+  let sz=disc_half*(0.6+0.25*f32(i));
   let uv=q/(2.0*sz)+vec2<f32>(0.5);
   if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {continue;}
-  let t=select(textureSampleLevel(skies,smp,uv,flare,0.),textureSampleLevel(skies,smp,uv,ring,0.),i%2==1);
-  mask=mask+clamp(max(t.r,max(t.g,t.b)),0.0,1.0)*0.4;
+  let tex=select(textureSampleLevel(skies,smp,uv,flare,0.),textureSampleLevel(skies,smp,uv,ring,0.),i%2==1);
+  out=clamp(out+tex.rgb*(0.4*weight*disc_brightness())*p.tint.rgb,vec3<f32>(0.),vec3<f32>(1.));
  }
- let ruv=q/(2.0*(2.0*disc_half))+vec2<f32>(0.5);
- if ruv.x<0.0 || ruv.x>1.0 || ruv.y<0.0 || ruv.y>1.0 {return color;}
- let ringc=textureSampleLevel(skies,smp,ruv,ring,0.);
- return clamp(color+ringc.rgb*clamp(mask,0.0,1.0)*(weight*HALFCOLOUR),vec3<f32>(0.),vec3<f32>(1.));
+ return out;
 }
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
@@ -440,6 +458,10 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32
  return vec4<f32>(color,1.);
 }
 "#;
+
+/// The recovered disc brightness: `([+0x48] & 0xfefefe | 0x01010100) >> 1` on
+/// the object's white, i.e. 127/255.
+pub const DISC_BRIGHTNESS: f32 = 127.0 / 255.0;
 
 /// The vertical field of view `update` builds its projection with.
 pub(crate) const FOV_DEGREES: f32 = 70.;
@@ -865,7 +887,7 @@ impl SkyGpu {
                 frame.hour,
                 frame.night_weight,
                 if frame.fog_enabled { 1. } else { 0. },
-                0.,
+                frame.disc_brightness.clamp(0., 1.),
             ],
             // `.w` is the sun's flare weight, not the shine strength the
             // recovered ramp replaces.
