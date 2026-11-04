@@ -19,6 +19,7 @@ pub struct PreparedMesh<'a> {
     pub material: &'a skin::Material,
     pub color: u32,
     pub texture_paths: [String; 2],
+    pub diffuse_alpha_only: bool,
 }
 /// Validate the complete set before any GPU uploads. Missing/duplicate poses,
 /// changed topology and unsupported render overrides are errors, not permission
@@ -127,6 +128,7 @@ pub fn prepare<'a>(
             material,
             color,
             texture_paths,
+            diffuse_alpha_only: asset.diffuse_alpha_meshes.contains(&(pose.skin, pose.mesh)),
         });
     }
     Ok(result)
@@ -207,6 +209,17 @@ mod tests {
         );
         assert!(p[0].material.two_sided);
         assert_eq!(p[0].indices, [0, 1, 2]);
+    }
+    #[test]
+    fn native_equipment_alpha_mode_is_per_mesh() {
+        let (mut asset, poses) = fixture();
+        assert!(!prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);
+        asset.diffuse_alpha_meshes.insert((0, 0));
+        assert!(prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);
+        asset.diffuse_alpha_meshes.insert((1, 0));
+        assert!(prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);
+        asset.diffuse_alpha_meshes.remove(&(0, 0));
+        assert!(!prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);
     }
     #[test]
     fn hidden_native_skin_is_validated_but_not_submitted() {

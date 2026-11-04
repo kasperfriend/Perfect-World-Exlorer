@@ -38,6 +38,7 @@ impl Frame {
         self,
         material: &crate::skin::Material,
         original_color: u32,
+        diffuse_alpha_only: bool,
     ) -> Result<Params, String> {
         if self.alpha_compare > 8 || !self.vertex_fog.is_finite() {
             return Err("invalid model frame alpha comparison/vertex fog".into());
@@ -89,6 +90,7 @@ impl Frame {
                 self.alpha_compare as f32,
                 self.alpha_reference,
             ],
+            alpha: [if diffuse_alpha_only { 0. } else { 1. }, 0., 0., 0.],
         };
         if bytemuck::cast_slice::<Params, f32>(std::slice::from_ref(&p))
             .iter()
@@ -157,7 +159,7 @@ impl Draw {
         // Validate every frame/material before allocating or uploading anything.
         let params: Vec<_> = prepared
             .iter()
-            .map(|m| frame.params(m.material, m.color))
+            .map(|m| frame.params(m.material, m.color, m.diffuse_alpha_only))
             .collect::<Result<_, _>>()?;
         let mut textures: Vec<wgpu::Texture> = Vec::new();
         let mut cache: std::collections::HashMap<[String; 2], (usize, bool)> =
@@ -291,7 +293,7 @@ impl Draw {
         }
         let mut updates = Vec::with_capacity(prepared.len());
         for (index, m) in prepared.iter().enumerate() {
-            let params = frame.params(m.material, m.color)?;
+            let params = frame.params(m.material, m.color, m.diffuse_alpha_only)?;
             if let Some(gpu) = &self.meshes[index] {
                 if (m.skin, m.mesh) != gpu.key
                     || m.texture_paths != gpu.paths

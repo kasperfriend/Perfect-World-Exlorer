@@ -6,11 +6,10 @@ use super::{
 };
 use std::collections::HashMap;
 
-const MAX_SEARCH_RESULTS: usize = 8;
-
 #[derive(Default)]
 pub(crate) struct ControlState {
     searches: HashMap<String, String>,
+    open_picker: Option<String>,
 }
 
 pub(crate) fn show(
@@ -502,51 +501,84 @@ fn item_combo(
 ) -> bool {
     let mut changed = false;
     let key = label.clone();
-    egui::ComboBox::from_label(label)
-        .selected_text(selected)
-        .show_ui(ui, |ui| {
-            let query = {
-                let search = state.searches.entry(key).or_default();
-                ui.label("Search by name or ID");
-                ui.text_edit_singleline(search);
-                search.trim().to_lowercase()
-            };
-            if let Some((id, text)) = zero {
-                if ui.selectable_label(current == id, text).clicked() && current != id {
-                    set(id);
-                    changed = true;
+    let button = ui
+        .horizontal(|ui| {
+            ui.label(label);
+            ui.button(format!("{selected} ▾"))
+        })
+        .inner;
+    if button.clicked() {
+        state.open_picker = if state.open_picker.as_deref() == Some(key.as_str()) {
+            None
+        } else {
+            Some(key.clone())
+        };
+    }
+    if state.open_picker.as_deref() != Some(key.as_str()) {
+        return false;
+    }
+
+    // ComboBox closes its popup for every click outside the button, including
+    // clicks in its own TextEdit. Manage the foreground Area explicitly so
+    // entering search never destroys the list or its keyboard focus.
+    let popup_id = ui.make_persistent_id(("designer_item_picker", &key));
+    let mut close = ui.input(|input| input.key_pressed(egui::Key::Escape));
+    let popup = egui::Area::new(popup_id)
+        .order(egui::Order::Foreground)
+        .fixed_pos(button.rect.left_bottom())
+        .constrain(true)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.set_width(button.rect.width().clamp(280., 440.));
+                let query = {
+                    let search = state.searches.entry(key.clone()).or_default();
+                    ui.label("Browse all, or search by name or ID");
+                    ui.add(
+                        egui::TextEdit::singleline(search)
+                            .hint_text("Name or ID")
+                            .desired_width(f32::INFINITY),
+                    );
+                    search.trim().to_lowercase()
+                };
+                if let Some((id, text)) = zero {
+                    if ui.selectable_label(current == id, text).clicked() {
+                        if current != id {
+                            set(id);
+                            changed = true;
+                        }
+                        close = true;
+                    }
+                    ui.separator();
                 }
-                ui.separator();
-            }
-            if query.is_empty() {
-                ui.label(
-                    egui::RichText::new("Type to search; the full item list is not dumped here.")
-                        .small()
-                        .weak(),
-                );
-                return;
-            }
-            let mut matches = options(&query);
-            if matches.is_empty() {
-                ui.label("No matching items");
-                return;
-            }
-            let overflow = matches.len() > MAX_SEARCH_RESULTS;
-            matches.truncate(MAX_SEARCH_RESULTS);
-            for (id, text) in matches {
-                if ui.selectable_label(current == id, text).clicked() && current != id {
-                    set(id);
-                    changed = true;
-                }
-            }
-            if overflow {
-                ui.label(
-                    egui::RichText::new("More matches exist; refine the search.")
-                        .small()
-                        .weak(),
-                );
-            }
+                let matches = options(&query);
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false, true])
+                    .max_height(320.)
+                    .show(ui, |ui| {
+                        if matches.is_empty() {
+                            ui.label("No matching items");
+                        }
+                        for (id, text) in matches {
+                            if ui.selectable_label(current == id, text).clicked() {
+                                if current != id {
+                                    set(id);
+                                    changed = true;
+                                }
+                                close = true;
+                            }
+                        }
+                    });
+            });
         });
+    let clicked_outside = ui.ctx().input(|input| {
+        input.pointer.any_pressed()
+            && input.pointer.interact_pos().is_some_and(|position| {
+                !popup.response.rect.contains(position) && !button.rect.contains(position)
+            })
+    });
+    if close || clicked_outside {
+        state.open_picker = None;
+    }
     changed
 }
 
@@ -592,7 +624,6 @@ fn texture_combo(
                 .texture_options(class, gender, part)
                 .into_iter()
                 .filter(|item| item_matches(item.id, &item.name, query))
-                .take(MAX_SEARCH_RESULTS + 1)
                 .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
                 .collect()
         },
@@ -641,7 +672,6 @@ fn shape_combo(
                 .shape_options(class, gender, part)
                 .into_iter()
                 .filter(|item| item_matches(item.id, &item.name, query))
-                .take(MAX_SEARCH_RESULTS + 1)
                 .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
                 .collect()
         },
@@ -675,7 +705,6 @@ fn hair_combo(
                 .hair_options(class, gender)
                 .into_iter()
                 .filter(|item| item_matches(item.id, &item.name, query))
-                .take(MAX_SEARCH_RESULTS + 1)
                 .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
                 .collect()
         },
@@ -709,7 +738,6 @@ fn weapon_combo(
                 .iter()
                 .filter(|item| item.class_mask & class.bit() != 0)
                 .filter(|item| item_matches(item.id, &item.name, query))
-                .take(MAX_SEARCH_RESULTS + 1)
                 .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
                 .collect()
         },
@@ -745,7 +773,6 @@ fn armor_combo(
                 .iter()
                 .filter(|item| item.slot == slot && item.class_mask & class.bit() != 0)
                 .filter(|item| item_matches(item.id, &item.name, query))
-                .take(MAX_SEARCH_RESULTS + 1)
                 .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
                 .collect()
         },
@@ -783,7 +810,6 @@ fn fashion_combo(
                 .iter()
                 .filter(|item| item.slot == slot && item.gender == gender as u32)
                 .filter(|item| item_matches(item.id, &item.name, query))
-                .take(MAX_SEARCH_RESULTS + 1)
                 .map(|item| (item.id, format!("{} — {}", item.id, item.name)))
                 .collect()
         },
@@ -822,6 +848,7 @@ mod tests {
     fn item_search_matches_case_insensitive_names_ids_and_native_text() {
         assert!(item_matches(19, "☆Bronze Sword", "bronze"));
         assert!(item_matches(19, "☆Bronze Sword", "19"));
+        assert!(item_matches(19, "☆Bronze Sword", ""));
         assert!(item_matches(19, "青铜剑", "青铜"));
         assert!(!item_matches(19, "☆Bronze Sword", "axe"));
     }

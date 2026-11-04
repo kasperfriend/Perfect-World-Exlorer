@@ -34,6 +34,8 @@ pub struct Params {
     pub clip_plane: [f32; 4],
     /// Two sided, reverse front face, D3DCMPFUNC (0 disables), alpha reference.
     pub raster: [f32; 4],
+    /// x: base-texture alpha weight (0 for native armor/fashion, 1 otherwise).
+    pub alpha: [f32; 4],
 }
 pub struct Mesh {
     vertex: wgpu::Buffer,
@@ -293,7 +295,7 @@ pub const WGSL: &str = r#"
 struct Params {
  matrix:mat4x4<f32>,ambient:vec4<f32>,diffuse:vec4<f32>,point_ambient:vec4<f32>,point_diffuse:vec4<f32>,
  direction:vec4<f32>,point_position:vec4<f32>,attenuation:vec4<f32>,eye_direction:vec4<f32>,specular:vec4<f32>,lighting:vec4<f32>,
- fog_color:vec4<f32>,fog_range:vec4<f32>,clip_plane:vec4<f32>,raster:vec4<f32>
+ fog_color:vec4<f32>,fog_range:vec4<f32>,clip_plane:vec4<f32>,raster:vec4<f32>,alpha:vec4<f32>
 };
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var image:texture_2d<f32>;
@@ -314,7 +316,9 @@ struct Output {@builtin(position) position:vec4<f32>,@location(0) uv:vec2<f32>,@
  if p.raster.x<0.5 && front==(p.raster.y>0.5) {discard;}
  if dot(vec4<f32>(v.world,1.),p.clip_plane)<0. {discard;}
  let t=textureSample(image,image_sampler,v.uv);
- let alpha=clamp(t.a*v.diffuse.a,0.,1.);
+ // Native armor/fashion write v0.a. Other model shaders use base alpha as
+ // opacity too, so retain that path for body/face/hair/wings/world meshes.
+ let alpha=clamp(v.diffuse.a*mix(1.,t.a,p.alpha.x),0.,1.);
  let reference=p.raster.w;
  var alpha_pass=true;
  switch u32(p.raster.z) {

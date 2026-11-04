@@ -60,6 +60,11 @@ pub struct ModelAsset {
     /// Native per-skin visibility, notably the body head hidden by CECFace.
     /// Hidden meshes remain fully posed and validated but are not submitted.
     pub hidden_meshes: HashSet<(usize, usize)>,
+    /// Armor/fashion meshes whose native shader writes diffuse alpha directly.
+    /// Their base-texture alpha is data (armor uses it for specular), not an
+    /// opacity cutout. Ordinary body/face/hair/world meshes are absent and keep
+    /// the usual texture-alpha times diffuse-alpha behavior.
+    pub diffuse_alpha_meshes: HashSet<(usize, usize)>,
 }
 /// World matrix of a named skeleton hook for an evaluated pose (the native
 /// combination order is documented on `ModelAsset::hook_matrix`).
@@ -285,6 +290,7 @@ impl ModelAsset {
             texture_overrides: HashMap::new(),
             mesh_tints: HashMap::new(),
             hidden_meshes: HashSet::new(),
+            diffuse_alpha_meshes: HashSet::new(),
         })
     }
 
@@ -335,6 +341,7 @@ impl ModelAsset {
             texture_overrides: HashMap::new(),
             mesh_tints: HashMap::new(),
             hidden_meshes: HashSet::new(),
+            diffuse_alpha_meshes: HashSet::new(),
         })
     }
 

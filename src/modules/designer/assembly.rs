@@ -124,9 +124,18 @@ impl Character {
         let head_mesh_count = head_skin.data.meshes.len();
         let mut body_skins = vec![load_skin(assets, &body_skin_path)?, head_skin];
         let mut body_skin_paths = vec![body_skin_path, head_skin_path];
+        let mut diffuse_alpha_meshes = std::collections::HashSet::new();
         for part in &equipment {
             match load_skin(assets, &part.path) {
                 Ok(skin) if part.visible => {
+                    let skin_index = body_skins.len();
+                    // Native armor/fashion pixel shaders output v0.a directly.
+                    // In particular, armor's base alpha is a specular input,
+                    // not opacity; using it in the alpha test cuts away most
+                    // legacy starter equipment and exposes/seams the body.
+                    diffuse_alpha_meshes.extend(
+                        (0..skin.data.meshes.len()).map(|mesh| (skin_index, mesh)),
+                    );
                     body_skin_paths.push(part.path.clone());
                     body_skins.push(skin);
                 }
@@ -146,6 +155,7 @@ impl Character {
         body.texture_overrides = HashMap::new();
         body.mesh_tints = HashMap::new();
         body.hidden_meshes = (0..head_mesh_count).map(|mesh| (1, mesh)).collect();
+        body.diffuse_alpha_meshes = diffuse_alpha_meshes;
         if let Some(base) = body.skins.first_mut() {
             // CECPlayer::LoadBodySkin's default body material override.
             for material in &mut base.data.materials {

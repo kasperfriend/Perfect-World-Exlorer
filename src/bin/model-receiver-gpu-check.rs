@@ -150,6 +150,7 @@ fn main() {
                         fog_range: [0.; 4],
                         clip_plane: [0.; 4],
                         raster: [1., 0., 0., 0.],
+                        alpha: [1., 0., 0., 0.],
                     };
                     let vertices: Vec<_> = positions
                         .iter()
@@ -163,8 +164,19 @@ fn main() {
                     let mesh = Mesh::new(&device, &vertices, &[0, 1, 2, 2, 1, 3]).unwrap();
                     assert!(mesh.update(&queue, &vertices[..3]).is_err());
                     let binding = receiver.binding(&device, &view, &sampler, &params).unwrap();
-                    for reject in 0..14 {
+                    // Exercise every rejection mode for ordinary meshes and one
+                    // additional native equipment-alpha case for each light.
+                    for reject in 0..15 {
+                        let diffuse_alpha_only = reject == 14;
+                        let reject = if diffuse_alpha_only { 0 } else { reject };
                         let mut p = params;
+                        if diffuse_alpha_only {
+                            p.alpha[0] = 0.;
+                            // Diffuse alpha passes for every case. Multiplying
+                            // the 128/255 texel alpha would reject the dimmest.
+                            p.raster[2] = 5.;
+                            p.raster[3] = 0.15;
+                        }
                         if reject == 1 {
                             p.clip_plane = [0., 0., 0., -1.];
                         }
@@ -230,7 +242,12 @@ fn main() {
                         device.poll(wgpu::Maintain::Wait);
                         rx.recv().unwrap().unwrap();
                         let bytes = slice.get_mapped_range();
-                        let opacity = (primary[3] * texel[3] as f32 / 255.).clamp(0., 1.);
+                        let texture_alpha = if diffuse_alpha_only {
+                            1.
+                        } else {
+                            texel[3] as f32 / 255.
+                        };
+                        let opacity = (primary[3] * texture_alpha).clamp(0., 1.);
                         for c in 0..4 {
                             let src = if c == 3 {
                                 opacity
