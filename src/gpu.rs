@@ -2080,12 +2080,12 @@ impl Renderer {
             sky_light[1] * shade,
             sky_light[2] * shade,
         ];
-        // `0x7995e0` rates are per sky tick; one tick is 1/30 s, so the same
-        // angle per second is `rate / 30 * 30` = rate. Accumulating on the logic
-        // delta keeps that rate at any frame rate instead of at 30 Hz only.
-        let sky_tick = (camera.logic_delta_ms.max(0) as f32 / 1000.)
-            / crate::sky_gpu::SKY_ROTATION_TICK_SECONDS;
-        let sky_step = crate::sky_gpu::SKY_ROTATION_RATE * sky_tick;
+        // `0x79a0e0` adds `rate * (1/30)` to each accumulator per call
+        // (`0x79a14b`, `0x79a247`, `0x79a25e`), so at the client's 30 Hz that is
+        // `rate` per second. Advancing by `rate * seconds` gives exactly that at
+        // 30 Hz and a smooth equivalent at any other frame rate.
+        let sky_step = crate::sky_gpu::SKY_ROTATION_RATE
+            * (camera.logic_delta_ms.max(0) as f32 / 1000.);
         self.sky_rotation[0] += sky_step;
         self.sky_rotation[1] += sky_step;
         let frame = crate::sky_gpu::SkyFrame {

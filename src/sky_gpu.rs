@@ -291,19 +291,19 @@ fn curtain_alpha(y:f32)->f32{
  if y<=19.6350002 {return 1.0;}
  return (39.2700005-y)/19.6350002;
 }
-// The sky sphere's own rotation. `A3DSkySphere` carries a rotation descriptor
-// at `+0x4cc` (constructor `0x7995e0`: scale 8.0, rates x = y = 0.018, z = 0,
-// three angle accumulators); `0x79a040` ticks it and `0x79a0e0` rebuilds the cap
-// and curtain world matrices from the two angles every tick, which is the slow
-// drift a tester described as the sky flowing. A uniform scale cannot change a
-// direction, so a ray projector only needs the rotation undone: the world ray
-// `d` meets the sphere's local direction `Rx(-ax) * Ry(-ay) * d`.
-fn sky_local(d:vec3<f32>)->vec3<f32>{
- let ax=p.skyrot.x;let ay=p.skyrot.y;
- if ax==0.0 && ay==0.0 {return d;}
- let ca=cos(ax);let sa=sin(ax);let cb=cos(ay);let sb=sin(ay);
- let y=vec3<f32>(cb*d.x-sb*d.z,d.y,sb*d.x+cb*d.z);
- return vec3<f32>(y.x,ca*y.y+sa*y.z,-sa*y.y+ca*y.z);
+// The sky's own slow drift. `A3DSkySphere` builds a 3x3 from its accumulated
+// angles every tick (`0x79a0e0` -> `0x789f20`, whose two extra `0.5` arguments
+// put the transform's origin at the texture centre) and hands it to the device
+// as the stage-0 texture matrix (`0x779da0(0, &+0x504)` in `A3DSky::Render`, and
+// the same in `A3DSkySphere::Render` for the surround). It is therefore a UV
+// transform, not a camera rotation - the panorama drifts under a fixed sky.
+//
+// The accumulators are unbounded (`+0x10` grows by `+0x04 * 1/30` every tick,
+// forever, with no wrap in `0x79a0e0`), which only makes sense for an offset
+// that is sampled with wrap addressing, and that is what a tester describes as
+// the sky "flowing". The two angles are used as the two UV offsets.
+fn drift_uv(uv:vec2<f32>)->vec2<f32>{
+ return uv+vec2<f32>(p.skyrot.y,p.skyrot.x);
 }
 fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let tn=clamp(tint,vec3<f32>(0.0),vec3<f32>(1.0));
@@ -316,7 +316,7 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  // cap's own rim texel, so the two surfaces are pixel-continuous there, and
  // because the radius is one smooth function of the direction it can neither
  // hold a single circle (radial streaks) nor bleed a border pixel along a ring.
- let roof=textureSampleLevel(skies,smpw,vec2<f32>(0.5)+d.xz*1.66275358,base+2,0.).rgb*tn;
+ let roof=textureSampleLevel(skies,smpw,drift_uv(vec2<f32>(0.5)+d.xz*1.66275358),base+2,0.).rgb*tn;
  if d.y*50.0>=47.685848 || y>39.2700005 {
   return vec4<f32>(roof,1.0);
  }
@@ -335,8 +335,8 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let ub=clamp(1.0-2.0*az/3.14159265,0.0,1.0);
  let vf=curtain_v(sy,true);
  let vb=curtain_v(sy,false);
- let uv_own=vec2<f32>(select(ub,uf,owns_front),select(vb,vf,owns_front));
- let uv_other=vec2<f32>(select(uf,ub,owns_front),select(vf,vb,owns_front));
+ let uv_own=drift_uv(vec2<f32>(select(ub,uf,owns_front),select(vb,vf,owns_front)));
+ let uv_other=drift_uv(vec2<f32>(select(uf,ub,owns_front),select(vf,vb,owns_front)));
  let a0=textureSampleLevel(skies,smp,uv_own,base,0.);
  let a1=textureSampleLevel(skies,smp,uv_own,base+1,0.);
  let b0=textureSampleLevel(skies,smp,uv_other,base,0.);
@@ -462,12 +462,11 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32
  let base=i32(clamp(p.sets.x,0.,2.))*3;
  let incoming=i32(clamp(p.sets.y,0.,2.))*3;
  let swap=clamp(p.sets.z,0.,1.);
- // The sky sphere turns; the sun, moon and flare do not (they are separate
- // objects in the client), so only the texture lookup undoes the rotation.
- let sd=sky_local(d);
- var sky=sample_sky(sd,base,p.background.rgb,p.tint.rgb);
+ // The sky drifts; the sun, moon and flare do not (their draws set a texture
+ // matrix of their own), so the drift lives inside the sky sampling.
+ var sky=sample_sky(d,base,p.background.rgb,p.tint.rgb);
  if swap>0. && incoming!=base {
-  let other=sample_sky(sd,incoming,p.background.rgb,p.tint.rgb);
+  let other=sample_sky(d,incoming,p.background.rgb,p.tint.rgb);
   sky=vec4<f32>(mix(sky.rgb,other.rgb,swap),mix(sky.a,other.a,swap));
  }
  var color=mix(p.background.rgb,sky.rgb,clamp(sky.a,0.,1.));
@@ -498,18 +497,15 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32
 /// tab's Star brightness slider still reaches the recovered 127/255.
 pub const DISC_BRIGHTNESS: f32 = 1.0;
 
-/// The recovered sky-sphere rotation rate, radians per sky tick.
+/// The recovered sky-sphere rotation rate, radians per second.
 ///
 /// `A3DSkySphere`'s rotation descriptor (`0x7995e0`, the object at `+0x4cc`)
-/// initialises both the X and the Y rate to `0.018` and the Z rate to zero, and
-/// `0x79a0e0` advances the accumulators by `rate * (1/30)` per tick. The viewer
-/// reproduces that as `rate * seconds` using [`SKY_ROTATION_TICK_SECONDS`], so a
-/// 30 Hz client and the viewer turn the same amount per frame.
+/// initialises both the X and the Y rate to `0.018`, the Z rate to zero and all
+/// three accumulators to zero. `0x79a0e0` adds `rate * 0.0333333` to each
+/// accumulator per call - `0x79a14b` for Z, `0x79a247` for X and `0x79a25e` for
+/// Y - so at the client's 30 Hz the sky turns 0.018 rad (about a degree) a
+/// second, which is the slow drift a tester described as the sky flowing.
 pub const SKY_ROTATION_RATE: f32 = 0.018;
-
-/// The client's fixed tick divisor for the sky rotation (`1/30` at `0x79a14b`
-/// and `0x79a247`).
-pub const SKY_ROTATION_TICK_SECONDS: f32 = 1. / 30.;
 
 /// The vertical field of view `update` builds its projection with.
 pub(crate) const FOV_DEGREES: f32 = 70.;
@@ -745,11 +741,15 @@ impl SkyGpu {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
         });
+        // The client gives stage 0 a texture matrix (`0x779da0(0, &+0x504)` in
+        // both sky draws) that keeps moving, so its sky textures are sampled with
+        // wrap addressing; clamping here would freeze a smeared border strip
+        // wherever the drift pushed the lookup past one tile.
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("sky panorama sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()

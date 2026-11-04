@@ -557,13 +557,27 @@ the sky sphere, the config archives and all 68 `textures/sky` folders.
 | `+0x0c` rate Z | `0.0` |
 | `+0x10`..`+0x18` | angle accumulators X, Y, Z, all starting at 0 |
 
-`0x79a040` ticks the sphere (`+0x4cc` -> `+0x504`, `+0x4e8` -> `+0x544`), and
-`0x79a0e0` does the work: `angle += rate * (1/30)` (`0x8f14bc` = 0.0333333) per
-tick, then `0x789ec0` (the Z rate, skipped while it is zero) and `0x789f20`
-build a 3x3 from the two angles, which becomes the cap's and the curtain's world
-matrix. A uniform scale cannot change a direction, so in a ray projector the
-whole effect is `Rx(-ax) * Ry(-ay) * d` on the texture lookup - the sky drifts,
-while the sun, moon and flare stay where `CECSunMoon` puts them.
+`0x79a040` ticks the sphere twice (`+0x4cc` -> `+0x504`, `+0x4e8` -> `+0x544`,
+the second one the mirrored copy), and `0x79a0e0` does the work: `+0x10` grows
+by `+0x04 * 0.0333333` and `+0x14` by `+0x08 * 0.0333333` (`0x79a14b`,
+`0x79a247`, `0x79a25e`), i.e. `rate * (1/30)` per call, then `0x789ec0` (the Z
+rate, skipped while it is zero) and `0x789f20` build a 3x3 from the two angles,
+multiply it (`0x787170`) and scale it by `[+0x00]` when that is not `1.0`.
+
+The 3x3 is **not** a camera or world rotation. Both draws hand it to
+`0x779da0(0, matrix)` - the stage-0 **texture matrix** - while the object's own
+world matrix comes from the 16 dwords at `+0x14` (`0x779ca0`). So the sky art
+drifts *under* a fixed sky, which is what a tester means by "flows", and the
+accumulators are deliberately unbounded because an offset sampled with wrap
+addressing has nothing to wrap. That also fits the two `0.5` arguments
+`0x789f20`/`0x789ec0` receive: the transform's origin is the texture centre.
+
+The viewer therefore applies `uv += (angleY, angleX)` in `drift_uv()` and
+samples both sky textures with wrap addressing. The rates, the 30 Hz divisor and
+the per-tick accumulation are the client's; the reading of the 3x3 as a
+translation rather than a rotation is the one interpretation that matches the
+observed motion, and `0x787240` (the builder behind `0x789f20`) is the next dump
+if the direction or gain still looks wrong.
 
 The dumps settle the composition as well. `0x789f20(out, ax, ay)` builds a
 two-angle matrix (`0x787240`) and multiplies it (`0x787170`); `0x789ec0` is the
