@@ -103,3 +103,72 @@ fn main() {
     eprintln!("audio-corpus-check requires Windows and the viewer's rodio backend");
     std::process::exit(1);
 }
+
+#[cfg(all(test, windows))]
+mod tests {
+    use rodio::{Decoder, Source};
+    use std::io::Cursor;
+
+    fn wave(format: u16, rate: u32, channels: u16) -> Vec<u8> {
+        let bits = if format == 3 { 32u16 } else { 16u16 };
+        let samples = 64 * channels as u32;
+        let data_len = samples * u32::from(bits / 8);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&format.to_le_bytes());
+        bytes.extend_from_slice(&channels.to_le_bytes());
+        bytes.extend_from_slice(&rate.to_le_bytes());
+        let align = channels * bits / 8;
+        bytes.extend_from_slice(&(rate * u32::from(align)).to_le_bytes());
+        bytes.extend_from_slice(&align.to_le_bytes());
+        bytes.extend_from_slice(&bits.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        for i in 0..samples {
+            if format == 3 {
+                bytes.extend_from_slice(&(if i % 2 == 0 { 0.5f32 } else { -0.5 }).to_le_bytes());
+            } else {
+                bytes
+                    .extend_from_slice(&(if i % 2 == 0 { 12000i16 } else { -12000 }).to_le_bytes());
+            }
+        }
+        bytes
+    }
+
+    #[test]
+    fn decodes_pcm_and_float_wav_specs_seen_in_client() {
+        for (format, rate, channels) in [
+            (1, 22050, 1),
+            (1, 44100, 1),
+            (1, 48000, 1),
+            (1, 22050, 2),
+            (3, 22050, 1),
+        ] {
+            let decoder = Decoder::new(Cursor::new(wave(format, rate, channels))).unwrap();
+            assert_eq!(decoder.sample_rate(), rate);
+            assert_eq!(decoder.channels(), channels);
+            let decoded: Vec<_> = decoder.collect();
+            assert_eq!(decoded.len(), 64 * channels as usize);
+            assert!(decoded.iter().any(|&v| v > 0));
+            assert!(decoded.iter().any(|&v| v < 0));
+        }
+    }
+
+    #[test]
+    fn decodes_generated_mp3_and_vorbis_fixtures() {
+        for bytes in [
+            &include_bytes!("../../tools/fixtures/audio/tone.mp3")[..],
+            &include_bytes!("../../tools/fixtures/audio/tone.ogg")[..],
+        ] {
+            let decoder = Decoder::new(Cursor::new(bytes.to_vec())).unwrap();
+            assert_eq!(decoder.sample_rate(), 22050);
+            assert_eq!(decoder.channels(), 1);
+            let samples: Vec<_> = decoder.collect();
+            assert!(!samples.is_empty());
+            assert!(samples.iter().any(|&v| v != 0));
+        }
+    }
+}
