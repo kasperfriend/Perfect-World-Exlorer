@@ -13,6 +13,7 @@ pub fn fixture() -> (ModelAsset, Vec<PosedMesh>) {
             default_speed: None,
             actions: vec![],
             events: vec![],
+            additional_skins: vec![],
         },
         model: crate::ecmodel::SkinModel {
             version: 9,

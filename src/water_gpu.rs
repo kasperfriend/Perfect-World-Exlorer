@@ -141,7 +141,16 @@ fn surface_fog(c:vec3<f32>, depth:f32)->vec3<f32>{
  // water plane and the current regional underwater fog end (0x7ca8d0).
  let fog_end=max(w.animation.y,0.000001);
  let min_reflect=clamp(0.23*(w.eye_time.y-i.world.y)/fog_end,0.11,0.23);
- let fresnel=min_reflect+(1.0-min_reflect)*pow(1.0-facing,5.0);
+ // water_expensive.txt: the quintic is `(1-cos)^5`, taken from `1-r1.a` where
+ // r1.a is the saturating dp3_x2 of the packed eye vector and the bias normal.
+ // The lerp weight is `lrp r0.a, r0.a, c2.a, c0.a`, i.e. with c2.a = 1.0 and
+ // c0.a = the program's minimum reflect alpha:
+ //     weight = c0.a + (1 - c0.a) * quintic
+ // The simple and cheap variants instead use their own literal `c1.a` (0.8 and
+ // 0.6) as that identity term, so this camera-derived value is the expensive
+ // path only.
+ let quintic=pow(1.0-facing,5.0);
+ let fresnel=clamp(min_reflect+(1.0-min_reflect)*quintic,0.0,1.0);
  // The paired water_vs shader writes a zero secondary diffuse/specular color.
  let color=mix(refract_color*0.95,reflect_color,fresnel);
  let background=textureSample(scene_color,screen_sampler,screen).rgb;
