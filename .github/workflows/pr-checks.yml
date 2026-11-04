@@ -147,6 +147,9 @@ jobs:
           # proves camera altitude cannot move a sky ray, and proves every view
           # reuses one snapshot without advancing the transition.
           run_check phase5-sky-transition-gpu-check
+          # Validate both newly integrated P5 weather shaders on lavapipe. They
+          # are otherwise only created when a user loads a client world.
+          run_check phase5-weather-cloud-shader-check
           run_check terrain-refraction-gpu-check
           run_check water-fog-gpu-check
           # Near/far LOD continuity: runs both real terrain vertex entry points

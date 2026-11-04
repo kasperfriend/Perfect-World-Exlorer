@@ -54,21 +54,22 @@ fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
     return select(c / 12.92, pow((c + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4)), c > vec3<f32>(0.04045));
 }
 @vertex fn vs(@builtin(vertex_index) v: u32, @builtin(instance_index) n: u32) -> VOut {
-    let corners = array<vec2<f32>, 6>(
-        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(-1.0, 1.0),
-        vec2<f32>(-1.0, 1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0));
-    let uvs = array<vec2<f32>, 6>(
-        vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 0.0),
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0));
+    // The generated quad consists of six triangle-list vertices. Compute the
+    // corners from the vertex ID instead of indexing an immutable local WGSL
+    // array: naga 0.19 correctly rejects non-constant indexing of that value.
+    let right = v == 1u || v == 4u || v == 5u;
+    let top = v >= 2u;
+    let corner = vec2<f32>(select(-1.0, 1.0, right), select(-1.0, 1.0, top));
+    let uv_top = v == 0u || v == 1u || v == 4u;
+    let quad_uv = vec2<f32>(select(0.0, 1.0, right), select(0.0, 1.0, uv_top));
     let c = clouds[n];
-    let corner = corners[v];
     let world = c.center_width.xyz
         + p.right.xyz * (corner.x * c.center_width.w)
         + p.up.xyz * (corner.y * c.height_night.x);
     let clip = p.matrix * vec4<f32>(world, 1.0);
     var o: VOut;
     o.position = clip;
-    o.uv = mix(c.atlas_uv.xy, c.atlas_uv.zw, uvs[v]);
+    o.uv = mix(c.atlas_uv.xy, c.atlas_uv.zw, quad_uv);
     o.tint = srgb_to_linear(mix(c.height_night.yzw, c.day_color.xyz, p.scene.x));
     o.view_depth = clip.w;
     o.world_y = world.y;

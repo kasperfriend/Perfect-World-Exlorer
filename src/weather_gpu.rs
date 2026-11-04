@@ -123,13 +123,14 @@ fn camera_in_mapped_water(camera: vec3<f32>) -> bool {
     // Native CECWorld render admission tests the camera against the terrain
     // water mask and skips precipitation for a submerged view.
     let visible = enabled > 0.5 && !camera_in_mapped_water(p.camera.xyz);
-    let corners = array<vec2<f32>, 6>(
-        vec2<f32>(-1.0, -1.0), vec2<f32>(1.0, -1.0), vec2<f32>(-1.0, 1.0),
-        vec2<f32>(-1.0, 1.0), vec2<f32>(1.0, -1.0), vec2<f32>(1.0, 1.0));
-    let uvs = array<vec2<f32>, 6>(
-        vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0), vec2<f32>(0.0, 0.0),
-        vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0), vec2<f32>(1.0, 0.0));
-    let corner = corners[vertex];
+    // The generated quad consists of six triangle-list vertices. Compute the
+    // corners from the vertex ID instead of indexing an immutable local WGSL
+    // array: naga 0.19 correctly rejects non-constant indexing of that value.
+    let right = vertex == 1u || vertex == 4u || vertex == 5u;
+    let top = vertex >= 2u;
+    let corner = vec2<f32>(select(-1.0, 1.0, right), select(-1.0, 1.0, top));
+    let uv_top = vertex == 0u || vertex == 1u || vertex == 4u;
+    let uv = vec2<f32>(select(0.0, 1.0, right), select(0.0, 1.0, uv_top));
     let half_width = select(0.035, 0.12, snow);
     let half_height = select(1.1 + hash(seed + 17.0) * 1.3, 0.12, snow);
     let vertical = select(vec3<f32>(0.0, corner.y * half_height, 0.0), p.up.xyz * (corner.y * half_height), snow);
@@ -137,7 +138,7 @@ fn camera_in_mapped_water(camera: vec3<f32>) -> bool {
     let clip = p.matrix * vec4<f32>(world, 1.0);
     var o: Out;
     o.position = select(clip, vec4<f32>(2.0, 2.0, 2.0, 1.0), !visible);
-    o.uv = uvs[vertex];
+    o.uv = uv;
     o.color = select(vec3<f32>(0.66, 0.78, 0.91), vec3<f32>(0.91, 0.95, 1.0), snow);
     o.kind = kind;
     o.view_depth = clip.w;
