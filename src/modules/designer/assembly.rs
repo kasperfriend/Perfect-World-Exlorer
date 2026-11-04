@@ -478,6 +478,24 @@ impl Character {
                 load_skin(assets, &skin_path)
                     .map_err(|error| format!("mount {} skin ({skin_path}): {error}", item.id))?,
             );
+            let mut invalid_vertices = 0;
+            let mut discarded_triangles = 0;
+            for skin in &asset.skins {
+                for mesh in &skin.data.meshes {
+                    invalid_vertices += mesh
+                        .vertices
+                        .iter()
+                        .filter(|vertex| model_asset::has_nonfinite_weights(vertex))
+                        .count();
+                    discarded_triangles += model_asset::nonfinite_weight_triangle_count(mesh);
+                }
+            }
+            if invalid_vertices != 0 {
+                warnings.push(format!(
+                    "mount {} ({}) has {invalid_vertices} non-finite weighted vertices in {skin_path}; source weights are preserved and {discarded_triangles} referenced triangles are not submitted",
+                    item.id, item.name
+                ));
+            }
             apply_armor_reflect_shader(&mut asset);
             Some(MountModel {
                 asset,

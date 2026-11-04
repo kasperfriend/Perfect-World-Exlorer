@@ -113,6 +113,39 @@ pub struct PosedMesh {
     pub mesh: usize,
     pub vertices: Vec<skin_pose::PosedVertex>,
 }
+
+pub fn has_nonfinite_weights(vertex: &skin::Vertex) -> bool {
+    vertex.weights.iter().any(|weight| !weight.is_finite())
+}
+
+/// Triangles made non-finite by an authored bad weight cannot be rasterized by
+/// the native client either. Return the unchanged-finite subset, or `None`
+/// when no recovery is needed. The source mesh and its weights are never
+/// rewritten, and no replacement bind pose/weights are invented.
+pub fn indices_without_nonfinite_weights(mesh: &skin::Mesh) -> Option<Vec<u16>> {
+    if !mesh.vertices.iter().any(has_nonfinite_weights) {
+        return None;
+    }
+    let invalid = mesh
+        .vertices
+        .iter()
+        .map(has_nonfinite_weights)
+        .collect::<Vec<_>>();
+    let mut indices = Vec::with_capacity(mesh.indices.len());
+    for triangle in mesh.indices.chunks_exact(3) {
+        if triangle.iter().all(|&index| !invalid[index as usize]) {
+            indices.extend_from_slice(triangle);
+        }
+    }
+    Some(indices)
+}
+
+pub fn nonfinite_weight_triangle_count(mesh: &skin::Mesh) -> usize {
+    indices_without_nonfinite_weights(mesh)
+        .map(|indices| (mesh.indices.len() - indices.len()) / 3)
+        .unwrap_or(0)
+}
+
 /// Strip one trailing `amd` segment from the *directory* of a path.
 ///
 /// The retail pack ships skin-less duplicate folders where only the leaf
@@ -449,6 +482,15 @@ impl ModelAsset {
                 for v in &data.vertices {
                     vertices.push(if let Some(matrix) = rigid {
                         skin_pose::deform_rigid(v.position, v.normal, matrix)?
+                    } else if has_nonfinite_weights(v) {
+                        // This vertex is not referenced by the retained draw
+                        // indices. Keep a finite upload tombstone without
+                        // altering its authentic source weights or inventing a
+                        // replacement deformation for the discarded triangle.
+                        skin_pose::PosedVertex {
+                            position: [0.0; 3],
+                            normal: [0.0; 3],
+                        }
                     } else {
                         skin_pose::deform(
                             v.position,

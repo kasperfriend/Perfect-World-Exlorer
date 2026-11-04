@@ -179,10 +179,18 @@ struct MountActionSet {
 }
 
 impl MountActionSet {
-    fn new(actions: &[ecmodel::Action]) -> Self {
+    fn new(combined: &[ecmodel::CombinedAction], actions: &[ecmodel::Action]) -> Self {
+        // CECNPC's base run/walk names are resolved by CECModel through the
+        // combined-action namespace first. Several Ride pets only have
+        // 快速移动 there, with a direct base clip named 奔跑. Keep the existing
+        // single-base restriction, then fall back to the literal direct clip
+        // for multi-base standing variations rather than dropping animation.
+        let resolve = |name| {
+            find_action(combined, actions, &[name]).or_else(|| find_action(&[], actions, &[name]))
+        };
         Self {
-            stand: find_action(&[], actions, &["站立"]),
-            run: find_action(&[], actions, &["快速移动"]),
+            stand: resolve("站立"),
+            run: resolve("快速移动"),
         }
     }
 }
@@ -522,7 +530,8 @@ impl Character {
             (FlightActionSet::default(), None)
         };
         let (mount_actions, mount_player) = if let Some(model) = &assembly.mount {
-            let actions = MountActionSet::new(&model.asset.model.actions);
+            let actions =
+                MountActionSet::new(&model.asset.descriptor.actions, &model.asset.model.actions);
             if actions.stand.is_none() || actions.run.is_none() {
                 travel_warnings.push(
                     "Ride pet is missing 站立 or 快速移动; the missing state uses its bind pose."
@@ -990,6 +999,195 @@ mod tests {
         assert_eq!(
             character.mount_player.as_ref().unwrap().action,
             character.mount_actions.run
+        );
+        let before = character
+            .posed
+            .meshes
+            .mount
+            .iter()
+            .flat_map(|mesh| &mesh.vertices)
+            .map(|vertex| vertex.position)
+            .collect::<Vec<_>>();
+        for _ in 0..6 {
+            character
+                .update(
+                    1.0 / 60.0,
+                    &body,
+                    Vec3::NEG_Z,
+                    TravelState::Mounted,
+                    false,
+                    0.0,
+                )
+                .unwrap();
+        }
+        let after = character
+            .posed
+            .meshes
+            .mount
+            .iter()
+            .flat_map(|mesh| &mesh.vertices)
+            .map(|vertex| vertex.position)
+            .collect::<Vec<_>>();
+        assert_eq!(before.len(), after.len());
+        assert!(
+            before
+                .iter()
+                .zip(&after)
+                .any(|(before, after)| before != after),
+            "the selected mount run clip did not deform any vertex"
+        );
+    }
+
+    #[test]
+    fn ancient_boa_resolves_combined_run_and_uses_native_pet_shader() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let mut design = starter_design(&mut assets, Class::Blademaster, Gender::Male).unwrap();
+        design.equipment.mount = 18304;
+        let mut character = Character::load(&mut assets, design, Mat4::IDENTITY).unwrap();
+        let mount = character.assembly.mount.as_ref().unwrap();
+        assert_eq!(
+            mount.asset.skins[0].path,
+            "models/npcs/宠物/骑宠/坐骑蛇/坐骑蛇.ski"
+        );
+        for mesh in 0..mount.asset.skins[0].data.meshes.len() {
+            assert!(mount.asset.diffuse_alpha_meshes.contains(&(0, mesh)));
+        }
+        let run = character
+            .mount_actions
+            .run
+            .expect("Ancient Boa combined run");
+        assert_eq!(mount.asset.model.actions[run].name, "奔跑");
+
+        let mut body = Body::new(Vec3::ZERO);
+        body.moving = true;
+        character
+            .update(
+                1.0 / 60.0,
+                &body,
+                Vec3::NEG_Z,
+                TravelState::Mounted,
+                false,
+                0.0,
+            )
+            .unwrap();
+        let before = character
+            .posed
+            .meshes
+            .mount
+            .iter()
+            .flat_map(|mesh| &mesh.vertices)
+            .map(|vertex| vertex.position)
+            .collect::<Vec<_>>();
+        for _ in 0..6 {
+            character
+                .update(
+                    1.0 / 60.0,
+                    &body,
+                    Vec3::NEG_Z,
+                    TravelState::Mounted,
+                    false,
+                    0.0,
+                )
+                .unwrap();
+        }
+        let after = character
+            .posed
+            .meshes
+            .mount
+            .iter()
+            .flat_map(|mesh| &mesh.vertices)
+            .map(|vertex| vertex.position)
+            .collect::<Vec<_>>();
+        assert!(
+            before.iter().zip(&after).any(|(a, b)| a != b),
+            "Ancient Boa's combined 快速移动 -> 奔跑 clip did not deform vertices"
+        );
+    }
+
+    #[test]
+    fn every_authentic_ride_model_has_native_skin_and_locomotion() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let mounts = assets.catalog.mounts.clone();
+        let mut seen = std::collections::HashSet::new();
+        let mut checked = 0;
+        let mut lobster_checked = false;
+        let mut failures = Vec::new();
+        for item in mounts {
+            if !item.has_loadable_model() || !seen.insert(item.model.clone()) {
+                continue;
+            }
+            let mut design = starter_design(&mut assets, Class::Blademaster, Gender::Male).unwrap();
+            design.equipment.mount = item.id;
+            match Character::load(&mut assets, design, Mat4::IDENTITY) {
+                Ok(character) => {
+                    let mount = character.assembly.mount.as_ref().unwrap();
+                    let expected = ecmodel::normalize(&item.model)
+                        .rsplit_once('.')
+                        .map(|(stem, _)| format!("{stem}.ski"))
+                        .unwrap();
+                    if mount.asset.skins.len() != 1 || mount.asset.skins[0].path != expected {
+                        failures.push(format!("{}: wrong native pet skin", item.id));
+                    }
+                    if character.mount_actions.run.is_none() {
+                        failures.push(format!("{}: unresolved combined run", item.id));
+                    }
+                    for (skin_index, skin) in mount.asset.skins.iter().enumerate() {
+                        for mesh in 0..skin.data.meshes.len() {
+                            if !mount
+                                .asset
+                                .diffuse_alpha_meshes
+                                .contains(&(skin_index, mesh))
+                            {
+                                failures.push(format!("{}: ordinary alpha on pet mesh", item.id));
+                            }
+                        }
+                    }
+                    if item.id == 24767 {
+                        // Grand Lobster has three authentic NaN weights on
+                        // mesh-0 vertex 738. They must remain visible in the
+                        // source record; recovery is triangle submission only.
+                        lobster_checked = true;
+                        let source = &mount.asset.skins[0].data.meshes[0];
+                        let weights = source.vertices[738].weights;
+                        if weights[..3].iter().filter(|v| v.is_nan()).count() != 3
+                            || !weights[3].is_nan()
+                        {
+                            failures.push(format!("{}: unexpected Lobster weight record", item.id));
+                        }
+                        if crate::model_asset::nonfinite_weight_triangle_count(source) == 0 {
+                            failures
+                                .push(format!("{}: Lobster fault removes no triangle", item.id));
+                        }
+                        if !character.assembly.warnings.iter().any(|warning| {
+                            warning.contains("24767") && warning.contains("source weights")
+                        }) {
+                            failures.push(format!("{}: missing Lobster recovery warning", item.id));
+                        }
+                        let posed = mount.asset.pose_bind(Mat4::IDENTITY).unwrap();
+                        let posed = &posed[0].vertices[738];
+                        if posed.position != [0.0; 3] || posed.normal != [0.0; 3] {
+                            failures.push(format!("{}: Lobster tombstone changed", item.id));
+                        }
+                    }
+                    checked += 1;
+                }
+                Err(error) => failures.push(format!("{} ({}): {error}", item.id, item.name)),
+            }
+        }
+        assert!(checked >= 25, "only {checked} distinct Ride models checked");
+        assert!(lobster_checked, "Grand Lobster 24767 was not audited");
+        assert!(
+            failures.is_empty(),
+            "Ride-pet audit:\n{}",
+            failures.join("\n")
         );
     }
 

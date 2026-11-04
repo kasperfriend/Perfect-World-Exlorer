@@ -320,7 +320,7 @@ impl Draw {
                 alpha_texture,
                 face_shader: m.face_shader.cloned(),
                 bounds,
-                mesh: raster::Mesh::new(device, &vertices, m.indices)?,
+                mesh: raster::Mesh::new(device, &vertices, m.indices.as_ref())?,
                 binding,
             }));
         }
@@ -356,7 +356,7 @@ impl Draw {
                 if (m.skin, m.mesh) != gpu.key
                     || m.texture_paths != gpu.paths
                     || m.face_shader != gpu.face_shader.as_ref()
-                    || m.indices != gpu.indices
+                    || m.indices.as_ref() != gpu.indices.as_slice()
                     || m.vertices.len() != gpu.vertices
                 {
                     return Err("model draw topology/texture assignment changed".into());

@@ -4,6 +4,7 @@ use crate::{
     model_asset::{FaceShader, ModelAsset, PosedMesh},
     skin,
 };
+use std::borrow::Cow;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Vertex {
@@ -15,7 +16,7 @@ pub struct PreparedMesh<'a> {
     pub skin: usize,
     pub mesh: usize,
     pub vertices: Vec<Vertex>,
-    pub indices: &'a [u16],
+    pub indices: Cow<'a, [u16]>,
     pub material: &'a skin::Material,
     pub color: u32,
     pub texture_paths: [String; 2],
@@ -128,11 +129,19 @@ pub fn prepare<'a>(
         if asset.hidden_meshes.contains(&(pose.skin, pose.mesh)) {
             continue;
         }
+        let indices: Cow<'_, [u16]> = crate::model_asset::indices_without_nonfinite_weights(mesh)
+            .map(Cow::Owned)
+            .unwrap_or_else(|| Cow::Borrowed(mesh.indices.as_slice()));
+        // A fault can remove the last triangle without invalidating the rest
+        // of the model. Do not submit an empty GPU mesh for that native no-op.
+        if indices.is_empty() {
+            continue;
+        }
         result.push(PreparedMesh {
             skin: pose.skin,
             mesh: pose.mesh,
             vertices,
-            indices: &mesh.indices,
+            indices,
             material,
             color,
             texture_paths,
@@ -217,7 +226,7 @@ mod tests {
             ["models/a/tex_a/a.dds", "models/a/textures/a.dds"]
         );
         assert!(p[0].material.two_sided);
-        assert_eq!(p[0].indices, [0, 1, 2]);
+        assert_eq!(p[0].indices.as_ref(), [0, 1, 2]);
     }
     #[test]
     fn native_equipment_alpha_mode_is_per_mesh() {
@@ -230,6 +239,34 @@ mod tests {
         asset.diffuse_alpha_meshes.remove(&(0, 0));
         assert!(!prepare(&asset, &poses).unwrap()[0].diffuse_alpha_only);
     }
+    #[test]
+    fn nonfinite_weight_recovery_preserves_unrelated_triangles_and_source_data() {
+        let (mut asset, mut poses) = fixture();
+        let mesh = &mut asset.skins[0].data.meshes[0];
+        mesh.vertices = (0..6)
+            .map(|i| skin::Vertex {
+                position: [i as f32, 0., 0.],
+                normal: [0., 1., 0.],
+                uv: [i as f32 / 5., 0.],
+                weights: [1., 0., 0., 0.],
+                joints: [0; 4],
+            })
+            .collect();
+        mesh.indices = vec![0, 1, 2, 3, 4, 5];
+        mesh.vertices[2].weights = [f32::NAN; 4];
+        poses[0].vertices = (0..6)
+            .map(|i| crate::skin_pose::PosedVertex {
+                position: [i as f32, 2., 3.],
+                normal: [0., 0., 1.],
+            })
+            .collect();
+        let prepared = prepare(&asset, &poses).unwrap();
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0].indices.as_ref(), [3, 4, 5]);
+        assert_eq!(asset.skins[0].data.meshes[0].indices, [0, 1, 2, 3, 4, 5]);
+        assert!(asset.skins[0].data.meshes[0].vertices[2].weights[0].is_nan());
+    }
+
     #[test]
     fn hidden_native_skin_is_validated_but_not_submitted() {
         let (mut asset, mut poses) = fixture();

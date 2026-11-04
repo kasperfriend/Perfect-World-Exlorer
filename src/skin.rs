@@ -71,11 +71,21 @@ impl<'a> Reader<'a> {
         Ok(self.u32()? as i32)
     }
     fn f32(&mut self) -> Result<f32, String> {
-        let v = f32::from_bits(self.u32()?);
+        let offset = self.pos;
+        let bits = self.u32()?;
+        let v = f32::from_bits(bits);
         if !v.is_finite() {
-            return Err("non-finite skin value".into());
+            return Err(format!(
+                "non-finite skin value at payload byte {offset} (bits {bits:#010x})"
+            ));
         }
         Ok(v)
+    }
+    /// A3DSkinMesh::LoadData copies the three stored blend weights verbatim.
+    /// Preserve even a non-finite authored weight; retained-mesh rendering
+    /// explicitly removes only triangles made non-finite by that record.
+    fn weight(&mut self) -> Result<f32, String> {
+        Ok(f32::from_bits(self.u32()?))
     }
     fn vec<const N: usize>(&mut self) -> Result<[f32; N], String> {
         let mut a = [0.; N];
@@ -210,7 +220,7 @@ impl Skin {
                 let (weights, joints) = if is_rigid {
                     ([1., 0., 0., 0.], [0; 4])
                 } else {
-                    let w: [f32; 3] = r.vec()?;
+                    let w = [r.weight()?, r.weight()?, r.weight()?];
                     let j = r.bytes(4)?.try_into().unwrap();
                     ([w[0], w[1], w[2], 1. - w[0] - w[1] - w[2]], j)
                 };
@@ -334,6 +344,29 @@ mod tests {
         x[20..24].copy_from_slice(&1u32.to_le_bytes());
         assert!(Skin::parse(&x).is_err());
     }
+    #[test]
+    fn preserves_nonfinite_weights_but_still_rejects_nonfinite_positions() {
+        let mut b = sample();
+        let position = b
+            .windows(12)
+            .position(|window| {
+                window
+                    == [1f32.to_bits(), 2f32.to_bits(), 3f32.to_bits()]
+                        .map(u32::to_le_bytes)
+                        .concat()
+            })
+            .unwrap();
+        let weights = position + 12;
+        b[weights..weights + 4].copy_from_slice(&f32::NAN.to_bits().to_le_bytes());
+        let skin = Skin::parse(&b).unwrap();
+        let parsed = skin.meshes[0].vertices[0].weights;
+        assert!(parsed[0].is_nan());
+        assert!(parsed[3].is_nan());
+        assert_eq!([parsed[1], parsed[2]], [0.5, 0.0]);
+        b[position..position + 4].copy_from_slice(&f32::NAN.to_bits().to_le_bytes());
+        assert!(Skin::parse(&b).is_err());
+    }
+
     #[test]
     fn rejects_unrecognized_trailing_payload() {
         let mut b = sample();
