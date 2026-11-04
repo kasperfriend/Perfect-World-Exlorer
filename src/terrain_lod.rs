@@ -337,6 +337,25 @@ pub struct WindowLod {
 }
 
 impl WindowLod {
+    /// Viewer-only join to the persistent four-cell far grid. Internal edges
+    /// still use the recovered neighbor rule; only the perimeter is matched.
+    pub fn stitch_far_boundary(&mut self) {
+        let win = self.window;
+        for y in win.y0..win.y1 {
+            for x in win.x0..win.x1 {
+                let i = (y - win.y0) * (win.x1 - win.x0) + x - win.x0;
+                let case = self.level(x, y).saturating_sub(1);
+                for (side, boundary) in [y == win.y0, y + 1 == win.y1, x == win.x0, x + 1 == win.x1]
+                    .into_iter()
+                    .enumerate()
+                {
+                    if boundary {
+                        self.cases[i][side] = case;
+                    }
+                }
+            }
+        }
+    }
     pub fn level(&self, x: usize, y: usize) -> u8 {
         if !self.window.contains(x, y) {
             return 0;
@@ -413,6 +432,35 @@ pub fn window_lod(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn far_boundary_matches_four_cell_grid_at_every_level() {
+        for level in 1..=3 {
+            let mut lod = WindowLod {
+                window: Window {
+                    x0: 4,
+                    y0: 7,
+                    x1: 7,
+                    y1: 10,
+                },
+                levels: vec![level; 9],
+                cases: vec![[0; 4]; 9],
+            };
+            lod.stitch_far_boundary();
+            for y in 7..10 {
+                for x in 4..7 {
+                    let i = (y - 7) * 3 + x - 4;
+                    for (side, boundary) in [y == 7, y == 9, x == 4, x == 6].into_iter().enumerate()
+                    {
+                        assert_eq!(
+                            edge_stride(level, lod.cases[i][side]),
+                            if boundary { 4 } else { step(level) }
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn window_is_the_recovered_2r_plus_1_square() {
@@ -599,19 +647,13 @@ mod tests {
     #[test]
     fn every_block_surface_covers_its_block_exactly_once() {
         for level in 1..=MAX_LEVEL {
-            for cases in [
-                [0, 0, 0, 0],
-                [1, 0, 0, 0],
-                [0, 1, 0, 0],
-                [0, 0, 1, 0],
-                [0, 0, 0, 1],
-                [1, 1, 1, 1],
-                [2, 2, 2, 2],
-                [2, 0, 2, 0],
-                [0, 2, 0, 2],
-                [2, 2, 2, 2],
-                [1, 2, 1, 2],
-            ] {
+            for encoded in 0..81 {
+                let cases = [
+                    encoded / 27 % 3,
+                    encoded / 9 % 3,
+                    encoded / 3 % 3,
+                    encoded % 3,
+                ];
                 let s = block_surface(level, cases);
                 assert!(!s.indices.is_empty(), "level {level} {cases:?} empty");
                 let cell = step(level) as f32;

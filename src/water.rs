@@ -249,7 +249,9 @@ pub fn load(scene: &Scene, dir: &Path) -> Result<Vec<WaterArea>, String> {
     for _ in 0..count {
         files.push(path_string(&b, &mut p)?)
     }
-    let mut loaded: HashMap<usize, Vec<u8>> = HashMap::new();
+    let mut loaded_index = None;
+    let mut loaded = Vec::new();
+    let mut records = Vec::new();
     let mut seen = HashMap::<u32, u32>::new();
     let mut areas = Vec::new();
     for block in &scene.blocks {
@@ -260,44 +262,49 @@ pub fn load(scene: &Scene, dir: &Path) -> Result<Vec<WaterArea>, String> {
                 }
                 continue;
             }
-            let off = r.offset as usize;
-            let index = u(&b, off)? as usize;
-            let record = u(&b, off + 4)? as usize;
-            let path = files
-                .get(index)
-                .ok_or("water subterrain index out of bounds")?;
-            if !loaded.contains_key(&index) {
-                let path = resolve_case_insensitive(dir, path)?;
-                let data = fs::read(path).map_err(|e| e.to_string())?;
-                loaded.insert(index, data);
-            }
-            let data = &loaded[&index];
-            if u(data, 0)? != 0x42584f4d || u(data, 4)? != 2 {
-                return Err("unsupported BSData header".into());
-            }
-            let tail = data.len().checked_sub(4).ok_or("short BSData")?;
-            let entries = u(data, tail)? as usize;
-            let table = tail
-                .checked_sub(entries.checked_mul(4).ok_or("table overflow")?)
-                .ok_or("bad BSData table")?;
-            if record >= entries {
-                return Err("water record index out of bounds".into());
-            }
-            let rec = u(data, table + record * 4)? as usize;
-            let mut end = table;
-            for i in 0..entries {
-                let other = u(data, table + i * 4)? as usize;
-                if other > rec && other < end {
-                    end = other;
-                }
-            }
-            if rec >= end {
-                return Err("invalid water record boundary".into());
-            }
-            areas.push(WaterArea::parse(&data[..end], rec, r.export_id)?);
+            records.push((u(&b, r.offset as usize)? as usize, records.len(), r));
         }
     }
-    Ok(areas)
+    records.sort_by_key(|r| r.0);
+    for (index, order, r) in records {
+        let off = r.offset as usize;
+        let record = u(&b, off + 4)? as usize;
+        let path = files
+            .get(index)
+            .ok_or("water subterrain index out of bounds")?;
+        if loaded_index != Some(index) {
+            let path = resolve_case_insensitive(dir, path)?;
+            drop(std::mem::take(&mut loaded));
+            loaded = fs::read(path).map_err(|e| e.to_string())?;
+            loaded_index = Some(index);
+        }
+        let data = &loaded;
+        if u(data, 0)? != 0x42584f4d || u(data, 4)? != 2 {
+            return Err("unsupported BSData header".into());
+        }
+        let tail = data.len().checked_sub(4).ok_or("short BSData")?;
+        let entries = u(data, tail)? as usize;
+        let table = tail
+            .checked_sub(entries.checked_mul(4).ok_or("table overflow")?)
+            .ok_or("bad BSData table")?;
+        if record >= entries {
+            return Err("water record index out of bounds".into());
+        }
+        let rec = u(data, table + record * 4)? as usize;
+        let mut end = table;
+        for i in 0..entries {
+            let other = u(data, table + i * 4)? as usize;
+            if other > rec && other < end {
+                end = other;
+            }
+        }
+        if rec >= end {
+            return Err("invalid water record boundary".into());
+        }
+        areas.push((order, WaterArea::parse(&data[..end], rec, r.export_id)?));
+    }
+    areas.sort_by_key(|a| a.0);
+    Ok(areas.into_iter().map(|(_, area)| area).collect())
 }
 #[cfg(test)]
 mod tests {

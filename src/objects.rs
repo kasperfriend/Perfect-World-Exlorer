@@ -10,7 +10,7 @@
 //! Decoded textures live in a content-hash deduplicated store with a byte
 //! budget and LRU eviction (P3.08): the full-res source textures of the
 //! whole world are never all resident at once, even though the whole-world
-//! preload walks every placement. The budget defaults to 256 MiB and can be
+//! preload walks every placement. The budget defaults to 32 MiB and can be
 //! overridden with `PW_TEX_BUDGET_MIB` (tests and measurements use both).
 use crate::{
     bmd, pck,
@@ -214,10 +214,12 @@ pub struct Objects {
     unresolved: Vec<UnresolvedTexture>,
     unresolved_seen: HashSet<String>,
 }
-/// Default decoded-texture residency budget (P3.08). The whole corpus of
+/// RAM-first decoded-texture residency budget. Re-entry may re-decode evicted
+/// sources; source resolution and all visible textures remain unchanged.
+/// The whole corpus of
 /// building.pck textures is ~445 MiB compressed on disk and far larger
 /// decoded, so the full world never fits under this budget by design.
-pub const DEFAULT_TEX_BUDGET_MIB: usize = 256;
+pub const DEFAULT_TEX_BUDGET_MIB: usize = 32;
 fn tex_budget_bytes() -> usize {
     std::env::var("PW_TEX_BUDGET_MIB")
         .ok()

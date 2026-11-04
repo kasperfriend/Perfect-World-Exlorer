@@ -188,6 +188,8 @@ pub fn run(authored_mips: bool) {
         (20., 0., 0.),
         (20., 0., 0.),
         (20., 0., 0.),
+        (20., 0., 0.),
+        (20., 0., 0.),
     ]
     .into_iter()
     .enumerate()
@@ -219,7 +221,21 @@ pub fn run(authored_mips: bool) {
         uni[30] = strength;
         uni[31] = time;
         queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
-        renderer.update_lods(&queue, [dist, 0., 0.], 1.);
+        let bounds = match frame_index {
+            15 => Some([100., 200., 100., 200.]),
+            16 => Some([-1., 1., -1., 1.]),
+            _ => None,
+        };
+        if frame_index >= 15 {
+            uni[382] = 0.;
+            queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
+        }
+        renderer.update_resident_lods(&device, &queue, [dist, 0., 0.], 1., bounds);
+        let (count, bytes) = renderer.residency_stats();
+        assert_eq!(bytes, (count.max(1) * 20) as u64);
+        if frame_index == 15 {
+            assert_eq!(count, 0);
+        }
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: 128 * 128 * 4,
@@ -277,6 +293,14 @@ pub fn run(authored_mips: bool) {
         frames.push(slice.get_mapped_range().to_vec());
         buffer.unmap();
     }
+    assert!(
+        frames[15].chunks_exact(4).all(|p| p == [0, 0, 0, 255]),
+        "cold tree still rendered"
+    );
+    assert_eq!(
+        frames[16], frames[0],
+        "re-entering resident window changed tree pixels"
+    );
     let lit = frames[0].chunks_exact(4).filter(|p| p[0] > 0).count();
     assert!(lit > 1000, "tree missing: {lit}");
     for f in &frames[1..5] {

@@ -105,6 +105,7 @@ mod world_audio;
 #[allow(dead_code)]
 mod sky_transition;
 mod terrain_block;
+mod terrain_cutoff;
 mod terrain_gpu;
 mod terrain_lightmaps;
 #[allow(dead_code)]
@@ -113,6 +114,8 @@ mod terrain_residency;
 mod terrain_sampling;
 #[allow(dead_code)]
 mod terrain_shading;
+mod terrain_store;
+mod terrain_upload;
 mod texture_atlas;
 mod texture_resolution;
 mod tree_lod;
@@ -138,17 +141,8 @@ struct Terrain {
     grid: usize,
     width: usize,
     height: usize,
-    heights: std::sync::Arc<[f32]>,
-    normals: Vec<[i8; 3]>,
-    /// Per-vertex RGBA baked into each T2BK block when flag bit 0x1 is set.
-    ///
-    /// Neither the height nor the normal section, but a full third section:
-    /// 4 bytes per vertex, zlib-compressed, exactly `(grid+1)^2 * 4` bytes once
-    /// inflated (1089 vertices at grid 32). The retail `world_39.t2bk` sets
-    /// bit 0x1 and carries it in all 256 blocks, so reading only heights and
-    /// normals left 1.7-1.9 kB unaccounted for in every block and overran the
-    /// file on the last one.
-    vertex_rgba: std::sync::Arc<[u8]>,
+    heights: terrain_store::Heights,
+    normals: terrain_store::Normals,
     grid_spacing: f32,
     materials: material::Materials,
     subterrain_names: Vec<String>,
@@ -161,6 +155,7 @@ struct Terrain {
     /// Native `CECSceneBlock` regional load/evict bits for the ornament class
     /// (`0x424020`). Owned here because `Terrain` lives on the streaming worker.
     scenery_residency: scenery_visibility::RegionResidency,
+    terrain_material_window: Option<Option<[usize; 4]>>,
     models: world_models::Assets,
     water_normals: Vec<Vec<image::RgbaImage>>,
     water_simple_frames: Vec<Vec<image::RgbaImage>>,
@@ -221,11 +216,13 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     for _ in 0..count {
         names.push(read_string(&t, &mut pos)?)
     }
-    let mut heights = vec![0f32; w * h];
-    let mut normals = vec![[0i8, 127, 0]; w * h];
-    // Default is opaque white, i.e. "no authored tint", so a tile whose blocks do
-    // not set bit 0x1 renders exactly as before.
-    let mut vertex_rgba = vec![255u8; w * h * 4];
+    let cache_root = std::env::var_os("PW_CACHE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("cache"))
+        .join("terrain-v1");
+    let mut terrain_pages = terrain_store::Builder::new(&cache_root, w, h, grid)?;
+    // Colour sections are validated per block below. Neither current CPU nor
+    // GPU renderer consumes them; do not allocate a second world-sized RGBA grid.
     let sin_table: Vec<f32> = (0..256)
         .map(|i| (i as f32 * std::f32::consts::TAU / 256.).sin())
         .collect();
@@ -368,7 +365,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
                 }
             }
             // Third section: per-vertex RGBA, present when flag bit 0x1 is set.
-            let vertex_colour = if let Some((cs, ce)) = block_layout.blocks[bi].colour {
+            if let Some((cs, ce)) = block_layout.blocks[bi].colour {
                 let raw = data.get(cs..ce).ok_or("truncated vertex colour data")?;
                 let mut decoded_colour = Vec::new();
                 ZlibDecoder::new(raw)
@@ -382,27 +379,22 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
                         nv * 4
                     ));
                 }
-                Some(decoded_colour)
-            } else {
-                None
-            };
+            }
             let br = (si / subs_x) * per + bi / per;
             let bc = (si % subs_x) * per + bi % per;
+            let mut heights = Vec::with_capacity(grid * grid);
+            let mut normals = Vec::with_capacity(grid * grid);
             for y in 0..grid {
                 for x in 0..grid {
                     let val = values[y * (grid + 1) + x];
                     if !val.is_finite() {
                         return Err("nonfinite height".into());
                     }
-                    let dst = (br * grid + y) * w + bc * grid + x;
-                    heights[dst] = val;
-                    normals[dst] = block_normals[y * (grid + 1) + x];
-                    if let Some(c) = &vertex_colour {
-                        let s = (y * (grid + 1) + x) * 4;
-                        vertex_rgba[dst * 4..dst * 4 + 4].copy_from_slice(&c[s..s + 4]);
-                    }
+                    heights.push(val);
+                    normals.push(block_normals[y * (grid + 1) + x]);
                 }
             }
+            terrain_pages.block(bc, br, &heights, &normals)?;
         }
         eprintln!("Loaded terrain tile {}/{}: {}", si + 1, count, name);
         #[cfg(windows)]
@@ -410,6 +402,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     }
     #[cfg(windows)]
     windows_setup::loading_progress("Loading world scenery and water...".into());
+    let (heights, normals) = terrain_pages.finish(terrain_store::budget())?;
     let world_scene = scene::Scene::load(&dir.join("world.ecwld"))?;
     let cloud_surface = match fs::read(dir.join("world.cld")) {
         Ok(bytes) => {
@@ -523,6 +516,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         scene_lights: std::sync::Arc::new(scene_lights),
         scene: std::sync::Arc::new(world_scene),
         scenery_residency: scenery_visibility::RegionResidency::default(),
+        terrain_material_window: None,
         element: element.to_path_buf(),
         grass,
         water_normals,
@@ -536,23 +530,36 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         grid,
         width: w,
         height: h,
-        heights: heights.into(),
-        vertex_rgba: vertex_rgba.into(),
+        heights,
         normals,
         grid_spacing,
     })
 }
 fn export_png(terrain: &Terrain, output: &Path) -> Result<(), String> {
-    let w = terrain.width;
-    let h = terrain.height;
-    let heights = &terrain.heights;
-    let mut rgb = vec![0u8; w * h * 3];
+    export_height_png(terrain.width, terrain.height, &terrain.heights, output)
+}
+fn export_height_png(
+    w: usize,
+    h: usize,
+    values: &terrain_store::Heights,
+    output: &Path,
+) -> Result<(), String> {
+    let mut heights = values.reader();
+    let f = fs::File::create(output).map_err(|e| e.to_string())?;
+    let mut enc = png::Encoder::new(BufWriter::new(f), w as u32, h as u32);
+    enc.set_color(png::ColorType::Rgb);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut writer = enc.write_header().map_err(|e| e.to_string())?;
+    let mut stream = writer.stream_writer().map_err(|e| e.to_string())?;
+    let mut rgb = vec![0u8; w * 3];
     for y in 0..h {
         for x in 0..w {
             let i = y * w + x;
-            let z = heights[i];
-            let dx = heights[y * w + (x + 1).min(w - 1)] - heights[y * w + x.saturating_sub(1)];
-            let dy = heights[(y + 1).min(h - 1) * w + x] - heights[y.saturating_sub(1) * w + x];
+            let z = heights.height(i);
+            let dx = heights.height(y * w + (x + 1).min(w - 1))
+                - heights.height(y * w + x.saturating_sub(1));
+            let dy = heights.height((y + 1).min(h - 1) * w + x)
+                - heights.height(y.saturating_sub(1) * w + x);
             let light = (0.74 + (-dx * 0.025 + dy * 0.025)).clamp(0.30, 1.15);
             let base = if z < 0.0 {
                 [50., 83., 94.]
@@ -564,16 +571,12 @@ fn export_png(terrain: &Terrain, output: &Path) -> Result<(), String> {
                 [153., 150., 136.]
             };
             for c in 0..3 {
-                rgb[i * 3 + c] = (base[c] * light).clamp(0., 255.) as u8;
+                rgb[x * 3 + c] = (base[c] * light).clamp(0., 255.) as u8;
             }
         }
+        stream.write_all(&rgb).map_err(|e| e.to_string())?;
     }
-    let f = fs::File::create(output).map_err(|e| e.to_string())?;
-    let mut enc = png::Encoder::new(BufWriter::new(f), w as u32, h as u32);
-    enc.set_color(png::ColorType::Rgb);
-    enc.set_depth(png::BitDepth::Eight);
-    let mut writer = enc.write_header().map_err(|e| e.to_string())?;
-    writer.write_image_data(&rgb).map_err(|e| e.to_string())?;
+    stream.finish().map_err(|e| e.to_string())?;
     writer.finish().map_err(|e| e.to_string())?;
     io::stderr().flush().ok();
     Ok(())
@@ -653,5 +656,25 @@ fn main() {
         #[cfg(windows)]
         windows_setup::show_error(&e);
         std::process::exit(1)
+    }
+}
+
+#[cfg(test)]
+mod ram_export_tests {
+    #[test]
+    fn streamed_png_preserves_decoded_rgb() {
+        let path =
+            std::env::temp_dir().join(format!("pw-streamed-export-{}.png", std::process::id()));
+        let heights = vec![0.; 12].into();
+        super::export_height_png(4, 3, &heights, &path).unwrap();
+        let decoder = png::Decoder::new(std::fs::File::open(&path).unwrap());
+        let mut reader = decoder.read_info().unwrap();
+        let mut pixels = vec![0; reader.output_buffer_size()];
+        let frame = reader.next_frame(&mut pixels).unwrap();
+        assert_eq!((frame.width, frame.height), (4, 3));
+        assert_eq!(frame.color_type, png::ColorType::Rgb);
+        assert_eq!(&pixels[..frame.buffer_size()], &[76u8, 93, 60].repeat(12));
+        drop(reader);
+        std::fs::remove_file(path).unwrap();
     }
 }

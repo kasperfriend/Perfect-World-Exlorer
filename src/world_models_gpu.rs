@@ -11,6 +11,8 @@ use crate::{
     world_models::Assets,
 };
 use std::{collections::HashMap, fs::File, path::Path};
+#[path = "terrain_cutoff.rs"]
+mod cutoff_residency;
 
 /// Identity space for ECM model-event owners, kept disjoint from scene effects.
 const MODEL_EVENT_IDENTITY: u64 = 1 << 40;
@@ -38,6 +40,7 @@ struct HookBinding {
 /// This frame's pose and deformed meshes for one slot. Secondary views reuse
 /// it so reflection/refraction never advance playback or re-sample a hook.
 struct SlotPose {
+    sample: Option<(usize, f32)>,
     pose: crate::skeleton_pose::Pose,
     meshes: Vec<crate::model_asset::PosedMesh>,
 }
@@ -48,6 +51,8 @@ struct Slot {
     transform: Result<glam::Mat4, String>,
     /// Last evaluated pose, reused by every pass of the same frame.
     posed: Option<Result<SlotPose, String>>,
+    geometry_dirty: bool,
+    vertex_fog: Option<f32>,
 }
 
 /// Per-frame alpha-pass diagnostics; see [`World::alpha_status`].
@@ -71,7 +76,8 @@ pub struct World {
     assets: Assets,
     slots: Vec<Slot>,
     read: Box<dyn FnMut(&str) -> Result<Vec<u8>, String>>,
-    bytes: HashMap<String, Vec<u8>>,
+    textures: HashMap<String, (std::sync::Arc<wgpu::Texture>, bool)>,
+    receivers: crate::model_draw_gpu::ReceiverCache,
     sampler: wgpu::Sampler,
     format: wgpu::TextureFormat,
     grid: StaticGrid,
@@ -80,6 +86,7 @@ pub struct World {
     producers: Vec<Producer>,
     /// Explorer position and effect activation radius in world units.
     view: Option<(f32, f32, f32)>,
+    resident_bounds: Option<[f32; 4]>,
     /// Retail alpha insertion order as (slot, mesh) pairs.
     alpha: Vec<model_queue::AlphaCandidate>,
     reported: Vec<String>,
@@ -138,6 +145,8 @@ impl World {
                 failed: false,
                 transform: crate::world_models::transform(&i.placement),
                 posed: None,
+                geometry_dirty: true,
+                vertex_fog: None,
             })
             .collect();
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -153,7 +162,8 @@ impl World {
             assets,
             slots,
             read: Box::new(read),
-            bytes: HashMap::new(),
+            textures: HashMap::new(),
+            receivers: Default::default(),
             sampler,
             format: format.remove_srgb_suffix(),
             grid: StaticGrid::default(),
@@ -161,6 +171,7 @@ impl World {
             owners: gfx_owner::Manager::new(),
             producers: Vec::new(),
             view: None,
+            resident_bounds: None,
             alpha: Vec::new(),
             reported: Vec::new(),
         })
@@ -301,8 +312,29 @@ impl World {
         }
         Ok(installed)
     }
-    /// Explorer position plus the radius in which installed producers are
-    /// active. Effects outside the radius are unloaded without publishing.
+    /// Release receiving-model geometry and poses outside the installed terrain
+    /// window, rather than merely disabling their effect-light producers.
+    pub fn set_resident_bounds(&mut self, bounds: Option<[f32; 4]>) {
+        if self.resident_bounds == bounds {
+            return;
+        }
+        self.resident_bounds = bounds;
+        for (instance, slot) in self.assets.instances.iter().zip(&mut self.slots) {
+            if !cutoff_residency::contains(bounds, instance.placement.position) {
+                slot.draw = None;
+                slot.posed = None;
+                slot.geometry_dirty = true;
+            }
+        }
+        if bounds.is_some() {
+            // Draw-owned Arcs pin active/shared textures; do not keep every
+            // texture and pipeline ever visited after its last draw is evicted.
+            self.textures
+                .retain(|_, (texture, _)| std::sync::Arc::strong_count(texture) > 1);
+            self.receivers.trim_unreferenced();
+        }
+    }
+    /// Effect activation radius (independent of resident geometry bounds).
     pub fn set_view_center(&mut self, x: f32, z: f32, radius: f32) {
         self.view = Some((x, z, radius.max(0.)));
     }
@@ -374,7 +406,8 @@ impl World {
             .map(|producer| {
                 let dx = producer.position[0] - x;
                 let dz = producer.position[2] - z;
-                let inside = dx * dx + dz * dz <= radius * radius;
+                let inside = dx * dx + dz * dz <= radius * radius
+                    && cutoff_residency::contains(self.resident_bounds, producer.position);
                 let visible = match producer.valid_time {
                     Some(mode) => crate::scene::effect_visible(mode, night),
                     None => true,
@@ -434,24 +467,47 @@ impl World {
     /// 0x7b2520 resolves hooks from this pose, and every pass of the frame
     /// (main, reflection, refraction) reuses it.
     fn advance_poses(&mut self, delta_ms: u32) {
+        let bounds = self.resident_bounds;
         for (instance, slot) in self.assets.instances.iter_mut().zip(&mut self.slots) {
+            if !cutoff_residency::contains(bounds, instance.placement.position) {
+                continue;
+            }
             if slot.failed {
                 continue;
             }
             let asset = &self.assets.assets[instance.asset];
+            let sample = match instance.playback.as_mut() {
+                Ok(clock) => {
+                    if delta_ms != 0 {
+                        if let Err(e) = clock.tick(delta_ms) {
+                            slot.posed = Some(Err(e));
+                            continue;
+                        }
+                    }
+                    clock.sample()
+                }
+                Err(e) => {
+                    slot.posed = Some(Err(e.clone()));
+                    continue;
+                }
+            };
+            if matches!(&slot.posed, Some(Ok(previous)) if previous.sample == sample) {
+                continue;
+            }
             let result = (|| -> Result<SlotPose, String> {
                 let transform = *slot.transform.as_ref().map_err(Clone::clone)?;
-                let clock = instance.playback.as_mut().map_err(|e| e.clone())?;
-                if delta_ms != 0 {
-                    clock.tick(delta_ms)?;
-                }
-                let pose = match clock.sample() {
+                let pose = match sample {
                     Some((action, time)) => asset.action_pose(action, time, transform)?,
                     None => asset.bind_pose(transform)?,
                 };
                 let meshes = asset.meshes_from_pose(&pose)?;
-                Ok(SlotPose { pose, meshes })
+                Ok(SlotPose {
+                    sample,
+                    pose,
+                    meshes,
+                })
             })();
+            slot.geometry_dirty = true;
             slot.posed = Some(result);
         }
     }
@@ -520,11 +576,13 @@ impl World {
         frame: Frame,
         night: f32,
     ) {
+        let bounds = self.resident_bounds;
         let Self {
             assets,
             slots,
             read,
-            bytes,
+            textures,
+            receivers,
             sampler,
             format,
             grid,
@@ -532,6 +590,9 @@ impl World {
             ..
         } = self;
         for (instance, slot) in assets.instances.iter().zip(slots.iter_mut()) {
+            if !cutoff_residency::contains(bounds, instance.placement.position) {
+                continue;
+            }
             if slot.failed {
                 continue;
             }
@@ -548,7 +609,8 @@ impl World {
                 sampler,
                 *format,
                 read,
-                bytes,
+                textures,
+                receivers,
             );
             if let Err(e) = outcome {
                 reported.push(format!(
@@ -620,6 +682,11 @@ impl World {
         }
     }
     /// Include dependency failures in the UI; never count a skipped asset ready.
+    /// Entries owned by the world cache, excluding live draw references.
+    #[allow(dead_code)]
+    pub fn residency_cache_counts(&self) -> (usize, usize) {
+        (self.textures.len(), self.receivers.len())
+    }
     pub fn status(&self) -> (usize, usize, usize) {
         let ready = self.slots.iter().filter(|s| s.draw.is_some()).count();
         let failed = self.slots.iter().filter(|s| s.failed).count() + self.assets.unloaded.len();
@@ -694,7 +761,8 @@ fn draw_one(
     sampler: &wgpu::Sampler,
     format: wgpu::TextureFormat,
     read: &mut Box<dyn FnMut(&str) -> Result<Vec<u8>, String>>,
-    bytes: &mut HashMap<String, Vec<u8>>,
+    textures: &mut HashMap<String, (std::sync::Arc<wgpu::Texture>, bool)>,
+    receivers: &mut crate::model_draw_gpu::ReceiverCache,
 ) -> Result<(), String> {
     let posed = match &slot.posed {
         Some(Ok(posed)) => posed,
@@ -720,9 +788,16 @@ fn draw_one(
         f.attenuation = point.stored_attenuation;
     }
     if let Some(draw) = &slot.draw {
-        return draw.update(queue, asset, &posed.meshes, f);
+        if slot.geometry_dirty || slot.vertex_fog != Some(f.vertex_fog) {
+            draw.update(queue, asset, &posed.meshes, f)?;
+            slot.geometry_dirty = false;
+            slot.vertex_fog = Some(f.vertex_fog);
+        } else {
+            draw.update_constants(queue, asset, f)?;
+        }
+        return Ok(());
     }
-    let created = Draw::new(
+    let created = Draw::with_textures(
         device,
         queue,
         format,
@@ -735,15 +810,25 @@ fn draw_one(
         asset,
         &posed.meshes,
         f,
+        receivers,
         |path| {
-            if let Some(data) = bytes.get(path) {
-                return Ok(data.clone());
+            if let Some(texture) = textures.get(path) {
+                return Ok(texture.clone());
             }
             let data = read(path)?;
-            bytes.insert(path.into(), data.clone());
-            Ok(data)
+            let alpha = crate::model_dds::Dds::parse(&data)?.format.alpha_texture();
+            let texture = std::sync::Arc::new(crate::model_texture_gpu::upload(
+                device,
+                queue,
+                &data,
+                crate::model_texture_gpu::UploadMode::Auto,
+            )?);
+            textures.insert(path.into(), (texture.clone(), alpha));
+            Ok((texture, alpha))
         },
     )?;
+    slot.geometry_dirty = false;
+    slot.vertex_fog = Some(f.vertex_fog);
     slot.draw = Some(created);
     Ok(())
 }

@@ -230,6 +230,7 @@ struct LodState {
     levels: Vec<u8>,
 }
 struct MeshData {
+    terrain_upload: Option<crate::terrain_gpu::TerrainUpload>,
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
     atlas: Vec<u8>,
@@ -404,7 +405,19 @@ fn build(
             t.width, t.height
         ));
     }
-    let (win, levels) = lod_window(t.width, t.height, t.grid_spacing, [cx, cz], rad);
+    let (win, mut levels) = lod_window(t.width, t.height, t.grid_spacing, [cx, cz], rad);
+    if !detail.terrain_cutoff {
+        levels.stitch_far_boundary();
+    }
+    let resident_bounds = detail.terrain_cutoff.then(|| {
+        crate::terrain_cutoff::world_bounds(
+            [win.x0, win.y0, win.x1, win.y1],
+            TILE,
+            t.width,
+            t.height,
+            t.grid_spacing,
+        )
+    });
     let lod_state = LodState {
         window: win,
         levels: levels.levels.clone(),
@@ -420,51 +433,51 @@ fn build(
     // `0x77e250`: the resident set follows the window. Blocks that enter are
     // meshed at the level `0x77e360` picked, blocks whose level changed are
     // re-meshed, and blocks the window leaves release their geometry.
-    let census =
-        residency.update(
-            &win,
-            |x, y| levels.level(x, y),
-            |x, y, level| {
-                let cases = levels.cases[(y - win.y0) * (win.x1 - win.x0) + (x - win.x0)];
-                let surface = crate::terrain_lod::block_surface(level, cases);
-                let mut block_vertices = Vec::with_capacity(surface.grid.len());
-                let mut low = [f32::INFINITY; 3];
-                let mut high = [f32::NEG_INFINITY; 3];
-                for g in &surface.grid {
-                    let (cell_x, cell_y, at) =
-                        sample(x * TILE + g[0] as usize, y * TILE + g[1] as usize);
-                    let n = t.normals.get(at).copied().ok_or_else(|| {
-                        format!("cell {at} outside {}x{} terrain", t.width, t.height)
-                    })?;
-                    let height = *t.heights.get(at).ok_or_else(|| {
-                        format!("cell {at} outside {}x{} terrain", t.width, t.height)
-                    })?;
-                    let pos = [
-                        (cell_x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
-                        height,
-                        (t.height as f32 * 0.5 - cell_y as f32) * t.grid_spacing,
-                    ];
-                    for axis in 0..3 {
-                        low[axis] = low[axis].min(pos[axis]);
-                        high[axis] = high[axis].max(pos[axis]);
-                    }
-                    block_vertices.push(Vertex {
-                        pos,
-                        normal: [n[0] as f32 / 127., n[1] as f32 / 127., n[2] as f32 / 127.],
-                        uv: [0.; 2],
-                        color: [1.; 4],
-                        kind: 0.,
-                        diffuse: 0xffff_ffff,
-                        night_diffuse: 0xffff_ffff,
-                    });
+    let mut terrain_reader = t.heights.reader();
+    let census = residency.update_stitched(
+        &win,
+        |x, y| {
+            (
+                levels.level(x, y),
+                levels.cases[(y - win.y0) * (win.x1 - win.x0) + x - win.x0],
+            )
+        },
+        |x, y, level| {
+            let cases = levels.cases[(y - win.y0) * (win.x1 - win.x0) + (x - win.x0)];
+            let surface = crate::terrain_lod::block_surface(level, cases);
+            let mut block_vertices = Vec::with_capacity(surface.grid.len());
+            let mut low = [f32::INFINITY; 3];
+            let mut high = [f32::NEG_INFINITY; 3];
+            for g in &surface.grid {
+                let (cell_x, cell_y, at) =
+                    sample(x * TILE + g[0] as usize, y * TILE + g[1] as usize);
+                let (height, n) = terrain_reader.cell(at)?;
+                let pos = [
+                    (cell_x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
+                    height,
+                    (t.height as f32 * 0.5 - cell_y as f32) * t.grid_spacing,
+                ];
+                for axis in 0..3 {
+                    low[axis] = low[axis].min(pos[axis]);
+                    high[axis] = high[axis].max(pos[axis]);
                 }
-                Ok((
-                    block_vertices,
-                    surface.indices,
-                    [low[0], low[1], low[2], high[0], high[1], high[2]],
-                ))
-            },
-        )?;
+                block_vertices.push(Vertex {
+                    pos,
+                    normal: [n[0] as f32 / 127., n[1] as f32 / 127., n[2] as f32 / 127.],
+                    uv: [0.; 2],
+                    color: [1.; 4],
+                    kind: 0.,
+                    diffuse: 0xffff_ffff,
+                    night_diffuse: 0xffff_ffff,
+                });
+            }
+            Ok((
+                block_vertices,
+                surface.indices,
+                [low[0], low[1], low[2], high[0], high[1], high[2]],
+            ))
+        },
+    )?;
     let spans = residency.append(&win, &mut vertices, &mut indices);
     eprintln!(
         "Terrain residency: {} blocks resident ({} entered, {} evicted, {} re-meshed), \
@@ -675,7 +688,7 @@ fn build(
                     .collect();
                 grass_builder.mesh_with_scale_y(key, mesh_vertices, mesh.indices.clone(), scale_y);
             }
-            for placement in &area.placements {
+            for placement in area.placements(typ)? {
                 let x = area.center[0] - half_x
                     + (placement.col as f32 + placement.jitter_x) * area.grid;
                 let z = area.center[2] + half_z - placement.row as f32 * area.grid
@@ -692,6 +705,9 @@ fn build(
                 if (x - cx) * (x - cx) + (z - cz) * (z - cz) > reach * reach {
                     continue;
                 }
+                if !crate::terrain_cutoff::contains(resident_bounds, [x, 0., z]) {
+                    continue;
+                }
                 let gx = x / t.grid_spacing + t.width as f32 * 0.5;
                 let gy = t.height as f32 * 0.5 - z / t.grid_spacing;
                 if gx < 0. || gy < 0. || gx >= (t.width - 1) as f32 || gy >= (t.height - 1) as f32 {
@@ -701,10 +717,10 @@ fn build(
                 let iy = gy as usize;
                 let fx = gx - ix as f32;
                 let fy = gy - iy as f32;
-                let a = t.heights[iy * t.width + ix];
-                let b = t.heights[iy * t.width + ix + 1];
-                let c = t.heights[(iy + 1) * t.width + ix];
-                let d = t.heights[(iy + 1) * t.width + ix + 1];
+                let a = terrain_reader.height(iy * t.width + ix);
+                let b = terrain_reader.height(iy * t.width + ix + 1);
+                let c = terrain_reader.height((iy + 1) * t.width + ix);
+                let d = terrain_reader.height((iy + 1) * t.width + ix + 1);
                 let ground = if fx + fy <= 1. {
                     a + (b - a) * fx + (c - a) * fy
                 } else {
@@ -757,7 +773,10 @@ fn build(
     let ornament_ids: Vec<usize> = nearby
         .iter()
         .copied()
-        .filter(|&i| i < ornament_count)
+        .filter(|&i| {
+            i < ornament_count
+                && crate::terrain_cutoff::contains(resident_bounds, t.objects.ornaments[i].position)
+        })
         .collect();
     t.objects.load_ids(&ornament_ids)?;
     let tree_lod_scale = lod_scale(detail.scenery_quality, Class::Trees);
@@ -817,6 +836,7 @@ fn build(
             pages.push((
                 packing,
                 crate::world_objects::Page {
+                    shared_atlas: None,
                     vertices: Vec::new(),
                     indices: Vec::new(),
                     atlas: vec![0; ATLAS * ATLAS * 4],
@@ -913,6 +933,7 @@ fn build(
                     start: range_start,
                     end: range_end,
                     export_id: t.objects.ornaments[id].export_id,
+                    order: 0,
                     visibility,
                 });
             }
@@ -944,37 +965,61 @@ fn build(
             (a.color & 255) as f32 / 255.,
             1.,
         ];
-        for row in 0..a.rows {
-            for col in 0..a.columns {
+        let [col0, row0, col1, row1] = crate::terrain_cutoff::cell_window(
+            resident_bounds,
+            [a.center[0] - hx, a.center[2] + hz],
+            a.grid_size,
+            a.columns,
+            a.rows,
+        );
+        for row in row0..row1 {
+            for col in col0..col1 {
                 if a.mask[row * a.columns + col] & 1 == 0 {
                     continue;
                 }
                 let x = a.center[0] - hx + col as f32 * a.grid_size;
                 let z = a.center[2] + hz - row as f32 * a.grid_size;
                 let s = a.grid_size;
-                bounds[0] = bounds[0].min(x);
-                bounds[1] = bounds[1].max(x + s);
-                bounds[2] = bounds[2].min(z - s);
-                bounds[3] = bounds[3].max(z);
+                let [left, right, bottom, top] =
+                    resident_bounds.map_or([x, x + s, z - s, z], |b| {
+                        [
+                            x.max(b[0]),
+                            (x + s).min(b[1]),
+                            (z - s).max(b[2]),
+                            z.min(b[3]),
+                        ]
+                    });
+                if left >= right || bottom >= top {
+                    continue;
+                }
+                bounds[0] = bounds[0].min(left);
+                bounds[1] = bounds[1].max(right);
+                bounds[2] = bounds[2].min(bottom);
+                bounds[3] = bounds[3].max(top);
                 let first = vertices.len();
                 push_quad(
                     &mut vertices,
                     &mut indices,
                     [
-                        [x, a.height, z],
-                        [x + s, a.height, z],
-                        [x, a.height, z - s],
-                        [x + s, a.height, z - s],
+                        [left, a.height, top],
+                        [right, a.height, top],
+                        [left, a.height, bottom],
+                        [right, a.height, bottom],
                     ],
                     rgb,
                 );
                 // Retail mesh adds an integer per-cell base, then spans one
                 // UV unit within each cell; integer bases wrap identically.
+                let clipped = left != x || right != x + s || bottom != z - s || top != z;
                 for (vertex, uv) in vertices[first..]
                     .iter_mut()
                     .zip(crate::water_gpu::cell_base_uv())
                 {
-                    vertex.uv = uv;
+                    vertex.uv = if clipped {
+                        [(vertex.pos[0] - x) / s, (z - vertex.pos[2]) / s]
+                    } else {
+                        uv
+                    };
                 }
             }
         }
@@ -1001,7 +1046,46 @@ fn build(
             }
         }
     }
+    // Masks follow the same resident geometry, with one area of border safety.
+    // Only rebuild atlas bindings when that footprint (or cutoff mode) changes.
+    let mask_window = detail.terrain_cutoff.then(|| {
+        crate::terrain_cutoff::area_window(
+            [win.x0, win.y0, win.x1, win.y1],
+            TILE,
+            t.materials.mask_grid,
+            t.width / t.materials.mask_grid,
+            t.height / t.materials.mask_grid,
+        )
+    });
+    let terrain_upload = if t.terrain_material_window != Some(mask_window) {
+        let materials = if t.terrain_material_window.is_none() {
+            t.materials.take_window(mask_window)
+        } else {
+            let dir = t.element.join("maps/world");
+            let trn = std::fs::read(dir.join("world.trn2")).map_err(|e| e.to_string())?;
+            crate::material::Materials::load_window(
+                &dir,
+                &trn,
+                &t.subterrain_names,
+                t.width,
+                t.height,
+                t.grid_spacing,
+                mask_window,
+                false,
+            )?
+        };
+        let far = if detail.terrain_cutoff {
+            None
+        } else {
+            Some(crate::terrain_gpu::world_mesh(t, 4)?)
+        };
+        t.terrain_material_window = Some(mask_window);
+        Some(crate::terrain_gpu::TerrainUpload { materials, far })
+    } else {
+        None
+    };
     Ok(MeshData {
+        terrain_upload,
         vertices,
         indices,
         grass_mips: crate::grass_mips::prepare_with_authored(&atlas, &grass_mips, ATLAS),
@@ -1086,6 +1170,7 @@ struct Renderer {
     /// Resident terrain blocks (`0x77e250`) and the runs submitted last frame.
     spans: Vec<crate::terrain_residency::Span>,
     terrain_runs: Vec<(u32, u32)>,
+    far_terrain_runs: Vec<(u32, u32)>,
     terrain_end: u32,
     world_width: usize,
     world_height: usize,
@@ -1101,6 +1186,7 @@ struct Renderer {
     object_start: u32,
     local_pages: Vec<crate::world_objects::GpuPage>,
     world_pages: Vec<crate::world_objects::GpuPage>,
+    world_draw_order: Vec<(usize, usize)>,
     world_done: bool,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -1242,13 +1328,25 @@ fn resize_world_targets(renderer: &mut Renderer, w: u32, h: u32) {
     renderer.post.resize(&renderer.device, w, h);
 }
 impl Renderer {
+    fn resident_bounds(&self) -> Option<[f32; 4]> {
+        let win = self.lod.window;
+        self.detail.terrain_cutoff.then(|| {
+            crate::terrain_cutoff::world_bounds(
+                [win.x0, win.y0, win.x1, win.y1],
+                TILE,
+                self.world_width,
+                self.world_height,
+                self.world_spacing,
+            )
+        })
+    }
     fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
         format: wgpu::TextureFormat,
         w: u32,
         h: u32,
-        m: MeshData,
+        mut m: MeshData,
         t: &mut Terrain,
         vegetation_authored_mips: bool,
     ) -> Result<Self, String> {
@@ -1424,17 +1522,32 @@ impl Renderer {
             &reflected_uniform,
             vegetation_authored_mips,
         );
+        // Immutable tree meshes/motion samples and water frames now live on
+        // the GPU. The streaming worker never reads these sources again.
+        t.trees.types.clear();
+        t.trees.types.shrink_to_fit();
+        t.trees.placements.clear();
+        t.trees.placements.shrink_to_fit();
+        t.water_normals.clear();
+        t.water_simple_frames.clear();
+        let terrain_upload = m
+            .terrain_upload
+            .take()
+            .ok_or("initial terrain upload missing")?;
         let terrain_gpu = crate::terrain_gpu::TerrainGpu::new(
             &device,
             &queue,
             format,
             t,
+            &terrain_upload,
             &uniform,
             &reflected_uniform,
         )?;
         // Material masks and DDS buffers are no longer needed once uploaded.
         // Flush staging before adding native-size scenery pages to cap peak memory.
+        drop(terrain_upload);
         t.materials.release_gpu_source();
+        t.heights.trim();
         queue.submit(std::iter::empty());
         device.poll(wgpu::Maintain::Wait);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1643,6 +1756,7 @@ impl Renderer {
             object_start: m.object_start,
             local_pages,
             world_pages: Vec::new(),
+            world_draw_order: Vec::new(),
             world_done: false,
             layout,
             sampler,
@@ -1670,6 +1784,7 @@ impl Renderer {
             lod: m.lod,
             spans: m.spans,
             terrain_runs: Vec::new(),
+            far_terrain_runs: Vec::new(),
         })
     }
     /// Sample time and publish the frame's lighting/playback state exactly
@@ -1941,25 +2056,28 @@ impl Renderer {
             // viewer blends the frame's atmospheric fog into the cap's own rim
             // colour across that band.
             background: camera.air_fog.color,
+            fog_enabled: camera.atmospheric_fog,
             tint,
         };
         self.sky
             .update(&self.queue, direction, w, h, frame, main_sets, false);
         self.sky
             .update(&self.queue, direction, w, h, frame, reflected_sets, true);
-        self.far_trees.update_lods(
+        let resident_bounds = self.resident_bounds();
+        self.far_trees.update_resident_lods(
+            &self.device,
             &self.queue,
             camera.pos.to_array(),
             self.detail.tree_lod_scale * lod_scale(self.detail.scenery_quality, Class::Trees),
+            resident_bounds,
         );
-        let (bx, by) = self.center;
-        let rad = self.detail.radius;
-        let maxx = ((self.world_width - 1) / TILE * TILE) as isize;
-        let maxy = ((self.world_height - 1) / TILE * TILE) as isize;
-        let x0 = ((bx - rad) * TILE as isize).clamp(0, maxx);
-        let x1 = ((bx + rad + 1) * TILE as isize).clamp(0, maxx);
-        let y0 = ((by - rad) * TILE as isize).clamp(0, maxy);
-        let y1 = ((by + rad + 1) * TILE as isize).clamp(0, maxy);
+        // Use the actual uploaded window. The native window shifts at map
+        // edges; recomputing a clamped camera square discarded the wrong area.
+        let win = self.lod.window;
+        let x0 = (win.x0 * TILE).min(self.world_width - 1);
+        let x1 = (win.x1 * TILE).min(self.world_width - 1);
+        let y0 = (win.y0 * TILE).min(self.world_height - 1);
+        let y1 = (win.y1 * TILE).min(self.world_height - 1);
         let bounds = [
             (x0 as f32 - self.world_width as f32 * 0.5) * self.world_spacing,
             (x1 as f32 - self.world_width as f32 * 0.5) * self.world_spacing,
@@ -2002,11 +2120,20 @@ impl Renderer {
             } else {
                 1.
             });
-        let (mut fog_range, fog_color) = camera.fog_uniform();
+        let mut active_fog = camera.active_fog();
+        if active_fog.enabled && camera.underwater_depth <= 0. {
+            if let Some(cap) = self.resident_bounds().and_then(|b| {
+                crate::terrain_cutoff::fog_cap(b, camera.pos.to_array(), w as f32 / h.max(1) as f32)
+            }) {
+                let range = crate::terrain_cutoff::fit_fog(active_fog.start, active_fog.end, cap);
+                active_fog.start = range[0];
+                active_fog.end = range[1];
+            }
+        }
+        let (mut fog_range, fog_color) = (active_fog.range(), active_fog.color4());
         // Uniform fog_range.w is the terrain day/night factor; the shader reads
         // it instead of overloading sun.w (the lightmap-availability flag).
         fog_range[3] = camera.terrain_day_night;
-        let active_fog = camera.active_fog();
         let active_fog_range = active_fog.range();
         let active_fog_color = active_fog.color4();
         let clip = [
@@ -2051,7 +2178,17 @@ impl Renderer {
         self.frame = snapshot;
         snapshot
     }
-    fn update_mesh(&mut self, m: MeshData) {
+    fn update_mesh(&mut self, mut m: MeshData) -> Result<(), String> {
+        if let Some(mut upload) = m.terrain_upload.take() {
+            self.terrain_gpu.update_residency(
+                &self.device,
+                &self.queue,
+                &self.uniform,
+                &self.reflected_uniform,
+                &upload,
+            )?;
+            upload.materials.release_gpu_source();
+        }
         self.grass.update(&self.device, m.grass);
         self.local_pages.clear();
         self.local_pages = m
@@ -2094,6 +2231,7 @@ impl Renderer {
         self.water_start = m.water_start;
         self.water_batches = m.water_batches;
         crate::grass_mips::upload(&self.queue, &self.atlas, &m.atlas, &m.grass_mips, ATLAS);
+        Ok(())
     }
     fn draw_opaque(
         &self,
@@ -2140,7 +2278,7 @@ impl Renderer {
         // The main view submits only the blocks its frustum keeps
         // (`block+0x74`); the other passes reuse the full terrain because they
         // look through different matrices and must not lose blocks.
-        let runs = if reflected {
+        let runs = if reflected || !matches!(pass_kind, Pass::Main | Pass::Fog) {
             None
         } else {
             Some(self.terrain_runs.as_slice())
@@ -2152,6 +2290,11 @@ impl Renderer {
             &self.index,
             self.terrain_end,
             runs,
+            if matches!(pass_kind, Pass::Main | Pass::Fog) {
+                Some(&self.far_terrain_runs)
+            } else {
+                None
+            },
         );
         drop(p);
         if let Some(source) = terrain_depth_source {
@@ -2204,9 +2347,13 @@ impl Renderer {
         // ornaments while preload is in progress: the coplanar duplicates
         // caused depth flicker. Switch atomically only after all pages arrive.
         if self.world_done {
-            for page in &self.world_pages {
-                page.draw_selected(&mut p, reflected, pass_kind);
-            }
+            crate::world_objects::GpuPage::draw_ordered(
+                &self.world_pages,
+                &self.world_draw_order,
+                &mut p,
+                reflected,
+                pass_kind,
+            );
         }
     }
     fn draw_models(
@@ -2234,8 +2381,10 @@ impl Renderer {
             self.retained_regional_light = Some(light);
         }
         let light = camera.regional_light.or(self.retained_regional_light);
+        let resident_bounds = self.resident_bounds();
         if let Some(models) = &mut self.models {
             models.set_view_center(camera.pos.x, camera.pos.z, world_radius);
+            models.set_resident_bounds(resident_bounds);
         }
         if let (Some(models), Some(light)) = (&mut self.models, light) {
             // Reuse the root logic tick used by regions and the glow presenter.
@@ -2385,6 +2534,7 @@ impl Renderer {
         // Per-frame, per-view visibility of the resident terrain (`0x77e250`):
         // the same block walk the client runs before the level rule.
         self.terrain_runs = crate::terrain_residency::visible_runs(&self.spans, matrix);
+        self.far_terrain_runs = self.terrain_gpu.visible_far_runs(matrix);
         let frame = self.begin_frame(camera, w, h);
         self.weather.advance(camera.logic_delta_ms);
         let selected_weather = camera.regional_light.map_or(
@@ -2463,8 +2613,13 @@ impl Renderer {
                 fog_color: frame.active_fog_color,
             },
         );
-        self.simple_water
-            .update(&self.queue, matrix, frame.elapsed64);
+        self.simple_water.update(
+            &self.queue,
+            matrix,
+            frame.elapsed64,
+            frame.active_fog_range,
+            frame.active_fog_color,
+        );
         let reflection = self.water.reflection();
         let reflect_depth = self.water.depth();
         let refraction = self.water.refraction();
@@ -2612,6 +2767,9 @@ impl Renderer {
                     camera.pos,
                     1. - daylight,
                     frame.elapsed,
+                    self.resident_bounds(),
+                    frame.active_fog_range,
+                    frame.active_fog_color,
                 );
             }
             if use_post {
@@ -2918,6 +3076,9 @@ impl Renderer {
                 camera.pos,
                 1. - daylight,
                 frame.elapsed,
+                self.resident_bounds(),
+                frame.active_fog_range,
+                frame.active_fog_color,
             );
         }
         if use_post {
@@ -3005,7 +3166,7 @@ impl Camera {
         let x = t.width / 2;
         let y = t.height / 2;
         Self {
-            pos: Vec3::new(0., t.heights[y * t.width + x] + 160., 0.),
+            pos: Vec3::new(0., t.heights.at(y * t.width + x) + 160., 0.),
             yaw: 0.,
             pitch: -0.15,
             far: 16000.,
@@ -3561,7 +3722,10 @@ pub fn run(
                     if streaming {
                         match result_rx.try_recv() {
                             Ok(Ok(mesh)) => {
-                                renderer.update_mesh(mesh);
+                                if let Err(e) = renderer.update_mesh(mesh) {
+                                    eprintln!("Terrain residency upload failed: {e}");
+                                    target.exit(); return;
+                                }
                                 streaming = false;
                             }
                             Ok(Err(e)) => {
@@ -3619,10 +3783,11 @@ pub fn run(
                     if !settings.show_zone_entry {zone_banner=None;}
                     if settings.fullscreen!=fullscreen_applied {window.set_fullscreen(if settings.fullscreen{Some(Fullscreen::Borderless(window.current_monitor()))}else{None});fullscreen_applied=settings.fullscreen;}
 
-                    if settings.whole_world != world_enabled {
-                        world_enabled=settings.whole_world;
+                    let want_world=settings.whole_world && !settings.detail.terrain_cutoff && !renderer.detail.terrain_cutoff;
+                    if want_world != world_enabled {
+                        world_enabled=want_world;
                         if let Some(c)=world_cancel.take(){c.store(true,std::sync::atomic::Ordering::Relaxed);}
-                        world_rx=None;renderer.world_pages.clear();renderer.world_done=false;
+                        world_rx=None;renderer.world_pages.clear();renderer.world_draw_order.clear();renderer.world_done=false;
                         if world_enabled {
                             let (tx,rx)=std::sync::mpsc::sync_channel(1);let cancel=Arc::new(std::sync::atomic::AtomicBool::new(false));
                             let c=cancel.clone();let root=whole_element.clone();let ornaments=whole_ornaments.clone();
@@ -3633,15 +3798,15 @@ pub fn run(
                     if let Some(rx)=&world_rx {match rx.try_recv(){
                         Ok(crate::world_objects::Message::Page(page))=>{
                             let processed=page.processed;
-                            let uploaded=crate::world_objects::GpuPage::upload(&renderer.device,&renderer.queue,&renderer.layout,&renderer.sampler,&renderer.uniform,&renderer.reflected_uniform,page);
+                            let uploaded=crate::world_objects::GpuPage::upload_world(&renderer.device,&renderer.queue,&renderer.layout,&renderer.sampler,&renderer.uniform,&renderer.reflected_uniform,&renderer.world_pages,page);
                             renderer.world_pages.push(uploaded);world_status=format!("Loading: {processed}/{} objects, {} GPU chunks",whole_ornaments.len(),renderer.world_pages.len());
                             eprintln!("{world_status}");
                         },
-                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture; {} pages; peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits",stats.pages,stats.residency.peak_resident_bytes>>20,stats.residency.budget_bytes>>20,stats.residency.evictions,stats.residency.alias_hits);eprintln!("{world_status}");},
+                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_draw_order=crate::world_objects::GpuPage::draw_order(&renderer.world_pages);renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture; {} geometry chunks, {} shared atlases ({} MiB); peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits",stats.pages,stats.atlas_pages,stats.atlas_bytes>>20,stats.residency.peak_resident_bytes>>20,stats.residency.budget_bytes>>20,stats.residency.evictions,stats.residency.alias_hits);eprintln!("{world_status}");},
                         Ok(crate::world_objects::Message::Error(e))=>{world_status=format!("World load failed: {e}");eprintln!("{world_status}");},
                         Err(_)=>{}
                     }}
-                    camera.far = if settings.whole_world {settings.far.max(32000.)} else {settings.far};
+                    camera.far = if world_enabled {settings.far.max(32000.)} else {settings.far};
                     camera.time_of_day = settings.time_of_day;
                     camera.tree_wind_strength=settings.tree_wind_strength;camera.client_tree_wind_preview=settings.client_tree_wind_preview;camera.grass_wind_enabled=settings.grass_wind_enabled;camera.grass_wind_amplitude=settings.grass_wind_amplitude;
                     camera.regional_tree_lighting=settings.regional_tree_lighting;
@@ -3790,7 +3955,7 @@ pub fn run(
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
                                                     0=>{ui.heading("Graphics");marked_slider(ui,egui::Slider::new(&mut settings.resolution_scale,10.0..=200.0).integer().suffix("%"),"Resolution scale",defaults.resolution_scale,10.,200.,false,true);ui.label(egui::RichText::new("3D render resolution (10%–200% of the window). UI stays at native resolution.").small().weak());ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
-                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.client_tree_wind_preview,"Client wind signal (preview)").on_hover_text("Modulates the existing 16-second sampled leaf loop with the recovered client wind signal. This is an approximation, not the original live leaf animation.");marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon").on_hover_text("Native billboards: centre at direction*100, half extent 1.0 (1.146 degrees), gated on the recovered elevation curve and the 0.0003/ms visibility ramps. Sun adds its texture, moon alpha-blends it. The sun also carries its recovered sunshine.bmp shine quad at a viewer-chosen size; the moon carries none, because the client scales nothing for it and its retail halo is the screen-space flare chain this build does not draw. The status line below says both.");ui.checkbox(&mut settings.cloud_detail,"Cloud detail (Client CloudDetail gate)").on_hover_text("Shows the native world.cld cloud surface. Point sizing and water-view parity remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.vegetation_authored_mips,"Authored vegetation mips (experimental, restart)").on_hover_text("P4.07 opt-in: preserve authored DDS mip chains for vegetation and use SpeedTree PWTREE08 per-LOD branch/frond alpha references plus the verified leaf reference 84. Default off keeps the approved legacy path. Applied at startup; restart after changing. Native sampler parity, grass anisotropy, and deeper-than-LOD-7 tails remain unresolved.");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");ui.checkbox(&mut settings.grass_wind_enabled,"Grass wind").on_hover_text("Native wind from the recovered logic clock. The client scales it with authored per-area data (+0x6c..+0x74), not a user setting, so this is an on/off switch.");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_amplitude,0.0..=2.0),"Grass wind sway",defaults.grass_wind_amplitude,0.,2.,false,settings.grass_wind_enabled).on_hover_text("Viewer-only multiplier on the wind history. The mark (1.0) is the recovered amplitude: the client's only wind inputs are the noise sample and the authored axis weights (+0x6c..+0x74 = 1.0, -0.5, 0.0), with no scale of its own, so there is no single retail number to show. The spring is critically damped at the recovered stiffness, which bounds the sway by that target instead of letting it resonate.");ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Full world requires substantial GPU memory.");}
+                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.detail.terrain_cutoff,"Original-game terrain cutoff (saves memory)").on_hover_text("Live, saved terrain and scenery cutoff. Keeps the block window below; releases distant terrain geometry and unused blend-mask atlas pages. Combine independently with Client atmospheric fog. Fog keeps the authored colour and caps its distance to the resident window (viewer adaptation). Distant scenery preload is paused; global lightmaps and shared tree assets still have memory costs; realistic maps show only resident terrain.");ui.label(renderer.terrain_gpu.residency_label());let (trees,bytes)=renderer.far_trees.residency_stats();ui.label(format!("Tree LOD instances: {trees}; instance buffer {:.1} KiB",bytes as f64/1024.));ui.add_enabled(!settings.detail.terrain_cutoff,egui::Checkbox::new(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)")).on_hover_text("Paused and its pages released while native cutoff is enabled.");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.client_tree_wind_preview,"Client wind signal (preview)").on_hover_text("Modulates the existing 16-second sampled leaf loop with the recovered client wind signal. This is an approximation, not the original live leaf animation.");marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon").on_hover_text("Native billboards: centre at direction*100, half extent 1.0 (1.146 degrees), gated on the recovered elevation curve and the 0.0003/ms visibility ramps. Sun adds its texture, moon alpha-blends it. The sun also carries its recovered sunshine.bmp shine quad at a viewer-chosen size; the moon carries none, because the client scales nothing for it and its retail halo is the screen-space flare chain this build does not draw. The status line below says both.");ui.checkbox(&mut settings.cloud_detail,"Cloud detail (Client CloudDetail gate)").on_hover_text("Shows the native world.cld cloud surface. Point sizing and water-view parity remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.vegetation_authored_mips,"Authored vegetation mips (experimental, restart)").on_hover_text("P4.07 opt-in: preserve authored DDS mip chains for vegetation and use SpeedTree PWTREE08 per-LOD branch/frond alpha references plus the verified leaf reference 84. Default off keeps the approved legacy path. Applied at startup; restart after changing. Native sampler parity, grass anisotropy, and deeper-than-LOD-7 tails remain unresolved.");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");ui.checkbox(&mut settings.grass_wind_enabled,"Grass wind").on_hover_text("Native wind from the recovered logic clock. The client scales it with authored per-area data (+0x6c..+0x74), not a user setting, so this is an on/off switch.");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_amplitude,0.0..=2.0),"Grass wind sway",defaults.grass_wind_amplitude,0.,2.,false,settings.grass_wind_enabled).on_hover_text("Viewer-only multiplier on the wind history. The mark (1.0) is the recovered amplitude: the client's only wind inputs are the noise sample and the authored axis weights (+0x6c..+0x74 = 1.0, -0.5, 0.0), with no scale of its own, so there is no single retail number to show. The spring is critically damped at the recovered stiffness, which bounds the sway by that target instead of letting it resonate.");ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Whole-world texture atlases are shared; geometry and unique source textures still require GPU memory.");}
                                                     2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());let audio_diagnostic=music.diagnostic();if !audio_diagnostic.is_empty(){ui.label(audio_diagnostic);}ui.checkbox(&mut settings.ambience_enabled,"Play zone ambience (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.sound_volume,0.0..=1.0),"Ambience volume",defaults.sound_volume,0.,1.,false,true);ui.label(ambience.status());ui.checkbox(&mut settings.effects_enabled,"Play world effects (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.effects_volume,0.0..=1.0),"Effects volume",defaults.effects_volume,0.,1.,false,true);ui.label(world_audio.status());if let Some(error)=world_audio.diagnostic(){ui.label(error);}ui.label("Zone selection, world sound timing and spatialization are approximations. Gameplay, combat and weather effects are not implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();egui::ComboBox::from_label("Minimap style").selected_text(settings.minimap_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.minimap_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the world from above each frame; Original shows the client's own minimap tiles (surfaces/minimaps/world) at their native resolution.").small().weak());egui::ComboBox::from_label("Minimap shape").selected_text(settings.minimap_shape.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Square,"Square");ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Circular,"Circular");});egui::ComboBox::from_label("World map style").selected_text(settings.world_map_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.world_map_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.world_map_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the whole world from above; Original shows the client's map tiles (surfaces/maps).").small().weak());ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
                                                 }
@@ -3816,7 +3981,7 @@ pub fn run(
                                         let scale=window.scale_factor() as f32;let screen_w=config.width as f32/scale;let screen_h=config.height as f32/scale;
                                         egui::Window::new("WORLD MAP  |  M or ESC to close").default_pos(egui::pos2(16.,16.)).default_size(egui::vec2((screen_w-32.).min(760.),(screen_h-32.).min(900.))).min_size(egui::vec2(330.,300.)).max_height(screen_h-35.).collapsible(false).resizable(true).show(ctx,|ui|{
                                             ui.label(egui::RichText::new("North: up  |  East: right  |  Mouse wheel: zoom").small().strong());
-                                            if settings.world_map_style==MapStyle::Realistic && !renderer.world_done {ui.horizontal_wrapped(|ui|{ui.label(egui::RichText::new("Distant scenery: ").small().weak());if settings.whole_world {ui.label(egui::RichText::new(&world_status).small().weak());}else if ui.button("Load whole world scenery").clicked(){settings.whole_world=true;}});}
+                                            if settings.world_map_style==MapStyle::Realistic && !renderer.world_done {ui.horizontal_wrapped(|ui|{ui.label(egui::RichText::new("Distant scenery: ").small().weak());if settings.detail.terrain_cutoff {ui.label("Scenery follows the resident window");}else if settings.whole_world {ui.label(egui::RichText::new(&world_status).small().weak());}else if ui.button("Load whole world scenery").clicked(){settings.whole_world=true;}});}
                                             let remaining=(ui.available_height()-78.).max(100.);let visible_width=ui.available_width();let base_width=visible_width.min(remaining*8./11.).max(120.);let image_size=egui::vec2(base_width*map_zoom,base_width*map_zoom*11./8.);
                                             let texture=if settings.world_map_style==MapStyle::Original {original_map_id.as_ref().map(|t|t.id())} else {Some(full_map_id)};
                                             let mut zoom_anchor=None;
@@ -4031,17 +4196,17 @@ pub fn preview(
                         "Preview uploaded world chunk: {} vertices",
                         page.vertices.len()
                     );
-                    renderer
-                        .world_pages
-                        .push(crate::world_objects::GpuPage::upload(
-                            &renderer.device,
-                            &renderer.queue,
-                            &renderer.layout,
-                            &renderer.sampler,
-                            &renderer.uniform,
-                            &renderer.reflected_uniform,
-                            page,
-                        ));
+                    let uploaded = crate::world_objects::GpuPage::upload_world(
+                        &renderer.device,
+                        &renderer.queue,
+                        &renderer.layout,
+                        &renderer.sampler,
+                        &renderer.uniform,
+                        &renderer.reflected_uniform,
+                        &renderer.world_pages,
+                        page,
+                    );
+                    renderer.world_pages.push(uploaded);
                 }
                 crate::world_objects::Message::Done {
                     processed,
@@ -4055,6 +4220,8 @@ pub fn preview(
                         stats.residency.budget_bytes >> 20,
                         stats.residency.evictions
                     );
+                    renderer.world_draw_order =
+                        crate::world_objects::GpuPage::draw_order(&renderer.world_pages);
                     renderer.world_done = true;
                     break;
                 }
@@ -4242,7 +4409,7 @@ mod water_batch_tests {
             width: 4096,
             height: 5632,
             spacing: 2.,
-            heights: std::sync::Arc::from(vec![0.; 4]),
+            heights: vec![0.; 4].into(),
         };
         for (x, z) in [
             (-2825.774, 3092.210),

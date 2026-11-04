@@ -23,3 +23,9 @@ egui-wgpu = { version = "0.27", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
 rodio = { version = "0.17", default-features = false, features = ["mp3", "vorbis", "wav"] }
+
+# Optimize the distributed viewer as a whole; keep debug/test profiles unchanged.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

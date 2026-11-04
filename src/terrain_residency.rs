@@ -12,7 +12,7 @@
 //!
 //! * a block enters the resident set when the window first covers it, and its
 //!   mesh is built exactly once at the level the rule picked;
-//! * it is re-meshed only when its level changes;
+//! * it is re-meshed only when its level or edge stitching changes;
 //! * it is evicted when the window moves off it, freeing its geometry;
 //! * the submitted set is the resident set filtered per view by the same
 //!   bounds test the client stores in `block+0x74`.
@@ -26,6 +26,7 @@ use glam::{Mat4, Vec3};
 /// per-view visibility test needs.
 pub struct Block {
     level: u8,
+    cases: [u8; 4],
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
     /// World-space `[x0, y0, z0, x1, y1, z1]` of the block surface.
@@ -42,7 +43,7 @@ pub struct Census {
     pub loaded: usize,
     /// Blocks the window moved off, whose geometry was released.
     pub evicted: usize,
-    /// Resident blocks re-meshed because their level changed.
+    /// Resident blocks re-meshed because their level or stitching changed.
     pub remeshed: usize,
     /// Triangles held by the resident blocks.
     pub triangles: u32,
@@ -95,6 +96,21 @@ impl Residency {
         L: Fn(usize, usize) -> u8,
         B: FnMut(usize, usize, u8) -> Result<(Vec<Vertex>, Vec<u32>, [f32; 6]), String>,
     {
+        self.update_stitched(window, |x, y| (level_of(x, y), [0; 4]), build)
+    }
+
+    /// Stitching is geometry: a neighbor can change our boundary without
+    /// changing our own resolution. Include all four cases in the cache key.
+    pub fn update_stitched<L, B>(
+        &mut self,
+        window: &crate::terrain_lod::Window,
+        state_of: L,
+        mut build: B,
+    ) -> Result<Census, String>
+    where
+        L: Fn(usize, usize) -> (u8, [u8; 4]),
+        B: FnMut(usize, usize, u8) -> Result<(Vec<Vertex>, Vec<u32>, [f32; 6]), String>,
+    {
         let mut census = Census::default();
         // Eviction first: the client's loader drops the slots the window left.
         let before = self.blocks.len();
@@ -102,13 +118,14 @@ impl Residency {
         census.evicted = before - self.blocks.len();
         for y in window.y0..window.y1 {
             for x in window.x0..window.x1 {
-                let level = level_of(x, y);
+                let (level, cases) = state_of(x, y);
                 if level == 0 {
                     // No mesh for this block (`block+0x70 == 0`).
+                    census.evicted += usize::from(self.blocks.remove(&(x, y)).is_some());
                     continue;
                 }
                 let stale = match self.blocks.get(&(x, y)) {
-                    Some(block) => block.level != level,
+                    Some(block) => block.level != level || block.cases != cases,
                     None => true,
                 };
                 if !stale {
@@ -125,6 +142,7 @@ impl Residency {
                     (x, y),
                     Block {
                         level,
+                        cases,
                         vertices,
                         indices,
                         bounds,
@@ -145,7 +163,21 @@ impl Residency {
         vertices: &mut Vec<Vertex>,
         indices: &mut Vec<u32>,
     ) -> Vec<Span> {
-        let mut spans = Vec::new();
+        // One exact allocation, not geometric growth of a second near mesh.
+        let (mut vertex_count, mut index_count) = (0, 0);
+        for y in window.y0..window.y1 {
+            for x in window.x0..window.x1 {
+                if let Some(block) = self.blocks.get(&(x, y)) {
+                    if !block.indices.is_empty() {
+                        vertex_count += block.vertices.len();
+                        index_count += block.indices.len();
+                    }
+                }
+            }
+        }
+        vertices.reserve_exact(vertex_count);
+        indices.reserve_exact(index_count);
+        let mut spans = Vec::with_capacity(window.blocks());
         for y in window.y0..window.y1 {
             for x in window.x0..window.x1 {
                 let Some(block) = self.blocks.get(&(x, y)) else {
@@ -246,6 +278,45 @@ mod tests {
 
     fn window(x0: usize, y0: usize, x1: usize, y1: usize) -> Window {
         Window { x0, y0, x1, y1 }
+    }
+
+    #[test]
+    fn neighbor_stitch_changes_invalidate_an_unchanged_level() {
+        let mut r = Residency::default();
+        let win = window(0, 0, 2, 1);
+        r.update_stitched(&win, |_, _| (3, [0; 4]), |x, _, _| Ok(block(x as f32)))
+            .unwrap();
+        let c = r
+            .update_stitched(
+                &win,
+                |x, _| (3, if x == 0 { [0, 0, 0, 1] } else { [0; 4] }),
+                |x, _, level| {
+                    assert_eq!((x, level), (0, 3));
+                    Ok(block(x as f32))
+                },
+            )
+            .unwrap();
+        assert_eq!(c.remeshed, 1);
+        let c = r
+            .update_stitched(
+                &win,
+                |x, _| (3, if x == 0 { [0, 0, 0, 1] } else { [0; 4] }),
+                |_, _, _| panic!("unchanged stitched mesh must be reused"),
+            )
+            .unwrap();
+        assert_eq!(c.remeshed, 0);
+    }
+
+    #[test]
+    fn level_zero_removes_previously_resident_geometry() {
+        let mut r = Residency::default();
+        let win = window(0, 0, 1, 1);
+        r.update(&win, |_, _| 3, |_, _, _| Ok(block(0.))).unwrap();
+        let c = r
+            .update(&win, |_, _| 0, |_, _, _| panic!("disabled"))
+            .unwrap();
+        assert_eq!(c.resident, 0);
+        assert_eq!(c.triangles, 0);
     }
 
     #[test]
