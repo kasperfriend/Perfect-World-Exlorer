@@ -2,26 +2,19 @@
 //! GPU resources. The host only supplies narrow input/camera, terrain and draw
 //! hooks; a disabled module has no effect on core features.
 
+mod package;
 mod walker;
 
 use crate::{model_draw_gpu, navigation::MapSpace};
 use glam::Vec3;
+use package::{Package, Registry};
 use std::{collections::HashSet, path::PathBuf};
 use walker::Walker;
 use winit::keyboard::KeyCode;
 
-struct Descriptor {
-    name: &'static str,
-    description: &'static str,
-}
-
-const MODULES: &[Descriptor] = &[Descriptor {
-    name: "Walker",
-    description: "Spawn a real, animated player character from models.pck and walk on the loaded terrain. Includes four race/profession models, source-backed run/jump mechanics, adjustable move speed and jump height, third-person view, and a bone-positioned first-person view. Walker uses terrain support, not flight; it does not change the core camera, world, interface, or persisted settings.",
-}];
-
 pub struct Modules {
     walker: Walker,
+    packages: Registry,
     selected: usize,
 }
 
@@ -29,6 +22,7 @@ impl Default for Modules {
     fn default() -> Self {
         Self {
             walker: Walker::default(),
+            packages: Registry::discover(package::default_root()),
             selected: 0,
         }
     }
@@ -38,6 +32,7 @@ impl Modules {
     pub fn new(element: PathBuf, map: MapSpace) -> Self {
         Self {
             walker: Walker::with_host(element, map),
+            packages: Registry::discover(package::default_root()),
             selected: 0,
         }
     }
@@ -65,51 +60,40 @@ impl Modules {
                     .weak(),
                 );
                 ui.add_space(8.);
-                ui.heading("Installed and future modules");
-                for (index, descriptor) in MODULES.iter().enumerate() {
+                ui.heading("Installed modules");
+                let mut selected = self.selected;
+                for (index, installed) in self.packages.packages.iter().enumerate() {
                     if ui
-                        .selectable_label(self.selected == index, descriptor.name)
+                        .selectable_label(selected == index, &installed.name)
                         .clicked()
                     {
-                        self.selected = index;
+                        selected = index;
                     }
                 }
-                ui.label(
-                    egui::RichText::new("Future modules will appear in this list as they are registered.")
+                self.selected = selected;
+                if self.packages.packages.is_empty() {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "No module packages found in {}.",
+                            self.packages.root.display()
+                        ))
                         .small()
                         .weak(),
-                );
+                    );
+                    ui.label(
+                        egui::RichText::new(
+                            "Keep the shipped Modules folder beside Perfect-World-Explorer.exe.",
+                        )
+                        .small()
+                        .weak(),
+                    );
+                }
+                for error in &self.packages.errors {
+                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                }
                 ui.separator();
-                if let Some(descriptor) = MODULES.get(self.selected) {
-                    ui.heading(descriptor.name);
-                    ui.label(descriptor.description);
-                    ui.add_space(8.);
-                    if self.selected == 0 {
-                        let active = self.walker.is_active();
-                        let label = if active { "Disable Walker" } else { "Enable Walker" };
-                        if ui
-                            .add_sized([160., 32.], egui::Button::new(label))
-                            .clicked()
-                        {
-                            let facing = Vec3::new(yaw.sin(), 0., -yaw.cos());
-                            self.walker.set_active(!active, spawn, facing);
-                        }
-                        let status = self.walker.status();
-                        if active {
-                            ui.label(egui::RichText::new(status).color(egui::Color32::LIGHT_GREEN));
-                        } else if status == "Disabled" {
-                            ui.label(egui::RichText::new(status).weak());
-                        } else {
-                            ui.colored_label(egui::Color32::LIGHT_RED, status);
-                        }
-                        ui.label(
-                            egui::RichText::new(
-                                "While enabled: WASD moves, Space jumps (press again for the client's second jump), and the mouse looks around. Open Escape to adjust Walker beneath the minimap.",
-                            )
-                            .small()
-                            .weak(),
-                        );
-                    }
+                if let Some(installed) = self.packages.packages.get(self.selected).cloned() {
+                    self.selected_module_ui(ui, installed, spawn, yaw);
                 }
                 ui.separator();
                 if ui.button("Back to menu").clicked() {
@@ -117,6 +101,62 @@ impl Modules {
                 }
             });
         back
+    }
+
+    fn selected_module_ui(&mut self, ui: &mut egui::Ui, installed: Package, spawn: Vec3, yaw: f32) {
+        ui.heading(&installed.name);
+        ui.label(
+            egui::RichText::new(format!("Version {}", installed.version))
+                .small()
+                .weak(),
+        );
+        ui.label(&installed.description);
+        ui.label(
+            egui::RichText::new(format!("Package: {}", installed.directory.display()))
+                .small()
+                .weak(),
+        );
+        ui.add_space(8.);
+        if installed.id != "walker" {
+            ui.label(
+                egui::RichText::new(format!(
+                    "This executable does not provide an implementation for module id '{}'.",
+                    installed.id
+                ))
+                .small()
+                .weak(),
+            );
+            return;
+        }
+
+        let active = self.walker.is_active();
+        let label = if active {
+            "Disable Walker"
+        } else {
+            "Enable Walker"
+        };
+        if ui
+            .add_sized([160., 32.], egui::Button::new(label))
+            .clicked()
+        {
+            let facing = Vec3::new(yaw.sin(), 0., -yaw.cos());
+            self.walker.set_active(!active, spawn, facing);
+        }
+        let status = self.walker.status();
+        if active {
+            ui.label(egui::RichText::new(status).color(egui::Color32::LIGHT_GREEN));
+        } else if status == "Disabled" {
+            ui.label(egui::RichText::new(status).weak());
+        } else {
+            ui.colored_label(egui::Color32::LIGHT_RED, status);
+        }
+        ui.label(
+            egui::RichText::new(
+                "While enabled: WASD moves, Space jumps (press again for the client's second jump), and the mouse looks around. Open Escape to adjust Walker beneath the minimap.",
+            )
+            .small()
+            .weak(),
+        );
     }
 
     /// Escape-menu-owned panel. egui Window supplies persistent dragging and

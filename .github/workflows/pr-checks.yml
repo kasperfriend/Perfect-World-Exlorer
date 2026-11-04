@@ -185,18 +185,15 @@ jobs:
           }
       - name: Build standalone viewer
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer
-      - name: Build the shipped survey tool
-        run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin bmd-overlap-survey
-      - name: Stage artifact and checksum
+      - name: Stage portable viewer and installed modules
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path artifact | Out-Null
-          Copy-Item target/x86_64-pc-windows-msvc/release/perfect-world-explorer.exe artifact/Perfect-World-Explorer.exe
-          Copy-Item target/x86_64-pc-windows-msvc/release/bmd-overlap-survey.exe artifact/BmdOverlapSurvey.exe
-          $hash = (Get-FileHash artifact/Perfect-World-Explorer.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  Perfect-World-Explorer.exe" | Out-File -Encoding ascii artifact/SHA256SUMS.txt
-          $survey = (Get-FileHash artifact/BmdOverlapSurvey.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$survey  BmdOverlapSurvey.exe" | Out-File -Encoding ascii -Append artifact/SHA256SUMS.txt
+          # Validate the release ZIP too, but upload only the portable folder.
+          ./tools/package-windows.ps1 `
+            -Executable target/x86_64-pc-windows-msvc/release/perfect-world-explorer.exe `
+            -Modules Modules `
+            -OutputDirectory artifact `
+            -ArchivePath "$env:RUNNER_TEMP/Perfect-World-Explorer-package-test.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: Perfect-World-Explorer-Windows-x64

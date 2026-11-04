@@ -15,7 +15,7 @@ See the [full 76-point plan reassessment](Findings/Eight-phase-reassessment-2026
 - Experimental animated water, per-height reflections and refraction, shoreline waves, underwater effects, environmental fog, sky, time-of-day control and optional bloom.
 - Searchable teleport destinations, original and rendered world maps, a minimap, zone notices and Windows zone music.
 - Windows launcher with remembered client folder and settings, and in-app Graphics, World, Sound and Interface controls. Settings → Graphics → **Resolution scale** renders the 3D world at 10–200% of the window size (default 100%) and upscales it, while the UI stays at native resolution; lower values trade sharpness for speed, higher values supersample.
-- An optional **Modules** add-on list. The first module, **Walker**, loads a real player model and supports terrain walking, source-backed run/jump mechanics, race/speed/height settings, and first- or third-person cameras. Modules own their state and do not change persisted core settings.
+- An optional **Modules** add-on list. The first module, **Walker**, loads a real player model and supports terrain walking, source-backed run/jump mechanics, race/speed/height settings, and first- or third-person cameras. The executable discovers installed module packages beside itself; modules own their state and do not change persisted core settings.
 
 Features are limited to formats and data encountered in one inspected build; other client variants may behave differently. This is not affiliated with or endorsed by the game or its publishers.
 
@@ -27,10 +27,20 @@ Features are limited to formats and data encountered in one inspected build; oth
 
 ## Run the Windows executable
 
-1. Download the Windows executable from the project's release (or the separately supplied `Windows` folder).
-2. Run it and choose **Select Game Folder**. Select the extracted client root or its `element` directory.
+1. Download `Perfect-World-Explorer-Windows-x64.zip` from the project's release and extract it. Keep the entire **`Perfect World Explorer`** folder together:
+   ```text
+   Perfect World Explorer/
+     Perfect-World-Explorer.exe
+     Modules/
+       Walker/
+         module.ini
+     SHA256SUMS.txt
+   ```
+2. Run `Perfect-World-Explorer.exe` and choose **Select Game Folder**. Select the extracted client root or its `element` directory.
 3. Click **Load World**. The first run prepares tree geometry using the client runtime; wait for loading to finish.
 4. The menu starts open. Choose Settings or close the menu to fly.
+
+The executable resolves `Modules` relative to its own location, not the current working directory. Each installed module has its own subfolder and `module.ini` manifest. This build provides the implementation for known module IDs (currently `walker`); a manifest by itself is not a dynamic-plugin SDK. Missing or malformed packages are reported in the Modules page without preventing the core viewer from running.
 
 **Security:** The application executes the 32-bit `speedtreert.dll` from the selected client through an embedded helper. Only use a client you trust. Settings and the selected path are stored under `%LOCALAPPDATA%\PerfectWorldViewer`; derived tree geometry is cached in its `tree-cache` subfolder. The installation itself is not modified. Do not upload client data or the derived cache.
 
@@ -66,6 +76,8 @@ cargo test --bin perfect-world-explorer
 cargo check --bins
 ```
 
+Cargo does not copy module packages into `target`. For a source-tree run, either copy `Modules` beside the built executable or set `PW_MODULES_DIR` to the repository's `Modules` directory. The environment override is also useful for portable or test installations. Windows PR artifacts and manual release ZIPs are staged by `tools/package-windows.ps1`, which verifies the executable/module layout and excludes development survey tools.
+
 Dependency-free Phase 1 core checks can also be run with `tools/check-phase1-core.sh` (requires `rustc`; optionally set `RUSTC`). This checks CPU references only, not the application or shaders. For the production whole-frame gamma pass, run `cargo run --bin display-gamma-gpu-check` on a machine with a working GPU adapter. Client gamma is fullscreen-only and applies after world and UI composition; windowed mode does not apply the display ramp.
 
 On Windows, use a compatible Rust Windows toolchain and the required compiler/linker (for MSVC, install the Visual Studio C++ build tools). A GNU cross-build from Linux requires the Rust target and MinGW linker:
@@ -76,13 +88,13 @@ CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
   cargo build --release --target x86_64-pc-windows-gnu --bin perfect-world-explorer
 ```
 
-The single executable embeds `tools/speedtree/speedtree-bake.exe`, a 32-bit helper built from `tools/speedtree/bake.cpp`. It invokes the **user's** runtime DLL; the DLL is not bundled. The helper binary is retained in the repository because the Rust build uses `include_bytes!`; Windows PR and release workflows rebuild it from `bake.cpp` before compiling the viewer. For local builds after changing the bridge source, rebuild it with a 32-bit MinGW C++ compiler, e.g. `i686-w64-mingw32-g++ -static -O2 -municode tools/speedtree/bake.cpp -o tools/speedtree/speedtree-bake.exe`. Compiler versions and flags may produce a different binary. The bridge also writes `tree-alpha-refs.csv` into its prepared cache directory, containing the native branch/frond alpha references for each of the 59 tree types and three LODs. `tools/launcher-art.jpg` is embedded at build time.
+The viewer executable embeds `tools/speedtree/speedtree-bake.exe`, a 32-bit helper built from `tools/speedtree/bake.cpp`. It invokes the **user's** runtime DLL; the DLL is not bundled. The helper binary is retained in the repository because the Rust build uses `include_bytes!`; Windows PR and release workflows rebuild it from `bake.cpp` before compiling the viewer. For local builds after changing the bridge source, rebuild it with a 32-bit MinGW C++ compiler, e.g. `i686-w64-mingw32-g++ -static -O2 -municode tools/speedtree/bake.cpp -o tools/speedtree/speedtree-bake.exe`. Compiler versions and flags may produce a different binary. The bridge also writes `tree-alpha-refs.csv` into its prepared cache directory, containing the native branch/frond alpha references for each of the 59 tree types and three LODs. `tools/launcher-art.jpg` is embedded at build time.
 
 The executable distributed alongside this source was rebuilt from this packaged snapshot. Native Windows/physical-GPU verification of the latest changes and game-to-viewer image comparison remain outstanding.
 
 ## Development and verification
 
-- `src/` contains parsers, scene loading, GPU rendering, UI and audio; `src/bin/` contains diagnostic and survey programs. These are development tools, not required to run the viewer.
+- `src/` contains parsers, scene loading, GPU rendering, UI and audio; `src/bin/` contains diagnostic and survey programs. These are development tools, are not required to run the viewer, and are not included in shipped viewer packages.
 - Example: `cargo run --release --bin pck-inspect -- /path/to/element/shaders.pck` lists archive entries. Input client files are required.
 - `cargo run --bin water-record-survey -- <directory>` expects `world.ecwld`, `world.ecbsd` and referenced BSData `.dat` files in that directory. Set `PW_WATER_SAMPLE_69` to a local `69.dat` path to enable optional real-data water tests. Do not commit these files.
 - GPU diagnostics include `water-pass-gpu-check`, `simple-water-gpu-check` and `post-gpu-check`. They require a working graphics adapter; synthetic tests do not prove in-game visual parity.
@@ -97,6 +109,8 @@ The water render target details, simple-water lighting/fog, quality modes, wave 
 ```text
 Cargo.toml, Cargo.lock   Rust package and locked dependencies
 src/                     viewer, parsers, GPU code and diagnostics
+Modules/                 installed module packages copied beside the executable
+tools/package-windows.ps1 shared PR/release portable-package builder
 tools/speedtree/         bridge source, probes and embedded helper
 tools/launcher-art.jpg   embedded launcher image
 Findings/                research, evidence, assessment and roadmap
