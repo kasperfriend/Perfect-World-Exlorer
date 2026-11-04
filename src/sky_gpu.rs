@@ -150,6 +150,19 @@ fn luminous_center(image: &image::RgbaImage) -> [f32; 2] {
     ]
 }
 
+/// Align the authored bright cores in the same billboard coordinate system.
+pub(crate) fn glow_lookup_center(disc: &image::RgbaImage, glow: &image::RgbaImage) -> [f32; 4] {
+    let core = luminous_center(disc);
+    let shine = luminous_center(glow);
+    let ratio = DISC_SCALE / GLOW_SCALE;
+    [
+        shine[0] - (core[0] - 0.5) * ratio,
+        shine[1] - (core[1] - 0.5) * ratio,
+        0.5,
+        0.5,
+    ]
+}
+
 pub(crate) const SHADER: &str = r#"
 struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>,glow_center:vec4<f32>};
 // Mirrors the Rust `GLOW_SCALE`: the shine quad is this many billboards wide.
@@ -410,17 +423,7 @@ impl SkyGpu {
             glow_layers[i] = decoded.is_some();
             frames.push(decoded.unwrap_or_else(|| image::RgbaImage::new(512, 512)));
         }
-        let sun_core = luminous_center(&frames[9]);
-        let sun_glow = luminous_center(&frames[11]);
-        // Match the luminous centre of the disc (including non-centred art),
-        // not just the mathematical billboard centre.
-        let ratio = DISC_SCALE / GLOW_SCALE;
-        let glow_center = [
-            sun_glow[0] - (sun_core[0] - 0.5) * ratio,
-            sun_glow[1] - (sun_core[1] - 0.5) * ratio,
-            0.5,
-            0.5,
-        ];
+        let glow_center = glow_lookup_center(&frames[9], &frames[11]);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("client sky images"),
             size: wgpu::Extent3d {

@@ -438,6 +438,142 @@ fn main() {
     }
     assert_eq!(machine.counter(), counter, "a view advanced the transition");
 
+    // Regression for the reported displaced red sun halo. Feed deliberately
+    // off-centre art through the production bright-core helper AND shader.
+    // Green identifies the disc and red identifies the glow independently.
+    let disc = image::RgbaImage::from_fn(W, H, |x, y| {
+        image::Rgba([
+            0,
+            if (30..34).contains(&x) && (30..34).contains(&y) {
+                255
+            } else {
+                0
+            },
+            0,
+            255,
+        ])
+    });
+    let glow = image::RgbaImage::from_fn(W, H, |x, y| {
+        image::Rgba([
+            if (30..34).contains(&x) && (46..50).contains(&y) {
+                255
+            } else if y > 56 {
+                10
+            } else {
+                0
+            },
+            0,
+            0,
+            255,
+        ])
+    });
+    let black = image::RgbaImage::new(W, H);
+    for layer in 0..LAYERS {
+        let image = match layer {
+            9 => &disc,
+            11 => &glow,
+            _ => &black,
+        };
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &sky,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: layer,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            image.as_raw(),
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(W * 4),
+                rows_per_image: Some(H),
+            },
+            wgpu::Extent3d {
+                width: W,
+                height: H,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+    let core_center = |pixels: &[u8], channel: usize| {
+        let peak = pixels.chunks_exact(4).map(|p| p[channel]).max().unwrap() as f32;
+        assert!(peak > 0., "missing celestial channel {channel}");
+        let mut sum = [0f32; 3];
+        for (i, p) in pixels.chunks_exact(4).enumerate() {
+            let weight = (p[channel] as f32 - peak * 0.5).max(0.);
+            sum[0] += (i as u32 % W) as f32 * weight;
+            sum[1] += (i as u32 / W) as f32 * weight;
+            sum[2] += weight;
+        }
+        [sum[0] / sum[2], sum[1] / sum[2]]
+    };
+    let el = 0.4f32;
+    let az = -0.5f32;
+    let sun = Vec3::new(az.cos() * el.cos(), el.sin(), az.sin() * el.cos());
+    let lookup = sky_gpu::glow_lookup_center(&disc, &glow);
+    for mirrored in [false, true] {
+        for pitch in [-0.025f32, 0., 0.025] {
+            let direction = (sun + Vec3::Y * pitch).normalize();
+            let direction = if mirrored {
+                Vec3::new(direction.x, -direction.y, direction.z)
+            } else {
+                direction
+            };
+            let view = Mat4::look_to_rh(Vec3::ZERO, direction, Vec3::Y);
+            let projection = Mat4::from_scale(Vec3::new(-1., 1., 1.))
+                * Mat4::perspective_rh(20f32.to_radians(), 1., 1., 16000.);
+            let inv = (projection * view).inverse();
+            let inv = if mirrored {
+                Mat4::from_scale(Vec3::new(1., -1., 1.)) * inv
+            } else {
+                inv
+            };
+            let mut params = uniform(inv, (0., 0., 0.));
+            params[20..24].copy_from_slice(&[1., el, az, 1.]);
+            params[28..32].fill(0.);
+            params[35] = sky_gpu::DISC_SCALE;
+            params[40..44].copy_from_slice(&lookup);
+            let pixels = render(
+                &device,
+                &queue,
+                &pipeline,
+                &layout,
+                &sky_view,
+                &sampler,
+                &roof_sampler,
+                &t,
+                &params,
+            );
+            let d = core_center(&pixels, 1);
+            let g = core_center(&pixels, 0);
+            assert!((d[0]-g[0]).abs()<1.25 && (d[1]-g[1]).abs()<1.25,
+                "sun/glow cores misaligned: disc={d:?}, glow={g:?}, mirrored={mirrored}, pitch={pitch}");
+            if !mirrored && pitch == 0. {
+                params[40..44].copy_from_slice(&[0.5; 4]);
+                let broken = render(
+                    &device,
+                    &queue,
+                    &pipeline,
+                    &layout,
+                    &sky_view,
+                    &sampler,
+                    &roof_sampler,
+                    &t,
+                    &params,
+                );
+                let old = core_center(&broken, 0);
+                assert!(
+                    (old[1] - d[1]).abs() > 8.,
+                    "fixture must expose the old downward glow displacement"
+                );
+            }
+        }
+    }
+    println!("sun/glow bright-core alignment: 6/6 production renders passed across pitch and reflected views; uncorrected fixture exposes displacement");
+
     println!(
         "phase5 sky transition: shader compiled, crossfade moved {differing} bytes, \
          altitude stable, reflection mirrored, transition counter {counter} unchanged over \
