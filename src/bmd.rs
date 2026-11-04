@@ -33,6 +33,68 @@ pub struct Model {
     pub up: [f32; 3],
     pub position: [f32; 3],
     pub meshes: Vec<Mesh>,
+    /// Native `CELBrushBuilding` convex collision brushes stored after the
+    /// lit-model meshes. These are world-baked just like the BMD vertices.
+    pub collision: Vec<CollisionBrush>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BrushSide {
+    pub normal: [f32; 3],
+    pub distance: f32,
+    pub bevel: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct CollisionBrush {
+    pub center: [f32; 3],
+    pub extents: [f32; 3],
+    pub flags: u32,
+    pub sides: Vec<BrushSide>,
+}
+
+impl CollisionBrush {
+    /// `CHBasedCD::CCDBrush::Load`: A3DAABB (four vectors), flags, side
+    /// count, then 17-byte plane/bevel records. Sharing this reader with TBH
+    /// tree collision keeps both native containers on the same layout.
+    pub fn read(b: &[u8], p: &mut usize) -> Result<Self, String> {
+        let center = v3(b, *p)?;
+        let extents = v3(b, *p + 12)?;
+        let _mins = v3(b, *p + 24)?;
+        let _maxs = v3(b, *p + 36)?;
+        if extents.iter().any(|v| *v < 0.0) {
+            return Err("negative collision-brush extent".into());
+        }
+        *p = p.checked_add(48).ok_or("collision-brush overflow")?;
+        let flags = u(b, *p)?;
+        *p += 4;
+        let count = u(b, *p)? as usize;
+        *p += 4;
+        if count == 0 || count > 200 {
+            return Err(format!("invalid collision-brush side count {count}"));
+        }
+        let mut sides = Vec::with_capacity(count);
+        for _ in 0..count {
+            let normal = v3(b, *p)?;
+            let distance = f(b, *p + 12)?;
+            if normal.iter().map(|v| v * v).sum::<f32>() < 1e-12 {
+                return Err("zero collision-plane normal".into());
+            }
+            let bevel = *b.get(*p + 16).ok_or("truncated collision plane")? != 0;
+            *p = p.checked_add(17).ok_or("collision-plane overflow")?;
+            sides.push(BrushSide {
+                normal,
+                distance,
+                bevel,
+            });
+        }
+        Ok(Self {
+            center,
+            extents,
+            flags,
+            sides,
+        })
+    }
 }
 fn u(b: &[u8], p: usize) -> Result<u32, String> {
     Ok(u32::from_le_bytes(
@@ -89,13 +151,13 @@ impl Model {
     ///   covered by synthetic tests rather than by real data. That is stated
     ///   here so the distinction between "implemented" and "seen in the wild"
     ///   stays visible.
-    /// - After the last mesh the client stops reading (A3DLitModel::Load ends
-    ///   at 0x7bb795). The remaining trailer belongs to the scenery light
-    ///   attachment system: u32 group count (0x64e307), then per group
-    ///   [u32 n][n u32 ids] (0x64dd30), then per group a light record
-    ///   [48 bytes][u32][u32 m][m x 17 bytes] (0x64e010 -> 0x72a0a0).
-    ///   Byte-exact over all 28858 corpus files; not geometry or texture
-    ///   data, so this parser does not consume it.
+    /// - After the last mesh, `CELBrushBuilding::Load` reads its native convex
+    ///   collision trailer: u32 hull count, then per hull [u32 n][n u32 mesh
+    ///   ids], followed by one `CCDBrush` per hull. Each brush is an A3DAABB
+    ///   (48 bytes), flags, side count, and 17-byte plane/bevel records. This
+    ///   is the same layout previously misidentified as scenery light groups;
+    ///   `EL_BrushBuilding.cpp` and `CHBasedCD/aabbcd.cpp` establish its real
+    ///   purpose. Old BMDs without even a hull-count word remain valid.
     pub fn parse(b: &[u8]) -> Result<Self, String> {
         if u(b, 0)? != 0x42584f4d {
             return Err("not a binary AFile (missing MOXB marker, client sniff 0x76da7c)".into());
@@ -255,12 +317,38 @@ impl Model {
                 indices,
             });
         }
+        let mut collision = Vec::new();
+        // CELBrushBuilding accepts old files whose stream ends before the
+        // hull-count word, but a partially present native trailer is an error.
+        if p < b.len() {
+            let hull_count = u(b, p)? as usize;
+            p += 4;
+            if hull_count > 65_536 {
+                return Err(format!("BMD collision-hull limit exceeded: {hull_count}"));
+            }
+            for _ in 0..hull_count {
+                let count = u(b, p)? as usize;
+                p += 4;
+                if count > 1_000_000 {
+                    return Err(format!("BMD collision mesh-list limit exceeded: {count}"));
+                }
+                let bytes = count.checked_mul(4).ok_or("BMD collision list overflow")?;
+                p = p.checked_add(bytes).ok_or("BMD collision list overflow")?;
+                if p > b.len() {
+                    return Err("truncated BMD collision mesh list".into());
+                }
+            }
+            for _ in 0..hull_count {
+                collision.push(CollisionBrush::read(b, &mut p)?);
+            }
+        }
         Ok(Self {
             scale,
             direction,
             up,
             position,
             meshes,
+            collision,
         })
     }
 }
@@ -451,5 +539,42 @@ mod tests {
             b.extend_from_slice(&rest.split_off(4));
             assert_eq!(Model::parse(&b).unwrap().meshes.len(), 1);
         }
+    }
+
+    #[test]
+    fn reads_native_collision_hulls_after_lit_meshes() {
+        let mut b = model_skeleton(0x10000002, 0x10000004);
+        assert!(Model::parse(&b).unwrap().collision.is_empty());
+        let put = |b: &mut Vec<u8>, value: u32| b.extend_from_slice(&value.to_le_bytes());
+        put(&mut b, 1); // hull count
+        put(&mut b, 2); // mesh ids associated with this hull
+        put(&mut b, 3);
+        put(&mut b, 7);
+        for value in [
+            10.0f32, 20.0, 30.0, // center
+            1.0, 2.0, 3.0, // extents
+            9.0, 18.0, 27.0, // mins
+            11.0, 22.0, 33.0, // maxs
+        ] {
+            put(&mut b, value.to_bits());
+        }
+        put(&mut b, 4); // CHDATA_SKIP_COLLISION
+        put(&mut b, 1); // one side is enough to verify the serialized layout
+        for value in [0.0f32, 1.0, 0.0, 12.5] {
+            put(&mut b, value.to_bits());
+        }
+        b.push(1); // bevel bool
+        let model = Model::parse(&b).unwrap();
+        assert_eq!(model.collision.len(), 1);
+        let brush = &model.collision[0];
+        assert_eq!(brush.center, [10.0, 20.0, 30.0]);
+        assert_eq!(brush.extents, [1.0, 2.0, 3.0]);
+        assert_eq!(brush.flags, 4);
+        assert_eq!(brush.sides.len(), 1);
+        assert_eq!(brush.sides[0].normal, [0.0, 1.0, 0.0]);
+        assert_eq!(brush.sides[0].distance, 12.5);
+        assert!(brush.sides[0].bevel);
+        b.pop();
+        assert!(Model::parse(&b).is_err());
     }
 }

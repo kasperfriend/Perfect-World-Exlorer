@@ -30,6 +30,7 @@ const STEP_HEIGHT: f32 = 0.8;
 /// to `y + 2 * half_height` and its center is `y + half_height`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MovementConstants {
+    pub half_width: f32,
     pub half_height: f32,
     pub min_water_height: f32,
     pub shore_depth: f32,
@@ -41,6 +42,13 @@ impl MovementConstants {
         let male = gender == Gender::Male;
         let barbarian_male = class == Class::Barbarian && male;
         Self {
+            half_width: if class == Class::Blademaster && male {
+                0.4
+            } else if barbarian_male {
+                0.5
+            } else {
+                0.3
+            },
             half_height: if barbarian_male {
                 1.05
             } else if male {
@@ -64,6 +72,11 @@ impl MovementConstants {
                 0.55
             },
         }
+    }
+
+    /// Unscaled `m_aabbServer.Extents` from `CECPlayer::CalcPlayerAABB`.
+    pub fn collision_extents(self) -> Vec3 {
+        Vec3::new(self.half_width, self.half_height, self.half_width)
     }
 }
 

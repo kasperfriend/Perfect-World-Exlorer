@@ -3,7 +3,9 @@
 //! belong to this module; disabling it restores the host's free-flight path.
 
 pub(crate) mod archive;
+mod audio;
 mod character;
+mod collision;
 mod designer;
 mod gfx;
 pub(crate) mod physics;
@@ -35,6 +37,7 @@ const THIRD_PERSON_DISTANCE: f32 = 4.5;
 struct Settings {
     mechanics: Mechanics,
     first_person: bool,
+    object_collision: bool,
 }
 
 impl Default for Settings {
@@ -42,6 +45,7 @@ impl Default for Settings {
         Self {
             mechanics: Mechanics::default(),
             first_person: false,
+            object_collision: true,
         }
     }
 }
@@ -139,7 +143,9 @@ fn render_models<'a>(
             .filter(|(_, posed)| !posed.is_empty())
             .map(|(weapon, posed)| RenderModel {
                 part: ModelPart::Weapon {
-                    right: weapon.hook == "HH_righthandweapon",
+                    // HH_qiu is also a native right-hand hanger (Psychic
+                    // soulspheres); only the explicit left hook is left-hand.
+                    right: weapon.hook != "HH_lefthandweapon",
                 },
                 asset: &weapon.asset,
                 poses: posed,
@@ -191,6 +197,8 @@ pub struct Walker {
     gpu: Option<Gpu>,
     gpu_failed: bool,
     last_error: Option<String>,
+    audio: audio::CharacterAudio,
+    collision: collision::Collision,
 }
 
 impl Default for Walker {
@@ -222,16 +230,28 @@ impl Default for Walker {
             gpu: None,
             gpu_failed: false,
             last_error: None,
+            audio: audio::CharacterAudio::default(),
+            collision: collision::Collision::default(),
         }
     }
 }
 
 impl Walker {
-    pub fn with_host(element: PathBuf, map: MapSpace, water: Vec<WaterArea>) -> Self {
+    pub fn with_host(
+        element: PathBuf,
+        map: MapSpace,
+        water: Vec<WaterArea>,
+        scene: &crate::scene::Scene,
+        ornaments: Vec<crate::scene::Ornament>,
+    ) -> Self {
+        let audio = audio::CharacterAudio::new(&element);
+        let collision = collision::Collision::new(element.clone(), scene, &ornaments);
         Self {
             element: Some(element),
             map: Some(map),
             water,
+            audio,
+            collision,
             ..Self::default()
         }
     }
@@ -270,6 +290,27 @@ impl Walker {
         }
     }
 
+    pub fn update_audio(&mut self, enabled: bool, volume: f32) {
+        let active = self.is_active();
+        let commands = if active {
+            self.character
+                .as_mut()
+                .map(|character| character.take_sound_commands())
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        self.audio.update(enabled && active, volume, commands);
+    }
+
+    pub fn audio_status(&self) -> &str {
+        self.audio.status()
+    }
+
+    pub fn audio_diagnostic(&self) -> Option<String> {
+        self.audio.diagnostic()
+    }
+
     pub fn set_active(&mut self, active: bool, spawn: Vec3, facing: Vec3) {
         if !active {
             if let Some(character) = &self.character {
@@ -286,6 +327,7 @@ impl Walker {
             self.capture = None;
             self.flight_was_down = false;
             self.mount_was_down = false;
+            self.audio.stop();
             return;
         }
         if self.is_active() {
@@ -322,6 +364,9 @@ impl Walker {
             self.last_error = None;
             Ok(())
         })();
+        if result.is_ok() && self.settings.object_collision {
+            self.collision.ensure_loading();
+        }
         if let Err(error) = result {
             self.last_error = Some(format!("Walker could not spawn: {error}"));
             self.body = None;
@@ -353,6 +398,7 @@ impl Walker {
                 {
                     self.travel = TravelState::Ground;
                 }
+                self.audio.stop();
                 self.character = Some(character);
                 self.gpu = None;
                 self.gpu_failed = false;
@@ -422,6 +468,7 @@ impl Walker {
         if !self.is_active() {
             return None;
         }
+        self.collision.poll();
         let mut captured = false;
         if let Some(action) = self.capture {
             if self.capture_wait_release {
@@ -535,6 +582,7 @@ impl Walker {
 
         let map = self.map.as_ref()?.clone();
         let body = self.body.as_mut()?;
+        let previous_position = body.position;
         if input_enabled {
             match self.travel {
                 TravelState::Ground => body.advance_with_water(
@@ -561,6 +609,38 @@ impl Walker {
                     },
                     &map,
                 ),
+            }
+        }
+        if self.settings.object_collision {
+            let resolved = self.collision.resolve(
+                previous_position,
+                body.position,
+                movement_constants.collision_extents(),
+            );
+            body.position = resolved.feet;
+            if resolved.blocked {
+                if resolved.normal.y >= 0.5 && body.vertical_velocity < 0.0 {
+                    body.vertical_velocity = 0.0;
+                } else if resolved.normal.y < -0.5 && body.vertical_velocity > 0.0 {
+                    body.vertical_velocity = 0.0;
+                }
+            }
+        }
+        // Object collision is an additional layer, never a terrain toggle.
+        // Reapply permanent terrain support after wall sliding as the new x/z
+        // may reference a higher terrain triangle than the old position did.
+        let support = physics::ground(&map, body.position.x, body.position.z);
+        if body.position.y < support.height {
+            body.position.y = support.height;
+            if support.normal.y >= 0.5 && body.vertical_velocity <= 0.0 {
+                let newly_landed = !body.grounded;
+                body.vertical_velocity = 0.0;
+                body.grounded = true;
+                body.jump_count = 0;
+                body.water_jumping = false;
+                if newly_landed {
+                    body.landed_generation = body.landed_generation.wrapping_add(1);
+                }
             }
         }
         if let Some(character) = &mut self.character {
@@ -709,6 +789,18 @@ impl Walker {
             ));
         ui.checkbox(&mut self.settings.first_person, "First Person Mode")
             .on_hover_text("Uses a stable bind-head eye anchor without animation bob. The body and mount remain visible; native head/face, right-hand weapon, and flight meshes are hidden.");
+        if ui
+            .checkbox(&mut self.settings.object_collision, "Collision check")
+            .on_hover_text("Collide with native BMD building/object hulls and TBH tree hulls. Terrain collision remains enabled permanently, even when this option is off.")
+            .changed()
+            && self.settings.object_collision
+        {
+            self.collision.ensure_loading();
+        }
+        ui.label(egui::RichText::new(self.collision.status()).small().weak());
+        if let Some(diagnostic) = self.collision.diagnostic() {
+            ui.label(egui::RichText::new(diagnostic).small().weak());
+        }
         if ui.button("Restore native movement defaults").clicked() {
             self.settings.mechanics = Mechanics::default();
             self.settings.mechanics.set_move_speed(native_run);

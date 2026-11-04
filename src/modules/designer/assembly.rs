@@ -60,6 +60,22 @@ pub struct WeaponModel {
     pub child_hook: Option<&'static str>,
 }
 
+/// Native `CECPlayer::GetRightWeaponHookPos`: Psychic soulspheres hang from
+/// HH_qiu rather than the ordinary right-hand weapon hook. PROF_MONK is the
+/// native Psychic profession and 25333 is its soulsphere major-type record.
+fn weapon_parent_hook(
+    class: Class,
+    major_type: u32,
+    right: bool,
+    ordinary: &'static str,
+) -> &'static str {
+    if right && class == Class::Psychic && major_type == 25333 {
+        "HH_qiu"
+    } else {
+        ordinary
+    }
+}
+
 /// The armor-reflection shader writes diffuse alpha directly; texture alpha is
 /// a specular input, not opacity.
 fn apply_armor_reflect_shader(asset: &mut ModelAsset) {
@@ -408,7 +424,7 @@ impl Character {
                         design.equipment.weapon
                     )
                 })?;
-            for (path, hook, right) in [
+            for (path, ordinary_hook, right) in [
                 (weapon.right_model, "HH_righthandweapon", true),
                 (weapon.left_model, "HH_lefthandweapon", false),
             ] {
@@ -430,7 +446,7 @@ impl Character {
                 };
                 weapons.push(WeaponModel {
                     asset,
-                    hook,
+                    hook: weapon_parent_hook(design.class, weapon.subtype, right, ordinary_hook),
                     child_hook,
                 });
             }
@@ -1691,6 +1707,26 @@ mod tests {
             evaluated += 1;
         }
         assert!(evaluated > 0, "authentic base body has no texture-0 mesh");
+    }
+
+    #[test]
+    fn psychic_soulsphere_uses_native_qiu_parent_hook() {
+        assert_eq!(
+            weapon_parent_hook(Class::Psychic, 25333, true, "HH_righthandweapon"),
+            "HH_qiu"
+        );
+        assert_eq!(
+            weapon_parent_hook(Class::Psychic, 292, true, "HH_righthandweapon"),
+            "HH_righthandweapon"
+        );
+        assert_eq!(
+            weapon_parent_hook(Class::Wizard, 25333, true, "HH_righthandweapon"),
+            "HH_righthandweapon"
+        );
+        assert_eq!(
+            weapon_parent_hook(Class::Psychic, 25333, false, "HH_lefthandweapon"),
+            "HH_lefthandweapon"
+        );
     }
 
     #[test]

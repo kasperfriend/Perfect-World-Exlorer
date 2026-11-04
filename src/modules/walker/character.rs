@@ -1,6 +1,12 @@
 //! Real player ECM/SMD/BON/SKI assembly and direct base-action playback.
 
-use super::{gfx::CharacterGfx, physics::Body};
+use super::{
+    audio::{
+        asset_key, SoundCommand, SoundCue, BODY_CHANNEL, FLIGHT_CHANNEL, MOUNT_CHANNEL,
+    },
+    gfx::CharacterGfx,
+    physics::Body,
+};
 use crate::{
     ecmodel,
     model_asset::ModelAsset,
@@ -365,6 +371,136 @@ impl ActionSet {
     }
 }
 
+#[derive(Clone, Debug)]
+struct ActionSound {
+    start: u32,
+    end: Option<u32>,
+    once: bool,
+    fired: bool,
+    expired: bool,
+    cue: SoundCue,
+}
+
+fn event_field<'a>(event: &'a ecmodel::EcmEvent, key: &str) -> Option<&'a str> {
+    event
+        .fields
+        .iter()
+        .find(|(name, _)| name == key)
+        .map(|(_, value)| value.as_str())
+}
+
+fn event_number<T: std::str::FromStr>(event: &ecmodel::EcmEvent, key: &str, default: T) -> T {
+    event_field(event, key)
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(default)
+}
+
+/// Resolve SFX belonging to the exact single-base combined action selected for
+/// a direct clip. Ambiguous multi-binding clips stay silent rather than playing
+/// another action's sounds. Event timestamps are translated from the combined
+/// timeline into the SMD clip's absolute millisecond clock.
+fn action_sounds(
+    descriptor: &ecmodel::EcModel,
+    actions: &[ecmodel::Action],
+    action: Option<usize>,
+    clip_start: u32,
+    clip_end: u32,
+    channel: u8,
+) -> Vec<ActionSound> {
+    let Some(action) = action else {
+        return Vec::new();
+    };
+    let Some(clip) = actions.get(action) else {
+        return Vec::new();
+    };
+    let bindings = descriptor
+        .actions
+        .iter()
+        .filter(|combined| {
+            let [base] = combined.bases.as_slice() else {
+                return false;
+            };
+            base.name == clip.name
+        })
+        .collect::<Vec<_>>();
+    if bindings.len() > 1 {
+        return Vec::new();
+    }
+    let binding = bindings.first().copied();
+    if binding.is_none()
+        && descriptor
+            .actions
+            .iter()
+            .any(|combined| combined.name == clip.name)
+    {
+        return Vec::new();
+    }
+    let binding_name = binding.map_or(clip.name.as_str(), |combined| combined.name.as_str());
+    let base_start = binding
+        .and_then(|combined| combined.bases[0].start_ms)
+        .unwrap_or(0);
+    let mut sounds = Vec::new();
+    for (event_index, event) in descriptor.events.iter().enumerate() {
+        if event.kind != 101 || event.action.as_deref() != Some(binding_name) {
+            continue;
+        }
+        let start = event_number::<i64>(event, "StartTime", 0) - base_start as i64;
+        if start < 0 || start > (clip_end - clip_start) as i64 {
+            continue;
+        }
+        let start = clip_start + start as u32;
+        let span = event_number::<i64>(event, "TimeSpan", -1);
+        let end = (span >= 0)
+            .then(|| start.saturating_add(span.min(u32::MAX as i64) as u32));
+        let paths = event
+            .fields
+            .iter()
+            .filter(|(name, _)| name == "FxFilePath")
+            .filter_map(|(_, path)| asset_key(path))
+            .collect::<Vec<_>>();
+        if paths.is_empty() {
+            continue;
+        }
+        let legacy_volume = event_number::<u32>(event, "Volume", 100);
+        let volume_min = event_number::<u32>(event, "VolMin", legacy_volume).min(100);
+        let volume_max = event_number::<u32>(event, "VolMax", legacy_volume).min(100);
+        let (volume_min, volume_max) = if volume_min <= volume_max {
+            (volume_min, volume_max)
+        } else {
+            (volume_max, volume_min)
+        };
+        let pitch_min = event_number::<f32>(event, "PitchMin", 0.);
+        let pitch_max = event_number::<f32>(event, "PitchMax", 0.);
+        if !pitch_min.is_finite() || !pitch_max.is_finite() {
+            continue;
+        }
+        let percent = event_number::<f32>(event, "PercentStart", 1.);
+        if !percent.is_finite() {
+            continue;
+        }
+        sounds.push(ActionSound {
+            start,
+            end,
+            once: event_number::<i32>(event, "Once", 0) != 0,
+            fired: false,
+            expired: false,
+            cue: SoundCue {
+                channel,
+                event: (action as u64) << 32 | event_index as u64,
+                paths,
+                volume_min,
+                volume_max,
+                pitch_min: pitch_min.min(pitch_max).clamp(-12.0, 12.0),
+                pitch_max: pitch_min.max(pitch_max).clamp(-12.0, 12.0),
+                percent: percent.clamp(0., 1.),
+                looping: event_number::<i32>(event, "IsLoop", 0) != 0,
+            },
+        });
+    }
+    sounds.sort_by_key(|sound| sound.start);
+    sounds
+}
+
 /// Direct SMD action clock with the same truncated millisecond endpoints and
 /// per-tick speed truncation as the recovered ordinary model playback path.
 struct ClipPlayer {
@@ -375,10 +511,18 @@ struct ClipPlayer {
     current: u32,
     looping: bool,
     speed: f32,
+    channel: u8,
+    sounds: Vec<ActionSound>,
+    pending: Vec<SoundCommand>,
 }
 
 impl ClipPlayer {
-    fn new(asset: &ModelAsset, motion: Motion, action: Option<usize>) -> Result<Self, String> {
+    fn new(
+        asset: &ModelAsset,
+        motion: Motion,
+        action: Option<usize>,
+        channel: u8,
+    ) -> Result<Self, String> {
         let speed = asset.descriptor.render_settings().default_speed;
         if !speed.is_finite() || speed < 0. {
             return Err("invalid character action speed".into());
@@ -411,6 +555,14 @@ impl ClipPlayer {
             }
             None => (0, 0),
         };
+        let sounds = action_sounds(
+            &asset.descriptor,
+            &asset.model.actions,
+            action,
+            start,
+            end,
+            channel,
+        );
         Ok(Self {
             motion,
             action,
@@ -433,6 +585,9 @@ impl ClipPlayer {
                     | Motion::FlyDescendLow
             ),
             speed,
+            channel,
+            sounds,
+            pending: Vec::new(),
         })
     }
 
@@ -444,34 +599,72 @@ impl ClipPlayer {
         force: bool,
     ) -> Result<(), String> {
         if force || self.motion != motion || self.action != action {
-            *self = Self::new(asset, motion, action)?;
+            let channel = self.channel;
+            *self = Self::new(asset, motion, action, channel)?;
+            self.pending.push(SoundCommand::StopChannel(channel));
         }
         Ok(())
     }
 
+    fn emit_sound_range(&mut self, lower: u32, upper: u32) {
+        let channel = self.channel;
+        for sound in &mut self.sounds {
+            if !sound.fired && sound.start >= lower && sound.start <= upper {
+                sound.fired = true;
+                self.pending.push(SoundCommand::Play(sound.cue.clone()));
+            }
+            if sound.fired
+                && !sound.expired
+                && sound
+                    .end
+                    .is_some_and(|end| end >= lower && end <= upper)
+            {
+                sound.expired = true;
+                self.pending.push(SoundCommand::Stop {
+                    channel,
+                    event: sound.cue.event,
+                });
+            }
+        }
+    }
+
     fn tick(&mut self, delta_ms: u32) {
-        let Some(_) = self.action else {
+        if self.action.is_none() {
             return;
-        };
+        }
         let scaled = delta_ms as f32 * self.speed;
         if !scaled.is_finite() || scaled >= u32::MAX as f32 {
             return;
         }
         let advance = scaled as u32;
-        let absolute = self.current as u64 + advance as u64;
+        let previous = self.current;
+        let absolute = previous as u64 + advance as u64;
         if absolute <= self.end as u64 {
             self.current = absolute as u32;
+            self.emit_sound_range(previous, self.current);
         } else if self.looping {
+            self.emit_sound_range(previous, self.end);
             let duration = (self.end - self.start) as u64 + 1;
-            if duration == 1 {
-                self.current = self.end;
-            } else {
-                let wraps = (absolute - self.start as u64) / duration;
-                self.current = (absolute - wraps * duration) as u32;
+            let wraps = (absolute - self.start as u64) / duration;
+            self.current = (absolute - wraps * duration) as u32;
+            // Intermediate loops inside one unusually long frame are history,
+            // not a backlog of sounds to play at once. Fire the first loop's
+            // events above, then only the final loop's current interval.
+            for sound in &mut self.sounds {
+                if !sound.once {
+                    sound.fired = false;
+                    sound.expired = false;
+                }
             }
+            self.emit_sound_range(self.start, self.current);
         } else {
             self.current = self.end;
+            self.emit_sound_range(previous, self.end);
         }
+    }
+
+    fn drain_sounds(&mut self) -> Vec<SoundCommand> {
+        std::mem::take(&mut self.pending)
     }
 
     fn finished(&self) -> bool {
@@ -582,6 +775,7 @@ pub struct Character {
     camera_anchor: Vec3,
     last_jump: u64,
     last_landing: u64,
+    sound_commands: Vec<SoundCommand>,
 }
 
 impl Character {
@@ -592,7 +786,7 @@ impl Character {
             &assembly.body.descriptor.actions,
             &assembly.body.model.actions,
         );
-        let player = ClipPlayer::new(&assembly.body, Motion::Stand, actions.stand)?;
+        let player = ClipPlayer::new(&assembly.body, Motion::Stand, actions.stand, BODY_CHANNEL)?;
         let head_bone = assembly
             .body
             .skeleton
@@ -610,7 +804,12 @@ impl Character {
             let actions =
                 FlightActionSet::child(&model.asset.model.actions, model.mode, &model.model_path);
             travel_warnings.extend(actions.warnings("flight child"));
-            let player = ClipPlayer::new(&model.asset, Motion::FlyHover, actions.hover)?;
+            let player = ClipPlayer::new(
+                &model.asset,
+                Motion::FlyHover,
+                actions.hover,
+                FLIGHT_CHANNEL,
+            )?;
             (actions, Some(player))
         } else {
             (FlightActionSet::default(), None)
@@ -624,7 +823,12 @@ impl Character {
                         .into(),
                 );
             }
-            let player = ClipPlayer::new(&model.asset, Motion::RideStand, actions.stand)?;
+            let player = ClipPlayer::new(
+                &model.asset,
+                Motion::RideStand,
+                actions.stand,
+                MOUNT_CHANNEL,
+            )?;
             (actions, Some(player))
         } else {
             (MountActionSet::default(), None)
@@ -656,6 +860,7 @@ impl Character {
             camera_anchor,
             last_jump: 0,
             last_landing: 0,
+            sound_commands: Vec::new(),
         })
     }
 
@@ -835,6 +1040,23 @@ impl Character {
                 player.tick(delta_ms);
             }
         }
+        self.sound_commands.extend(self.player.drain_sounds());
+        if travel == TravelState::Mounted {
+            if let Some(player) = &mut self.mount_player {
+                self.sound_commands.extend(player.drain_sounds());
+            }
+        } else if previous == TravelState::Mounted {
+            self.sound_commands
+                .push(SoundCommand::StopChannel(MOUNT_CHANNEL));
+        }
+        if travel == TravelState::Flying {
+            if let Some(player) = &mut self.flight_player {
+                self.sound_commands.extend(player.drain_sounds());
+            }
+        } else if previous == TravelState::Flying {
+            self.sound_commands
+                .push(SoundCommand::StopChannel(FLIGHT_CHANNEL));
+        }
         let world = character_transform(body.position, facing);
         let animation = TravelAnimation {
             state: travel,
@@ -853,6 +1075,10 @@ impl Character {
         self.eye = posed.pose.body.model.transform_point3(self.camera_anchor);
         self.posed = posed;
         Ok(())
+    }
+
+    pub(super) fn take_sound_commands(&mut self) -> Vec<SoundCommand> {
+        std::mem::take(&mut self.sound_commands)
     }
 }
 
@@ -1465,6 +1691,97 @@ mod tests {
             assert_eq!(character.posed.pose.travel, TravelState::Flying);
             assert!(!character.posed.meshes.flight.is_empty());
         }
+    }
+
+    fn test_sound(start: u32, end: Option<u32>, once: bool, event: u64) -> ActionSound {
+        ActionSound {
+            start,
+            end,
+            once,
+            fired: false,
+            expired: false,
+            cue: SoundCue {
+                channel: BODY_CHANNEL,
+                event,
+                paths: vec!["sfx/test/step.wav".into()],
+                volume_min: 100,
+                volume_max: 100,
+                pitch_min: 0.0,
+                pitch_max: 0.0,
+                percent: 1.0,
+                looping: false,
+            },
+        }
+    }
+
+    fn test_player(sounds: Vec<ActionSound>) -> ClipPlayer {
+        ClipPlayer {
+            motion: Motion::Run,
+            action: Some(0),
+            start: 0,
+            end: 100,
+            current: 0,
+            looping: true,
+            speed: 1.0,
+            channel: BODY_CHANNEL,
+            sounds,
+            pending: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn action_sfx_repeats_on_later_loops_and_emits_finite_stop() {
+        let mut player = test_player(vec![test_sound(50, Some(80), false, 7)]);
+        player.tick(40);
+        assert!(player.drain_sounds().is_empty());
+        player.tick(20);
+        assert!(matches!(
+            player.drain_sounds().as_slice(),
+            [SoundCommand::Play(cue)] if cue.event == 7
+        ));
+        player.tick(30);
+        assert!(matches!(
+            player.drain_sounds().as_slice(),
+            [SoundCommand::Stop { channel: BODY_CHANNEL, event: 7 }]
+        ));
+        player.tick(20);
+        assert!(player.drain_sounds().is_empty());
+        player.tick(41);
+        assert!(matches!(
+            player.drain_sounds().as_slice(),
+            [SoundCommand::Play(cue)] if cue.event == 7
+        ));
+    }
+
+    #[test]
+    fn action_sfx_once_does_not_retrigger_after_wrap() {
+        let mut player = test_player(vec![test_sound(20, None, true, 9)]);
+        player.tick(20);
+        assert_eq!(player.drain_sounds().len(), 1);
+        player.tick(100);
+        assert!(player.drain_sounds().is_empty());
+        player.tick(1);
+        assert!(player.drain_sounds().is_empty());
+        player.tick(101);
+        assert!(player.drain_sounds().is_empty());
+    }
+
+    #[test]
+    fn action_sfx_long_frame_drops_intermediate_loop_backlog() {
+        let mut player = test_player(vec![test_sound(10, None, false, 11)]);
+        player.tick(10);
+        assert_eq!(player.drain_sounds().len(), 1);
+        // Three complete loops pass; only the final loop's interval may emit.
+        player.tick(350);
+        let commands = player.drain_sounds();
+        assert_eq!(
+            commands
+                .iter()
+                .filter(|command| matches!(command, SoundCommand::Play(_)))
+                .count(),
+            1,
+            "unexpected backlog: {commands:?}"
+        );
     }
 
     #[test]

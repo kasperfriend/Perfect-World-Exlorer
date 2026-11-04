@@ -30,9 +30,15 @@ impl Default for Modules {
 }
 
 impl Modules {
-    pub fn new(element: PathBuf, map: MapSpace, water: Vec<WaterArea>) -> Self {
+    pub fn new(
+        element: PathBuf,
+        map: MapSpace,
+        water: Vec<WaterArea>,
+        scene: &crate::scene::Scene,
+        ornaments: Vec<crate::scene::Ornament>,
+    ) -> Self {
         Self {
-            walker: Walker::with_host(element, map, water),
+            walker: Walker::with_host(element, map, water, scene, ornaments),
             packages: Registry::discover(package::default_root()),
             selected: 0,
         }
@@ -253,6 +259,18 @@ impl Modules {
         pitch: f32,
     ) -> Option<Vec3> {
         self.walker.update(delta, input_enabled, keys, yaw, pitch)
+    }
+
+    pub fn update_walker_audio(&mut self, enabled: bool, volume: f32) {
+        self.walker.update_audio(enabled, volume);
+    }
+
+    pub fn walker_audio_status(&self) -> &str {
+        self.walker.audio_status()
+    }
+
+    pub fn walker_audio_diagnostic(&self) -> Option<String> {
+        self.walker.audio_diagnostic()
     }
 
     #[allow(clippy::too_many_arguments)]
