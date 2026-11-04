@@ -161,10 +161,8 @@ impl TerrainGpu {
         reflection: &wgpu::Buffer,
     ) -> Result<Self, String> {
         let m = &t.materials;
-        if m.textures.is_empty()
-            || m.textures.len() > device.limits().max_texture_array_layers as usize
-        {
-            return Err("GPU terrain texture layer limit exceeded".into());
+        if m.textures.is_empty() {
+            return Err("terrain has no textures".into());
         }
         let masks_count = m
             .areas
@@ -296,6 +294,14 @@ impl TerrainGpu {
             .count();
         let count_full =
             m.textures.len() - native_counts.iter().sum::<usize>() - count_small - count_large;
+        if native_counts
+            .iter()
+            .copied()
+            .chain([count_small, count_large, count_full])
+            .any(|count| count > device.limits().max_texture_array_layers as usize)
+        {
+            return Err("GPU terrain texture array layer limit exceeded".into());
+        }
         let create_array = |side: usize, count: usize| {
             let side = if count == 0 { 4 } else { side };
             device.create_texture(&wgpu::TextureDescriptor {
@@ -1186,28 +1192,37 @@ fn world_mesh(
             });
         }
     }
-    let mut indices = Vec::with_capacity((xs.len() - 1) * (ys.len() - 1) * 6);
+    let (indices, spans) = far_indices(&v, xs.len(), ys.len());
+    (v, indices, spans)
+}
+
+fn far_indices(
+    vertices: &[FarVertex],
+    cols: usize,
+    rows: usize,
+) -> (Vec<u32>, Vec<crate::terrain_residency::Span>) {
+    let mut indices = Vec::with_capacity((cols - 1) * (rows - 1) * 6);
     // Preserve every original triangle, but group index ranges into bounded
     // patches so the main view never transforms the entire off-screen world.
     let mut spans = Vec::new();
-    for py in (0..ys.len() - 1).step_by(32) {
-        for px in (0..xs.len() - 1).step_by(32) {
-            let end_x = (px + 32).min(xs.len() - 1);
-            let end_y = (py + 32).min(ys.len() - 1);
+    for py in (0..rows - 1).step_by(32) {
+        for px in (0..cols - 1).step_by(32) {
+            let end_x = (px + 32).min(cols - 1);
+            let end_y = (py + 32).min(rows - 1);
             let start = indices.len() as u32;
             let mut low = [f32::INFINITY; 3];
             let mut high = [f32::NEG_INFINITY; 3];
             for y in py..=end_y {
                 for x in px..=end_x {
                     for axis in 0..3 {
-                        let value = v[y * xs.len() + x].pos[axis];
+                        let value = vertices[y * cols + x].pos[axis];
                         low[axis] = low[axis].min(value);
                         high[axis] = high[axis].max(value);
                     }
                     if x < end_x && y < end_y {
-                        let a = (y * xs.len() + x) as u32;
+                        let a = (y * cols + x) as u32;
                         let b = a + 1;
-                        let c = a + xs.len() as u32;
+                        let c = a + cols as u32;
                         indices.extend_from_slice(&[a, b, c, b, c + 1, c]);
                     }
                 }
@@ -1220,7 +1235,7 @@ fn world_mesh(
             });
         }
     }
-    (v, indices, spans)
+    (indices, spans)
 }
 
 fn grid_axis(size: usize, step: usize) -> Vec<usize> {
@@ -1234,6 +1249,47 @@ fn grid_axis(size: usize, step: usize) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn far_patches_preserve_every_triangle_and_bound_all_their_vertices() {
+        let (cols, rows) = (70, 50);
+        let vertices: Vec<_> = (0..rows)
+            .flat_map(|y| {
+                (0..cols).map(move |x| FarVertex {
+                    pos: [x as f32, ((x * 7 + y * 11) % 31) as f32, y as f32],
+                    normal: [0, 127, 0, 0],
+                })
+            })
+            .collect();
+        let (indices, spans) = far_indices(&vertices, cols, rows);
+        let mut expected = std::collections::BTreeSet::new();
+        for y in 0..rows - 1 {
+            for x in 0..cols - 1 {
+                let a = (y * cols + x) as u32;
+                let c = a + cols as u32;
+                expected.insert([a, a + 1, c]);
+                expected.insert([a + 1, c + 1, c]);
+            }
+        }
+        let actual: std::collections::BTreeSet<_> = indices
+            .chunks_exact(3)
+            .map(|t| [t[0], t[1], t[2]])
+            .collect();
+        assert_eq!(actual, expected);
+        assert_eq!(indices.len(), expected.len() * 3, "no duplicate triangles");
+        assert_eq!(
+            spans.iter().map(|s| s.count as usize).sum::<usize>(),
+            indices.len()
+        );
+        for span in spans {
+            for &index in &indices[span.start as usize..(span.start + span.count) as usize] {
+                let p = vertices[index as usize].pos;
+                for axis in 0..3 {
+                    assert!(p[axis] >= span.bounds[axis] && p[axis] <= span.bounds[axis + 3]);
+                }
+            }
+        }
+    }
+
     #[test]
     fn neutral_tiles_match_the_atlas_block_layout() {
         let rgba = super::neutral_tile(256, false);

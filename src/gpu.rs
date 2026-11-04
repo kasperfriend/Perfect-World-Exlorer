@@ -404,22 +404,7 @@ fn build(
         ));
     }
     let (win, mut levels) = lod_window(t.width, t.height, t.grid_spacing, [cx, cz], rad);
-    // The persistent outside mesh samples every four cells. Match that exact
-    // boundary, including when a high-altitude/edge camera selects a fine LOD.
-    for y in win.y0..win.y1 {
-        for x in win.x0..win.x1 {
-            let i = (y - win.y0) * (win.x1 - win.x0) + x - win.x0;
-            let case = levels.level(x, y).saturating_sub(1);
-            for (side, boundary) in [y == win.y0, y + 1 == win.y1, x == win.x0, x + 1 == win.x1]
-                .into_iter()
-                .enumerate()
-            {
-                if boundary {
-                    levels.cases[i][side] = case;
-                }
-            }
-        }
-    }
+    levels.stitch_far_boundary();
     let lod_state = LodState {
         window: win,
         levels: levels.levels.clone(),
