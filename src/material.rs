@@ -123,6 +123,12 @@ pub(crate) fn layer_uv(axis: u8, x: f32, y: f32, z: f32) -> (f32, f32) {
     }
 }
 
+fn in_window(id: usize, cols: usize, window: Option<[usize; 4]>) -> bool {
+    window.map_or(true, |[x0, y0, x1, y1]| {
+        let (x, y) = (id % cols, id / cols);
+        x >= x0 && x < x1 && y >= y0 && y < y1
+    })
+}
 impl Materials {
     pub fn load(
         dir: &Path,
@@ -131,6 +137,20 @@ impl Materials {
         width: usize,
         height: usize,
         spacing: f32,
+    ) -> Result<Self, String> {
+        Self::load_window(dir, trn, names, width, height, spacing, None, true)
+    }
+    /// Load only masks used by the resident terrain. Global area indices stay
+    /// unchanged; the GPU packs the surviving masks into a compact atlas.
+    pub fn load_window(
+        dir: &Path,
+        trn: &[u8],
+        names: &[String],
+        width: usize,
+        height: usize,
+        spacing: f32,
+        window: Option<[usize; 4]>,
+        colors: bool,
     ) -> Result<Self, String> {
         let mask_grid = u32at(trn, 48)? as usize;
         let subgrid = u32at(trn, 64)? as usize;
@@ -157,9 +177,13 @@ impl Materials {
         let element = dir.parent().and_then(Path::parent).ok_or("bad map path")?;
         let mut file =
             File::open(element.join("textures.pck")).map_err(|e| format!("textures.pck: {e}"))?;
-        let entries = pck::directory(&mut file)?;
+        let entries = if colors {
+            pck::directory(&mut file)?
+        } else {
+            Vec::new()
+        };
         let mut textures = Vec::new();
-        for path in &paths {
+        for path in paths.iter().filter(|_| colors) {
             let entry = entries
                 .iter()
                 .find(|e| e.name.eq_ignore_ascii_case(path))
@@ -183,6 +207,12 @@ impl Materials {
             .map(|_| Area { layers: Vec::new() })
             .collect();
         for (si, name) in names.iter().enumerate() {
+            if let Some([x0, y0, x1, y1]) = window {
+                let (sx, sy) = ((si % subs_x) * sub_areas, (si / subs_x) * sub_areas);
+                if sx >= x1 || sy >= y1 || sx + sub_areas <= x0 || sy + sub_areas <= y0 {
+                    continue;
+                }
+            }
             let data = fs::read(dir.join(format!("{name}.t2mk"))).map_err(|e| e.to_string())?;
             if u32at(&data, 0)? != 0x544d4b42 || u32at(&data, 4)? != 2 {
                 return Err(format!("{name}: unsupported T2MK"));
@@ -202,6 +232,9 @@ impl Materials {
                 let dst = ((si / subs_x) * sub_areas + ai / sub_areas) * areas_x
                     + (si % subs_x) * sub_areas
                     + ai % sub_areas;
+                if !in_window(dst, areas_x, window) {
+                    continue;
+                }
                 let area = areas.get_mut(dst).ok_or("mask area outside world")?;
                 for li in 0..n {
                     let r = p + 4 + li * 12;
@@ -211,7 +244,7 @@ impl Materials {
                     }
                     let lp = layerstart + idx * 28;
                     let texture = u32at(&data, lp)? as usize;
-                    if texture >= textures.len() {
+                    if texture >= count {
                         return Err("texture index out of bounds".into());
                     }
                     let mut size = if li == 0 {
@@ -318,6 +351,23 @@ impl Materials {
         })
     }
     /// The desktop GPU owns uploaded copies and no longer CPU-bakes terrain.
+    /// Transfer upload ownership without retaining DDS/mask payloads on the worker.
+    pub fn take_window(&mut self, window: Option<[usize; 4]>) -> Self {
+        for (id, area) in self.areas.iter_mut().enumerate() {
+            if !in_window(id, self.areas_x, window) {
+                area.layers = Vec::new();
+            }
+        }
+        Self {
+            textures: std::mem::take(&mut self.textures),
+            areas: std::mem::take(&mut self.areas),
+            areas_x: self.areas_x,
+            mask_grid: self.mask_grid,
+            width: self.width,
+            height: self.height,
+            spacing: self.spacing,
+        }
+    }
     pub fn release_gpu_source(&mut self) {
         self.areas.clear();
         self.textures.clear();
@@ -493,5 +543,40 @@ mod tests {
         // matching the (x, y, z) arguments above - so the two agree term for term.
         assert_eq!(layer_uv(0, x, y, z).0, z);
         assert_eq!(layer_uv(2, x, y, z).1, -y);
+    }
+    #[test]
+    fn cutoff_transfers_only_resident_payloads_without_renumbering_areas() {
+        let mut m = Materials {
+            textures: vec![],
+            areas: (0..16)
+                .map(|id| Area {
+                    layers: vec![Layer {
+                        texture: 0,
+                        axis: 1,
+                        u: 1.,
+                        v: 1.,
+                        mask_size: 1,
+                        mask: Mask::raw(vec![id as u8]),
+                    }],
+                })
+                .collect(),
+            areas_x: 4,
+            mask_grid: 128,
+            width: 512,
+            height: 512,
+            spacing: 2.,
+        };
+        let upload = m.take_window(Some([1, 1, 3, 3]));
+        assert!(m.areas.is_empty());
+        assert!(m.textures.is_empty());
+        assert_eq!(m.mask_grid, 128);
+        assert_eq!(upload.areas.len(), 16);
+        for (id, a) in upload.areas.iter().enumerate() {
+            if [5, 6, 9, 10].contains(&id) {
+                assert_eq!(a.layers[0].mask.decode(1).unwrap().as_ref(), &[id as u8]);
+            } else {
+                assert!(a.layers.is_empty());
+            }
+        }
     }
 }

@@ -78,6 +78,8 @@ pub struct DetailSettings {
     /// `0x77d720`). The client's range is 420 world units for the shipped
     /// quality presets (`0x40e41f`), i.e. 7 blocks of 64 units.
     pub radius: isize,
+    /// Restore the finite native terrain window instead of the viewer far mesh.
+    pub terrain_cutoff: bool,
     pub tree_lod_scale: f32,
     /// Native `CECSceneBlock` quality preset (`0x424230`, `Sight+1` at
     /// `0x40e155`). Preset 2 is the shipped `detail_scene = 1` default and
@@ -88,6 +90,7 @@ impl Default for DetailSettings {
     fn default() -> Self {
         Self {
             radius: 7,
+            terrain_cutoff: false,
             tree_lod_scale: 1.0,
             scenery_quality: 2,
         }
@@ -241,6 +244,7 @@ impl ViewSettings {
             }
             match k {
                 "sharpen" => flag!(s.sharpen),
+                "terrain_cutoff" => flag!(s.detail.terrain_cutoff),
                 "radius" => {
                     if let Ok(x) = v.parse::<isize>() {
                         s.detail.radius = x.clamp(2, 12)
@@ -334,11 +338,11 @@ impl ViewSettings {
     }
     fn encode(&self) -> String {
         format!(concat!("# Perfect World Explorer settings, version 1\n",
-            "radius={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
+            "radius={}\nterrain_cutoff={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nambience_enabled={}\nsound_volume={}\neffects_enabled={}\neffects_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
             "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
-            self.detail.radius,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
+            self.detail.radius,self.detail.terrain_cutoff,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.ambience_enabled,self.sound_volume,self.effects_enabled,self.effects_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.cloud_detail,self.sharpen,self.resolution_scale,
@@ -477,6 +481,7 @@ mod tests {
     fn round_trip_all_settings() {
         let mut s = ViewSettings::default();
         s.detail.radius = 11;
+        s.detail.terrain_cutoff = true;
         s.bloom = true;
         s.whole_world = true;
         s.camera_speed = 511.;
@@ -662,5 +667,28 @@ mod tests {
         }
         assert!(super::post_required(false, true, false, false));
         assert!(!super::post_required(false, false, false, false));
+    }
+    #[test]
+    fn cutoff_is_independent_of_fog_and_backwards_compatible() {
+        assert!(
+            !ViewSettings::decode("atmospheric_fog=true")
+                .detail
+                .terrain_cutoff
+        );
+        for cutoff in [false, true] {
+            for fog in [false, true] {
+                let s = ViewSettings::decode(&format!(
+                    "terrain_cutoff={cutoff}\natmospheric_fog={fog}"
+                ));
+                let saved = ViewSettings::decode(&s.encode());
+                assert_eq!(saved.detail.terrain_cutoff, cutoff);
+                assert_eq!(saved.atmospheric_fog, fog);
+            }
+        }
+        assert!(
+            !ViewSettings::decode("terrain_cutoff=garbage")
+                .detail
+                .terrain_cutoff
+        );
     }
 }

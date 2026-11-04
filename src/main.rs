@@ -102,6 +102,7 @@ mod world_audio;
 #[allow(dead_code)]
 mod sky_transition;
 mod terrain_block;
+mod terrain_cutoff;
 mod terrain_gpu;
 mod terrain_lightmaps;
 #[allow(dead_code)]
@@ -151,6 +152,7 @@ struct Terrain {
     /// Native `CECSceneBlock` regional load/evict bits for the ornament class
     /// (`0x424020`). Owned here because `Terrain` lives on the streaming worker.
     scenery_residency: scenery_visibility::RegionResidency,
+    terrain_material_window: Option<Option<[usize; 4]>>,
     models: world_models::Assets,
     water_normals: Vec<Vec<image::RgbaImage>>,
     water_simple_frames: Vec<Vec<image::RgbaImage>>,
@@ -511,6 +513,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         scene_lights: std::sync::Arc::new(scene_lights),
         scene: std::sync::Arc::new(world_scene),
         scenery_residency: scenery_visibility::RegionResidency::default(),
+        terrain_material_window: None,
         element: element.to_path_buf(),
         grass,
         water_normals,

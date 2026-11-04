@@ -845,7 +845,7 @@ impl WaterGpu {
         plane: f32,
         bounds: [f32; 4],
         depth: &wgpu::TextureView,
-        far: (&wgpu::Buffer, &wgpu::Buffer, u32),
+        far: Option<(&wgpu::Buffer, &wgpu::Buffer, u32)>,
         near: (&wgpu::Buffer, &wgpu::Buffer, u32),
     ) {
         let params = EdgeUniform {
@@ -879,10 +879,12 @@ impl WaterGpu {
                 occlusion_query_set: None,
             });
             pass.set_bind_group(0, &self.edge_bind, &[]);
-            pass.set_pipeline(&self.edge_far);
-            pass.set_vertex_buffer(0, far.0.slice(..));
-            pass.set_index_buffer(far.1.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..far.2, 0, 0..1);
+            if let Some(far) = far {
+                pass.set_pipeline(&self.edge_far);
+                pass.set_vertex_buffer(0, far.0.slice(..));
+                pass.set_index_buffer(far.1.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..far.2, 0, 0..1);
+            }
             pass.set_pipeline(&self.edge_near);
             pass.set_vertex_buffer(0, near.0.slice(..));
             pass.set_index_buffer(near.1.slice(..), wgpu::IndexFormat::Uint32);
