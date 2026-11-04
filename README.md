@@ -103,3 +103,34 @@ LICENSE                  project license
 The project is marked **GPL-2.0-or-later**; see [LICENSE](LICENSE). BMD and terrain format research was informed by the GPL-2.0-or-later [GameForge static importer](https://github.com/shaddowdaniel/GameForge-3D-Studio-/blob/0a7fae8fcba0df7b0daa988db8696a0feaf49f7b/source/blender/io/angelica/formats/angelica_static.cc) and [terrain importer](https://github.com/shaddowdaniel/GameForge-3D-Studio-/blob/0a7fae8fcba0df7b0daa988db8696a0feaf49f7b/source/blender/io/angelica/formats/angelica_terrain.cc), copyright 2026 GameForge 3D Studio Authors. Leaf-card methods were informed by the GPL-2.0 [mt2-world-baker](https://github.com/moleh1307/mt2-world-baker); ECWLD layout research used the [RaGEZONE discussion](https://forum.ragezone.com/threads/map-editor.1252114/). Dependency licenses also apply.
 
 **Before public distribution**, verify that you have the rights to publish the launcher artwork and all included code/binaries, and review third-party dependencies and applicable game terms. The provenance and redistribution rights of `tools/launcher-art.jpg` have not been established in this package; replace it with artwork you have rights to if necessary. Do not redistribute the proprietary game client, its DLLs, archives, extracted assets, or derived caches. The `.gitignore` reduces accidental commits but is not a substitute for reviewing staged files.
+
+### RAM-first lossless terrain cache
+
+The viewer now writes validated terrain heights/normals directly into
+`cache/terrain-v1/` beneath its working directory, one source block at a time.
+It does **not** allocate complete height/normal grids in RAM. Row-local XOR
+byte planes plus zlib preserve every original float/normal bit; a shared LRU
+keeps a **2 MiB decoded hot set** for terrain and map navigation. There is also
+small block-index metadata and one pinned block per active reader. This is a
+CPU terrain-data budget, not a whole-program or GPU-memory limit.
+
+- `PW_CACHE_DIR` changes the cache root (the `terrain-v1` namespace is appended).
+  Choose a writable local disk with free space. No client files are modified.
+- `PW_TERRAIN_RAM_MIB=1` minimizes the terrain hot set; larger values up to 256
+  trade RAM for fewer page reads. Default: 2. More disk reads are an intentional
+  RAM/latency tradeoff; slow disks can cause streaming stalls.
+- Cache objects are content-addressed and verified; changed client data cannot
+  reuse stale terrain. Incomplete builds are not published. It is safe to delete
+  this derived cache **with the viewer closed**; the next load rebuilds it.
+  Do not distribute cached client data. Source validation and cache construction
+  still run at startup; this is not a promise of faster warm loading.
+- Decoded static-scenery texture caching now defaults to **32 MiB**, down from
+  256. `PW_TEX_BUDGET_MIB` remains available. Textures needed by the active
+  batch are pinned and may exceed that budget; no textures are omitted or
+  downscaled to enforce it.
+- PNG terrain export streams rows instead of retaining a full RGB output image.
+
+Reproduce the allocation/correctness check without client assets:
+`cargo run --locked --bin terrain-memory-check` (small CI fixture), or add
+`-- --full-world` for a synthetic 4096×5632 grid. This measures the owned terrain
+cache allocations, not process RSS or physical integrated-GPU memory.

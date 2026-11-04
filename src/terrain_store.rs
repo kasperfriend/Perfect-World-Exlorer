@@ -290,6 +290,9 @@ impl Builder {
             || height == 0
             || width % side != 0
             || height % side != 0
+            || width
+                .checked_mul(height)
+                .is_none_or(|cells| cells > 100_000_000)
         {
             return Err("invalid paged terrain dimensions".into());
         }
@@ -413,7 +416,6 @@ impl Builder {
             data: Data::Disk(Mutex::new(Disk {
                 file,
                 path: self.path.clone(),
-                width: self.width,
                 side: self.side,
                 records,
                 hot: Hot {

@@ -533,7 +533,13 @@ fn export_png(terrain: &Terrain, output: &Path) -> Result<(), String> {
     let w = terrain.width;
     let h = terrain.height;
     let mut heights = terrain.heights.reader();
-    let mut rgb = vec![0u8; w * h * 3];
+    let f = fs::File::create(output).map_err(|e| e.to_string())?;
+    let mut enc = png::Encoder::new(BufWriter::new(f), w as u32, h as u32);
+    enc.set_color(png::ColorType::Rgb);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut writer = enc.write_header().map_err(|e| e.to_string())?;
+    let mut stream = writer.stream_writer().map_err(|e| e.to_string())?;
+    let mut rgb = vec![0u8; w * 3];
     for y in 0..h {
         for x in 0..w {
             let i = y * w + x;
@@ -553,16 +559,12 @@ fn export_png(terrain: &Terrain, output: &Path) -> Result<(), String> {
                 [153., 150., 136.]
             };
             for c in 0..3 {
-                rgb[i * 3 + c] = (base[c] * light).clamp(0., 255.) as u8;
+                rgb[x * 3 + c] = (base[c] * light).clamp(0., 255.) as u8;
             }
         }
+        stream.write_all(&rgb).map_err(|e| e.to_string())?;
     }
-    let f = fs::File::create(output).map_err(|e| e.to_string())?;
-    let mut enc = png::Encoder::new(BufWriter::new(f), w as u32, h as u32);
-    enc.set_color(png::ColorType::Rgb);
-    enc.set_depth(png::BitDepth::Eight);
-    let mut writer = enc.write_header().map_err(|e| e.to_string())?;
-    writer.write_image_data(&rgb).map_err(|e| e.to_string())?;
+    stream.finish().map_err(|e| e.to_string())?;
     writer.finish().map_err(|e| e.to_string())?;
     io::stderr().flush().ok();
     Ok(())
