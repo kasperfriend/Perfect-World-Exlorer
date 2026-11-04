@@ -783,7 +783,7 @@ mod tests {
 
     #[test]
     fn water_height_uses_the_first_authored_matching_area() {
-        let areas = vec![test_water(20.0), test_water(30.0)];
+        let areas = [test_water(20.0), test_water(30.0)].concat();
         assert_eq!(water_height(&areas, 0.0, 0.0), Some(20.0));
         assert_eq!(water_height(&areas, 100.0, 0.0), None);
         assert_eq!(water_height(&test_water(0.0), 0.0, 0.0), Some(0.0));
