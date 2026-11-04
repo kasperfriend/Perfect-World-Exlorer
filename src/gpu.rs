@@ -420,56 +420,52 @@ fn build(
     // `0x77e250`: the resident set follows the window. Blocks that enter are
     // meshed at the level `0x77e360` picked, blocks whose level changed are
     // re-meshed, and blocks the window leaves release their geometry.
-    let census =
-        residency.update_stitched(
-            &win,
-            |x, y| {
-                (
-                    levels.level(x, y),
-                    levels.cases[(y - win.y0) * (win.x1 - win.x0) + x - win.x0],
-                )
-            },
-            |x, y, level| {
-                let cases = levels.cases[(y - win.y0) * (win.x1 - win.x0) + (x - win.x0)];
-                let surface = crate::terrain_lod::block_surface(level, cases);
-                let mut block_vertices = Vec::with_capacity(surface.grid.len());
-                let mut low = [f32::INFINITY; 3];
-                let mut high = [f32::NEG_INFINITY; 3];
-                for g in &surface.grid {
-                    let (cell_x, cell_y, at) =
-                        sample(x * TILE + g[0] as usize, y * TILE + g[1] as usize);
-                    let n = t.normals.get(at).copied().ok_or_else(|| {
-                        format!("cell {at} outside {}x{} terrain", t.width, t.height)
-                    })?;
-                    let height = *t.heights.get(at).ok_or_else(|| {
-                        format!("cell {at} outside {}x{} terrain", t.width, t.height)
-                    })?;
-                    let pos = [
-                        (cell_x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
-                        height,
-                        (t.height as f32 * 0.5 - cell_y as f32) * t.grid_spacing,
-                    ];
-                    for axis in 0..3 {
-                        low[axis] = low[axis].min(pos[axis]);
-                        high[axis] = high[axis].max(pos[axis]);
-                    }
-                    block_vertices.push(Vertex {
-                        pos,
-                        normal: [n[0] as f32 / 127., n[1] as f32 / 127., n[2] as f32 / 127.],
-                        uv: [0.; 2],
-                        color: [1.; 4],
-                        kind: 0.,
-                        diffuse: 0xffff_ffff,
-                        night_diffuse: 0xffff_ffff,
-                    });
+    let mut terrain_reader = t.heights.reader();
+    let census = residency.update_stitched(
+        &win,
+        |x, y| {
+            (
+                levels.level(x, y),
+                levels.cases[(y - win.y0) * (win.x1 - win.x0) + x - win.x0],
+            )
+        },
+        |x, y, level| {
+            let cases = levels.cases[(y - win.y0) * (win.x1 - win.x0) + (x - win.x0)];
+            let surface = crate::terrain_lod::block_surface(level, cases);
+            let mut block_vertices = Vec::with_capacity(surface.grid.len());
+            let mut low = [f32::INFINITY; 3];
+            let mut high = [f32::NEG_INFINITY; 3];
+            for g in &surface.grid {
+                let (cell_x, cell_y, at) =
+                    sample(x * TILE + g[0] as usize, y * TILE + g[1] as usize);
+                let n = terrain_reader.normal(at);
+                let height = terrain_reader.height(at);
+                let pos = [
+                    (cell_x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
+                    height,
+                    (t.height as f32 * 0.5 - cell_y as f32) * t.grid_spacing,
+                ];
+                for axis in 0..3 {
+                    low[axis] = low[axis].min(pos[axis]);
+                    high[axis] = high[axis].max(pos[axis]);
                 }
-                Ok((
-                    block_vertices,
-                    surface.indices,
-                    [low[0], low[1], low[2], high[0], high[1], high[2]],
-                ))
-            },
-        )?;
+                block_vertices.push(Vertex {
+                    pos,
+                    normal: [n[0] as f32 / 127., n[1] as f32 / 127., n[2] as f32 / 127.],
+                    uv: [0.; 2],
+                    color: [1.; 4],
+                    kind: 0.,
+                    diffuse: 0xffff_ffff,
+                    night_diffuse: 0xffff_ffff,
+                });
+            }
+            Ok((
+                block_vertices,
+                surface.indices,
+                [low[0], low[1], low[2], high[0], high[1], high[2]],
+            ))
+        },
+    )?;
     let spans = residency.append(&win, &mut vertices, &mut indices);
     eprintln!(
         "Terrain residency: {} blocks resident ({} entered, {} evicted, {} re-meshed), \
@@ -706,10 +702,10 @@ fn build(
                 let iy = gy as usize;
                 let fx = gx - ix as f32;
                 let fy = gy - iy as f32;
-                let a = t.heights[iy * t.width + ix];
-                let b = t.heights[iy * t.width + ix + 1];
-                let c = t.heights[(iy + 1) * t.width + ix];
-                let d = t.heights[(iy + 1) * t.width + ix + 1];
+                let a = terrain_reader.height(iy * t.width + ix);
+                let b = terrain_reader.height(iy * t.width + ix + 1);
+                let c = terrain_reader.height((iy + 1) * t.width + ix);
+                let d = terrain_reader.height((iy + 1) * t.width + ix + 1);
                 let ground = if fx + fy <= 1. {
                     a + (b - a) * fx + (c - a) * fy
                 } else {
@@ -1449,6 +1445,7 @@ impl Renderer {
         // Material masks and DDS buffers are no longer needed once uploaded.
         // Flush staging before adding native-size scenery pages to cap peak memory.
         t.materials.release_gpu_source();
+        t.heights.trim();
         queue.submit(std::iter::empty());
         device.poll(wgpu::Maintain::Wait);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -3044,7 +3041,7 @@ impl Camera {
         let x = t.width / 2;
         let y = t.height / 2;
         Self {
-            pos: Vec3::new(0., t.heights[y * t.width + x] + 160., 0.),
+            pos: Vec3::new(0., t.heights.at(y * t.width + x) + 160., 0.),
             yaw: 0.,
             pitch: -0.15,
             far: 16000.,
@@ -4234,7 +4231,7 @@ mod water_batch_tests {
             width: 4096,
             height: 5632,
             spacing: 2.,
-            heights: std::sync::Arc::from(vec![0.; 4]),
+            heights: vec![0.; 4].into(),
         };
         for (x, z) in [
             (-2825.774, 3092.210),

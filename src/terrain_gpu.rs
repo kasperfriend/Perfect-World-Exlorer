@@ -1172,14 +1172,15 @@ fn world_mesh(
     let xs = grid_axis(t.width, step);
     let ys = grid_axis(t.height, step);
     let mut v = Vec::with_capacity(xs.len() * ys.len());
+    let mut terrain_reader = t.heights.reader();
     for &y in &ys {
         for &x in &xs {
             let at = y * t.width + x;
-            let n = t.normals[at];
+            let n = terrain_reader.normal(at);
             v.push(FarVertex {
                 pos: [
                     (x as f32 - t.width as f32 * 0.5) * t.grid_spacing,
-                    t.heights[at],
+                    terrain_reader.height(at),
                     (t.height as f32 * 0.5 - y as f32) * t.grid_spacing,
                 ],
                 normal: [n[0], n[1], n[2], 0],

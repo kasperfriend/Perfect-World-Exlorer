@@ -1,6 +1,6 @@
 //! Main-world map coordinates and destinations from the client.
 use crate::pck;
-use std::{fs, path::Path, sync::Arc};
+use std::{fs, path::Path};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Destination {
     pub id: u32,
@@ -68,7 +68,7 @@ pub struct MapSpace {
     pub width: usize,
     pub height: usize,
     pub spacing: f32,
-    pub heights: Arc<[f32]>,
+    pub heights: crate::terrain_store::Heights,
 }
 impl MapSpace {
     pub fn world_size(&self) -> [f32; 2] {
@@ -92,10 +92,11 @@ impl MapSpace {
         let iy = (gy as usize).min(self.height - 2);
         let fx = gx - ix as f32;
         let fy = gy - iy as f32;
-        let a = self.heights[iy * self.width + ix];
-        let b = self.heights[iy * self.width + ix + 1];
-        let c = self.heights[(iy + 1) * self.width + ix];
-        let d = self.heights[(iy + 1) * self.width + ix + 1];
+        let mut heights = self.heights.reader();
+        let a = heights.height(iy * self.width + ix);
+        let b = heights.height(iy * self.width + ix + 1);
+        let c = heights.height((iy + 1) * self.width + ix);
+        let d = heights.height((iy + 1) * self.width + ix + 1);
         if fx + fy <= 1. {
             a + (b - a) * fx + (c - a) * fy
         } else {
@@ -230,7 +231,7 @@ mod tests {
             width: 4,
             height: 4,
             spacing: 1.,
-            heights: Arc::from(vec![
+            heights: crate::terrain_store::Heights::from(vec![
                 0., 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11., 12., 13., 14., 15.,
             ]),
         };

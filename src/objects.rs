@@ -217,7 +217,7 @@ pub struct Objects {
 /// Default decoded-texture residency budget (P3.08). The whole corpus of
 /// building.pck textures is ~445 MiB compressed on disk and far larger
 /// decoded, so the full world never fits under this budget by design.
-pub const DEFAULT_TEX_BUDGET_MIB: usize = 256;
+pub const DEFAULT_TEX_BUDGET_MIB: usize = 32;
 fn tex_budget_bytes() -> usize {
     std::env::var("PW_TEX_BUDGET_MIB")
         .ok()

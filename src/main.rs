@@ -110,6 +110,7 @@ mod terrain_residency;
 mod terrain_sampling;
 #[allow(dead_code)]
 mod terrain_shading;
+mod terrain_store;
 mod terrain_upload;
 mod texture_atlas;
 mod texture_resolution;
@@ -136,8 +137,8 @@ struct Terrain {
     grid: usize,
     width: usize,
     height: usize,
-    heights: std::sync::Arc<[f32]>,
-    normals: Vec<[i8; 3]>,
+    heights: terrain_store::Heights,
+    normals: terrain_store::Normals,
     grid_spacing: f32,
     materials: material::Materials,
     subterrain_names: Vec<String>,
@@ -210,8 +211,11 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     for _ in 0..count {
         names.push(read_string(&t, &mut pos)?)
     }
-    let mut heights = vec![0f32; w * h];
-    let mut normals = vec![[0i8, 127, 0]; w * h];
+    let cache_root = std::env::var_os("PW_CACHE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("cache"))
+        .join("terrain-v1");
+    let mut terrain_pages = terrain_store::Builder::new(&cache_root, w, h, grid)?;
     // Colour sections are validated per block below. Neither current CPU nor
     // GPU renderer consumes them; do not allocate a second world-sized RGBA grid.
     let sin_table: Vec<f32> = (0..256)
@@ -373,17 +377,19 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
             }
             let br = (si / subs_x) * per + bi / per;
             let bc = (si % subs_x) * per + bi % per;
+            let mut heights = Vec::with_capacity(grid * grid);
+            let mut normals = Vec::with_capacity(grid * grid);
             for y in 0..grid {
                 for x in 0..grid {
                     let val = values[y * (grid + 1) + x];
                     if !val.is_finite() {
                         return Err("nonfinite height".into());
                     }
-                    let dst = (br * grid + y) * w + bc * grid + x;
-                    heights[dst] = val;
-                    normals[dst] = block_normals[y * (grid + 1) + x];
+                    heights.push(val);
+                    normals.push(block_normals[y * (grid + 1) + x]);
                 }
             }
+            terrain_pages.block(bc, br, &heights, &normals)?;
         }
         eprintln!("Loaded terrain tile {}/{}: {}", si + 1, count, name);
         #[cfg(windows)]
@@ -391,6 +397,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
     }
     #[cfg(windows)]
     windows_setup::loading_progress("Loading world scenery and water...".into());
+    let (heights, normals) = terrain_pages.finish(terrain_store::budget())?;
     let world_scene = scene::Scene::load(&dir.join("world.ecwld"))?;
     let cloud_surface = match fs::read(dir.join("world.cld")) {
         Ok(bytes) => {
@@ -517,7 +524,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         grid,
         width: w,
         height: h,
-        heights: heights.into(),
+        heights,
         normals,
         grid_spacing,
     })
@@ -525,14 +532,16 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
 fn export_png(terrain: &Terrain, output: &Path) -> Result<(), String> {
     let w = terrain.width;
     let h = terrain.height;
-    let heights = &terrain.heights;
+    let mut heights = terrain.heights.reader();
     let mut rgb = vec![0u8; w * h * 3];
     for y in 0..h {
         for x in 0..w {
             let i = y * w + x;
-            let z = heights[i];
-            let dx = heights[y * w + (x + 1).min(w - 1)] - heights[y * w + x.saturating_sub(1)];
-            let dy = heights[(y + 1).min(h - 1) * w + x] - heights[y.saturating_sub(1) * w + x];
+            let z = heights.height(i);
+            let dx = heights.height(y * w + (x + 1).min(w - 1))
+                - heights.height(y * w + x.saturating_sub(1));
+            let dy = heights.height((y + 1).min(h - 1) * w + x)
+                - heights.height(y.saturating_sub(1) * w + x);
             let light = (0.74 + (-dx * 0.025 + dy * 0.025)).clamp(0.30, 1.15);
             let base = if z < 0.0 {
                 [50., 83., 94.]

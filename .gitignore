@@ -20,3 +20,6 @@ Thumbs.db
 __pycache__/
 *.pyc
 google_drive/
+
+# Lossless runtime terrain backing store (rebuildable client data)
+/cache/
