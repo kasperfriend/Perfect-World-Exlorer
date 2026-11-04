@@ -71,7 +71,8 @@ pub struct World {
     assets: Assets,
     slots: Vec<Slot>,
     read: Box<dyn FnMut(&str) -> Result<Vec<u8>, String>>,
-    bytes: HashMap<String, Vec<u8>>,
+    textures: HashMap<String, (std::sync::Arc<wgpu::Texture>, bool)>,
+    receivers: crate::model_draw_gpu::ReceiverCache,
     sampler: wgpu::Sampler,
     format: wgpu::TextureFormat,
     grid: StaticGrid,
@@ -153,7 +154,8 @@ impl World {
             assets,
             slots,
             read: Box::new(read),
-            bytes: HashMap::new(),
+            textures: HashMap::new(),
+            receivers: Default::default(),
             sampler,
             format: format.remove_srgb_suffix(),
             grid: StaticGrid::default(),
@@ -524,7 +526,8 @@ impl World {
             assets,
             slots,
             read,
-            bytes,
+            textures,
+            receivers,
             sampler,
             format,
             grid,
@@ -548,7 +551,8 @@ impl World {
                 sampler,
                 *format,
                 read,
-                bytes,
+                textures,
+                receivers,
             );
             if let Err(e) = outcome {
                 reported.push(format!(
@@ -694,7 +698,8 @@ fn draw_one(
     sampler: &wgpu::Sampler,
     format: wgpu::TextureFormat,
     read: &mut Box<dyn FnMut(&str) -> Result<Vec<u8>, String>>,
-    bytes: &mut HashMap<String, Vec<u8>>,
+    textures: &mut HashMap<String, (std::sync::Arc<wgpu::Texture>, bool)>,
+    receivers: &mut crate::model_draw_gpu::ReceiverCache,
 ) -> Result<(), String> {
     let posed = match &slot.posed {
         Some(Ok(posed)) => posed,
@@ -722,7 +727,7 @@ fn draw_one(
     if let Some(draw) = &slot.draw {
         return draw.update(queue, asset, &posed.meshes, f);
     }
-    let created = Draw::new(
+    let created = Draw::with_textures(
         device,
         queue,
         format,
@@ -735,13 +740,17 @@ fn draw_one(
         asset,
         &posed.meshes,
         f,
+        receivers,
         |path| {
-            if let Some(data) = bytes.get(path) {
-                return Ok(data.clone());
+            if let Some(texture) = textures.get(path) {
+                return Ok(texture.clone());
             }
             let data = read(path)?;
-            bytes.insert(path.into(), data.clone());
-            Ok(data)
+            let alpha = crate::model_dds::Dds::parse(&data)?.format.alpha_texture();
+            let texture = std::sync::Arc::new(crate::model_texture_gpu::upload(
+                device, queue, &data, crate::model_texture_gpu::UploadMode::Auto)?);
+            textures.insert(path.into(), (texture.clone(), alpha));
+            Ok((texture, alpha))
         },
     )?;
     slot.draw = Some(created);

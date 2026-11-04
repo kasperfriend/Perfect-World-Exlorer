@@ -266,7 +266,8 @@ impl TerrainGpu {
             // client's authored reductions survive. The client uploads what the DDS
             // carries (`0x7f7ef1`) and only generates a chain when the source has a
             // single level, which is the `generates_mips` case below.
-            let mut level = fit_level(&img.levels[0], base_side);
+            let decoded = img.decode()?;
+            let mut level = fit_level(&decoded[0], base_side);
             let mut side = base_side;
             for mip in 0..=base_side.ilog2() {
                 queue.write_texture(
@@ -296,7 +297,7 @@ impl TerrainGpu {
                     break;
                 }
                 let next = side / 2;
-                level = match img.levels.get(mip as usize + 1) {
+                level = match decoded.get(mip as usize + 1) {
                     // Authored level: use it as-is when it matches the slot size.
                     Some(authored)
                         if authored.width as usize == next && authored.height as usize == next =>
@@ -388,11 +389,12 @@ impl TerrainGpu {
                     let slot = layer_id % per_page;
                     let ox = slot % per_row * mask_side;
                     let oy = slot / per_row * mask_side;
+                    let decoded_mask = l.mask.decode(l.mask_size)?;
                     for y in 0..mask_side {
                         for x in 0..mask_side {
                             let sx = x * l.mask_size / mask_side;
                             let sy = y * l.mask_size / mask_side;
-                            page[(oy + y) * MASK_PAGE + ox + x] = l.mask[sy * l.mask_size + sx];
+                            page[(oy + y) * MASK_PAGE + ox + x] = decoded_mask[sy * l.mask_size + sx];
                         }
                     }
                     let id = layer_id as u32;

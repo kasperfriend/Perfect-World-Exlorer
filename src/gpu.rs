@@ -403,7 +403,19 @@ fn build(
             t.width, t.height
         ));
     }
-    let (win, levels) = lod_window(t.width, t.height, t.grid_spacing, [cx, cz], rad);
+    let (win, mut levels) = lod_window(t.width, t.height, t.grid_spacing, [cx, cz], rad);
+    // The persistent outside mesh samples every four cells. Match that exact
+    // boundary, including when a high-altitude/edge camera selects a fine LOD.
+    for y in win.y0..win.y1 {
+        for x in win.x0..win.x1 {
+            let i = (y - win.y0) * (win.x1 - win.x0) + x - win.x0;
+            let case = levels.level(x, y).saturating_sub(1);
+            for (side, boundary) in [y == win.y0, y + 1 == win.y1,
+                x == win.x0, x + 1 == win.x1].into_iter().enumerate() {
+                if boundary { levels.cases[i][side] = case; }
+            }
+        }
+    }
     let lod_state = LodState {
         window: win,
         levels: levels.levels.clone(),
@@ -420,9 +432,10 @@ fn build(
     // meshed at the level `0x77e360` picked, blocks whose level changed are
     // re-meshed, and blocks the window leaves release their geometry.
     let census =
-        residency.update(
+        residency.update_stitched(
             &win,
-            |x, y| levels.level(x, y),
+            |x, y| (levels.level(x, y),
+                levels.cases[(y - win.y0) * (win.x1 - win.x0) + x - win.x0]),
             |x, y, level| {
                 let cases = levels.cases[(y - win.y0) * (win.x1 - win.x0) + (x - win.x0)];
                 let surface = crate::terrain_lod::block_surface(level, cases);
@@ -1946,14 +1959,13 @@ impl Renderer {
             camera.pos.to_array(),
             self.detail.tree_lod_scale * lod_scale(self.detail.scenery_quality, Class::Trees),
         );
-        let (bx, by) = self.center;
-        let rad = self.detail.radius;
-        let maxx = ((self.world_width - 1) / TILE * TILE) as isize;
-        let maxy = ((self.world_height - 1) / TILE * TILE) as isize;
-        let x0 = ((bx - rad) * TILE as isize).clamp(0, maxx);
-        let x1 = ((bx + rad + 1) * TILE as isize).clamp(0, maxx);
-        let y0 = ((by - rad) * TILE as isize).clamp(0, maxy);
-        let y1 = ((by + rad + 1) * TILE as isize).clamp(0, maxy);
+        // Use the actual uploaded window. The native window shifts at map
+        // edges; recomputing a clamped camera square discarded the wrong area.
+        let win = self.lod.window;
+        let x0 = (win.x0 * TILE).min(self.world_width - 1);
+        let x1 = (win.x1 * TILE).min(self.world_width - 1);
+        let y0 = (win.y0 * TILE).min(self.world_height - 1);
+        let y1 = (win.y1 * TILE).min(self.world_height - 1);
         let bounds = [
             (x0 as f32 - self.world_width as f32 * 0.5) * self.world_spacing,
             (x1 as f32 - self.world_width as f32 * 0.5) * self.world_spacing,

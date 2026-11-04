@@ -10,14 +10,44 @@ use std::{
 pub(crate) struct Texture {
     pub(crate) w: usize,
     pub(crate) h: usize,
-    /// The authored mip chain, level 0 first, each level RGBA8.
-    ///
-    /// The archive's terrain sources all carry a complete chain, and `0x7f7ef1`
-    /// uploads it as authored. Keeping the chain here means the renderer copies
-    /// level *n* into mip slot *n* instead of dropping the chain and rebuilding it
-    /// with a box filter, which would replace the client's authored reductions
-    /// with a different filter.
-    pub(crate) levels: Vec<crate::dxt::Level>,
+    /// Retain DDS blocks, not a world-sized decoded RGBA copy.
+    pub(crate) source: Vec<u8>,
+    pub(crate) levels: std::sync::OnceLock<Vec<crate::dxt::Level>>,
+}
+impl Texture {
+    pub(crate) fn decode(&self) -> Result<Vec<crate::dxt::Level>, String> {
+        let info = crate::terrain_sampling::parse_terrain_dds(&self.source)?;
+        crate::dxt::decode_chain(info.format.four_cc(), &self.source[128..],
+            info.width, info.height, info.authored_mips)
+    }
+    fn cpu_levels(&self) -> &[crate::dxt::Level] {
+        self.levels.get_or_init(|| self.decode().expect("validated terrain DDS"))
+    }
+}
+
+/// Original zlib payload stays compressed until upload. CPU preview sampling
+/// memoizes only masks it actually visits; desktop uploads use a temporary.
+pub(crate) struct Mask {
+    bytes: Vec<u8>,
+    compressed: bool,
+    decoded: std::sync::OnceLock<Vec<u8>>,
+}
+impl Mask {
+    fn raw(bytes: Vec<u8>) -> Self {
+        Self { bytes, compressed: false, decoded: Default::default() }
+    }
+    pub(crate) fn decode(&self, side: usize) -> Result<std::borrow::Cow<'_, [u8]>, String> {
+        if !self.compressed { return Ok(std::borrow::Cow::Borrowed(&self.bytes)); }
+        let mut out = Vec::with_capacity(side * side);
+        ZlibDecoder::new(self.bytes.as_slice()).take((side * side + 1) as u64)
+            .read_to_end(&mut out).map_err(|e| e.to_string())?;
+        if out.len() != side * side { return Err("invalid decoded mask size".into()); }
+        Ok(std::borrow::Cow::Owned(out))
+    }
+    fn cpu_bytes(&self, side: usize) -> &[u8] {
+        if !self.compressed { return &self.bytes; }
+        self.decoded.get_or_init(|| self.decode(side).expect("validated mask").into_owned())
+    }
 }
 pub(crate) struct Layer {
     pub(crate) texture: usize,
@@ -25,7 +55,7 @@ pub(crate) struct Layer {
     pub(crate) u: f32,
     pub(crate) v: f32,
     pub(crate) mask_size: usize,
-    pub(crate) mask: Vec<u8>,
+    pub(crate) mask: Mask,
 }
 pub(crate) struct Area {
     pub(crate) layers: Vec<Layer>,
@@ -122,26 +152,8 @@ impl Materials {
             // format the native device would have rejected.
             let info = crate::terrain_sampling::parse_terrain_dds(&raw)
                 .map_err(|e| format!("texture {path}: {e}"))?;
-            // Decode the authored chain exactly. `parse_terrain_dds` has already
-            // proved the payload covers precisely the declared levels, so a
-            // decode failure here is a real defect and never a silent fallback.
-            let levels = crate::dxt::decode_chain(
-                info.format.four_cc(),
-                &raw[128..],
-                info.width,
-                info.height,
-                info.authored_mips,
-            )
-            .map_err(|e| format!("texture {path}: {e}"))?;
-            if levels.len() as u32 != info.authored_mips {
-                return Err(format!(
-                    "texture {path}: decoded {} of {} authored levels",
-                    levels.len(),
-                    info.authored_mips
-                ));
-            }
             let (w, h) = (info.width as usize, info.height as usize);
-            textures.push(Texture { w, h, levels });
+            textures.push(Texture { w, h, source: raw, levels: Default::default() });
         }
         let mut areas: Vec<Area> = (0..areas_x * areas_y)
             .map(|_| Area { layers: Vec::new() })
@@ -187,6 +199,7 @@ impl Materials {
                         return Err("invalid mask size".into());
                     }
                     let mut mask = Vec::new();
+                    let mut packed = None;
                     if li > 0 {
                         let off = u32at(&data, r + 4)? as usize;
                         let len = u32at(&data, r + 8)? as usize;
@@ -194,6 +207,7 @@ impl Materials {
                             .get(off..off.checked_add(len).ok_or("mask overflow")?)
                             .ok_or("truncated mask")?;
                         if u32at(&data, 16)? != 0 {
+                            packed = Some(bytes.to_vec());
                             ZlibDecoder::new(bytes)
                                 .take((size * size + 1) as u64)
                                 .read_to_end(&mut mask)
@@ -219,6 +233,7 @@ impl Materials {
                                         as u8;
                                 }
                             }
+                            packed = None;
                             mask = half;
                             size = 128;
                         }
@@ -229,7 +244,10 @@ impl Materials {
                         u: f32at(&data, lp + 16)?,
                         v: f32at(&data, lp + 20)?,
                         mask_size: size,
-                        mask,
+                        mask: match packed {
+                            Some(bytes) => Mask { bytes, compressed: true, decoded: Default::default() },
+                            None => Mask::raw(mask),
+                        },
                     });
                 }
             }
@@ -280,7 +298,7 @@ impl Materials {
                 let xx = x.rem_euclid(tex.w as isize) as usize;
                 let yy = y.rem_euclid(tex.h as isize) as usize;
                 // CPU terrain colouring samples level 0 of the authored chain.
-                tex.levels[0].rgba[(yy * tex.w + xx) * 4 + k] as f32
+                tex.cpu_levels()[0].rgba[(yy * tex.w + xx) * 4 + k] as f32
             };
             let alpha = if i == 0 {
                 1.
@@ -298,7 +316,7 @@ impl Materials {
                 let mask = |x: isize, y: isize| -> f32 {
                     let x = x.clamp(0, l.mask_size as isize - 1) as usize;
                     let y = y.clamp(0, l.mask_size as isize - 1) as usize;
-                    l.mask[y * l.mask_size + x] as f32 / 255.
+                    l.mask.cpu_bytes(l.mask_size)[y * l.mask_size + x] as f32 / 255.
                 };
                 let top = mask(ix, iy) * (1. - dx) + mask(ix + 1, iy) * dx;
                 let bottom = mask(ix, iy + 1) * (1. - dx) + mask(ix + 1, iy + 1) * dx;
@@ -325,20 +343,22 @@ mod tests {
                 Texture {
                     w: 1,
                     h: 1,
-                    levels: vec![crate::dxt::Level {
+                    source: vec![],
+                    levels: std::sync::OnceLock::from(vec![crate::dxt::Level {
                         width: 1,
                         height: 1,
                         rgba: vec![200, 0, 0, 255],
-                    }],
+                    }]),
                 },
                 Texture {
                     w: 1,
                     h: 1,
-                    levels: vec![crate::dxt::Level {
+                    source: vec![],
+                    levels: std::sync::OnceLock::from(vec![crate::dxt::Level {
                         width: 1,
                         height: 1,
                         rgba: vec![0, 0, 200, 255],
-                    }],
+                    }]),
                 },
             ],
             areas: vec![Area {
@@ -349,7 +369,7 @@ mod tests {
                         u: 1.,
                         v: 1.,
                         mask_size: 0,
-                        mask: vec![],
+                        mask: Mask::raw(vec![]),
                     },
                     Layer {
                         texture: 1,
@@ -357,7 +377,7 @@ mod tests {
                         u: 1.,
                         v: 1.,
                         mask_size: 1,
-                        mask: vec![128],
+                        mask: Mask::raw(vec![128]),
                     },
                 ],
             }],

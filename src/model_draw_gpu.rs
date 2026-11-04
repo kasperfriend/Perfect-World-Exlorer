@@ -131,13 +131,26 @@ struct Mesh {
 }
 pub struct Draw {
     blend_enabled: bool,
-    receiver: raster::Receiver,
-    alpha_receiver: Option<raster::Receiver>,
+    receiver: std::sync::Arc<raster::Receiver>,
+    alpha_receiver: Option<std::sync::Arc<raster::Receiver>>,
     /// Indexed by prepared-mesh position; `None` is a hidden queue mesh.
     meshes: Vec<Option<Mesh>>,
     alpha_meshes: Vec<usize>,
     // Keep authored textures alive and share repeated per-skin texture slots.
-    textures: Vec<wgpu::Texture>,
+    textures: Vec<std::sync::Arc<wgpu::Texture>>,
+}
+/// Pipeline objects are immutable; thousands of placements must not each
+/// compile and retain the same opaque/alpha pipelines.
+#[derive(Default)]
+pub struct ReceiverCache(std::collections::HashMap<String, std::sync::Arc<raster::Receiver>>);
+impl ReceiverCache {
+    fn get(&mut self, key: String, create: impl FnOnce() -> Result<raster::Receiver, String>)
+        -> Result<std::sync::Arc<raster::Receiver>, String> {
+        if let Some(receiver) = self.0.get(&key) { return Ok(receiver.clone()); }
+        let receiver = std::sync::Arc::new(create()?);
+        self.0.insert(key, receiver.clone());
+        Ok(receiver)
+    }
 }
 impl Draw {
     pub fn new(
@@ -152,6 +165,31 @@ impl Draw {
         frame: Frame,
         mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<Self, String> {
+        Self::with_textures(device, queue, format, depth, depth_write, sampler,
+            asset, poses, frame, &mut ReceiverCache::default(), |path| {
+                let bytes = read(path)?;
+                let alpha = crate::model_dds::Dds::parse(&bytes)?.format.alpha_texture();
+                let texture = model_texture_gpu::upload(device, queue, &bytes,
+                    model_texture_gpu::UploadMode::Auto)?;
+                Ok((std::sync::Arc::new(texture), alpha))
+            })
+    }
+
+    /// Share immutable texture allocations across placements and all water passes.
+    #[allow(clippy::too_many_arguments)]
+    pub fn with_textures(
+        device: &wgpu::Device,
+        _queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        depth: Option<(wgpu::TextureFormat, wgpu::CompareFunction)>,
+        depth_write: bool,
+        sampler: &wgpu::Sampler,
+        asset: &ModelAsset,
+        poses: &[PosedMesh],
+        frame: Frame,
+        receivers: &mut ReceiverCache,
+        mut load: impl FnMut(&str) -> Result<(std::sync::Arc<wgpu::Texture>, bool), String>,
+    ) -> Result<Self, String> {
         let prepared = model_draw::prepare(asset, poses)?;
         let settings = asset.descriptor.render_settings();
         // Validate every frame/material before allocating or uploading anything.
@@ -159,7 +197,7 @@ impl Draw {
             .iter()
             .map(|m| frame.params(m.material, settings.original_color))
             .collect::<Result<_, _>>()?;
-        let mut textures: Vec<wgpu::Texture> = Vec::new();
+        let mut textures: Vec<std::sync::Arc<wgpu::Texture>> = Vec::new();
         let mut cache: std::collections::HashMap<[String; 2], (usize, bool)> =
             std::collections::HashMap::new();
         let mut loaded: Vec<(usize, bool)> = Vec::with_capacity(prepared.len());
@@ -170,16 +208,7 @@ impl Draw {
                 let mut failures = Vec::new();
                 let mut result = None;
                 for path in &m.texture_paths {
-                    let attempt = read(path).and_then(|bytes| {
-                        let alpha = crate::model_dds::Dds::parse(&bytes)?.format.alpha_texture();
-                        model_texture_gpu::upload(
-                            device,
-                            queue,
-                            &bytes,
-                            model_texture_gpu::UploadMode::Auto,
-                        )
-                        .map(|texture| (texture, alpha))
-                    });
+                    let attempt = load(path);
                     match attempt {
                         Ok(t) => {
                             result = Some(t);
@@ -213,25 +242,19 @@ impl Draw {
         for (_, alpha_texture) in &loaded {
             states.push(model.mesh_state(false, *alpha_texture)?);
         }
-        let receiver = if frame.blend_enabled {
-            raster::Receiver::new(device, format, depth, depth_write)
-        } else {
-            raster::Receiver::new_opaque(device, format, depth, depth_write)
-        }?;
-        let alpha_receiver = match states
-            .iter()
-            .find(|state| state.queue == model_queue::Queue::Alpha)
-        {
-            Some(state) => Some(raster::Receiver::new_blended(
-                device,
-                format,
-                depth,
-                // ALPHA_DEPTH_WRITE is false: the retail z-write state for the
-                // alpha list was not recovered; see model_queue's register note.
-                model_queue::ALPHA_DEPTH_WRITE,
-                blend_factor(state.source),
-                blend_factor(state.destination),
-            )?),
+        let receiver = receivers.get(format!("{format:?}/{depth:?}/{depth_write}/{}", frame.blend_enabled), || {
+            if frame.blend_enabled {
+                raster::Receiver::new(device, format, depth, depth_write)
+            } else {
+                raster::Receiver::new_opaque(device, format, depth, depth_write)
+            }
+        })?;
+        let alpha_receiver = match states.iter().find(|state| state.queue == model_queue::Queue::Alpha) {
+            Some(state) => Some(receivers.get(
+                format!("{format:?}/{depth:?}/alpha/{:?}/{:?}", state.source, state.destination), || {
+                    raster::Receiver::new_blended(device, format, depth,
+                        model_queue::ALPHA_DEPTH_WRITE, blend_factor(state.source), blend_factor(state.destination))
+                })?),
             None => None,
         };
         let mut meshes = Vec::with_capacity(prepared.len());

@@ -26,6 +26,7 @@ use glam::{Mat4, Vec3};
 /// per-view visibility test needs.
 pub struct Block {
     level: u8,
+    cases: [u8; 4],
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
     /// World-space `[x0, y0, z0, x1, y1, z1]` of the block surface.
@@ -95,6 +96,21 @@ impl Residency {
         L: Fn(usize, usize) -> u8,
         B: FnMut(usize, usize, u8) -> Result<(Vec<Vertex>, Vec<u32>, [f32; 6]), String>,
     {
+        self.update_stitched(window, |x, y| (level_of(x, y), [0; 4]), build)
+    }
+
+    /// Stitching is geometry: a neighbor can change our boundary without
+    /// changing our own resolution. Include all four cases in the cache key.
+    pub fn update_stitched<L, B>(
+        &mut self,
+        window: &crate::terrain_lod::Window,
+        state_of: L,
+        mut build: B,
+    ) -> Result<Census, String>
+    where
+        L: Fn(usize, usize) -> (u8, [u8; 4]),
+        B: FnMut(usize, usize, u8) -> Result<(Vec<Vertex>, Vec<u32>, [f32; 6]), String>,
+    {
         let mut census = Census::default();
         // Eviction first: the client's loader drops the slots the window left.
         let before = self.blocks.len();
@@ -102,13 +118,14 @@ impl Residency {
         census.evicted = before - self.blocks.len();
         for y in window.y0..window.y1 {
             for x in window.x0..window.x1 {
-                let level = level_of(x, y);
+                let (level, cases) = state_of(x, y);
                 if level == 0 {
                     // No mesh for this block (`block+0x70 == 0`).
+                    self.blocks.remove(&(x, y));
                     continue;
                 }
                 let stale = match self.blocks.get(&(x, y)) {
-                    Some(block) => block.level != level,
+                    Some(block) => block.level != level || block.cases != cases,
                     None => true,
                 };
                 if !stale {
@@ -125,6 +142,7 @@ impl Residency {
                     (x, y),
                     Block {
                         level,
+                        cases,
                         vertices,
                         indices,
                         bounds,
