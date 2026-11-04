@@ -3890,6 +3890,7 @@ pub fn preview(
             water_reflections: true,
             atmospheric_fog: false,
             celestial_discs: false,
+            cloud_detail: true,
             bloom: false,
             sharpen: false,
             bloom_strength: 1.,

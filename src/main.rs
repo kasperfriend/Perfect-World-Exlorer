@@ -524,6 +524,7 @@ fn terrain(root: &Path) -> Result<Terrain, String> {
         water_normals,
         water_simple_frames,
         trees,
+        cloud_surface,
         water,
         objects,
         materials,
