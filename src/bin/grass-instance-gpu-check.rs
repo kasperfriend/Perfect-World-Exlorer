@@ -1565,7 +1565,13 @@ fn main() {
     uni[55] = 0.;
     uni[60] = 0.5;
     let mut wind_frames = Vec::new();
-    for strength in [0., 0.3, 0.] {
+    // `grass_wind.y` is an enable gate, not an amplitude: the viewer writes 1.0
+    // when the user turns wind on (gpu.rs uploads
+    // `if camera.grass_wind_enabled { 1. } else { 0. }`), because retail scales
+    // the effect with authored per-area data rather than a user slider. Drive
+    // the uniform the way the renderer does, so a fixture value the viewer
+    // never produces cannot fail the check on its own.
+    for strength in [0., 1., 0.] {
         uni[56] = 1.1;
         uni[57] = strength;
         queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
