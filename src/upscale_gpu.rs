@@ -830,7 +830,8 @@ mod tests {
 
     #[test]
     fn uniform_layout_is_aligned_for_wgsl_matrices() {
-        assert_eq!(std::mem::size_of::<Params>(), 192);
+        // Two mat4x4<f32> (128 bytes) plus three vec4<f32> (48 bytes).
+        assert_eq!(std::mem::size_of::<Params>(), 176);
         assert_eq!(std::mem::size_of::<SharpenParams>(), 16);
         assert_eq!(std::mem::offset_of!(Params, sizes), 128);
         assert_eq!(std::mem::offset_of!(Params, frame), 144);
