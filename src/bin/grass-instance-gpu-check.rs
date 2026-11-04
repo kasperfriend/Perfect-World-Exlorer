@@ -55,6 +55,9 @@ fn main() {
         color: [0., 0., 1., 0.5],
         kind: 3.75,
         diffuse: 1.0f32.to_bits(),
+        // `0x653e93` weight lane: the emitter stores the float bits of an
+        // authored 0..1 weight and the shader reads them back with
+        // `bitcast<f32>`, so this is the per-vertex scale the history applies.
         night_diffuse: (if y > 0. { 1.0f32 } else { 0.0f32 }).to_bits(),
     };
     let vertices = vec![v(-0.3, -0.3), v(0.3, -0.3), v(-0.3, 0.3), v(0.3, 0.3)];
@@ -1579,6 +1582,9 @@ fn main() {
         let x = 0.3 * (i as f32 * 0.5).sin();
         uni[60 + i * 4..64 + i * 4].copy_from_slice(&[x, -0.5 * x, 0., 0.]);
     }
+    // Keep the refraction rows above untouched: they read fog_range at 380.
+    assert_eq!(uni.len(), 388, "Camera uniform layout changed");
+    assert_eq!(uni[60], 0.0, "history[0].x is written from i = 0");
     let mut wind_frames = Vec::new();
     // `grass_wind.y` is an enable gate, not an amplitude: the viewer writes 1.0
     // when the user turns wind on (gpu.rs uploads
@@ -1650,6 +1656,14 @@ fn main() {
     assert_eq!(
         wind_frames[0], wind_frames[2],
         "zero wind should restore image"
+    );
+    let lit = |f: &Vec<u8>| f.chunks_exact(4).filter(|p| p[1] > 0).count();
+    println!(
+        "wind fixture: coverage {} -> {}, {:.3} mean green -> {:.3}",
+        lit(&wind_frames[0]),
+        lit(&wind_frames[1]),
+        wind_frames[0].iter().skip(1).step_by(4).map(|v| *v as f64).sum::<f64>() / 16384.,
+        wind_frames[1].iter().skip(1).step_by(4).map(|v| *v as f64).sum::<f64>() / 16384.
     );
     let changes = wind_frames[0]
         .chunks_exact(4)
