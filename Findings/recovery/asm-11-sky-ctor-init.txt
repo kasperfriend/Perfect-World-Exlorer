@@ -1,0 +1,373 @@
+# 11-sky-ctor-init  0x799570-0x799a40
+00799570: cdq                                     
+00799571: ltr cx                                  
+00799574: inc esi                                 
+00799575: or al, bl                               
+00799577: or eax, 0x8f0ae8                          ; f32 255
+0079957c: mov ebp, eax                            
+0079957e: call 0x892e78                           
+00799583: mov ecx, eax                            
+00799585: cmp edi, 0xff                           
+0079958b: mov eax, 0xff                           
+00799590: jg 0x799594                             
+00799592: mov eax, edi                            
+00799594: cmp ebx, 0xff                           
+0079959a: jle 0x7995a1                            
+0079959c: mov ebx, 0xff                           
+007995a1: cmp ebp, 0xff                           
+007995a7: mov edx, 0xff                           
+007995ac: jg 0x7995b0                             
+007995ae: mov edx, ebp                            
+007995b0: cmp ecx, 0xff                           
+007995b6: jle 0x7995bd                            
+007995b8: mov ecx, 0xff                           
+007995bd: shl eax, 8                              
+007995c0: or eax, ebx                             
+007995c2: pop edi                                 
+007995c3: shl eax, 8                              
+007995c6: or eax, edx                             
+007995c8: pop esi                                 
+007995c9: shl eax, 8                              
+007995cc: pop ebp                                 
+007995cd: or eax, ecx                             
+007995cf: pop ebx                                 
+007995d0: ret                                     
+007995d1: nop                                     
+007995d2: nop                                     
+007995d3: nop                                     
+007995d4: nop                                     
+007995d5: nop                                     
+007995d6: nop                                     
+007995d7: nop                                     
+007995d8: nop                                     
+007995d9: nop                                     
+007995da: nop                                     
+007995db: nop                                     
+007995dc: nop                                     
+007995dd: nop                                     
+007995de: nop                                     
+007995df: nop                                     
+007995e0: mov eax, ecx                            
+007995e2: mov ecx, 0x3c9374bc                     
+007995e7: mov dword ptr [eax + 4], ecx            
+007995ea: mov dword ptr [eax + 8], ecx            
+007995ed: xor ecx, ecx                            
+007995ef: mov dword ptr [eax], 0x41000000         
+007995f5: mov dword ptr [eax + 0xc], ecx          
+007995f8: mov dword ptr [eax + 0x10], ecx         
+007995fb: mov dword ptr [eax + 0x14], ecx         
+007995fe: mov dword ptr [eax + 0x18], ecx         
+00799601: ret                                     
+00799602: nop                                     
+00799603: nop                                     
+00799604: nop                                     
+00799605: nop                                     
+00799606: nop                                     
+00799607: nop                                     
+00799608: nop                                     
+00799609: nop                                     
+0079960a: nop                                     
+0079960b: nop                                     
+0079960c: nop                                     
+0079960d: nop                                     
+0079960e: nop                                     
+0079960f: nop                                     
+00799610: push esi                                
+00799611: mov esi, ecx                            
+00799613: call 0x7dc5e0                             ; f32 -736281
+00799618: lea ecx, [esi + 0x4cc]                  
+0079961e: call 0x7995e0                             ; f32 -0.0226753
+00799623: lea ecx, [esi + 0x4e8]                  
+00799629: call 0x7995e0                             ; f32 -0.0226753
+0079962e: xor eax, eax                            
+00799630: mov ecx, 0x3f800000                     
+00799635: mov dword ptr [esi + 0x510], eax        
+0079963b: mov dword ptr [esi + 0x50c], eax        
+00799641: mov dword ptr [esi + 0x508], eax        
+00799647: mov dword ptr [esi + 0x520], eax        
+0079964d: mov dword ptr [esi + 0x51c], eax        
+00799653: mov dword ptr [esi + 0x514], eax        
+00799659: mov dword ptr [esi + 0x530], eax        
+0079965f: mov dword ptr [esi + 0x528], eax        
+00799665: mov dword ptr [esi + 0x524], eax        
+0079966b: mov dword ptr [esi + 0x53c], eax        
+00799671: mov dword ptr [esi + 0x538], eax        
+00799677: mov dword ptr [esi + 0x534], eax        
+0079967d: mov dword ptr [esi + 0x540], ecx        
+00799683: mov dword ptr [esi + 0x52c], ecx        
+00799689: mov dword ptr [esi + 0x518], ecx        
+0079968f: mov dword ptr [esi + 0x504], ecx        
+00799695: mov dword ptr [esi + 0x550], eax        
+0079969b: mov dword ptr [esi + 0x54c], eax        
+007996a1: mov dword ptr [esi + 0x548], eax        
+007996a7: mov dword ptr [esi + 0x560], eax        
+007996ad: mov dword ptr [esi + 0x55c], eax        
+007996b3: mov dword ptr [esi + 0x554], eax        
+007996b9: mov dword ptr [esi + 0x570], eax        
+007996bf: mov dword ptr [esi + 0x568], eax        
+007996c5: mov dword ptr [esi + 0x564], eax        
+007996cb: mov dword ptr [esi + 0x57c], eax        
+007996d1: mov dword ptr [esi + 0x578], eax        
+007996d7: mov dword ptr [esi + 0x574], eax        
+007996dd: mov dword ptr [esi + 0x580], ecx        
+007996e3: mov dword ptr [esi + 0x56c], ecx        
+007996e9: mov dword ptr [esi + 0x558], ecx        
+007996ef: mov dword ptr [esi + 0x544], ecx        
+007996f5: mov dword ptr [esi + 0xc], eax          
+007996f8: mov dword ptr [esi + 0x10], eax         
+007996fb: mov dword ptr [esi + 0x584], eax        
+00799701: mov dword ptr [esi + 0x588], eax        
+00799707: mov dword ptr [esi + 0x5a4], eax        
+0079970d: mov dword ptr [esi + 0x5a8], eax        
+00799713: mov dword ptr [esi + 0x5ac], eax        
+00799719: mov dword ptr [esi + 0x8c8], eax        
+0079971f: mov dword ptr [esi + 0x8cc], eax        
+00799725: mov dword ptr [esi + 0x8d0], eax        
+0079972b: mov dword ptr [esi + 0x5b0], eax        
+00799731: mov dword ptr [esi + 0x5b4], eax        
+00799737: mov byte ptr [esi + 0x5b9], al          
+0079973d: mov dword ptr [esi], 0x8f14a0           
+00799743: mov byte ptr [esi + 0x5b8], 1           
+0079974a: mov word ptr [esi + 0x4c0], 6           
+00799753: mov dword ptr [esi + 0x4c4], 0x3e9c61aa 
+0079975d: mov dword ptr [esi + 0x4c8], 0x42480000 
+00799767: mov eax, esi                            
+00799769: pop esi                                 
+0079976a: ret                                     
+0079976b: nop                                     
+0079976c: nop                                     
+0079976d: nop                                     
+0079976e: nop                                     
+0079976f: nop                                     
+00799770: push esi                                
+00799771: mov esi, ecx                            
+00799773: call 0x799790                           
+00799778: test byte ptr [esp + 8], 1              
+0079977d: je 0x799788                               ; f32 -55.6939
+0079977f: push esi                                
+00799780: call 0x763260                           
+00799785: add esp, 4                              
+00799788: mov eax, esi                            
+0079978a: pop esi                                 
+0079978b: ret 4                                   
+0079978e: nop                                     
+0079978f: nop                                     
+00799790: mov dword ptr [ecx], 0x8f14a0           
+00799796: jmp 0x7dc680                            
+0079979b: nop                                     
+0079979c: nop                                     
+0079979d: nop                                     
+0079979e: nop                                     
+0079979f: nop                                     
+007997a0: mov eax, dword ptr [0x988334]           
+007997a5: push esi                                
+007997a6: cmp eax, 4                              
+007997a9: mov esi, ecx                            
+007997ab: jne 0x7997b3                            
+007997ad: mov al, 1                               
+007997af: pop esi                                 
+007997b0: ret 0x14                                
+007997b3: mov eax, dword ptr [esp + 8]            
+007997b7: mov ecx, dword ptr [esp + 0xc]          
+007997bb: mov dword ptr [esi + 0xc], eax          
+007997be: mov dword ptr [esi + 0x10], ecx         
+007997c1: xor eax, eax                            
+007997c3: mov ecx, esi                            
+007997c5: mov dword ptr [esi + 0x5b0], eax        
+007997cb: mov dword ptr [esi + 0x5b4], eax        
+007997d1: call 0x79a330                           
+007997d6: test al, al                             
+007997d8: jne 0x7997de                            
+007997da: pop esi                                 
+007997db: ret 0x14                                
+007997de: mov ecx, esi                            
+007997e0: call 0x79a810                           
+007997e5: test al, al                             
+007997e7: jne 0x7997ed                            
+007997e9: pop esi                                 
+007997ea: ret 0x14                                
+007997ed: mov edx, dword ptr [esi + 0xc]          
+007997f0: push 1                                  
+007997f2: push 4                                  
+007997f4: mov eax, dword ptr [edx + 0x164]        
+007997fa: lea edx, [esi + 0x5ac]                  
+00799800: push edx                                
+00799801: push 0x98bf7c                             ; 'Textures\\Sky'
+00799806: mov ecx, dword ptr [eax + 0x7c]         
+00799809: mov eax, dword ptr [esp + 0x20]         
+0079980d: push eax                                
+0079980e: call 0x77c1d0                           
+00799813: test al, al                             
+00799815: jne 0x79981b                            
+00799817: pop esi                                 
+00799818: ret 0x14                                
+0079981b: mov ecx, dword ptr [esi + 0xc]          
+0079981e: push 1                                  
+00799820: lea eax, [esi + 0x5a4]                  
+00799826: push 4                                  
+00799828: mov edx, dword ptr [ecx + 0x164]        
+0079982e: push eax                                
+0079982f: push 0x98bf7c                             ; 'Textures\\Sky'
+00799834: mov ecx, dword ptr [edx + 0x7c]         
+00799837: mov edx, dword ptr [esp + 0x24]         
+0079983b: push edx                                
+0079983c: call 0x77c1d0                           
+00799841: test al, al                             
+00799843: jne 0x799849                            
+00799845: pop esi                                 
+00799846: ret 0x14                                
+00799849: mov eax, dword ptr [esi + 0xc]          
+0079984c: push 1                                  
+0079984e: lea edx, [esi + 0x5a8]                  
+00799854: push 4                                  
+00799856: mov ecx, dword ptr [eax + 0x164]        
+0079985c: mov eax, dword ptr [esp + 0x20]         
+00799860: push edx                                
+00799861: push 0x98bf7c                             ; 'Textures\\Sky'
+00799866: mov ecx, dword ptr [ecx + 0x7c]         
+00799869: push eax                                
+0079986a: call 0x77c1d0                           
+0079986f: test al, al                             
+00799871: jne 0x799877                            
+00799873: pop esi                                 
+00799874: ret 0x14                                
+00799877: mov ecx, dword ptr [esi + 0xc]          
+0079987a: push 1                                  
+0079987c: add esi, 0x54                           
+0079987f: push 4                                  
+00799881: mov edx, dword ptr [ecx + 0x164]        
+00799887: push esi                                
+00799888: push 0x98bf7c                             ; 'Textures\\Sky'
+0079988d: push 0x98bf70                             ; 'tran'
+00799892: mov ecx, dword ptr [edx + 0x7c]         
+00799895: call 0x77c1d0                           
+0079989a: test al, al                             
+0079989c: setne al                                
+0079989f: pop esi                                 
+007998a0: ret 0x14                                
+007998a3: nop                                     
+007998a4: nop                                     
+007998a5: nop                                     
+007998a6: nop                                     
+007998a7: nop                                     
+007998a8: nop                                     
+007998a9: nop                                     
+007998aa: nop                                     
+007998ab: nop                                     
+007998ac: nop                                     
+007998ad: nop                                     
+007998ae: nop                                     
+007998af: nop                                     
+007998b0: push esi                                
+007998b1: mov esi, ecx                            
+007998b3: push edi                                
+007998b4: mov al, byte ptr [esi + 0x5b9]          
+007998ba: test al, al                             
+007998bc: je 0x7998d2                             
+007998be: mov edi, dword ptr [0x8d5244]           
+007998c4: push 5                                  
+007998c6: call edi                                
+007998c8: mov al, byte ptr [esi + 0x5b9]          
+007998ce: test al, al                             
+007998d0: jne 0x7998c4                            
+007998d2: mov eax, dword ptr [esi + 0x54]         
+007998d5: lea edi, [esi + 0x54]                   
+007998d8: test eax, eax                           
+007998da: je 0x7998f4                             
+007998dc: mov eax, dword ptr [esi + 0xc]          
+007998df: push edi                                
+007998e0: mov ecx, dword ptr [eax + 0x164]        
+007998e6: mov ecx, dword ptr [ecx + 0x7c]         
+007998e9: call 0x77c560                           
+007998ee: mov dword ptr [edi], 0                  
+007998f4: mov eax, dword ptr [esi + 0x5ac]        
+007998fa: lea edi, [esi + 0x5ac]                  
+00799900: test eax, eax                           
+00799902: je 0x79991c                             
+00799904: mov edx, dword ptr [esi + 0xc]          
+00799907: push edi                                
+00799908: mov eax, dword ptr [edx + 0x164]        
+0079990e: mov ecx, dword ptr [eax + 0x7c]         
+00799911: call 0x77c560                           
+00799916: mov dword ptr [edi], 0                  
+0079991c: mov eax, dword ptr [esi + 0x5a4]        
+00799922: lea edi, [esi + 0x5a4]                  
+00799928: test eax, eax                           
+0079992a: je 0x799944                             
+0079992c: mov ecx, dword ptr [esi + 0xc]          
+0079992f: push edi                                
+00799930: mov edx, dword ptr [ecx + 0x164]        
+00799936: mov ecx, dword ptr [edx + 0x7c]         
+00799939: call 0x77c560                           
+0079993e: mov dword ptr [edi], 0                  
+00799944: mov eax, dword ptr [esi + 0x5a8]        
+0079994a: lea edi, [esi + 0x5a8]                  
+00799950: test eax, eax                           
+00799952: je 0x79996c                             
+00799954: mov eax, dword ptr [esi + 0xc]          
+00799957: push edi                                
+00799958: mov ecx, dword ptr [eax + 0x164]        
+0079995e: mov ecx, dword ptr [ecx + 0x7c]         
+00799961: call 0x77c560                           
+00799966: mov dword ptr [edi], 0                  
+0079996c: mov eax, dword ptr [esi + 0x8d0]        
+00799972: lea edi, [esi + 0x8d0]                  
+00799978: test eax, eax                           
+0079997a: je 0x799994                             
+0079997c: mov edx, dword ptr [esi + 0xc]          
+0079997f: push edi                                
+00799980: mov eax, dword ptr [edx + 0x164]        
+00799986: mov ecx, dword ptr [eax + 0x7c]         
+00799989: call 0x77c560                           
+0079998e: mov dword ptr [edi], 0                  
+00799994: mov eax, dword ptr [esi + 0x8c8]        
+0079999a: lea edi, [esi + 0x8c8]                  
+007999a0: test eax, eax                           
+007999a2: je 0x7999bc                             
+007999a4: mov ecx, dword ptr [esi + 0xc]          
+007999a7: push edi                                
+007999a8: mov edx, dword ptr [ecx + 0x164]        
+007999ae: mov ecx, dword ptr [edx + 0x7c]         
+007999b1: call 0x77c560                           
+007999b6: mov dword ptr [edi], 0                  
+007999bc: mov eax, dword ptr [esi + 0x8cc]        
+007999c2: lea edi, [esi + 0x8cc]                  
+007999c8: test eax, eax                           
+007999ca: je 0x7999e4                             
+007999cc: mov eax, dword ptr [esi + 0xc]          
+007999cf: push edi                                
+007999d0: mov ecx, dword ptr [eax + 0x164]        
+007999d6: mov ecx, dword ptr [ecx + 0x7c]         
+007999d9: call 0x77c560                           
+007999de: mov dword ptr [edi], 0                  
+007999e4: mov ecx, dword ptr [esi + 0x584]        
+007999ea: test ecx, ecx                           
+007999ec: je 0x799a0d                             
+007999ee: call 0x785220                           
+007999f3: mov ecx, dword ptr [esi + 0x584]        
+007999f9: test ecx, ecx                           
+007999fb: je 0x799a03                             
+007999fd: mov edx, dword ptr [ecx]                
+007999ff: push 1                                  
+00799a01: call dword ptr [edx]                    
+00799a03: mov dword ptr [esi + 0x584], 0          
+00799a0d: mov ecx, dword ptr [esi + 0x588]        
+00799a13: test ecx, ecx                           
+00799a15: je 0x799a36                             
+00799a17: call 0x785220                           
+00799a1c: mov ecx, dword ptr [esi + 0x588]        
+00799a22: test ecx, ecx                           
+00799a24: je 0x799a2c                             
+00799a26: mov eax, dword ptr [ecx]                
+00799a28: push 1                                  
+00799a2a: call dword ptr [eax]                    
+00799a2c: mov dword ptr [esi + 0x588], 0          
+00799a36: pop edi                                 
+00799a37: mov al, 1                               
+00799a39: pop esi                                 
+00799a3a: ret                                     
+00799a3b: nop                                     
+00799a3c: nop                                     
+00799a3d: nop                                     
+00799a3e: nop                                     
+00799a3f: nop                                     

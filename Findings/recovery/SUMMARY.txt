@@ -1,8 +1,10 @@
-configs.pck: 72 entries, 28 related text entries
+configs.pck: 72 entries, 68 related text entries
 shaders.pck: 166 entries, 2 related text entries
 textures.pck: 68 sky folders
 elementclient.exe: base 0x400000, 6 sections, 107 sky strings
   01-celestial-init: 1166 lines
+  01b-celestial-init-tail: 744 lines
+  01c-flare-stream-builder: 809 lines
   02-sun-moon-render: 425 lines
   03-flare-fill: 1711 lines
   04-celestial-clock: 180 lines
@@ -12,3 +14,5 @@ elementclient.exe: base 0x400000, 6 sections, 107 sky strings
   08-sky-textures: 488 lines
   09-sky-set-select: 240 lines
   10-sky-timers: 40 lines
+  11-sky-ctor-init: 372 lines
+  12-sky-load: 182 lines
