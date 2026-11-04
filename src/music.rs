@@ -251,6 +251,7 @@ pub struct MusicPlayer {
     zones: Option<Zones>,
     element: PathBuf,
     packed: HashMap<String, pck::Entry>,
+    zone_error: Option<String>,
     catalog_error: Option<String>,
     unresolved: Vec<String>,
     last_zone: Option<usize>,
@@ -270,6 +271,7 @@ impl MusicPlayer {
             Ok(z) => format!("{} music zones loaded", z.zones.len()),
             Err(e) => format!("Music zones unavailable: {e}"),
         };
+        let zone_error = zones.as_ref().err().cloned();
         let (packed, catalog_error) = match catalog(element) {
             Ok(packed) => (packed, None),
             Err(error) => (HashMap::new(), Some(error)),
@@ -288,6 +290,7 @@ impl MusicPlayer {
             zones: zones.ok(),
             element: element.to_path_buf(),
             packed,
+            zone_error,
             catalog_error,
             unresolved: Vec::new(),
             last_zone: None,
@@ -371,6 +374,9 @@ impl MusicPlayer {
     /// Keep lookup errors visible even while the playback worker reports a track.
     pub fn diagnostic(&self) -> String {
         let mut messages = Vec::new();
+        if let Some(error) = &self.zone_error {
+            messages.push(format!("Music zones unavailable: {error}"));
+        }
         if let Some(error) = &self.catalog_error {
             messages.push(format!("sfx.pck unavailable: {error}"));
         }
@@ -399,6 +405,7 @@ impl MusicPlayer {
 /// approximations, not a reconstruction of the native transitions or 3D SFX.
 pub struct AmbiencePlayer {
     zones: Option<Zones>,
+    zone_error: Option<String>,
     element: PathBuf,
     last_zone: Option<usize>,
     last_night: bool,
@@ -418,6 +425,7 @@ impl AmbiencePlayer {
             Ok(z) => format!("{} ambience zones loaded", z.zones.len()),
             Err(e) => format!("Ambience zones unavailable: {e}"),
         };
+        let zone_error = zones.as_ref().err().cloned();
         #[cfg(windows)]
         let (tx, rx) = {
             let (tx, request_rx) = std::sync::mpsc::channel();
@@ -430,6 +438,7 @@ impl AmbiencePlayer {
         };
         Self {
             zones: zones.ok(),
+            zone_error,
             element: element.to_path_buf(),
             last_zone: None,
             last_night: false,
@@ -487,6 +496,8 @@ impl AmbiencePlayer {
         let paths = path.map(Track::Loose).into_iter().collect::<Vec<_>>();
         self.status = if !enabled {
             "Ambience off".into()
+        } else if let Some(error) = &self.zone_error {
+            format!("Ambience zones unavailable: {error}")
         } else if paths.is_empty() {
             format!(
                 "{}: ambience unavailable ({})",
@@ -682,11 +693,23 @@ mod tests {
         let root = std::env::temp_dir().join(format!("pw-missing-audio-{}", std::process::id()));
         let mut player = MusicPlayer::new(&root);
         player.zones = Some(Zones::parse("version 6\n123\n\"zone\"\n1 4 0 0 1 1 60 1 1 0\n0 0 0\n-1 0 -1\n1 0 -1\n1 0 1\n-1 0 1\n\"\"\n\"Music\\missing.mp3\"\n\"\"").unwrap());
+        player.zone_error = None;
         player.update(true, 0.5, 0., 0.);
         assert!(player.diagnostic().contains("sfx.pck unavailable"));
         assert!(player.diagnostic().contains("Music\\missing.mp3"));
         player.update(false, 0.5, 0., 0.);
         assert!(!player.diagnostic().contains("missing.mp3"));
+    }
+    #[cfg(not(windows))]
+    #[test]
+    fn missing_precinct_error_survives_first_update() {
+        let root = std::env::temp_dir().join(format!("pw-missing-precinct-{}", std::process::id()));
+        let mut music = MusicPlayer::new(&root);
+        let mut ambience = AmbiencePlayer::new(&root);
+        music.update(true, 0.5, 0., 0.);
+        ambience.update(true, 0.5, 0., 0., false);
+        assert!(music.diagnostic().contains("Music zones unavailable"));
+        assert!(ambience.status().contains("Ambience zones unavailable"));
     }
     #[test]
     fn invalid_header_rejected() {
