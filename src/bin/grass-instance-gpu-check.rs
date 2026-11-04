@@ -1657,20 +1657,24 @@ fn main() {
         wind_frames[0], wind_frames[2],
         "zero wind should restore image"
     );
-    let lit = |f: &Vec<u8>| f.chunks_exact(4).filter(|p| p[1] > 0).count();
-    println!(
-        "wind fixture: coverage {} -> {}, {:.3} mean green -> {:.3}",
-        lit(&wind_frames[0]),
-        lit(&wind_frames[1]),
-        wind_frames[0].iter().skip(1).step_by(4).map(|v| *v as f64).sum::<f64>() / 16384.,
-        wind_frames[1].iter().skip(1).step_by(4).map(|v| *v as f64).sum::<f64>() / 16384.
-    );
+    let lit = |f: &[u8]| f.chunks_exact(4).filter(|p| p[1] > 0).count();
+    let mean = |f: &[u8]| f.iter().skip(1).step_by(4).map(|v| *v as u32).sum::<u32>() as f32 / 16384.;
     let changes = wind_frames[0]
         .chunks_exact(4)
         .zip(wind_frames[1].chunks_exact(4))
         .filter(|(a, b)| (a[1] > 0) != (b[1] > 0))
         .count();
-    assert!(changes > 100, "wind failed to deform coverage: {changes}");
+    // Carry the measurement in the message: CI only surfaces the panic text
+    // and the lines after it, so a bare count cannot say whether the history
+    // failed to arrive or the geometry was never on screen.
+    assert!(
+        changes > 100,
+        "wind failed to deform coverage: {changes}; lit {} -> {} of 16384, mean green {:.3} -> {:.3}",
+        lit(&wind_frames[0]),
+        lit(&wind_frames[1]),
+        mean(&wind_frames[0]),
+        mean(&wind_frames[1])
+    );
     println!("History-driven grass wind changes {changes} pixels, zero restores exact image");
     grass.update(&device, grass_instances::Data::default());
     println!("Empty streaming update succeeded");
