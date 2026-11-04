@@ -267,7 +267,7 @@ impl ModelAsset {
         mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<Self, String> {
         let skeleton_path = ecmodel::normalize(skeleton_path);
-        let mut bytes = |path: &str| read(path).map_err(|error| format!("{path}: {error}"))?;
+        let mut bytes = |path: &str| read(path).map_err(|error| format!("{path}: {error}"));
         let skeleton = skeleton::Skeleton::parse(&bytes(&skeleton_path)?)
             .map_err(|error| format!("{skeleton_path}: {error}"))?;
         let mut skins = Vec::with_capacity(skin_paths.len());
