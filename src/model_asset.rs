@@ -225,6 +225,26 @@ impl ModelAsset {
         Self::load_impl(descriptor_path, read, true)
     }
 
+    /// Load `LSF_UNIQUESKIN` geometry while preserving the native missing-SKI
+    /// behavior. `A3DSkinModel::AddSkinFile` returns `false` (zero), not `-1`,
+    /// when a skin cannot be read, so `A3DSkinModelMan`'s negative-result check
+    /// continues without that skin. Return every skipped dependency as a
+    /// warning; never substitute another skin or hide rig/action failures.
+    pub fn load_unique_with(
+        descriptor_path: &str,
+        mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> Result<(Self, Vec<String>), String> {
+        let mut warnings = Vec::new();
+        let asset = Self::load_cached_impl(
+            descriptor_path,
+            &mut read,
+            &mut TrackCache::default(),
+            true,
+            Some(&mut warnings),
+        )?;
+        Ok((asset, warnings))
+    }
+
     /// Load an ECM/SMD/BON rig without reading its authored skin menu. This is
     /// the native `A3DSkinModel::LSF_NOSKIN` path used by `CECPlayer`: the
     /// caller installs its selected body/equipment/head skins afterwards.
@@ -245,6 +265,7 @@ impl ModelAsset {
             &mut read,
             &mut TrackCache::default(),
             load_skins,
+            None,
         )
     }
     pub fn load_cached(
@@ -252,24 +273,26 @@ impl ModelAsset {
         mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
         cache: &mut TrackCache,
     ) -> Result<Self, String> {
-        Self::load_cached_impl(descriptor_path, &mut read, cache, true)
+        Self::load_cached_impl(descriptor_path, &mut read, cache, true, None)
     }
     fn load_cached_impl(
         descriptor_path: &str,
         mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
         cache: &mut TrackCache,
         load_skins: bool,
+        mut missing_skins: Option<&mut Vec<String>>,
     ) -> Result<Self, String> {
         let descriptor_path = ecmodel::normalize(descriptor_path);
         let mut bytes = |p: &str| read(p).map_err(|e| format!("{p}: {e}"));
         let descriptor = ecmodel::parse_ecm(&bytes(&descriptor_path)?)
             .map_err(|e| format!("{descriptor_path}: {e}"))?;
-        let model = ecmodel::parse_smd(&bytes(&descriptor.skin_model_path)?)
+        let mut model = ecmodel::parse_smd(&bytes(&descriptor.skin_model_path)?)
             .map_err(|e| format!("{}: {e}", descriptor.skin_model_path))?;
         let skeleton_path = relative(&descriptor.skin_model_path, &model.skeleton);
         let skeleton = skeleton::Skeleton::parse(&bytes(&skeleton_path)?)
             .map_err(|e| format!("{skeleton_path}: {e}"))?;
         let mut skins = Vec::new();
+        let mut loaded_skin_paths = Vec::new();
         // The descriptor's own AddiSkinPath list is authoritative. The `.smd`
         // list is a menu of skins that exist for the model family; in
         // models.pck 228 of its 247 unresolvable entries are simply the naming
@@ -321,11 +344,10 @@ impl ModelAsset {
             // Some authored model variants are skin-less siblings: an `amd`
             // folder carries its own .ecm/.smd/.bon but reuses the base
             // model's skin from the sibling folder without the suffix. In
-            // models.pck that accounts for 247 of 2,228 .smd models, so
-            // failing the whole model on a missing .ski would drop ~11% of the
-            // character set. Retry against the base folder before giving up,
-            // and still fail loudly if neither resolves - the client has no
-            // placeholder geometry either.
+            // models.pck that accounts for 247 of 2,228 .smd models. Strict
+            // callers retry against the base folder and still fail loudly if
+            // neither resolves. Native unique-skin callers skip those Explorer
+            // recovery candidates and report the authored missing path instead.
             // `path` is reassigned to whichever candidate actually loaded, so
             // the stored asset names its real source rather than the first
             // guess.
@@ -337,10 +359,9 @@ impl ModelAsset {
                     // skin-less `amd` sibling folder, and only then give up.
                     let candidates = [smd_fallback.clone(), without_variant_suffix(&path)];
                     let mut parsed = None;
-                    for candidate in candidates
-                        .iter()
-                        .filter(|c| !c.is_empty() && **c != *primary)
-                    {
+                    for candidate in candidates.iter().filter(|c| {
+                        missing_skins.is_none() && !c.is_empty() && **c != *primary
+                    }) {
                         // Go through `bytes`, not the raw `read`: `read` is
                         // already mutably borrowed by that wrapper, and it also
                         // adds the failing path to the error.
@@ -354,11 +375,24 @@ impl ModelAsset {
                     }
                     match parsed {
                         Some(skin) => skin,
-                        None => return Err(format!("{path}: {first}")),
+                        None => {
+                            let error = format!("{path}: {first}");
+                            if let Some(warnings) = missing_skins.as_deref_mut() {
+                                warnings.push(error);
+                                continue;
+                            }
+                            return Err(error);
+                        }
                     }
                 }
             };
+            loaded_skin_paths.push(path.clone());
             skins.push(SkinAsset { path, data });
+        }
+        if missing_skins.is_some() {
+            // Keep retained skin indices and their authored path slots aligned
+            // after native missing-SKI omissions.
+            model.skins = loaded_skin_paths;
         }
         let mut tracks = Vec::new();
         for action in &model.actions {
@@ -815,6 +849,24 @@ mod tests {
         assert!(asset.skins.is_empty());
         assert_eq!(asset.model.skins, ["unselected.ski"]);
         assert_eq!(reads, ["models/a.ecm", "models/a.smd", "models/rig.bon"]);
+    }
+
+    #[test]
+    fn unique_skin_load_preserves_native_missing_ski_tolerance() {
+        let mut files = rig_files(1);
+        files.0 = b"MOXTVersion: 40\r\nSkinModelPath: Models\\a.smd\r\n\
+                    ComActCount: 0\r\nEventCount: 0\r\n"
+            .to_vec();
+        let (asset, warnings) =
+            ModelAsset::load_unique_with("Models\\a.ecm", |path| read_rig(path, &files))
+                .unwrap();
+        assert!(asset.skins.is_empty());
+        assert!(asset.model.skins.is_empty());
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("models/unselected.ski"));
+
+        // The ordinary world-model loader remains strict.
+        assert!(ModelAsset::load_with("Models\\a.ecm", |path| read_rig(path, &files)).is_err());
     }
 
     #[test]
