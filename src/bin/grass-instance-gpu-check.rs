@@ -563,6 +563,7 @@ fn main() {
         contents: bytemuck::cast_slice(&bmd_refraction_vertices),
         usage: wgpu::BufferUsages::VERTEX,
     });
+    let mut failures: Vec<String> = Vec::new();
     for (plane, wind, bmd) in [
         (0.0f32, 0.0f32, false),
         (0., 0.2, false),
@@ -670,6 +671,10 @@ fn main() {
         }
         factor = factor.clamp(0., 1.);
         let pixel = &bytes[(py * 128 + px) * 4..][..3];
+        // Report every row and channel before failing. Panicking on the first
+        // mismatch turns each CI round-trip into a single data point, which
+        // makes a systematic error indistinguishable from a local one.
+        let mut report = Vec::new();
         for (channel, (base, fog)) in [
             (30.0f32 / 255., 0.5),
             (240. / 255., 0.25),
@@ -690,14 +695,34 @@ fn main() {
                 ((encoded + 0.055) / 1.055).powf(2.4)
             };
             let expected = (linear * 255.).round() as i32;
-            assert!((pixel[channel] as i32-expected).abs()<=2,"refraction bmd={bmd} plane={plane} wind={wind}: {pixel:?}, channel {channel} expected {expected}, factor {factor}");
+            let actual = pixel[channel] as i32;
+            if (actual - expected).abs() > 2 {
+                report.push(format!(
+                    "channel {channel}: got {actual}, expected {expected}"
+                ));
+            }
         }
         println!(
-            "grass refraction bmd={bmd} plane={plane} wind={wind}: {pixel:?}, vertex fog factor {factor}"
+            "refraction bmd={bmd} plane={plane} wind={wind}: {pixel:?}, vertex fog factor {factor}, {report:?}"
         );
+        if !report.is_empty() {
+            println!(
+                "refraction bmd={bmd} plane={plane} wind={wind}: base={}, fog={:?}",
+                if bmd { 2. * 254. / 255. } else { 1. },
+                [0.5, 0.25, 0.75]
+            );
+        }
+        failures.extend(report.into_iter().map(|r| {
+            format!("bmd={bmd} plane={plane} wind={wind} {r}")
+        }));
         drop(bytes);
         read.unmap();
     }
+    assert!(
+        failures.is_empty(),
+        "refraction vertex fog does not match the shader:\n  {}",
+        failures.join("\n  ")
+    );
     uni = saved_uni;
     uni[380..388].fill(0.);
     // The actual GPU shader: compare near, half-range and beyond-range
