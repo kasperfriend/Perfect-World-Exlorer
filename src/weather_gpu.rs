@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn water_masks_pack_with_byte_offsets_for_shader_lookup() {
-        let area = |center, mask| WaterArea {
+        let area = |center: f32, mask: Vec<u8>| WaterArea {
             export_id: 1,
             color: 0,
             simple: false,
