@@ -210,16 +210,13 @@ fn packed_key(raw: &str) -> Option<String> {
     }
     Some(format!("sfx/music/{}", name.to_lowercase()))
 }
-fn catalog(element: &Path) -> HashMap<String, pck::Entry> {
-    let path = element.join("sfx.pck");
-    fs::File::open(path)
-        .ok()
-        .and_then(|mut f| pck::directory(&mut f).ok())
-        .unwrap_or_default()
+fn catalog(element: &Path) -> Result<HashMap<String, pck::Entry>, String> {
+    let mut file = fs::File::open(element.join("sfx.pck")).map_err(|e| e.to_string())?;
+    Ok(pck::directory(&mut file)?
         .into_iter()
         .filter(|e| e.name.to_ascii_lowercase().starts_with("sfx/music/"))
         .map(|e| (e.name.to_lowercase(), e))
-        .collect()
+        .collect())
 }
 fn resolve_track(element: &Path, packed: &HashMap<String, pck::Entry>, raw: &str) -> Option<Track> {
     if let Some(path) = resolve(element, raw) {
@@ -254,6 +251,8 @@ pub struct MusicPlayer {
     zones: Option<Zones>,
     element: PathBuf,
     packed: HashMap<String, pck::Entry>,
+    catalog_error: Option<String>,
+    unresolved: Vec<String>,
     last_zone: Option<usize>,
     last_enabled: bool,
     last_volume: f32,
@@ -271,6 +270,10 @@ impl MusicPlayer {
             Ok(z) => format!("{} music zones loaded", z.zones.len()),
             Err(e) => format!("Music zones unavailable: {e}"),
         };
+        let (packed, catalog_error) = match catalog(element) {
+            Ok(packed) => (packed, None),
+            Err(error) => (HashMap::new(), Some(error)),
+        };
         #[cfg(windows)]
         let (tx, rx) = {
             let (tx, request_rx) = std::sync::mpsc::channel();
@@ -284,7 +287,9 @@ impl MusicPlayer {
         Self {
             zones: zones.ok(),
             element: element.to_path_buf(),
-            packed: catalog(element),
+            packed,
+            catalog_error,
+            unresolved: Vec::new(),
             last_zone: None,
             last_enabled: false,
             last_volume: -1.,
@@ -324,15 +329,16 @@ impl MusicPlayer {
         self.last_zone = zone;
         self.last_enabled = enabled;
         self.last_volume = volume;
-        let paths: Vec<_> = zone
-            .and_then(|i| self.zones.as_ref().map(|z| &z.zones[i]))
-            .map(|q| {
-                q.tracks
-                    .iter()
-                    .filter_map(|p| resolve_track(&self.element, &self.packed, p))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut paths = Vec::new();
+        self.unresolved.clear();
+        if let Some(q) = zone.and_then(|i| self.zones.as_ref().map(|z| &z.zones[i])) {
+            for path in &q.tracks {
+                match resolve_track(&self.element, &self.packed, path) {
+                    Some(track) => paths.push(track),
+                    None => self.unresolved.push(path.clone()),
+                }
+            }
+        }
         let label = zone
             .and_then(|i| self.zones.as_ref().map(|z| z.zones[i].name.as_str()))
             .unwrap_or("No music zone");
@@ -361,6 +367,32 @@ impl MusicPlayer {
     }
     pub fn status(&self) -> &str {
         &self.status
+    }
+    /// Keep lookup errors visible even while the playback worker reports a track.
+    pub fn diagnostic(&self) -> String {
+        let mut messages = Vec::new();
+        if let Some(error) = &self.catalog_error {
+            messages.push(format!("sfx.pck unavailable: {error}"));
+        }
+        if !self.unresolved.is_empty() {
+            let examples = self
+                .unresolved
+                .iter()
+                .take(5)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
+            messages.push(format!(
+                "{} unresolved playlist track(s): {examples}{}",
+                self.unresolved.len(),
+                if self.unresolved.len() > 5 {
+                    ", …"
+                } else {
+                    ""
+                }
+            ));
+        }
+        messages.join("; ")
     }
 }
 /// Stereo precinct ambience. Selection and day/night boundary are viewer
@@ -450,9 +482,8 @@ impl AmbiencePlayer {
                 &q.ambience_day
             }
         });
-        let path = raw.and_then(|p| {
-            resolve_under(&self.element.join("music"), p, "ambiencestereo")
-        });
+        let path =
+            raw.and_then(|p| resolve_under(&self.element.join("music"), p, "ambiencestereo"));
         let paths = path.map(Track::Loose).into_iter().collect::<Vec<_>>();
         self.status = if !enabled {
             "Ambience off".into()
@@ -606,13 +637,22 @@ mod tests {
     }
     #[test]
     fn packed_music_prefers_exact_entry_then_ogg_fallback() {
-        let mk = |name: &str| pck::Entry { name: name.into(), offset: 0, size: 0, compressed: 0 };
+        let mk = |name: &str| pck::Entry {
+            name: name.into(),
+            offset: 0,
+            size: 0,
+            compressed: 0,
+        };
         let mut packed = HashMap::new();
         packed.insert("sfx/music/a.ogg".into(), mk("sfx/music/a.ogg"));
         let root = Path::new("nonexistent-test-client");
-        assert!(matches!(resolve_track(root, &packed, "Music/a.mp3"), Some(Track::Packed { entry, .. }) if entry.name.ends_with(".ogg")));
+        assert!(
+            matches!(resolve_track(root, &packed, "Music/a.mp3"), Some(Track::Packed { entry, .. }) if entry.name.ends_with(".ogg"))
+        );
         packed.insert("sfx/music/a.mp3".into(), mk("sfx/music/a.mp3"));
-        assert!(matches!(resolve_track(root, &packed, "Music/a.mp3"), Some(Track::Packed { entry, .. }) if entry.name.ends_with(".mp3")));
+        assert!(
+            matches!(resolve_track(root, &packed, "Music/a.mp3"), Some(Track::Packed { entry, .. }) if entry.name.ends_with(".mp3"))
+        );
     }
     #[cfg(not(windows))]
     #[test]
@@ -635,6 +675,18 @@ mod tests {
         player.update(false, 0.2, 0., 0., true);
         assert_eq!(player.status(), "Ambience off");
         fs::remove_dir_all(root).unwrap();
+    }
+    #[cfg(not(windows))]
+    #[test]
+    fn missing_music_and_archive_errors_remain_visible() {
+        let root = std::env::temp_dir().join(format!("pw-missing-audio-{}", std::process::id()));
+        let mut player = MusicPlayer::new(&root);
+        player.zones = Some(Zones::parse("version 6\n123\n\"zone\"\n1 4 0 0 1 1 60 1 1 0\n0 0 0\n-1 0 -1\n1 0 -1\n1 0 1\n-1 0 1\n\"\"\n\"Music\\missing.mp3\"\n\"\"").unwrap());
+        player.update(true, 0.5, 0., 0.);
+        assert!(player.diagnostic().contains("sfx.pck unavailable"));
+        assert!(player.diagnostic().contains("Music\\missing.mp3"));
+        player.update(false, 0.5, 0., 0.);
+        assert!(!player.diagnostic().contains("missing.mp3"));
     }
     #[test]
     fn invalid_header_rejected() {

@@ -11,7 +11,9 @@ fn main() {
 
     fn audio(path: &str) -> bool {
         let name = path.to_ascii_lowercase();
-        [".wav", ".ogg", ".mp3"].iter().any(|ext| name.ends_with(ext))
+        [".wav", ".ogg", ".mp3"]
+            .iter()
+            .any(|ext| name.ends_with(ext))
     }
     fn decode(bytes: Vec<u8>) -> Result<usize, String> {
         let decoder = Decoder::new(Cursor::new(bytes)).map_err(|e| e.to_string())?;
@@ -70,17 +72,19 @@ fn main() {
     let mut checked = 0;
     let mut failed = 0;
     let archive = root.join("sfx.pck");
-    match fs::File::open(&archive).map_err(|e| e.to_string()).and_then(|mut file| {
-        let entries = pck::directory(&mut file)?;
-        for entry in entries.iter().filter(|e| audio(&e.name)) {
-            checked += 1;
-            if let Err(e) = pck::read_entry(&mut file, entry).and_then(decode) {
-                eprintln!("{}: {e}", entry.name);
-                failed += 1;
+    match fs::File::open(&archive)
+        .map_err(|e| e.to_string())
+        .and_then(|mut file| {
+            let entries = pck::directory(&mut file)?;
+            for entry in entries.iter().filter(|e| audio(&e.name)) {
+                checked += 1;
+                if let Err(e) = pck::read_entry(&mut file, entry).and_then(decode) {
+                    eprintln!("{}: {e}", entry.name);
+                    failed += 1;
+                }
             }
-        }
-        Ok(())
-    }) {
+            Ok(())
+        }) {
         Ok(()) => {}
         Err(e) => {
             eprintln!("{}: {e}", archive.display());

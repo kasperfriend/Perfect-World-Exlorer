@@ -185,6 +185,8 @@ jobs:
           }
       - name: Build standalone viewer
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin perfect-world-explorer
+      - name: Build audio corpus and scene diagnostics
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin audio-corpus-check --bin scene-sound-check
       - name: Build the shipped survey tool
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin bmd-overlap-survey
       - name: Stage artifact and checksum

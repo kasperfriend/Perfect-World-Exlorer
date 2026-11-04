@@ -435,7 +435,8 @@ mod tests {
     }
     #[test]
     fn sound_volume_is_independent_bounded_and_finite() {
-        let settings = ViewSettings::decode("music_volume=0.2\nsound_volume=1.5\nambience_enabled=true");
+        let settings =
+            ViewSettings::decode("music_volume=0.2\nsound_volume=1.5\nambience_enabled=true");
         assert_eq!(settings.music_volume, 0.2);
         assert_eq!(settings.sound_volume, 1.0);
         assert!(settings.ambience_enabled);
