@@ -578,6 +578,55 @@ fn main() {
     }
     println!("sun/glow bright-core alignment: 6/6 production renders passed across pitch and reflected views; uncorrected fixture exposes displacement");
 
+    // Empty terrain must reveal the authored fog, not the sky texture's pale
+    // bottom row. All pixels face down so this also catches double encoding.
+    let mut fog_params = uniform(Mat4::IDENTITY, (0., 0., 0.));
+    fog_params[..16].fill(0.);
+    fog_params[13] = -1.;
+    fog_params[15] = 1.;
+    fog_params[18] = 1.;
+    let pixels = render(
+        &device,
+        &queue,
+        &pipeline,
+        &layout,
+        &sky_view,
+        &sampler,
+        &roof_sampler,
+        &t,
+        &fog_params,
+    );
+    let expected = [0.2f32, 0.3, 0.4].map(|c| {
+        let linear = if c <= 0.04045 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        };
+        (linear * 255.).round() as u8
+    });
+    assert!(
+        pixels
+            .chunks_exact(4)
+            .all(|p| (0..3).all(|c| (p[c] as i32 - expected[c] as i32).abs() <= 1)),
+        "fog skirt is missing or encoded twice"
+    );
+    fog_params[18] = 0.;
+    let no_fog = render(
+        &device,
+        &queue,
+        &pipeline,
+        &layout,
+        &sky_view,
+        &sampler,
+        &roof_sampler,
+        &t,
+        &fog_params,
+    );
+    assert_ne!(
+        no_fog, pixels,
+        "fog disable gate did not restore authored sky"
+    );
+    println!("::notice::fog background GPU test passed: native encoded colour decoded once, no pale panorama below horizon, independent fog gate");
     println!(
         "phase5 sky transition: shader compiled, crossfade moved {differing} bytes, \
          altitude stable, reflection mirrored, transition counter {counter} unchanged over \

@@ -45,3 +45,68 @@ mod tests {
         assert!((x1 - x0) * (y1 - y0) < 32 * 44 / 20);
     }
 }
+
+/// Resident world XZ extent, shared by terrain, vegetation and scenery.
+pub fn world_bounds(
+    blocks: [usize; 4],
+    block_cells: usize,
+    width: usize,
+    height: usize,
+    spacing: f32,
+) -> [f32; 4] {
+    let [x0, y0, x1, y1] = blocks;
+    [
+        ((x0 * block_cells).min(width - 1) as f32 - width as f32 * 0.5) * spacing,
+        ((x1 * block_cells).min(width - 1) as f32 - width as f32 * 0.5) * spacing,
+        (height as f32 * 0.5 - (y1 * block_cells).min(height - 1) as f32) * spacing,
+        (height as f32 * 0.5 - (y0 * block_cells).min(height - 1) as f32) * spacing,
+    ]
+}
+pub fn contains(bounds: Option<[f32; 4]>, p: [f32; 3]) -> bool {
+    bounds.map_or(true, |[x0, x1, z0, z1]| {
+        p[0] >= x0 && p[0] < x1 && p[2] >= z0 && p[2] < z1
+    })
+}
+/// Conservative view-Z limit: every visible boundary point is at least the
+/// nearest XZ edge away, and its forward projection is >= distance*cos(diagonal
+/// half-FOV). This hides the edge even at screen corners, not only the centre.
+/// A viewer adaptation for finite residency, not a recovered client equation.
+pub fn fog_cap(bounds: [f32; 4], eye: [f32; 3], aspect: f32) -> Option<f32> {
+    if !contains(Some(bounds), eye) {
+        return None;
+    }
+    let d = (eye[0] - bounds[0])
+        .min(bounds[1] - eye[0])
+        .min(eye[2] - bounds[2])
+        .min(bounds[3] - eye[2]);
+    let tangent = 35f32.to_radians().tan();
+    Some((d / (1. + tangent * tangent * (1. + aspect.max(0.01).powi(2))).sqrt() * 0.95).max(0.01))
+}
+pub fn fit_fog(start: f32, end: f32, cap: f32) -> [f32; 2] {
+    let end = end.min(cap).max(0.01);
+    [start.min(end * 0.75), end]
+}
+#[cfg(test)]
+mod residency_tests {
+    use super::*;
+    #[test]
+    fn half_open_residency_and_unrestricted_mode() {
+        let b = Some([-100., 100., -80., 80.]);
+        assert!(contains(b, [-100., 1., -80.]));
+        assert!(!contains(b, [100., 1., 0.]));
+        assert!(!contains(b, [0., 1., 80.]));
+        assert!(contains(None, [10000., 1., 0.]));
+    }
+    #[test]
+    fn fog_cap_covers_wide_screen_corners() {
+        for aspect in [1., 16. / 9., 32. / 9.] {
+            let cap = fog_cap([-448., 512., -448., 512.], [0., 300., 0.], aspect).unwrap();
+            let diagonal_cos =
+                1. / (1. + 35f32.to_radians().tan().powi(2) * (1. + aspect * aspect)).sqrt();
+            assert!(cap < 448. * diagonal_cos);
+            let [start, end] = fit_fog(400., 1000., cap);
+            assert!(start < end && end <= cap);
+        }
+        assert_eq!(fog_cap([-1., 1., -1., 1.], [5., 0., 0.], 1.), None);
+    }
+}

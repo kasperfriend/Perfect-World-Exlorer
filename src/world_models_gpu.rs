@@ -11,6 +11,8 @@ use crate::{
     world_models::Assets,
 };
 use std::{collections::HashMap, fs::File, path::Path};
+#[path = "terrain_cutoff.rs"]
+mod cutoff_residency;
 
 /// Identity space for ECM model-event owners, kept disjoint from scene effects.
 const MODEL_EVENT_IDENTITY: u64 = 1 << 40;
@@ -84,6 +86,7 @@ pub struct World {
     producers: Vec<Producer>,
     /// Explorer position and effect activation radius in world units.
     view: Option<(f32, f32, f32)>,
+    resident_bounds: Option<[f32; 4]>,
     /// Retail alpha insertion order as (slot, mesh) pairs.
     alpha: Vec<model_queue::AlphaCandidate>,
     reported: Vec<String>,
@@ -168,6 +171,7 @@ impl World {
             owners: gfx_owner::Manager::new(),
             producers: Vec::new(),
             view: None,
+            resident_bounds: None,
             alpha: Vec::new(),
             reported: Vec::new(),
         })
@@ -310,6 +314,21 @@ impl World {
     }
     /// Explorer position plus the radius in which installed producers are
     /// active. Effects outside the radius are unloaded without publishing.
+    /// Release receiving-model geometry and poses outside the installed terrain
+    /// window, rather than merely disabling their effect-light producers.
+    pub fn set_resident_bounds(&mut self, bounds: Option<[f32; 4]>) {
+        if self.resident_bounds == bounds {
+            return;
+        }
+        self.resident_bounds = bounds;
+        for (instance, slot) in self.assets.instances.iter().zip(&mut self.slots) {
+            if !cutoff_residency::contains(bounds, instance.placement.position) {
+                slot.draw = None;
+                slot.posed = None;
+                slot.geometry_dirty = true;
+            }
+        }
+    }
     pub fn set_view_center(&mut self, x: f32, z: f32, radius: f32) {
         self.view = Some((x, z, radius.max(0.)));
     }
@@ -381,7 +400,8 @@ impl World {
             .map(|producer| {
                 let dx = producer.position[0] - x;
                 let dz = producer.position[2] - z;
-                let inside = dx * dx + dz * dz <= radius * radius;
+                let inside = dx * dx + dz * dz <= radius * radius
+                    && cutoff_residency::contains(self.resident_bounds, producer.position);
                 let visible = match producer.valid_time {
                     Some(mode) => crate::scene::effect_visible(mode, night),
                     None => true,
@@ -441,7 +461,11 @@ impl World {
     /// 0x7b2520 resolves hooks from this pose, and every pass of the frame
     /// (main, reflection, refraction) reuses it.
     fn advance_poses(&mut self, delta_ms: u32) {
+        let bounds = self.resident_bounds;
         for (instance, slot) in self.assets.instances.iter_mut().zip(&mut self.slots) {
+            if !cutoff_residency::contains(bounds, instance.placement.position) {
+                continue;
+            }
             if slot.failed {
                 continue;
             }
@@ -546,6 +570,7 @@ impl World {
         frame: Frame,
         night: f32,
     ) {
+        let bounds = self.resident_bounds;
         let Self {
             assets,
             slots,
@@ -559,6 +584,9 @@ impl World {
             ..
         } = self;
         for (instance, slot) in assets.instances.iter().zip(slots.iter_mut()) {
+            if !cutoff_residency::contains(bounds, instance.placement.position) {
+                continue;
+            }
             if slot.failed {
                 continue;
             }

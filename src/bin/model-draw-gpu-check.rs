@@ -902,6 +902,36 @@ fn main() {
     );
     println!("::notice::scene effect owner passed: ECWLD placement -> one-root-per-update load -> publication -> scene query -> receiving pixels, and region unload removes the light");
     assert_eq!(world.status(), (1, 0, 1));
+    // Terrain residency must release model geometry, not only deactivate FX.
+    world.set_resident_bounds(Some([4000., 4100., 4000., 4100.]));
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        0,
+    );
+    assert_eq!(world.status(), (0, 0, 1));
+    check(&device, &queue, &world, [[0; 4]; 2]);
+    world.set_resident_bounds(None);
+    world.update(
+        &device,
+        &queue,
+        opaque_dim,
+        [13., 0., 0.],
+        &Default::default(),
+        0.,
+        0,
+    );
+    assert_eq!(world.status(), (1, 0, 1));
+    check(
+        &device,
+        &queue,
+        &world,
+        [[32, 64, 96, 136], [96, 32, 64, 136]],
+    );
     let mut unsupported = opaque_dim;
     unsupported.blend_enabled = true;
     world.update(

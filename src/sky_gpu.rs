@@ -72,6 +72,8 @@ pub struct SkyFrame {
     /// the curtain, so this only shows through a partly transparent sample; it
     /// stays the frame's atmospheric fog colour rather than a fixed blue.
     pub background: [f32; 3],
+    /// Fill the open lower sky with the active authored fog colour.
+    pub fog_enabled: bool,
     /// Colour multiplier applied to the sky texture samples: the recovered
     /// regional light colour, so the single authored set darkens through dusk
     /// and night instead of swapping to a second texture set.
@@ -86,6 +88,7 @@ impl Default for SkyFrame {
             sun: [0.0; 4],
             moon: [0.0; 4],
             background: [0.18, 0.32, 0.48],
+            fog_enabled: false,
             tint: [1.0; 3],
         }
     }
@@ -311,6 +314,14 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->ve
   sky=vec4<f32>(mix(sky.rgb,other.rgb,swap),mix(sky.a,other.a,swap));
  }
  var color=mix(p.background.rgb,sky.rgb,clamp(sky.a,0.,1.));
+ // The fog colour is encoded client RGB, unlike linear sRGB texture samples.
+ // Do not extend the panorama's pale bottom row into missing ground. This
+ // viewer fog skirt fills the lower hemisphere and fades out above the horizon.
+ if p.time.z>0.5 {
+  let c=max(p.background.rgb,vec3<f32>(0.));
+  let fog=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));
+  color=mix(fog,color,smoothstep(0.,0.08,d.y));
+ }
  color=celestial(color,d,p.celestial,9,11);
  color=celestial(color,d,p.celestial2,10,12);
  return vec4<f32>(color,1.);
@@ -647,7 +658,12 @@ impl SkyGpu {
         let inv = sky_inverse(projection, view, reflected);
         let uniform = Uniform {
             inv: inv.to_cols_array_2d(),
-            time: [frame.hour, frame.night_weight, 0., 0.],
+            time: [
+                frame.hour,
+                frame.night_weight,
+                if frame.fog_enabled { 1. } else { 0. },
+                0.,
+            ],
             celestial: frame.sun,
             celestial2: frame.moon,
             background: [
