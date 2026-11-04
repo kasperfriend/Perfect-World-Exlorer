@@ -76,9 +76,10 @@ scale:
 * `0x4b4161`–`0x4b41d0` (moon): `0x788960` only, and `0x4b5c43` pushes literal
   `1.0` three times — the moon is never scaled.
 
-`n` saturates at 1 while a disc is visible, so the sun runs 11.42° → 34.3° across
-dusk. The shine strip grows with it (61.9° → 186°), which is why retail sunsets
-have a glare that crosses the whole screen.
+`n` saturates at 1 while a disc is visible, so the sun runs 11.42° → 33.40°
+across dusk (half extent 10 → 30) and the shine strip grows from 61.93° × 22.62°
+to 121.9° × 61.9° (half extents 60/20 → 180/60), which is why retail sunsets have
+a glare that reaches the screen edges.
 
 ### 1.3 The shine strip is a dusk effect, not a midday one
 
