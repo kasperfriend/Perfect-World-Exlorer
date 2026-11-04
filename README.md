@@ -15,6 +15,7 @@ See the [full 76-point plan reassessment](Findings/Eight-phase-reassessment-2026
 - Experimental animated water, per-height reflections and refraction, shoreline waves, underwater effects, environmental fog, sky, time-of-day control and optional bloom.
 - Searchable teleport destinations, original and rendered world maps, a minimap, zone notices and Windows zone music.
 - Windows launcher with remembered client folder and settings, and in-app Graphics, World, Sound and Interface controls. Settings → Graphics → **Resolution scale** renders the 3D world at 10–200% of the window size (default 100%) and upscales it, while the UI stays at native resolution; lower values trade sharpness for speed, higher values supersample.
+- An optional **Modules** add-on list. The first module, **Walker**, loads a real player model and supports terrain walking, source-backed run/jump mechanics, race/speed/height settings, and first- or third-person cameras. Modules own their state and do not change persisted core settings.
 
 Features are limited to formats and data encountered in one inspected build; other client variants may behave differently. This is not affiliated with or endorsed by the game or its publishers.
 
@@ -46,6 +47,14 @@ Features are limited to formats and data encountered in one inspected build; oth
 | M | Open world map |
 
 Use **Escape → Teleport List** to search destinations. The world map offers original client tiles or a top-down render of the currently loaded world, mouse-wheel zoom, and optional click-to-teleport. Whole-world static objects need to finish loading to appear in the rendered map.
+
+### Walker add-on
+
+Open **Escape → Modules**, select **Walker** to read its description, and choose **Enable Walker**. While Walker owns the camera, W/A/S/D moves the character, Space jumps (press again for the client's second jump), and the mouse looks around. Disabling Walker restores the ordinary free-flight controls above.
+
+The draggable, resizable **Walker settings** panel appears beneath the minimap while the Escape menu is open. It provides race/representative profession, move speed, jump height, and **First Person Mode** controls. First person evaluates the model's `Bip01 Head` bone and suppresses the character draw so head or body geometry cannot obstruct the camera; third person draws the full animated model.
+
+Walker uses the recovered client default run speed of 5.0 m/s, ordinary jump impulse of 10.0 m/s, gravity of 9.8 m/s², support-plane movement, and two-jump limit. Its fixed 60 Hz integration makes the native impulse's apex approximately 5.019 m; 5.102 m is only the continuous `v²/(2g)` reference, not a separate retail jump-height field. Custom height settings are converted to an equivalent launch impulse. The current module samples terrain support; it does not claim the client's brush/building collision, swimming, combat, server stat modifiers, or full gameplay.
 
 ## Build from source
 
@@ -81,7 +90,7 @@ The executable distributed alongside this source was rebuilt from this packaged 
 
 ## Known limitations
 
-The water render target details, simple-water lighting/fog, quality modes, wave timing and underwater integration remain incomplete. Terrain, sky, grass placement/wind, SpeedTree LOD/wind, regional lighting and fog are approximations. Animated EC models and effects, full point-light integration and gameplay are missing. Whole-world memory use can be high; the map shows loaded content rather than all possible assets. Rendering and timing vary with client build, graphics driver and hardware. See the [roadmap](Findings/Roadmap.md), [parity assessment](Findings/Parity-Assessment.md), and [water plan](Findings/Water-100-percent-parity.md).
+The water render target details, simple-water lighting/fog, quality modes, wave timing and underwater integration remain incomplete. Terrain, sky, grass placement/wind, SpeedTree LOD/wind, regional lighting and fog are approximations. Animated EC models and effects, full point-light integration and full gameplay are missing; Walker is an optional terrain-locomotion add-on, not a complete game client. Whole-world memory use can be high; the map shows loaded content rather than all possible assets. Rendering and timing vary with client build, graphics driver and hardware. See the [roadmap](Findings/Roadmap.md), [parity assessment](Findings/Parity-Assessment.md), and [water plan](Findings/Water-100-percent-parity.md).
 
 ## Repository layout
 
