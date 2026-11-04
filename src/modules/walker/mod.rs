@@ -2,10 +2,10 @@
 //! optional first-person camera. All state, archive handles and GPU resources
 //! belong to this module; disabling it restores the host's free-flight path.
 
-mod archive;
+pub(crate) mod archive;
 mod character;
 mod physics;
-mod pose;
+pub(crate) mod pose;
 mod race;
 
 use self::{

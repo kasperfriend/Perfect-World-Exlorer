@@ -3,6 +3,7 @@
 //! are implied by successfully loading this asset.
 use crate::{animation, ecmodel, skeleton, skeleton_pose, skin, skin_pose};
 use glam::Mat4;
+use std::collections::HashMap;
 
 pub struct SkinAsset {
     pub path: String,
@@ -50,6 +51,12 @@ pub struct ModelAsset {
     /// Same order as model.actions. None denotes the older embedded BON data,
     /// not permission to silently substitute another action's external tracks.
     pub tracks: Vec<Option<animation::TrackSet>>,
+    /// Rooted replacements keyed by this asset's isolated skin and texture
+    /// slots. Face parts therefore never mutate a texture shared by another
+    /// skin, body, or character.
+    pub texture_overrides: HashMap<(usize, usize), String>,
+    /// Per-mesh ARGB modulation used by the native body/face TFactor shaders.
+    pub mesh_tints: HashMap<(usize, usize), u32>,
 }
 /// World matrix of a named skeleton hook for an evaluated pose (the native
 /// combination order is documented on `ModelAsset::hook_matrix`).
@@ -141,8 +148,71 @@ impl ModelAsset {
             skeleton,
             skins,
             tracks,
+            texture_overrides: HashMap::new(),
+            mesh_tints: HashMap::new(),
         })
     }
+
+    /// Native static-skin constructor used by `CECFace`: bind one BON skeleton
+    /// directly and attach SKI resources without inventing an ECM body part.
+    /// Render defaults come from `EcModel::render_settings` (white, speed 1,
+    /// SRCALPHA/INVSRCALPHA), and there are no implicit animation tracks.
+    pub fn load_static_skins_with(
+        skeleton_path: &str,
+        skin_paths: &[String],
+        mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> Result<Self, String> {
+        let skeleton_path = ecmodel::normalize(skeleton_path);
+        let mut bytes = |path: &str| read(path).map_err(|error| format!("{path}: {error}"))?;
+        let skeleton = skeleton::Skeleton::parse(&bytes(&skeleton_path)?)
+            .map_err(|error| format!("{skeleton_path}: {error}"))?;
+        let mut skins = Vec::with_capacity(skin_paths.len());
+        for reference in skin_paths {
+            let path = ecmodel::normalize(reference);
+            let data = skin::Skin::parse(&bytes(&path)?).map_err(|e| format!("{path}: {e}"))?;
+            skins.push(SkinAsset { path, data });
+        }
+        Ok(Self {
+            descriptor: ecmodel::EcModel {
+                version: 0,
+                skin_model_path: skeleton_path.clone(),
+                original_color: None,
+                source_blend: None,
+                destination_blend: None,
+                default_speed: None,
+                actions: Vec::new(),
+                events: Vec::new(),
+            },
+            model: ecmodel::SkinModel {
+                version: 0,
+                skeleton: skeleton_path,
+                skins: skin_paths.to_vec(),
+                physique: String::new(),
+                track_directory: String::new(),
+                actions: Vec::new(),
+                hangers: Vec::new(),
+                properties: Vec::new(),
+            },
+            skeleton,
+            skins,
+            tracks: Vec::new(),
+            texture_overrides: HashMap::new(),
+            mesh_tints: HashMap::new(),
+        })
+    }
+
+    pub fn texture_paths(&self, skin_index: usize, texture: usize) -> Result<[String; 2], String> {
+        let skin = self.skins.get(skin_index).ok_or("skin index out of range")?;
+        if let Some(path) = self.texture_overrides.get(&(skin_index, texture)) {
+            return Ok([path.clone(), path.clone()]);
+        }
+        skin.texture_paths(texture)
+    }
+
+    pub fn mesh_color(&self, skin: usize, mesh: usize, default: u32) -> u32 {
+        self.mesh_tints.get(&(skin, mesh)).copied().unwrap_or(default)
+    }
+
     /// Absolute track time in seconds. Intentionally NOT an elapsed-time
     /// scheduler: action-loop duration, event timing, combined/direct namespace
     /// priority and random-loop selection must be supplied by verified playback.

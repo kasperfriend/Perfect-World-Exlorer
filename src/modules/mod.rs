@@ -2,6 +2,7 @@
 //! GPU resources. The host only supplies narrow input/camera, terrain and draw
 //! hooks; a disabled module has no effect on core features.
 
+mod designer;
 mod package;
 mod walker;
 

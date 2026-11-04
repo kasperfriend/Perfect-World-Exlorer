@@ -17,6 +17,7 @@ pub struct PreparedMesh<'a> {
     pub vertices: Vec<Vertex>,
     pub indices: &'a [u16],
     pub material: &'a skin::Material,
+    pub color: u32,
     pub texture_paths: [String; 2],
 }
 /// Validate the complete set before any GPU uploads. Missing/duplicate poses,
@@ -32,8 +33,10 @@ pub fn prepare<'a>(
     // equivalent still fail here instead of being approximated.
     crate::model_queue::blend_factor(settings.source_blend)?;
     crate::model_queue::blend_factor(settings.destination_blend)?;
-    if settings.original_color >> 24 != 255 {
-        return Err("ordinary model draw does not implement an ECM color override".into());
+    if settings.original_color >> 24 != 255
+        || asset.mesh_tints.values().any(|color| color >> 24 != 255)
+    {
+        return Err("ordinary model draw requires opaque ARGB color overrides".into());
     }
     let expected: usize = asset.skins.iter().map(|s| s.data.meshes.len()).sum();
     if poses.len() != expected {
@@ -91,7 +94,11 @@ pub fn prepare<'a>(
         }
         let texture = usize::try_from(mesh.texture)
             .map_err(|_| "untextured ordinary model draw is not implemented")?;
-        let texture_paths = skin.texture_paths(texture)?;
+        let texture_paths = asset.texture_paths(pose.skin, texture)?;
+        let color = asset.mesh_color(pose.skin, pose.mesh, settings.original_color);
+        if color >> 24 != 255 {
+            return Err("ordinary model draw requires an opaque mesh color".into());
+        }
         let mut vertices = Vec::with_capacity(pose.vertices.len());
         for (source, posed) in mesh.vertices.iter().zip(&pose.vertices) {
             if posed
@@ -115,6 +122,7 @@ pub fn prepare<'a>(
             vertices,
             indices: &mesh.indices,
             material,
+            color,
             texture_paths,
         });
     }

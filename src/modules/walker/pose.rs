@@ -7,13 +7,81 @@ use crate::{animation::BoneTrack, skeleton::Skeleton, skeleton_pose::Pose};
 use glam::{Mat4, Quat, Vec3};
 use std::collections::VecDeque;
 
+/// A bone-matrix controller in the same transposed-native matrix convention as
+/// BON and EFACE data. Native `relative * controlled` is `controlled * relative`
+/// here.
+#[derive(Clone, Copy, Debug)]
+pub struct BoneControl {
+    pub bone: usize,
+    pub matrix: Mat4,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ScaleType {
+    None,
+    Whole,
+    Local,
+    LocalNoOffset,
+}
+
+/// Old Angelica body scaling (`GetFlagNewBoneScale() == false`). `Whole` is
+/// inherited by descendants; `Local` additionally scales child offsets;
+/// `LocalNoOffset` affects only the bone's own geometry.
+#[derive(Clone, Copy, Debug)]
+pub struct BoneScale {
+    pub bone: usize,
+    pub kind: ScaleType,
+    pub factor: Vec3,
+}
+
+fn validate_hierarchy(skeleton: &Skeleton) -> Result<(), String> {
+    let count = skeleton.bones.len();
+    let mut children = vec![Vec::new(); count];
+    let mut queue = VecDeque::new();
+    for (index, bone) in skeleton.bones.iter().enumerate() {
+        if bone.parent == -1 {
+            queue.push_back(index);
+        } else {
+            let parent = usize::try_from(bone.parent)
+                .ok()
+                .filter(|&parent| parent < count && parent != index)
+                .ok_or("invalid character pose hierarchy")?;
+            children[parent].push(index);
+        }
+    }
+    let mut visited = 0;
+    while let Some(index) = queue.pop_front() {
+        visited += 1;
+        queue.extend(children[index].iter().copied());
+    }
+    if visited != count {
+        return Err("cyclic character pose hierarchy".into());
+    }
+    Ok(())
+}
+
 pub fn evaluate(
     skeleton: &Skeleton,
     tracks: &[BoneTrack],
     seconds: f32,
     model: Mat4,
 ) -> Result<Pose, String> {
-    if skeleton.bones.iter().all(|b| b.flags == 0) && skeleton.joints.iter().all(|j| j.class == 15)
+    evaluate_controlled(skeleton, tracks, seconds, model, &[], &[])
+}
+
+pub fn evaluate_controlled(
+    skeleton: &Skeleton,
+    tracks: &[BoneTrack],
+    seconds: f32,
+    model: Mat4,
+    controls: &[BoneControl],
+    scales: &[BoneScale],
+) -> Result<Pose, String> {
+    validate_hierarchy(skeleton)?;
+    if controls.is_empty()
+        && scales.is_empty()
+        && skeleton.bones.iter().all(|b| b.flags == 0)
+        && skeleton.joints.iter().all(|j| j.class == 15)
     {
         return crate::skeleton_pose::evaluate(skeleton, tracks, seconds, model);
     }
@@ -61,6 +129,29 @@ pub fn evaluate(
             Mat4::from_rotation_translation(Quat::from_array(rotation), Vec3::from_array(position));
     }
 
+    for control in controls {
+        let local = local
+            .get_mut(control.bone)
+            .ok_or("character controller references an invalid bone")?;
+        if !control.matrix.is_finite() {
+            return Err("nonfinite character controller matrix".into());
+        }
+        *local = control.matrix * *local;
+    }
+    let mut scale_settings = vec![None; count];
+    for scale in scales {
+        let slot = scale_settings
+            .get_mut(scale.bone)
+            .ok_or("character scale references an invalid bone")?;
+        if slot.is_some() {
+            return Err("multiple character scales target one bone".into());
+        }
+        if !scale.factor.is_finite() {
+            return Err("nonfinite character scale factor".into());
+        }
+        *slot = Some(*scale);
+    }
+
     let mut children = vec![Vec::new(); count];
     let mut queue = VecDeque::new();
     for (index, bone) in skeleton.bones.iter().enumerate() {
@@ -84,16 +175,42 @@ pub fn evaluate(
         }
     }
 
+    // Native old-scale evaluation keeps an unscaled up-to-root chain. The
+    // scale matrix is applied only when forming each bone's absolute TM; using
+    // absolute[parent] for children would incorrectly inherit LOCAL scales.
+    let mut up_to_root = vec![Mat4::IDENTITY; count];
     let mut absolute = vec![Mat4::IDENTITY; count];
     let mut skin = vec![Mat4::IDENTITY; count];
+    let mut accumulated_whole = vec![Vec3::ONE; count];
     let mut visited = 0;
     while let Some(i) = queue.pop_front() {
         let parent = skeleton.bones[i].parent;
-        absolute[i] = if parent < 0 {
-            model * local[i]
-        } else {
-            absolute[parent as usize] * local[i]
+        let setting = scale_settings[i];
+        let own_whole = match setting {
+            Some(BoneScale { kind: ScaleType::Whole, factor, .. }) => factor,
+            _ => Vec3::ONE,
         };
+        let own_local = match setting {
+            Some(BoneScale { kind: ScaleType::Local | ScaleType::LocalNoOffset, factor, .. }) => factor,
+            _ => Vec3::ONE,
+        };
+        up_to_root[i] = if parent < 0 {
+            accumulated_whole[i] = own_whole;
+            local[i]
+        } else {
+            let parent = parent as usize;
+            accumulated_whole[i] = own_whole * accumulated_whole[parent];
+            let mut offset_scale = accumulated_whole[parent];
+            if let Some(BoneScale { kind: ScaleType::Local, factor, .. }) = scale_settings[parent] {
+                offset_scale *= factor;
+            }
+            // SCALE_LOCAL_NOOFFSET is deliberately excluded here.
+            local[i].w_axis.x *= offset_scale.x;
+            local[i].w_axis.y *= offset_scale.y;
+            local[i].w_axis.z *= offset_scale.z;
+            up_to_root[parent] * local[i]
+        };
+        absolute[i] = model * up_to_root[i] * Mat4::from_scale(own_local * accumulated_whole[i]);
         skin[i] = absolute[i] * Mat4::from_cols_array(&skeleton.bones[i].initial);
         if !absolute[i].is_finite() || !skin[i].is_finite() {
             return Err("nonfinite composed character pose".into());
@@ -188,5 +305,83 @@ mod tests {
             pose.absolute[0].transform_point3(Vec3::ZERO),
             Vec3::new(0., 1.7, 0.)
         );
+    }
+
+    fn two_bones() -> Skeleton {
+        let mut result = skeleton(12);
+        result.bones[0].relative = Mat4::from_translation(Vec3::X).to_cols_array();
+        result.bones[0].initial = Mat4::IDENTITY.to_cols_array();
+        result.bones.push(crate::skeleton::Bone {
+            name: "child".into(),
+            flags: 0,
+            parent: 0,
+            first_joint: -1,
+            relative: Mat4::from_translation(Vec3::X * 2.0).to_cols_array(),
+            initial: Mat4::IDENTITY.to_cols_array(),
+            children: vec![],
+        });
+        result
+    }
+
+    #[test]
+    fn local_scale_offsets_children_without_scaling_their_geometry() {
+        let pose = evaluate_controlled(
+            &two_bones(),
+            &[],
+            0.0,
+            Mat4::IDENTITY,
+            &[],
+            &[BoneScale {
+                bone: 0,
+                kind: ScaleType::Local,
+                factor: Vec3::splat(2.0),
+            }],
+        )
+        .unwrap();
+        assert_eq!(pose.absolute[1].transform_point3(Vec3::ZERO), Vec3::X * 5.0);
+        assert_eq!(pose.absolute[1].x_axis.x, 1.0);
+    }
+
+    #[test]
+    fn local_no_offset_and_whole_scale_have_distinct_child_semantics() {
+        let no_offset = evaluate_controlled(
+            &two_bones(),
+            &[],
+            0.0,
+            Mat4::IDENTITY,
+            &[],
+            &[BoneScale {
+                bone: 0,
+                kind: ScaleType::LocalNoOffset,
+                factor: Vec3::splat(2.0),
+            }],
+        )
+        .unwrap();
+        assert_eq!(no_offset.absolute[1].transform_point3(Vec3::ZERO), Vec3::X * 3.0);
+        assert_eq!(no_offset.absolute[1].x_axis.x, 1.0);
+
+        let whole = evaluate_controlled(
+            &two_bones(),
+            &[],
+            0.0,
+            Mat4::IDENTITY,
+            &[],
+            &[BoneScale {
+                bone: 0,
+                kind: ScaleType::Whole,
+                factor: Vec3::splat(2.0),
+            }],
+        )
+        .unwrap();
+        assert_eq!(whole.absolute[1].transform_point3(Vec3::ZERO), Vec3::X * 5.0);
+        assert_eq!(whole.absolute[1].x_axis.x, 2.0);
+    }
+
+    #[test]
+    fn malformed_parent_cycles_are_rejected_before_composition() {
+        let mut skeleton = two_bones();
+        skeleton.bones[0].parent = 1;
+        let error = evaluate(&skeleton, &[], 0.0, Mat4::IDENTITY).unwrap_err();
+        assert!(error.contains("cyclic"));
     }
 }

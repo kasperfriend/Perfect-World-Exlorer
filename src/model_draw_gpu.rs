@@ -157,7 +157,7 @@ impl Draw {
         // Validate every frame/material before allocating or uploading anything.
         let params: Vec<_> = prepared
             .iter()
-            .map(|m| frame.params(m.material, settings.original_color))
+            .map(|m| frame.params(m.material, m.color))
             .collect::<Result<_, _>>()?;
         let mut textures: Vec<wgpu::Texture> = Vec::new();
         let mut cache: std::collections::HashMap<[String; 2], (usize, bool)> =
@@ -291,10 +291,9 @@ impl Draw {
         if prepared.len() != self.meshes.len() {
             return Err("model draw mesh count changed".into());
         }
-        let settings = asset.descriptor.render_settings();
         let mut updates = Vec::with_capacity(prepared.len());
         for (index, m) in prepared.iter().enumerate() {
-            let params = frame.params(m.material, settings.original_color)?;
+            let params = frame.params(m.material, m.color)?;
             if let Some(gpu) = &self.meshes[index] {
                 if (m.skin, m.mesh) != gpu.key
                     || m.texture_paths != gpu.paths
