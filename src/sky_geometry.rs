@@ -604,7 +604,15 @@ mod tests {
             let len = (rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2]).sqrt();
             let direction = [rel[0] / len, rel[1] / len, rel[2] / len];
             let sample = project(direction).expect("finite direction");
-            assert_eq!(sample.region, Region::Cap, "cap vertex {index}");
+            // The region is elevation driven, and looking from the dropped eye
+            // spreads the cap's outer rings down to the horizon: only the sliver
+            // above 72.5 degrees is the `Cap` region, the rest is the band the
+            // viewer fills with the same lookup.
+            assert!(
+                matches!(sample.region, Region::Cap | Region::CapEdgeGap),
+                "cap vertex {index} region {:?}",
+                sample.region
+            );
             assert_eq!(sample.layer, Layer::Roof);
             assert!(close(sample.uv[0], v.uv[0], 1e-4), "cap u at {index}");
             assert!(close(sample.uv[1], v.uv[1], 1e-4), "cap v at {index}");
