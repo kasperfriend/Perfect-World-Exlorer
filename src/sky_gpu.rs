@@ -99,16 +99,6 @@ pub struct SkyFrame {
     /// `+0x48` is not recovered, so the World tab exposes it and this lane
     /// carries whatever the tester settles on; 127/255 is the default.
     pub disc_brightness: f32,
-    /// The sky sphere's own slow rotation, in radians about the X and Y axes.
-    ///
-    /// `A3DSkySphere` owns a descriptor at `+0x4cc` (constructor `0x7995e0`)
-    /// holding a scale of 8.0, rates `x = y = 0.018`, `z = 0.0` and three angle
-    /// accumulators. `0x79a0e0` advances each accumulator by `rate * (1/30)` per
-    /// sky tick and rebuilds the cap/curtain world matrix from the two angles, so
-    /// the drawn sky slowly turns - the drift a tester described as the sky
-    /// "flowing". The rate is per tick, not per second, so this is the value a
-    /// 30 Hz client reproduces exactly.
-    pub sky_angles: [f32; 2],
 }
 
 impl Default for SkyFrame {
@@ -122,7 +112,6 @@ impl Default for SkyFrame {
             fog_enabled: false,
             tint: [1.0; 3],
             disc_brightness: DISC_BRIGHTNESS,
-            sky_angles: [0., 0.],
         }
     }
 }
@@ -146,9 +135,12 @@ struct Uniform {
     /// `xy` the glow art's own bright-core lookup offset (`glow_lookup_center`),
     /// `zw` the sun's screen position in NDC for the flare chain.
     glow_center: [f32; 4],
-    /// `xy` the sky sphere's recovered rotation angles (radians about X and Y),
     /// `z` the NDC height of one pixel (`2 / height`, the screen-space scale the
-    /// client's flare sprites are sized in), `w` reserved.
+    /// client's flare sprites are sized in); the rest is reserved. The client's
+    /// stage-0 sky texture matrix (a descriptor at `+0x4cc` whose scale and rates
+    /// arrive from the scene, `0x79ac30`) is deliberately **not** applied here:
+    /// the recovered sky geometry is static, and every attempt to animate it
+    /// from those accumulators moved the art the wrong way.
     sky: [f32; 4],
 }
 
@@ -249,94 +241,71 @@ fn shine_ramp(n:f32)->f32{
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
-// The roof sheet samples past one tile; `clear\roof.bmp` tiles, and the client's
-// engine addresses textures by wrap, so the repeat sampler is the one that
-// continues the cap projection instead of smearing its border pixels.
+// The ceiling's planar lookup stays inside one tile (`u, v` in [0.35, 0.65]),
+// so this sampler only has to behave sanely at the 0.5 UV the zenith uses.
 @group(0) @binding(3) var smpw:sampler;
 struct O {@builtin(position) pos:vec4<f32>,@location(0) clip:vec2<f32>};
 @vertex fn vs(@builtin(vertex_index) i:u32)->O {var o:O;let x=f32((i<<1u)&2u);let y=f32(i&2u);o.clip=vec2<f32>(x*2.-1.,1.-y*2.);o.pos=vec4<f32>(o.clip,0.999999,1.);return o;}
 
-// Curtain rows and their two texture runs, A3DSkySphere::Init 0x79a330.
-fn row_y(i:i32)->f32{
- if i==0 {return 39.2700005;}
- if i==1 {return 19.6350002;}
- if i==2 {return 6.5580897;}
- if i==3 {return 0.0;}
- return -10.6029005;
-}
-fn row_v(i:i32,front:bool)->f32{
- if i>=4 {return 0.5;}
- if front {
-  if i==0 {return 0.05;}
-  if i==1 {return 0.275;}
-  if i==2 {return 0.42485;}
-  return 0.5;
- }
- if i==0 {return 0.95;}
- if i==1 {return 0.725;}
- if i==2 {return 0.57515;}
- return 0.5;
-}
-fn curtain_v(y:f32,front:bool)->f32{
- if y>=39.2700005 {return row_v(0,front);}
- for (var i:i32=0;i<4;i=i+1) {
-  let y0=row_y(i);let y1=row_y(i+1);
-  if y>=y1 {return mix(row_v(i,front),row_v(i+1,front),(y-y0)/(y1-y0));}
- }
- return row_v(4,front);
-}
-// Native vertex alpha: opaque from the second row down, zero on the rim row.
-fn curtain_alpha(y:f32)->f32{
- if y>=39.2700005 {return 0.0;}
- if y<=19.6350002 {return 1.0;}
- return (39.2700005-y)/19.6350002;
-}
-// The sky sphere's own rotation. `A3DSkySphere` carries a rotation descriptor
-// at `+0x4cc` (constructor `0x7995e0`: scale 8.0, rates x = y = 0.018, z = 0,
-// three angle accumulators); `0x79a040` ticks it and `0x79a0e0` rebuilds the cap
-// and curtain world matrices from the two angles every tick, which is the slow
-// drift a tester described as the sky flowing. A uniform scale cannot change a
-// direction, so a ray projector only needs the rotation undone: the world ray
-// `d` meets the sphere's local direction `Rx(-ax) * Ry(-ay) * d`.
-fn sky_local(d:vec3<f32>)->vec3<f32>{
- let ax=p.skyrot.x;let ay=p.skyrot.y;
- if ax==0.0 && ay==0.0 {return d;}
- let ca=cos(ax);let sa=sin(ax);let cb=cos(ay);let sb=sin(ay);
- let y=vec3<f32>(cb*d.x-sb*d.z,d.y,sb*d.x+cb*d.z);
- return vec3<f32>(y.x,ca*y.y+sa*y.z,-sa*y.y+ca*y.z);
+// `A3DSkySphere::Init` (`0x79a330`, `0x79a497`) builds a six-segment cylinder of
+// radius 50 with five rings at `50 * pi/4 * [1, 0.5, 1/6, 0, -0.27]`: 39.2699,
+// 19.6350, 6.5450, 0 and -10.6029. `A3DSky`'s cap covers every direction above
+// the horizon, so only the two lowest rings are visible, and the fill in
+// `0x79a5a3` maps a ring to `v = (1 - row/6) * 0.45 + 0.05` while the bottom
+// ring is forced to 0.5: the horizon ring sits at 0.275 and the bottom ring at
+// 0.5, so the 12.05 degree skirt is the lower-middle band of the panorama.
+const SKY_RADIUS:f32=50.0;
+const SKIRT_TOP_V:f32=0.275;
+const SKIRT_BOTTOM_V:f32=0.5;
+const SKIRT_BOTTOM_Y:f32=-10.602875;
+
+// `A3DSky` - the object the client calls the ceiling and textures from
+// `roof.bmp` - is a spherical cap, not a flat sheet and not a full dome.
+//
+// The constructor (`0x79974a`) stores `[+0x4c0] = 6` segments,
+// `[+0x4c4] = 0.30543261` rad (exactly 17.5 degrees) and `[+0x4c8] = 50.0`
+// radius, and `A3DSky::Render` (`0x799a53`) subtracts `cos(+0x4c4) * [+0x4c8]`
+// from the object's own vertical offset, which places the cap's **rim on the
+// horizon** (offset 47.685848, radius 15.035290). Seen from the camera the cap
+// therefore covers the whole upper hemisphere as a very shallow bowl: 2.32 units
+// of sag over a 15 unit radius, which is why the retail sky reads as a plane.
+//
+// The vertex UVs are planar (`0x79aa73`): `u = (1 - x/50) / 2`, `v = (1 - z/50) / 2`,
+// so one texture spans the 100-unit diameter of the whole sphere and the visible
+// sky is only the central 30 percent of the art, from 0.35 to 0.65 - always
+// inside one tile, which is why the client never repeats it.
+fn cap_uv(d:vec3<f32>,flat:f32)->vec2<f32>{
+ // A ray at elevation `e` meets the cap where `cos(t + e) = cos(17.5) * cos(e)`,
+ // and the planar UV of that point is `0.5 - sin(t)/2 * d.xz`.
+ let ce=clamp(d.y,0.0,1.0);
+ let t=max(acos(clamp(0.95371695*ce,0.0,1.0))-asin(ce),0.0);
+ return vec2<f32>(0.5)-d.xz/flat*(0.5*sin(t));
 }
 fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let tn=clamp(tint,vec3<f32>(0.0),vec3<f32>(1.0));
  let flat=max(length(d.xz),0.000001);
- // Curtain: cylinder of radius 50, so the ray meets it at 50*tan(elevation).
- let y=50.0*d.y/flat;
- // Roof sheet: the cap's own planar lookup (A3DSkySphere::Init 0x79a810,
- // `uv = 0.5 + d.xz * 50 / (2 * 50 * sin(step))`), evaluated at every elevation
- // instead of only inside the 17.5 degree cap disc. On the cap rim it is the
- // cap's own rim texel, so the two surfaces are pixel-continuous there, and
- // because the radius is one smooth function of the direction it can neither
- // hold a single circle (radial streaks) nor bleed a border pixel along a ring.
- let roof=textureSampleLevel(skies,smpw,vec2<f32>(0.5)+d.xz*1.66275358,base+2,0.).rgb*tn;
- if d.y*50.0>=47.685848 || y>39.2700005 {
+ // Above the horizon the client draws the cap described in `cap_uv`; nothing
+ // else is in front of it (the surround's upper rows are behind the cap).
+ if d.y>=0.0 {
+  let roof=textureSampleLevel(skies,smpw,cap_uv(d,flat),base+2,0.).rgb*tn;
   return vec4<f32>(roof,1.0);
  }
- // The curtain draw passes two textures per set (01 and 02), so both cover the
- // dome and their stage blend is not recovered. The viewer keeps one as the
- // primary per half space, so each side still shows real art at full contrast,
- // and crossfades 3.4 degrees of azimuth at the azimuth-90 run switch and 7
- // degrees at the mirror plane where the two textures would meet in a hard
- // vertical line.
+ // Below the horizon `A3DSkySphere` is the visible surface. Only its two lowest
+ // rings show (the cap hides the upper three), so this is the 12.05 degree skirt
+ // described above: `v` runs 0.275 -> 0.5 from the horizon ring down to the
+ // bottom ring, and `u` is the azimuth around the six segments.
+ let y=50.0*d.y/flat;
  let az=atan2(abs(d.z),d.x);
  let quarter=1.5707963;
- let sy=min(y,39.2700005);
+ let v=mix(SKIRT_TOP_V,SKIRT_BOTTOM_V,clamp(y/SKIRT_BOTTOM_Y,0.0,1.0));
  let owns_front=az>=quarter;
  let near=1.0-smoothstep(0.0,0.06,abs(az-quarter));
  let uf=clamp(2.0-2.0*az/3.14159265,0.0,1.0);
  let ub=clamp(1.0-2.0*az/3.14159265,0.0,1.0);
- let vf=curtain_v(sy,true);
- let vb=curtain_v(sy,false);
- let uv_own=vec2<f32>(select(ub,uf,owns_front),select(vb,vf,owns_front));
- let uv_other=vec2<f32>(select(uf,ub,owns_front),select(vf,vb,owns_front));
+ // Two textures per set cover the same mesh, so each half space keeps one at
+ // full contrast and the azimuth-90 run switch crossfades instead of jumping.
+ let uv_own=vec2<f32>(select(ub,uf,owns_front),v);
+ let uv_other=vec2<f32>(select(uf,ub,owns_front),v);
  let a0=textureSampleLevel(skies,smp,uv_own,base,0.);
  let a1=textureSampleLevel(skies,smp,uv_own,base+1,0.);
  let b0=textureSampleLevel(skies,smp,uv_other,base,0.);
@@ -346,10 +315,7 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let plane=1.0-smoothstep(0.0,0.12,abs(d.z));
  let front=d.z>=0.0;
  let tex=mix(select(run1,run0,front),select(run0,run1,front),0.5*plane);
- // The authored skirt fade is an alpha ramp, so it fades over whatever is
- // behind it: with the roof sheet behind, the rim row dissolves into sky
- // instead of into the pass clear colour.
- return vec4<f32>(mix(roof,tex.rgb*tn,curtain_alpha(sy)),1.0);
+ return vec4<f32>(tex.rgb*tn,1.0);
 }
 // The client's celestial billboards, as the templates recovered from
 // `CECSunMoon::Init` describe them: a 20x20-unit sun quad, a 120x40 sun-shine
@@ -432,22 +398,63 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,nigh
 // Neither flare BMP has an alpha channel, so their own colour is the alpha the
 // client accumulates, and the sprite colour is the object colour: the same half
 // colour and region light tint as the disc and the shine strip.
-fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32,flare:i32,ring:i32)->vec3<f32>{
- if weight<=0.0 || disc_half<=0.0 {return color;}
+// The client's flare stream: fifteen pre-transformed quads, `0x4b6270`
+// (`add ebx, 0xc0` per sprite = six 32-byte vertices, `cmp ebp, 0x3c` =
+// fifteen iterations), each one a cell of the 4x4 `flares.bmp` atlas. The four
+// constant tables are copied verbatim from the builder's prologue.
+//
+// Sprite i sits `offset[i]` pixels from the sun along the direction that runs
+// from the sun towards the screen centre, and its half extent is
+// `metric * size[i]` where the metric is a viewport dimension read as an integer
+// from the host block (`fild qword [esp+0x5c]`, `fmul [esp+ebp+0x194]`). Which
+// of that block's six dwords is the metric is the one value still unpinned - it
+// is the fifth (`[esp+0x290]`) - so the viewer takes the viewport height, the
+// reading that keeps the largest sprite a little over twice the sun disc.
+fn flare_size(i:i32)->f32{
+ if i==0 {return 0.06;} if i==1 {return 0.45;} if i==2 {return 0.35;}
+ if i==3 {return 0.04;} if i==4 {return 0.09;} if i==5 {return 0.05;}
+ if i==6 {return 0.04;} if i==7 {return 0.015;} if i==8 {return 0.02;}
+ if i==9 {return 0.07;} if i==10 {return 0.12;} if i==11 {return 0.03;}
+ if i==12 {return 0.03;} if i==13 {return 0.15;} return 0.30;
+}
+fn flare_offset(i:i32)->f32{
+ if i==0 {return 860.0;} if i==1 {return 100.0;} if i==2 {return 100.0;}
+ if i==3 {return 40.0;} if i==4 {return 25.0;} if i==5 {return 20.0;}
+ if i==6 {return 10.0;} if i==7 {return 4.0;} if i==8 {return -2.5;}
+ if i==9 {return -4.0;} if i==10 {return -4.4;} if i==11 {return -4.5;}
+ if i==12 {return -6.2;} if i==13 {return -8.0;} return -9.0;
+}
+fn flare_uv_origin(i:i32)->vec2<f32>{
+ if i==0 {return vec2<f32>(0.75,0.25);} if i==1 {return vec2<f32>(0.25,0.5);}
+ if i==2 {return vec2<f32>(0.5,0.5);} if i==3 {return vec2<f32>(0.0,0.0);}
+ if i==4 {return vec2<f32>(0.25,0.0);} if i==5 {return vec2<f32>(0.0,0.0);}
+ if i==6 {return vec2<f32>(0.5,0.0);} if i==7 {return vec2<f32>(0.75,0.0);}
+ if i==8 {return vec2<f32>(0.75,0.0);} if i==9 {return vec2<f32>(0.5,0.0);}
+ if i==10 {return vec2<f32>(0.5,0.0);} if i==11 {return vec2<f32>(0.5,0.0);}
+ if i==12 {return vec2<f32>(0.0,0.5);} if i==13 {return vec2<f32>(0.25,0.25);}
+ return vec2<f32>(0.5,0.25);
+}
+fn flare_uv_size(i:i32)->f32{
+ if i==2 {return 0.5;} return 0.25;
+}
+fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,metric:f32,flare:i32,ring:i32)->vec3<f32>{
+ if weight<=0.0 {return color;}
  let sun=p.glow_center.zw;
+ // Everything below is in NDC-height units, so `p.sky.z` (2/height) turns the
+ // table's pixels into the same space.
+ let s=vec2<f32>(sun.x*aspect,sun.y);
+ let len=length(s);
+ let dir=select(vec2<f32>(0.0,-1.0),-s/max(len,1e-6),len>1e-6);
+ let px=2.0*p.sky.z;
  var out=color;
- // Six samples at the recovered 0.4 weight, alternating the radial sprite and
- // the ring; naga rejects a runtime index into an immutable local array, so both
- // ladders are arithmetic.
- for(var i=0;i<6;i=i+1){
-  let t=0.35+0.45*f32(i);
-  let ghost=sun*(1.0-t);
-  let q=vec2<f32>((ndc.x-ghost.x)*aspect,ndc.y-ghost.y);
-  let sz=disc_half*(0.6+0.25*f32(i));
-  let uv=q/(2.0*sz)+vec2<f32>(0.5);
-  if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {continue;}
-  let tex=select(textureSampleLevel(skies,smp,uv,flare,0.),textureSampleLevel(skies,smp,uv,ring,0.),i%2==1);
-  out=clamp(out+tex.rgb*(0.4*weight*disc_brightness())*p.tint.rgb,vec3<f32>(0.),vec3<f32>(1.));
+ for(var i:i32=0;i<15;i=i+1){
+  let c=s+dir*(flare_offset(i)*px);
+  let half=flare_size(i)*metric;
+  let q=(vec2<f32>(ndc.x*aspect,ndc.y)-c)/max(half,1e-6);
+  if abs(q.x)>1.0 || abs(q.y)>1.0 {continue;}
+  let uv=flare_uv_origin(i)+vec2<f32>(q.x*0.5+0.5,q.y*0.5+0.5)*flare_uv_size(i);
+  let tex=textureSampleLevel(skies,smp,uv,flare,0.);
+  out=clamp(out+tex.rgb*tex.a*(weight*disc_brightness())*p.tint.rgb,vec3<f32>(0.0),vec3<f32>(1.0));
  }
  return out;
 }
@@ -462,12 +469,9 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32
  let base=i32(clamp(p.sets.x,0.,2.))*3;
  let incoming=i32(clamp(p.sets.y,0.,2.))*3;
  let swap=clamp(p.sets.z,0.,1.);
- // The sky sphere turns; the sun, moon and flare do not (they are separate
- // objects in the client), so only the texture lookup undoes the rotation.
- let sd=sky_local(d);
- var sky=sample_sky(sd,base,p.background.rgb,p.tint.rgb);
+ var sky=sample_sky(d,base,p.background.rgb,p.tint.rgb);
  if swap>0. && incoming!=base {
-  let other=sample_sky(sd,incoming,p.background.rgb,p.tint.rgb);
+  let other=sample_sky(d,incoming,p.background.rgb,p.tint.rgb);
   sky=vec4<f32>(mix(sky.rgb,other.rgb,swap),mix(sky.a,other.a,swap));
  }
  var color=mix(p.background.rgb,sky.rgb,clamp(sky.a,0.,1.));
@@ -485,7 +489,7 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32
  // `p.celestial.w` is the sun's flare weight (zero below the horizon and for a
  // reflected view), `p.tint.w` the screen aspect and `p.background.w` the sun's
  // own half extent in NDC-height units.
- color=flare_chain(color,i.clip,p.celestial.w,p.tint.w,p.background.w,13,14);
+ color=flare_chain(color,i.clip,p.celestial.w,p.tint.w,1.0,14,14);
  return vec4<f32>(color,1.);
 }
 "#;
@@ -497,19 +501,6 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,disc_half:f32
 /// circles on screen, so the default is the unmodulated texture and the World
 /// tab's Star brightness slider still reaches the recovered 127/255.
 pub const DISC_BRIGHTNESS: f32 = 1.0;
-
-/// The recovered sky-sphere rotation rate, radians per sky tick.
-///
-/// `A3DSkySphere`'s rotation descriptor (`0x7995e0`, the object at `+0x4cc`)
-/// initialises both the X and the Y rate to `0.018` and the Z rate to zero, and
-/// `0x79a0e0` advances the accumulators by `rate * (1/30)` per tick. The viewer
-/// reproduces that as `rate * seconds` using [`SKY_ROTATION_TICK_SECONDS`], so a
-/// 30 Hz client and the viewer turn the same amount per frame.
-pub const SKY_ROTATION_RATE: f32 = 0.018;
-
-/// The client's fixed tick divisor for the sky rotation (`1/30` at `0x79a14b`
-/// and `0x79a247`).
-pub const SKY_ROTATION_TICK_SECONDS: f32 = 1. / 30.;
 
 /// The vertical field of view `update` builds its projection with.
 pub(crate) const FOV_DEGREES: f32 = 70.;
@@ -968,12 +959,7 @@ impl SkyGpu {
                 flare_ndc[0],
                 flare_ndc[1],
             ],
-            sky: [
-                frame.sky_angles[0],
-                frame.sky_angles[1],
-                2. / h.max(1) as f32,
-                0.,
-            ],
+            sky: [0., 0., 2. / h.max(1) as f32, 0.],
         };
         queue.write_buffer(
             if reflected {

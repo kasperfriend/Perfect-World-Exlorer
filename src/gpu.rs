@@ -1209,11 +1209,6 @@ struct Renderer {
     // last published regional light avoids erasing ordinary model light on an
     // uncovered frame while baked surfaces stay independent of it.
     retained_regional_light: Option<crate::environment::RegionalLight>,
-    /// Accumulated sky-sphere rotation angles (X, Y) in radians, advanced by the
-    /// recovered `0x7995e0` rates. The client accumulates them per sky tick; the
-    /// viewer advances them by the logic delta so the drift does not depend on
-    /// the frame rate.
-    sky_rotation: [f32; 2],
     glow_requested_fade: Option<f32>,
     grass_wind_state: crate::grass_wind::GrassWind,
     atlas: wgpu::Texture,
@@ -1780,7 +1775,6 @@ impl Renderer {
             sky_transition,
             sky_tick_residual: 0,
             retained_regional_light: None,
-            sky_rotation: [0.; 2],
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
             // `begin_frame` turns wall time into wind steps, so the anchor
@@ -2080,14 +2074,6 @@ impl Renderer {
             sky_light[1] * shade,
             sky_light[2] * shade,
         ];
-        // `0x7995e0` rates are per sky tick; one tick is 1/30 s, so the same
-        // angle per second is `rate / 30 * 30` = rate. Accumulating on the logic
-        // delta keeps that rate at any frame rate instead of at 30 Hz only.
-        let sky_tick = (camera.logic_delta_ms.max(0) as f32 / 1000.)
-            / crate::sky_gpu::SKY_ROTATION_TICK_SECONDS;
-        let sky_step = crate::sky_gpu::SKY_ROTATION_RATE * sky_tick;
-        self.sky_rotation[0] += sky_step;
-        self.sky_rotation[1] += sky_step;
         let frame = crate::sky_gpu::SkyFrame {
             hour: camera.time_of_day,
             night_weight,
@@ -2105,7 +2091,6 @@ impl Renderer {
             } else {
                 0.
             },
-            sky_angles: self.sky_rotation,
         };
         self.sky
             .update(&self.queue, direction, w, h, frame, main_sets, false);
