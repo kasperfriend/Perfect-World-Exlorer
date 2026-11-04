@@ -43,7 +43,7 @@ impl SkinAsset {
         Err(failures.join("; "))
     }
 }
-/// Authentic multi-texture face shader attached to one retained mesh.
+/// Authentic native pixel shader attached to one retained mesh.
 /// Ordinary model modulation remains in `mesh_tints`; these shaders have
 /// separate constants and must not be collapsed into that single tint.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +55,10 @@ pub enum FaceShader {
         skin_color: u32,
         highlight: String,
     },
+    /// `Shaders/ps/bodyrender.txt`: texture alpha selects between the base
+    /// colour and the base colour multiplied by `colorBody`. It is a colour
+    /// mask, not opacity; the native shader writes vertex diffuse alpha.
+    Body { color: u32 },
 }
 
 pub struct ModelAsset {
@@ -69,10 +73,11 @@ pub struct ModelAsset {
     /// slots. Face parts therefore never mutate a texture shared by another
     /// skin, body, or character.
     pub texture_overrides: HashMap<(usize, usize), String>,
-    /// Per-mesh ARGB modulation used by the native body/face TFactor shaders.
+    /// Per-mesh ARGB modulation used by ordinary native material/face paths.
     pub mesh_tints: HashMap<(usize, usize), u32>,
-    /// Authentic face-part shaders whose constants/textures cannot be
-    /// represented by one diffuse texture and one mesh tint.
+    /// Authentic dedicated native shaders (face parts and body) whose
+    /// constants/textures cannot be represented by one diffuse texture and
+    /// one mesh tint.
     pub face_shaders: HashMap<(usize, usize), FaceShader>,
     /// Native per-skin visibility, notably the body head hidden by CECFace.
     /// Hidden meshes remain fully posed and validated but are not submitted.

@@ -406,6 +406,77 @@ fn main() {
     }
     drop(bytes);
     read.unmap();
+
+    // Authentic Body.sdr / bodyrender.txt: texture alpha is a colour-mask
+    // interpolation weight, while diffuse alpha alone controls opacity.
+    let body_color = [0.5, 0.25, 0.125, 1.];
+    let mut body_params = params;
+    body_params.alpha = [1., 2., 0., 0.];
+    body_params.face_color = body_color;
+    body_params.face_skin = [1.; 4];
+    binding.update(&queue, &body_params).unwrap();
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("native body raster"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: background[0] as f64 / 255.,
+                        g: background[1] as f64 / 255.,
+                        b: background[2] as f64 / 255.,
+                        a: background[3] as f64 / 255.,
+                    }),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        receiver.draw(&mut pass, &mesh, &binding);
+    }
+    encoder.copy_texture_to_buffer(
+        target.as_image_copy(),
+        wgpu::ImageCopyBuffer {
+            buffer: &read,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(256),
+                rows_per_image: Some(1),
+            },
+        },
+        target.size(),
+    );
+    queue.submit(Some(encoder.finish()));
+    let slice = read.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+    device.poll(wgpu::Maintain::Wait);
+    rx.recv().unwrap().unwrap();
+    let bytes = slice.get_mapped_range();
+    let mask = texel[3] as f32 / 255.;
+    let opacity = ambient[3];
+    for c in 0..4 {
+        let src = if c == 3 {
+            opacity
+        } else {
+            let base = texel[c] as f32 / 255.;
+            (base * (1. - mask) + base * body_color[c] * mask) * ambient[c]
+        };
+        let expected =
+            ((src * opacity + background[c] as f32 / 255. * (1. - opacity)) * 255.).round() as u8;
+        assert!(
+            (bytes[c] as i32 - expected as i32).abs() <= 1,
+            "native body channel {c}: {} != {expected}",
+            bytes[c]
+        );
+    }
+    drop(bytes);
+    read.unmap();
     println!("::notice::{cases} production model raster RGBA checks passed (material/light variants, encoded blend, fog, clip and alpha-test)");
     println!("::notice::1 native brow raster RGBA check passed (base/skin, highlight/brow, highlight-alpha lerp and base-alpha opacity)");
+    println!("::notice::1 native body raster RGBA check passed (texture-alpha colour mask and diffuse-alpha opacity)");
 }

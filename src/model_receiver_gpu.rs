@@ -35,9 +35,10 @@ pub struct Params {
     /// Two sided, reverse front face, D3DCMPFUNC (0 disables), alpha reference.
     pub raster: [f32; 4],
     /// x: base-texture alpha weight (0 for native armor/fashion, 1 otherwise).
-    /// y: dedicated face shader (0 ordinary, 1 authentic brow).
+    /// y: dedicated native shader (0 ordinary, 1 brow, 2 body).
     pub alpha: [f32; 4],
-    /// Native brow `c0` (`colorBrow`) and `c1` (`colorFace`). Unused otherwise.
+    /// Native brow `c0` (`colorBrow`) / body `c0` (`colorBody`), and brow
+    /// `c1` (`colorFace`). Unused otherwise.
     pub face_color: [f32; 4],
     pub face_skin: [f32; 4],
 }
@@ -329,10 +330,16 @@ struct Output {@builtin(position) position:vec4<f32>,@location(0) uv:vec2<f32>,@
  let t=textureSample(image,image_sampler,v.uv);
  let h=textureSample(highlight_image,image_sampler,v.uv);
  var rgb=t.rgb;
- // Native armor/fashion write v0.a. Other model shaders use base alpha as
- // opacity too, so retain that path for body/face/hair/wings/world meshes.
+ // Native armor/fashion write v0.a. Other ordinary model shaders use base
+ // alpha as opacity too; dedicated shaders below override that calculation.
  var opacity=v.diffuse.a*mix(1.,t.a,p.alpha.x);
- if p.alpha.y>0.5 {
+ if p.alpha.y>1.5 {
+  // Shaders/ps/bodyrender.txt (ps.1.1):
+  // lrp(t0.a, t0*c0, t0) * v0, then +v1 and v0.a.
+  // In particular, t0.a is a colour mask, never an opacity multiplier.
+  rgb=mix(t.rgb,t.rgb*p.face_color.rgb,t.a);
+  opacity=v.diffuse.a;
+ } else if p.alpha.y>0.5 {
   // Shaders/ps/facerender/browrender.txt (ps.1.1):
   // lrp(t1.a, t1*c0, t0*c1) * v0, then +v1 and t0.a*v0.a.
   rgb=mix(t.rgb*p.face_skin.rgb,h.rgb*p.face_color.rgb,h.a);

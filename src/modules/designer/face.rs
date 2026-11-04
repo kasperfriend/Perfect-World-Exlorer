@@ -10,9 +10,10 @@
 //! `A3DBoneMatrixController` looks considerably more complicated than a
 //! direct controlled matrix, but its decompose/recompose operations cancel:
 //! for the rigid/scale transforms used by CFaceBone, the resulting controlled
-//! matrix is the blended EFACE TM.  Face-bone relative transforms are thus
-//! `tm_stored * original_stored`.  This module keeps that relationship
-//! explicit instead of relying on a visually similar matrix approximation.
+//! matrix is the blended EFACE TM. Face-bone operation centres are different:
+//! native reads the uncontrolled relative TM, so they remain the original
+//! relative-bone positions. This module keeps both relationships explicit
+//! instead of relying on a visually similar matrix approximation.
 
 use std::array;
 use std::collections::HashMap;
@@ -403,9 +404,12 @@ impl FaceRig {
     }
 
     fn refresh_positions(&mut self) {
-        for index in 0..TOTAL_BONES {
-            self.positions[index] = (self.tm[index] * self.original[index]).w_axis.truncate();
-        }
+        // CFaceBone::Update/Add call A3DBone::Update and then read
+        // GetRelativeTM(), not GetUpToParentTM(). The controller affects only
+        // the latter, so native operation centres remain the uncontrolled
+        // relative-bone positions. Do not derive them from `tm * original`:
+        // that makes each slider change the centre of the next operation.
+        self.positions = self.initial_positions;
     }
 
     fn select_group(&mut self, group: usize) {
@@ -1224,22 +1228,31 @@ mod tests {
             angle: f32,
             delta: Vec3,
         ) {
-            // CT_ALL scale is a translation by the scaled positional delta.
-            let centre = bones.iter().map(|&bone| rig.positions[bone]).sum::<Vec3>() / 4.0;
+            // Native CFaceBone::Update reads the uncontrolled relative TM,
+            // so every operation centre is the original relative position.
+            let centre = bones
+                .iter()
+                .map(|&bone| rig.initial_positions[bone])
+                .sum::<Vec3>()
+                / 4.0;
             for bone in bones {
                 let transform = transform_about(centre, Mat4::from_scale(horizontal));
-                let old = rig.positions[bone];
+                let old = rig.initial_positions[bone];
                 let displacement = transform.transform_point3(old) - old;
                 rig.tm[bone] = Mat4::from_translation(displacement) * rig.tm[bone];
                 rig.refresh_positions();
             }
-            // CT_SELF scale uses each bone's own current position.
+            // CT_SELF scale also uses the uncontrolled relative position.
             for bone in bones {
-                let centre = rig.positions[bone];
+                let centre = rig.initial_positions[bone];
                 rig.tm[bone] = transform_about(centre, Mat4::from_scale(vertical)) * rig.tm[bone];
                 rig.refresh_positions();
             }
-            let centre = bones.iter().map(|&bone| rig.positions[bone]).sum::<Vec3>() / 4.0;
+            let centre = bones
+                .iter()
+                .map(|&bone| rig.initial_positions[bone])
+                .sum::<Vec3>()
+                / 4.0;
             for bone in bones {
                 rig.tm[bone] = transform_about(centre, Mat4::from_rotation_z(angle)) * rig.tm[bone];
                 rig.refresh_positions();

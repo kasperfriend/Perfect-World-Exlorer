@@ -233,7 +233,11 @@ impl Character {
         if let Some(base) = body.skins.first() {
             for (mesh, data) in base.data.meshes.iter().enumerate() {
                 if data.texture == 0 {
-                    body.mesh_tints.insert((0, mesh), body_color);
+                    // CECPlayer::LoadBodySkin replaces texture 0 with the
+                    // dedicated Body shader. Its texture alpha is the
+                    // body-colour interpolation mask, not transparency.
+                    body.face_shaders
+                        .insert((0, mesh), FaceShader::Body { color: body_color });
                 }
             }
         }
@@ -1475,6 +1479,34 @@ mod tests {
         // The authentic rigs contain nine customizable brow meshes; several
         // classes intentionally share rigs or omit this optional part.
         assert_eq!(evaluated, 9);
+    }
+
+    #[test]
+    fn authentic_body_uses_dedicated_color_mask_shader() {
+        let element = std::path::Path::new("google_drive/pw142/element");
+        if !element.join("models.pck").exists() {
+            return;
+        }
+        let mut assets = Assets::open(element).unwrap();
+        let design = assets
+            .default_design(Class::Blademaster, Gender::Male)
+            .unwrap();
+        let body_color = design.customize.color_body;
+        let character = Character::assemble(design, &mut assets).unwrap();
+        let mut evaluated = 0;
+        for (mesh, data) in character.body.skins[0].data.meshes.iter().enumerate() {
+            if data.texture != 0 {
+                continue;
+            }
+            let key = (0, mesh);
+            assert_eq!(
+                character.body.face_shaders.get(&key),
+                Some(&FaceShader::Body { color: body_color })
+            );
+            assert!(!character.body.mesh_tints.contains_key(&key));
+            evaluated += 1;
+        }
+        assert!(evaluated > 0, "authentic base body has no texture-0 mesh");
     }
 
     #[test]

@@ -99,8 +99,8 @@ pub fn prepare<'a>(
             .map_err(|_| "untextured ordinary model draw is not implemented")?;
         let texture_paths = asset.texture_paths(pose.skin, texture)?;
         let face_shader = asset.face_shaders.get(&(pose.skin, pose.mesh));
-        // Dedicated face pixel shaders consume their own constants. Native
-        // does not also modulate the material by the part colour.
+        // Dedicated native pixel shaders consume their own constants. Native
+        // does not also modulate the material by the part/body colour.
         let color = if face_shader.is_some() {
             u32::MAX
         } else {

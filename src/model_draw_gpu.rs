@@ -76,13 +76,19 @@ impl Frame {
         let mut face_mode = 0.;
         let mut face_color = [1.; 4];
         let mut face_skin = [1.; 4];
-        if let Some(crate::model_asset::FaceShader::Brow {
-            color, skin_color, ..
-        }) = face_shader
-        {
-            face_mode = 1.;
-            face_color = argb(*color);
-            face_skin = argb(*skin_color);
+        match face_shader {
+            Some(crate::model_asset::FaceShader::Brow {
+                color, skin_color, ..
+            }) => {
+                face_mode = 1.;
+                face_color = argb(*color);
+                face_skin = argb(*skin_color);
+            }
+            Some(crate::model_asset::FaceShader::Body { color }) => {
+                face_mode = 2.;
+                face_color = argb(*color);
+            }
+            None => {}
         }
         let p = Params {
             matrix: self.matrix,
@@ -245,7 +251,7 @@ impl Draw {
                         Some(index)
                     }
                 }
-                None => None,
+                Some(crate::model_asset::FaceShader::Body { .. }) | None => None,
             };
             highlights.push(index);
         }
