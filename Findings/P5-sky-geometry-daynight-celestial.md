@@ -1,5 +1,11 @@
 # P5.01–P5.03 — Sky geometry, day/night switch, sun and moon
 
+> **Update 2026-11-04:** the viewer now reads `configs.pck` with the new
+> `angelica_pck` reader, loads the `sky.lst` day/night pair (clear / overcast)
+> and draws the client's flare chain. Section 2.3 and 3.2 below are corrected
+> in place; see `Sky-parity-checkup-2026-11-04.md` for the checkup and the
+> changed files.
+
 Agent 5-A. Evidence: `elementclient.exe` (Drive id `19h1s6U7JR0uvVccqeL8ZTAVpVeal1X1X`,
 6,000,640 bytes, image base `0x400000`) plus the `textures.pck` asset names in the
 client config. Every address below is a virtual address in that image.
@@ -270,24 +276,28 @@ configuration data:
 | 1 | 阴天 (overcast) | `阴天01\roof.bmp` | `阴天01\01.bmp` | `阴天01\02.bmp` |
 | 2 | 夕阳 (sunset) | `夕阳\wwwww.bmp` | `夕阳\01.bmp` | `夕阳\02.bmp` |
 
-So a set is three configured paths, `sky_id_day`/`sky_id_night` select which set a
-region asks for, and in this build's default environment both day and night name
-the `clear` folder: what changes at dusk is the lighting (`+0x70` strength, the
-terrain and model day/night switch) and the rim alpha, not the sky image.
+So a set is three configured paths and `sky_id_day`/`sky_id_night` select which
+set a region asks for. The `element_client.cfg` `[DefEnv]` default names
+`Sky\clear` for all three `sky_image` slots, but the scene-level
+`autofamilyconfigs/autoscene.cfg` overrides that with `sky_id_day = 0` and
+`sky_id_night = 1`: the night sky is the **overcast** set (`阴天01`), not the
+clear set and not the legacy `night2` folder. What changes at dusk is the
+selected set plus the lighting (`+0x70` strength, the terrain and model
+day/night switch) and the rim alpha.
 
-**Deviation removed after the first test round.** `sky_gpu` used to draw `clear`
-by day and the packed `night2` folder by night, because the night-strength
-lighting consumer is missing (section 6 item 5). That substitution put a painted,
-motionless moon into the night sky on top of the recovered billboard, so the
-second round dropped it: one authored set now covers both phases, exactly as
-`element_client.cfg` names `Sky\clear` for all three `sky_image` slots, and the
-night look is that set modulated by the uniform `tint`: the recovered regional
-light colour (`max(ambient, diffuse)`) times `1 - 0.72 * night_weight`, where
-`night_weight` is the recovered switch weight of section 2.2. The light colour
-alone was not enough — a region without a lighting record left the night sky at
-full daylight — and the switch weight is the one recovered number that says how
-far into the night the sky clock is. The switch timer is unchanged; only the
-second art set is gone.
+**Corrected 2026-11-04.** The earlier conclusion that "one authored set covers
+both phases" was based on `element_client.cfg` alone and missed
+`autoscene.cfg`. The viewer now reads `configs.pck` with `angelica_pck` (the
+retail reader rejected its guard), loads all three `sky.lst` rows in file
+order, and installs `sky_id_day`/`sky_id_night` into the transition machine.
+The night look is the overcast set modulated by the uniform `tint`: the
+recovered regional light colour (`max(ambient, diffuse)`) times
+`1 - 0.72 * night_weight`, where `night_weight` is the recovered switch weight
+of section 2.2. The light colour alone was not enough — a region without a
+lighting record left the night sky at full daylight — and the switch weight is
+the one recovered number that says how far into the night the sky clock is.
+The switch timer is unchanged. See `Sky-parity-checkup-2026-11-04.md` for the
+full checkup.
 
 ---
 
@@ -413,7 +423,7 @@ calls it, so the discs inherit the enclosing pass's blend state. Additive versus
 alpha for `sun.bmp` therefore still rests on the asset formats, not on recovered
 state.
 
-### 3.2 The solar-flare pipeline (`CECSunMoon::Init`) — not implemented
+### 3.2 The solar-flare pipeline (`CECSunMoon::Init`) — implemented in the viewer
 
 The Sun/Moon object owns far more than two quads. Its init strings (`0x95a900`–
 `0x95ac94`) enumerate: a *sun shine* stream and texture (`sunshine.bmp`), a
@@ -428,11 +438,16 @@ constant the render code supplies. Init also builds the streams the pass feeds
 (`0x4b37d1`/`0x4b383b`/`0x4b38ac` create buffers with `0x36`, `0x5a` and `0x44`
 element counts, the last through the index-buffer helper `0x784f10`), and creates
 the accumulation target at `0x4b374b`–`0x4b3777` (`0x786960` on a `0x786840`
-object; the descriptor carries `1, 1, 1, 0x15, 0x4d`). The semantics of the
-individual create arguments are not yet pinned down, so the pass is documented
-rather than approximated: combined with `flares.bmp`/`sunflare.bmp`/
-`moonflare.bmp` this is a screen-space bloom-flare and it is entirely absent from
-the viewer. Section 6 item 4 lists it as the remaining P5.03 work.
+object; the descriptor carries `1, 1, 1, 0x15, 0x4d`).
+
+**Implemented 2026-11-04.** The viewer now loads `sunflare.bmp` and `flares.bmp`
+as atlas layers 13/14 and draws six flare samples at weight `0.4` (three
+`sunflare` scales and three `flares` scales) in `sky_gpu::SHADER`, warm-tinted
+for the sun and cool-tinted for the moon, plus `moonflare.bmp` as the moon halo
+and `sunshine.bmp` as the sun streak. The sprite sizes are viewer
+approximations; the client's exact flare quad sizes and the off-screen
+accumulation target remain unrecovered. See
+`Sky-parity-checkup-2026-11-04.md`.
 
 ---
 

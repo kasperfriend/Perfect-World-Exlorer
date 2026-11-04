@@ -165,25 +165,30 @@ pub fn clock_for_minutes(minutes: f32) -> i32 {
     }
 }
 
-/// One authored three-image sky set. The viewer's loader holds three groups of
-/// three client images (`textures/sky/{clear,evening,night2}/{01,02,roof}.bmp`),
-/// which is the viewer's stand-in for the client's day and night triples named
-/// through `Textures\Sky\%s` (`0x98c0e8`).
+/// One authored three-image sky set. The viewer's loader holds the three
+/// `configs/autofamilyconfigs/sky.lst` rows in file order:
+/// `0 = 晴天 (clear)`, `1 = 阴天01 (overcast)`, `2 = 夕阳 (sunset)`.
+/// `autoscene.cfg` names `sky_id_day = 0` and `sky_id_night = 1` for this
+/// build, so the night swap is to the overcast set, not to a painted night
+/// panorama. The set paths are configuration data (`Textures\Sky\%s` at
+/// `0x98c0e8`), not a filename pattern.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Triple(pub u8);
 
 impl Triple {
-    /// Day set (group 0, the noon panorama) and night set (group 2).
+    /// Day set (`sky_id_day = 0`, clear).
     pub const DAY: Triple = Triple(0);
-    pub const NIGHT: Triple = Triple(2);
+    /// Night set (`sky_id_night = 1`, overcast). The client darkens it with the
+    /// regional light record; it is not a separate painted night texture.
+    pub const NIGHT: Triple = Triple(1);
     pub const ALL: [Triple; 3] = [Triple(0), Triple(1), Triple(2)];
 
     pub fn valid(self) -> bool {
         (self.0 as usize) < Self::ALL.len()
     }
-    /// Texture-set folder for the viewer's own loader.
+    /// Texture-set folder for the viewer's own loader, in `sky.lst` order.
     pub fn folder(self) -> &'static str {
-        ["clear", "evening", "night2"][self.0 as usize % Self::ALL.len()]
+        ["clear", "阴天01", "夕阳"][self.0 as usize % Self::ALL.len()]
     }
 }
 
@@ -233,10 +238,10 @@ pub struct Machine {
     ///
     /// The client resolves both from `Textures\Sky\%s` and the `sky_id_day` /
     /// `sky_id_night` keys of `configs.pck`, which re-author per region. The
-    /// viewer's loader currently holds one group of three panoramas and cannot
-    /// read that key (the shipped `configs.pck` is not the retail v2 container
-    /// the reader implements), so both author to the sets the loader has and
-    /// [`Machine::author`] is the single place a region mapping would land.
+    /// viewer now reads those keys through `angelica_pck` (the shipped
+    /// `configs.pck` is an Angelica package, not the retail v2 container) and
+    /// installs the `sky.lst` rows they name. [`Machine::author`] is the single
+    /// place a region mapping lands.
     day: Triple,
     night: Triple,
     current: Triple,

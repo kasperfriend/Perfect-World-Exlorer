@@ -21,33 +21,34 @@
 //! of into the pass clear colour. Earlier fills faded the band into that
 //! background, which is what drew a dark ring under the panorama rim.
 //!
-//! One authored set covers both phases. `element_client.cfg` names `Sky\clear`
-//! for all three `sky_image` slots, so the day/night change is the recovered
-//! regional light colour modulating that one set, not a second texture set.
-//! The two texture runs the island split switches between crossfade over 3.4
-//! degrees instead of meeting at a hard seam.
+//! The day/night change is the client's own `sky.lst` swap: `autoscene.cfg`
+//! names `sky_id_day = 0` (clear) and `sky_id_night = 1` (overcast), and the
+//! regional light record darkens the selected set through dusk and night. The
+//! three `sky.lst` rows are loaded in file order; the third (sunset) is
+//! available to a region that names it. The two texture runs the island split
+//! switches between crossfade over 3.4 degrees instead of meeting at a hard
+//! seam.
 use crate::pck;
 use glam::{Mat4, Vec3};
 use std::{collections::HashMap, fs::File, path::Path};
 use wgpu::util::DeviceExt;
 
 /// Viewer disc scale. The recovered billboards subtend 1.146 degrees, which is
-/// what the client draws, but the retail sun and moon read larger because of the
-/// sunshine/flare pass this build does not have (`sunshine.bmp`,
-/// `moonflare.bmp`, `sunflare.bmp`, `ps/solarflare_14`). 1 restores the native
-/// size; the shipped 2 doubles the quad and its glow.
-pub const DISC_SCALE: f32 = 2.0;
+/// what the client draws. The retail sun and moon read larger because of the
+/// `CECSunMoon` flare chain (`sunshine.bmp`, `moonflare.bmp`, `sunflare.bmp`,
+/// `flares.bmp`, `ps/solarflare_14`), not because the billboard itself is
+/// larger. The viewer now draws that chain, so the disc is restored to the
+/// native 1.0; the halo comes from the client's own flare textures.
+pub const DISC_SCALE: f32 = 1.0;
 
 /// Viewer shine quad for the sun, as a multiple of the native billboard's half
 /// extent. `CECSunMoon::Init` builds a separate sun-shine stream over
-/// `sunshine.bmp` and a flare chain over `moonflare.bmp` / `sunflare.bmp`, and
-/// that chain is what makes the retail sun and moon haloes read large; neither
-/// quad size is recovered (P5.03 section 3.2), so the viewer draws the sun's
-/// `sunshine.bmp` on a quad this many times the recovered billboard. The moon
-/// has no shine in the client's render block, so `moonflare.bmp` is loaded and
-/// left for the flare chain (`moon.w` is 0). The disc itself stays at
+/// `sunshine.bmp`; its quad size is not recovered (P5.03 section 3.2). The
+/// viewer draws the 2:1 anamorphic streak at 6x the billboard, which is a
+/// viewer-sized approximation; the circular halo and ghosts come from the
+/// recovered flare textures in the shader below. The disc itself stays at
 /// [`DISC_SCALE`] x 1.146 degrees.
-pub const GLOW_SCALE: f32 = 12.0;
+pub const GLOW_SCALE: f32 = 6.0;
 
 /// Per-frame sky inputs, all recovered values.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,8 +56,8 @@ pub struct SkyFrame {
     /// Authored hour, `0..24`. Used for diagnostics only.
     pub hour: f32,
     /// Day/night switch weight from [`crate::sky_time::night_weight`]. Kept for
-    /// diagnostics; the shader uses [`Self::tint`] because one authored set now
-    /// covers both phases.
+    /// diagnostics; the shader uses the `sky_transition` set pair and
+    /// [`Self::tint`] for the regional light darkening.
     pub night_weight: f32,
     /// Sun: `[fade, elevation, azimuth, shine strength 0..1]`. The shine is the
     /// recovered stage-1 texture factor of `sunshine.sdr`
@@ -122,11 +123,16 @@ pub struct SkyGpu {
     /// and still invisible; the settings tab reports that instead of the disc
     /// silently disappearing.
     disc_layers: [bool; 2],
-    /// Whether `sunshine.bmp` (the sun's shine quad) and `moonflare.bmp` (held
-    /// for the flare chain) decoded out of the package. Without `sunshine.bmp`
-    /// the sun is still submitted at its native size, and the settings tab says
-    /// the shine quad is the part that is missing.
-    glow_layers: [bool; 2],
+    /// Whether the four glow/flare textures decoded out of the package:
+    /// `sunshine.bmp` (sun streak), `moonflare.bmp` (moon halo),
+    /// `sunflare.bmp` (flare sprite) and `flares.bmp` (flare ring). Without
+    /// `sunshine.bmp` the sun is still submitted at its native size, and the
+    /// settings tab says the shine quad is the part that is missing.
+    glow_layers: [bool; 4],
+    /// `sky_id_day` / `sky_id_night` resolved through `sky.lst`, for
+    /// `sky_transition::Machine::author`.
+    day_set: usize,
+    night_set: usize,
 }
 
 /// Centre of the bright core, ignoring the asymmetric low-intensity flare
@@ -169,7 +175,7 @@ pub(crate) fn glow_lookup_center(disc: &image::RgbaImage, glow: &image::RgbaImag
 pub(crate) const SHADER: &str = r#"
 struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>,glow_center:vec4<f32>};
 // Mirrors the Rust `GLOW_SCALE`: the shine quad is this many billboards wide.
-const GLOW_SCALE:f32=12.0;
+const GLOW_SCALE:f32=6.0;
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
@@ -265,7 +271,7 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
 // subtends 1.146 degrees, plus the sun's additive shine quad (the moon's weight
 // is 0 until the flare chain exists). Gated on elevation and fade exactly like
 // 0x4b3e00.
-fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->vec3<f32>{
+fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,flare:i32,ring:i32,tint:vec3<f32>)->vec3<f32>{
  let alpha=params.x;let el=params.y;let az=params.z;
  // Recovered stage-1 texture factor of `sunshine.sdr`, normalised by its full
  // strength (5.0) so it can tint an additive quad. 0 at full night.
@@ -278,15 +284,32 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->ve
  let up=cross(c,right);
  let axis=vec2<f32>(dot(d,right),-dot(d,up));
  var out=color;
- // Shine quad: `sunshine.bmp`, on a quad GLOW_SCALE times the billboard.
- // Viewer-only size (see GLOW_SCALE). `shine` is 0 for the moon, whose
- // `moonflare.bmp` belongs to the flare chain rather than to this quad.
- // The bitmap's luminous hotspot need not be at its rectangle centre.
- // Offset in billboard UV space, so alignment survives pitch and reflection.
+ // Shine/halo quad. The sun uses `sunshine.bmp` (layer 11) with the recovered
+ // stage-1 factor; the moon uses `moonflare.bmp` (layer 12) at half weight,
+ // because the client's moon block halves its colour and scales nothing.
  let centre=select(p.glow_center.zw,p.glow_center.xy,disc==9);
  let guv=axis/(2.0*0.01*GLOW_SCALE*z)+centre;
+ let glow_weight=select(alpha*0.5,alpha*shine,disc==9);
  if guv.x>=0.0 && guv.x<=1.0 && guv.y>=0.0 && guv.y<=1.0 {
-  out=clamp(out+textureSampleLevel(skies,smp,guv,glow,0.).rgb*(alpha*shine),vec3<f32>(0.),vec3<f32>(1.));
+  out=clamp(out+textureSampleLevel(skies,smp,guv,glow,0.).rgb*glow_weight,vec3<f32>(0.),vec3<f32>(1.));
+ }
+ // Flare chain. `CECSunMoon::Init` loads `sunflare.bmp` and `flares.bmp` and
+ // `ps/solarflare_14` sums six flare-alpha samples at weight 0.4. Six samples
+ // are drawn here: three `sunflare` scales and three `flares` scales, each
+ // 0.4, tinted warm for the sun and cool for the moon. The sizes are viewer
+ // approximations; the textures, the 0.4 weight and the six-sample structure
+ // are the client's.
+ let flare_scales=array<f32,3>(2.0,4.0,8.0);
+ let ring_scales=array<f32,3>(3.0,6.0,12.0);
+ for(var i=0;i<3;i=i+1){
+  let fuv=axis/(2.0*0.01*flare_scales[i]*z)+vec2<f32>(0.5);
+  if fuv.x>=0.0 && fuv.x<=1.0 && fuv.y>=0.0 && fuv.y<=1.0 {
+   out=clamp(out+textureSampleLevel(skies,smp,fuv,flare,0.).rgb*(alpha*0.4*tint),vec3<f32>(0.),vec3<f32>(1.));
+  }
+  let ruv=axis/(2.0*0.01*ring_scales[i]*z)+vec2<f32>(0.5);
+  if ruv.x>=0.0 && ruv.x<=1.0 && ruv.y>=0.0 && ruv.y<=1.0 {
+   out=clamp(out+textureSampleLevel(skies,smp,ruv,ring,0.).rgb*(alpha*0.4*tint),vec3<f32>(0.),vec3<f32>(1.));
+  }
  }
  // p.tint.w is the viewer disc scale (1 is the native 1.146 degree quad).
  let scale=max(p.tint.w,0.25);
@@ -298,10 +321,9 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->ve
 }
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
- // One authored set covers both phases (`sky_image01..03` in
- // element_client.cfg name Sky\clear for all three); the night look is the
- // recovered regional light colour, not a second texture set. Layers 0..2 are
- // that set, 9 and 10 the client sun and moon discs.
+ // Layers 0..8 are the three `sky.lst` sets (clear, overcast, sunset);
+ // `sky_id_day`/`sky_id_night` select the day and night rows. Layers 9 and 10
+ // are the client sun and moon discs; 11..14 are the glow/flare textures.
  // The set indices arrive as 0..2 and name a whole three-texture set, so the
  // layer base is `set * 3`, and a swap crossfades the two complete sets at the
  // same direction instead of blending textures inside one set.
@@ -322,8 +344,8 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->ve
   let fog=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));
   color=mix(fog,color,smoothstep(0.,0.08,d.y));
  }
- color=celestial(color,d,p.celestial,9,11);
- color=celestial(color,d,p.celestial2,10,12);
+ color=celestial(color,d,p.celestial,9,11,13,14,vec3<f32>(1.0,0.72,0.42));
+ color=celestial(color,d,p.celestial2,10,12,13,14,vec3<f32>(0.62,0.76,1.0));
  return vec4<f32>(color,1.);
 }
 "#;
@@ -340,48 +362,84 @@ impl SkyGpu {
             .into_iter()
             .map(|e| (e.name.to_lowercase(), e))
             .collect();
-        // The client does not hardcode a sky folder: `CECConfigs::Init` reads
-        // `sky_image01..03` from `configs/element_client.cfg` `[DefEnv]`, and
-        // the archive proves a filename pattern is unsafe - only 16 of 59 sky
-        // folders carry a canonical 01/02/roof triple, the rest use names like
-        // `roog.bmp` or `sky_spire.bmp`. The retail config names
-        // `Sky\clear\Roof.bmp`, `Sky\clear\01.bmp` and `Sky\clear\02.bmp`.
+        // The sky set is configuration data, not a filename pattern.
+        // `CECConfigs::Init` reads `sky_image01..03` from
+        // `configs/element_client.cfg` `[DefEnv]`, and `CAutoSceneConfig`
+        // resolves `sky_id_day` / `sky_id_night` through
+        // `configs/autofamilyconfigs/sky.lst`. The shipped `configs.pck` is an
+        // Angelica package, so it is read with `angelica_pck`; the retail
+        // reader rejected its guard and silently fell back to `clear` for every
+        // slot, which is why the night sky never changed.
         //
-        // The atlas still lays each group out as `[01, 02, roof]` at
-        // `set * 3`, because that is the order `sky_geometry` samples
-        // (`Layer::Front = 0`, `Back = 1`, `Roof = 2`); only the folder is
-        // configuration-driven. One authored set covers both phases, so all
-        // three groups hold the same art and a `sky_transition` swap is a
-        // visual no-op until a second authored set exists.
-        let configured = sky_folders(element);
+        // The atlas lays each set out as `[01, 02, roof]` at `set * 3`, because
+        // that is the order `sky_geometry` samples (`Layer::Front = 0`,
+        // `Back = 1`, `Roof = 2`). The three `sky.lst` rows are loaded in file
+        // order: `0 = 晴天 (clear)`, `1 = 阴天01 (overcast)`,
+        // `2 = 夕阳 (sunset)`. `autoscene.cfg` names day 0 / night 1, so the
+        // night swap is to the overcast set, darkened by the regional light
+        // record exactly as the client's lighting record does.
+        let selection = sky_selection_from_configs(element);
         let mut frames = Vec::new();
-        for folder in configured {
-            for name in ATLAS_ORDER {
-                let key = format!("textures/sky/{folder}/{name}");
-                let key = if entries.contains_key(&key) {
-                    key
-                } else {
-                    // A configured folder without the canonical triple must not
-                    // stop the world loading: fall back to the shipped clear set
-                    // for that slot and say so.
-                    let fallback = format!("textures/sky/clear/{name}");
-                    eprintln!("configured sky texture {key} absent; using {fallback}");
-                    fallback
-                };
-                let entry = entries
-                    .get(&key)
-                    .ok_or_else(|| format!("missing client sky texture {key}"))?;
-                let bytes = pck::read_entry(&mut file, entry)?;
-                let img = image::load_from_memory(&bytes)
-                    .map_err(|e| format!("{key}: {e}"))?
-                    .to_rgba8();
-                let img = if img.width() != 512 || img.height() != 512 {
-                    image::imageops::resize(&img, 512, 512, image::imageops::FilterType::Triangle)
-                } else {
-                    img
-                };
-                frames.push(img);
+        let mut day_set = 0usize;
+        let mut night_set = 1usize;
+        let load_layer = |key: &str, fallback: &str| -> Result<image::RgbaImage, String> {
+            let key = if entries.contains_key(key) {
+                key.to_string()
+            } else {
+                eprintln!("configured sky texture {key} absent; using {fallback}");
+                fallback.to_string()
+            };
+            let entry = entries
+                .get(&key)
+                .ok_or_else(|| format!("missing client sky texture {key}"))?;
+            let bytes = pck::read_entry(&mut file, entry)?;
+            let img = image::load_from_memory(&bytes)
+                .map_err(|e| format!("{key}: {e}"))?
+                .to_rgba8();
+            if img.width() != 512 || img.height() != 512 {
+                Ok(image::imageops::resize(
+                    &img,
+                    512,
+                    512,
+                    image::imageops::FilterType::Triangle,
+                ))
+            } else {
+                Ok(img)
             }
+        };
+        if let Some(sel) = selection {
+            day_set = sel.day.min(sel.sets.len().saturating_sub(1));
+            night_set = sel.night.min(sel.sets.len().saturating_sub(1));
+            for set in &sel.sets {
+                let paths = [
+                    (set.panorama_01.as_str(), "textures/sky/clear/01.bmp"),
+                    (set.panorama_02.as_str(), "textures/sky/clear/02.bmp"),
+                    (set.roof.as_str(), "textures/sky/clear/roof.bmp"),
+                ];
+                for (path, fallback) in paths {
+                    let key = sky_pack_key(path);
+                    frames.push(load_layer(&key, fallback)?);
+                }
+            }
+        } else {
+            // No readable sky.lst: keep the shipped default environment. All
+            // three set slots hold the configured `clear` art, so the transition
+            // is a visual no-op rather than a wrong texture.
+            let configured = read_sky_images(element);
+            for _ in 0..3 {
+                for (slot, name) in ATLAS_ORDER.iter().enumerate() {
+                    let key = sky_pack_key(&configured[slot]);
+                    let fallback = format!("textures/sky/clear/{name}");
+                    frames.push(load_layer(&key, &fallback)?);
+                }
+            }
+        }
+        // The atlas must always hold nine sky layers even if a `sky.lst` row is
+        // short; pad with the clear set so `set * 3` stays valid.
+        while frames.len() < 9 {
+            let fallback = ["textures/sky/clear/01.bmp", "textures/sky/clear/02.bmp", "textures/sky/clear/roof.bmp"];
+            let name = fallback[frames.len() % 3];
+            frames.push(load_layer(name, name)?);
         }
         // Extra layers are the client sun and moon discs; absent optional assets
         // stay transparent so the world still loads.
@@ -406,18 +464,21 @@ impl SkyGpu {
             disc_layers[i] = decoded.is_some();
             frames.push(decoded.unwrap_or_else(|| image::RgbaImage::new(512, 512)));
         }
-        // Layer 11 is the sun's shine quad and layer 12 the moon's
-        // `moonflare.bmp`, which the client only uses inside the screen-space
-        // flare chain (`0x4b374b..`). That chain is not implemented and the
-        // client's moon block scales nothing, so the moon's shine weight is 0;
-        // the texture is still decoded and bound so the layer exists when the
-        // chain is built. The quad's size is the viewer's `GLOW_SCALE`, and only
-        // the texture is the client's.
+        // Layers 11..14 are the client's own glow/flare textures:
+        // 11 `sunshine.bmp` (the sun's 2:1 anamorphic streak),
+        // 12 `moonflare.bmp` (the moon's circular halo),
+        // 13 `sunflare.bmp` and 14 `flares.bmp` (the flare-chain sprites).
+        // `CECSunMoon::Init` loads all four and `ps/solarflare_14` sums six
+        // flare-alpha samples at weight 0.4; the shader below reproduces that
+        // six-sample sum with these textures. The quad sizes are viewer
+        // approximations; the textures and the 0.4 weight are the client's.
         let glow_textures = [
             ("textures/nature/sunshine.bmp", image::ImageFormat::Bmp),
             ("textures/nature/moonflare.bmp", image::ImageFormat::Bmp),
+            ("textures/nature/sunflare.bmp", image::ImageFormat::Bmp),
+            ("textures/nature/flares.bmp", image::ImageFormat::Bmp),
         ];
-        let mut glow_layers = [false; 2];
+        let mut glow_layers = [false; 4];
         for (i, (name, format)) in glow_textures.into_iter().enumerate() {
             let decoded = entries
                 .get(name)
@@ -440,7 +501,7 @@ impl SkyGpu {
             size: wgpu::Extent3d {
                 width: 512,
                 height: 512,
-                depth_or_array_layers: 13,
+                depth_or_array_layers: 15,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -631,6 +692,8 @@ impl SkyGpu {
             reflected_buf,
             disc_layers,
             glow_layers,
+            day_set,
+            night_set,
         })
     }
     /// Upload one frame's sky state for one view.
@@ -696,9 +759,23 @@ impl SkyGpu {
     pub fn disc_texture_present(&self, sun: bool) -> bool {
         self.disc_layers[usize::from(!sun)]
     }
-    /// Whether the shine texture of `sun` decoded from `textures.pck`.
+    /// Whether the shine/halo texture of `sun` decoded from `textures.pck`:
+    /// `sunshine.bmp` for the sun, `moonflare.bmp` for the moon.
     pub fn shine_texture_present(&self, sun: bool) -> bool {
         self.glow_layers[usize::from(!sun)]
+    }
+    /// Whether the two flare-chain sprites (`sunflare.bmp`, `flares.bmp`)
+    /// decoded. The chain is drawn only when both are present.
+    pub fn flare_texture_present(&self) -> bool {
+        self.glow_layers[2] && self.glow_layers[3]
+    }
+    /// `sky_id_day` resolved through `sky.lst`.
+    pub fn day_set(&self) -> usize {
+        self.day_set
+    }
+    /// `sky_id_night` resolved through `sky.lst`.
+    pub fn night_set(&self) -> usize {
+        self.night_set
     }
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, reflected: bool) {
         pass.set_pipeline(&self.pipeline);
@@ -795,33 +872,71 @@ pub(crate) fn sky_pack_key(configured: &str) -> String {
     let trimmed = normalised.trim_start_matches("./");
     if trimmed.starts_with("textures/") {
         trimmed.to_string()
-    } else {
+    } else if trimmed.starts_with("sky/") {
+        // `element_client.cfg` writes `Sky\clear\Roof.bmp`; the pack key is
+        // `textures/sky/clear/roof.bmp`.
         format!("textures/{trimmed}")
+    } else {
+        // `sky.lst` writes paths relative to `Textures\Sky\`, e.g.
+        // `clear\01.bmp` or `阴天01\roof.bmp`.
+        format!("textures/sky/{trimmed}")
     }
 }
 
-/// The folder each of the three atlas groups should load.
+/// One `sky.lst` row: the three configured texture paths of a sky set.
+pub(crate) struct SkySetPaths {
+    pub roof: String,
+    pub panorama_01: String,
+    pub panorama_02: String,
+}
+
+/// The sky sets and the day/night selection the client's own configuration
+/// names.
+pub(crate) struct SkySelection {
+    pub sets: Vec<SkySetPaths>,
+    pub day: usize,
+    pub night: usize,
+}
+
+/// Read `configs/autofamilyconfigs/sky.lst` and `autoscene.cfg` through the
+/// Angelica package reader.
 ///
-/// Derived from `sky_image01..03`: the retail config names
-/// `Sky\clear\Roof.bmp`, `Sky\clear\01.bmp`, `Sky\clear\02.bmp`, so all
-/// three resolve to `clear`. If a configured image names a different folder
-/// than its siblings, each group keeps its own folder so the configuration is
-/// honoured rather than silently collapsed.
-fn sky_folders(element: &Path) -> [String; 3] {
-    let configured = read_sky_images(element);
-    let mut out: [String; 3] = Default::default();
-    for (slot, path) in configured.iter().enumerate() {
-        // Only the `textures/sky/<folder>/<file>` shape names a folder; a bare
-        // filename (some sets ship one) keeps the shipped `clear` art.
-        let key = sky_pack_key(path);
-        out[slot] = match key.rsplit_once('/') {
-            Some((dir, _)) if dir.starts_with("textures/sky/") => dir
-                .rsplit_once('/')
-                .map_or_else(|| "clear".to_string(), |(_, f)| f.to_string()),
-            _ => "clear".to_string(),
-        };
+/// `sky.lst` is `count`, then `id,label,roof,01,02,flags` per row.
+/// `autoscene.cfg` names `sky_id_day` / `sky_id_night` in its `[Sky]` section.
+/// The shipped build resolves day 0 (clear) and night 1 (overcast); the third
+/// row (sunset) is loaded so a region that names it can select it.
+pub(crate) fn sky_selection_from_configs(element: &Path) -> Option<SkySelection> {
+    let mut file = File::open(element.join("configs.pck")).ok()?;
+    let entries = crate::angelica_pck::directory(&mut file).ok()?;
+    let find = |name: &str| {
+        entries
+            .iter()
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+    };
+    let list = find("configs/autofamilyconfigs/sky.lst")?;
+    let list_bytes = pck::read_entry(&mut file, list).ok()?;
+    let parsed = crate::sky_config::parse_sky_list(&list_bytes).ok()?;
+    if parsed.is_empty() {
+        return None;
     }
-    out
+    let mut sets = Vec::with_capacity(parsed.len());
+    for set in parsed {
+        sets.push(SkySetPaths {
+            roof: set.roof,
+            panorama_01: set.panorama_01,
+            panorama_02: set.panorama_02,
+        });
+    }
+    let (mut day, mut night) = (0usize, 1usize);
+    if let Some(entry) = find("configs/autofamilyconfigs/autoscene.cfg") {
+        if let Ok(bytes) = pck::read_entry(&mut file, entry) {
+            if let Ok(config) = crate::sky_config::parse_autoscene(&bytes) {
+                day = config.day.max(0) as usize;
+                night = config.night.max(0) as usize;
+            }
+        }
+    }
+    Some(SkySelection { sets, day, night })
 }
 
 /// Best-effort read of `configs/element_client.cfg`; any failure falls back to
@@ -831,7 +946,8 @@ fn read_sky_images(element: &Path) -> Vec<String> {
     let Ok(mut cfg_file) = File::open(element.join("configs.pck")) else {
         return defaults();
     };
-    let Ok(dir) = pck::directory(&mut cfg_file) else {
+    // `configs.pck` is an Angelica package, not the retail v2 container.
+    let Ok(dir) = crate::angelica_pck::directory(&mut cfg_file) else {
         return defaults();
     };
     let entries: HashMap<_, _> = dir
