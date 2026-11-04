@@ -1,55 +1,5 @@
 # 06-sky-tick  0x79a040-0x79a330
-0079a040: push esi                                
-0079a041: mov esi, ecx                            
-0079a043: mov eax, dword ptr [esi + 0xc]          
-0079a046: test eax, eax                           
-0079a048: je 0x79a0d5                               ; f32 -222.007
-0079a04e: lea eax, [esi + 0x4cc]                  
-0079a054: lea ecx, [esi + 0x504]                  
-0079a05a: push eax                                
-0079a05b: push ecx                                
-0079a05c: mov ecx, esi                            
-0079a05e: call 0x79a0e0                           
-0079a063: mov eax, dword ptr [esi + 0x5b4]        
-0079a069: test eax, eax                           
-0079a06b: je 0x79a0d5                               ; f32 -222.007
-0079a06d: mov al, byte ptr [esi + 0x5b9]          
-0079a073: test al, al                             
-0079a075: jne 0x79a0d5                              ; f32 -222.007
-0079a077: lea edx, [esi + 0x4e8]                  
-0079a07d: lea eax, [esi + 0x544]                  
-0079a083: push edx                                
-0079a084: push eax                                
-0079a085: mov ecx, esi                            
-0079a087: call 0x79a0e0                           
-0079a08c: mov al, byte ptr [esi + 0x5b8]          
-0079a092: test al, al                             
-0079a094: je 0x79a0a9                             
-0079a096: mov eax, dword ptr [esi + 0x5b4]        
-0079a09c: add eax, -0x21                          
-0079a09f: mov dword ptr [esi + 0x5b4], eax        
-0079a0a5: jns 0x79a0d5                              ; f32 -222.007
-0079a0a7: jmp 0x79a0c4                            
-0079a0a9: mov edx, dword ptr [esi + 0x5b4]        
-0079a0af: mov ecx, dword ptr [esi + 0x5b0]        
-0079a0b5: add edx, 0x21                           
-0079a0b8: mov eax, edx                            
-0079a0ba: mov dword ptr [esi + 0x5b4], edx        
-0079a0c0: cmp eax, ecx                            
-0079a0c2: jl 0x79a0d5                               ; f32 -222.007
-0079a0c4: mov ecx, esi                            
-0079a0c6: mov dword ptr [esi + 0x5b4], 0          
-0079a0d0: call 0x79b180                           
-0079a0d5: mov al, 1                               
-0079a0d7: pop esi                                 
-0079a0d8: ret                                     
-0079a0d9: nop                                     
-0079a0da: nop                                     
-0079a0db: nop                                     
-0079a0dc: nop                                     
-0079a0dd: nop                                     
-0079a0de: nop                                     
-0079a0df: nop                                     
+; resynced +0xa0: window opened mid-instruction, dumping from 0x79a0e0
 0079a0e0: sub esp, 0x80                           
 0079a0e6: push ebx                                
 0079a0e7: mov ebx, dword ptr [esp + 0x8c]         

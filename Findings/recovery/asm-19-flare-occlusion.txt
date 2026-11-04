@@ -1,5 +1,107 @@
-# 19-flare-occlusion  0x4b5b60-0x4b6100
-004b5b60: and byte ptr [edx + 1], ch              
+# 19-flare-occlusion  0x4b5a00-0x4b6100
+004b5a00: mov ecx, ebp                            
+004b5a02: call 0x779fe0                           
+004b5a07: push 4                                  
+004b5a09: push 0                                  
+004b5a0b: mov ecx, ebp                            
+004b5a0d: call 0x77a020                           
+004b5a12: push 3                                  
+004b5a14: push 2                                  
+004b5a16: push 0                                  
+004b5a18: mov ecx, ebp                            
+004b5a1a: call 0x77a040                           
+004b5a1f: push 4                                  
+004b5a21: push 1                                  
+004b5a23: mov ecx, ebp                            
+004b5a25: call 0x779fc0                           
+004b5a2a: push 1                                  
+004b5a2c: push 2                                  
+004b5a2e: push 1                                  
+004b5a30: mov ecx, ebp                            
+004b5a32: call 0x779fe0                           
+004b5a37: push 3                                  
+004b5a39: push 1                                  
+004b5a3b: mov ecx, ebp                            
+004b5a3d: call 0x77a020                           
+004b5a42: push 1                                  
+004b5a44: push 2                                  
+004b5a46: push 1                                  
+004b5a48: mov ecx, ebp                            
+004b5a4a: call 0x77a040                           
+004b5a4f: push 0                                  
+004b5a51: push 1                                  
+004b5a53: mov ecx, ebp                            
+004b5a55: call 0x77a120                           
+004b5a5a: fld dword ptr [ebx + 0x7c]              
+004b5a5d: fmul dword ptr [0x8d65a8]                 ; f32 255
+004b5a63: call 0x892e78                           
+004b5a68: fld dword ptr [ebx + 0x80]              
+004b5a6e: fmul dword ptr [0x8d65a8]                 ; f32 255
+004b5a74: mov byte ptr [esp + 0x64], al           
+004b5a78: call 0x892e78                           
+004b5a7d: fld dword ptr [ebx + 0x4c]              
+004b5a80: fcomp dword ptr [0x8d58a0]                ; f32 0
+004b5a86: mov esi, dword ptr [esp + 0x64]         
+004b5a8a: mov byte ptr [esp + 0x20], al           
+004b5a8e: fnstsw ax                               
+004b5a90: test ah, 0x41                           
+004b5a93: jne 0x4b5b8b                            
+004b5a99: mov eax, dword ptr [ebx + 0x44]         
+004b5a9c: lea ecx, [esp + 0xa8]                   
+004b5aa3: push eax                                
+004b5aa4: push ecx                                
+004b5aa5: call 0x7893b0                           
+004b5aaa: fld dword ptr [eax + 0xc]               
+004b5aad: fmul dword ptr [0x8d62dc]                 ; f32 0.8
+004b5ab3: fld dword ptr [eax + 8]                 
+004b5ab6: fmul dword ptr [0x8d62dc]                 ; f32 0.8
+004b5abc: fld dword ptr [eax + 4]                 
+004b5abf: fmul dword ptr [0x8d62dc]                 ; f32 0.8
+004b5ac5: fld dword ptr [eax]                     
+004b5ac7: fmul dword ptr [0x8d62dc]                 ; f32 0.8
+004b5acd: add esp, 8                              
+004b5ad0: lea ecx, [esp + 0x28]                   
+004b5ad4: fstp dword ptr [esp + 0x28]             
+004b5ad8: fstp dword ptr [esp + 0x2c]             
+004b5adc: fstp dword ptr [esp + 0x30]             
+004b5ae0: fstp dword ptr [esp + 0x34]             
+004b5ae4: call 0x799540                           
+004b5ae9: mov edx, esi                            
+004b5aeb: and eax, 0xffffff                       
+004b5af0: and edx, 0xff                           
+004b5af6: mov ecx, ebp                            
+004b5af8: shl edx, 0x18                           
+004b5afb: or eax, edx                             
+004b5afd: push eax                                
+004b5afe: call 0x77aaf0                           
+004b5b03: sub esp, 0xc                            
+004b5b06: lea eax, [esp + 0x32c]                  
+004b5b0d: mov edi, esp                            
+004b5b0f: lea ecx, [esp + 0x34]                   
+004b5b13: push eax                                
+004b5b14: push 0                                  
+004b5b16: push 0xc1200000                         
+004b5b1b: push 0                                  
+004b5b1d: call 0x401ca0                           
+004b5b22: push eax                                
+004b5b23: push edi                                
+004b5b24: call 0x787290                           
+004b5b29: lea edx, [esp + 0x32c]                  
+004b5b30: mov ecx, esp                            
+004b5b32: push edx                                
+004b5b33: call 0x401cc0                           
+004b5b38: sub esp, 0xc                            
+004b5b3b: lea eax, [esp + 0x130]                  
+004b5b42: mov ecx, esp                            
+004b5b44: push eax                                
+004b5b45: call 0x401cc0                           
+004b5b4a: mov ecx, dword ptr [esp + 0x388]        
+004b5b51: call 0x4360a0                             ; f32 -132.256
+004b5b56: push eax                                
+004b5b57: mov ecx, ebx                            
+004b5b59: call 0x4b6270                           
+004b5b5e: mov ecx, dword ptr [ebx + 0x20]         
+004b5b61: push 1                                  
 004b5b63: push 0                                  
 004b5b65: call 0x785550                           
 004b5b6a: mov ecx, dword ptr [ebx + 0x1c]         

@@ -3,23 +3,23 @@ shaders.pck: 166 entries, 2 related text entries
 textures.pck: 68 sky folders
 elementclient.exe: base 0x400000, 6 sections, 107 sky strings
   01-celestial-init: 1166 lines
-  01b-celestial-init-tail: 744 lines
-  01c-flare-stream-builder: 809 lines
+  01b-celestial-init-tail: 639 lines
+  01c-flare-stream-builder: 797 lines
   02-sun-moon-render: 425 lines
   03-flare-fill: 1711 lines
-  04-celestial-clock: 180 lines
-  05-sky-band-object: 185 lines
-  06-sky-tick: 219 lines
+  04-celestial-clock: 167 lines
+  05-sky-band-object: 1 lines
+  06-sky-tick: 169 lines
   07-sky-builders: 410 lines
-  08-sky-textures: 488 lines
+  08-sky-textures: 364 lines
   09-sky-set-select: 240 lines
-  10-sky-timers: 40 lines
-  11-sky-ctor-init: 372 lines
-  13-sky-matrix-helpers: 146 lines
-  14-sky-draws: 317 lines
-  15-flare-caller: 320 lines
-  16-flare-helper: 156 lines
+  10-sky-timers: 25 lines
+  11-sky-ctor-init: 325 lines
+  13-sky-matrix-helpers: 108 lines
+  14-sky-draws: 226 lines
+  15-flare-caller: 369 lines
+  16-flare-helper: 47 lines
   12-sky-load: 182 lines
-  17-sky-trans: 339 lines
-  18-world-loadsky: 375 lines
-  19-flare-occlusion: 464 lines
+  17-sky-trans: 392 lines
+  18-world-loadsky: 750 lines
+  19-flare-occlusion: 566 lines

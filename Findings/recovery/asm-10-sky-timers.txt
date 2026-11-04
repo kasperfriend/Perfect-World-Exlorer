@@ -1,20 +1,5 @@
 # 10-sky-timers  0x79b150-0x79b1d0
-0079b150: mov eax, dword ptr [ecx + 0x5b4]        
-0079b156: test eax, eax                           
-0079b158: je 0x79b177                             
-0079b15a: sub eax, dword ptr [esp + 4]            
-0079b15e: test eax, eax                           
-0079b160: mov dword ptr [ecx + 0x5b4], eax        
-0079b166: jg 0x79b172                             
-0079b168: mov dword ptr [ecx + 0x5b4], 1          
-0079b172: mov eax, dword ptr [ecx]                
-0079b174: call dword ptr [eax + 0x10]             
-0079b177: mov al, 1                               
-0079b179: ret 4                                   
-0079b17c: nop                                     
-0079b17d: nop                                     
-0079b17e: nop                                     
-0079b17f: nop                                     
+; resynced +0x30: window opened mid-instruction, dumping from 0x79b180
 0079b180: push ebp                                
 0079b181: mov ebp, ecx                            
 0079b183: push esi                                

@@ -1,6 +1,55 @@
-# 15-flare-caller  0x4b5700-0x4b5b60
-004b5700: dec esp                                 
-004b5701: and al, 0x48                            
+# 15-flare-caller  0x4b5600-0x4b5b60
+004b5600: add byte ptr [eax], al                  
+004b5602: mov dword ptr [esp + 0x2d8], ecx        
+004b5609: mov ecx, dword ptr [esp + 0x1c]         
+004b560d: lea edi, [ecx + eax + 0x40]             
+004b5611: mov ecx, 8                              
+004b5616: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b5618: mov ecx, dword ptr [esp + 0x18]         
+004b561c: lea esi, [esp + 0x130]                  
+004b5623: mov dword ptr [esp + 0x11c], ecx        
+004b562a: mov dword ptr [esp + 0x134], ecx        
+004b5631: mov ecx, dword ptr [esp + 0x1c]         
+004b5635: lea edi, [ecx + eax + 0x60]             
+004b5639: mov ecx, 8                              
+004b563e: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b5640: mov ecx, dword ptr [esp + 0x14]         
+004b5644: lea esi, [esp + 0x1d0]                  
+004b564b: mov dword ptr [esp + 0xf8], ecx         
+004b5652: mov dword ptr [esp + 0x1d4], ecx        
+004b5659: mov ecx, dword ptr [esp + 0x1c]         
+004b565d: lea edi, [ecx + eax + 0x80]             
+004b5664: mov ecx, 8                              
+004b5669: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b566b: mov ecx, dword ptr [esp + 0x48]         
+004b566f: lea esi, [esp + 0x190]                  
+004b5676: mov dword ptr [esp + 0x128], ecx        
+004b567d: mov dword ptr [esp + 0x194], ecx        
+004b5684: mov ecx, dword ptr [esp + 0x1c]         
+004b5688: lea edi, [ecx + eax + 0xa0]             
+004b568f: mov ecx, 8                              
+004b5694: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b5696: mov ecx, dword ptr [esp + 0x18]         
+004b569a: mov dword ptr [esp + 0xd4], ecx         
+004b56a1: mov dword ptr [esp + 0x154], ecx        
+004b56a8: mov ecx, dword ptr [esp + 0x1c]         
+004b56ac: lea edi, [ecx + eax + 0xc0]             
+004b56b3: mov ecx, 8                              
+004b56b8: lea esi, [esp + 0x150]                  
+004b56bf: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b56c1: fld st(0)                               
+004b56c3: fstp dword ptr [esp + 0x1b0]            
+004b56ca: fstp dword ptr [esp + 0x170]            
+004b56d1: mov ecx, dword ptr [esp + 0x14]         
+004b56d5: lea esi, [esp + 0x1b0]                  
+004b56dc: mov dword ptr [esp + 0xe0], ecx         
+004b56e3: mov dword ptr [esp + 0x1b4], ecx        
+004b56ea: mov ecx, dword ptr [esp + 0x1c]         
+004b56ee: add edx, 4                              
+004b56f1: lea edi, [ecx + eax + 0xe0]             
+004b56f8: mov ecx, 8                              
+004b56fd: rep movsd dword ptr es:[edi], dword ptr [esi]
+004b56ff: mov ecx, dword ptr [esp + 0x48]         
 004b5703: lea esi, [esp + 0x170]                  
 004b570a: mov dword ptr [esp + 0xc8], ecx         
 004b5711: mov dword ptr [esp + 0x174], ecx        

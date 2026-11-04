@@ -1,43 +1,5 @@
 # 13-sky-matrix-helpers  0x789e60-0x789fc0
-00789e60: or dword ptr [ebx - 0x327ebf12], 0x40020000
-00789e6a: add esi, 2                              
-00789e6d: mov dword ptr [ecx + eax*4], ebp        
-00789e70: mov ebp, edi                            
-00789e72: inc eax                                 
-00789e73: or ebp, 0x40020000                      
-00789e79: add edi, 2                              
-00789e7c: mov dword ptr [ecx + eax*4], ebp        
-00789e7f: inc eax                                 
-00789e80: cmp edx, ebx                            
-00789e82: jl 0x789e55                             
-00789e84: pop edi                                 
-00789e85: pop ebp                                 
-00789e86: mov dword ptr [ecx + eax*4], 0xffffffff 
-00789e8d: pop ebx                                 
-00789e8e: pop esi                                 
-00789e8f: ret                                     
-00789e90: mov eax, dword ptr [esp + 8]            
-00789e94: sub esp, 0x24                           
-00789e97: lea ecx, [esp]                          
-00789e9b: push esi                                
-00789e9c: push edi                                
-00789e9d: push eax                                
-00789e9e: call 0x787260                           
-00789ea3: mov eax, dword ptr [esp + 0x30]         
-00789ea7: mov ecx, 9                              
-00789eac: lea esi, [esp + 8]                      
-00789eb0: mov edi, eax                            
-00789eb2: rep movsd dword ptr es:[edi], dword ptr [esi]
-00789eb4: pop edi                                 
-00789eb5: pop esi                                 
-00789eb6: add esp, 0x24                           
-00789eb9: ret                                     
-00789eba: nop                                     
-00789ebb: nop                                     
-00789ebc: nop                                     
-00789ebd: nop                                     
-00789ebe: nop                                     
-00789ebf: nop                                     
+; resynced +0x60: window opened mid-instruction, dumping from 0x789ec0
 00789ec0: mov eax, dword ptr [esp + 0xc]          
 00789ec4: sub esp, 0x24                           
 00789ec7: lea ecx, [esp]                          

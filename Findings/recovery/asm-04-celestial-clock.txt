@@ -1,18 +1,5 @@
 # 04-celestial-clock  0x4b5f00-0x4b6100
-004b5f00: ret 4                                   
-004b5f03: nop                                     
-004b5f04: nop                                     
-004b5f05: nop                                     
-004b5f06: nop                                     
-004b5f07: nop                                     
-004b5f08: nop                                     
-004b5f09: nop                                     
-004b5f0a: nop                                     
-004b5f0b: nop                                     
-004b5f0c: nop                                     
-004b5f0d: nop                                     
-004b5f0e: nop                                     
-004b5f0f: nop                                     
+; resynced +0x10: window opened mid-instruction, dumping from 0x4b5f10
 004b5f10: sub esp, 8                              
 004b5f13: push ebx                                
 004b5f14: push esi                                
