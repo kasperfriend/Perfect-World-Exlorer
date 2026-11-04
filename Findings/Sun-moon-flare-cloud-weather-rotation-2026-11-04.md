@@ -572,7 +572,7 @@ rate matches a 30 Hz client and does not change with the frame rate.
 
 ### 8.2 The flare is fifteen screen-space sprites, and the tables are recovered
 
-`0x4b6270` (called from the torch chain at `(0x4b5b59)) fills the 90-vertex
+`0x4b6270` (called from the torch chain at `(0x4b5b59) fills the 90-vertex
 `flares` stream: `add ebx, 0xc0` per sprite is `6 vertices * 32 bytes`, and
 `cmp ebp, 0x3c` with `add ebp, 4` is fifteen iterations. The vertices are
 pre-transformed screen-space quads (position, `rhw`, diffuse, `uv`), so the
