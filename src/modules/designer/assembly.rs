@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     ecmodel,
-    model_asset::{self, ModelAsset, SkinAsset},
+    model_asset::{self, ModelAsset, PosedMesh, SkinAsset},
     modules::walker::pose::{self, BoneControl, BoneScale, ScaleType},
     skeleton::Skeleton,
     skeleton_pose::Pose,
@@ -78,6 +78,12 @@ pub struct CharacterPose {
     pub body: Pose,
     pub face: Pose,
     pub weapons: Vec<Pose>,
+}
+
+pub struct CharacterMeshes {
+    pub body: Vec<PosedMesh>,
+    pub face: Vec<PosedMesh>,
+    pub weapons: Vec<Vec<PosedMesh>>,
 }
 
 impl Character {
@@ -370,6 +376,25 @@ impl Character {
             body,
             face,
             weapons: weapon_poses,
+        })
+    }
+
+    pub fn meshes_from_pose(&self, pose: &CharacterPose) -> Result<CharacterMeshes, String> {
+        if pose.weapons.len() != self.weapons.len() {
+            return Err("weapon pose count does not match the assembled character".into());
+        }
+        let body = self.body.meshes_from_pose(&pose.body)?;
+        let face = self.face.meshes_from_pose(&pose.face)?;
+        let weapons = self
+            .weapons
+            .iter()
+            .zip(&pose.weapons)
+            .map(|(weapon, pose)| weapon.asset.meshes_from_pose(pose))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(CharacterMeshes {
+            body,
+            face,
+            weapons,
         })
     }
 

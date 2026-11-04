@@ -4,7 +4,7 @@
 
 pub(crate) mod archive;
 mod character;
-mod physics;
+pub(crate) mod physics;
 pub(crate) mod pose;
 mod race;
 

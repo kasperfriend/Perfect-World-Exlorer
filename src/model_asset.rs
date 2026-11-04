@@ -286,6 +286,7 @@ impl ModelAsset {
                 default_speed: None,
                 actions: Vec::new(),
                 events: Vec::new(),
+                additional_skins: Vec::new(),
             },
             model: ecmodel::SkinModel {
                 version: 0,

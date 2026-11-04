@@ -3,5 +3,9 @@
 pub mod assets;
 pub mod assembly;
 pub mod catalog;
+mod controls;
 pub mod customize;
+mod editor;
 pub mod face;
+
+pub(crate) use editor::Designer;
