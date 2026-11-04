@@ -8,6 +8,8 @@ mod environment;
 mod grass_instances;
 #[path = "../pck.rs"]
 mod pck;
+#[path = "../refraction_fog.rs"]
+mod refraction_fog;
 #[path = "../scene.rs"]
 mod scene;
 mod gpu {
@@ -53,6 +55,9 @@ fn main() {
         color: [0., 0., 1., 0.5],
         kind: 3.75,
         diffuse: 1.0f32.to_bits(),
+        // `0x653e93` weight lane: the emitter stores the float bits of an
+        // authored 0..1 weight and the shader reads them back with
+        // `bitcast<f32>`, so this is the per-vertex scale the history applies.
         night_diffuse: (if y > 0. { 1.0f32 } else { 0.0f32 }).to_bits(),
     };
     let vertices = vec![v(-0.3, -0.3), v(0.3, -0.3), v(-0.3, 0.3), v(0.3, 0.3)];
@@ -543,6 +548,14 @@ fn main() {
         .map(|v| {
             let mut v = *v;
             v.kind = 2.1;
+            // `kind < 2.5` makes the vertex stage take `color.w` as the
+            // vertical scale, so leaving the shared `color` at its
+            // `[0, 0, 1, 0.5]` value silently halved this fixture's geometry
+            // and moved it away from the positions the reference expansion
+            // below reconstructs. Keep the scale uniform, as the sibling BMD
+            // fixtures do, so the pixel the oracle reads is the pixel it
+            // predicts.
+            v.color = [0., 0., 1., 1.];
             v.diffuse = 0xffffffff;
             v.night_diffuse = 0xffffffff;
             v
@@ -553,6 +566,7 @@ fn main() {
         contents: bytemuck::cast_slice(&bmd_refraction_vertices),
         usage: wgpu::BufferUsages::VERTEX,
     });
+    let mut failures: Vec<String> = Vec::new();
     for (plane, wind, bmd) in [
         (0.0f32, 0.0f32, false),
         (0., 0.2, false),
@@ -637,23 +651,36 @@ fn main() {
         let u = (x + 0.8) / 0.6;
         let v = (y + 0.3) / (0.6 + wind);
         assert!(u > 0. && v > 0. && u + v < 1.);
+        // Do not re-derive the formula here: call the shipped evaluator, so a
+        // change to the retail sequence (for example the base of the
+        // exponential, which is `e` and not `2`) cannot leave this oracle
+        // behind.
         let mut factor = 0.;
         for (pos, displaced_y, w) in [
             ([-0.8f32, -0.3, 0.5], -0.3, 1. - u - v),
             ([-0.2, -0.3, 0.5], -0.3, u),
             ([-0.8, 0.3, 0.5], 0.3 + wind, v),
         ] {
-            let d = [-3. - pos[0], 2. - pos[1], 1. - pos[2]];
-            let distance = (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt();
-            let depth = if bmd {
-                (plane - displaced_y).max(0.)
+            // The fixture eye, exactly as the original reference expansion
+            // reads it off the pixel probe: (-3, 2, 1).
+            let eye = [-3., 2., 1.];
+            let displaced = [pos[0], displaced_y, pos[2]];
+            // `refpipe` draws the raw scene shader, and its vertex stage
+            // routes `kind` 1.5..2.5 through `bmd_refraction_transmittance`:
+            // above-plane vertices get zero submerged depth (the clamp), while
+            // the grass fixture keeps the original Y unclamped.
+            factor += if bmd {
+                refraction_fog::bmd_transmittance(pos, eye, plane) * w
             } else {
-                plane - displaced_y
+                refraction_fog::grass_transmittance(pos, displaced, eye, plane) * w
             };
-            factor += (-0.075 * depth * distance / d[1]).exp2() * w;
         }
         factor = factor.clamp(0., 1.);
         let pixel = &bytes[(py * 128 + px) * 4..][..3];
+        // Report every row and channel before failing. Panicking on the first
+        // mismatch turns each CI round-trip into a single data point, which
+        // makes a systematic error indistinguishable from a local one.
+        let mut report = Vec::new();
         for (channel, (base, fog)) in [
             (30.0f32 / 255., 0.5),
             (240. / 255., 0.25),
@@ -674,14 +701,36 @@ fn main() {
                 ((encoded + 0.055) / 1.055).powf(2.4)
             };
             let expected = (linear * 255.).round() as i32;
-            assert!((pixel[channel] as i32-expected).abs()<=2,"refraction bmd={bmd} plane={plane} wind={wind}: {pixel:?}, channel {channel} expected {expected}, factor {factor}");
+            let actual = pixel[channel] as i32;
+            if (actual - expected).abs() > 2 {
+                report.push(format!(
+                    "channel {channel}: got {actual}, expected {expected}"
+                ));
+            }
         }
         println!(
-            "grass refraction bmd={bmd} plane={plane} wind={wind}: {pixel:?}, vertex fog factor {factor}"
+            "refraction bmd={bmd} plane={plane} wind={wind}: {pixel:?}, vertex fog factor {factor}, {report:?}"
+        );
+        if !report.is_empty() {
+            println!(
+                "refraction bmd={bmd} plane={plane} wind={wind}: base={}, fog={:?}",
+                if bmd { 2. * 254. / 255. } else { 1. },
+                [0.5, 0.25, 0.75]
+            );
+        }
+        failures.extend(
+            report
+                .into_iter()
+                .map(|r| format!("bmd={bmd} plane={plane} wind={wind} {r}")),
         );
         drop(bytes);
         read.unmap();
     }
+    assert!(
+        failures.is_empty(),
+        "refraction vertex fog does not match the shader:\n  {}",
+        failures.join("\n  ")
+    );
     uni = saved_uni;
     uni[380..388].fill(0.);
     // The actual GPU shader: compare near, half-range and beyond-range
@@ -1519,9 +1568,35 @@ fn main() {
     uni[22] = 0.;
     uni[23] = 0.;
     uni[55] = 0.;
-    uni[60] = 0.5;
+    // The vertex stage reads `camera.grass_history[extra.z]`, so the fixture
+    // needs a history to displace the geometry. `Uniform` is matrix(16) +
+    // eleven vec4s + the 80-frame history, so the history spans `uni[60..380]`
+    // and `uni[380..384]` is `fog_range`, which the refraction rows above
+    // depend on.
+    //
+    // This test asks only whether the history reaches the vertex stage and
+    // whether zeroing the gate restores the image, so it uses a strong,
+    // explicit history and measures one thing at a time. Real amplitudes live
+    // in `grass_wind` and are covered by its own unit tests.
+    // Every frame carries the same non-zero displacement on purpose. Both
+    // fixture placements use wind slot 0, and a per-frame curve that happens
+    // to start at zero (a plain sine does) would sample an empty entry and the
+    // test would silently measure nothing. This test is about the history
+    // reaching the vertex stage, not about slot selection.
+    for i in 0..80 {
+        uni[60 + i * 4..64 + i * 4].copy_from_slice(&[0.3, -0.15, 0., 0.]);
+    }
+    // Keep the refraction rows above untouched: they read fog_range at 380.
+    assert_eq!(uni.len(), 388, "Camera uniform layout changed");
+    assert_eq!(uni[60], 0.3, "history[0] carries the displacement");
     let mut wind_frames = Vec::new();
-    for strength in [0., 0.3, 0.] {
+    // `grass_wind.y` is an enable gate, not an amplitude: the viewer writes 1.0
+    // when the user turns wind on (gpu.rs uploads
+    // `if camera.grass_wind_enabled { 1. } else { 0. }`), because retail scales
+    // the effect with authored per-area data rather than a user slider. Drive
+    // the uniform the way the renderer does, so a fixture value the viewer
+    // never produces cannot fail the check on its own.
+    for strength in [0., 1., 0.] {
         uni[56] = 1.1;
         uni[57] = strength;
         queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
@@ -1586,12 +1661,32 @@ fn main() {
         wind_frames[0], wind_frames[2],
         "zero wind should restore image"
     );
+    let lit = |f: &[u8]| f.chunks_exact(4).filter(|p| p[1] > 0).count();
+    let mean =
+        |f: &[u8]| f.iter().skip(1).step_by(4).map(|v| *v as u32).sum::<u32>() as f32 / 16384.;
     let changes = wind_frames[0]
         .chunks_exact(4)
         .zip(wind_frames[1].chunks_exact(4))
         .filter(|(a, b)| (a[1] > 0) != (b[1] > 0))
         .count();
-    assert!(changes > 100, "wind failed to deform coverage: {changes}");
+    // Any channel moving at all, which also catches a deformation too small to
+    // flip the coverage predicate but large enough to survive rasterisation.
+    let touched = wind_frames[0]
+        .chunks_exact(4)
+        .zip(wind_frames[1].chunks_exact(4))
+        .filter(|(a, b)| a != b)
+        .count();
+    // Carry the measurement in the message: CI only surfaces the panic text
+    // and the lines after it, so a bare count cannot say whether the history
+    // failed to arrive or the geometry was never on screen.
+    assert!(
+        changes > 100,
+        "wind failed to deform coverage: {changes} ({touched} pixels moved); lit {} -> {} of 16384, mean green {:.3} -> {:.3}",
+        lit(&wind_frames[0]),
+        lit(&wind_frames[1]),
+        mean(&wind_frames[0]),
+        mean(&wind_frames[1])
+    );
     println!("History-driven grass wind changes {changes} pixels, zero restores exact image");
     grass.update(&device, grass_instances::Data::default());
     println!("Empty streaming update succeeded");

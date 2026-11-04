@@ -26,11 +26,10 @@ EXCLUDED = {
     "terrain-lod-gpu-check": "terrain LOD",
     "terrain-view-gpu-check": "terrain per-view pass state / LOD continuity, not static BMD scenery",
     "terrain-refraction-gpu-check": "terrain refraction/fog, not static BMD",
-    "tree-lod-gpu-check": "tree LOD",
+    "tree-gpu-mip-check": "asset-dependent viewer check requires user trees.pck and baked PWTREE cache; the synthetic authored-chain check is wired in CI",
     "water-fog-gpu-check": "water fog",
     "water-pass-gpu-check": "overlapping water-plane depth ordering, not static BMD",
-    "grass-gpu-mip-check": "grass texture mip chain",
-    "tree-gpu-mip-check": "tree texture mip chain",
+
 }
 
 def main() -> int:
@@ -44,7 +43,13 @@ def main() -> int:
     for name in names:
         if not (ROOT / "src/bin" / f"{name}.rs").is_file():
             errors.append(f"missing diagnostic source: {name}")
-        if not re.search(rf"cargo run --locked --bin {re.escape(name)}\b", workflow):
+        # Two accepted shapes: a direct `cargo run --locked --bin NAME`, or the
+        # `run_check NAME` helper the shader step uses so a failure names the
+        # binary. Both are literal names, so this stays an exact check.
+        wired = re.search(
+            rf"cargo run --locked --bin {re.escape(name)}\b", workflow
+        ) or re.search(rf"^\s*run_check {re.escape(name)}\s*$", workflow, re.M)
+        if not wired:
             errors.append(f"not wired into CI: {name}")
     gpu_bins = sorted(p.stem for p in (ROOT / "src/bin").glob("*gpu*.rs"))
     excluded = [name for name in gpu_bins if name not in names]

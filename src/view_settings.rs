@@ -122,13 +122,24 @@ pub struct ViewSettings {
     pub show_minimap: bool,
     pub minimap_range: f32,
     pub tree_wind_strength: f32,
-    pub grass_wind_strength: f32,
+    pub client_tree_wind_preview: bool,
+    /// Native wind has no user scale: `+0x6c/+0x70/+0x74` are authored data
+    /// (`0x650b40`) and nothing else writes them. This flag is the on/off gate
+    /// the shader tests; `grass_wind_amplitude` is the viewer-only multiplier.
+    pub grass_wind_enabled: bool,
+    /// Viewer-only multiplier on the published wind history, so the sway can
+    /// be dialled down without claiming a retail value that does not exist.
+    /// 1.0 is the recovered amplitude; see the grass_wind module docs.
+    pub grass_wind_amplitude: f32,
     pub regional_tree_lighting: bool,
     pub streamed_regions: bool,
     pub grass_distance_fade: bool,
     pub area_grass_lightmaps: bool,
+    /// Opt-in P4.07 authored vegetation mip experiment. Default false keeps the
+    /// approved generated-mip world path (P4.08). Applied at startup; restart to change.
+    pub vegetation_authored_mips: bool,
     pub celestial_discs: bool,
-    /// Client `CloudDetail` gate for the world `.cld` cloud surface.
+    /// Client `CloudDetail` gate for the native `.cld` surface.
     pub cloud_detail: bool,
     /// World map artwork (the full-world page).
     pub world_map_style: MapStyle,
@@ -171,13 +182,17 @@ impl Default for ViewSettings {
             show_minimap: true,
             minimap_range: 256.,
             tree_wind_strength: 0.2,
-            grass_wind_strength: 0.,
+            client_tree_wind_preview: false,
+            grass_wind_enabled: true,
+            grass_wind_amplitude: 1.,
             regional_tree_lighting: false,
-            // Regional environment selection is now native-path behavior by default.
-            streamed_regions: true,
+            streamed_regions: false,
             grass_distance_fade: true,
             area_grass_lightmaps: true,
-            celestial_discs: false,
+            vegetation_authored_mips: false,
+            // The client sun and moon are the only discs the shipped
+            // `Sky\clear` set does not paint, so they are on by default.
+            celestial_discs: true,
             cloud_detail: true,
             world_map_style: MapStyle::Realistic,
             minimap_style: MapStyle::Realistic,
@@ -191,9 +206,9 @@ impl ViewSettings {
     fn decode(text: &str) -> Self {
         Self::decode_with_fog_default(text, false)
     }
-    fn decode_with_fog_default(text: &str, fog_default: bool) -> Self {
+    fn decode_with_fog_default(text: &str, fog_enabled: bool) -> Self {
         let mut s = Self::default();
-        s.atmospheric_fog = fog_default;
+        s.atmospheric_fog = fog_enabled;
         for line in text.lines().take(100) {
             let Some((k, v)) = line.split_once('=') else {
                 continue;
@@ -234,8 +249,19 @@ impl ViewSettings {
                 "sensitivity" => number!(s.sensitivity, 0.0005, 0.01),
                 "far" => number!(s.far, 2000., 24000.),
                 "time_of_day" => number!(s.time_of_day, 0., 24.),
-                "grass_wind_strength" => number!(s.grass_wind_strength, 0., 1.),
+                "grass_wind_enabled" => flag!(s.grass_wind_enabled),
+                "grass_wind_amplitude" => number!(s.grass_wind_amplitude, 0., 2.),
+                // Older files stored the removed strength slider: any value
+                // above the old gate keeps the wind on.
+                "grass_wind_strength" => {
+                    if let Ok(x) = v.parse::<f32>() {
+                        if x.is_finite() {
+                            s.grass_wind_enabled = x > 0.5
+                        }
+                    }
+                }
                 "tree_wind_strength" => number!(s.tree_wind_strength, 0., 1.),
+                "client_tree_wind_preview" => flag!(s.client_tree_wind_preview),
                 "bloom_strength" => number!(s.bloom_strength, 0., 4.),
                 "bloom_tint" => {
                     if let Ok(color) = v
@@ -261,6 +287,7 @@ impl ViewSettings {
                 "streamed_regions" => flag!(s.streamed_regions),
                 "grass_distance_fade" => flag!(s.grass_distance_fade),
                 "area_grass_lightmaps" => flag!(s.area_grass_lightmaps),
+                "vegetation_authored_mips" => flag!(s.vegetation_authored_mips),
                 "celestial_discs" => flag!(s.celestial_discs),
                 "cloud_detail" => flag!(s.cloud_detail),
                 "whole_world" => flag!(s.whole_world),
@@ -298,11 +325,11 @@ impl ViewSettings {
             "radius={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_strength={}\nstreamed_regions={}\narea_grass_lightmaps={}\ncelestial_discs={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
             self.detail.radius,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_strength,self.streamed_regions,self.area_grass_lightmaps,self.celestial_discs,self.cloud_detail,self.sharpen,self.resolution_scale,
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.cloud_detail,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
             self.minimap_shape.label())
     }
@@ -326,8 +353,7 @@ impl ViewSettings {
     pub fn load() -> Self {
         Self::load_with_default_fog(false)
     }
-    /// Load saved controls while using the active world's AutoFamily fog bit
-    /// only as the default for a missing setting; an explicit user choice wins.
+    /// Use scene fog enable only as the default for a missing saved choice.
     pub fn load_with_default_fog(fog_enabled: bool) -> Self {
         let mut defaults = Self::default();
         defaults.atmospheric_fog = fog_enabled;
@@ -335,7 +361,7 @@ impl ViewSettings {
             .and_then(|p| std::fs::read(p).ok())
             .filter(|b| b.len() <= 16384)
             .and_then(|b| String::from_utf8(b).ok())
-            .map(|s| Self::decode_with_fog_default(&s, fog_enabled))
+            .map(|text| Self::decode_with_fog_default(&text, fog_enabled))
             .unwrap_or(defaults)
     }
     pub fn save(&self) -> Result<(), String> {
@@ -362,17 +388,6 @@ impl ViewSettings {
 mod tests {
     use super::*;
     #[test]
-    fn scene_fog_default_respects_an_explicit_saved_choice() {
-        assert!(ViewSettings::decode_with_fog_default("", true).atmospheric_fog);
-        assert!(!ViewSettings::decode_with_fog_default("", false).atmospheric_fog);
-        assert!(
-            !ViewSettings::decode_with_fog_default("atmospheric_fog=false", true).atmospheric_fog
-        );
-        assert!(
-            ViewSettings::decode_with_fog_default("atmospheric_fog=true", false).atmospheric_fog
-        );
-    }
-    #[test]
     fn authored_sharpen_toggle_round_trips_without_changing_defaults() {
         assert!(!ViewSettings::default().sharpen);
         let s = ViewSettings::decode("sharpen=true");
@@ -397,15 +412,6 @@ mod tests {
         assert_eq!(both.world_map_style, MapStyle::Original);
         assert_eq!(both.minimap_style, MapStyle::Original);
         assert_eq!(ViewSettings::decode(&both.encode()), both);
-    }
-
-    #[test]
-    fn cloud_detail_gate_defaults_on_and_round_trips() {
-        assert!(ViewSettings::default().cloud_detail);
-        let settings = ViewSettings::decode("cloud_detail=false");
-        assert!(!settings.cloud_detail);
-        assert!(!ViewSettings::decode(&settings.encode()).cloud_detail);
-        assert!(ViewSettings::decode("cloud_detail=invalid").cloud_detail);
     }
 
     #[test]
@@ -435,6 +441,27 @@ mod tests {
     }
 
     #[test]
+    fn scene_fog_default_respects_an_explicit_saved_choice() {
+        assert!(ViewSettings::decode_with_fog_default("", true).atmospheric_fog);
+        assert!(!ViewSettings::decode_with_fog_default("", false).atmospheric_fog);
+        assert!(
+            !ViewSettings::decode_with_fog_default("atmospheric_fog=false", true).atmospheric_fog
+        );
+        assert!(
+            ViewSettings::decode_with_fog_default("atmospheric_fog=true", false).atmospheric_fog
+        );
+    }
+
+    #[test]
+    fn cloud_detail_gate_defaults_on_and_round_trips() {
+        assert!(ViewSettings::default().cloud_detail);
+        let disabled = ViewSettings::decode("cloud_detail=false");
+        assert!(!disabled.cloud_detail);
+        assert!(!ViewSettings::decode(&disabled.encode()).cloud_detail);
+        assert!(ViewSettings::decode("cloud_detail=invalid").cloud_detail);
+    }
+
+    #[test]
     fn round_trip_all_settings() {
         let mut s = ViewSettings::default();
         s.detail.radius = 11;
@@ -445,9 +472,20 @@ mod tests {
         s.music_volume = 0.21;
         s.atmospheric_fog = true;
         s.celestial_discs = true;
+        s.cloud_detail = false;
         s.regional_tree_lighting = true;
+        s.client_tree_wind_preview = true;
         s.grass_distance_fade = false;
         assert_eq!(s, ViewSettings::decode(&s.encode()));
+    }
+    #[test]
+    fn tree_wind_preview_defaults_off_and_persists() {
+        assert!(!ViewSettings::default().client_tree_wind_preview);
+        assert!(!ViewSettings::decode("tree_wind_strength=0.5").client_tree_wind_preview);
+        let enabled = ViewSettings::decode("client_tree_wind_preview=true");
+        assert!(enabled.client_tree_wind_preview);
+        assert!(ViewSettings::decode(&enabled.encode()).client_tree_wind_preview);
+        assert!(!ViewSettings::decode("client_tree_wind_preview=invalid").client_tree_wind_preview);
     }
     #[test]
     fn scenery_quality_preset_round_trips_and_is_bounded() {
@@ -480,6 +518,22 @@ mod tests {
         assert_eq!(s.sensitivity, 0.0025);
         assert!(!s.bloom);
     }
+    /// The strength slider is gone because native wind has no user scale, but
+    /// files written by older builds must still load.
+    #[test]
+    fn grass_wind_is_a_switch_and_legacy_strength_still_loads() {
+        assert!(ViewSettings::default().grass_wind_enabled);
+        assert!(!ViewSettings::decode("grass_wind_enabled=false").grass_wind_enabled);
+        assert!(ViewSettings::decode("grass_wind_enabled=true").grass_wind_enabled);
+        assert!(ViewSettings::decode("grass_wind_strength=0.8").grass_wind_enabled);
+        assert!(!ViewSettings::decode("grass_wind_strength=0").grass_wind_enabled);
+        // An unparsable legacy value leaves the default (on) alone.
+        assert!(ViewSettings::decode("grass_wind_strength=bogus").grass_wind_enabled);
+        let off = ViewSettings::decode("grass_wind_enabled=false");
+        assert!(!ViewSettings::decode(&off.encode()).grass_wind_enabled);
+        let on = ViewSettings::decode("grass_wind_enabled=true");
+        assert!(ViewSettings::decode(&on.encode()).grass_wind_enabled);
+    }
     #[test]
     fn area_center_lightmaps_default_on_but_explicit_legacy_setting_is_preserved() {
         assert!(ViewSettings::default().area_grass_lightmaps);
@@ -487,6 +541,15 @@ mod tests {
         let s = ViewSettings::decode("area_grass_lightmaps=false");
         assert!(!s.area_grass_lightmaps);
         assert!(!ViewSettings::decode(&s.encode()).area_grass_lightmaps);
+    }
+    #[test]
+    fn vegetation_authored_mips_defaults_off_and_round_trips() {
+        assert!(!ViewSettings::default().vegetation_authored_mips);
+        assert!(!ViewSettings::decode("unknown=ignored").vegetation_authored_mips);
+        let s = ViewSettings::decode("vegetation_authored_mips=true");
+        assert!(s.vegetation_authored_mips);
+        assert_eq!(s, ViewSettings::decode(&s.encode()));
+        assert!(!ViewSettings::decode("vegetation_authored_mips=invalid").vegetation_authored_mips);
     }
     #[test]
     fn special_glow_preview_is_explicit_persisted_and_bounded() {

@@ -73,13 +73,22 @@ impl Model {
     /// - A3DLitModel::Load (0x7bb380) accepts model versions 0x10000001
     ///   (0x7bb3de) and 0x10000002 (0x7bb58b) with an identical header and
     ///   logs "A3DLitModel::Load(), Wrong version!" for anything else;
-    /// - A3DLitMesh::Load (0x7ba070) implements mesh versions 0x10000004 and
-    ///   0x10000005 here. Version 0x10000001 returns false without logging
-    ///   (0x7baa64). Versions 0x10000002/0x10000003 have fully recovered
-    ///   layouts (28-byte vertex records; v3 adds two verts*4 light arrays)
-    ///   but appear ZERO times in the whole litmodels.pck + building.pck
-    ///   census, so they stay named errors instead of untested code paths;
-    ///   any other version logs "Unknown version [%x]!" (0x7baa51).
+    /// - A3DLitMesh::Load (0x7ba070) implements mesh versions 0x10000002
+    ///   (0x7ba0b8), 0x10000003 (0x7ba30d), 0x10000004 (0x7ba573) and
+    ///   0x10000005 (0x7ba7a7). v2/v3 use 28-byte vertex records and have no
+    ///   material tail; v3 carries the same two packed per-vertex light arrays
+    ///   as v4/v5, which v2 does not. The normal block (n*12) is separate and
+    ///   present in every version. These advance sizes are the same ones
+    ///   `src/bin/bmd-corpus-census.rs` walks, so the two cannot drift apart.
+    ///   Version 0x10000001 returns false without logging (0x7baa64); any
+    ///   other version logs "Unknown version [%x]!" (0x7baa51).
+    ///
+    ///   Corpus status: v2/v3 have zero occurrences in `litmodels.pck`,
+    ///   `building.pck` and `models.pck` (the last contains no BMDs at all),
+    ///   so their handling is specified from the client's advance sizes and
+    ///   covered by synthetic tests rather than by real data. That is stated
+    ///   here so the distinction between "implemented" and "seen in the wild"
+    ///   stays visible.
     /// - After the last mesh the client stops reading (A3DLitModel::Load ends
     ///   at 0x7bb795). The remaining trailer belongs to the scenery light
     ///   attachment system: u32 group count (0x64e307), then per group
@@ -119,15 +128,15 @@ impl Model {
             p += 4;
             match ver {
                 0x10000004 | 0x10000005 => {}
+                // v2 (0x7ba0b8) and v3 (0x7ba30d) are older layouts: 28-byte
+                // vertex records and no normal array. The advance sizes are
+                // recorded in `src/bin/bmd-corpus-census.rs`, which walks these
+                // same versions, so the shape is known rather than guessed.
+                0x10000002 | 0x10000003 => {}
                 0x10000001 => {
                     return Err(
                         "mesh version 0x10000001: client A3DLitMesh::Load rejects it without logging (0x7baa64)".into(),
                     )
-                }
-                0x10000002 | 0x10000003 => {
-                    return Err(format!(
-                        "mesh version {ver:#x}: layout recovered from client (0x7ba0b8/0x7ba30d) but zero occurrences in the corpus census; not implemented to avoid untested code paths"
-                    ))
                 }
                 other => {
                     return Err(format!(
@@ -144,18 +153,29 @@ impl Model {
             if n > 1_000_000 || faces > 2_000_000 {
                 return Err("invalid BMD mesh size".into());
             }
-            let needed = n
-                .checked_mul(24)
+            // v2/v3 use 28-byte vertex records; v4/v5 use 24-byte records plus
+            // a trailing normal array. v3 additionally carries two packed
+            // per-vertex light arrays, exactly like v4/v5.
+            let stride: usize = if ver >= 0x10000004 { 24 } else { 28 };
+            let light_arrays = ver != 0x10000002;
+            let mut needed = n
+                .checked_mul(stride)
                 .and_then(|v| v.checked_add(faces * 6))
-                .and_then(|v| v.checked_add(n * 20))
+                .and_then(|v| v.checked_add(n * 12))
                 .and_then(|v| v.checked_add(48))
                 .ok_or("BMD size overflow")?;
+            if light_arrays {
+                needed = needed
+                    .checked_add(n * 4)
+                    .and_then(|v| v.checked_add(n * 4))
+                    .ok_or("BMD size overflow")?;
+            }
             if p.checked_add(needed).is_none_or(|e| e > b.len()) {
                 return Err("truncated BMD mesh data".into());
             }
             let mut vertices = Vec::with_capacity(n);
             for i in 0..n {
-                let q = p + i * 24;
+                let q = p + i * stride;
                 vertices.push(Vertex {
                     position: v3(b, q)?,
                     diffuse: u(b, q + 12)?,
@@ -165,7 +185,7 @@ impl Model {
                     normal: [0.; 3],
                 });
             }
-            p += n * 24;
+            p += n * stride;
             let mut indices = Vec::with_capacity(faces * 3);
             for _ in 0..faces * 3 {
                 let s = b.get(p..p + 2).ok_or("truncated BMD indices")?;
@@ -176,19 +196,26 @@ impl Model {
                 indices.push(i);
                 p += 2;
             }
+            // The normal array is present in every version (n*12 bytes); the
+            // 28-byte v2/v3 record simply has no room for one inline, so the
+            // block is where it always is. This matches the advance sizes in
+            // `src/bin/bmd-corpus-census.rs` for all four versions.
             for v in &mut vertices {
                 v.normal = v3(b, p)?;
                 p += 12;
             }
             // The client loads two packed vertex-light arrays into mesh
-            // members +0x284/+0x288 and blends them at 0x7b9bc0.
-            for v in &mut vertices {
-                v.day_diffuse = u(b, p)?;
-                p += 4;
-            }
-            for v in &mut vertices {
-                v.night_diffuse = u(b, p)?;
-                p += 4;
+            // members +0x284/+0x288 and blends them at 0x7b9bc0. v2 has
+            // neither; v3 has both.
+            if light_arrays {
+                for v in &mut vertices {
+                    v.day_diffuse = u(b, p)?;
+                    p += 4;
+                }
+                for v in &mut vertices {
+                    v.night_diffuse = u(b, p)?;
+                    p += 4;
+                }
             }
             p += 48;
             let material = if ver >= 0x10000005 {
@@ -325,6 +352,74 @@ mod tests {
             Err(e) => e,
         }
     }
+    /// v2 (0x7ba0b8) and v3 (0x7ba30d) use 28-byte vertex records and no
+    /// separate normal array; v3 adds the two packed light arrays. The sizes
+    /// below are the same ones `src/bin/bmd-corpus-census.rs` walks, so this
+    /// test and that tool cannot drift apart silently.
+    #[test]
+    fn parses_mesh_v2_and_v3_with_their_own_strides() {
+        let build = |mesh_version: u32, n: u32, faces: u32| {
+            let mut b = Vec::new();
+            let put = |b: &mut Vec<u8>, v: u32| b.extend_from_slice(&v.to_le_bytes());
+            put(&mut b, 0x42584f4d);
+            put(&mut b, 0x10000002);
+            b.extend_from_slice(&[0; 48]);
+            put(&mut b, 1);
+            put(&mut b, mesh_version);
+            b.extend_from_slice(&[0; 320]);
+            put(&mut b, n);
+            put(&mut b, faces);
+            let stride = if mesh_version >= 0x10000004 { 24 } else { 28 };
+            b.extend_from_slice(&vec![0u8; (n * stride) as usize]);
+            b.extend_from_slice(&vec![0u8; (faces * 6) as usize]);
+            // Normals are a separate block for every version.
+            b.extend_from_slice(&vec![0u8; (n * 12) as usize]);
+            if mesh_version != 0x10000002 {
+                b.extend_from_slice(&vec![0u8; (n * 4) as usize]);
+                b.extend_from_slice(&vec![0u8; (n * 4) as usize]);
+            }
+            // The 48-byte block comes first; v5 then adds a material tail of a
+            // NUL-terminated name plus 4x16 bytes of colours, a float and a
+            // two-sided flag. Order matters: the parser advances past the 48
+            // bytes before it looks for a name.
+            b.extend_from_slice(&[0; 48]);
+            if mesh_version >= 0x10000005 {
+                b.extend_from_slice(b"mat\0");
+                b.extend_from_slice(&[0u8; 69]);
+            }
+            b
+        };
+        for v in [0x10000002u32, 0x10000003] {
+            let m = Model::parse(&build(v, 4, 2)).unwrap();
+            assert_eq!(m.meshes.len(), 1, "v{v:#x}");
+            assert_eq!(m.meshes[0].version, v);
+            assert_eq!(m.meshes[0].vertices.len(), 4);
+            assert_eq!(m.meshes[0].indices.len(), 6);
+            // v2/v3 carry no material tail; `material` is an Option, so absence
+            // is None rather than an empty value.
+            assert!(m.meshes[0].material.is_none(), "v{v:#x}");
+        }
+        // v4/v5 must be untouched by the v2/v3 handling: same input shape
+        // still parses and still records the version it read.
+        for v in [0x10000004u32, 0x10000005] {
+            let m = Model::parse(&build(v, 4, 2)).unwrap();
+            assert_eq!(m.meshes[0].version, v);
+            assert_eq!(m.meshes[0].vertices.len(), 4);
+            // v4 stops before the material; v5 must consume the tail it added.
+            if v == 0x10000005 {
+                assert_eq!(
+                    m.meshes[0].material.as_ref().map(|x| x.name.as_str()),
+                    Some("mat")
+                );
+            } else {
+                assert!(m.meshes[0].material.is_none(), "v{v:#x}");
+            }
+        }
+        // Truncating one byte must still be caught rather than misread.
+        let mut short = build(0x10000002, 4, 2);
+        short.pop();
+        assert!(Model::parse(&short).is_err());
+    }
     #[test]
     fn accepts_both_client_model_versions() {
         // A3DLitModel::Load reads the identical header for 0x10000001
@@ -340,10 +435,6 @@ mod tests {
     fn names_every_unsupported_mesh_version() {
         let err = parse_err(&model_skeleton(0x10000002, 0x10000001));
         assert!(err.contains("without logging"), "{err}");
-        for v in [0x10000002u32, 0x10000003] {
-            let err = parse_err(&model_skeleton(0x10000002, v));
-            assert!(err.contains("zero occurrences"), "{err}");
-        }
         let err = parse_err(&model_skeleton(0x10000002, 0x10000006));
         assert!(err.contains("Unknown version [10000006]"), "{err}");
     }
