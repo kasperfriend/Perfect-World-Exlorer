@@ -200,3 +200,25 @@ jobs:
           path: artifact/
           if-no-files-found: error
           retention-days: 14
+      - name: Download the uploaded portable artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Perfect-World-Explorer-Windows-x64
+          path: ${{ runner.temp }}/uploaded-viewer
+      - name: Audit the uploaded artifact layout
+        shell: pwsh
+        run: |
+          $uploaded = Join-Path $env:RUNNER_TEMP 'uploaded-viewer'
+          $topLevel = @(Get-ChildItem -LiteralPath $uploaded -Force)
+          if ($topLevel.Count -ne 1 -or $topLevel[0].Name -cne 'Perfect World Explorer') {
+            throw 'The artifact must contain only the Perfect World Explorer top-level folder.'
+          }
+          $package = Join-Path $uploaded 'Perfect World Explorer'
+          foreach ($relative in @('Perfect-World-Explorer.exe', 'Modules/Walker/module.ini', 'SHA256SUMS.txt')) {
+            if (-not (Test-Path -LiteralPath (Join-Path $package $relative) -PathType Leaf)) {
+              throw "Uploaded artifact is missing: $relative"
+            }
+          }
+          if (Get-ChildItem -LiteralPath $package -Recurse -File | Where-Object { $_.Name -match '(?i)bmd.*survey|survey.*bmd' }) {
+            throw 'The uploaded artifact contains a BMD survey executable.'
+          }
