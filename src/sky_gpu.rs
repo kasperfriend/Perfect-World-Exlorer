@@ -338,16 +338,15 @@ fn cap_uv(d:vec3<f32>)->vec2<f32>{
 fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let tn=clamp(tint,vec3<f32>(0.0),vec3<f32>(1.0));
  let flat=max(length(d.xz),0.000001);
- // Above the horizon the client draws the cap described in `cap_uv`; nothing
- // else is in front of it (the surround's upper rows are behind the cap).
- if d.y>=0.0 {
-  let roof=textureSampleLevel(skies,smpw,cap_uv(d)*p.skyrot.w+p.skyrot.xy,base+2,0.).rgb*tn;
-  return vec4<f32>(roof,1.0);
- }
- // Below the horizon `A3DSkySphere` is the visible surface. Only its two lowest
- // rings show (the cap hides the upper three), so this is the 12.05 degree skirt
- // described above: `v` runs 0.275 -> 0.5 from the horizon ring down to the
- // bottom ring, and `u` is the azimuth around the six segments.
+ // Cap (roof) and skirt (panorama) meet at the horizon. In retail the cap's
+ // rim *is* the horizon (offset 47.68, radius 15.03 = horizon) and the skirt's
+ // top ring is at the same geometric line, but sampling two different
+ // textures with a hard `d.y>=0` branch makes a 1-texel sharp line where
+ // the two mips disagree. Blend over ~1.7° (0.03 in y) so the two textures
+ // collide softly — the native `A3DSky` + `A3DSkySphere` draw order already
+ // had the cap over the skirt, so the seam was a filtered edge, not a cut.
+ let roof=textureSampleLevel(skies,smpw,cap_uv(d)*p.skyrot.w+p.skyrot.xy,base+2,0.).rgb*tn;
+ // Skirt: same math even above the horizon, clamp keeps it at v=0.275.
  let y=50.0*d.y/flat;
  let az=atan2(abs(d.z),d.x);
  let quarter=1.5707963;
@@ -356,8 +355,6 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let near=1.0-smoothstep(0.0,0.06,abs(az-quarter));
  let uf=clamp(2.0-2.0*az/3.14159265,0.0,1.0);
  let ub=clamp(1.0-2.0*az/3.14159265,0.0,1.0);
- // Two textures per set cover the same mesh, so each half space keeps one at
- // full contrast and the azimuth-90 run switch crossfades instead of jumping.
  let uv_own=vec2<f32>(select(ub,uf,owns_front),v);
  let uv_other=vec2<f32>(select(uf,ub,owns_front),v);
  let a0=textureSampleLevel(skies,smp,uv_own,base,0.);
@@ -369,7 +366,9 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let plane=1.0-smoothstep(0.0,0.12,abs(d.z));
  let front=d.z>=0.0;
  let tex=mix(select(run1,run0,front),select(run0,run1,front),0.5*plane);
- return vec4<f32>(tex.rgb*tn,1.0);
+ let skirt=tex.rgb*tn;
+ let blend=smoothstep(-0.015,0.015,d.y);
+ return vec4<f32>(mix(skirt,roof,blend),1.0);
 }
 // The client's celestial billboards, as the templates recovered from
 // `CECSunMoon::Init` describe them: a 20x20-unit sun quad, a 120x40 sun-shine
@@ -530,16 +529,23 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
  // so this build keeps the larger (2*size) sprites but restores the wider
  // spread (2*px) until the full `0x4b4290` fill is re-implemented. The
  // direction stays the `0x450b30` line through the screen centre.
- let s=vec2<f32>(sun.x*aspect,sun.y);
- let len=length(s);
- let dir=select(vec2<f32>(0.0,-1.0),-s/max(len,1e-6),len>1e-6);
+ // `sun` and `ndc` are in NDC (-1..1). Offsets/sizes are in *pixels*,
+ // metric = viewport height `h = 2/px`. Work in pixels so the line
+ // sun→centre and the sprite extents are aspect-correct; the old
+ // `s=aspect*sun` double-counted aspect and made the chain rotate oddly.
  let px=p.skyrot.z;
  let h=2.0/px;
+ let vp_w=h*aspect;
+ let sun_pix=vec2<f32>(sun.x*0.5+0.5, sun.y*0.5+0.5)*vec2<f32>(vp_w,h);
+ let centre_pix=vec2<f32>(vp_w,h)*0.5;
+ let to_centre=centre_pix - sun_pix;
+ let dir_pix=select(vec2<f32>(0.0,-1.0), normalize(to_centre), length(to_centre)>1e-6);
+ let ndc_pix=vec2<f32>(ndc.x*0.5+0.5, ndc.y*0.5+0.5)*vec2<f32>(vp_w,h);
  var out=color;
  for(var i:i32=0;i<15;i=i+1){
-  let c=s+dir*(flare_offset(i)*px*2.0);
-  let half=flare_size(i)*h*px;
-  let q=(vec2<f32>(ndc.x*aspect,ndc.y)-c)/max(half,1e-6);
+  let c_pix=sun_pix + dir_pix*flare_offset(i);
+  let half_pix=flare_size(i)*h;
+  let q=(ndc_pix - c_pix)/max(half_pix,1e-6);
   if abs(q.x)>1.0 || abs(q.y)>1.0 {continue;}
   let uv=flare_uv_origin(i)+vec2<f32>(q.x*0.5+0.5,q.y*0.5+0.5)*flare_uv_size(i);
   let tex=textureSampleLevel(skies,smp,uv,flare,0.);
