@@ -295,12 +295,9 @@ const SKY_RADIUS:f32=50.0;
 // (0.003) in both rate slots. Taken literally that is `8 * uv + accumulated`
 // (`rate/30` per 30 Hz tick, `rate` per second via `0x8f14bc`), but screenshots
 // of the shipped `clear/roof.bmp` show a single sparse sheet rather than 64
-// tiles, so the viewer keeps the recovered `8.0` as `SKY_DRIFT_SCALE` for
-// reference but samples the roof at `2.0` — the sparsest dense value that keeps
-// the authored tiling seamless while matching the photographs.
+// tiles, so this shader samples the roof at `2.0` while the Rust constant keeps
+// the native `8.0` as `NATIVE_SKY_DRIFT_SCALE` for reference.
 const SKY_DRIFT_SCALE:f32=2.0;
-// The native descriptor still holds 8.0; this viewer value is the render scale.
-pub const NATIVE_SKY_DRIFT_SCALE:f32=8.0;
 const SKY_DRIFT_RATE:f32=0.003;
 const SKIRT_TOP_V:f32=0.275;
 const SKIRT_BOTTOM_V:f32=0.5;
@@ -567,17 +564,17 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
 pub const DISC_BRIGHTNESS: f32 = 1.0;
 
 /// Diagonal scale `A3DSky`'s constructor (`0x7995e0`) stores in the stage-0
-/// texture-matrix descriptor (`+0x4cc`) as `8.0`, and `A3DSky::Rotate`
-/// (`0x79a0e0`) puts it on the matrix diagonal. Taken literally the ceiling
-/// is therefore sampled at `8 * uv + drift`, but `clear/roof.bmp` tiled at
-/// that density reads as 64 repeating tiles across the bowl and the shipped
-/// screenshots show a sparse sheet with a few drifting patches. Either the
-/// matrix is applied as `uv/8` in the fixed-function stage or the shipped art
-/// expects a much sparser lookup, so the viewer exposes the recovered `8.0` as
-/// `SKY_DRIFT_SCALE` but renders at a sparser `2.0` that matches the retail
-/// photographs. The drift rate itself (`0.003`, `0x3b449ba6` in `0x42a98d`) is
-/// kept verbatim.
-pub const SKY_DRIFT_SCALE: f32 = 8.0;
+/// texture-matrix descriptor (`+0x4cc`) as `8.0` (`NATIVE_SKY_DRIFT_SCALE`), and
+/// `A3DSky::Rotate` (`0x79a0e0`) puts it on the matrix diagonal. Taken
+/// literally that is `8 * uv + drift`, but `clear/roof.bmp` tiled at that
+/// density is 64 tiles across the bowl and the shipped screenshots show a
+/// single sparse sheet. The matrix is either applied as `uv/8` by fixed
+/// function or the art expects sparser sampling, so the viewer keeps `8.0` as
+/// `NATIVE_SKY_DRIFT_SCALE` for reference and renders at `2.0` which preserves
+/// seamless tiling while matching the photos. Rate `0.003` (`0x3b449ba6` in
+/// `0x42a98d`) is unchanged.
+pub const SKY_DRIFT_SCALE: f32 = 2.0;
+pub const NATIVE_SKY_DRIFT_SCALE: f32 = 8.0;
 
 /// Texture-space units the ceiling slide advances per second.
 ///
@@ -614,6 +611,14 @@ fn sun_ndc_half(fov_degrees: f32) -> f32 {
 /// behind the camera — has no weight either. The elevation test is the one
 /// `0x4b4035` applies before it submits the disc itself: a sun under the
 /// horizon submits nothing, so nothing of its chain may be drawn.
+///
+/// The 54-point occlusion mask at `0x7855c0` and the `0x786840` accumulation
+/// target (`CECSunMoon::Init` → `0x4b4290` `D3DPT_POINTLIST` → `ps/solarflare_14`
+/// 6×0.4) are not yet sampled as an off-screen target; `update` currently
+/// carries the unoccluded weight and the shader attenuates only by `fade`.
+/// A future `flare_occlusion` will sample the depth buffer at those 54 points
+/// and modulate `celestial.w` with the saturated 6-sample sum exactly as
+/// `0x4b5b74` does.
 fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> ([f32; 2], f32) {
     let (elevation, azimuth) = (sun[1], sun[2]);
     let direction = Vec3::new(
@@ -627,6 +632,11 @@ fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> 
     if reflected || sun[0] <= 0. || elevation <= 0. || clip.w <= 1e-6 {
         return ([0., 0.], 0.);
     }
+    // TODO(flare-occlusion): sample depth at the 54 `0x7855c0` points around
+    // `clip.xy/clip.w`, accumulate through `0x786840` and scale by `0.4*6`.
+    // For now the weight is the visibility fade only; occlusion is tracked as
+    // `celestial.w` remains 0 when the sun is behind terrain via the depth
+    // pre-pass in `gpu.rs` (not yet wired).
     ([clip.x / clip.w, clip.y / clip.w], sun[0].clamp(0., 1.))
 }
 

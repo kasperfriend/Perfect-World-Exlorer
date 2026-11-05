@@ -1,11 +1,17 @@
-//! World-space cloud billboards built from the native MOXB groups.
+//! Native MOXB cloud surface (`world.cld`, `0x645150`) — `CECClouds` via
+//! `0x646450` triangle lists and `0x646720` atlas mapping.
 //!
-//! Native `0x646450` submits grouped cloud indices as triangle lists, and
-//! `0x646720` maps the first vertex tag into one of sixteen cells in the
-//! client's 4-by-4 cumulus atlas. We use that recovered atlas mapping on
-//! camera-facing point billboards. This remains an approximation: native
-//! triangle construction, camera-relative geometry, size/color curves, and
-//! secondary water-view admission are still being reverse engineered.
+//! Each `MOXB` cell carries 36-byte vertices (`pos[3] f32` + `tags[2] u32` +
+//! `colors[4] u32`) and a set of groups (`params[4] f32` + `indices[] u32`).
+//! `0x646720` maps `tags[0]-1` into one of 16 cells of the `4×4`
+//! `cumulus01.tga` atlas exactly as `atlas_uv()` does; the billboard path
+//! below keeps that recovered mapping. Native builds actual world-space
+//! triangles from `indices` (triangle list, not billboards) with per-vertex
+//! day/night colors and a size curve driven by `params[3]` (`20/50/70`). That
+//! triangle path is parsed as `CloudSurface` and is ready for indexed draws;
+//! the billboard path remains the active renderer until the water secondary
+//! view (`0x799f88` band-adjacent) and the `params[0..2]` fog coupling are
+//! traced. SpeedTree (`*.spt` via `SpeedTreeRT.dll`) is unrelated.
 use crate::cloud_surface::CloudSurface;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
