@@ -1,0 +1,751 @@
+# 18-world-loadsky  0x951300-0x951940
+00951300: popal                                   
+00951301: je 0x951364                               ; ' fai'
+00951303: and byte ptr [ecx + 0x6e], ch           
+00951306: and byte ptr [edx + 0x6c], ah           
+00951309: outsd dx, dword ptr [esi]               
+0095130a: arpl word ptr [ebx], bp                 
+0095130d: add byte ptr [eax], al                  
+0095130f: add byte ptr [ebx + 0x45], al           
+00951312: inc ebx                                 
+00951313: push ebx                                
+00951314: arpl word ptr [ebp + 0x6e], sp          
+00951317: inc edx                                 
+00951319: insb byte ptr es:[edi], dx              
+0095131a: outsd dx, dword ptr [esi]               
+0095131b: arpl word ptr [ebx + 0x3a], bp          
+0095131e: cmp cl, byte ptr [edi + ebp*2 + 0x61]   
+00951322: sub al, 0x20                            
+00951325: popaw                                   
+00951327: imul ebp, dword ptr [ebp + 0x64], 0x206f7420
+0095132f: insb byte ptr es:[edi], dx              
+00951330: outsd dx, dword ptr [esi]               
+00951331: popal                                   
+00951332: and byte ptr fs:[edi + 0x72], ah        
+00951336: popal                                   
+00951337: jae 0x9513ac                              ; 'oad '
+00951339: and byte ptr [ecx + 0x72], ah           
+0095133c: popal                                   
+0095133e: and byte ptr [ecx + 0x74], ah           
+00951342: popal                                   
+00951343: and byte ptr [ecx + 0x6e], ch           
+00951346: and byte ptr [edx + 0x6c], ah           
+00951349: outsd dx, dword ptr [esi]               
+0095134a: arpl word ptr [ebx], bp                 
+0095134d: add byte ptr [eax], al                  
+0095134f: add byte ptr [ebx + 0x45], al           
+00951352: inc ebx                                 
+00951353: push ebx                                
+00951354: arpl word ptr [ebp + 0x6e], sp          
+00951357: inc edx                                 
+00951359: insb byte ptr es:[edi], dx              
+0095135a: outsd dx, dword ptr [esi]               
+0095135b: arpl word ptr [ebx + 0x3a], bp          
+0095135e: cmp cl, byte ptr [edi + ebp*2 + 0x61]   
+00951362: sub al, 0x20                            
+00951365: popaw                                   
+00951367: imul ebp, dword ptr [ebp + 0x64], 0x206f7420
+0095136f: insb byte ptr es:[edi], dx              
+00951370: outsd dx, dword ptr [esi]               
+00951371: popal                                   
+00951372: and byte ptr fs:[edx + 0x6f], ah        
+00951376: js 0x951398                               ; 'k::L'
+00951378: popal                                   
+00951379: jb 0x9513e0                               ; 'led '
+0095137b: popal                                   
+0095137c: and byte ptr [ecx + 0x74], ah           
+00951380: popal                                   
+00951381: and byte ptr [ecx + 0x6e], ch           
+00951384: and byte ptr [edx + 0x6c], ah           
+00951387: outsd dx, dword ptr [esi]               
+00951388: arpl word ptr [ebx], bp                 
+0095138b: add byte ptr [ebx + 0x45], al           
+0095138e: inc ebx                                 
+0095138f: push ebx                                
+00951390: arpl word ptr [ebp + 0x6e], sp          
+00951393: inc edx                                 
+00951395: insb byte ptr es:[edi], dx              
+00951396: outsd dx, dword ptr [esi]               
+00951397: arpl word ptr [ebx + 0x3a], bp          
+0095139a: cmp cl, byte ptr [edi + ebp*2 + 0x61]   
+0095139e: sub al, 0x20                            
+009513a1: popaw                                   
+009513a3: imul ebp, dword ptr [ebp + 0x64], 0x206f7420
+009513ab: insb byte ptr es:[edi], dx              
+009513ac: outsd dx, dword ptr [esi]               
+009513ad: popal                                   
+009513ae: and byte ptr fs:[edi + 0x72], ch        
+009513b2: outsb dx, byte ptr [esi]                
+009513b3: popal                                   
+009513b4: insd dword ptr es:[edi], dx             
+009513b5: outsb dx, byte ptr gs:[esi]             
+009513b7: je 0x9513d9                               ; 'ad, '
+009513b9: popal                                   
+009513bb: je 0x95141e                               ; ' loa'
+009513bd: and byte ptr [ecx + 0x6e], ch           
+009513c0: and byte ptr [edx + 0x6c], ah           
+009513c3: outsd dx, dword ptr [esi]               
+009513c4: arpl word ptr [ebx], bp                 
+009513c7: add byte ptr [ebx + 0x45], al           
+009513ca: inc ebx                                 
+009513cb: push ebx                                
+009513cc: arpl word ptr [ebp + 0x6e], sp          
+009513cf: inc edx                                 
+009513d1: insb byte ptr es:[edi], dx              
+009513d2: outsd dx, dword ptr [esi]               
+009513d3: arpl word ptr [ebx + 0x3a], bp          
+009513d6: cmp cl, byte ptr [edi + ebp*2 + 0x61]   
+009513da: sub al, 0x20                            
+009513dd: popaw                                   
+009513df: imul ebp, dword ptr [ebp + 0x64], 0x206f7420
+009513e7: insb byte ptr es:[edi], dx              
+009513e8: outsd dx, dword ptr [esi]               
+009513e9: popal                                   
+009513ea: and byte ptr fs:[edi + 0x61], dh        
+009513ee: je 0x951455                               ; 'file'
+009513f0: jb 0x951412                               ; 'd, f'
+009513f2: popal                                   
+009513f4: je 0x951457                               ; 'le p'
+009513f6: and byte ptr [ecx + 0x6e], ch           
+009513f9: and byte ptr [edx + 0x6c], ah           
+009513fc: outsd dx, dword ptr [esi]               
+009513fd: arpl word ptr [ebx], bp                 
+00951400: inc ebx                                 
+00951401: inc ebp                                 
+00951402: inc ebx                                 
+00951403: push ebx                                
+00951404: arpl word ptr [ebp + 0x6e], sp          
+00951407: inc edx                                 
+00951409: insb byte ptr es:[edi], dx              
+0095140a: outsd dx, dword ptr [esi]               
+0095140b: arpl word ptr [ebx + 0x3a], bp          
+0095140e: cmp cl, byte ptr [edi + ebp*2 + 0x61]   
+00951412: sub al, 0x20                            
+00951415: popaw                                   
+00951417: imul ebp, dword ptr [ebp + 0x64], 0x206f7420
+0095141f: insb byte ptr es:[edi], dx              
+00951420: outsd dx, dword ptr [esi]               
+00951421: popal                                   
+00951422: and byte ptr fs:[edx + esi*2 + 0x65], dh
+00951427: and byte ptr gs:[ecx + 0x74], ah        
+0095142c: popal                                   
+0095142d: and byte ptr [ecx + 0x6e], ch           
+00951430: and byte ptr [edx + 0x6c], ah           
+00951433: outsd dx, dword ptr [esi]               
+00951434: arpl word ptr [ebx], bp                 
+00951437: add byte ptr [ebx + 0x45], al           
+0095143a: inc ebx                                 
+0095143b: push ebx                                
+0095143c: arpl word ptr [ebp + 0x6e], sp          
+0095143f: dec esp                                 
+00951441: imul esp, dword ptr [edi + 0x68], 0x3a3a7374
+00951448: dec esp                                 
+00951449: outsd dx, dword ptr [esi]               
+0095144a: popal                                   
+0095144b: sub byte ptr fs:[ecx], ch               
+0095144e: sub al, 0x20                            
+00951450: jb 0x9514b7                               ; 'ersi'
+00951452: popal                                   
+00951453: and byte ptr fs:[esi + 0x69], ah        
+00951457: insb byte ptr es:[edi], dx              
+00951458: and byte ptr gs:[eax + 0x61], dh        
+0095145c: jb 0x9514d2                               ; 'ad()'
+0095145e: and byte ptr [edx], dh                  
+00951460: and byte ptr [esi + 0x61], ah           
+00951463: imul ebp, dword ptr [ebp + 0x64], 0x21  
+0095146b: add byte ptr [ebx + 0x45], al           
+0095146e: inc ebx                                 
+0095146f: push ebx                                
+00951470: arpl word ptr [ebp + 0x6e], sp          
+00951473: dec esp                                 
+00951475: imul esp, dword ptr [edi + 0x68], 0x3a3a7374
+0095147c: dec esp                                 
+0095147d: outsd dx, dword ptr [esi]               
+0095147e: popal                                   
+0095147f: sub byte ptr fs:[ecx], ch               
+00951482: sub al, 0x20                            
+00951484: jb 0x9514eb                               ; ' %s!'
+00951486: popal                                   
+00951487: and byte ptr fs:[esi + 0x69], ah        
+0095148b: insb byte ptr es:[edi], dx              
+0095148c: and byte ptr gs:[esi + 0x61], ah        
+00951490: imul ebp, dword ptr [ebp + 0x64], 0x21  
+00951498: inc ebx                                 
+00951499: inc ebp                                 
+0095149a: inc ebx                                 
+0095149b: push ebx                                
+0095149c: arpl word ptr [ebp + 0x6e], sp          
+0095149f: dec esp                                 
+009514a1: imul esp, dword ptr [edi + 0x68], 0x3a3a7374
+009514a8: dec esp                                 
+009514a9: outsd dx, dword ptr [esi]               
+009514aa: popal                                   
+009514ab: sub byte ptr fs:[ecx], ch               
+009514ae: sub al, 0x20                            
+009514b0: ja 0x951524                               ; f32 0
+009514b2: outsd dx, dword ptr [esi]               
+009514b3: outsb dx, byte ptr [esi]                
+009514b4: and byte ptr [bp + 0x65], dh            
+009514b8: jb 0x95152d                               ; '$APt'
+009514ba: imul ebp, dword ptr [edi + 0x6e], 0x43000021
+009514c1: inc ebp                                 
+009514c2: inc ebx                                 
+009514c3: push ebx                                
+009514c4: arpl word ptr [ebp + 0x6e], sp          
+009514c7: dec esp                                 
+009514c9: imul esp, dword ptr [edi + 0x68], 0x3a3a7374
+009514d0: dec esp                                 
+009514d1: outsd dx, dword ptr [esi]               
+009514d2: popal                                   
+009514d3: sub byte ptr fs:[ecx], ch               
+009514d6: sub al, 0x20                            
+009514d8: popaw                                   
+009514da: imul ebp, dword ptr [ebp + 0x64], 0x206f7420
+009514e2: outsd dx, dword ptr [esi]               
+009514e3: jo 0x95154a                               ; 'j@@@'
+009514e5: outsb dx, byte ptr [esi]                
+009514e6: and byte ptr [esi + 0x69], ah           
+009514e9: insb byte ptr es:[edi], dx              
+009514ea: and byte ptr gs:[0x38002173], ah        
+009514f1: fisttp word ptr [edi]                   
+009514f7: add byte ptr [esi], ch                  
+009514f9: aas                                     
+009514fa: inc ecx                                 
+009514fb: push esi                                
+009514fc: aas                                     
+009514fd: and al, 0x41                            
+009514ff: inc ecx                                 
+00951500: jb 0x951574                               ; f32 0
+00951502: popal                                   
+00951503: jns 0x951545                              ; 'eadO'
+00951505: push ebp                                
+00951506: dec ebp                                 
+00951507: push esp                                
+00951508: dec esp                                 
+00951509: pop edi                                 
+0095150a: push esp                                
+0095150b: push edx                                
+0095150c: dec esi                                 
+0095150d: inc edx                                 
+0095150e: dec esp                                 
+0095150f: dec edi                                 
+00951510: inc ebx                                 
+00951511: dec ebx                                 
+00951512: inc eax                                 
+00951513: inc eax                                 
+00951514: inc ecx                                 
+00951515: inc ecx                                 
+00951516: push ebp                                
+00951517: xor dword ptr [eax + 0x40], eax         
+0095151a: inc eax                                 
+0095151b: add byte ptr [eax], al                  
+0095151d: add byte ptr [eax], al                  
+0095151f: add byte ptr [eax], bh                  
+00951521: fisttp word ptr [edi]                   
+00951527: add byte ptr [esi], ch                  
+00951529: aas                                     
+0095152a: inc ecx                                 
+0095152b: push esi                                
+0095152c: aas                                     
+0095152d: and al, 0x41                            
+0095152f: push eax                                
+00951530: je 0x9515a4                               ; 'ray@'
+00951532: dec esp                                 
+00951533: imul esi, dword ptr [ebx + 0x74], 0x56415040
+0095153a: inc ebx                                 
+0095153b: inc ebp                                 
+0095153c: inc ebx                                 
+0095153d: push ebx                                
+0095153e: arpl word ptr [ebp + 0x6e], sp          
+00951541: push esp                                
+00951543: push 0x64616572                         
+00951548: dec edi                                 
+00951549: bound ebp, qword ptr [edx + 0x40]       
+0095154c: inc eax                                 
+0095154d: inc eax                                 
+0095154e: inc eax                                 
+0095154f: add byte ptr [eax], bh                  
+00951551: fisttp word ptr [edi]                   
+00951557: add byte ptr [esi], ch                  
+00951559: aas                                     
+0095155a: inc ecx                                 
+0095155b: push esi                                
+0095155c: dec esp                                 
+0095155d: outsd dx, dword ptr [esi]               
+0095155e: popal                                   
+0095155f: jb 0x9515b7                             
+00951563: push 0x64616572                         
+00951568: dec ebp                                 
+00951569: outsd dx, dword ptr [esi]               
+0095156a: jne 0x9515d9                              ; 'le@@'
+0095156d: inc eax                                 
+0095156e: inc eax                                 
+0095156f: add byte ptr [eax], bh                  
+00951571: fisttp word ptr [edi]                   
+00951577: add byte ptr [esi], ch                  
+00951579: aas                                     
+0095157a: inc ecx                                 
+0095157b: push esi                                
+0095157c: push esp                                
+0095157d: jb 0x9515f2                               ; 'Arra'
+00951580: dec esp                                 
+00951581: outsd dx, dword ptr [esi]               
+00951582: popal                                   
+00951583: jb 0x9515d4                               ; 'rMod'
+00951587: outsd dx, dword ptr [esi]               
+00951588: jne 0x9515f7                              ; '@PAV'
+0095158b: inc eax                                 
+0095158d: inc eax                                 
+0095158e: add byte ptr [eax], al                  
+00951590: cmp bh, bl                              
+00951592: pop dword ptr [eax]                     
+00951594: add byte ptr [eax], al                  
+00951596: add byte ptr [eax], al                  
+00951598: aas                                     
+0095159a: inc ecx                                 
+0095159b: push esi                                
+0095159c: aas                                     
+0095159d: and al, 0x41                            
+0095159f: push eax                                
+009515a0: je 0x951614                               ; '?$AP'
+009515a2: inc ecx                                 
+009515a3: jb 0x951617                               ; 'PtrL'
+009515a5: popal                                   
+009515a6: jns 0x9515e8                              ; '.?AV?$APtrArray@PAVCECModel@@@@'
+009515a8: push eax                                
+009515a9: inc ecx                                 
+009515aa: push ebp                                
+009515ab: dec ebp                                 
+009515ac: push esp                                
+009515ad: dec esp                                 
+009515ae: pop edi                                 
+009515af: inc ebp                                 
+009515b0: inc ebx                                 
+009515b1: dec ebp                                 
+009515b2: dec edi                                 
+009515b3: inc esp                                 
+009515b4: inc ebp                                 
+009515b5: dec esp                                 
+009515b6: inc eax                                 
+009515b7: inc eax                                 
+009515b8: inc eax                                 
+009515b9: inc eax                                 
+009515ba: add byte ptr [eax], al                  
+009515bc: add byte ptr [eax], al                  
+009515be: add byte ptr [eax], al                  
+009515c0: cmp bh, bl                              
+009515c2: pop dword ptr [eax]                     
+009515c4: add byte ptr [eax], al                  
+009515c6: add byte ptr [eax], al                  
+009515c8: aas                                     
+009515ca: inc ecx                                 
+009515cb: push esi                                
+009515cc: dec esi                                 
+009515cd: push eax                                
+009515ce: inc ebx                                 
+009515cf: dec esp                                 
+009515d0: outsd dx, dword ptr [esi]               
+009515d1: popal                                   
+009515d2: jb 0x951623                               ; 'TL_E'
+009515d6: outsd dx, dword ptr [esi]               
+009515d7: jne 0x951646                              ; 'Mode'
+009515da: inc eax                                 
+009515dc: inc eax                                 
+009515dd: add byte ptr [eax], al                  
+009515df: add byte ptr [eax], bh                  
+009515e1: fisttp word ptr [edi]                   
+009515e7: add byte ptr [esi], ch                  
+009515e9: aas                                     
+009515ea: inc ecx                                 
+009515eb: push esi                                
+009515ec: aas                                     
+009515ed: and al, 0x41                            
+009515ef: push eax                                
+009515f0: je 0x951664                               ; f32 0
+009515f2: inc ecx                                 
+009515f3: jb 0x951667                               ; f32 11.9487
+009515f5: popal                                   
+009515f6: jns 0x951638                            
+009515f8: push eax                                
+009515f9: inc ecx                                 
+009515fa: push esi                                
+009515fb: inc ebx                                 
+009515fc: inc ebp                                 
+009515fd: inc ebx                                 
+009515fe: dec ebp                                 
+009515ff: outsd dx, dword ptr [esi]               
+00951600: insb byte ptr es:[edi], dx              
+00951603: inc eax                                 
+00951604: inc eax                                 
+00951605: inc eax                                 
+00951606: inc eax                                 
+00951607: add byte ptr [eax], bh                  
+00951609: fisttp word ptr [edi]                   
+0095160f: add byte ptr [esi], ch                  
+00951611: aas                                     
+00951612: inc ecx                                 
+00951613: push esi                                
+00951614: aas                                     
+00951615: and al, 0x41                            
+00951617: push eax                                
+00951618: je 0x95168c                               ; 'n oc'
+0095161a: dec esp                                 
+0095161b: imul esi, dword ptr [ebx + 0x74], 0x55415040
+00951622: dec ebp                                 
+00951623: push esp                                
+00951624: dec esp                                 
+00951625: pop edi                                 
+00951626: inc ebp                                 
+00951627: inc ebx                                 
+00951628: dec ebp                                 
+00951629: dec edi                                 
+0095162a: inc esp                                 
+0095162b: inc ebp                                 
+0095162c: dec esp                                 
+0095162d: inc eax                                 
+0095162e: inc eax                                 
+0095162f: inc eax                                 
+00951630: inc eax                                 
+00951631: add byte ptr [eax], al                  
+00951633: add byte ptr [eax], al                  
+00951635: add byte ptr [eax], al                  
+00951637: add byte ptr [eax], bh                  
+00951639: fisttp word ptr [edi]                   
+0095163f: add byte ptr [esi], ch                  
+00951641: aas                                     
+00951642: inc ecx                                 
+00951643: push esi                                
+00951644: inc ebp                                 
+00951645: inc ebx                                 
+00951646: dec ebp                                 
+00951647: outsd dx, dword ptr [esi]               
+00951648: insb byte ptr es:[edi], dx              
+0095164b: dec esp                                 
+0095164c: outsd dx, dword ptr [esi]               
+0095164d: popal                                   
+0095164e: jb 0x95169f                               ; 'dump'
+00951652: outsd dx, dword ptr [esi]               
+00951653: jne 0x9516c2                            
+00951656: inc eax                                 
+00951658: inc eax                                 
+00951659: add byte ptr [eax], al                  
+0095165b: add byte ptr [eax], al                  
+0095165d: add byte ptr [eax], al                  
+0095165f: add byte ptr [eax], bh                  
+00951661: fisttp word ptr [edi]                   
+00951667: add byte ptr [esi], ch                  
+00951669: aas                                     
+0095166a: inc ecx                                 
+0095166b: push esi                                
+0095166c: push eax                                
+0095166d: insb byte ptr es:[edi], dx              
+0095166e: popal                                   
+0095166f: jns 0x9516d6                            
+00951671: jb 0x9516bf                             
+00951673: outsd dx, dword ptr [esi]               
+00951674: popal                                   
+00951675: jb 0x9516c6                             
+00951679: outsd dx, dword ptr [esi]               
+0095167a: jne 0x9516e9                            
+0095167d: inc eax                                 
+0095167f: inc eax                                 
+00951680: add byte ptr [eax], al                  
+00951682: add byte ptr [eax], al                  
+00951684: inc ebp                                 
+00951685: js 0x9516ea                             
+00951687: jo 0x9516fe                               ; f32 3120
+0095168a: imul ebp, dword ptr [edi + 0x6e], 0x63636f20
+00951691: jne 0x951705                              ; 'rld:'
+00951693: jb 0x9516fa                               ; 'ld@@'
+00951695: and byte ptr cs:[ebp + 0x69], ch        
+0095169c: outsb dx, byte ptr [esi]                
+0095169d: imul esp, dword ptr [eax], 0x706d7564   
+009516a3: and byte ptr fs:[ecx + 0x6e], ch        
+009516a8: and byte ptr [edi + ebp*2 + 0x61], ch   
+009516ac: jb 0x9516d0                             
+009516b0: je 0x95171a                               ; 'Init'
+009516b2: jb 0x951719                               ; ':Ini'
+009516b4: popal                                   
+009516b5: and dword ptr fs:[eax], eax             
+009516b8: inc ebp                                 
+009516b9: add byte ptr [eax], bh                  
+009516bc: arpl word ptr [eax], ax                 
+009516be: add byte ptr gs:[eax], dh               
+009516c2: je 0x9516c4                             
+009516c4: imul eax, dword ptr [eax], 0x6e006f     
+009516ca: and byte ptr [eax], al                  
+009516cc: outsd dx, dword ptr [esi]               
+009516cd: add byte ptr [ebx], ah                  
+009516d0: arpl word ptr [eax], ax                 
+009516d2: jne 0x9516d4                            
+009516d4: jb 0x9516d6                             
+009516d6: jb 0x9516d8                             
+009516d8: add byte ptr gs:[eax + eax + 0x2e], ah  
+009516dd: add byte ptr [esi], ch                  
+009516df: add byte ptr [esi], ch                  
+009516e1: add byte ptr [edx], cl                  
+009516e3: add byte ptr [eax], al                  
+009516e5: add byte ptr [eax], al                  
+009516e7: add byte ptr [eax], bh                  
+009516e9: fisttp word ptr [edi]                   
+009516ef: add byte ptr [esi], ch                  
+009516f1: aas                                     
+009516f2: inc ecx                                 
+009516f3: push esi                                
+009516f4: inc ebx                                 
+009516f5: inc ebp                                 
+009516f6: inc ebx                                 
+009516f7: push edi                                
+009516f8: outsd dx, dword ptr [esi]               
+009516f9: jb 0x951767                             
+009516fb: inc eax                                 
+009516fd: inc eax                                 
+009516fe: add byte ptr [eax], al                  
+00951700: inc ebx                                 
+00951701: inc ebp                                 
+00951702: inc ebx                                 
+00951703: push edi                                
+00951704: outsd dx, dword ptr [esi]               
+00951705: jb 0x951773                               ; 'd::I'
+00951707: cmp bh, byte ptr fs:[edx]               
+0095170a: dec ecx                                 
+0095170b: outsb dx, byte ptr [esi]                
+0095170c: imul esi, dword ptr [eax + eax], 0x57434543
+00951714: outsd dx, dword ptr [esi]               
+00951715: jb 0x951783                             
+00951717: cmp bh, byte ptr fs:[edx]               
+0095171a: dec ecx                                 
+0095171b: outsb dx, byte ptr [esi]                
+0095171c: imul esi, dword ptr [esp + ebp + 0x20], 0x6c696146
+00951724: and byte ptr fs:[edi + ebp*2 + 0x20], dh
+0095172a: imul ebp, dword ptr [esi + 0x69], 0x616e2074
+00951731: je 0x9517a8                               ; '.bmp'
+00951733: jb 0x95179a                               ; 'tsOb'
+00951735: and byte ptr [edi + 0x62], ch           
+00951738: push 0x65                               
+0095173a: arpl word ptr [ebx + esi*2], si         
+0095173e: add byte ptr [eax], al                  
+00951740: inc ebx                                 
+00951741: inc ebp                                 
+00951742: inc ebx                                 
+00951743: push edi                                
+00951744: outsd dx, dword ptr [esi]               
+00951745: jb 0x9517b3                               ; 'Worl'
+00951747: cmp bh, byte ptr fs:[edx]               
+0095174a: dec ecx                                 
+0095174b: outsb dx, byte ptr [esi]                
+0095174c: imul esi, dword ptr [esp + ebp + 0x20], 0x6c696146
+00951754: and byte ptr fs:[edi + ebp*2 + 0x20], dh
+0095175a: arpl word ptr [edx + 0x65], si          
+0095175d: popal                                   
+0095175e: je 0x9517c5                               ; 'bjec'
+00951760: and byte ptr [ebp + 0x61], ch           
+00951763: outsb dx, byte ptr [esi]                
+00951764: popal                                   
+00951765: jb 0x9517dc                               ; 'neli'
+00951769: add byte ptr [eax], al                  
+0095176b: add byte ptr [ebx + 0x45], al           
+0095176e: inc ebx                                 
+0095176f: push edi                                
+00951770: outsd dx, dword ptr [esi]               
+00951771: jb 0x9517df                               ; 'ight'
+00951773: cmp bh, byte ptr fs:[edx]               
+00951776: dec ecx                                 
+00951777: outsb dx, byte ptr [esi]                
+00951778: imul esi, dword ptr [esp + edx*2 + 0x65], 0x69617272
+00951780: outsb dx, byte ptr [esi]                
+00951781: push edi                                
+00951782: popal                                   
+00951783: je 0x9517ea                             
+00951785: jb 0x951787                               ; f32 197.262
+00951787: add byte ptr [ebx + 0x45], al           
+0095178a: inc ebx                                 
+0095178b: push edi                                
+0095178c: outsd dx, dword ptr [esi]               
+0095178d: jb 0x9517fb                               ; 'ecin'
+0095178f: cmp bh, byte ptr fs:[edx]               
+00951792: dec ecx                                 
+00951793: outsb dx, byte ptr [esi]                
+00951794: imul esi, dword ptr [eax + edx*2 + 0x6c], 0x73746e61
+0095179c: dec edi                                 
+0095179d: bound ebp, qword ptr [edx + 0x65]       
+009517a0: arpl word ptr [ebx + esi*2], si         
+009517a4: jae 0x951814                              ; 'ulus'
+009517a6: outsd dx, dword ptr [esi]               
+009517a7: ja 0x9517d7                             
+009517a9: bound ebp, qword ptr [ebp + 0x70]       
+009517ac: add byte ptr [eax], al                  
+009517ae: add byte ptr [eax], al                  
+009517b0: inc ebx                                 
+009517b1: inc ebp                                 
+009517b2: inc ebx                                 
+009517b3: push edi                                
+009517b4: outsd dx, dword ptr [esi]               
+009517b5: jb 0x951823                             
+009517b7: cmp bh, byte ptr fs:[edx]               
+009517ba: dec ecx                                 
+009517bb: outsb dx, byte ptr [esi]                
+009517bc: imul esi, dword ptr [esi + ecx*2 + 0x61], 0x65727574
+009517c4: dec edi                                 
+009517c5: bound ebp, qword ptr [edx + 0x65]       
+009517c8: arpl word ptr [ebx + esi*2], si         
+009517cc: jb 0x95182f                               ; '\\%s\\'
+009517ce: imul ebp, dword ptr [esi + 0x2e], 0x616774  ; f32 -29556
+009517d5: add byte ptr [eax], al                  
+009517d7: add byte ptr [ebx + esi*2 + 0x63], bl   
+009517db: outsb dx, byte ptr gs:[esi]             
+009517dd: insb byte ptr es:[edi], dx              
+009517df: imul esp, dword ptr [edi + 0x68], 0x642e7374
+009517e6: popal                                   
+009517e7: je 0x9517e9                             
+009517e9: add byte ptr [eax], al                  
+009517eb: add byte ptr [edx + esi*2 + 0x65], bl   
+009517ef: imul ebp, dword ptr [bx + 0x6e], 0x746c632e
+009517f7: add byte ptr [eax + esi*2 + 0x72], bl   
+009517fb: arpl word ptr gs:[ecx + 0x6e], bp       
+009517ff: arpl word ptr [esi + ebp + 0x63], si    
+00951803: insb byte ptr es:[edi], dx              
+00951804: je 0x951806                             
+00951806: add byte ptr [eax], al                  
+00951808: je 0x95186f                               ; f32 197.262
+0095180a: js 0x951880                             
+0095180c: jne 0x951880                            
+0095180e: jae 0x95186d                              ; f32 128.361
+00951811: arpl word ptr [ebp + 0x6d], si          
+00951814: jne 0x951882                              ; f32 3120.02
+00951816: jne 0x95188b                              ; 'd::L'
+00951818: xor byte ptr [ecx], dh                  
+0095181a: je 0x951884                               ; 'CECWorld::LoadWorld, failed to initalize plants objects!'
+0095181d: popal                                   
+0095181e: add byte ptr [eax], al                  
+00951820: arpl word ptr cs:[esp], bp              
+00951825: add byte ptr [eax], al                  
+00951827: add byte ptr [edi + ebp*2 + 0x64], ch   
+0095182b: popal                                   
+0095182d: je 0x951890                               ; 'adWo'
+0095182f: pop esp                                 
+00951830: and eax, 0x69625c73                     
+00951835: jb 0x95189b                               ; 'iled'
+00951837: jbe 0x9518a2                              ; ' ini'
+00951839: ja 0x9518af                               ; 'ants'
+0095183c: pop esp                                 
+0095183d: xor dh, byte ptr [0x5c36]               
+00951843: add byte ptr [edi + ebp*2 + 0x64], ch   
+00951847: popal                                   
+00951849: je 0x9518ac                               ; ' pla'
+0095184b: pop esp                                 
+0095184c: and eax, 0x69625c73                     
+00951851: jb 0x9518b7                               ; 'ects'
+00951853: jbe 0x9518be                              ; f32 3120
+00951855: ja 0x9518cb                               ; 'oadW'
+00951858: pop esp                                 
+00951859: xor dword ptr [eax], esi                
+0095185b: xor dh, byte ptr [esp + ebx*2]          
+0095185e: add byte ptr [eax], al                  
+00951860: insb byte ptr es:[edi], dx              
+00951861: outsd dx, dword ptr [esi]               
+00951862: popal                                   
+00951865: je 0x9518c8                               ; '::Lo'
+00951867: pop esp                                 
+00951868: and eax, 0x6c6f5c73                     
+0095186d: insd dword ptr es:[edi], dx             
+0095186e: pop esp                                 
+0095186f: add byte ptr [ebx + 0x45], al           
+00951872: inc ebx                                 
+00951873: push edi                                
+00951874: outsd dx, dword ptr [esi]               
+00951875: jb 0x9518e3                               ; 'aliz'
+00951877: cmp bh, byte ptr fs:[edx]               
+0095187a: dec esp                                 
+0095187b: outsd dx, dword ptr [esi]               
+0095187c: popal                                   
+0095187d: push edi                                
+0095187f: outsd dx, dword ptr [esi]               
+00951880: jb 0x9518ee                               ; 'in w'
+00951882: add byte ptr fs:[ebx + 0x45], al        
+00951886: inc ebx                                 
+00951887: push edi                                
+00951888: outsd dx, dword ptr [esi]               
+00951889: jb 0x9518f7                             
+0095188b: cmp bh, byte ptr fs:[edx]               
+0095188e: dec esp                                 
+0095188f: outsd dx, dword ptr [esi]               
+00951890: popal                                   
+00951891: push edi                                
+00951893: outsd dx, dword ptr [esi]               
+00951894: jb 0x951902                             
+00951896: sub al, 0x20                            
+00951899: popaw                                   
+0095189b: imul ebp, dword ptr [ebp + 0x64], 0x206f7420
+009518a3: imul ebp, dword ptr [esi + 0x69], 0x696c6174
+009518aa: jp 0x951911                               ; 'trn2'
+009518ac: and byte ptr [eax + 0x6c], dh           
+009518af: popal                                   
+009518b0: outsb dx, byte ptr [esi]                
+009518b1: je 0x951926                               ; 'Worl'
+009518b3: and byte ptr [edi + 0x62], ch           
+009518b6: push 0x65                               
+009518b8: arpl word ptr [ebx + esi*2 + 0x21], si  
+009518bc: add byte ptr [eax], al                  
+009518be: add byte ptr [eax], al                  
+009518c0: inc ebx                                 
+009518c1: inc ebp                                 
+009518c2: inc ebx                                 
+009518c3: push edi                                
+009518c4: outsd dx, dword ptr [esi]               
+009518c5: jb 0x951933                               ; 'coul'
+009518c7: cmp bh, byte ptr fs:[edx]               
+009518ca: dec esp                                 
+009518cb: outsd dx, dword ptr [esi]               
+009518cc: popal                                   
+009518cd: push edi                                
+009518cf: outsd dx, dword ptr [esi]               
+009518d0: jb 0x95193e                               ; ' loa'
+009518d2: sub al, 0x20                            
+009518d5: popaw                                   
+009518d7: imul ebp, dword ptr [ebp + 0x64], 0x206f7420
+009518df: imul ebp, dword ptr [esi + 0x69], 0x696c6174
+009518e6: jp 0x95194d                               ; 'ECWo'
+009518e8: and byte ptr [ebp + 0x72], dh           
+009518ec: jb 0x95194f                               ; 'Worl'
+009518ee: imul ebp, dword ptr [esi + 0x20], 0x65746177
+009518f5: jb 0x951918                               ; "CECWorld::LoadWorld, scene couldn't be loaded twice"
+009518f7: add byte ptr [ecx + 0x32], ah           
+009518fa: xor al, byte ptr [eax]                  
+009518fc: popal                                   
+009518fd: xor dh, byte ptr [ecx]                  
+009518ff: add byte ptr [edi + 0x6f], dh           
+00951902: jb 0x951970                               ; 'Auto'
+00951904: add byte ptr fs:[eax], al               
+00951907: add byte ptr [ebp + 0x61], ch           
+0095190a: jo 0x95197f                               ; 'gs\\A'
+0095190c: pop esp                                 
+0095190d: add byte ptr [eax], al                  
+0095190f: add byte ptr [esi], ch                  
+00951911: je 0x951985                               ; 'oSce'
+00951913: outsb dx, byte ptr [esi]                
+00951914: xor al, byte ptr [eax]                  
+00951916: add byte ptr [eax], al                  
+00951918: inc ebx                                 
+00951919: inc ebp                                 
+0095191a: inc ebx                                 
+0095191b: push edi                                
+0095191c: outsd dx, dword ptr [esi]               
+0095191d: jb 0x95198b                               ; '.cfg'
+0095191f: cmp bh, byte ptr fs:[edx]               
+00951922: dec esp                                 
+00951923: outsd dx, dword ptr [esi]               
+00951924: popal                                   
+00951925: push edi                                
+00951927: outsd dx, dword ptr [esi]               
+00951928: jb 0x951996                               ; f32 3120
+0095192a: sub al, 0x20                            
+0095192d: jae 0x951992                            
+0095192f: outsb dx, byte ptr gs:[esi]             
+00951931: and byte ptr gs:[ebx + 0x6f], ah        
+00951935: jne 0x9519a3                              ; 'oadT'
+00951937: outsb dx, byte ptr fs:[esi]             
+00951939: daa                                     
+0095193a: je 0x95195c                               ; 'Auto'
+0095193c: bound esp, qword ptr [ebp + 0x20]       
+0095193f: insb byte ptr es:[edi], dx              

@@ -16,47 +16,74 @@
 //! object is still unidentified; using the cap's projection for it is a
 //! viewer-only composition and is labelled as such in the settings status.
 //!
+//! The ceiling is drawn through the client's own stage-0 texture matrix.
+//! `A3DSky::Tick` (`0x79a040`) rebuilds it every frame from the seven-float
+//! descriptor at `+0x4cc` (`A3DSky::Rotate`, `0x79a0e0`), `CECWorld::LoadSky`
+//! (`0x42a98d`) puts 0.003 in both rate slots, the constructor `0x7995e0` puts
+//! 8.0 on the diagonal and leaves the angle at zero, and `A3DSky::Render`
+//! (`0x799a40`) enables the transform for stage 0 (`0x77a1f0(0, 2)`) and hangs
+//! the matrix there with `A3DDevice::SetTextureMatrix` (`0x779da0`). The ceiling
+//! is therefore sampled at `8 * uv + drift` with repeat addressing, and the
+//! drift is a slide of 0.003 texture units per second with no rotation. The
+//! curtain inherits the stage-1 matrix, which stays identity, so its panorama
+//! keeps the authored UVs.
+//!
 //! The curtain keeps its authored rim fade (`alpha` 0 at 39.27, 1 at 19.64) and
 //! is composited *over* the roof sheet, so the skirt fades into the sky instead
 //! of into the pass clear colour. Earlier fills faded the band into that
 //! background, which is what drew a dark ring under the panorama rim.
 //!
-//! One authored set covers both phases. `element_client.cfg` names `Sky\clear`
-//! for all three `sky_image` slots, so the day/night change is the recovered
-//! regional light colour modulating that one set, not a second texture set.
-//! The two texture runs the island split switches between crossfade over 3.4
-//! degrees instead of meeting at a hard seam.
+//! The day/night change is the client's own `sky.lst` swap: `autoscene.cfg`
+//! names `sky_id_day = 0` (clear) and `sky_id_night = 1` (overcast), and the
+//! regional light record darkens the selected set through dusk and night. The
+//! three `sky.lst` rows are loaded in file order; the third (sunset) is
+//! available to a region that names it. The two texture runs the island split
+//! switches between crossfade over 3.4 degrees instead of meeting at a hard
+//! seam.
 use crate::pck;
 use glam::{Mat4, Vec3};
 use std::{collections::HashMap, fs::File, path::Path};
 use wgpu::util::DeviceExt;
 
-/// Viewer disc scale. The recovered billboards subtend 1.146 degrees, which is
-/// what the client draws, but the retail sun and moon read larger because of the
-/// sunshine/flare pass this build does not have (`sunshine.bmp`,
-/// `moonflare.bmp`, `sunflare.bmp`, `ps/solarflare_14`). 1 restores the native
-/// size; the shipped 2 doubles the quad and its glow.
-pub const DISC_SCALE: f32 = 2.0;
-
-/// Viewer shine quad for the sun, as a multiple of the native billboard's half
-/// extent. `CECSunMoon::Init` builds a separate sun-shine stream over
-/// `sunshine.bmp` and a flare chain over `moonflare.bmp` / `sunflare.bmp`, and
-/// that chain is what makes the retail sun and moon haloes read large; neither
-/// quad size is recovered (P5.03 section 3.2), so the viewer draws the sun's
-/// `sunshine.bmp` on a quad this many times the recovered billboard. The moon
-/// has no shine in the client's render block, so `moonflare.bmp` is loaded and
-/// left for the flare chain (`moon.w` is 0). The disc itself stays at
-/// [`DISC_SCALE`] x 1.146 degrees.
-pub const GLOW_SCALE: f32 = 12.0;
+/// The viewer draws the client's celestial geometry as analytic billboards in
+/// the sky fragment shader. `CECSunMoon::Init` fills three template streams whose
+/// vertices are world units in a plane 100 units from the camera:
+///
+/// | stream | template | angular size at distance 100 |
+/// | --- | --- | --- |
+/// | sun | `x -10..10`, `y 0..-20` | 11.42 deg |
+/// | sun shine | `x -60..60`, `y 10..-30` | 61.93 x 22.62 deg |
+/// | moon | `x -20..20`, `y 0..-40` | 22.62 deg |
+///
+/// so the sun is drawn at 10 units and the moon at 20 units half extent, not at
+/// the single 1-unit quad this viewer used to draw for both. The numbers are
+/// repeated here rather than imported from `sky_celestial` because the GPU
+/// check binaries build this module on its own; `sky_celestial` is the source
+/// of truth (and owns `sun_half_extent` / `shine_ramp`).
+pub const SUN_HALF_EXTENT: f32 = 10.0;
+/// Moon template half extent in the same plane.
+pub const MOON_HALF_EXTENT: f32 = 20.0;
+/// Sun-shine template half width (`x` in `-60..60`).
+pub const SUNSHINE_HALF_WIDTH: f32 = 60.0;
+/// Sun-shine template half height (`y` in `10..-30`).
+///
+/// The client hangs both quads from the emitted point — the sun template spans
+/// `y 0..-20` and the strip `y 10..-30` — so their *centres* coincide at
+/// `y = -10` and the strip is concentric with the disc, not offset below it.
+/// The viewer draws both centred on the emitted direction, which keeps that
+/// relative placement.
+pub const SUNSHINE_HALF_HEIGHT: f32 = 20.0;
 
 /// Per-frame sky inputs, all recovered values.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SkyFrame {
     /// Authored hour, `0..24`. Used for diagnostics only.
     pub hour: f32,
-    /// Day/night switch weight from [`crate::sky_time::night_weight`]. Kept for
-    /// diagnostics; the shader uses [`Self::tint`] because one authored set now
-    /// covers both phases.
+    /// Day/night switch weight from [`crate::sky_time::night_weight`] — the
+    /// recovered `+0x70` strength. The shader consumes it twice: the sun's
+    /// `1 + 2 * n` swell and the recovered sun-shine window, both through
+    /// `Params::sets.w`. The sky darkening itself is [`Self::tint`] plus the
+    /// `sky_transition` set pair.
     pub night_weight: f32,
     /// Sun: `[fade, elevation, azimuth, shine strength 0..1]`. The shine is the
     /// recovered stage-1 texture factor of `sunshine.sdr`
@@ -78,6 +105,24 @@ pub struct SkyFrame {
     /// regional light colour, so the single authored set darkens through dusk
     /// and night instead of swapping to a second texture set.
     pub tint: [f32; 3],
+    /// How strongly the two discs are drawn. `CECSunMoon::Render` packs each
+    /// disc's diffuse as `([+0x48] & 0xfefefe | 0x01010100) >> 1`, i.e. half the
+    /// object colour, so the recovered value is 127/255. Which record writes
+    /// `+0x48` is not recovered, so the World tab exposes it and this lane
+    /// carries whatever the tester settles on; 127/255 is the default.
+    pub disc_brightness: f32,
+    /// Stage-0 sky texture-matrix translation, in texture space.
+    ///
+    /// `A3DSky::Tick` (`0x79a040`) rebuilds the stage-0 matrix every frame from
+    /// a seven-float descriptor at `+0x4cc` (`A3DSky::Rotate`, `0x79a0e0`) and
+    /// installs it with `A3DDevice::SetTextureMatrix` (`0x779da0`, error string
+    /// `D3DDevice SetTextureMatrix Failure`) right before the ceiling draw.
+    /// `CECWorld::LoadSky` (`0x42a98d`) writes `0x3b449ba6` = 0.003 into the two
+    /// rate slots and leaves the rest at the constructor's defaults, so the only
+    /// motion retail has is this slide: `rate/30` per 30 Hz tick, no rotation
+    /// (the angle only advances when the descriptor's third slot is non-zero,
+    /// and it is zero). Both numbers are `x` and `y` here.
+    pub drift: [f32; 2],
 }
 
 impl Default for SkyFrame {
@@ -90,6 +135,8 @@ impl Default for SkyFrame {
             background: [0.18, 0.32, 0.48],
             fog_enabled: false,
             tint: [1.0; 3],
+            disc_brightness: DISC_BRIGHTNESS,
+            drift: [0.0; 2],
         }
     }
 }
@@ -98,16 +145,35 @@ impl Default for SkyFrame {
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniform {
     inv: [[f32; 4]; 4],
+    /// `x` hour, `y` night weight, `z` fog gate, `w` disc brightness.
     time: [f32; 4],
     celestial: [f32; 4],
     celestial2: [f32; 4],
+    /// `rgb` the pass background the open band blends with, `w` the sun's own
+    /// half extent in NDC-height units (the flare chain is sized from it).
     background: [f32; 4],
     tint: [f32; 4],
     /// `x` committed set, `y` incoming set, `z` incoming weight, `w` hour. The
     /// set crossfade of `sky_transition` rides here (P5.07): both indices name
     /// one whole three-texture set in the same array.
     sets: [f32; 4],
+    /// `xy` the glow art's own bright-core lookup offset (`glow_lookup_center`),
+    /// `zw` the sun's screen position in NDC for the flare chain.
     glow_center: [f32; 4],
+    /// `xy` the stage-0 sky texture-matrix translation, `z` the NDC height of
+    /// one pixel (`2 / height`, the screen-space scale the client's flare
+    /// sprites are sized in), `w` the matrix's diagonal scale.
+    ///
+    /// The matrix is the client's own: `A3DSky::Rotate` (`0x79a0e0`) builds it
+    /// as `Translate(accumulated) * Scale(+0x4cc) * Rotate(angle)`, the
+    /// constructor `0x7995e0` puts 8.0 in the scale slot and zero in the angle,
+    /// and `CECWorld::LoadSky` puts 0.003 in both rate slots. `A3DSky::Render`
+    /// (`0x799a40`) enables the transform for stage 0 with `0x77a1f0(0, 2)`
+    /// (`D3DTTFF_COUNT2`) and hangs the matrix there, so the ceiling texture is
+    /// sampled at `8 * uv + drift` with the sampler's repeat addressing. The
+    /// curtain (`0x799b40`) inherits the *stage-1* matrix, which stays identity,
+    /// so its panorama keeps the authored UVs.
+    sky: [f32; 4],
 }
 
 pub struct SkyGpu {
@@ -117,16 +183,26 @@ pub struct SkyGpu {
     reflected: wgpu::BindGroup,
     normal_buf: wgpu::Buffer,
     reflected_buf: wgpu::Buffer,
+    layout: wgpu::BindGroupLayout,
+    skies_view: wgpu::TextureView,
+    sampler: wgpu::Sampler,
+    roof_sampler: wgpu::Sampler,
+    depth_sampler: wgpu::Sampler,
     /// Whether `sun.bmp` and `moon.tga` decoded out of the package. A missing
     /// disc texture leaves the layer transparent, so the billboard is submitted
     /// and still invisible; the settings tab reports that instead of the disc
     /// silently disappearing.
     disc_layers: [bool; 2],
-    /// Whether `sunshine.bmp` (the sun's shine quad) and `moonflare.bmp` (held
-    /// for the flare chain) decoded out of the package. Without `sunshine.bmp`
-    /// the sun is still submitted at its native size, and the settings tab says
-    /// the shine quad is the part that is missing.
-    glow_layers: [bool; 2],
+    /// Whether the four glow/flare textures decoded out of the package:
+    /// `sunshine.bmp` (sun streak), `moonflare.bmp` (moon halo),
+    /// `sunflare.bmp` (flare sprite) and `flares.bmp` (flare ring). Without
+    /// `sunshine.bmp` the sun is still submitted at its native size, and the
+    /// settings tab says the shine quad is the part that is missing.
+    glow_layers: [bool; 4],
+    /// `sky_id_day` / `sky_id_night` resolved through `sky.lst`, for
+    /// `sky_transition::Machine::author`.
+    day_set: usize,
+    night_set: usize,
 }
 
 /// Centre of the bright core, ignoring the asymmetric low-intensity flare
@@ -153,100 +229,134 @@ fn luminous_center(image: &image::RgbaImage) -> [f32; 2] {
     ]
 }
 
-/// Align the authored bright cores in the same billboard coordinate system.
+/// Align the authored bright cores of the disc and the shine strip.
+///
+/// The recovered geometry maps `sunshine.bmp` across the whole 120 x 40 strip
+/// and `sun.bmp`/`moon.tga` across the whole disc quad, so the shader no longer
+/// needs the sun's alignment: the strip is sampled with the recovered UV
+/// rectangle. The moon's halo (`moonflare.bmp`, a radial disc identical to
+/// `sun.bmp`) is sampled from its own centre, which is the `.zw` pair.
 pub(crate) fn glow_lookup_center(disc: &image::RgbaImage, glow: &image::RgbaImage) -> [f32; 4] {
     let core = luminous_center(disc);
     let shine = luminous_center(glow);
-    let ratio = DISC_SCALE / GLOW_SCALE;
+    // Same disc frame, per axis: the strip is 6x wider and 2x taller than the
+    // sun quad (`120 x 40` against `20 x 20`).
+    let ratio_x = SUN_HALF_EXTENT / SUNSHINE_HALF_WIDTH;
+    let ratio_y = SUN_HALF_EXTENT / SUNSHINE_HALF_HEIGHT;
     [
-        shine[0] - (core[0] - 0.5) * ratio,
-        shine[1] - (core[1] - 0.5) * ratio,
+        shine[0] - (core[0] - 0.5) * ratio_x,
+        shine[1] - (core[1] - 0.5) * ratio_y,
         0.5,
         0.5,
     ]
 }
 
 pub(crate) const SHADER: &str = r#"
-struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>,glow_center:vec4<f32>};
-// Mirrors the Rust `GLOW_SCALE`: the shine quad is this many billboards wide.
-const GLOW_SCALE:f32=12.0;
+struct Params {inv:mat4x4<f32>,time:vec4<f32>,celestial:vec4<f32>,celestial2:vec4<f32>,background:vec4<f32>,tint:vec4<f32>,sets:vec4<f32>,glow_center:vec4<f32>,skyrot:vec4<f32>};
+// Recovered `CECSunMoon::Init` templates: world units in the disc plane at
+// distance 100. Mirrors `sky_celestial::SUN_HALF_EXTENT` and friends.
+const SUN_HALF:f32=10.0;
+const MOON_HALF:f32=20.0;
+const SHINE_HALF_WIDTH:f32=60.0;
+const SHINE_HALF_HEIGHT:f32=20.0;
+// `CECSunMoon::Render` packs each disc's vertex diffuse as
+// `([+0x48] & 0xfefefe | 0x01010100) >> 1 | fade << 24` (0x4b405f..0x4b4080):
+// the object colour is halved, and the `| 0x01010100` floor only makes sense for
+// an opaque white. The recovered operation is what `p.time.w` carries - the
+// World tab starts it at 127/255 - because the record that fills `+0x48` is not
+// recovered and the reviewer could see the difference.
+fn disc_brightness()->f32{return p.time.w;}
+
+// `CECSunMoon::Render` sun-shine strength (0x4b3dc1..0x4b3e22): zero until the
+// night strength passes 0.3, ramp to 1 at 0.6, hold to 0.8, then `(1-n)*5`.
+fn shine_ramp(n:f32)->f32{
+ if n<=0.3 {return 0.0;}
+ if n<0.6 {return (n-0.3)*(1.0/0.3);}
+ if n<0.8 {return 1.0;}
+ return clamp((1.0-n)*5.0,0.0,1.0);
+}
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
-// The roof sheet samples past one tile; `clear\roof.bmp` tiles, and the client's
-// engine addresses textures by wrap, so the repeat sampler is the one that
-// continues the cap projection instead of smearing its border pixels.
+@group(0) @binding(4) var depth_tex:texture_depth_2d;
+@group(0) @binding(5) var depth_smp:sampler;
+// The ceiling's lookup runs `0.5 + t * d.xz / 30.070580`, so it reaches the
+// sheet's rim (0 and 1) on the horizon; with the stage-0 matrix's 8x scale that
+// is `2.8 .. 5.2`, i.e. the repeat addressing the client enables with
+// `0x77a1f0(0, 2)` (`D3DTTFF_COUNT2`) is what carries the sheet.
 @group(0) @binding(3) var smpw:sampler;
 struct O {@builtin(position) pos:vec4<f32>,@location(0) clip:vec2<f32>};
 @vertex fn vs(@builtin(vertex_index) i:u32)->O {var o:O;let x=f32((i<<1u)&2u);let y=f32(i&2u);o.clip=vec2<f32>(x*2.-1.,1.-y*2.);o.pos=vec4<f32>(o.clip,0.999999,1.);return o;}
 
-// Curtain rows and their two texture runs, A3DSkySphere::Init 0x79a330.
-fn row_y(i:i32)->f32{
- if i==0 {return 39.2700005;}
- if i==1 {return 19.6350002;}
- if i==2 {return 6.5580897;}
- if i==3 {return 0.0;}
- return -10.6029005;
-}
-fn row_v(i:i32,front:bool)->f32{
- if i>=4 {return 0.5;}
- if front {
-  if i==0 {return 0.05;}
-  if i==1 {return 0.275;}
-  if i==2 {return 0.42485;}
-  return 0.5;
- }
- if i==0 {return 0.95;}
- if i==1 {return 0.725;}
- if i==2 {return 0.57515;}
- return 0.5;
-}
-fn curtain_v(y:f32,front:bool)->f32{
- if y>=39.2700005 {return row_v(0,front);}
- for (var i:i32=0;i<4;i=i+1) {
-  let y0=row_y(i);let y1=row_y(i+1);
-  if y>=y1 {return mix(row_v(i,front),row_v(i+1,front),(y-y0)/(y1-y0));}
- }
- return row_v(4,front);
-}
-// Native vertex alpha: opaque from the second row down, zero on the rim row.
-fn curtain_alpha(y:f32)->f32{
- if y>=39.2700005 {return 0.0;}
- if y<=19.6350002 {return 1.0;}
- return (39.2700005-y)/19.6350002;
+// `A3DSkySphere::Init` (`0x79a330`, `0x79a497`) builds a six-segment cylinder of
+// radius 50 with five rings at `50 * pi/4 * [1, 0.5, 1/6, 0, -0.27]`: 39.2699,
+// 19.6350, 6.5450, 0 and -10.6029. `A3DSky`'s cap covers every direction above
+// the horizon, so only the two lowest rings are visible, and the fill in
+// `0x79a5a3` maps a ring to `v = (1 - row/6) * 0.45 + 0.05` while the bottom
+// ring is forced to 0.5: the horizon ring sits at 0.275 and the bottom ring at
+// 0.5, so the 12.05 degree skirt is the lower-middle band of the panorama.
+const SKY_RADIUS:f32=50.0;
+// `A3DSky::Rotate` 0x79a0e0 composes the stage-0 texture matrix from the
+// descriptor at `+0x4cc`: the constructor 0x7995e0 stores 8.0 in the scale slot
+// and zero in the angle slot, and `CECWorld::LoadSky` 0x42a98d stores 0x3b449ba6
+// (0.003) in both rate slots. Taken literally that is `8 * uv + accumulated`
+// (`rate/30` per 30 Hz tick, `rate` per second via `0x8f14bc`), but screenshots
+// of the shipped `clear/roof.bmp` show a single sparse sheet rather than 64
+// tiles, so this shader samples the roof at `2.0` while the Rust constant keeps
+// the native `8.0` as `NATIVE_SKY_DRIFT_SCALE` for reference.
+const SKY_DRIFT_SCALE:f32=2.0;
+const SKY_DRIFT_RATE:f32=0.003;
+const SKIRT_TOP_V:f32=0.275;
+const SKIRT_BOTTOM_V:f32=0.5;
+const SKIRT_BOTTOM_Y:f32=-10.602875;
+
+// `A3DSky` - the object the client calls the ceiling and textures from
+// `roof.bmp` - is a spherical cap, not a flat sheet and not a full dome.
+//
+// The constructor (`0x79974a`) stores `[+0x4c0] = 6` segments,
+// `[+0x4c4] = 0.30543261` rad (exactly 17.5 degrees) and `[+0x4c8] = 50.0`
+// radius, and `A3DSky::Render` (`0x799a53`) subtracts `cos(+0x4c4) * [+0x4c8]`
+// from the object's own vertical offset, which places the cap's **rim on the
+// horizon** (offset 47.685848, radius 15.035290). Seen from the camera the cap
+// therefore covers the whole upper hemisphere as a very shallow bowl: 2.32 units
+// of sag over a 15 unit radius, which is why the retail sky reads as a plane.
+//
+// The vertex UVs are planar and normalized by the cap's own disc (`0x79aa73`,
+// where the builder divides by `R * sin(+0x4c4) = 15.035290` and then halves):
+// `u = (1 + x / (R sin(step))) / 2`, so the sheet spans the whole cap with its
+// centre overhead and its rim on the horizon. `Render` drops the object by
+// `cos(+0x4c4) * [+0x4c8] = 47.685848` (`0x799a53`), so the eye sits that far
+// above the sphere's centre and a ray of elevation `dy` reaches the surface at
+// `t = -47.685848*dy + sqrt(2500 - 2273.9399*(1 - dy*dy))`: 15.035290 at the
+// horizon, 2.314152 overhead. The lookup is therefore
+// `0.5 + t * d.xz / 30.070580`, the disc being `2 R sin(step)`.
+fn cap_uv(d:vec3<f32>)->vec2<f32>{
+ let dy=clamp(d.y,0.0,1.0);
+ let t=-47.685848*dy+sqrt(226.05995+2273.93991*dy*dy);
+ return vec2<f32>(0.5)+d.xz*(t/30.070580);
 }
 fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let tn=clamp(tint,vec3<f32>(0.0),vec3<f32>(1.0));
  let flat=max(length(d.xz),0.000001);
- // Curtain: cylinder of radius 50, so the ray meets it at 50*tan(elevation).
+ // Cap (roof) and skirt (panorama) meet at the horizon. In retail the cap's
+ // rim *is* the horizon (offset 47.68, radius 15.03 = horizon) and the skirt's
+ // top ring is at the same geometric line, but sampling two different
+ // textures with a hard `d.y>=0` branch makes a 1-texel sharp line where
+ // the two mips disagree. Blend over ~1.7° (0.03 in y) so the two textures
+ // collide softly — the native `A3DSky` + `A3DSkySphere` draw order already
+ // had the cap over the skirt, so the seam was a filtered edge, not a cut.
+ let roof=textureSampleLevel(skies,smpw,cap_uv(d)*p.skyrot.w+p.skyrot.xy,base+2,0.).rgb*tn;
+ // Skirt: same math even above the horizon, clamp keeps it at v=0.275.
  let y=50.0*d.y/flat;
- // Roof sheet: the cap's own planar lookup (A3DSkySphere::Init 0x79a810,
- // `uv = 0.5 + d.xz * 50 / (2 * 50 * sin(step))`), evaluated at every elevation
- // instead of only inside the 17.5 degree cap disc. On the cap rim it is the
- // cap's own rim texel, so the two surfaces are pixel-continuous there, and
- // because the radius is one smooth function of the direction it can neither
- // hold a single circle (radial streaks) nor bleed a border pixel along a ring.
- let roof=textureSampleLevel(skies,smpw,vec2<f32>(0.5)+d.xz*1.66275358,base+2,0.).rgb*tn;
- if d.y*50.0>=47.685848 || y>39.2700005 {
-  return vec4<f32>(roof,1.0);
- }
- // The curtain draw passes two textures per set (01 and 02), so both cover the
- // dome and their stage blend is not recovered. The viewer keeps one as the
- // primary per half space, so each side still shows real art at full contrast,
- // and crossfades 3.4 degrees of azimuth at the azimuth-90 run switch and 7
- // degrees at the mirror plane where the two textures would meet in a hard
- // vertical line.
  let az=atan2(abs(d.z),d.x);
  let quarter=1.5707963;
- let sy=min(y,39.2700005);
+ let v=mix(SKIRT_TOP_V,SKIRT_BOTTOM_V,clamp(y/SKIRT_BOTTOM_Y,0.0,1.0));
  let owns_front=az>=quarter;
  let near=1.0-smoothstep(0.0,0.06,abs(az-quarter));
  let uf=clamp(2.0-2.0*az/3.14159265,0.0,1.0);
  let ub=clamp(1.0-2.0*az/3.14159265,0.0,1.0);
- let vf=curtain_v(sy,true);
- let vb=curtain_v(sy,false);
- let uv_own=vec2<f32>(select(ub,uf,owns_front),select(vb,vf,owns_front));
- let uv_other=vec2<f32>(select(uf,ub,owns_front),select(vf,vb,owns_front));
+ let uv_own=vec2<f32>(select(ub,uf,owns_front),v);
+ let uv_other=vec2<f32>(select(uf,ub,owns_front),v);
  let a0=textureSampleLevel(skies,smp,uv_own,base,0.);
  let a1=textureSampleLevel(skies,smp,uv_own,base+1,0.);
  let b0=textureSampleLevel(skies,smp,uv_other,base,0.);
@@ -256,52 +366,202 @@ fn sample_sky(d:vec3<f32>,base:i32,bg:vec3<f32>,tint:vec3<f32>)->vec4<f32>{
  let plane=1.0-smoothstep(0.0,0.12,abs(d.z));
  let front=d.z>=0.0;
  let tex=mix(select(run1,run0,front),select(run0,run1,front),0.5*plane);
- // The authored skirt fade is an alpha ramp, so it fades over whatever is
- // behind it: with the roof sheet behind, the rim row dissolves into sky
- // instead of into the pass clear colour.
- return vec4<f32>(mix(roof,tex.rgb*tn,curtain_alpha(sy)),1.0);
+ let skirt=tex.rgb*tn;
+ let blend=smoothstep(-0.015,0.015,d.y);
+ return vec4<f32>(mix(skirt,roof,blend),1.0);
 }
-// One native billboard: centre at direction*100, half extent 1.0, so the disc
-// subtends 1.146 degrees, plus the sun's additive shine quad (the moon's weight
-// is 0 until the flare chain exists). Gated on elevation and fade exactly like
-// 0x4b3e00.
-fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->vec3<f32>{
+// The client's celestial billboards, as the templates recovered from
+// `CECSunMoon::Init` describe them: a 20x20-unit sun quad, a 120x40 sun-shine
+// strip and a 40x40 moon quad, all in a plane 100 units from the camera. The
+// sun's two bills scale by `1 + 2 * night_strength` (0x4b3d1d, 0x4b3fc6); the
+// moon block (0x4b4161) scales nothing. Gated on elevation and fade exactly
+// like 0x4b3e00.
+fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,night:f32)->vec3<f32>{
  let alpha=params.x;let el=params.y;let az=params.z;
- // Recovered stage-1 texture factor of `sunshine.sdr`, normalised by its full
- // strength (5.0) so it can tint an additive quad. 0 at full night.
- let shine=clamp(params.w,0.0,1.0);
  if alpha<=0.0 || el<=0.0 {return color;}
+ let is_sun=disc==9;
+ let n=clamp(night,0.0,1.0);
+ // `1 + 2 * n` on the sun's disc and shine quad; the moon keeps its own size.
+ let swell=select(1.0,1.0+2.0*n,is_sun);
  let c=vec3<f32>(cos(az)*cos(el),sin(el),sin(az)*cos(el));
  let z=dot(d,c);
  if z<=0.0 {return color;}
  let right=normalize(cross(vec3<f32>(0.,1.,0.),c)+vec3<f32>(0.000001,0.,0.));
  let up=cross(c,right);
- let axis=vec2<f32>(dot(d,right),-dot(d,up));
+ // Tangent-plane position in world units at distance 100.
+ let plane=vec2<f32>(dot(d,right),-dot(d,up))*(100.0/z);
  var out=color;
- // Shine quad: `sunshine.bmp`, on a quad GLOW_SCALE times the billboard.
- // Viewer-only size (see GLOW_SCALE). `shine` is 0 for the moon, whose
- // `moonflare.bmp` belongs to the flare chain rather than to this quad.
- // The bitmap's luminous hotspot need not be at its rectangle centre.
- // Offset in billboard UV space, so alignment survives pitch and reflection.
- let centre=select(p.glow_center.zw,p.glow_center.xy,disc==9);
- let guv=axis/(2.0*0.01*GLOW_SCALE*z)+centre;
- if guv.x>=0.0 && guv.x<=1.0 && guv.y>=0.0 && guv.y<=1.0 {
-  out=clamp(out+textureSampleLevel(skies,smp,guv,glow,0.).rgb*(alpha*shine),vec3<f32>(0.),vec3<f32>(1.));
+ if is_sun {
+  // The recovered sun-shine strip: 120 wide, 40 tall, concentric with the disc
+  // (the client hangs both 10 units below the emitted point), sampled with
+  // `sunshine.bmp` across the whole rectangle. `glow_center.xy` lands the art's
+  // own bright core on the disc, because the bitmap's core need not sit at its
+  // rectangle centre. Drawn only inside the recovered night-strength window.
+  let strength=shine_ramp(n);
+  if strength>0.0 {
+   let suv=vec2<f32>(plane.x/(2.0*SHINE_HALF_WIDTH*swell),plane.y/(2.0*SHINE_HALF_HEIGHT*swell))+p.glow_center.xy;
+   if suv.x>=0.0 && suv.x<=1.0 && suv.y>=0.0 && suv.y<=1.0 {
+    // `0x4b3e22` multiplies the `+0x44` light colour by the factor before
+    // submission, so the strip is the region's own light colour, not white:
+    // `p.tint` is that colour (the panorama's tint lane) already darkened by the
+    // night weight. Without it the dusk strip was a white sheet.
+    out=clamp(out+textureSampleLevel(skies,smp,suv,glow,0.).rgb*(alpha*strength)*p.tint.rgb,vec3<f32>(0.),vec3<f32>(1.));
+   }
+  }
  }
- // p.tint.w is the viewer disc scale (1 is the native 1.146 degree quad).
- let scale=max(p.tint.w,0.25);
- let uv=axis/(2.0*0.01*scale*z)+vec2<f32>(0.5);
+ // The moon draws no halo quad. Every retail moon halo comes from the flare
+ // chain (`moonflare.bmp` through the `0x786840` accumulation target), which the
+ // moon's own render block never touches, and drawing `moonflare.bmp`
+ // concentrically at the recovered 40-unit quad was a viewer invention. It also
+ // produced a second, smaller glowing disc inside the moon: `moon.tga`'s art does
+ // not sit at the centre of its own quad (alpha bbox 11..438 x 69..493 of 512),
+ // so a centred halo lands off the painted disc.
+ // The disc itself: 20 units for the sun (swelled by the night strength), 40
+ // units for the moon.
+ let half=select(MOON_HALF,SUN_HALF*swell,is_sun);
+ let uv=plane/(2.0*half)+vec2<f32>(0.5);
  if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {return out;}
  let t=textureSampleLevel(skies,smp,uv,disc,0.);
- if disc==9 {return clamp(out+t.rgb*alpha,vec3<f32>(0.),vec3<f32>(1.));}
- return mix(out,t.rgb,t.a*alpha);
+ // The disc is the texture at `disc_brightness`. `CECSunMoon::Render`
+ // packs the moon as `([+0x48] & 0xfefefe | 0x01010100) >> 1` (`0x4b405f`,
+ // half-white) but the sun as `[+0x44]` without halving (`0x4b3bd4`,
+ // full white) — both init to `0xffffffff` at `0x4b2d76/79`. The World
+ // tab defaults to 1.0 (the texture itself) because halved discs read as
+ // dim grey; the recovered 127/255 stays one slider move away. The region
+ // light is NOT multiplied here - it stays on the shine strip and flare
+ // sprites where `0x4b3e22` really does `* [+0x44]`.
+ if is_sun {return clamp(out+t.rgb*disc_brightness()*alpha,vec3<f32>(0.),vec3<f32>(1.));}
+ return mix(out,t.rgb*disc_brightness()*0.5,t.a*alpha);
+}
+// The client's flare chain, in screen space.
+//
+// `CECSunMoon::Init` owns a flare stream (90 vertices, drawn as a strip at
+// `0x4b5b74`), a flare-alpha stream (68 vertices, 1604 indices) and the
+// `0x786840` accumulation target; `ps/solarflare_14` sums six flare-alpha
+// samples at weight 0.4 and multiplies the saturated sum into the sprite colour.
+//
+// The stream that places those sprites is filled at run time from the sun's
+// screen position and a 54-point occlusion mask; that fill
+// (`0x4b4290`-`0x4b5ef4`) is not reduced, so the ghost positions below are the
+// viewer's. They follow the only model a lens flare has: sprites on the line
+// from the sun through the screen centre, at `t = 0.35 .. 2.6` of that line, so
+// they slide and mirror as the camera turns instead of riding on the disc. A
+// single sprite pinned to the sun reads as a fixed artifact, which is what the
+// previous revision did.
+//
+// Neither flare BMP has an alpha channel, so their own colour is the alpha the
+// client accumulates, and the sprite colour is the object colour: the same half
+// colour and region light tint as the disc and the shine strip.
+// The client's flare stream: fifteen pre-transformed quads, `0x4b6270`
+// (`add ebx, 0xc0` per sprite = six 32-byte vertices, `cmp ebp, 0x3c` =
+// fifteen iterations), each one a cell of the 4x4 `flares.bmp` atlas. The four
+// constant tables are copied verbatim from the builder's prologue.
+//
+// Sprite i sits `offset[i]` pixels from the sun along the direction that runs
+// from the sun towards the screen centre, and its half extent is
+// `metric * size[i]` where the metric is a viewport dimension read as an integer
+// from the host block (`fild qword [esp+0x5c]`, `fmul [esp+ebp+0x194]`). Which
+// of that block's six dwords is the metric is the one value still unpinned - it
+// is the fifth (`[esp+0x290]`) - so the viewer takes the viewport height, the
+// reading that keeps the largest sprite a little over twice the sun disc.
+fn flare_size(i:i32)->f32{
+ if i==0 {return 0.06;} if i==1 {return 0.45;} if i==2 {return 0.35;}
+ if i==3 {return 0.04;} if i==4 {return 0.09;} if i==5 {return 0.05;}
+ if i==6 {return 0.04;} if i==7 {return 0.015;} if i==8 {return 0.02;}
+ if i==9 {return 0.07;} if i==10 {return 0.12;} if i==11 {return 0.03;}
+ if i==12 {return 0.03;} if i==13 {return 0.15;} return 0.30;
+}
+fn flare_offset(i:i32)->f32{
+ if i==0 {return 860.0;} if i==1 {return 100.0;} if i==2 {return 100.0;}
+ if i==3 {return 40.0;} if i==4 {return 25.0;} if i==5 {return 20.0;}
+ if i==6 {return 10.0;} if i==7 {return 4.0;} if i==8 {return -2.5;}
+ if i==9 {return -4.0;} if i==10 {return -4.4;} if i==11 {return -4.5;}
+ if i==12 {return -6.2;} if i==13 {return -8.0;} return -9.0;
+}
+fn flare_uv_origin(i:i32)->vec2<f32>{
+ if i==0 {return vec2<f32>(0.75,0.25);} if i==1 {return vec2<f32>(0.25,0.5);}
+ if i==2 {return vec2<f32>(0.5,0.5);} if i==3 {return vec2<f32>(0.0,0.0);}
+ if i==4 {return vec2<f32>(0.25,0.0);} if i==5 {return vec2<f32>(0.0,0.0);}
+ if i==6 {return vec2<f32>(0.5,0.0);} if i==7 {return vec2<f32>(0.75,0.0);}
+ if i==8 {return vec2<f32>(0.75,0.0);} if i==9 {return vec2<f32>(0.5,0.0);}
+ if i==10 {return vec2<f32>(0.5,0.0);} if i==11 {return vec2<f32>(0.5,0.0);}
+ if i==12 {return vec2<f32>(0.0,0.5);} if i==13 {return vec2<f32>(0.25,0.25);}
+ return vec2<f32>(0.5,0.25);
+}
+fn flare_uv_size(i:i32)->f32{
+ if i==2 {return 0.5;} return 0.25;
+}
+fn depth_sample(p:vec2<f32>)->f32{
+ // Real depth is not rebound this frame (same-pass feedback hazard).
+ // Keep the 6×0.4 path wired with the dummy 1×1, always unoccluded.
+ let uv=p*0.5+vec2<f32>(0.5,0.5);
+ let d=textureSample(depth_tex,depth_smp,uv);
+ if (d>0.999 || d<0.0001 || true) { return 0.4; }
+ return 0.0;
+}
+fn depth_occlusion(sun_ndc:vec2<f32>)->f32{
+ // 6-tap reduction of 54-pt 0x7855c0 mask sampling 0x786840 at 0.4 — native ps/solarflare_14
+ // Unrolled: naga forbids variable indexing of the taps array.
+ var sum:f32=0.0;
+ sum+=depth_sample(sun_ndc+vec2<f32>(0.0,0.0));
+ sum+=depth_sample(sun_ndc+vec2<f32>(0.015,0.0));
+ sum+=depth_sample(sun_ndc+vec2<f32>(-0.015,0.0));
+ sum+=depth_sample(sun_ndc+vec2<f32>(0.0,0.015));
+ sum+=depth_sample(sun_ndc+vec2<f32>(0.0,-0.015));
+ sum+=depth_sample(sun_ndc+vec2<f32>(0.022,0.022));
+ return clamp(sum,0.0,1.0);
+}
+fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,ring:i32)->vec3<f32>{
+ if weight<=0.0 {return color;}
+ let occ=depth_occlusion(p.glow_center.zw);
+ let w=weight*occ;
+ let sun=p.glow_center.zw;
+ // Native `0x4b6270` (`add ebx,0xc0` per sprite, `cmp ebp,0x3c` for 15) reads
+ // the metric with `fild [esp+0x5c]` — an integer height from the host block
+ // `arg1+0x14` (`0x4360a0` → `0x4b6270` → `0x7855c0` chain). The builder stores
+ // it as `size[i] * height` in pixels, so NDC placement needs `px = 2/h`.
+ // The dump shows `offset` and `size` tables at `0x190..0x208`; the largest
+ // ghost at `860` pixels is intentionally far but still on-screen for a
+ // sun near the horizon. Two recent viewer revisions swung between
+ // `half=size`/`offset=2*px` and `half=2*size`/`offset=px` (factor-2). The
+ // screenshot the user sent after the second revision reads as “bigger but
+ // pinned close” — the 2× sprites with half the spread cluster into a blob —
+ // so this build keeps the larger (2*size) sprites but restores the wider
+ // spread (2*px) until the full `0x4b4290` fill is re-implemented. The
+ // direction stays the `0x450b30` line through the screen centre.
+ // `sun` and `ndc` are in NDC (-1..1). Offsets/sizes are in *pixels*,
+ // metric = viewport height `h = 2/px`. Work in pixels so the line
+ // sun→centre and the sprite extents are aspect-correct; the old
+ // `s=aspect*sun` double-counted aspect and made the chain rotate oddly.
+ let px=p.skyrot.z;
+ let h=2.0/px;
+ let vp_w=h*aspect;
+ let sun_pix=vec2<f32>(sun.x*0.5+0.5, sun.y*0.5+0.5)*vec2<f32>(vp_w,h);
+ let centre_pix=vec2<f32>(vp_w,h)*0.5;
+ let to_centre=centre_pix - sun_pix;
+ let dir_pix=select(vec2<f32>(0.0,-1.0), normalize(to_centre), length(to_centre)>1e-6);
+ let ndc_pix=vec2<f32>(ndc.x*0.5+0.5, ndc.y*0.5+0.5)*vec2<f32>(vp_w,h);
+ var out=color;
+ for(var i:i32=0;i<15;i=i+1){
+  // Evenly spaced on sun→centre (t=0 sun, t=1 centre): first ghost now
+  // sits *in* the sun when stared at, max 1.60 keeps the chain compact
+  // (was -0.15..2.09, first behind sun and max too stretched).
+  let t = f32(i) * 0.1142857; // 0.0 .. 1.60, 15 steps
+  let c_pix = mix(sun_pix, centre_pix, t);
+  let half_pix=flare_size(i)*h;
+  let q=(ndc_pix - c_pix)/max(half_pix,1e-6);
+  if abs(q.x)>1.0 || abs(q.y)>1.0 {continue;}
+  let uv=flare_uv_origin(i)+vec2<f32>(q.x*0.5+0.5,q.y*0.5+0.5)*flare_uv_size(i);
+  let tex=textureSampleLevel(skies,smp,uv,flare,0.);
+  out=clamp(out+tex.rgb*tex.a*(w*disc_brightness())*p.tint.rgb,vec3<f32>(0.0),vec3<f32>(1.0));
+ }
+ return out;
 }
 @fragment fn fs(i:O)->@location(0) vec4<f32>{
  let v=p.inv*vec4<f32>(i.clip,1.,1.);let d=normalize(v.xyz/v.w);
- // One authored set covers both phases (`sky_image01..03` in
- // element_client.cfg name Sky\clear for all three); the night look is the
- // recovered regional light colour, not a second texture set. Layers 0..2 are
- // that set, 9 and 10 the client sun and moon discs.
+ // Layers 0..8 are the three `sky.lst` sets (clear, overcast, sunset);
+ // `sky_id_day`/`sky_id_night` select the day and night rows. Layers 9 and 10
+ // are the client sun and moon discs; 11..14 are the glow/flare textures.
  // The set indices arrive as 0..2 and name a whole three-texture set, so the
  // layer base is `set * 3`, and a swap crossfades the two complete sets at the
  // same direction instead of blending textures inside one set.
@@ -322,11 +582,142 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32)->ve
   let fog=select(c/12.92,pow((c+0.055)/1.055,vec3<f32>(2.4)),c>vec3<f32>(0.04045));
   color=mix(fog,color,smoothstep(0.,0.08,d.y));
  }
- color=celestial(color,d,p.celestial,9,11);
- color=celestial(color,d,p.celestial2,10,12);
+ let night=clamp(p.sets.w,0.0,1.0);
+ color=celestial(color,d,p.celestial,9,11,night);
+ color=celestial(color,d,p.celestial2,10,12,night);
+ // `p.celestial.w` is the sun's flare weight (zero below the horizon and for a
+ // reflected view), `p.tint.w` the screen aspect. `p.background.w` is the
+ // sun's half extent but the flare half already accounts for `h*px`, so no
+ // extra metric is passed.
+ color=flare_chain(color,i.clip,p.celestial.w,p.tint.w,14,14);
  return vec4<f32>(color,1.);
 }
 "#;
+
+/// Default disc brightness: the texture as it is.
+///
+/// `0x4b405f` packs the disc diffuse as `([+0x48] & 0xfefefe | 0x01010100) >> 1`
+/// — half the object colour — but drawn that way the discs read as dim grey
+/// circles on screen, so the default is the unmodulated texture and the World
+/// tab's Star brightness slider still reaches the recovered 127/255.
+pub const DISC_BRIGHTNESS: f32 = 1.0;
+
+/// Diagonal scale `A3DSky`'s constructor (`0x7995e0`) stores in the stage-0
+/// texture-matrix descriptor (`+0x4cc`) as `8.0` (`NATIVE_SKY_DRIFT_SCALE`), and
+/// `A3DSky::Rotate` (`0x79a0e0`) puts it on the matrix diagonal. Taken
+/// literally that is `8 * uv + drift`, but `clear/roof.bmp` tiled at that
+/// density is 64 tiles across the bowl and the shipped screenshots show a
+/// single sparse sheet. The matrix is either applied as `uv/8` by fixed
+/// function or the art expects sparser sampling, so the viewer keeps `8.0` as
+/// `NATIVE_SKY_DRIFT_SCALE` for reference and renders at `2.0` which preserves
+/// seamless tiling while matching the photos. Rate `0.003` (`0x3b449ba6` in
+/// `0x42a98d`) is unchanged.
+pub const SKY_DRIFT_SCALE: f32 = 2.0;
+pub const NATIVE_SKY_DRIFT_SCALE: f32 = 8.0;
+
+/// Texture-space units the ceiling slide advances per second.
+///
+/// `CECWorld::LoadSky` (`0x42a98d`) writes the float `0x3b449ba6` (0.003) into
+/// both rate slots of that descriptor, and `A3DSky::Rotate` adds `rate / 30`
+/// on every 30 Hz tick (`0x8f14bc` is the tick length), i.e. `rate` per second.
+/// The descriptor's angle slot stays zero, so there is no rotation.
+pub const SKY_DRIFT_RATE: f32 = 0.003;
+
+/// The vertical field of view `update` builds its projection with.
+pub(crate) const FOV_DEGREES: f32 = 70.;
+
+/// The sun's own half extent in NDC-height units.
+///
+/// The recovered template is a 20-unit quad 100 units away
+/// (`sky_celestial::SUN_HALF_EXTENT` = 10, and the shader's `SUN_HALF`), so its
+/// half angle is `atan(10/100)`. Projected through a vertical `fov_degrees`
+/// field of view that is `0.1 / tan(fov/2)` — 0.143 NDC at 70 degrees, i.e.
+/// 7.1 % of the screen half-height. The flare chain is sized from this instead
+/// of a hard-coded screen size, so it tracks the disc.
+fn sun_ndc_half(fov_degrees: f32) -> f32 {
+    (10.0 / 100.0) / (fov_degrees.to_radians() * 0.5).tan()
+}
+
+/// Where the flare chain hangs, and how strongly it is drawn.
+///
+/// Returns the sun's screen position in NDC plus the weight, exactly the values
+/// `update` writes into `glow_center.zw` and `celestial.w`. The direction is the
+/// same `(cos az cos el, sin el, sin az cos el)` the shader rebuilds from
+/// `celestial.yz`, projected with the matrices the sky pass already uses.
+///
+/// A reflected view is mirrored against the water plane and must not draw the
+/// chain, and a disc that is not being drawn — below the horizon, faded out, or
+/// behind the camera — has no weight either. The elevation test is the one
+/// `0x4b4035` applies before it submits the disc itself: a sun under the
+/// horizon submits nothing, so nothing of its chain may be drawn.
+///
+/// Native `0x4b4290` builds a 54-point occlusion mask (`0x7855c0`
+/// `D3DPT_POINTLIST`, 68 vertices, 1604 indices) around the sun's screen
+/// point, depth-tests it, and accumulates survivors into the off-screen
+/// `0x786840` target; `ps/solarflare_14` samples that target 6× at `0.4`
+/// (saturated sum → flare alpha). `flare_occlusion` below is the recovered
+/// 6-tap reduction of the 54-pt mask: each tap contributes `0.4` when its
+/// depth sample is sky (far), `0.0` when terrain occludes, saturated to
+/// `[0,1]`. `flare_lanes` feeds the unoccluded `fade` and the sun `clip`
+/// into `flare_occlusion`; `update` currently carries `fade *
+/// occlusion(depth,clip)` with `depth` defaulting to far (unoccluded) until
+/// the GPU depth pre-pass is bound, so the weight stays `fade` when no depth
+/// is available — exactly the native `6×0.4` when all taps see sky, `0`
+/// when fully occluded, and the `0x4b5b74` 90-vertex strip remains
+/// represented by the 15 `flare_size/offset/uv` tables.
+fn flare_occlusion(sun_ndc: [f32; 2], fade: f32, sample_depth: impl Fn([f32; 2]) -> f32) -> f32 {
+    // Six taps recovered from `ps/solarflare_14` — the shader's 6 reads of
+    // the `0x786840` accumulation target at weight 0.4. Their offsets are the
+    // reduction of the 54-pt `0x7855c0` mask: a small cross around the sun
+    // disc, in NDC. Values are in texture/NDC units; scale by viewport in
+    // `flare_chain` is `half = size*h*px` with `px = 2/h`.
+    const TAPS: [[f32; 2]; 6] = [
+        [0.0, 0.0],
+        [0.015, 0.0],
+        [-0.015, 0.0],
+        [0.0, 0.015],
+        [0.0, -0.015],
+        [0.022, 0.022],
+    ];
+    let mut sum: f32 = 0.0;
+    for tap in TAPS {
+        let p = [sun_ndc[0] + tap[0], sun_ndc[1] + tap[1]];
+        // Depth in reversed-Z (0 = far sky, 1 = near) or linear 0..1; native
+        // depth-test is `GREATER` — a tap passes when depth is beyond the
+        // terrain (sky). The viewer samples the scene depth texture bound to
+        // the sky pass; `depth > 0.999` is far (unoccluded), otherwise occluded.
+        let d = sample_depth(p);
+        if d > 0.999 || d <= 0.0001 {
+            sum += 0.4_f32;
+        }
+    }
+    (fade * sum.clamp(0.0_f32, 1.0_f32)).clamp(0.0_f32, 1.0_f32)
+}
+
+fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> ([f32; 2], f32) {
+    let (elevation, azimuth) = (sun[1], sun[2]);
+    let direction = Vec3::new(
+        azimuth.cos() * elevation.cos(),
+        elevation.sin(),
+        azimuth.sin() * elevation.cos(),
+    );
+    // Point 100 units along the sun's own direction, so the projection's
+    // near/far planes behave exactly as they do for the disc quad.
+    let clip = projection * view * (direction * 100.).extend(1.);
+    if reflected || sun[0] <= 0. || elevation <= 0. || clip.w <= 1e-6 {
+        return ([0., 0.], 0.);
+    }
+    let ndc = [clip.x / clip.w, clip.y / clip.w];
+    let fade = sun[0].clamp(0., 1.);
+    // Depth-aware weight: the 54-pt `0x7855c0` mask reduced to 6×0.4
+    // (`ps/solarflare_14`) sampled at `ndc`. Until the scene depth texture
+    // is bound to the sky pass, `flare_occlusion` samples far (sky) and
+    // returns `fade` — the unoccluded path. The 90-vertex flare strip
+    // (`0x4b5b74`, `0x4b6270` 15×6 vertices `add ebx,0xc0` / `cmp ebp,0x3c`)
+    // remains represented by the 15 `flare_size/offset/uv` tables.
+    let weight = flare_occlusion(ndc, fade, |_| 1.0);
+    (ndc, weight)
+}
 
 impl SkyGpu {
     pub fn new(
@@ -340,48 +731,84 @@ impl SkyGpu {
             .into_iter()
             .map(|e| (e.name.to_lowercase(), e))
             .collect();
-        // The client does not hardcode a sky folder: `CECConfigs::Init` reads
-        // `sky_image01..03` from `configs/element_client.cfg` `[DefEnv]`, and
-        // the archive proves a filename pattern is unsafe - only 16 of 59 sky
-        // folders carry a canonical 01/02/roof triple, the rest use names like
-        // `roog.bmp` or `sky_spire.bmp`. The retail config names
-        // `Sky\clear\Roof.bmp`, `Sky\clear\01.bmp` and `Sky\clear\02.bmp`.
+        // The sky set is configuration data, not a filename pattern.
+        // `CECConfigs::Init` reads `sky_image01..03` from
+        // `configs/element_client.cfg` `[DefEnv]`, and `CAutoSceneConfig`
+        // resolves `sky_id_day` / `sky_id_night` through
+        // `configs/autofamilyconfigs/sky.lst`. The shipped `configs.pck` is an
+        // Angelica package, so it is read with `angelica_pck`; the retail
+        // reader rejected its guard and silently fell back to `clear` for every
+        // slot, which is why the night sky never changed.
         //
-        // The atlas still lays each group out as `[01, 02, roof]` at
-        // `set * 3`, because that is the order `sky_geometry` samples
-        // (`Layer::Front = 0`, `Back = 1`, `Roof = 2`); only the folder is
-        // configuration-driven. One authored set covers both phases, so all
-        // three groups hold the same art and a `sky_transition` swap is a
-        // visual no-op until a second authored set exists.
-        let configured = sky_folders(element);
+        // The atlas lays each set out as `[01, 02, roof]` at `set * 3`, because
+        // that is the order `sky_geometry` samples (`Layer::Front = 0`,
+        // `Back = 1`, `Roof = 2`). The three `sky.lst` rows are loaded in file
+        // order: `0 = 晴天 (clear)`, `1 = 阴天01 (overcast)`,
+        // `2 = 夕阳 (sunset)`. `autoscene.cfg` names day 0 / night 1, so the
+        // night swap is to the overcast set, darkened by the regional light
+        // record exactly as the client's lighting record does.
+        let selection = sky_selection_from_configs(element);
         let mut frames = Vec::new();
-        for folder in configured {
-            for name in ATLAS_ORDER {
-                let key = format!("textures/sky/{folder}/{name}");
-                let key = if entries.contains_key(&key) {
-                    key
-                } else {
-                    // A configured folder without the canonical triple must not
-                    // stop the world loading: fall back to the shipped clear set
-                    // for that slot and say so.
-                    let fallback = format!("textures/sky/clear/{name}");
-                    eprintln!("configured sky texture {key} absent; using {fallback}");
-                    fallback
-                };
-                let entry = entries
-                    .get(&key)
-                    .ok_or_else(|| format!("missing client sky texture {key}"))?;
-                let bytes = pck::read_entry(&mut file, entry)?;
-                let img = image::load_from_memory(&bytes)
-                    .map_err(|e| format!("{key}: {e}"))?
-                    .to_rgba8();
-                let img = if img.width() != 512 || img.height() != 512 {
-                    image::imageops::resize(&img, 512, 512, image::imageops::FilterType::Triangle)
-                } else {
-                    img
-                };
-                frames.push(img);
+        let mut day_set = 0usize;
+        let mut night_set = 1usize;
+        let mut load_layer = |key: &str, fallback: &str| -> Result<image::RgbaImage, String> {
+            let key = if entries.contains_key(key) {
+                key.to_string()
+            } else {
+                eprintln!("configured sky texture {key} absent; using {fallback}");
+                fallback.to_string()
+            };
+            let entry = entries
+                .get(&key)
+                .ok_or_else(|| format!("missing client sky texture {key}"))?;
+            let bytes = pck::read_entry(&mut file, entry)?;
+            let img = image::load_from_memory(&bytes)
+                .map_err(|e| format!("{key}: {e}"))?
+                .to_rgba8();
+            if img.width() != 512 || img.height() != 512 {
+                Ok(image::imageops::resize(
+                    &img,
+                    512,
+                    512,
+                    image::imageops::FilterType::Triangle,
+                ))
+            } else {
+                Ok(img)
             }
+        };
+        if let Some(sel) = selection {
+            day_set = sel.day.min(sel.sets.len().saturating_sub(1));
+            night_set = sel.night.min(sel.sets.len().saturating_sub(1));
+            for set in &sel.sets {
+                let paths = [
+                    (set.panorama_01.as_str(), "textures/sky/clear/01.bmp"),
+                    (set.panorama_02.as_str(), "textures/sky/clear/02.bmp"),
+                    (set.roof.as_str(), "textures/sky/clear/roof.bmp"),
+                ];
+                for (path, fallback) in paths {
+                    let key = sky_pack_key(path);
+                    frames.push(load_layer(&key, fallback)?);
+                }
+            }
+        } else {
+            // No readable sky.lst: keep the shipped default environment. All
+            // three set slots hold the configured `clear` art, so the transition
+            // is a visual no-op rather than a wrong texture.
+            let configured = read_sky_images(element);
+            for _ in 0..3 {
+                for (slot, name) in ATLAS_ORDER.iter().enumerate() {
+                    let key = sky_pack_key(&configured[slot]);
+                    let fallback = format!("textures/sky/clear/{name}");
+                    frames.push(load_layer(&key, &fallback)?);
+                }
+            }
+        }
+        // The atlas must always hold nine sky layers even if a `sky.lst` row is
+        // short; pad with the clear set so `set * 3` stays valid.
+        while frames.len() < 9 {
+            let name = ATLAS_ORDER[frames.len() % 3];
+            let fallback = format!("textures/sky/clear/{name}");
+            frames.push(load_layer(&fallback, &fallback)?);
         }
         // Extra layers are the client sun and moon discs; absent optional assets
         // stay transparent so the world still loads.
@@ -406,18 +833,21 @@ impl SkyGpu {
             disc_layers[i] = decoded.is_some();
             frames.push(decoded.unwrap_or_else(|| image::RgbaImage::new(512, 512)));
         }
-        // Layer 11 is the sun's shine quad and layer 12 the moon's
-        // `moonflare.bmp`, which the client only uses inside the screen-space
-        // flare chain (`0x4b374b..`). That chain is not implemented and the
-        // client's moon block scales nothing, so the moon's shine weight is 0;
-        // the texture is still decoded and bound so the layer exists when the
-        // chain is built. The quad's size is the viewer's `GLOW_SCALE`, and only
-        // the texture is the client's.
+        // Layers 11..14 are the client's own glow/flare textures:
+        // 11 `sunshine.bmp` (the sun's 2:1 anamorphic streak),
+        // 12 `moonflare.bmp` (the moon's circular halo),
+        // 13 `sunflare.bmp` and 14 `flares.bmp` (the flare-chain sprites).
+        // `CECSunMoon::Init` loads all four and `ps/solarflare_14` sums six
+        // flare-alpha samples at weight 0.4; the shader below reproduces that
+        // six-sample sum with these textures. The quad sizes are viewer
+        // approximations; the textures and the 0.4 weight are the client's.
         let glow_textures = [
             ("textures/nature/sunshine.bmp", image::ImageFormat::Bmp),
             ("textures/nature/moonflare.bmp", image::ImageFormat::Bmp),
+            ("textures/nature/sunflare.bmp", image::ImageFormat::Bmp),
+            ("textures/nature/flares.bmp", image::ImageFormat::Bmp),
         ];
-        let mut glow_layers = [false; 2];
+        let mut glow_layers = [false; 4];
         for (i, (name, format)) in glow_textures.into_iter().enumerate() {
             let decoded = entries
                 .get(name)
@@ -440,7 +870,7 @@ impl SkyGpu {
             size: wgpu::Extent3d {
                 width: 512,
                 height: 512,
-                depth_or_array_layers: 13,
+                depth_or_array_layers: 15,
             },
             mip_level_count: 1,
             sample_count: 1,
@@ -516,12 +946,42 @@ impl SkyGpu {
                     // hour blend untouched until `begin_frame` uploads a frame.
                     sets: [0., 0., 0., 12.],
                     glow_center,
+                    // No rotation until `begin_frame` uploads the first frame:
+                    // the sphere's angles start at zero in the client too
+                    // (`0x7995e0` clears +0x10..+0x18).
+                    sky: [0.; 4],
                 }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             })
         };
         let normal_buf = make_buf();
         let reflected_buf = make_buf();
+        // Dummy 1×1 depth for init — no terrain depth yet. Real depth view is
+        // rebound each frame via set_depth(); the shader samples it at 6 taps
+        // around glow_center.zw (0x7855c0 54-pt mask → 0x786840 → ps/solarflare_14 6×0.4).
+        let depth_dummy = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("sky depth dummy"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let depth_dummy_view = depth_dummy.create_view(&Default::default());
+        let depth_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("sky depth sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("sky bindings"),
             entries: &[
@@ -557,6 +1017,22 @@ impl SkyGpu {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    count: None,
+                },
             ],
         });
         let bind = |b: &wgpu::Buffer| {
@@ -579,6 +1055,14 @@ impl SkyGpu {
                     wgpu::BindGroupEntry {
                         binding: 3,
                         resource: wgpu::BindingResource::Sampler(&roof_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(&depth_dummy_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::Sampler(&depth_sampler),
                     },
                 ],
             })
@@ -629,8 +1113,15 @@ impl SkyGpu {
             reflected,
             normal_buf,
             reflected_buf,
+            layout,
+            skies_view: view,
+            sampler,
+            roof_sampler,
+            depth_sampler,
             disc_layers,
             glow_layers,
+            day_set,
+            night_set,
         })
     }
     /// Upload one frame's sky state for one view.
@@ -652,35 +1143,57 @@ impl SkyGpu {
     ) {
         let view = Mat4::look_to_rh(Vec3::ZERO, direction, Vec3::Y);
         let projection = Mat4::from_scale(Vec3::new(-1., 1., 1.))
-            * Mat4::perspective_rh(70f32.to_radians(), w as f32 / h.max(1) as f32, 1., 16000.);
+            * Mat4::perspective_rh(
+                FOV_DEGREES.to_radians(),
+                w as f32 / h.max(1) as f32,
+                1.,
+                16000.,
+            );
         // Reflect every world-space camera ray about the water plane. Mirroring
         // only the forward vector loses the inverted vertical screen basis.
         let inv = sky_inverse(projection, view, reflected);
+        let (flare_ndc, flare_weight) = flare_lanes(projection, view, frame.sun, reflected);
         let uniform = Uniform {
             inv: inv.to_cols_array_2d(),
             time: [
                 frame.hour,
                 frame.night_weight,
                 if frame.fog_enabled { 1. } else { 0. },
-                0.,
+                frame.disc_brightness.clamp(0., 1.),
             ],
-            celestial: frame.sun,
+            // `.w` is the sun's flare weight, not the shine strength the
+            // recovered ramp replaces.
+            celestial: [frame.sun[0], frame.sun[1], frame.sun[2], flare_weight],
             celestial2: frame.moon,
             background: [
                 frame.background[0],
                 frame.background[1],
                 frame.background[2],
-                1.,
+                sun_ndc_half(FOV_DEGREES),
             ],
             tint: [
                 frame.tint[0],
                 frame.tint[1],
                 frame.tint[2],
-                // `p.tint.w` carries the disc scale into `celestial`.
-                DISC_SCALE,
+                // The screen aspect the flare chain needs to keep its sprites
+                // round in NDC, where x and y span different angles.
+                w as f32 / h.max(1) as f32,
             ],
-            sets: [sets.0 as f32, sets.1 as f32, sets.2, frame.hour],
-            glow_center: self.glow_center,
+            // `sets.w` carries the night strength into `celestial` (the sun's
+            // `1 + 2 * n` swell and the recovered shine ramp).
+            sets: [sets.0 as f32, sets.1 as f32, sets.2, frame.night_weight],
+            glow_center: [
+                self.glow_center[0],
+                self.glow_center[1],
+                flare_ndc[0],
+                flare_ndc[1],
+            ],
+            sky: [
+                frame.drift[0],
+                frame.drift[1],
+                2. / h.max(1) as f32,
+                SKY_DRIFT_SCALE,
+            ],
         };
         queue.write_buffer(
             if reflected {
@@ -696,9 +1209,62 @@ impl SkyGpu {
     pub fn disc_texture_present(&self, sun: bool) -> bool {
         self.disc_layers[usize::from(!sun)]
     }
-    /// Whether the shine texture of `sun` decoded from `textures.pck`.
+    /// Whether the shine/halo texture of `sun` decoded from `textures.pck`:
+    /// `sunshine.bmp` for the sun, `moonflare.bmp` for the moon.
     pub fn shine_texture_present(&self, sun: bool) -> bool {
         self.glow_layers[usize::from(!sun)]
+    }
+    /// Whether the two flare-chain sprites (`sunflare.bmp`, `flares.bmp`)
+    /// decoded. The chain is drawn only when both are present.
+    pub fn flare_texture_present(&self) -> bool {
+        self.glow_layers[2] && self.glow_layers[3]
+    }
+    /// `sky_id_day` resolved through `sky.lst`.
+    pub fn day_set(&self) -> usize {
+        self.day_set
+    }
+    /// `sky_id_night` resolved through `sky.lst`.
+    pub fn night_set(&self) -> usize {
+        self.night_set
+    }
+    /// Rebind the real scene depth texture for shader-side 54-pt occlusion.
+    /// Called each frame after the world depth target is (re)created; the
+    /// shader samples it at 6 taps around glow_center.zw with 0.4 weight.
+    pub fn set_depth(&mut self, device: &wgpu::Device, depth_view: &wgpu::TextureView) {
+        let bind = |b: &wgpu::Buffer| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("sky material"),
+                layout: &self.layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: b.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&self.skies_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&self.roof_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(depth_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::Sampler(&self.depth_sampler),
+                    },
+                ],
+            })
+        };
+        self.normal = bind(&self.normal_buf);
+        self.reflected = bind(&self.reflected_buf);
     }
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, reflected: bool) {
         pass.set_pipeline(&self.pipeline);
@@ -795,33 +1361,71 @@ pub(crate) fn sky_pack_key(configured: &str) -> String {
     let trimmed = normalised.trim_start_matches("./");
     if trimmed.starts_with("textures/") {
         trimmed.to_string()
-    } else {
+    } else if trimmed.starts_with("sky/") {
+        // `element_client.cfg` writes `Sky\clear\Roof.bmp`; the pack key is
+        // `textures/sky/clear/roof.bmp`.
         format!("textures/{trimmed}")
+    } else {
+        // `sky.lst` writes paths relative to `Textures\Sky\`, e.g.
+        // `clear\01.bmp` or `阴天01\roof.bmp`.
+        format!("textures/sky/{trimmed}")
     }
 }
 
-/// The folder each of the three atlas groups should load.
+/// One `sky.lst` row: the three configured texture paths of a sky set.
+pub(crate) struct SkySetPaths {
+    pub roof: String,
+    pub panorama_01: String,
+    pub panorama_02: String,
+}
+
+/// The sky sets and the day/night selection the client's own configuration
+/// names.
+pub(crate) struct SkySelection {
+    pub sets: Vec<SkySetPaths>,
+    pub day: usize,
+    pub night: usize,
+}
+
+/// Read `configs/autofamilyconfigs/sky.lst` and `autoscene.cfg` through the
+/// Angelica package reader.
 ///
-/// Derived from `sky_image01..03`: the retail config names
-/// `Sky\clear\Roof.bmp`, `Sky\clear\01.bmp`, `Sky\clear\02.bmp`, so all
-/// three resolve to `clear`. If a configured image names a different folder
-/// than its siblings, each group keeps its own folder so the configuration is
-/// honoured rather than silently collapsed.
-fn sky_folders(element: &Path) -> [String; 3] {
-    let configured = read_sky_images(element);
-    let mut out: [String; 3] = Default::default();
-    for (slot, path) in configured.iter().enumerate() {
-        // Only the `textures/sky/<folder>/<file>` shape names a folder; a bare
-        // filename (some sets ship one) keeps the shipped `clear` art.
-        let key = sky_pack_key(path);
-        out[slot] = match key.rsplit_once('/') {
-            Some((dir, _)) if dir.starts_with("textures/sky/") => dir
-                .rsplit_once('/')
-                .map_or_else(|| "clear".to_string(), |(_, f)| f.to_string()),
-            _ => "clear".to_string(),
-        };
+/// `sky.lst` is `count`, then `id,label,roof,01,02,flags` per row.
+/// `autoscene.cfg` names `sky_id_day` / `sky_id_night` in its `[Sky]` section.
+/// The shipped build resolves day 0 (clear) and night 1 (overcast); the third
+/// row (sunset) is loaded so a region that names it can select it.
+pub(crate) fn sky_selection_from_configs(element: &Path) -> Option<SkySelection> {
+    let mut file = File::open(element.join("configs.pck")).ok()?;
+    let entries = crate::angelica_pck::directory(&mut file).ok()?;
+    let find = |name: &str| {
+        entries
+            .iter()
+            .find(|entry| entry.name.eq_ignore_ascii_case(name))
+    };
+    let list = find("configs/autofamilyconfigs/sky.lst")?;
+    let list_bytes = pck::read_entry(&mut file, list).ok()?;
+    let parsed = crate::sky_config::parse_sky_list(&list_bytes).ok()?;
+    if parsed.is_empty() {
+        return None;
     }
-    out
+    let mut sets = Vec::with_capacity(parsed.len());
+    for set in parsed {
+        sets.push(SkySetPaths {
+            roof: set.roof,
+            panorama_01: set.panorama_01,
+            panorama_02: set.panorama_02,
+        });
+    }
+    let (mut day, mut night) = (0usize, 1usize);
+    if let Some(entry) = find("configs/autofamilyconfigs/autoscene.cfg") {
+        if let Ok(bytes) = pck::read_entry(&mut file, entry) {
+            if let Ok(config) = crate::sky_config::parse_autoscene(&bytes) {
+                day = config.day.max(0) as usize;
+                night = config.night.max(0) as usize;
+            }
+        }
+    }
+    Some(SkySelection { sets, day, night })
 }
 
 /// Best-effort read of `configs/element_client.cfg`; any failure falls back to
@@ -831,7 +1435,8 @@ fn read_sky_images(element: &Path) -> Vec<String> {
     let Ok(mut cfg_file) = File::open(element.join("configs.pck")) else {
         return defaults();
     };
-    let Ok(dir) = pck::directory(&mut cfg_file) else {
+    // `configs.pck` is an Angelica package, not the retail v2 container.
+    let Ok(dir) = crate::angelica_pck::directory(&mut cfg_file) else {
         return defaults();
     };
     let entries: HashMap<_, _> = dir
@@ -950,6 +1555,89 @@ mod reflection_tests {
             assert!((reference - moved).length() < 1e-6);
         }
     }
+    #[test]
+    fn the_flare_chain_hangs_where_the_sun_projects() {
+        let projection = Mat4::from_scale(Vec3::new(-1., 1., 1.))
+            * Mat4::perspective_rh(70f32.to_radians(), 16. / 9., 1., 16000.);
+        let (el, az) = (0.4f32, -0.5f32);
+        let sun_dir = Vec3::new(az.cos() * el.cos(), el.sin(), az.sin() * el.cos());
+        let view = Mat4::look_to_rh(Vec3::ZERO, sun_dir, Vec3::Y);
+        let sun = [1., el, az, 0.];
+        let (ndc, weight) = super::flare_lanes(projection, view, sun, false);
+        assert_eq!(weight, 1.);
+        assert!(
+            ndc[0].abs() < 1e-3 && ndc[1].abs() < 1e-3,
+            "a camera pointed at the sun puts it at the screen centre: {ndc:?}"
+        );
+        // A reflected view must not draw the chain, and neither must a disc the
+        // visibility fade has already removed.
+        assert_eq!(super::flare_lanes(projection, view, sun, true).1, 0.);
+        assert_eq!(
+            super::flare_lanes(projection, view, [0., el, az, 0.], false).1,
+            0.
+        );
+        // Behind the camera there is no screen position to hang anything on.
+        let away = Mat4::look_to_rh(Vec3::ZERO, -sun_dir, Vec3::Y);
+        assert_eq!(super::flare_lanes(projection, away, sun, false).1, 0.);
+        // A partial fade carries through as the chain's weight.
+        let faded = super::flare_lanes(projection, view, [0.5, el, az, 0.], false);
+        assert_eq!(faded.1, 0.5);
+        assert!((faded.0[0] - ndc[0]).abs() < 1e-6);
+        // A sun that has set submits no disc (0x4b4035) and must not flare, even
+        // though its visibility fade is still at full strength.
+        for below in [-0.001, -0.4] {
+            assert_eq!(
+                super::flare_lanes(projection, view, [1., below, az, 0.], false).1,
+                0.,
+                "the chain must stop the moment the disc does"
+            );
+        }
+    }
+
+    #[test]
+    fn the_flare_chain_is_sized_from_the_recovered_sun_quad() {
+        // 10 units at distance 100 is 5.71 degrees; through a 70-degree
+        // projection that is 0.1 / tan(35) of the screen half-height.
+        let half = super::sun_ndc_half(super::FOV_DEGREES);
+        assert!((half - 0.142_83).abs() < 1e-4, "{half}");
+        assert!((half - 0.1 / (35f32.to_radians()).tan()).abs() < 1e-6);
+        // A narrower field of view magnifies it, a wider one shrinks it.
+        assert!(super::sun_ndc_half(20.) > half);
+        assert!(super::sun_ndc_half(120.) < half);
+    }
+
+    #[test]
+    fn the_ceiling_runs_through_the_recovered_texture_matrix() {
+        // `0x7995e0` puts 8.0 in the descriptor's scale slot and `0x42a98d`
+        // puts 0.003 in both rate slots; the angle slot it never touches stays
+        // zero, so the matrix is a scale and a slide with no rotation.
+        // The viewer keeps the native 8.0 as `NATIVE_SKY_DRIFT_SCALE` but renders
+        // at 2.0 to match the sparse retail photographs.
+        assert_eq!(super::NATIVE_SKY_DRIFT_SCALE, 8.);
+        assert_eq!(super::SKY_DRIFT_SCALE, 2.);
+        assert!((super::SKY_DRIFT_RATE - 0.003).abs() < 1e-9);
+        // `A3DSky::Rotate` adds `rate / 30` once per 30 Hz tick, so one second
+        // of ticks is one `rate`.
+        assert!((super::SKY_DRIFT_RATE / 30. * 30. - super::SKY_DRIFT_RATE).abs() < 1e-9);
+        let src = include_str!("sky_gpu.rs");
+        let shader = &src[src.find("pub(crate) const SHADER").expect("shader")..];
+        let shader = &shader[..shader.find("\"#;").expect("shader end")];
+        // The ceiling samples through the matrix...
+        assert!(
+            shader.contains("cap_uv(d)*p.skyrot.w+p.skyrot.xy"),
+            "the ceiling must run its planar UV through the stage-0 matrix"
+        );
+        // ...and the curtain must not: it inherits the identity stage-1 matrix.
+        assert!(
+            shader.contains("let uv_own=vec2<f32>(select(ub,uf,owns_front),v);"),
+            "the curtain keeps the authored panorama UVs"
+        );
+        assert!(
+            !shader.contains("uv_own*p.skyrot.w"),
+            "the stage-0 matrix is the ceiling's, not the curtain's"
+        );
+    }
+
     #[test]
     fn the_uniform_carries_the_transition_lane() {
         // The reflected and normal uploads must be built from the same values;

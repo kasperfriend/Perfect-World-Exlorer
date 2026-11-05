@@ -1,3 +1,5 @@
+#[path = "../angelica_pck.rs"]
+mod angelica_pck;
 #[path = "../client_weather.rs"]
 mod client_weather;
 #[allow(dead_code)]

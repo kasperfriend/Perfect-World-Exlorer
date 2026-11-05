@@ -15,10 +15,14 @@
 //! Images are synthetic gradients, so this is state and shader coverage, not a
 //! claim about client screenshots or authored sky art.
 #![allow(dead_code)]
+#[path = "../angelica_pck.rs"]
+mod angelica_pck;
 #[path = "../pck.rs"]
 mod pck;
 #[path = "../scenery_visibility.rs"]
 mod scenery_visibility;
+#[path = "../sky_config.rs"]
+mod sky_config;
 #[path = "../sky_gpu.rs"]
 mod sky_gpu;
 #[path = "../sky_transition.rs"]
@@ -30,9 +34,10 @@ use sky_transition::{Machine, Request, Triple};
 
 const W: u32 = 64;
 const H: u32 = 64;
-// 9 set layers (3 sets x 3 textures), 2 discs (9, 10) and 2 shine quads
-// (11 sun, 12 moon): the indices the production shader samples by name.
-const LAYERS: u32 = 13;
+// 9 set layers (3 sets x 3 textures), 2 discs (9, 10), 2 shine quads
+// (11 sun, 12 moon) and the 2 flare sprites (13 sunflare, 14 flares): the
+// indices the production shader samples by name.
+const LAYERS: u32 = 15;
 
 /// Deterministic gradient per texture layer, so two sets are visibly different
 /// while staying byte-stable across machines.
@@ -140,7 +145,7 @@ fn render(
     sampler: &wgpu::Sampler,
     roof_sampler: &wgpu::Sampler,
     t: &Target,
-    params: &[f32; 44],
+    params: &[f32; 48],
 ) -> Vec<u8> {
     let buf = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("phase5 sky params"),
@@ -149,6 +154,32 @@ fn render(
         mapped_at_creation: false,
     });
     queue.write_buffer(&buf, 0, bytemuck::cast_slice(params));
+    // Depth dummy for the flare occlusion path — the check's own layout now
+    // carries it (see main) so the bind must too; the content is irrelevant
+    // for the crossfade probe.
+    let depth_dummy = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("phase5 sky depth dummy (render)"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let depth_view = depth_dummy.create_view(&Default::default());
+    let depth_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("phase5 sky depth sampler (render)"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
     let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("phase5 sky bind"),
         layout,
@@ -168,6 +199,14 @@ fn render(
             wgpu::BindGroupEntry {
                 binding: 3,
                 resource: wgpu::BindingResource::Sampler(roof_sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&depth_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::Sampler(&depth_sampler),
             },
         ],
     });
@@ -276,6 +315,30 @@ fn main() {
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
+    // Dummy depth for the flare occlusion path (shader samples it at 6 taps).
+    let depth_dummy = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("phase5 sky depth dummy"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let depth_view = depth_dummy.create_view(&Default::default());
+    let depth_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("phase5 sky depth sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("phase5 sky layout"),
         entries: &[
@@ -311,6 +374,22 @@ fn main() {
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 5,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                count: None,
+            },
         ],
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -341,7 +420,13 @@ fn main() {
         multiview: None,
     });
 
-    // The production uniform layout: inv(16) time(4) celestial(4) sets(4).
+    // The production uniform layout: inv(16) time(4) celestial(4) celestial2(4)
+    // background(4) tint(4) sets(4) glow_center(4) skyrot(4) - `skyrot.xy` is the
+    // stage-0 sky texture-matrix translation and `skyrot.w` its diagonal scale,
+    // both from `A3DSky`'s descriptor (`0x7995e0` scale 8, `0x42a98d` rates).
+    // The translation stays at zero here so the bands this probe measures are
+    // not slid, but the scale is the client's own 8 because the ceiling UVs run
+    // through that matrix in the shader.
     //
     // `eye` only reaches `look_to_rh`, exactly like `SkyGpu::update`, and is then
     // dropped by clearing the translation column. The native sphere compares the
@@ -361,10 +446,11 @@ fn main() {
         }
     };
     let uniform = |inv: Mat4, sets: (f32, f32, f32)| {
-        let mut u = [0f32; 44];
+        let mut u = [0f32; 48];
         u[..16].copy_from_slice(&inv.to_cols_array());
         u[16] = 19.; // hour
         u[17] = 0.; // night weight: this probe is about sets and altitude
+        u[19] = 0.5; // disc brightness: the recovered half colour
         u[20] = 0.3; // celestial direction
         u[21] = 0.4;
         u[22] = -0.5;
@@ -372,15 +458,18 @@ fn main() {
         u[28] = 0.2; // pass background the open band blends with
         u[29] = 0.3;
         u[30] = 0.4;
-        u[31] = 1.;
+        u[31] = 0.143; // the sun's own NDC half extent, as `update` writes it
         u[32] = 1.; // tint: no phase darkening here
         u[33] = 1.;
         u[34] = 1.;
-        u[35] = 1.; // disc scale: native, the native quad is what the lane tests
+        u[35] = W as f32 / H as f32; // screen aspect for the flare chain
         u[36] = sets.0;
         u[37] = sets.1;
         u[38] = sets.2;
-        u[39] = 19.;
+        u[39] = 0.; // night strength: day, so the sun keeps its native size
+                    // u[44] and u[45] stay zero: no drift in this probe. u[46] is the flare
+                    // pixel scale, unused here. u[47] is the descriptor's recovered scale.
+        u[47] = 8.;
         u
     };
 
@@ -534,7 +623,9 @@ fn main() {
             let mut params = uniform(inv, (0., 0., 0.));
             params[20..24].copy_from_slice(&[1., el, az, 1.]);
             params[28..32].fill(0.);
-            params[35] = sky_gpu::DISC_SCALE;
+            // Night strength 0.45 sits inside the recovered shine window, so the
+            // strip is drawn at half strength and the sun swells by `1 + 2n`.
+            params[39] = 0.45;
             params[40..44].copy_from_slice(&lookup);
             let pixels = render(
                 &device,

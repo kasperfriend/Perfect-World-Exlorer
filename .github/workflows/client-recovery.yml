@@ -1,0 +1,94 @@
+name: Client recovery dumps
+
+# The sky / flare / sky-set questions can only be answered from the retail
+# client files, which are too large to pass through the agent sandbox.  This
+# job downloads them on a runner, runs `tools/recover-sky-client.py` and commits
+# the resulting plain-text dumps back to the branch it was dispatched from.
+#
+# It is manual only: pushing a change to `.github/recovery-trigger.txt` is the
+# deliberate "run it now" switch, and `workflow_dispatch` does the same from the
+# Actions tab.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/recovery-trigger.txt"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: client-recovery
+  cancel-in-progress: true
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EXE_ID: 19h1s6U7JR0uvVccqeL8ZTAVpVeal1X1X
+      CONFIGS_ID: 1nbff7MUYeLXizAWRUoIinuBwJt9-aXZm
+      SHADERS_ID: 1cSaPx6CP8zjYGOWkVpQufx5eFYu6LCoG
+      TEXTURES_ID: 1H1DZP97LVdAaTwCCh_0xfFJ0tJFqGuRf
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: python -m pip install --quiet capstone pillow
+
+      - name: Download the client files
+        run: |
+          set -euo pipefail
+          mkdir -p client
+          fetch() {
+            curl -fsSL --retry 3 --retry-delay 5 -o "client/$2" \
+              "https://drive.usercontent.google.com/download?id=$1&export=download&confirm=t"
+            size=$(stat -c%s "client/$2")
+            echo "client/$2: $size bytes"
+            if [ "$size" -lt 1000 ]; then
+              echo "::error::client/$2 is only $size bytes - the Drive download returned a page, not the file"
+              head -c 400 "client/$2" || true
+              exit 1
+            fi
+          }
+          fetch "$CONFIGS_ID" configs.pck
+          fetch "$SHADERS_ID" shaders.pck
+          fetch "$EXE_ID" elementclient.exe
+          fetch "$TEXTURES_ID" textures.pck
+          rm -f client/*.zip
+
+      - name: Dump
+        run: |
+          python tools/recover-sky-client.py \
+            --exe client/elementclient.exe \
+            --configs client/configs.pck \
+            --shaders client/shaders.pck \
+            --textures client/textures.pck \
+            --all-configs --ascii \
+            --out Findings/recovery
+          echo "--- SUMMARY ---"
+          cat Findings/recovery/SUMMARY.txt
+          du -sh Findings/recovery
+          ls -l Findings/recovery
+
+      - name: Commit the dumps
+        run: |
+          set -euo pipefail
+          git config user.name "client recovery"
+          git config user.email "recovery@users.noreply.github.com"
+          git add Findings/recovery
+          if git diff --cached --quiet; then
+            echo "nothing new to commit"
+          else
+            git commit -m "Client recovery dumps (sky, flare and sky-set windows) [skip ci]"
+            # Another push may land while the runner disassembles (a human edit
+            # or a follow-up fix), which used to reject this push and throw the
+            # whole dump away. Rebase onto whatever landed, then push.
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

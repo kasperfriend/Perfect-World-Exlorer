@@ -560,7 +560,10 @@ impl Environments {
         // authoritative whenever an area is selected.
         let auto_fog = (|| -> Result<crate::sky_config::AutoFogConfig, String> {
             let mut file = fs::File::open(dir.join("configs.pck")).map_err(|e| e.to_string())?;
-            let entries = crate::pck::directory(&mut file)?;
+            // `configs.pck` is an Angelica File Package, not the retail v2 PCK
+            // `textures.pck` uses. The retail reader rejects its guard, which
+            // silently disabled the AutoFamily fog fallback.
+            let entries = crate::angelica_pck::directory(&mut file)?;
             let entry = entries
                 .iter()
                 .find(|entry| {

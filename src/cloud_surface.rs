@@ -4,6 +4,11 @@
 //! records, followed by a count of variable-length surface groups. Each group
 //! has four floats, an index count, and that many 32-bit vertex indices. The
 //! same 20-byte group header also explains the small records in empty cells.
+//!
+//! This is the `world.cld` MOXB cloud surface (`CECClouds`), not SpeedTree.
+//! SpeedTree is the 59 `*.spt` tree sources baked via `SpeedTreeRT.dll`
+//! (`tools/speedtree/bake.cpp`, `src/trees.rs`); clouds are a separate world
+//! resource with no `spt` dependency and are rendered via `cloud_gpu.rs`.
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct CloudVertex {

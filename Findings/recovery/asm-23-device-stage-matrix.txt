@@ -1,0 +1,137 @@
+# 23-device-stage-matrix  0x779d20-0x779e60
+; resynced -0x20: nearest function boundary, dumping from 0x779d00
+00779d00: push esi                                
+00779d01: push edi                                
+00779d02: mov edi, ecx                            
+00779d04: mov al, byte ptr [edi + 9]              
+00779d07: test al, al                             
+00779d09: jne 0x779d48                            
+00779d0b: mov eax, dword ptr [edi + 0x2c]         
+00779d0e: mov esi, dword ptr [esp + 0xc]          
+00779d12: push esi                                
+00779d13: push 2                                  
+00779d15: mov ecx, dword ptr [eax]                
+00779d17: push eax                                
+00779d18: call dword ptr [ecx + 0x94]             
+00779d1e: test eax, eax                           
+00779d20: jge 0x779d3b                            
+00779d22: push 0x987b74                             ; 'D3DDevice SetTransform D3DTS_VIEW Failure'
+00779d27: push 0x9d2f20                           
+00779d2c: call 0x7647d0                           
+00779d31: add esp, 8                              
+00779d34: xor al, al                              
+00779d36: pop edi                                 
+00779d37: pop esi                                 
+00779d38: ret 4                                   
+00779d3b: add edi, 0x1cc                          
+00779d41: mov ecx, 0x10                           
+00779d46: rep movsd dword ptr es:[edi], dword ptr [esi]
+00779d48: pop edi                                 
+00779d49: mov al, 1                               
+00779d4b: pop esi                                 
+00779d4c: ret 4                                   
+00779d4f: nop                                     
+00779d50: push esi                                
+00779d51: push edi                                
+00779d52: mov edi, ecx                            
+00779d54: mov al, byte ptr [edi + 9]              
+00779d57: test al, al                             
+00779d59: jne 0x779d98                            
+00779d5b: mov eax, dword ptr [edi + 0x2c]         
+00779d5e: mov esi, dword ptr [esp + 0xc]          
+00779d62: push esi                                
+00779d63: push 3                                  
+00779d65: mov ecx, dword ptr [eax]                
+00779d67: push eax                                
+00779d68: call dword ptr [ecx + 0x94]             
+00779d6e: test eax, eax                           
+00779d70: jge 0x779d8b                            
+00779d72: push 0x987ba0                             ; 'D3DDevice SetTransform D3DTS_PROJECT Failure'
+00779d77: push 0x9d2f20                           
+00779d7c: call 0x7647d0                           
+00779d81: add esp, 8                              
+00779d84: xor al, al                              
+00779d86: pop edi                                 
+00779d87: pop esi                                 
+00779d88: ret 4                                   
+00779d8b: add edi, 0x20c                          
+00779d91: mov ecx, 0x10                           
+00779d96: rep movsd dword ptr es:[edi], dword ptr [esi]
+00779d98: pop edi                                 
+00779d99: mov al, 1                               
+00779d9b: pop esi                                 
+00779d9c: ret 4                                   
+00779d9f: nop                                     
+00779da0: push ebx                                
+00779da1: mov ebx, ecx                            
+00779da3: push esi                                
+00779da4: push edi                                
+00779da5: mov al, byte ptr [ebx + 9]              
+00779da8: test al, al                             
+00779daa: jne 0x779dfd                            
+00779dac: mov edi, dword ptr [esp + 0x10]         
+00779db0: mov eax, dword ptr [ebx + 0x2c]         
+00779db3: mov esi, dword ptr [esp + 0x14]         
+00779db7: mov ecx, dword ptr [eax]                
+00779db9: lea edx, [edi + 0x10]                   
+00779dbc: push esi                                
+00779dbd: push edx                                
+00779dbe: push eax                                
+00779dbf: call dword ptr [ecx + 0x94]             
+00779dc5: test eax, eax                           
+00779dc7: jge 0x779de3                            
+00779dc9: push 0x987bd0                             ; 'D3DDevice SetTextureMatrix Failure'
+00779dce: push 0x9d2f20                           
+00779dd3: call 0x7647d0                           
+00779dd8: add esp, 8                              
+00779ddb: xor al, al                              
+00779ddd: pop edi                                 
+00779dde: pop esi                                 
+00779ddf: pop ebx                                 
+00779de0: ret 8                                   
+00779de3: test edi, edi                           
+00779de5: jl 0x779dfd                             
+00779de7: cmp edi, 8                              
+00779dea: jge 0x779dfd                            
+00779dec: shl edi, 6                              
+00779def: mov ecx, 0x10                           
+00779df4: lea edi, [edi + ebx + 0xcf4]            
+00779dfb: rep movsd dword ptr es:[edi], dword ptr [esi]
+00779dfd: pop edi                                 
+00779dfe: pop esi                                 
+00779dff: mov al, 1                               
+00779e01: pop ebx                                 
+00779e02: ret 8                                   
+00779e05: nop                                     
+00779e06: nop                                     
+00779e07: nop                                     
+00779e08: nop                                     
+00779e09: nop                                     
+00779e0a: nop                                     
+00779e0b: nop                                     
+00779e0c: nop                                     
+00779e0d: nop                                     
+00779e0e: nop                                     
+00779e0f: nop                                     
+00779e10: push esi                                
+00779e11: mov esi, ecx                            
+00779e13: mov al, byte ptr [esi + 9]              
+00779e16: test al, al                             
+00779e18: jne 0x779e5e                              ; f32 -222.007
+00779e1a: mov eax, dword ptr [esi + 0x2c]         
+00779e1d: push eax                                
+00779e1e: mov ecx, dword ptr [eax]                
+00779e20: call dword ptr [ecx + 0x88]             
+00779e26: test eax, eax                           
+00779e28: jge 0x779e40                            
+00779e2a: push 0x987bf4                             ; 'A3DDevcie BeginScene Failure!'
+00779e2f: push 0x9d2f20                           
+00779e34: call 0x7647d0                           
+00779e39: add esp, 8                              
+00779e3c: xor al, al                              
+00779e3e: pop esi                                 
+00779e3f: ret                                     
+00779e40: mov dword ptr [esi + 0x24c], 0          
+00779e4a: mov dword ptr [esi + 0x250], 0          
+00779e54: mov dword ptr [esi + 0x254], 0          
+00779e5e: mov al, 1                               
