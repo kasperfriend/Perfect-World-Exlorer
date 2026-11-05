@@ -229,7 +229,8 @@ pub const DEFAULT_TEX_BUDGET_MIB: usize = 32;
 /// Process-wide "All to VRAM" switch. `Objects` instances read it when their
 /// cache evicts and when a new one is opened, so the whole-world preload and
 /// later streamed batches follow a live toggle without a restart.
-static UNBOUNDED_TEXTURES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static UNBOUNDED_TEXTURES: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Keep every decoded texture resident instead of evicting to the budget.
 pub fn set_unbounded_textures(on: bool) {

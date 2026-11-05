@@ -459,7 +459,7 @@ mod tests {
         let mut just_before = state(20.99);
         // The curve's own end point is exactly 0 (21:00), which the native gate
         // rejects; evaluate the quad at a hair above it instead.
-        just_before.sun_elevation = 0.000_1;
+        just_before.sun_elevation = 1e-7;
         let sun = disc(DiscKind::Sun, &just_before, 1.0, true, 0.0).expect("setting sun");
         let edge = emitted_point(&sun);
         assert!(edge[1].abs() < 1e-3, "top edge {} not on the horizon", edge[1]);
@@ -470,7 +470,7 @@ mod tests {
         assert!(edge[1].abs() < 1e-2);
         assert!((dusk.center[1] + sun_half_extent(1.0)).abs() < 1e-2);
         let mut moonrise = state(21.01);
-        moonrise.moon_elevation = 0.000_1;
+        moonrise.moon_elevation = 1e-7;
         let moon = disc(DiscKind::Moon, &moonrise, 1.0, true, 0.0).expect("rising moon");
         assert!(emitted_point(&moon)[1].abs() < 1e-3);
         assert!(moon.center[1] < 0.0);

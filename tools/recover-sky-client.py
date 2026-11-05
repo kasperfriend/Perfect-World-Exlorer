@@ -211,7 +211,28 @@ def xref_functions(pe, text_strings, out):
 CALL_TARGETS = {
     "25-sunmoon-tick-callers": 0x4B5F10,
     "26-sunmoon-settime-callers": 0x4B6030,
+    # CECWorld's tick: it feeds `CECSunMoon::Tick` its milliseconds argument, so
+    # its own caller decides whether the sky advances with real or game time.
+    "28-worldtick-callers": 0x429370,
 }
+# The double-precision clock constants. `annotate` only reads four bytes, which
+# is why 0x8db108 and 0x8d6138 used to print as `f32 0`; these are dumped as
+# both f64 and f32 so the day length can be read instead of assumed.
+DATA_SYMBOLS = {
+    0x8DB108: "day fraction added per millisecond (Tick 0x4b5f2a)",
+    0x8DB13C: "sunrise threshold compared against the fraction (0x4b60e8)",
+    0x8DB138: "reciprocal used by the sun ramp (0x4b60f9)",
+    0x8DB100: "disc visibility per millisecond (0x4b5f77)",
+    0x8D6138: "wrap constant the fraction is reduced by (Tick, SetTime)",
+    0x8D5C28: "1.0",
+    0x8D58A0: "0.0",
+    0x8D6A8C: "seconds-of-day -> day fraction (SetTime caller 0x428f7d)",
+    0x8D6A94: "legacy disc scale A (not read by 0x4b3e00)",
+    0x8D6A98: "legacy disc scale B (not read by 0x4b3e00)",
+    0x8D6A9C: "disc placement distance",
+}
+# Addresses whose reads/writes decide the clock: every code reference is dumped.
+CLOCK_ADDRESSES = [0x8DB108, 0x8D6138]
 # `ds:0x8db108` holds the recovered 6.944444e-8 day-fraction-per-ms double.
 # Anything else that reads the address is another path into the same clock.
 DAY_FRACTION = 0x8DB108
@@ -274,6 +295,46 @@ def caller_dump(pe, text_strings, out):
         chunks.append("\n")
     (out / "asm-27-day-fraction-refs.txt").write_text("".join(chunks))
     return written
+
+
+def data_symbols(pe, out):
+    """Print the clock constants as raw bytes, f64 and f32."""
+    lines = ["# clock constants: address, raw 8 bytes, f64, f32, note"]
+    for address, note in sorted(DATA_SYMBOLS.items()):
+        offset = pe.va2off(address)
+        if offset is None or offset + 8 > len(pe.d):
+            lines.append("%#010x  not in image  %s" % (address, note))
+            continue
+        raw = pe.d[offset:offset + 8]
+        as_f64 = struct.unpack("<d", raw)[0]
+        as_f32 = struct.unpack("<f", raw[:4])[0]
+        lines.append(
+            "%#010x  %s  f64 %.17g  f32 %.9g  %s"
+            % (address, raw.hex(), as_f64, as_f32, note)
+        )
+    (out / "clock-constants.txt").write_text("\n".join(lines) + "\n")
+    return len(DATA_SYMBOLS)
+
+
+def clock_references(pe, text_strings, out):
+    """Every code window that touches the day fraction or its wrap constant."""
+    chunks = []
+    for address in CLOCK_ADDRESSES:
+        refs = pe.find_u32(address)
+        chunks.append("# references to %#x: %d\n" % (address, len(refs)))
+        for ref in refs:
+            offset = pe.va2off(ref)
+            if offset is None:
+                continue
+            chunks.append("#   %#x\n" % ref)
+            chunks.append(
+                disassemble(pe, pe.off2va(max(0, offset - 0x30)) or ref,
+                            pe.off2va(min(len(pe.d), offset + 0x30)) or ref,
+                            text_strings)
+            )
+            chunks.append("\n")
+    (out / "asm-29-clock-references.txt").write_text("".join(chunks))
+    return len(CLOCK_ADDRESSES)
 
 
 def disassemble(pe, start, end, text_strings):
@@ -513,6 +574,8 @@ def main():
         report.append("  xref functions: %d bodies" % count)
         for name, sites in caller_dump(pe, strings, out):
             report.append("  %s: %d call site(s)" % (name, sites))
+        report.append("  clock constants: %d dumped" % data_symbols(pe, out))
+        report.append("  clock references: %d addresses" % clock_references(pe, strings, out))
 
     (out / "SUMMARY.txt").write_text("\n".join(report) + "\n")
     print("\n".join(report))

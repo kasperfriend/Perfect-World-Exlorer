@@ -377,7 +377,9 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
                         return Err(format!("{name} block {bi}: invalid normal header"));
                     };
                     for j in 0..nv {
-                        let az = *normal_data.get(base + 2 * j).ok_or("truncated normals")? as usize;
+                        let az = *normal_data
+                            .get(base + 2 * j)
+                            .ok_or("truncated normals")? as usize;
                         let el = *normal_data
                             .get(base + 2 * j + 1)
                             .ok_or("truncated normals")? as usize;
@@ -438,7 +440,7 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
             }
             eprintln!("Loaded terrain tile {}/{}: {}", si + 1, count, name);
             #[cfg(windows)]
-            windows_setup::loading_progress(format!("Loading terrain tiles: {} / {}", si + 1, count));
+            windows_setup::loading_progress(format!("Loading terrain tiles {}/{}", si + 1, count));
         }
     }
     #[cfg(windows)]

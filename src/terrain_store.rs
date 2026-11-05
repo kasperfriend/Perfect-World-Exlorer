@@ -1218,6 +1218,8 @@ mod tests {
             source_identity(b"another header", &sub, &names).unwrap(),
             one
         );
+        // A different name list is a different world even with identical bytes.
+        fs::write(sub.join("b.t2bk"), b"first payload").unwrap();
         assert_ne!(
             source_identity(header, &sub, &["b".to_string()]).unwrap(),
             one
