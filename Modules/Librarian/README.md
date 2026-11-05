@@ -17,6 +17,8 @@ mannequin for armor and fashion. Drag to orbit, Shift-drag to pan, and scroll to
 zoom; turntable and animation controls are below the image. Preview models and
 textures require the corresponding client archives. Missing resources and
 unsupported models are reported in the preview instead of being substituted.
+Effect-only models, including some fly swords, are not yet rendered because
+GFX effects are not supported by this preview.
 The mannequin is a simplified body/equipment preview rather than a complete
 character customization. The preview hides body triangles near the selected
 item to reduce clothing intersections; skeletons with unsupported reflection
