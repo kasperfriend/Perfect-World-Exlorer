@@ -1134,6 +1134,14 @@ fn apply_controls(
                 state.noise = Vec3::new(sample, sample * 0.5, sample * 0.25) * *amplitude;
             }
             ControlData::ColorRamp { .. } => {
+                // Open question, recorded in `Findings/`: `ColorTrack::sample`
+                // gates on its own `start`/`end` and then walks its tables from
+                // zero, so shifting the argument moves the gate too — while
+                // `gfx_light` samples the same track type with unshifted
+                // keypoint seconds, and controllers 100/101 were read as gating
+                // on `age < StartTime` while integrating absolute `age`.
+                // Settling it needs the controller-108 update routine; nothing
+                // is changed here on a guess.
                 if let Some(track) = &state.ramp {
                     state.color_override = track.sample(age - control.start / 1000.);
                 }

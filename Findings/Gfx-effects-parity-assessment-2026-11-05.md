@@ -167,6 +167,12 @@ The two parse failures are the known pair (an empty container, `gfx/人物/技�
 
 The sweep harness and the corpus live outside the repository (the archive is a client asset and is not committed); the harness configuration above is what makes its numbers reproducible.
 
+## Fixed while writing this up
+
+`gfx_light` built its controller-108 `ColorTrack` from the file's raw `StartTime`/`EndTime`, which are milliseconds, while a track's window is in seconds (`gfx_color_track`: "Start/end are seconds; segment lengths are milliseconds") and `Emitter::tick` samples it with the seconds elapsed since the element's own `StartTime`. A controller starting at 500 ms therefore never opened — the light held its keypoint colour for its whole life — and a window that ended never expired. Every existing test authored `StartTime: 0` with `EndTime: -1`, where the two units coincide, which is why it stayed latent. The window is now converted at construction and the segment lengths stay in milliseconds, as the track's table walk expects; `the_color_ramp_window_is_converted_from_milliseconds` pins a non-zero window against the untouched keypoint colour.
+
+The same reading opened a question this pass does **not** settle. `ColorTrack::sample` gates on its own `start`/`end` and then walks the 128-entry tables from zero of the same argument, so one value carries both the gate and the walk origin. `gfx_light` passes unshifted seconds since the element's `StartTime`; `gfx_player` passes `age − control.start / 1000` for controllers 108 and 111, which moves the gate as well as the walk, so a controller starting at 500 ms would open at 1,000 ms of element time. Controllers 100 and 101 were read out of the binary as skipping while `age < StartTime` yet integrating the *absolute* `age`, which favours `gfx_light`'s unshifted form, but the controller-108 update routine was not re-read this pass and neither call site was changed on a guess; both carry a comment saying so. Settling it needs the executable again.
+
 ## Still open
 
 Unchanged from the previous write-up and not addressed here: the fractal-noise generator behind controllers 107, 109 and 112 (241 root controllers in the corpus, all type 112 — the most-used unverified path), `gfx_light` passing raw milliseconds into `ColorTrack::new` whose `sample()` takes seconds (latent and harmless), element 190 curves being counted rather than drawn, models/sounds/lights belonging to other subsystems, and the 82 child references to files that do not ship.
