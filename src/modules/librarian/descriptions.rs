@@ -95,7 +95,23 @@ mod tests {
             describe_addon(45, &[0.05f32.to_bits() as i32]).as_deref(),
             Some("Critical rate: +5.00%")
         );
+        assert_eq!(
+            describe_addon(16, &[0.35f32.to_bits() as i32, 0.45f32.to_bits() as i32]).as_deref(),
+            Some("Metal defense: +35.00% to +45.00%")
+        );
+        assert_eq!(
+            describe_addon(9, &[0.05f32.to_bits() as i32]).as_deref(),
+            Some("Attack interval: -0.05")
+        );
         assert_eq!(describe_addon(45, &[f32::NAN.to_bits() as i32]), None);
+        assert_eq!(
+            describe_addon(6, &[8, 4]).as_deref(),
+            Some("Physical defense: +8; Physical attack: -4")
+        );
+        assert_eq!(
+            describe_addon(150, &[]).as_deref(),
+            Some("Critical rate: +1%")
+        );
         assert_eq!(describe_addon(900, &[3]), None);
     }
     #[test]
@@ -183,6 +199,39 @@ pub fn addon_types(bytes: &[u8]) -> HashMap<u32, u32> {
 /// Interpret a conservative subset of v27 property types. Unknown types retain
 /// their raw parameters in the UI rather than being assigned a guessed meaning.
 pub fn describe_addon(kind: u32, params: &[i32]) -> Option<String> {
+    if (150..=155).contains(&kind) {
+        return Some(format!("Critical rate: +{}%", kind - 149));
+    }
+    if let Some((gain, loss, percent)) = match kind {
+        6 => Some(("Physical defense", "Physical attack", false)),
+        7 => Some(("Physical attack", "Physical defense", false)),
+        8 => Some(("Magic attack", "Magic defense", false)),
+        25 | 30 => Some(("Metal defense", "Fire defense", kind < 30)),
+        26 | 31 => Some(("Wood defense", "Metal defense", kind < 30)),
+        27 | 32 => Some(("Water defense", "Earth defense", kind < 30)),
+        28 | 33 => Some(("Fire defense", "Water defense", kind < 30)),
+        29 | 34 => Some(("Earth defense", "Wood defense", kind < 30)),
+        _ => None,
+    } {
+        let (&first, rest) = params.split_first()?;
+        let second = *rest.first()?;
+        return if percent {
+            let first = f32::from_bits(first as u32);
+            let second = f32::from_bits(second as u32);
+            (first.is_finite() && second.is_finite()).then(|| {
+                format!(
+                    "{gain}: {:+.2}%; {loss}: {:+.2}%",
+                    first * 100.,
+                    -second * 100.
+                )
+            })
+        } else {
+            Some(format!(
+                "{gain}: {first:+}; {loss}: {:+}",
+                -i64::from(second)
+            ))
+        };
+    }
     let (label, percent, floating) = match kind {
         0 => ("Physical attack", false, false),
         1 => ("Maximum physical attack", false, false),
@@ -190,11 +239,22 @@ pub fn describe_addon(kind: u32, params: &[i32]) -> Option<String> {
         3 => ("Magic attack", false, false),
         4 => ("Maximum magic attack", false, false),
         5 => ("Magic attack", true, true),
+        9 => ("Attack interval", false, true),
         10 => ("Attack range", false, true),
         11 => ("Channeling time", true, true),
         12 => ("Physical defense", false, false),
         13 => ("Physical defense", true, true),
         14 => ("Elemental defense", false, false),
+        15 => ("Metal defense", false, false),
+        16 => ("Metal defense", true, true),
+        17 => ("Wood defense", false, false),
+        18 => ("Wood defense", true, true),
+        19 => ("Water defense", false, false),
+        20 => ("Water defense", true, true),
+        21 => ("Fire defense", false, false),
+        22 => ("Fire defense", true, true),
+        23 => ("Earth defense", false, false),
+        24 => ("Earth defense", true, true),
         35 => ("HP", false, false),
         36 => ("MP", false, false),
         37 => ("HP", true, true),
@@ -214,6 +274,8 @@ pub fn describe_addon(kind: u32, params: &[i32]) -> Option<String> {
         51 => ("Evasion", true, true),
         52 => ("Durability", false, false),
         53 => ("Durability", true, true),
+        54 => ("Physical immunity", true, true),
+        58 => ("Experience bonus", true, true),
         59 => ("Attack level", false, false),
         60 => ("Defense level", false, false),
         61 => ("Elemental defense", true, true),
@@ -221,22 +283,25 @@ pub fn describe_addon(kind: u32, params: &[i32]) -> Option<String> {
     };
     let raw = *params.first()?;
     if floating {
-        let number = f32::from_bits(raw as u32);
-        if !number.is_finite() {
-            return None;
-        }
-        Some(if percent {
-            format!(
-                "{label}: {:+.2}%",
-                number * if kind == 11 { -100. } else { 100. }
-            )
+        let convert = |raw: i32| {
+            let value = f32::from_bits(raw as u32);
+            let scale =
+                if matches!(kind, 9 | 11) { -1. } else { 1. } * if percent { 100. } else { 1. };
+            value.is_finite().then_some(value * scale)
+        };
+        let first = convert(raw)?;
+        let second = params.get(1).and_then(|raw| convert(*raw));
+        let suffix = if percent { "%" } else { "" };
+        if let Some(second) = second.filter(|value| *value != 0. && *value != first) {
+            Some(format!(
+                "{label}: {:+.2}{suffix} to {:+.2}{suffix}",
+                first.min(second),
+                first.max(second)
+            ))
         } else {
-            format!("{label}: {number:+.2}")
-        })
-    } else if let Some(&high) = params
-        .get(1)
-        .filter(|&&high| matches!(kind, 1 | 4 | 41 | 42 | 43 | 44 | 46) && high != raw && high != 0)
-    {
+            Some(format!("{label}: {first:+.2}{suffix}"))
+        }
+    } else if let Some(&high) = params.get(1).filter(|&&high| high != raw && high != 0) {
         Some(format!("{label}: {raw:+} to {high:+}"))
     } else {
         Some(format!("{label}: {raw:+}"))

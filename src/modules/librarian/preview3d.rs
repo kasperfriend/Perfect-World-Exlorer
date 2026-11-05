@@ -140,8 +140,11 @@ impl Preview {
                 } else {
                     Err("This item does not reference a supported ECM or SMD model.".into())
                 };
-                match result.and_then(|(asset, warnings)| {
-                    let poses = asset.pose_bind(Mat4::IDENTITY)?;
+                match result.and_then(|(asset, mut warnings)| {
+                    let (poses, approximate) = preview_pose(&asset, None)?;
+                    if approximate {
+                        warnings.push("Approximate preview: skeleton reflection or constraints are not applied.".into());
+                    }
                     let mut min = Vec3::splat(f32::INFINITY);
                     let mut max = Vec3::splat(f32::NEG_INFINITY);
                     for vertex in poses.iter().flat_map(|mesh| &mesh.vertices) {
@@ -212,12 +215,8 @@ impl Preview {
                     .max(1) as f32;
                 let start = clip.start / fps;
                 let duration = ((clip.end - clip.start) / fps).max(0.001);
-                match asset.pose_action_at_time(
-                    self.action,
-                    start + self.elapsed % duration,
-                    Mat4::IDENTITY,
-                ) {
-                    Ok(poses) => {
+                match preview_pose(asset, Some((self.action, start + self.elapsed % duration))) {
+                    Ok((poses, _)) => {
                         self.animation_error = None;
                         Ok(poses)
                     }
@@ -225,11 +224,11 @@ impl Preview {
                         self.animation_error = Some(format!(
                             "Animation unavailable: {error}; showing bind pose."
                         ));
-                        asset.pose_bind(Mat4::IDENTITY)
+                        preview_pose(asset, None).map(|(poses, _)| poses)
                     }
                 }
             } else {
-                asset.pose_bind(Mat4::IDENTITY)
+                preview_pose(asset, None).map(|(poses, _)| poses)
             };
             match poses {
                 Ok(poses) => {
@@ -331,6 +330,46 @@ impl Preview {
     }
 }
 
+/// The main renderer deliberately rejects controllers it cannot reproduce.
+/// A preview may still show the authored local transforms as an explicitly
+/// approximate pose, without relaxing the production skeleton evaluator.
+fn preview_pose(
+    asset: &ModelAsset,
+    action: Option<(usize, f32)>,
+) -> Result<(Vec<crate::model_asset::PosedMesh>, bool), String> {
+    let skeleton = &asset.skeleton;
+    let approximate = skeleton.bones.iter().any(|bone| bone.flags != 0)
+        || skeleton.joints.iter().any(|joint| joint.class != 15);
+    let mut fallback;
+    let skeleton = if approximate {
+        fallback = skeleton.clone();
+        for bone in &mut fallback.bones {
+            bone.flags = 0;
+        }
+        for joint in &mut fallback.joints {
+            joint.class = 15;
+        }
+        &fallback
+    } else {
+        skeleton
+    };
+    let tracks = match action {
+        None => &[][..],
+        Some((index, _)) => match asset
+            .tracks
+            .get(index)
+            .ok_or("model action index out of range")?
+        {
+            Some(set) => &set.tracks,
+            None if !skeleton.embedded_tracks.is_empty() => &skeleton.embedded_tracks,
+            None => return Err("action has neither external nor embedded bone tracks".into()),
+        },
+    };
+    let seconds = action.map_or(0., |(_, seconds)| seconds);
+    let pose = crate::skeleton_pose::evaluate(skeleton, tracks, seconds, Mat4::IDENTITY)?;
+    Ok((asset.meshes_from_pose(&pose)?, approximate))
+}
+
 fn camera_matrix(target: Vec3, radius: f32, zoom: f32, yaw: f32, pitch: f32) -> Mat4 {
     let distance = radius * 3.5 * zoom;
     let eye = target
@@ -361,9 +400,9 @@ mod tests {
         let (asset, _) =
             ModelAsset::load_unique_with(&weapon.model, |path| assets.read_model_resource(path))
                 .expect("load real weapon model");
-        assert!(!asset
-            .pose_bind(Mat4::IDENTITY)
+        assert!(!preview_pose(&asset, None)
             .expect("weapon bind pose")
+            .0
             .is_empty());
 
         let name =
@@ -378,9 +417,9 @@ mod tests {
                 })
                 .expect("an armor skin for the male blademaster");
         let worn = load_worn(&mut assets, &format!("0:m:{name}")).expect("load worn armor");
-        assert!(!worn
-            .pose_bind(Mat4::IDENTITY)
+        assert!(!preview_pose(&worn, None)
             .expect("worn bind pose")
+            .0
             .is_empty());
         if let Some(action) = worn.model.actions.first() {
             let fps = action
@@ -388,8 +427,7 @@ mod tests {
                 .filter(|v| *v > 0)
                 .unwrap_or(worn.skeleton.fps)
                 .max(1) as f32;
-            worn.pose_action_at_time(0, action.start / fps, Mat4::IDENTITY)
-                .expect("worn animation pose");
+            preview_pose(&worn, Some((0, action.start / fps))).expect("worn animation pose");
         }
     }
 
