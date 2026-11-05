@@ -383,6 +383,25 @@ fn stand_height(
         .unwrap_or(terrain)
 }
 
+/// Screen position of a world point under the frame's view-projection, or `None`
+/// when the point is behind the eye or outside the viewport. The matrix is the
+/// host's own world-pass matrix, so a label lands exactly over its actor.
+fn project(point: Vec3, view_projection: Mat4, screen: egui::Rect) -> Option<egui::Pos2> {
+    let clip = view_projection * point.extend(1.);
+    // Behind the eye or on the near plane: nothing to project.
+    if clip.w <= 0.001 {
+        return None;
+    }
+    let ndc = clip.truncate() / clip.w;
+    if !(-1.0..=1.0).contains(&ndc.x) || !(-1.0..=1.0).contains(&ndc.y) {
+        return None;
+    }
+    Some(egui::pos2(
+        screen.left() + (ndc.x * 0.5 + 0.5) * screen.width(),
+        screen.top() + (0.5 - ndc.y * 0.5) * screen.height(),
+    ))
+}
+
 /// The template's own scene idle. `EcModel::scene_action` is the client's
 /// 0x5b3a4f lookup, including its `休闲` fallback (0x95a750).
 ///
@@ -1000,19 +1019,9 @@ impl Populator {
                 continue;
             }
             let anchor = live.position + Vec3::Y * (live.head + NAME_LIFT);
-            let clip = view_projection * anchor.extend(1.);
-            // Behind the eye or outside the client's near plane.
-            if clip.w <= 0.001 {
+            let Some(position) = project(anchor, view_projection, screen) else {
                 continue;
-            }
-            let ndc = clip.truncate() / clip.w;
-            if !(-1.0..=1.0).contains(&ndc.x) || !(-1.0..=1.0).contains(&ndc.y) {
-                continue;
-            }
-            let position = egui::pos2(
-                screen.left() + (ndc.x * 0.5 + 0.5) * screen.width(),
-                screen.top() + (0.5 - ndc.y * 0.5) * screen.height(),
-            );
+            };
             let alpha = if distance <= fade_from {
                 1.0
             } else {
@@ -1353,6 +1362,31 @@ mod tests {
         assert!(close(clip.seconds(-1.), 0.5));
         // Long-running actors wrap instead of freezing on the last key.
         assert!(close(clip.seconds(3_601.25), 0.75));
+    }
+
+    #[test]
+    fn a_world_point_projects_to_its_own_screen_position() {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800., 600.));
+        // An identity matrix projects clip space straight to the screen, so the
+        // view axis lands in the middle and a point above it lands on the top
+        // edge: the mapping a label uses for the actor's head.
+        let centre = project(Vec3::new(0., 0., 0.5), Mat4::IDENTITY, screen)
+            .expect("view-axis point is visible");
+        assert!((centre.x - 400.).abs() < 1e-3);
+        assert!((centre.y - 300.).abs() < 1e-3);
+        let above = project(Vec3::new(0., 1., 0.5), Mat4::IDENTITY, screen).expect("visible");
+        assert!((above.y - 0.).abs() < 1e-3);
+        let left = project(Vec3::new(-0.5, 0., 0.5), Mat4::IDENTITY, screen).expect("visible");
+        assert!((left.x - 200.).abs() < 1e-3);
+        // Off screen and behind the eye are not labels to draw.
+        assert!(project(Vec3::new(1.5, 0., 0.5), Mat4::IDENTITY, screen).is_none());
+        let behind = Mat4::from_cols_array_2d(&[
+            [1., 0., 0., 0.],
+            [0., 1., 0., 0.],
+            [0., 0., 1., -1.],
+            [0., 0., 0., 0.],
+        ]);
+        assert!(project(Vec3::new(0., 0., 1.), behind, screen).is_none());
     }
 
     #[test]
