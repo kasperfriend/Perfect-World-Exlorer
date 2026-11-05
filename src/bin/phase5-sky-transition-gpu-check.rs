@@ -154,6 +154,32 @@ fn render(
         mapped_at_creation: false,
     });
     queue.write_buffer(&buf, 0, bytemuck::cast_slice(params));
+    // Depth dummy for the flare occlusion path — the check's own layout now
+    // carries it (see main) so the bind must too; the content is irrelevant
+    // for the crossfade probe.
+    let depth_dummy = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("phase5 sky depth dummy (render)"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let depth_view = depth_dummy.create_view(&Default::default());
+    let depth_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("phase5 sky depth sampler (render)"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
     let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("phase5 sky bind"),
         layout,
@@ -173,6 +199,14 @@ fn render(
             wgpu::BindGroupEntry {
                 binding: 3,
                 resource: wgpu::BindingResource::Sampler(roof_sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&depth_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::Sampler(&depth_sampler),
             },
         ],
     });
@@ -281,6 +315,30 @@ fn main() {
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
+    // Dummy depth for the flare occlusion path (shader samples it at 6 taps).
+    let depth_dummy = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("phase5 sky depth dummy"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Depth32Float,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    let depth_view = depth_dummy.create_view(&Default::default());
+    let depth_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("phase5 sky depth sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("phase5 sky layout"),
         entries: &[
@@ -314,6 +372,22 @@ fn main() {
                 binding: 3,
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 4,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Depth,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 5,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                 count: None,
             },
         ],
