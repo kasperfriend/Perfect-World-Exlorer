@@ -55,7 +55,9 @@ impl Preview {
         let color = texture(
             "Librarian preview",
             format,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
         );
         let depth = texture(
             "Librarian preview depth",
@@ -428,6 +430,87 @@ mod tests {
                 .unwrap_or(worn.skeleton.fps)
                 .max(1) as f32;
             preview_pose(&worn, Some((0, action.start / fps))).expect("worn animation pose");
+        }
+    }
+
+    #[test]
+    fn authentic_client_gpu_preview_when_available() {
+        if std::env::var_os("PW_LIBRARIAN_GPU").is_none() {
+            return;
+        }
+        let root = std::env::var("PW_LIBRARIAN_ELEMENT_ROOT").expect("client root");
+        let mut assets = LibrarianAssets::open(std::path::Path::new(&root));
+        let db = super::super::database::Database::parse_v27(&assets.read_elements_data().unwrap())
+            .unwrap();
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default()))
+            .expect("headless GPU adapter");
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("Librarian client preview test"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+            },
+            None,
+        ))
+        .expect("device");
+        let format = wgpu::TextureFormat::Rgba8Unorm;
+        let mut renderer = egui_wgpu::Renderer::new(&device, format, None, 1);
+        let mut preview = Preview::new(&device, &mut renderer, format);
+        let weapon = &db.items[*db.by_id.get(&6).unwrap()];
+        let armor = &db.items[*db.by_id.get(&128).unwrap()];
+        let worn = format!("worn:0:m:{}", armor.equipment_name().unwrap());
+        for path in [&weapon.model, &worn] {
+            preview.update(&device, &queue, format, &mut assets, path);
+            assert!(preview.error.is_none(), "{path}: {:?}", preview.error);
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: 512 * 512 * 4,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut encoder = device.create_command_encoder(&Default::default());
+            encoder.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    texture: &preview.color,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &buffer,
+                    layout: wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(512 * 4),
+                        rows_per_image: Some(512),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: 512,
+                    height: 512,
+                    depth_or_array_layers: 1,
+                },
+            );
+            queue.submit(Some(encoder.finish()));
+            let slice = buffer.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |result| {
+                tx.send(result).unwrap();
+            });
+            device.poll(wgpu::Maintain::Wait);
+            rx.recv().unwrap().expect("map preview");
+            let data = slice.get_mapped_range();
+            let background = &data[..4];
+            let changed = data
+                .chunks_exact(4)
+                .filter(|pixel| *pixel != background)
+                .count();
+            assert!(
+                changed > 100,
+                "{path} rendered only {changed} non-background pixels"
+            );
+            drop(data);
+            buffer.unmap();
         }
     }
 
