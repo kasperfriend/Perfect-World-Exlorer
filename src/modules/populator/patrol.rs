@@ -45,7 +45,9 @@ impl Route {
                 return Err(format!("navigation waypoint {index} is not finite"));
             }
             if !waypoint.wait.is_finite() || waypoint.wait < 0. {
-                return Err(format!("navigation waypoint {index} has an invalid dwell time"));
+                return Err(format!(
+                    "navigation waypoint {index} has an invalid dwell time"
+                ));
             }
         }
         Ok(())

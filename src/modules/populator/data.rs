@@ -87,7 +87,11 @@ impl TaskNpcTable {
             ));
         }
         let expected = 12usize
-            .checked_add(count.checked_mul(12).ok_or("task_npc.data count overflow")?)
+            .checked_add(
+                count
+                    .checked_mul(12)
+                    .ok_or("task_npc.data count overflow")?,
+            )
             .ok_or("task_npc.data size overflow")?;
         if expected != bytes.len() {
             return Err(format!(
@@ -105,10 +109,7 @@ impl TaskNpcTable {
             if npc_id == 0 {
                 return Err(format!("task_npc.data record {index} has a zero NPC id"));
             }
-            if height < 0
-                || (x as f32).abs() > WORLD_LIMIT_X
-                || (z as f32).abs() > WORLD_LIMIT_Z
-            {
+            if height < 0 || (x as f32).abs() > WORLD_LIMIT_X || (z as f32).abs() > WORLD_LIMIT_Z {
                 return Err(format!(
                     "task_npc.data record {index} is outside the main world: {x}, {z}, {height}"
                 ));
@@ -303,7 +304,10 @@ mod tests {
 
     #[test]
     fn exact_parser_reads_header_and_records() {
-        let bytes = table(&[record(3124, 1778, 3447, 0, 70), record(3125, -985, 4204, 276, 66)]);
+        let bytes = table(&[
+            record(3124, 1778, 3447, 0, 70),
+            record(3125, -985, 4204, 276, 66),
+        ]);
         let parsed = TaskNpcTable::parse_exact(&bytes).unwrap();
         assert_eq!(parsed.version, 1);
         assert_eq!(parsed.declared_size as usize, bytes.len());
@@ -423,7 +427,8 @@ mod tests {
     #[test]
     fn shipped_client_joins_every_placement_onto_an_npc_template() {
         let element = Path::new("google_drive/pw142/element");
-        if !element.join("data/elements.data").exists() || !element.join("data/task_npc.data").exists()
+        if !element.join("data/elements.data").exists()
+            || !element.join("data/task_npc.data").exists()
         {
             return;
         }

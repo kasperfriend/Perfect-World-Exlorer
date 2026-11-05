@@ -73,7 +73,8 @@ impl Settings {
     fn sanitized(self) -> Self {
         Self {
             spawn_distance: if self.spawn_distance.is_finite() {
-                self.spawn_distance.clamp(MIN_SPAWN_DISTANCE, MAX_SPAWN_DISTANCE)
+                self.spawn_distance
+                    .clamp(MIN_SPAWN_DISTANCE, MAX_SPAWN_DISTANCE)
             } else {
                 NATIVE_SPAWN_DISTANCE
             },
@@ -379,8 +380,10 @@ impl Populator {
             ),
             None => return,
         };
-        let mut previous: Vec<Option<Live>> =
-            std::mem::take(&mut self.live).into_iter().map(Some).collect();
+        let mut previous: Vec<Option<Live>> = std::mem::take(&mut self.live)
+            .into_iter()
+            .map(Some)
+            .collect();
         // Keep every actor that is still in range, in distance order, before
         // spending the frame's rig budget on new ones.
         let mut next = Vec::with_capacity(nearest.len());
@@ -598,7 +601,10 @@ impl Populator {
     }
 
     fn failed_count(&self) -> usize {
-        self.live.iter().filter(|live| live.failure.is_some()).count()
+        self.live
+            .iter()
+            .filter(|live| live.failure.is_some())
+            .count()
     }
 
     pub fn settings_ui(&mut self, ui: &mut egui::Ui) {
@@ -715,8 +721,7 @@ impl Populator {
             .weak(),
         );
         ui.add(
-            egui::Slider::new(&mut self.settings.max_visible, 1..=MAX_VISIBLE_LIMIT)
-                .text("actors"),
+            egui::Slider::new(&mut self.settings.max_visible, 1..=MAX_VISIBLE_LIMIT).text("actors"),
         );
         ui.checkbox(&mut self.settings.idle_animation, "Idle animation");
         ui.checkbox(
@@ -741,8 +746,16 @@ impl Populator {
         ui.separator();
         ui.heading("Population state");
         if let Some(population) = &self.population {
-            let moving = self.live.iter().filter(|live| live.follow.is_some()).count();
-            ui.label(egui::RichText::new(&population.mob_placement).small().weak());
+            let moving = self
+                .live
+                .iter()
+                .filter(|live| live.follow.is_some())
+                .count();
+            ui.label(
+                egui::RichText::new(&population.mob_placement)
+                    .small()
+                    .weak(),
+            );
             ui.label(
                 egui::RichText::new(format!(
                     "{moving} actors on navigation paths. {}",

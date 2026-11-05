@@ -1215,9 +1215,7 @@ mod tests {
         let apothecary = catalog.npc(2109).unwrap();
         assert_eq!(apothecary.name, "Apothecary Cheng");
         assert_eq!(apothecary.model, "models/npcs/npc/男npc4/男npc4.ecm");
-        assert!(apothecary
-            .greeting
-            .starts_with("The apothecary's approach"));
+        assert!(apothecary.greeting.starts_with("The apothecary's approach"));
         let tauroc = catalog.monster(986).unwrap();
         assert_eq!(tauroc.name, "Tauroc Valorian");
         assert_eq!(tauroc.short_desc, "+WT-ER");
