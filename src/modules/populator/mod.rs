@@ -177,6 +177,32 @@ struct Live {
     failure: Option<String>,
 }
 
+impl Live {
+    fn world(&self) -> Mat4 {
+        transform(self.position, self.yaw)
+    }
+
+    /// Posed meshes for this frame. `Playback` supplies the native scene clock
+    /// when the template's combined action is a single base; otherwise the
+    /// ordinary `休闲` action runs on the module clock, and a rig that can
+    /// evaluate neither falls back to its authored bind pose rather than
+    /// disappearing.
+    fn pose(&self) -> Result<Vec<PosedMesh>, String> {
+        let world = self.world();
+        let sample = self.playback.as_ref().and_then(Playback::sample);
+        let (action, seconds) = match sample {
+            Some((action, seconds)) => (Some(action), seconds),
+            None => (self.action, self.clock),
+        };
+        if let Some(action) = action {
+            if let Ok(meshes) = self.asset.pose_action_at_time(action, seconds, world) {
+                return Ok(meshes);
+            }
+        }
+        self.asset.pose_bind(world)
+    }
+}
+
 /// Model-to-world matrix with the actor's local `+Z` as forward, matching
 /// `walker::character::character_transform`.
 pub(crate) fn transform(position: Vec3, yaw: f32) -> Mat4 {
