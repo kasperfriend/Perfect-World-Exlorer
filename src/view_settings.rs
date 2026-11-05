@@ -759,17 +759,15 @@ mod tests {
         assert!(!legacy.time_pass_enabled);
         assert_eq!(legacy.time_pass_speed, 1.0);
         assert!(!legacy.all_to_vram);
-        let on = ViewSettings::decode(
-            "time_pass_enabled=true\ntime_pass_speed=240\nall_to_vram=true",
-        );
+        let on =
+            ViewSettings::decode("time_pass_enabled=true\ntime_pass_speed=240\nall_to_vram=true");
         assert!(on.time_pass_enabled);
         assert_eq!(on.time_pass_speed, 240.0);
         assert!(on.all_to_vram);
         assert_eq!(ViewSettings::decode(&on.encode()), on);
         // Non-numeric and non-finite values fall back to the safe default.
-        let bad = ViewSettings::decode(
-            "time_pass_enabled=bogus\ntime_pass_speed=NaN\nall_to_vram=1",
-        );
+        let bad =
+            ViewSettings::decode("time_pass_enabled=bogus\ntime_pass_speed=NaN\nall_to_vram=1");
         assert!(!bad.time_pass_enabled);
         assert_eq!(bad.time_pass_speed, 1.0);
         assert!(!bad.all_to_vram);

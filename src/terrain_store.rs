@@ -49,9 +49,7 @@ struct Resident {
 }
 impl Resident {
     fn bytes(&self) -> usize {
-        self.heights.capacity() * 4
-            + self.normals.capacity() * 3
-            + std::mem::size_of::<Resident>()
+        self.heights.capacity() * 4 + self.normals.capacity() * 3 + std::mem::size_of::<Resident>()
     }
 }
 struct Entry {
@@ -658,8 +656,8 @@ pub fn source_identity(header: &[u8], dir: &Path, names: &[String]) -> Result<St
     hash.update((header.len() as u64).to_le_bytes());
     hash.update(header);
     for name in names {
-        let bytes = fs::read(dir.join(format!("{name}.t2bk")))
-            .map_err(|e| format!("{name}: {e}"))?;
+        let bytes =
+            fs::read(dir.join(format!("{name}.t2bk"))).map_err(|e| format!("{name}: {e}"))?;
         hash.update((name.len() as u64).to_le_bytes());
         hash.update(name.as_bytes());
         hash.update((bytes.len() as u64).to_le_bytes());
@@ -711,7 +709,9 @@ fn parse_manifest(bytes: &[u8], width: usize, height: usize, side: usize) -> Opt
     let pages = take_u64(body, &mut pos)?;
     let name_len = take_u32(body, &mut pos)? as usize;
     let name_end = pos.checked_add(name_len)?;
-    let pages_name = std::str::from_utf8(body.get(pos..name_end)?).ok()?.to_string();
+    let pages_name = std::str::from_utf8(body.get(pos..name_end)?)
+        .ok()?
+        .to_string();
     pos = name_end;
     if !safe_name(&pages_name) || !pages_name.ends_with(".pages") {
         return None;
@@ -1060,7 +1060,9 @@ mod tests {
     }
     /// Fill a paged fixture under an explicit source identity.
     fn fixture_with_identity(root: &Path, identity: &str) -> (Heights, Normals) {
-        let mut b = Builder::new(root, 32, 24, 4).unwrap().with_identity(identity);
+        let mut b = Builder::new(root, 32, 24, 4)
+            .unwrap()
+            .with_identity(identity);
         for bx in 0..8 {
             for by in 0..6 {
                 let mut h = Vec::new();
@@ -1115,10 +1117,16 @@ mod tests {
         let stats = h.stats();
         assert_eq!(stats.reads, 0);
         assert_eq!(stats.evictions, 0);
-        assert_eq!(stats.resident_bytes, cells * 7 + std::mem::size_of::<Resident>());
+        assert_eq!(
+            stats.resident_bytes,
+            cells * 7 + std::mem::size_of::<Resident>()
+        );
         // An exhaustive scan must not release it, unlike the paged hot set.
         h.trim();
-        assert_eq!(h.stats().resident_bytes, cells * 7 + std::mem::size_of::<Resident>());
+        assert_eq!(
+            h.stats().resident_bytes,
+            cells * 7 + std::mem::size_of::<Resident>()
+        );
         assert_grid(&h, &n);
     }
 
@@ -1151,11 +1159,17 @@ mod tests {
         assert_grid(&h, &n);
         assert!(!h.is_resident(), "a warm start still pages");
         // A different source identity must never resolve to this grid.
-        assert!(restore(&dir.0, "source-two", 32, 24, 4, 224).unwrap().is_none());
+        assert!(restore(&dir.0, "source-two", 32, 24, 4, 224)
+            .unwrap()
+            .is_none());
         // Dimensions that disagree with the index are rejected.
-        assert!(restore(&dir.0, "source-one", 16, 24, 4, 224).unwrap().is_none());
+        assert!(restore(&dir.0, "source-one", 16, 24, 4, 224)
+            .unwrap()
+            .is_none());
         // An unsafe identity never touches the disk.
-        assert!(restore(&dir.0, "../source", 32, 24, 4, 224).unwrap().is_none());
+        assert!(restore(&dir.0, "../source", 32, 24, 4, 224)
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -1169,11 +1183,15 @@ mod tests {
         let mut edited = original.clone();
         edited[16] ^= 0xff;
         fs::write(&index, &edited).unwrap();
-        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224).unwrap().is_none());
+        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+            .unwrap()
+            .is_none());
 
         // Truncation is rejected too.
         fs::write(&index, &original[..original.len() / 2]).unwrap();
-        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224).unwrap().is_none());
+        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+            .unwrap()
+            .is_none());
         fs::write(&index, &original).unwrap();
 
         // A good index over a damaged pages object fails the stream hash.
@@ -1189,11 +1207,15 @@ mod tests {
         let last = bytes.len() - 1;
         bytes[last] ^= 0xff;
         fs::write(&pages, &bytes).unwrap();
-        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224).unwrap().is_none());
+        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+            .unwrap()
+            .is_none());
         // And the intact object still restores once it is written back.
         bytes[last] ^= 0xff;
         fs::write(&pages, &bytes).unwrap();
-        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224).unwrap().is_some());
+        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+            .unwrap()
+            .is_some());
     }
 
     #[test]

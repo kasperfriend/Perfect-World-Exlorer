@@ -462,7 +462,11 @@ mod tests {
         just_before.sun_elevation = 1e-7;
         let sun = disc(DiscKind::Sun, &just_before, 1.0, true, 0.0).expect("setting sun");
         let edge = emitted_point(&sun);
-        assert!(edge[1].abs() < 1e-3, "top edge {} not on the horizon", edge[1]);
+        assert!(
+            edge[1].abs() < 1e-3,
+            "top edge {} not on the horizon",
+            edge[1]
+        );
         assert!(sun.center[1] < 0.0, "quad centre must be below the horizon");
         // The same holds for the swelled dusk sun and for the moon.
         let dusk = disc(DiscKind::Sun, &just_before, 1.0, true, 1.0).expect("swelled sun");

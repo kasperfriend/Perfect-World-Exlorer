@@ -240,14 +240,7 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
     let cached = if all_to_vram {
         None
     } else {
-        terrain_store::restore(
-            &cache_root,
-            &identity,
-            w,
-            h,
-            grid,
-            terrain_store::budget(),
-        )?
+        terrain_store::restore(&cache_root, &identity, w, h, grid, terrain_store::budget())?
     };
     let mut terrain_pages = if cached.is_some() {
         None
@@ -377,9 +370,8 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
                         return Err(format!("{name} block {bi}: invalid normal header"));
                     };
                     for j in 0..nv {
-                        let az = *normal_data
-                            .get(base + 2 * j)
-                            .ok_or("truncated normals")? as usize;
+                        let az =
+                            *normal_data.get(base + 2 * j).ok_or("truncated normals")? as usize;
                         let el = *normal_data
                             .get(base + 2 * j + 1)
                             .ok_or("truncated normals")? as usize;
