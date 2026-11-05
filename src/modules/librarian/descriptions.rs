@@ -99,6 +99,18 @@ mod tests {
         assert_eq!(describe_addon(900, &[3]), None);
     }
     #[test]
+    fn authentic_config_text_when_available() {
+        let Ok(root) = std::env::var("PW_LIBRARIAN_CONFIGS_UNPACKED") else {
+            return;
+        };
+        let root = std::path::Path::new(&root);
+        let descriptions = keyed_strings(&std::fs::read(root.join("item_ext_desc.txt")).unwrap());
+        assert!(plain_text(&descriptions[&10037]).contains("This ancient yet amazing invention"));
+        let addons = addon_types(&std::fs::read(root.join("item_ext_prop.txt")).unwrap());
+        assert_eq!(addons.get(&411), Some(&0));
+    }
+
+    #[test]
     fn reads_utf16_text() {
         let mut bytes = vec![0xff, 0xfe];
         for unit in "42 \"Name\"".encode_utf16() {
