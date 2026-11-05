@@ -70,8 +70,10 @@ pub const SUNSHINE_HALF_WIDTH: f32 = 60.0;
 /// The client hangs both quads from the emitted point — the sun template spans
 /// `y 0..-20` and the strip `y 10..-30` — so their *centres* coincide at
 /// `y = -10` and the strip is concentric with the disc, not offset below it.
-/// The viewer draws both centred on the emitted direction, which keeps that
-/// relative placement.
+/// The emitted point is therefore the shared *top edge* anchor, not the centre:
+/// the viewer applies the same hang ([`crate::sky_celestial::template_hang`] on
+/// the CPU side, the `plane.y - half` term in the shader), which also makes the
+/// recovered elevation the elevation of the setting line.
 pub const SUNSHINE_HALF_HEIGHT: f32 = 20.0;
 
 /// Per-frame sky inputs, all recovered values.
@@ -397,9 +399,16 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,nigh
   // `sunshine.bmp` across the whole rectangle. `glow_center.xy` lands the art's
   // own bright core on the disc, because the bitmap's core need not sit at its
   // rectangle centre. Drawn only inside the recovered night-strength window.
+  //
+  // The template's `y` runs `10 .. -30` in the quad plane, so the emitted point
+  // is *not* the rectangle centre: the strip hangs 10 units below it (and the
+  // sun's disc, `y 0..-20`, hangs the same 10). `plane.y` grows downward, so
+  // both centres are at `plane.y == +offset`. Without that offset the whole
+  // sunset — strip, disc and the apparent setting line — sat 10 units (5.71
+  // degrees) too high, which is the "the sun never reaches the horizon" report.
   let strength=shine_ramp(n);
   if strength>0.0 {
-   let suv=vec2<f32>(plane.x/(2.0*SHINE_HALF_WIDTH*swell),plane.y/(2.0*SHINE_HALF_HEIGHT*swell))+p.glow_center.xy;
+   let suv=vec2<f32>(plane.x/(2.0*SHINE_HALF_WIDTH*swell),(plane.y-0.5*SHINE_HALF_HEIGHT*swell)/(2.0*SHINE_HALF_HEIGHT*swell))+p.glow_center.xy;
    if suv.x>=0.0 && suv.x<=1.0 && suv.y>=0.0 && suv.y<=1.0 {
     // `0x4b3e22` multiplies the `+0x44` light colour by the factor before
     // submission, so the strip is the region's own light colour, not white:
@@ -417,9 +426,16 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,nigh
  // not sit at the centre of its own quad (alpha bbox 11..438 x 69..493 of 512),
  // so a centred halo lands off the painted disc.
  // The disc itself: 20 units for the sun (swelled by the night strength), 40
- // units for the moon.
+ // units for the moon. Both native templates start at `y == 0` and run down to
+ // `-2 * half`, so the emitted point is the quad's *top edge* and the centre
+ // hangs `half` below it (the same 10/20 units the client's stream builder
+ // writes). The client's elevation curve is therefore the elevation of the
+ // setting line, not of the disc centre: at `+0x4c == 0` the sun's top edge is
+ // exactly on the horizon and its body is already down, which is what makes
+ // the recovered `el > 0` gate a real sunset instead of a pop-out 5.71 degrees
+ // above the sea.
  let half=select(MOON_HALF,SUN_HALF*swell,is_sun);
- let uv=plane/(2.0*half)+vec2<f32>(0.5);
+ let uv=vec2<f32>(plane.x/(2.0*half),(plane.y-half)/(2.0*half))+vec2<f32>(0.5);
  if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {return out;}
  let t=textureSampleLevel(skies,smp,uv,disc,0.);
  // The disc is the texture at `disc_brightness`. `CECSunMoon::Render`

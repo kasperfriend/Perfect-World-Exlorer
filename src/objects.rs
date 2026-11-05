@@ -12,6 +12,12 @@
 //! whole world are never all resident at once, even though the whole-world
 //! preload walks every placement. The budget defaults to 32 MiB and can be
 //! overridden with `PW_TEX_BUDGET_MIB` (tests and measurements use both).
+//!
+//! The Graphics tab's **All to VRAM** switch calls [`set_unbounded_textures`],
+//! which lifts the budget: every decoded texture stays cached, so revisiting an
+//! area (or rebuilding the whole-world preload) never decodes the same source
+//! twice. That is the residency the optimisation passes removed, restored as an
+//! explicit option because it costs the whole decoded corpus in RAM.
 use crate::{
     bmd, pck,
     scene::Ornament,
@@ -220,7 +226,25 @@ pub struct Objects {
 /// building.pck textures is ~445 MiB compressed on disk and far larger
 /// decoded, so the full world never fits under this budget by design.
 pub const DEFAULT_TEX_BUDGET_MIB: usize = 32;
+/// Process-wide "All to VRAM" switch. `Objects` instances read it when their
+/// cache evicts and when a new one is opened, so the whole-world preload and
+/// later streamed batches follow a live toggle without a restart.
+static UNBOUNDED_TEXTURES: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Keep every decoded texture resident instead of evicting to the budget.
+pub fn set_unbounded_textures(on: bool) {
+    UNBOUNDED_TEXTURES.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+/// Whether decoded textures are kept permanently resident.
+pub fn unbounded_textures() -> bool {
+    UNBOUNDED_TEXTURES.load(std::sync::atomic::Ordering::Relaxed)
+}
 fn tex_budget_bytes() -> usize {
+    if unbounded_textures() {
+        // Not literally infinite: the LRU comparison adds bytes to this, so it
+        // stays a value the arithmetic cannot overflow.
+        return usize::MAX / 4;
+    }
     std::env::var("PW_TEX_BUDGET_MIB")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
