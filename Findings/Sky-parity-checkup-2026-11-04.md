@@ -186,9 +186,10 @@ elevation of the setting line, so `el == 0` is a disc that has just fully set.
 
 **One game day is four real hours.** `CECSunMoon::Tick` (`0x4b5f10`) adds
 `elapsed_ms * ds:0x8db108` to the day fraction and `ds:0x8db108` is
-`1.4444444444444444e-7` = 1 / 14 400 000; `SetTime` (`0x4b6030`) converts an
-authored hour with `ds:0x8d6a8c` = 6.944444444444444e-5 = 1 / 14 400. So one
-authored hour is ten real minutes and one real second is four authored minutes.
+`6.944444444444444e-08` = 1 / 14 400 000; the `SetTime` caller `0x428f7d`
+converts real time-of-day seconds with `ds:0x8d6a8c` = 6.944444e-5 = 1 / 14 400,
+the same rate. So one authored hour is ten real minutes and one real second is
+four authored minutes.
 `clock-constants.txt` and `asm-29-clock-references.txt` hold the constants and
 every code reference; the viewer's "Enable time pass" checkbox runs the clock at
 that rate, with a 0.1x–600x multiplier.

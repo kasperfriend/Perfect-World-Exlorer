@@ -24,19 +24,32 @@ Short version:
 advances the sky clock:
 
 ```
-fild   qword [ebp+0x50]      ; the world tick's millisecond count
-fld    qword ds:0x8db108     ; the day fraction per millisecond
-fmulp                        ; ms * (1 / 14 400 000)
-fadd   qword [esi+0x68]      ; += the stored day fraction
-fst    qword [esi+0x68]
+004b5f26: fild  qword [esp+0xc]        ; the elapsed milliseconds the caller passes
+004b5f2a: fmul  qword [0x8db108]       ; * 6.944444444444444e-08  (1 / 14 400 000)
+004b5f30: fadd  qword [esi+0x68]       ; += the stored day fraction
+004b5f33: fst   qword [esi+0x68]
+004b5f36: fcomp qword [0x8d6138]       ; >= 1.0 ?
+004b5f46: fsub  qword [0x8d6138]       ; loop: fraction -= 1.0 while fraction >= 1.0
 ```
 
-`ds:0x8db108` is `1.4444444444444444e-7` = **1 / 14 400 000**, so the fraction
+`ds:0x8db108` is `6.944444444444444e-08` = **1 / 14 400 000**, so the fraction
 reaches 1.0 after 14 400 000 real milliseconds. **One authored day is four real
 hours**; one authored hour is ten real minutes; one real second is four authored
-minutes. `CECSunMoon::SetTime` (`0x4b6030`) agrees from the other direction: it
-converts an authored hour to a fraction with `fild` + `fmul` against
-`ds:0x8d6a8c` = `6.944444444444444e-5` = 1 / 14 400, i.e. 24 hours per day.
+minutes. `clock-constants.txt` has the raw bytes
+(`b9791f962fa4723e`) next to the double, so the number is checkable.
+
+The same file dumps the constants `SetTime` and the sun ramp read, and they agree
+from the other direction:
+
+| address | f32 lane | meaning |
+| --- | --- | --- |
+| `0x8d6138` | (double `1.0`) | the wrap the fraction is reduced by in `Tick` and `SetTime` |
+| `0x8d6a8c` | `6.944444e-05` = 1 / 14 400 | day fraction per **real second**, applied by the `SetTime` caller `0x428f7d` to a packed real-time-of-day integer (weights 60 and 900; which field the 900 counts is not recovered) — 14 400 s is again four hours |
+| `0x8db100` | `0.0003` | disc visibility per millisecond (`0x4b5f77`) |
+| `0x8db13c` | `0.1458333` = 3.5 / 24 | sunrise threshold compared against the day fraction (`0x4b60e8`) |
+| `0x8db138` | `6.8571429` = 1 / 0.1458333 | its reciprocal, used by the sun ramp (`0x4b60f9`) |
+| `0x8d6a9c` | `100.0` | disc placement distance |
+| `0x8d58a0` | `0.0` | day-flag comparison value |
 
 `asm-25-sunmoon-tick-callers.txt` shows the caller: the world tick
 (`0x429370`) passes its own millisecond counter in `edx` to the sky pointer at
