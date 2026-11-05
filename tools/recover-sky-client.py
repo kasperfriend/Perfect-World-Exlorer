@@ -200,6 +200,82 @@ def xref_functions(pe, text_strings, out):
     return len(owners), len(chunks)
 
 
+# ---------------------------------------------------------------------------
+# The size of one authored day is decided by the caller of the sky clock, not
+# by the constant inside it.  `CECSunMoon::Tick` 0x4b5f10 takes the elapsed
+# milliseconds as its only argument (`mov edi, [esp+0x18]`, 0x4b5f16) and
+# `CECSunMoon::SetTime` 0x4b6030 takes an authored hour/24 as an f32
+# (`fld dword ptr [esp+4]`, 0x4b6030).  Whatever feeds those two decides how
+# fast a day passes, so the dump has to contain the call sites, not just the
+# callee.  These were the missing windows in rounds 1-10.
+CALL_TARGETS = {
+    "25-sunmoon-tick-callers": 0x4B5F10,
+    "26-sunmoon-settime-callers": 0x4B6030,
+}
+# `ds:0x8db108` holds the recovered 6.944444e-8 day-fraction-per-ms double.
+# Anything else that reads the address is another path into the same clock.
+DAY_FRACTION = 0x8DB108
+CALL_SITE_CONTEXT = 0x140
+
+
+def direct_callers(pe, target):
+    """Virtual addresses of direct `call rel32` instructions that reach target."""
+    hits = []
+    for _name, vaddr, _vsize, rawptr, rawsize in pe.secs:
+        data = pe.d[rawptr:rawptr + rawsize]
+        base = pe.base + vaddr
+        for i in range(len(data) - 5):
+            if data[i] != 0xE8:
+                continue
+            rel = struct.unpack_from("<i", data, i + 1)[0]
+            if base + i + 5 + rel == target:
+                hits.append(base + i)
+    return hits
+
+
+def caller_dump(pe, text_strings, out):
+    """Write one file per call target with the enclosing function of every call."""
+    written = []
+    for name, target in sorted(CALL_TARGETS.items()):
+        sites = direct_callers(pe, target)
+        chunks = ["# callers of %#x (direct call rel32): %d\n" % (target, len(sites))]
+        for site in sites:
+            offset = pe.va2off(site)
+            if offset is None:
+                continue
+            start = function_start(pe, offset)
+            if start is None:
+                start = max(0, offset - CALL_SITE_CONTEXT)
+            end = function_extent(pe, start)
+            start_va = pe.off2va(start) or site
+            end_va = pe.off2va(end) or (site + CALL_SITE_CONTEXT)
+            chunks.append(FUNCTION_HEADER % (start_va, end_va, end - start, ""))
+            chunks.append("#   call at %#x\n" % site)
+            chunks.append(disassemble(pe, start_va, end_va, text_strings))
+            chunks.append("\n")
+        if not sites:
+            chunks.append("#   none: the call is made through a vtable slot\n")
+        (out / ("asm-%s.txt" % name)).write_text("".join(chunks))
+        written.append((name, len(sites)))
+    # Every code reference to the day-fraction constant itself.
+    chunks = ["# references to the day-fraction double at %#x\n" % DAY_FRACTION]
+    for ref in pe.find_u32(DAY_FRACTION):
+        offset = pe.va2off(ref)
+        chunks.append("#   %#x\n" % ref)
+        if offset is None:
+            continue
+        start = max(0, offset - 0x40)
+        end = min(len(pe.d), offset + 0x40)
+        start_va = pe.off2va(start)
+        end_va = pe.off2va(end)
+        if start_va is None or end_va is None:
+            continue
+        chunks.append(disassemble(pe, start_va, end_va, text_strings))
+        chunks.append("\n")
+    (out / "asm-27-day-fraction-refs.txt").write_text("".join(chunks))
+    return written
+
+
 def disassemble(pe, start, end, text_strings):
     """Disassemble [start, end) and annotate image addresses with their C string."""
     import capstone
@@ -435,6 +511,8 @@ def main():
             report.append("  %s: %d lines" % (name, text.count("\n")))
         count, chunks = xref_functions(pe, strings, out)
         report.append("  xref functions: %d bodies" % count)
+        for name, sites in caller_dump(pe, strings, out):
+            report.append("  %s: %d call site(s)" % (name, sites))
 
     (out / "SUMMARY.txt").write_text("\n".join(report) + "\n")
     print("\n".join(report))
