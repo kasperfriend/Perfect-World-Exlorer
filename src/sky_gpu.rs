@@ -543,16 +543,18 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
  let ndc_pix=vec2<f32>(ndc.x*0.5+0.5, ndc.y*0.5+0.5)*vec2<f32>(vp_w,h);
  var out=color;
  for(var i:i32=0;i<15;i=i+1){
-  // 860/800 was still clustered: 100→0.12 left the 12 near ghosts
-  // collapsed *in* the 11° disc (77 px radius at 1080p). Scale the
-  // recovered pixel offsets so the 15 table entries span the whole
-  // sun→beyond-centre line: 860→~1.7× (far beyond centre), 100→0.5×
-  // (mid-way), 40→0.2×, 25→0.12× ... -2.5→-0.01× (just behind the sun).
-  // That reproduces the retail “one moves right and extends, the rest
-  // were stuck inside” report: the far ghost was the only one that
-  // escaped the disc.
-  let t=flare_offset(i)/200.0;
-  let c_pix=mix(sun_pix, centre_pix, t);
+  // The recovered tables are in *pixels* from the sun (860,100…-9)
+  // with half = height * size[i] (0.45→486 px at 1080p). At 1080p the
+  // 860-px ghost was only ~0.45× the sun→centre distance when the sun
+  // was at the edge (960 px), so it read as “short” and the 12 near
+  // ghosts (100→0.01× after /800) collapsed inside the 77-px sun disc.
+  // The builder at 0x4b67ba does `fild [height] * size`, and at
+  // 0x4b66f6 `offset * dir` — offset is *not* t, it is pixels, and the
+  // host block at arg1+0x14 is {x,y,w,h,…} so the metric is height.
+  // Scale offset with the viewport so 860 stays “far beyond centre”
+  // even when the sun is off-screen (retail flare persists): reference
+  // is the builder's 768-px design height.
+  let c_pix=sun_pix + dir_pix*flare_offset(i)*(h/768.0);
   let half_pix=flare_size(i)*h;
   let q=(ndc_pix - c_pix)/max(half_pix,1e-6);
   if abs(q.x)>1.0 || abs(q.y)>1.0 {continue;}
