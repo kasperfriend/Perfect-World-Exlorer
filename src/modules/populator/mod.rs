@@ -15,12 +15,14 @@
 mod archive;
 mod data;
 mod draw;
+mod nameplate;
 mod patrol;
 
 use self::{
     archive::Archive,
     data::{Population, Spawn, TemplateKind},
     draw::Renderer,
+    nameplate::NameFont,
     patrol::{Follow, Motion},
 };
 use crate::{
@@ -54,6 +56,12 @@ pub const MIN_NAME_DISTANCE: f32 = 20.;
 const NAME_FALLBACK_HEIGHT: f32 = 1.9;
 /// Clearance between the top of the head and the baseline of the name.
 const NAME_LIFT: f32 = 0.25;
+/// How far the terrain must rise above the name's sight line before it counts
+/// as covering it. The ridge of a hill hides the labels behind it, a flat plain
+/// never does.
+const NAME_SIGHT_CLEARANCE: f32 = 0.05;
+/// Samples taken along one name's sight line against the terrain height field.
+const NAME_SIGHT_STEPS: usize = 12;
 /// How far above the bare terrain a placement may be lifted onto a building
 /// floor. Bridge decks and interior floors sit well inside this; a rooftop far
 /// overhead is not a placement surface and is not reached.
@@ -123,6 +131,9 @@ pub trait FloorSource {
     /// Changes whenever more hulls have streamed in, so placements resolved
     /// against an incomplete world can be resolved again.
     fn floor_stamp(&self) -> u64;
+    /// True when a building hull or a tree stands between `from` and `to`, used
+    /// to keep overhead names from showing through geometry.
+    fn sight_blocked(&self, from: Vec3, to: Vec3) -> bool;
 }
 
 /// One action clip wrapped on its own clock.
@@ -301,6 +312,10 @@ struct Live {
     head: f32,
     /// Whether this actor stands on a building floor rather than the terrain.
     on_floor: bool,
+    /// Whether the camera can actually see this actor's head: the client hides
+    /// a name it cannot see, so an occluded actor keeps its body and loses its
+    /// label instead of showing it through a wall.
+    name_visible: bool,
     /// Building-hull stamp the placement was resolved against.
     floor_stamp: u64,
     /// Real navigation path, when the population supplies one.
@@ -361,6 +376,20 @@ pub(crate) fn transform(position: Vec3, yaw: f32) -> Mat4 {
 /// deck, a platform or an interior floor - and on the terrain when the column
 /// holds no floor at all. That is what keeps the client's own placements out of
 /// the bridge arches and the walls they were authored on top of.
+/// Sampled line of sight against the terrain height field: the client's labels
+/// disappear behind a hill, so a terrain sample above the sight ray hides one.
+fn terrain_between(map: &MapSpace, from: Vec3, to: Vec3) -> bool {
+    let delta = to - from;
+    for step in 1..NAME_SIGHT_STEPS {
+        let t = step as f32 / NAME_SIGHT_STEPS as f32;
+        let point = from + delta * t;
+        if map.ground(point.x, point.z) > point.y + NAME_SIGHT_CLEARANCE {
+            return true;
+        }
+    }
+    false
+}
+
 fn stand_height(
     spawn: &Spawn,
     terrain: f32,
@@ -493,6 +522,9 @@ pub struct Populator {
     /// How the idle animations resolved, and whether that was logged.
     idle_report: IdleReport,
     reported_idle: bool,
+    /// The client's own overhead-name font, read from `configs/fonts.txt` and
+    /// handed to the host's egui context on first use.
+    name_font: Option<NameFont>,
 }
 
 impl Default for Populator {
@@ -515,6 +547,7 @@ impl Default for Populator {
             reported_failures: 0,
             idle_report: IdleReport::default(),
             reported_idle: false,
+            name_font: None,
         }
     }
 }
@@ -601,7 +634,9 @@ impl Populator {
 
     /// Whether this module needs the host's building hulls this frame.
     pub fn wants_floors(&self) -> bool {
-        self.active && self.settings.stand_on_objects
+        // Overhead names are hidden by geometry, so the hull set is needed even
+        // when placements are left on the terrain.
+        self.active && (self.settings.stand_on_objects || self.settings.show_names)
     }
 
     /// Per-frame host hook: streams actors around the camera, resolves their
@@ -764,6 +799,7 @@ impl Populator {
             clock: 0.,
             head,
             on_floor,
+            name_visible: true,
             floor_stamp: floors.map_or(0, |floors| floors.floor_stamp()),
             follow,
             draw: None,
@@ -796,6 +832,7 @@ impl Populator {
             return;
         }
         self.resolve_floors(floors);
+        self.update_name_visibility(floors);
         let delta_ms = (delta * 1000.).round().clamp(0., u32::MAX as f32) as u32;
         for live in &mut self.live {
             if live.failure.is_some() {
@@ -843,6 +880,42 @@ impl Populator {
     /// world and be standing on the terrain under a bridge. The stamp changes
     /// with every batch; only the actors resolved against an older one are
     /// moved again, and actors with an authored height never are.
+    /// Decide which labels the camera can actually see.
+    ///
+    /// The client never paints an overhead name through geometry, so a label is
+    /// dropped when the terrain or a building hull stands between the camera and
+    /// the head. Bodies stay visible; only the label goes away.
+    fn update_name_visibility(&mut self, floors: Option<&dyn FloorSource>) {
+        if !self.settings.show_names || self.settings.name_distance <= 0. {
+            for live in &mut self.live {
+                live.name_visible = true;
+            }
+            return;
+        }
+        let Some(map) = self.map.as_ref() else {
+            return;
+        };
+        let eye = self.eye;
+        let range = self.settings.name_distance;
+        let visible: Vec<bool> = self
+            .live
+            .iter()
+            .map(|live| {
+                let anchor = live.position + Vec3::Y * (live.head + NAME_LIFT);
+                if (anchor - eye).length() > range {
+                    return true;
+                }
+                if terrain_between(map, eye, anchor) {
+                    return false;
+                }
+                !floors.is_some_and(|floors| floors.sight_blocked(eye, anchor))
+            })
+            .collect();
+        for (live, visible) in self.live.iter_mut().zip(visible) {
+            live.name_visible = visible;
+        }
+    }
+
     fn resolve_floors(&mut self, floors: Option<&dyn FloorSource>) {
         if !self.settings.stand_on_objects {
             return;
@@ -1000,14 +1073,33 @@ impl Populator {
             && self.population.is_some()
     }
 
-    /// Client-style overhead names: the template's own name, projected over the
-    /// actor's head in world space, faded with distance and shadowed the way the
-    /// client's own labels are. The layer sits above the 3D scene and below the
-    /// viewer's windows, so a menu still covers the labels.
+    /// Client overhead names: the template's own name, drawn with the font the
+    /// client's own `configs/fonts.txt` names for player and NPC labels, at the
+    /// size that table asks for, projected over the actor's head in world space.
+    ///
+    /// The client renders these labels as fixed-size GDI text (so they neither
+    /// shrink with distance nor fade), and hides a label when the head is not
+    /// visible from the camera; both behaviours are reproduced here. The layer
+    /// sits above the 3D scene and below the viewer's windows, so a menu still
+    /// covers the labels.
     pub fn overlay_ui(&mut self, ctx: &egui::Context, view_projection: Mat4, screen: egui::Rect) {
         if !self.names_active() || self.settings.name_distance <= 0. {
             return;
         }
+        let font = {
+            let element = self.element.clone();
+            let font = self
+                .name_font
+                .get_or_insert_with(|| NameFont::load(&element));
+            // egui picks new font definitions up at the start of the next frame,
+            // so the frame that registers the client font still uses the
+            // viewer's own at the client's size.
+            if font.install(ctx) {
+                font.font_id()
+            } else {
+                egui::FontId::proportional(font.size)
+            }
+        };
         let Some(population) = self.population.as_ref() else {
             return;
         };
@@ -1017,9 +1109,8 @@ impl Populator {
         ));
         let eye = self.eye;
         let range = self.settings.name_distance;
-        let fade_from = range * 0.75;
         for live in &self.live {
-            if live.failure.is_some() {
+            if live.failure.is_some() || !live.name_visible {
                 continue;
             }
             let Some(spawn) = population.spawns.get(live.spawn) else {
@@ -1028,33 +1119,30 @@ impl Populator {
             if spawn.name.is_empty() {
                 continue;
             }
-            let distance = (live.position - eye).length();
-            if distance > range {
+            if (live.position - eye).length() > range {
                 continue;
             }
             let anchor = live.position + Vec3::Y * (live.head + NAME_LIFT);
             let Some(position) = project(anchor, view_projection, screen) else {
                 continue;
             };
-            let alpha = if distance <= fade_from {
-                1.0
-            } else {
-                ((range - distance) / (range - fade_from)).clamp(0., 1.)
-            };
-            let font = egui::FontId::proportional(if distance < 40. { 14. } else { 12. });
-            painter.text(
-                position + egui::vec2(1., 1.),
-                egui::Align2::CENTER_BOTTOM,
-                &spawn.name,
-                font.clone(),
-                egui::Color32::from_black_alpha((alpha * 190.) as u8),
-            );
+            // The client's `字体描边` outline: one pixel of black on each side
+            // of white glyphs, at the same size as the glyphs themselves.
+            for (dx, dy) in [(-1., 0.), (1., 0.), (0., -1.), (0., 1.)] {
+                painter.text(
+                    position + egui::vec2(dx, dy),
+                    egui::Align2::CENTER_BOTTOM,
+                    &spawn.name,
+                    font.clone(),
+                    egui::Color32::BLACK,
+                );
+            }
             painter.text(
                 position,
                 egui::Align2::CENTER_BOTTOM,
                 &spawn.name,
-                font,
-                egui::Color32::from_white_alpha((alpha * 245.) as u8),
+                font.clone(),
+                egui::Color32::WHITE,
             );
         }
     }
@@ -1227,6 +1315,17 @@ impl Populator {
             .text("name distance")
             .suffix(" u"),
         );
+        if self.settings.show_names {
+            let element = self.element.clone();
+            let font = self
+                .name_font
+                .get_or_insert_with(|| NameFont::load(&element));
+            let _ = font.install(ui.ctx());
+            ui.label(egui::RichText::new(font.describe()).small().weak())
+                .on_hover_text(
+                    "The client's own `Configs\\fonts.txt` names the font of the player and NPC labels above their heads. That row is read out of `configs.pck` and used for every name, so the typeface and the size are the client's, not the viewer's; the client's shipped CJK font is stacked behind it for glyphs the system font lacks.",
+                );
+        }
         self.settings = self.settings.sanitized();
         ui.label(
             egui::RichText::new(format!(
@@ -1331,7 +1430,7 @@ mod tests {
     }
 
     /// A stand-in for the Walker's building hulls: one floor at a fixed height.
-    struct OneFloor(Option<f32>, u64);
+    struct OneFloor(Option<f32>, u64, bool);
 
     impl FloorSource for OneFloor {
         fn lowest_floor(&self, _feet: Vec3, _extents: Vec3, _max_up: f32) -> Option<f32> {
@@ -1341,12 +1440,16 @@ mod tests {
         fn floor_stamp(&self) -> u64 {
             self.1
         }
+
+        fn sight_blocked(&self, _from: Vec3, _to: Vec3) -> bool {
+            self.2
+        }
     }
 
     #[test]
     fn authored_height_wins_and_a_real_floor_beats_the_terrain() {
-        let none = OneFloor(None, 1);
-        let bridge = OneFloor(Some(146.), 1);
+        let none = OneFloor(None, 1, false);
+        let bridge = OneFloor(Some(146.), 1, false);
         // An authored height is the game's own value, never the terrain.
         assert_eq!(
             stand_height(&spawn(Some(276.)), 120., Some(&bridge), true),

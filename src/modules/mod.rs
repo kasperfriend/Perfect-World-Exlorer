@@ -340,9 +340,10 @@ impl Modules {
         pitch: f32,
         eye: Vec3,
     ) -> Option<Vec3> {
-        // The Populator stands authored placements on real BMD floors, so it
-        // asks the Walker module for the building hulls it already owns. The
-        // loader only runs while the option and the module are on.
+        // The Populator stands authored placements on real BMD floors and hides
+        // overhead names behind geometry, so it asks the Walker module for the
+        // hulls it already owns. The loader only runs while the module is on and
+        // either names or floor standing is enabled.
         let floors = self.populator.wants_floors();
         if floors {
             self.walker.prepare_object_collision();

@@ -116,7 +116,13 @@ with 120 (ornament range) and 800 as further presets.
   That is what puts the bridge and platform placements on their decks instead
   of in the arch or the wall below them. The hulls are the same ones the Walker
   module collides with, loaded on demand; an authored height always wins and is
-  never moved.
+  never moved. Many props (stalls, wagons, low platforms, crates) ship render
+  geometry and **no collision hull at all**, which is why their placements used
+  to fall through to the terrain: the same lit-model load now also derives each
+  model's upward-facing top (triangles with `normal.y > 0.5`, models under 8
+  units tall and under 24 units wide) and uses it when no hull floor exists. A
+  hull floor still wins, so a bridge deck is never replaced by a prop standing
+  under the span.
 * Idle playback: a combined action the viewer can schedule runs through
   `Playback`; otherwise the ordinary clip that combined action names loops on
   the module clock. `pose_action_at_time` takes absolute track time and clamps
@@ -151,3 +157,64 @@ Every placement therefore keeps the rig's own authored forward axis (yaw 0,
 local `+Z` forward, exactly `walker::character::character_transform`), which is
 why the observed facing looks right in game. The viewer's earlier optional
 "turn to face the camera" is removed.
+
+## Overhead names (font and drawing, from the client's own files)
+
+The client does not decide the label look in code. `element/configs/fonts.txt`
+(UTF-16LE, inside `configs.pck`) is a table of
+`"family" height bold italic sample // comment` rows, and the 1.4.2 file shipped
+with this client contains exactly this (decoded, comments included):
+
+```text
+//  Element Client 字体描述
+
+//  字体名 ｜ 大小 ｜ 粗体 ｜ 斜体 ｜字符样本
+
+"Arial Unicode MS"  12  0  0  W	//  玩家和NPC头顶称谓文字
+"宋体"  20  0  0  W	//  弹出的伤害值的文字
+//"UseAUIFont" 0 0 0 W // 控制使用AUIFont作为头顶文字
+```
+
+That is the whole answer for the label font: **`Arial Unicode MS`, 12 points,
+regular**, and the file itself says so — the row is labelled "player and NPC
+overhead name text". The second row (20-point `宋体`) is the floating damage
+number, and `UseAUIFont`, which would switch the labels to the interface font,
+is commented out in the shipped file.
+
+How the client consumes it (`elementclient.exe`, base `0x400000`):
+
+* `CECGame::CreateFonts` @ `0x42ec80` opens `Configs\fonts.txt` (`0x951fa0`),
+  logs `Failed to open file Configs\fonts.txt` (`0x951f64`) when it cannot, and
+  otherwise walks the table line by line (`0x76e120` / `0x78d570`).
+* Each row's family is compared against the UTF-16LE literal `UseAUIFont` @
+  `0x951f4c`; every other row creates an `A3DFont`
+  (`A3DFontMan::CreateA3DFont`) and is appended to the font vector at
+  `this+0x4ec` / count `this+0x4f0` / capacity `this+0x4f4`.
+* `CECGame::GetFont(index)` @ `0x42f080` hands those out, falling back to the
+  interface font when the index is missing — index 0 is the overhead-name font,
+  index 1 the damage-number font (`0x5ad040` releases both).
+* `A3DFont` is GDI-backed (`A3DFontMan::Init` creates a bitmap + memory DC) and
+  draws glyph quads through `A3DFont::CalculateCharPos` /
+  `A3DFont::PrintCharsOnTextures`, so labels are **fixed-size screen text**: no
+  distance scaling and no distance fade. The separately registered TTFs
+  (`configs/font.ini`: `FontPath1: data\FZL2JW.ttf`,
+  `FontPath2: data\FZXH1JW.ttf`, also shipped in `fonts.pck` as
+  `fonts/fzl2jw.ttf` and `fonts/fzxh1jw.ttf`) are the AUI fonts, used only when
+  `UseAUIFont` is enabled.
+
+The viewer therefore reads the same table out of the client's `configs.pck` at
+run time and uses that family and size for every label:
+
+* the family is resolved to a real font file, because GDI finds "Arial Unicode
+  MS" by name from the system font folder while a viewer needs the bytes — the
+  file is taken from `%WINDIR%\Fonts` (`arialuni.ttf`), then from the client's
+  own `data\fzl2jw.ttf` / `data\fzxh1jw.ttf` (or `fonts.pck`) when the system
+  font is missing, and the client's CJK font is stacked behind it so Chinese
+  and symbol names always resolve;
+* labels are drawn at the table's 12 px in every direction — no distance-based
+  size change, no fade — centred on the head with one pixel of black outline,
+  matching the client's own `字体描边` (font border) option;
+* a label is dropped when the head is not visible: the viewer samples the
+  terrain along the camera-to-head ray and sweeps the same BMD building/tree
+  hulls the Walker collides with, so no name is ever visible through a wall,
+  a roof or a hill. Bodies stay visible; only the label goes away.
