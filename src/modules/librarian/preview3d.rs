@@ -158,6 +158,9 @@ impl Preview {
                         }
                     }
                     if !min.is_finite() || !max.is_finite() {
+                        if asset.descriptor.events.iter().any(|event| event.gfx_path().is_some()) {
+                            return Err("This model is effect-only; GFX effect previews are not supported yet.".into());
+                        }
                         return Err("Model contains no finite geometry".into());
                     }
                     self.center = (min + max) * 0.5;
