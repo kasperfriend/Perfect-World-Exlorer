@@ -561,6 +561,38 @@ impl State {
                                 ui.label(format!("Base speed: {speed:.2}"));
                             }
                         }
+                        if let Some(id) = item.contained_item() {
+                            if let Some(&target) = self.database.by_id.get(&id) {
+                                if ui
+                                    .link(format!("Contains: {}", self.database.items[target].name))
+                                    .clicked()
+                                {
+                                    self.selected = Some(target);
+                                }
+                            }
+                        }
+                        let fixed_addons = item.fixed_addons();
+                        if !fixed_addons.is_empty() {
+                            ui.separator();
+                            ui.strong("Item bonuses");
+                            for (group, id) in fixed_addons {
+                                ui.label(format!("{group}: {}", self.database.addon_label(id)));
+                            }
+                        }
+                        let skills = item.pet_skills();
+                        if !skills.is_empty() {
+                            ui.separator();
+                            ui.strong("Pet skills");
+                            for (id, level) in skills {
+                                let name = self
+                                    .database
+                                    .skill_names
+                                    .get(&id.saturating_mul(10))
+                                    .map(|name| descriptions::plain_text(name))
+                                    .unwrap_or_else(|| format!("Skill {id}"));
+                                ui.label(format!("{name} · level {level}"));
+                            }
+                        }
                         for (group, addons) in item.addon_groups() {
                             ui.separator();
                             ui.strong(format!("{group} add-on pool"));

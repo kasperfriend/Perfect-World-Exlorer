@@ -15,7 +15,10 @@ pub fn rows(items: &[&Item]) -> BTreeMap<&'static str, Vec<Option<f64>>> {
 
 /// Some numeric fields are identifiers, not quantities with a better value.
 pub fn best(name: &str, values: &[Option<f64>]) -> Option<f64> {
-    if matches!(name, "Pet ID" | "Skill ID" | "Skill level" | "Dye count") {
+    if matches!(
+        name,
+        "Pet ID" | "Skill ID" | "Skill level" | "Dye count" | "Contained item ID"
+    ) {
         return None;
     }
     let smaller = matches!(

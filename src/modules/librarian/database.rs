@@ -103,10 +103,12 @@ fn layout(
         30 => (Materials, None, None, 4, 324, Some(68)),
         75 | 76 | 110 | 126 | 127 => (QuestAndPacks, None, None, 4, 196, None),
         96 | 97 | 98 => (PetsAndMounts, None, None, 4, 196, None),
+        114 => (GemsBooksAmmo, None, None, 4, 196, None),
+        120 => (Fashion, None, None, 4, 196, None),
         121 => (Genies, None, None, 4, 708, Some(68)),
         124 => (Genies, None, None, 4, 196, None),
         125 => (QuestAndPacks, None, None, 4, 200, None),
-        25 | 26 | 27 | 28 | 99 | 100 | 108 | 109 | 114 | 115 | 116 | 117 | 118 | 119 | 120 => {
+        25 | 26 | 27 | 28 | 99 | 100 | 108 | 109 | 115 | 116 | 117 | 118 | 119 => {
             (Consumables, None, None, 4, 196, None)
         }
         _ => return None,
@@ -311,6 +313,23 @@ mod tests {
         assert!(attributes.contains(&("Loyalty", 55.)));
     }
     #[test]
+    fn quiver_and_pet_item_links_are_preserved() {
+        let mut quiver = vec![0; 340];
+        quiver[328..332].copy_from_slice(&456u32.to_le_bytes());
+        let db = Database::parse_v27(&super::super::elements::synthetic_file(34, &quiver)).unwrap();
+        assert_eq!(db.items[0].contained_item(), Some(456));
+        let mut egg = vec![0; 628];
+        egg[352..356].copy_from_slice(&89u32.to_le_bytes());
+        egg[356..360].copy_from_slice(&3u32.to_le_bytes());
+        let db = Database::parse_v27(&super::super::elements::synthetic_file(96, &egg)).unwrap();
+        assert_eq!(db.items[0].pet_skills(), vec![(89, 3)]);
+    }
+    #[test]
+    fn tomes_and_dyes_are_in_their_relevant_categories() {
+        assert_eq!(layout(114).unwrap().0, Category::GemsBooksAmmo);
+        assert_eq!(layout(120).unwrap().0, Category::Fashion);
+    }
+    #[test]
     fn authentic_client_catalog_when_available() {
         let Ok(path) = std::env::var("PW_LIBRARIAN_ELEMENTS") else {
             return;
@@ -474,6 +493,51 @@ impl Item {
             .collect()
     }
 
+    pub fn contained_item(&self) -> Option<u32> {
+        if self.section != 34 {
+            return None;
+        }
+        let id = number(&self.record, 328);
+        if id == 0 {
+            None
+        } else {
+            Some(id)
+        }
+    }
+    pub fn fixed_addons(&self) -> Vec<(&'static str, u32)> {
+        let offsets: Vec<(&str, usize)> = match self.section {
+            36 => vec![("Weapon", 352), ("Armor", 356)],
+            114 => (0..10).map(|index| ("Tome", 324 + index * 4)).collect(),
+            _ => Vec::new(),
+        };
+        offsets
+            .into_iter()
+            .filter_map(|(name, offset)| {
+                let id = number(&self.record, offset);
+                if id == 0 {
+                    None
+                } else {
+                    Some((name, id))
+                }
+            })
+            .collect()
+    }
+    pub fn pet_skills(&self) -> Vec<(u32, u32)> {
+        if self.section != 96 {
+            return Vec::new();
+        }
+        (0..32)
+            .filter_map(|index| {
+                let id = number(&self.record, 352 + 8 * index);
+                let level = number(&self.record, 356 + 8 * index);
+                if id == 0 {
+                    None
+                } else {
+                    Some((id, level))
+                }
+            })
+            .collect()
+    }
     pub fn class_mask(&self) -> Option<u32> {
         match self.section {
             3 => Some(number(&self.record, 608)),
@@ -663,6 +727,11 @@ impl Item {
                 ("Stack limit", 336),
             ],
             29 => &[("Stack limit", 196)],
+            34 => &[
+                ("Contained item ID", 328),
+                ("Amount min", 332),
+                ("Amount max", 336),
+            ],
             96 => &[
                 ("Pet ID", 324),
                 ("Incubation price", 328),
@@ -680,9 +749,41 @@ impl Item {
                 ("Skill ID", 328),
                 ("Skill level", 332),
             ],
-            116 => &[("HP recovery", 324), ("Cooldown (ms)", 332)],
-            117 => &[("MP recovery", 324), ("Cooldown (ms)", 332)],
-            118 => &[("Duration", 324)],
+            114 => &[
+                ("Sell price", 364),
+                ("Buy price", 368),
+                ("Stack limit", 380),
+            ],
+            115 => &[
+                ("Sell price", 328),
+                ("Buy price", 332),
+                ("Stack limit", 336),
+            ],
+            116 => &[
+                ("HP recovery", 324),
+                ("Cooldown (ms)", 332),
+                ("Sell price", 336),
+                ("Buy price", 340),
+                ("Stack limit", 344),
+            ],
+            117 => &[
+                ("MP recovery", 324),
+                ("Cooldown (ms)", 332),
+                ("Sell price", 336),
+                ("Buy price", 340),
+                ("Stack limit", 344),
+            ],
+            118 => &[
+                ("Duration", 324),
+                ("Sell price", 328),
+                ("Buy price", 332),
+                ("Stack limit", 336),
+            ],
+            119 => &[
+                ("Sell price", 324),
+                ("Buy price", 328),
+                ("Stack limit", 332),
+            ],
             120 => &[
                 ("Sell price", 348),
                 ("Buy price", 352),
@@ -740,6 +841,7 @@ impl Item {
             19 => &[("Damage reduction", 604)],
             24 => &[("Flight speed", 464)],
             25 | 26 | 27 => &[("Cast time", 324)],
+            116 | 117 => &[("Trigger threshold", 328)],
             120 => &[
                 ("Hue min", 324),
                 ("Hue max", 328),
