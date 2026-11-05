@@ -167,7 +167,10 @@ fn triangle_mesh(surface: &CloudSurface) -> (Vec<TriVertex>, Vec<u32>) {
                 1 => [uv_rect[2], uv_rect[1]],
                 2 => [uv_rect[0], uv_rect[3]],
                 3 => [uv_rect[2], uv_rect[3]],
-                _ => [(uv_rect[0] + uv_rect[2]) * 0.5, (uv_rect[1] + uv_rect[3]) * 0.5],
+                _ => [
+                    (uv_rect[0] + uv_rect[2]) * 0.5,
+                    (uv_rect[1] + uv_rect[3]) * 0.5,
+                ],
             };
             let day = unpack_rgb(v.colors[0]);
             let night = unpack_rgb(v.colors[2]);

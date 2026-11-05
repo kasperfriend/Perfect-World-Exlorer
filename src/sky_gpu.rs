@@ -653,11 +653,7 @@ fn sun_ndc_half(fov_degrees: f32) -> f32 {
 /// is available — exactly the native `6×0.4` when all taps see sky, `0`
 /// when fully occluded, and the `0x4b5b74` 90-vertex strip remains
 /// represented by the 15 `flare_size/offset/uv` tables.
-fn flare_occlusion(
-    sun_ndc: [f32; 2],
-    fade: f32,
-    sample_depth: impl Fn([f32; 2]) -> f32,
-) -> f32 {
+fn flare_occlusion(sun_ndc: [f32; 2], fade: f32, sample_depth: impl Fn([f32; 2]) -> f32) -> f32 {
     // Six taps recovered from `ps/solarflare_14` — the shader's 6 reads of
     // the `0x786840` accumulation target at weight 0.4. Their offsets are the
     // reduction of the 54-pt `0x7855c0` mask: a small cross around the sun
