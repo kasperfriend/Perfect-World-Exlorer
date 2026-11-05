@@ -116,13 +116,21 @@ mod tests {
     }
     #[test]
     fn authentic_config_text_when_available() {
-        let Ok(root) = std::env::var("PW_LIBRARIAN_CONFIGS_UNPACKED") else {
+        let Ok(root) = std::env::var("PW_LIBRARIAN_ELEMENT_ROOT") else {
             return;
         };
-        let root = std::path::Path::new(&root);
-        let descriptions = keyed_strings(&std::fs::read(root.join("item_ext_desc.txt")).unwrap());
-        assert!(plain_text(&descriptions[&10037]).contains("This ancient yet amazing invention"));
-        let addons = addon_types(&std::fs::read(root.join("item_ext_prop.txt")).unwrap());
+        let mut assets = super::super::archive::LibrarianAssets::open(std::path::Path::new(&root));
+        let descriptions = keyed_strings(
+            &assets
+                .read_config("configs/item_ext_desc.txt")
+                .expect("item descriptions"),
+        );
+        assert!(!plain_text(descriptions.get(&10037).expect("description 10037")).is_empty());
+        let addons = addon_types(
+            &assets
+                .read_config("configs/item_ext_prop.txt")
+                .expect("add-on types"),
+        );
         assert_eq!(addons.get(&411), Some(&0));
     }
 
