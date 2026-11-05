@@ -3,7 +3,6 @@
 //! hooks; a disabled module has no effect on core features.
 
 mod designer;
-#[cfg(test)]
 mod librarian;
 mod package;
 mod walker;
@@ -17,6 +16,7 @@ use winit::keyboard::KeyCode;
 
 pub struct Modules {
     walker: Walker,
+    librarian: librarian::Librarian,
     packages: Registry,
     selected: usize,
 }
@@ -25,6 +25,7 @@ impl Default for Modules {
     fn default() -> Self {
         Self {
             walker: Walker::default(),
+            librarian: librarian::Librarian::new(PathBuf::new()),
             packages: Registry::discover(package::default_root()),
             selected: 0,
         }
@@ -40,7 +41,8 @@ impl Modules {
         ornaments: Vec<crate::scene::Ornament>,
     ) -> Self {
         Self {
-            walker: Walker::with_host(element, map, water, scene, ornaments),
+            walker: Walker::with_host(element.clone(), map, water, scene, ornaments),
+            librarian: librarian::Librarian::new(element),
             packages: Registry::discover(package::default_root()),
             selected: 0,
         }
@@ -103,6 +105,7 @@ impl Modules {
                     });
                 self.selected = selected;
             });
+        self.librarian.ui(ctx);
         back
     }
 
@@ -125,7 +128,8 @@ impl Modules {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for (index, installed) in self.packages.packages.iter().enumerate() {
-                            let enabled = installed.id == "walker" && self.walker.is_active();
+                            let enabled = (installed.id == "walker" && self.walker.is_active())
+                                || (installed.id == "librarian" && self.librarian.active());
                             let text = if enabled {
                                 egui::RichText::new(format!("● {}", installed.name))
                                     .color(egui::Color32::LIGHT_GREEN)
@@ -198,6 +202,14 @@ impl Modules {
                 .weak(),
         );
         ui.add_space(8.);
+        if installed.id == "librarian" {
+            let active = self.librarian.active();
+            if ui.button(if active { "Disable Librarian" } else { "Enable Librarian" }).clicked() {
+                self.librarian.set_active(!active);
+            }
+            ui.label(self.librarian.status());
+            return;
+        }
         if installed.id != "walker" {
             ui.label(
                 egui::RichText::new(format!(

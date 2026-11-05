@@ -69,7 +69,7 @@ fn layout(section: usize) -> Option<(Category, Option<usize>, Option<usize>, usi
         3 => (Weapons, Some(4), Some(8), 12, 464, Some(80)),
         6 => (Armor, Some(4), Some(8), 12, 236, None),
         9 => (Ornaments, Some(4), Some(8), 12, 332, Some(76)),
-        84 => (Fashion, Some(4), Some(8), 12, 236, None),
+        84 => (Fashion, None, Some(4), 12, 236, None),
         12 => (Consumables, Some(4), Some(8), 12, 204, None),
         15 => (Materials, Some(4), Some(8), 12, 204, None),
         87 | 90 => (Consumables, Some(4), Some(8), 12, 204, None),
@@ -141,5 +141,52 @@ mod tests {
         assert_eq!(category, Category::Weapons);
         assert_eq!((name, icon), (12, 464));
         assert!(layout(1).is_none());
+    }
+}
+
+impl Category {
+    pub const ALL: [Self; 11] = [
+        Self::Weapons, Self::Armor, Self::Ornaments, Self::Fashion, Self::Flight,
+        Self::PetsAndMounts, Self::Genies, Self::Consumables, Self::GemsBooksAmmo,
+        Self::Materials, Self::QuestAndPacks,
+    ];
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Weapons => "Weapons", Self::Armor => "Armor", Self::Ornaments => "Ornaments",
+            Self::Fashion => "Fashion", Self::Flight => "Flight", Self::PetsAndMounts => "Pets & Mounts",
+            Self::Genies => "Genies", Self::Consumables => "Consumables",
+            Self::GemsBooksAmmo => "Gems, Books & Ammo", Self::Materials => "Materials",
+            Self::QuestAndPacks => "Quest & Packs",
+        }
+    }
+}
+
+impl Item {
+    /// Only fields whose interpretation is known are exposed. Unknown fields
+    /// are deliberately not guessed from their raw binary representation.
+    pub fn attributes(&self) -> Vec<(&'static str, f64)> {
+        let fields: &[(&str, usize)] = match self.section {
+            3 => &[("Strength",592),("Dexterity",596),("Magic",600),("Vitality",604),
+                ("Required level",612),("Grade",616),("Physical attack min",624),
+                ("Physical attack max",628),("Magic attack min",636),("Magic attack max",640),
+                ("Durability min",656),("Durability max",660),("Price",672),("Shop price",676),("Reputation",680)],
+            6 => &[("Grade",368),("Strength",372),("Dexterity",376),("Magic",380),("Vitality",384),
+                ("Required level",392),("Physical defense min",400),("Physical defense max",404),
+                ("Durability min",472),("Durability max",476),("Price",488),("Shop price",492),("Reputation",496)],
+            9 => &[("Grade",460),("Strength",464),("Dexterity",468),("Magic",472),("Vitality",476),
+                ("Required level",484),("Physical attack min",492),("Physical attack max",496),
+                ("Magic attack min",500),("Magic attack max",504),("Physical defense min",508),
+                ("Physical defense max",512),("Price",580),("Shop price",584),("Reputation",588)],
+            84 => &[("Grade",368),("Price",380),("Shop price",384),("Stack limit",388)],
+            12 => &[("Required level",332),("Cooldown (ms)",336),("HP recovery",340),
+                ("MP recovery",348),("Price",356),("Shop price",360),("Stack limit",364)],
+            15 => &[("Price",332),("Shop price",336),("Stack limit",356)],
+            23 => &[("Price",452),("Shop price",456),("Grade",460),("Required level",464)],
+            24 => &[("Price",452),("Shop price",456),("Required level",460)],
+            36 => &[("Required level",328),("Price",336),("Shop price",340),("Stack limit",424)],
+            123 => &[("Required level",332),("Price",372),("Shop price",376),("Stack limit",380)],
+            _ => &[],
+        };
+        fields.iter().map(|(name, offset)| (*name, number(&self.record, *offset) as i32 as f64)).collect()
     }
 }
