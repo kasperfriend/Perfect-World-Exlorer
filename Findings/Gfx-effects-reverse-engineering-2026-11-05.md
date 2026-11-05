@@ -29,6 +29,34 @@ Element IDs in the corpus, with counts: 100 sprite 3,537; 101 trail/quad 5,244; 
 
 Sprite geometry is not re-derived here: it is copied from `gfx_decal.rs:405–500`, the one sprite path in this repository that was written against the client's decal calls. Dimensions are doubled and split at `OrgPt` (`w0 = Width*2*OrgPt[0]`, `w1 = Width*2 − w0`, `h0 = Height*2*OrgPt[1]`, `h1 = Height*2 − h0`), the *top* extent is `h1` and the bottom is `h0`, both axes are multiplied by the keypoint scale unless `NoScale` suppresses it, alpha is folded in 0..255 units and truncated, and a quad below 5/255 is dropped. Depth testing is `version < 76 || ZEnable`. 704 corpus `OrgPt` lines are off centre, so the split is not a theoretical case.
 
+## The client's vector library
+
+The emission routines are written against a small vector and quaternion library.
+Eight of its routines are decoded completely; each is short enough to read end to
+end, and together they account for every helper the surface and basis code calls.
+
+| Address | Convention | Semantics |
+| --- | --- | --- |
+| `0x401ca0` | thiscall, `ret $0xc` | `Vec3::new(x, y, z)`: stores the three float arguments to `this+0/+4/+8`, returns `this` in `eax` |
+| `0x401cc0` | thiscall, `ret $0x4` | copy-assign: copies 12 bytes from the argument into `this` |
+| `0x401d10` | thiscall, `ret $0x4` | `+=`: adds the argument's three floats into `this` |
+| `0x633700` | thiscall, `ret $0x4` | `*= scalar`: multiplies all three components of `this` by the one float argument |
+| `0x4093d0` | cdecl, three pointers | `cross(out, a, b)`: `out.x = a.y*b.z - a.z*b.y`, `out.y = a.z*b.x - a.x*b.z`, `out.z = a.x*b.y - a.y*b.x` |
+| `0x4071f0` | cdecl, three pointers | `add(out, a, b)` |
+| `0x407220` | cdecl, three pointers | `sub(out, a, b)` |
+| `0x7b6fd0` | cdecl, `(axis, angle, out)` | axis-angle to quaternion: `out+0..0xc = axis * sin(angle/2)`, `out+0xc = cos(angle/2)`, with the halving by `0.5` at `0x8eff98` |
+
+Two conventions matter when reading a caller. The x87 helpers reserve argument
+slots with `push %reg` / `fstps (%esp)`, so the frame shifts by four bytes per
+push and the same textual offset names different slots at different points;
+`0x727f00` reads what looks like three separate values at `0x74/0x7c/0x80(%esp)`
+that are all one argument. And a call's argument count follows from its `ret`,
+not from the pushes around it: `ret $0x4` means exactly one.
+
+Rotation by a quaternion is spelled out inline rather than living in the library.
+Given `q = (v, w)`, the callers compute `u + 2w(v x u) + 2(v x (v x u))` with one
+`0x4093d0` per cross, one `0x633700` per scaling and two `0x4071f0` adds.
+
 ## Runtime player
 
 The root clock advances in milliseconds and is scaled by `PlaySpeed`; controllers integrate in seconds of scaled time. An element's clock is its keypoint spans plus `RepeatDelay`, repeated `RepeatCount` times (1 = once, −1 = open-ended, N = N passes, and the corpus's 10,000/2147483647 values are "effectively forever"); a phase no keypoint covers draws nothing but does not end the element, and the root reports itself finished only when *every* element is over and none loops. `RotFromView` decides where a sprite's basis comes from — 598 retail sprites take it from the camera, 8,271 keep the authored keypoint direction — and the root's `FaceToViewer` forces the camera basis for all of them. Flipbook cells walk `floor(clock/TexInterval) % clamp(TexAnimMaxTime/TexInterval, 1, rows*cols)` with v growing downwards, and `TexSpeed` scrolls U and V continuously. `InterpolateMode` is 0 in every corpus keypoint, so linear blending between keypoints is implemented but never exercised by retail data.

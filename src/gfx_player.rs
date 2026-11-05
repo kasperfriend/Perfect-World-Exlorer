@@ -79,16 +79,17 @@
 //!   a single shared draw interpolated in the HSV the parser stored at +0x38
 //!   and +0x48 (`0x723812`, converting back through `0x7898f0`).
 //!
-//! Four native behaviours are deliberately not copied, each with its evidence
+//! Three native behaviours are deliberately not copied, each with its evidence
 //! recorded in `Findings/`: the emission-count detail factor gated at
 //! `0x715b88`, which multiplies by a global the binary initializes at run time;
 //! `ParIniDir`, which the parser turns into a quaternion with the
 //! Euler-to-quaternion routine `0x7b6f10` rather than treating as a direction
-//! vector; `IsSurface`, whose four per-class samplers place particles on the
-//! emitter's own `AreaSize` ellipsoid through a vector library that is not
-//! decoded yet; and the rotation the unbound emission basis takes from the
+//! vector; and the rotation the unbound emission basis takes from the
 //! quaternion at emitter+0x74, whose writer is the same unknown that blocks
-//! `ParIniDir`.
+//! `ParIniDir`. A fourth is copied only for the class it is decoded for:
+//! `IsSurface` places particles on the emitter's own `AreaSize` ellipsoid, and
+//! id 123's sampler `0x727f00` is reproduced, but ids 120, 121 and 124 have
+//! samplers of their own that are not.
 
 use crate::{
     ecmodel,
@@ -495,6 +496,11 @@ struct ElementRuntime {
 
 /// Everything one element needs to place and colour its geometry.
 struct ElementContext<'a> {
+    /// The element's authored id. The client branches on it everywhere: `0x723ab0`
+    /// hands ids 120 to 125 six different emitter factories, and the surface
+    /// samplers differ per class, so a divergence that applies to one class has to
+    /// be keyed off the id rather than applied to all of them.
+    id: u32,
     /// The parent basis, the root scale and the sampled keypoint orientation.
     placement: Mat4,
     view: &'a View,
@@ -836,6 +842,7 @@ fn advance_element(
     let direction = sampled.direction * Quat::from_axis_angle(Vec3::Z, runtime.state.orbit);
     let placement = base * Mat4::from_rotation_translation(direction, sampled.position + offset);
     let context = ElementContext {
+        id: element.id,
         placement,
         view,
         common: &element.common,
@@ -1868,20 +1875,46 @@ fn spawn(
     // because nothing decoded so far writes emitter+0x74, which is also what
     // blocks `ParIniDir`. 8,259 of the corpus's 13,665 particle elements are
     // bound, so 5,406 take the unbound path.
-    let offset = match (particle.radius, particle.area_size) {
-        (Some(radius), _) => random_unit_ball(rng) * radius.max(0.),
-        (None, Some(area)) => random_unit_ball(rng) * area * 0.5,
-        (None, None) => Vec3::ZERO,
+    // Id 123 honours `IsSurface` through `0x727f00`, which spends two draws on a
+    // unit direction `D`, writes `D.x*basis0 + D.y*basis1 + D.z*basis2` to
+    // node+0x10 (the three `0x401ca0` constructions at `0x7280ff`, `0x728132` and
+    // `0x728165`, summed at `0x7281d5` and `0x728202`) and the negated `D` to
+    // node+0x44. The basis is the same `AreaSize * 0.5` the volume path uses, so
+    // the sample lands on the ellipsoid instead of inside it, and because the
+    // sampler never calls the direction slot the cone angle does not apply.
+    //
+    // Ids 120, 121 and 124 have their own surface samplers and are not decoded:
+    // id 121's `0x727800` spends ten draws and calls none of the vector helpers,
+    // and id 120's block at `0x7272aa` adds a call to `0x70a320`. Ids 122 and 125
+    // never read the flag at all. Those keep the volume path rather than borrow a
+    // formula that has not been verified for them.
+    let surface = particle.is_surface && context.id == 123;
+    let (offset, inward) = if surface {
+        let sample = surface_direction(rng);
+        let half = particle.area_size.unwrap_or(Vec3::ZERO) * 0.5;
+        (sample * half, Some(-sample))
+    } else {
+        let offset = match (particle.radius, particle.area_size) {
+            (Some(radius), _) => random_unit_ball(rng) * radius.max(0.),
+            (None, Some(area)) => random_unit_ball(rng) * area * 0.5,
+            (None, None) => Vec3::ZERO,
+        };
+        (offset, None)
     };
     let position = match path {
         Some(points) => sample_path(points, rng.unit() * path_length(points)).0 + offset,
         None => offset,
     };
-    let axis = emission_axis(particle, context);
-    let direction = if particle.angle != 0. {
-        cone_direction(axis, particle.angle, rng)
-    } else {
-        axis
+    let direction = match inward {
+        Some(direction) => direction,
+        None => {
+            let axis = emission_axis(particle, context);
+            if particle.angle != 0. {
+                cone_direction(axis, particle.angle, rng)
+            } else {
+                axis
+            }
+        }
     };
     let scale = rng.range(particle.scale_min, particle.scale_max);
     let rotation = rng.range(particle.rot_min, particle.rot_max);
@@ -1972,6 +2005,28 @@ fn cone_direction(axis: Vec3, angle: f32, rng: &mut Rng) -> Vec3 {
     } else {
         Quat::from_rotation_arc(Vec3::Z, axis) * local
     }
+}
+
+/// The client's surface direction: two draws, uniform over the sphere.
+///
+/// Id 123's surface sampler `0x727f00` never consults the emission cone. It
+/// scales a `rand()` draw by `2π/32767` (`0x8e6f14`) and builds an axis-angle
+/// quaternion about the global axis at `0x9c0348` through `0x7b6fd0`, which
+/// writes `axis * sin(a/2)` to `+0..0xc` and `cos(a/2)` to `+0xc`. The three
+/// calls that follow evaluate `u + 2w(v x u) + 2(v x (v x u))` — `0x4093d0` is
+/// the cross product, `0x633700` scales a vector by a scalar and `0x4071f0` adds
+/// two — which is the rotation of the global axis at `0x9c0358` by that
+/// quaternion. A second draw rotates `0x9c0348` about the first result
+/// (`0x728004`, whose axis argument is the first rotation's own output), which
+/// sweeps the sphere uniformly.
+///
+/// The bound basis builder `0x729670` pairs `0x9c0358` with `AreaSize.x`,
+/// `0x9c0348` with `AreaSize.y` and `0x9c0338` with `AreaSize.z`, which is what
+/// identifies the two globals as the x and y axes.
+fn surface_direction(rng: &mut Rng) -> Vec3 {
+    let tau = std::f32::consts::TAU;
+    let first = Quat::from_axis_angle(Vec3::Y, rng.unit() * tau) * Vec3::X;
+    Quat::from_axis_angle(first, rng.unit() * tau) * Vec3::Y
 }
 
 /// A uniform sample of the unit ball. `0x728270` rejection-samples three
@@ -3065,6 +3120,7 @@ mod tests {
     /// read straight off the returned state.
     fn spawn_context<'a>(view: &'a View, common: &'a Common) -> ElementContext<'a> {
         ElementContext {
+            id: 123,
             placement: Mat4::IDENTITY,
             view,
             common,
@@ -3102,6 +3158,138 @@ mod tests {
         }
         // The volume is filled out to its semi-axes, not held well inside them.
         assert!(reach.x > 0.9 && reach.y > 0.45 && reach.z > 0.2, "{reach}");
+    }
+
+    /// Id 123's surface sampler `0x727f00` puts the particle *on* the ellipsoid
+    /// rather than inside it: the position is `D.x*basis0 + D.y*basis1 + D.z*basis2`
+    /// for a unit direction `D`, and the basis is the same `AreaSize * 0.5` the
+    /// volume path uses. Every sample therefore satisfies the ellipsoid equation
+    /// with equality, where the volume path satisfies it strictly.
+    #[test]
+    fn surface_emission_lands_on_the_ellipsoid() {
+        let view = view();
+        let common = Common::default();
+        let context = spawn_context(&view, &common);
+        let mut particle = Particle::default();
+        particle.is_surface = true;
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        let mut rng = Rng::new(41);
+        let mut reach = Vec3::ZERO;
+        for _ in 0..2_000 {
+            let position = spawn(&particle, None, &mut rng, &context).position;
+            let normalized = position / Vec3::new(1., 0.5, 0.25);
+            assert!(
+                (normalized.length_squared() - 1.).abs() < 1e-4,
+                "{position} is not on the ellipsoid"
+            );
+            reach = reach.max(position.abs());
+        }
+        // The samples cover the whole surface, so all three semi-axes are reached.
+        assert!(
+            reach.x > 0.99 && reach.y > 0.49 && reach.z > 0.24,
+            "{reach}"
+        );
+    }
+
+    /// The surface sampler writes the negated sample to node+0x44 (`0x7281ad`
+    /// through `0x7281b3`, storing the vector built by the `fchs` chain at
+    /// `0x72816a`) and, unlike ids 121 and 124, the birth flow does not call the
+    /// direction slot afterwards. A cone angle authored on the element is
+    /// therefore ignored: the direction is exactly `-D`, anti-parallel to the
+    /// position measured in semi-axis units.
+    #[test]
+    fn surface_direction_is_the_negated_sample() {
+        let view = view();
+        let common = Common::default();
+        let context = spawn_context(&view, &common);
+        let mut particle = Particle::default();
+        particle.is_surface = true;
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        // A wide cone, which would bend every direction if it were consulted.
+        particle.angle = std::f32::consts::FRAC_PI_2;
+        let mut rng = Rng::new(43);
+        for _ in 0..500 {
+            let state = spawn(&particle, None, &mut rng, &context);
+            let radial = state.position / Vec3::new(1., 0.5, 0.25);
+            assert!(
+                (state.direction + radial).length() < 1e-4,
+                "direction {} should negate the sample behind position {}",
+                state.direction,
+                state.position
+            );
+        }
+    }
+
+    /// The two rotations sweep the sphere uniformly: the first rotates `0x9c0358`
+    /// about `0x9c0348`, the second rotates `0x9c0348` about the first result.
+    /// A single rotation about a fixed axis would confine the samples to one
+    /// circle, so a centred mean and both signs on every axis are what
+    /// distinguish the two-draw construction.
+    #[test]
+    fn surface_directions_cover_the_sphere() {
+        let mut rng = Rng::new(47);
+        let samples = 4_000;
+        let mut mean = Vec3::ZERO;
+        let mut signs = [0u8; 3];
+        for _ in 0..samples {
+            let d = surface_direction(&mut rng);
+            assert!((d.length() - 1.).abs() < 1e-4, "{d} is not unit length");
+            mean += d;
+            for (slot, component) in signs.iter_mut().zip([d.x, d.y, d.z]) {
+                *slot |= if component > 0. { 1 } else { 2 };
+            }
+        }
+        let mean = mean / samples as f32;
+        assert!(
+            mean.length() < 0.05,
+            "the mean direction {mean} is off centre"
+        );
+        assert_eq!(
+            signs,
+            [3, 3, 3],
+            "every axis should be covered in both directions"
+        );
+    }
+
+    /// The surface path spends exactly the client's two draws on the direction
+    /// (`0x727f0e` and `0x727fe1`), where the volume path spends at least the
+    /// three of `0x728270`'s rejection loop. Getting the count wrong would shift
+    /// every sample that follows it.
+    #[test]
+    fn surface_direction_spends_two_draws() {
+        let mut rng = Rng::new(53);
+        surface_direction(&mut rng);
+        let mut reference = Rng::new(53);
+        reference.next_u32();
+        reference.next_u32();
+        assert_eq!(rng.next_u32(), reference.next_u32());
+    }
+
+    /// Only id 123's sampler is decoded, so only id 123 gets the surface path.
+    /// Id 121's `0x727800` spends ten draws and calls none of the vector helpers,
+    /// and ids 122 and 125 never read the flag, so an element of another class
+    /// still fills the volume even with `IsSurface` set.
+    #[test]
+    fn other_classes_keep_the_volume_path() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.id = 121;
+        let mut particle = Particle::default();
+        particle.is_surface = true;
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        let mut rng = Rng::new(59);
+        let mut closest = f32::MAX;
+        for _ in 0..500 {
+            let position = spawn(&particle, None, &mut rng, &context).position;
+            let normalized = position / Vec3::new(1., 0.5, 0.25);
+            closest = closest.min(normalized.length_squared());
+        }
+        // A surface sampler would pin every sample to exactly 1.
+        assert!(
+            closest < 0.5,
+            "id 121 should still fill the volume; its closest sample was {closest}"
+        );
     }
 
     /// The ball sample is uniform in volume, which is what the client's
