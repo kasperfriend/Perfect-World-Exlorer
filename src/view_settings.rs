@@ -223,7 +223,12 @@ impl Default for ViewSettings {
             // `Sky\clear` set does not paint, so they are on by default.
             celestial_discs: true,
             celestial_brightness: 1.,
-            ignore_celestial_flags: false,
+            // Courage Path and similar outdoor zones ship with a flag word
+            // that has no sun bit (0x420992 reads `+0x80` bit 3), so the native
+            // client would hide the sun in the open. The viewer now ignores
+            // those flag words by default so outdoor zones keep their sun;
+            // the checkbox still lets a tester see the native gating.
+            ignore_celestial_flags: true,
             cloud_detail: true,
             world_map_style: MapStyle::Realistic,
             minimap_style: MapStyle::Realistic,
@@ -667,8 +672,9 @@ mod tests {
         // read as a dim grey disc, so the default is the texture itself and the
         // recovered 127/255 is still a legal setting.
         assert_eq!(ViewSettings::default().celestial_brightness, 1.);
-        // The area-flag override is off by default and round-trips.
-        assert!(!ViewSettings::default().ignore_celestial_flags);
+        // The area-flag override is on by default so Courage Path keeps
+        // its sun despite a missing sun bit; it still round-trips.
+        assert!(ViewSettings::default().ignore_celestial_flags);
         let flags = ViewSettings::decode("ignore_celestial_flags=true");
         assert!(flags.ignore_celestial_flags);
         assert!(ViewSettings::decode(&flags.encode()).ignore_celestial_flags);
