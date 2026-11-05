@@ -458,6 +458,9 @@ impl State {
                                 if let Some(error) = &preview.error {
                                     ui.colored_label(egui::Color32::LIGHT_RED, error);
                                 }
+                                if let Some(error) = &preview.animation_error {
+                                    ui.colored_label(egui::Color32::YELLOW, error);
+                                }
                                 for warning in &preview.warnings {
                                     ui.colored_label(egui::Color32::YELLOW, warning);
                                 }
@@ -685,6 +688,9 @@ impl State {
         }
         if let Some(index) = jump {
             self.selected = Some(index);
+            if let Some(gender) = self.database.items[index].fashion_gender() {
+                self.preview_female = gender == 1;
+            }
             self.category = None;
             self.section = None;
             self.major = None;

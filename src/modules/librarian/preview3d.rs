@@ -17,6 +17,7 @@ pub struct Preview {
     loaded_path: String,
     pub error: Option<String>,
     pub warnings: Vec<String>,
+    pub animation_error: Option<String>,
     pub yaw: f32,
     pub pitch: f32,
     pub zoom: f32,
@@ -75,6 +76,7 @@ impl Preview {
             loaded_path: String::new(),
             error: Some("Select an item with a supported model.".into()),
             warnings: Vec::new(),
+            animation_error: None,
             yaw: 0.6,
             pitch: 0.2,
             zoom: 1.,
@@ -102,6 +104,7 @@ impl Preview {
             self.draw = None;
             self.error = None;
             self.warnings.clear();
+            self.animation_error = None;
             if path.is_empty() || path == "0" {
                 self.error = Some("No model is referenced by this item.".into());
             } else {
@@ -209,18 +212,32 @@ impl Preview {
                     .max(1) as f32;
                 let start = clip.start / fps;
                 let duration = ((clip.end - clip.start) / fps).max(0.001);
-                asset
-                    .pose_action_at_time(
-                        self.action,
-                        start + self.elapsed % duration,
-                        Mat4::IDENTITY,
-                    )
-                    .or_else(|_| asset.pose_bind(Mat4::IDENTITY))
+                match asset.pose_action_at_time(
+                    self.action,
+                    start + self.elapsed % duration,
+                    Mat4::IDENTITY,
+                ) {
+                    Ok(poses) => {
+                        self.animation_error = None;
+                        Ok(poses)
+                    }
+                    Err(error) => {
+                        self.animation_error = Some(format!(
+                            "Animation unavailable: {error}; showing bind pose."
+                        ));
+                        asset.pose_bind(Mat4::IDENTITY)
+                    }
+                }
             } else {
                 asset.pose_bind(Mat4::IDENTITY)
             };
-            if let Ok(poses) = poses {
-                let _ = draw.update(queue, asset, &poses, self.frame());
+            match poses {
+                Ok(poses) => {
+                    if let Err(error) = draw.update(queue, asset, &poses, self.frame()) {
+                        self.animation_error = Some(format!("Preview update failed: {error}"));
+                    }
+                }
+                Err(error) => self.animation_error = Some(format!("Preview pose failed: {error}")),
             }
         }
         let view = self.color.create_view(&Default::default());
