@@ -79,7 +79,8 @@ impl Preview {
             error: Some("Select an item with a supported model.".into()),
             warnings: Vec::new(),
             animation_error: None,
-            yaw: 0.6,
+            // Player meshes face toward negative Z; start on their front.
+            yaw: std::f32::consts::PI + 0.6,
             pitch: 0.2,
             zoom: 1.,
             turntable: false,
