@@ -408,8 +408,16 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,nigh
   // degrees) too high, which is the "the sun never reaches the horizon" report.
   let strength=shine_ramp(n);
   if strength>0.0 {
-   let suv=vec2<f32>(plane.x/(2.0*SHINE_HALF_WIDTH*swell),(plane.y-0.5*SHINE_HALF_HEIGHT*swell)/(2.0*SHINE_HALF_HEIGHT*swell))+p.glow_center.xy;
-   if suv.x>=0.0 && suv.x<=1.0 && suv.y>=0.0 && suv.y<=1.0 {
+   // `strip` is the native rectangle: -0.5..0.5 across it, 0 at its centre,
+   // which is the disc's centre. Gate on *it*, not on the shifted sampling
+   // coordinate, so the drawn glow is the client's 120 x 40 rectangle even when
+   // the bitmap's own core sits away from the middle of the art — otherwise
+   // `glow_center` stretches the rectangle by the art's own offset, and with
+   // `sunshine.bmp`'s core at 0.75 of its height that is a 20-unit red tail
+   // hanging below the strip the client draws.
+   let strip=vec2<f32>(plane.x/(2.0*SHINE_HALF_WIDTH*swell),(plane.y-0.5*SHINE_HALF_HEIGHT*swell)/(2.0*SHINE_HALF_HEIGHT*swell));
+   if strip.x>=-0.5 && strip.x<=0.5 && strip.y>=-0.5 && strip.y<=0.5 {
+    let suv=strip+p.glow_center.xy;
     // `0x4b3e22` multiplies the `+0x44` light colour by the factor before
     // submission, so the strip is the region's own light colour, not white:
     // `p.tint` is that colour (the panorama's tint lane) already darkened by the

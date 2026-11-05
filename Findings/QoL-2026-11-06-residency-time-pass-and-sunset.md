@@ -164,10 +164,15 @@ Two shader-side consequences, both fixed in `sky_gpu`:
 * the disc's texture coordinates are `uv = vec2(plane.x / (2h), (plane.y - h) /
   (2h)) + 0.5` — the art is sampled on the hanging quad, not on a centred one;
 * the `sunshine.bmp` dusk strip hangs too (`y 10 .. -30`, centre 10 units below
-  the emitted point) and is sampled on the **swelled** rectangle, so the red
-  glow stays anchored to the disc while the sun grows at `1 + 2n` and keeps its
-  own 120 x 40 proportions. The strip already used the region's light colour
-  from `+0x44`, which is why the glow is red at dusk rather than white.
+  the emitted point) and is drawn and sampled on the **swelled** rectangle, so
+  the red glow stays anchored to the disc while the sun grows at `1 + 2n` and
+  keeps its own 120 x 40 proportions. It also gates on the rectangle itself
+  rather than on the shifted sampling coordinate: `glow_center` exists only to
+  put the bitmap's own bright core (at 0.75 of its height in the shipped
+  `sunshine.bmp`) on the disc, and gating the shifted coordinate stretched the
+  drawn strip by that offset into a red tail twice as tall as the client's
+  rectangle. The strip already used the region's light colour from `+0x44`,
+  which is why the glow is red at dusk rather than white.
 
 Net effect: the sun slides down through the horizon over its last ~11 degrees of
 elevation, keeps the dusk glow until the disc is actually occluded, and the
