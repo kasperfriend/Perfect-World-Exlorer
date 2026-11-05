@@ -4,17 +4,20 @@
 
 mod designer;
 mod package;
+mod populator;
 mod walker;
 
 use crate::{model_draw_gpu, navigation::MapSpace, water::WaterArea};
 use glam::Vec3;
 use package::{Package, Registry};
+use populator::Populator;
 use std::{collections::HashSet, path::PathBuf};
 use walker::Walker;
 use winit::keyboard::KeyCode;
 
 pub struct Modules {
     walker: Walker,
+    populator: Populator,
     packages: Registry,
     selected: usize,
 }
@@ -23,6 +26,7 @@ impl Default for Modules {
     fn default() -> Self {
         Self {
             walker: Walker::default(),
+            populator: Populator::default(),
             packages: Registry::discover(package::default_root()),
             selected: 0,
         }
@@ -37,10 +41,24 @@ impl Modules {
         scene: &crate::scene::Scene,
         ornaments: Vec<crate::scene::Ornament>,
     ) -> Self {
+        // The add-ons each own their state; the host only clones the two
+        // handles they need (client root and the loaded world space).
+        let populator = Populator::new(element.clone(), map.clone());
         Self {
             walker: Walker::with_host(element, map, water, scene, ornaments),
+            populator,
             packages: Registry::discover(package::default_root()),
             selected: 0,
+        }
+    }
+
+    /// True when the executable implements this package id and the module is
+    /// currently enabled.
+    fn module_enabled(&self, id: &str) -> bool {
+        match id {
+            "walker" => self.walker.is_active(),
+            "populator" => self.populator.is_active(),
+            _ => false,
         }
     }
 
@@ -123,7 +141,7 @@ impl Modules {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for (index, installed) in self.packages.packages.iter().enumerate() {
-                            let enabled = installed.id == "walker" && self.walker.is_active();
+                            let enabled = self.module_enabled(&installed.id);
                             let text = if enabled {
                                 egui::RichText::new(format!("● {}", installed.name))
                                     .color(egui::Color32::LIGHT_GREEN)
@@ -196,18 +214,60 @@ impl Modules {
                 .weak(),
         );
         ui.add_space(8.);
-        if installed.id != "walker" {
-            ui.label(
-                egui::RichText::new(format!(
-                    "This executable does not provide an implementation for module id '{}'.",
-                    installed.id
-                ))
-                .small()
-                .weak(),
-            );
-            return;
+        match installed.id.as_str() {
+            "walker" => self.walker_module_ui(ui, spawn, yaw),
+            "populator" => self.populator_module_ui(ui, spawn),
+            _ => {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "This executable does not provide an implementation for module id '{}'.",
+                        installed.id
+                    ))
+                    .small()
+                    .weak(),
+                );
+            }
         }
+    }
 
+    fn populator_module_ui(&mut self, ui: &mut egui::Ui, spawn: Vec3) {
+        let active = self.populator.is_active();
+        let label = if active {
+            "Disable Populator"
+        } else {
+            "Enable Populator"
+        };
+        if ui
+            .add_sized([160., 32.], egui::Button::new(label))
+            .clicked()
+        {
+            self.populator.set_active(!active, spawn);
+        }
+        let status = self.populator.status();
+        if active {
+            ui.label(egui::RichText::new(status).color(egui::Color32::LIGHT_GREEN));
+        } else {
+            ui.label(egui::RichText::new(status).weak());
+        }
+        let settings = self.populator.settings();
+        ui.label(
+            egui::RichText::new(format!(
+                "Spawn distance {:.0} units (the client's own scene window is 420), at most {} actors.",
+                settings.spawn_distance, settings.max_visible
+            ))
+            .small()
+            .weak(),
+        );
+        ui.label(
+            egui::RichText::new(
+                "While enabled: every NPC from the client's own task_npc.data appears where the game places it, with its own rig and idle animation. Spawn distance, actor cap, idle animation and camera-facing turn are in the Populator settings window beneath the minimap. Mob placement is server data the client does not ship, and actors move only along real navigation paths.",
+            )
+            .small()
+            .weak(),
+        );
+    }
+
+    fn walker_module_ui(&mut self, ui: &mut egui::Ui, spawn: Vec3, yaw: f32) {
         let active = self.walker.is_active();
         let label = if active {
             "Disable Walker"
@@ -241,19 +301,32 @@ impl Modules {
     /// Escape-menu-owned panel. egui Window supplies persistent dragging and
     /// resizing; its initial position is directly beneath the 256 px minimap.
     pub fn settings_panel(&mut self, ctx: &egui::Context, screen_width: f32) {
-        if !self.walker.is_active() {
-            return;
+        if self.walker.is_active() {
+            egui::Window::new("Walker settings")
+                .default_pos(egui::pos2((screen_width - 406.).max(16.), 294.))
+                .default_size(egui::vec2(390., 540.))
+                .min_size(egui::vec2(300., 280.))
+                .collapsible(true)
+                .resizable(true)
+                .vscroll(true)
+                .show(ctx, |ui| self.walker.settings_ui(ui));
         }
-        egui::Window::new("Walker settings")
-            .default_pos(egui::pos2((screen_width - 406.).max(16.), 294.))
-            .default_size(egui::vec2(390., 540.))
-            .min_size(egui::vec2(300., 280.))
-            .collapsible(true)
-            .resizable(true)
-            .vscroll(true)
-            .show(ctx, |ui| self.walker.settings_ui(ui));
+        // Both panels are independent windows: enabling one add-on must not
+        // hide or move the other's settings.
+        if self.populator.is_active() {
+            egui::Window::new("Populator settings")
+                .default_pos(egui::pos2((screen_width - 826.).max(16.), 294.))
+                .default_size(egui::vec2(400., 620.))
+                .min_size(egui::vec2(320., 280.))
+                .collapsible(true)
+                .resizable(true)
+                .vscroll(true)
+                .show(ctx, |ui| self.populator.settings_ui(ui));
+        }
     }
 
+    /// `eye` is the host camera position: the only thing the Populator add-on
+    /// needs from the camera, and the only reason this hook is not pure input.
     pub fn update(
         &mut self,
         delta: f32,
@@ -261,7 +334,9 @@ impl Modules {
         keys: &HashSet<KeyCode>,
         yaw: f32,
         pitch: f32,
+        eye: Vec3,
     ) -> Option<Vec3> {
+        self.populator.update(delta, eye);
         self.walker.update(delta, input_enabled, keys, yaw, pitch)
     }
 
@@ -289,6 +364,8 @@ impl Modules {
         frame: model_draw_gpu::Frame,
     ) {
         self.walker
+            .render(device, queue, format, encoder, target, depth, frame);
+        self.populator
             .render(device, queue, format, encoder, target, depth, frame);
     }
 }

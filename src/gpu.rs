@@ -3757,7 +3757,7 @@ pub fn run(
                     last = Instant::now();
                     // Add-ons get an optional camera-owner hook. `None` leaves
                     // the original free-flight controls completely untouched.
-                    let addon_camera = renderer.modules.update(dt, !menu_page.is_open(), &keys, camera.yaw, camera.pitch);
+                    let addon_camera = renderer.modules.update(dt, !menu_page.is_open(), &keys, camera.yaw, camera.pitch, camera.pos);
                     renderer.modules.update_walker_audio(settings.effects_enabled, settings.effects_volume);
                     if let Some(position) = addon_camera {
                         camera.pos = position;

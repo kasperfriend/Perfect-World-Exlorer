@@ -426,6 +426,54 @@ impl FlightItem {
     }
 }
 
+/// `NPC_ESSENCE` (section 58, 852-byte records). The Populator add-on spawns
+/// these from the client's own `data/task_npc.data` placement table.
+#[derive(Clone, Debug)]
+pub struct NpcItem {
+    pub id: u32,
+    pub name: String,
+    /// Authored `.ecm` rig, normalized to the archive's forward slashes.
+    pub model: String,
+    /// Authored greeting (`0x68a150` argument window), never invented text.
+    pub greeting: String,
+}
+impl NpcItem {
+    /// Native records can carry an `N/A` placeholder or an empty rig; those are
+    /// not spawnable models. A nameless record is still a real placed object
+    /// (the shipped table places 282 of them, all with valid rigs, e.g. the
+    /// `宫灯` palace lanterns), so the name is not part of the test.
+    pub fn is_spawnable(&self) -> bool {
+        self.id != 0
+            && !self.model.is_empty()
+            && self.model != "0"
+            && !self.model.eq_ignore_ascii_case("n/a")
+    }
+}
+
+/// `MONSTER_ESSENCE` (section 39, 1528-byte records). Placement for these
+/// lives in the server's `npcgen.data`, so the table is loaded and selectable
+/// but stays unspawned until a real placement source exists.
+#[derive(Clone, Debug)]
+pub struct MonsterItem {
+    pub id: u32,
+    pub monster_type: u32,
+    pub name: String,
+    /// Authored elemental trait line, e.g. `+WT-ER`.
+    pub short_desc: String,
+    pub model: String,
+    pub level: u32,
+    pub hp: u32,
+}
+impl MonsterItem {
+    pub fn is_spawnable(&self) -> bool {
+        self.id != 0
+            && !self.name.trim().is_empty()
+            && !self.name.starts_with("N/A")
+            && !self.model.is_empty()
+            && self.model != "0"
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct MountItem {
     pub id: u32,
@@ -468,6 +516,8 @@ pub struct Catalog {
     pub presets: Vec<Preset>,
     pub flights: Vec<FlightItem>,
     pub mounts: Vec<MountItem>,
+    pub npcs: Vec<NpcItem>,
+    pub monsters: Vec<MonsterItem>,
     pub class_speeds: HashMap<Class, ClassSpeeds>,
     pub weapon_actions: HashMap<u32, i32>,
     pub armor_equip_masks: HashMap<u32, u32>,
@@ -554,6 +604,12 @@ impl Catalog {
     pub fn mount(&self, id: u32) -> Option<&MountItem> {
         self.mounts.iter().find(|item| item.id == id)
     }
+    pub fn npc(&self, id: u32) -> Option<&NpcItem> {
+        self.npcs.iter().find(|item| item.id == id)
+    }
+    pub fn monster(&self, id: u32) -> Option<&MonsterItem> {
+        self.monsters.iter().find(|item| item.id == id)
+    }
     pub fn speeds(&self, class: Class) -> Option<ClassSpeeds> {
         self.class_speeds.get(&class).copied()
     }
@@ -630,7 +686,7 @@ impl Catalog {
 fn parses_section(section: usize) -> bool {
     matches!(
         section,
-        2 | 3 | 5 | 6 | 23 | 24 | 60 | 61 | 64 | 65 | 67 | 72 | 77 | 83 | 84 | 95
+        2 | 3 | 5 | 6 | 23 | 24 | 39 | 58 | 60 | 61 | 64 | 65 | 67 | 72 | 77 | 83 | 84 | 95
     )
 }
 fn parse_record(section: usize, record: &[u8], catalog: &mut Catalog) -> Result<(), String> {
@@ -714,6 +770,30 @@ fn parse_record(section: usize, record: &[u8], catalog: &mut Catalog) -> Result<
                 time_per_element: 0.0,
                 mp_launch: i32_at(record, 468)?,
                 mp_per_second: i32_at(record, 472)?,
+            });
+        }
+        39 => {
+            // `MONSTER_ESSENCE`, 1528 B: `monster_type @+4`,
+            // `name @+8..72`, `short_desc @+104..136`, `.ecm @+144..272`,
+            // `level @+544`, `hp @+552` (measured against the shipped file).
+            catalog.monsters.push(MonsterItem {
+                id,
+                monster_type: u32_at(record, 4)?,
+                name: wide(record, 8, 64).trim().to_string(),
+                short_desc: wide(record, 104, 32).trim().to_string(),
+                model: path(record, 144, 128),
+                level: u32_at(record, 544)?,
+                hp: u32_at(record, 552)?,
+            });
+        }
+        58 => {
+            // `NPC_ESSENCE`, 852 B: `name @+4..68`, `.ecm @+80..208`,
+            // `greeting @+216..728` (measured against the shipped file).
+            catalog.npcs.push(NpcItem {
+                id,
+                name: wide(record, 4, 64).trim().to_string(),
+                model: path(record, 80, 128),
+                greeting: wide(record, 216, 512).trim().to_string(),
             });
         }
         60 => catalog.face_textures.push(FaceTexture {
@@ -1129,6 +1209,21 @@ mod tests {
         );
         assert_eq!(catalog.mounts.len(), 64);
         assert_eq!(catalog.class_speeds.len(), 8);
+        // Population templates: `NPC_ESSENCE` (§58) and `MONSTER_ESSENCE` (§39).
+        assert_eq!(catalog.npcs.len(), 2_838);
+        assert_eq!(catalog.monsters.len(), 4_208);
+        let apothecary = catalog.npc(2109).unwrap();
+        assert_eq!(apothecary.name, "Apothecary Cheng");
+        assert_eq!(apothecary.model, "models/npcs/npc/男npc4/男npc4.ecm");
+        assert!(apothecary
+            .greeting
+            .starts_with("The apothecary's approach"));
+        let tauroc = catalog.monster(986).unwrap();
+        assert_eq!(tauroc.name, "Tauroc Valorian");
+        assert_eq!(tauroc.short_desc, "+WT-ER");
+        assert_eq!(tauroc.level, 48);
+        assert_eq!(tauroc.hp, 11_983);
+        assert!(tauroc.model.ends_with("暴牙牛士兵.ecm"));
         let flight = catalog.flight(2093).unwrap();
         assert_eq!(flight.mode, FlightMode::FlySword);
         assert_eq!(flight.normal_speed, (1.2, 1.5));

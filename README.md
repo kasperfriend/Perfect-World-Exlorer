@@ -34,13 +34,17 @@ Features are limited to formats and data encountered in one inspected build; oth
      Modules/
        Walker/
          module.ini
+       Populator/
+         module.ini
      SHA256SUMS.txt
    ```
 2. Run `Perfect-World-Explorer.exe` and choose **Select Game Folder**. Select the extracted client root or its `element` directory.
 3. Click **Load World**. The first run prepares tree geometry using the client runtime; wait for loading to finish.
 4. The menu starts open. Choose Settings or close the menu to fly.
 
-The executable resolves `Modules` relative to its own location, not the current working directory. Each installed module has its own subfolder and `module.ini` manifest. This build provides the implementation for known module IDs (currently `walker`); a manifest by itself is not a dynamic-plugin SDK. Missing or malformed packages are reported in the Modules page without preventing the core viewer from running.
+The executable resolves `Modules` relative to its own location, not the current working directory. Each installed module has its own subfolder and `module.ini` manifest. This build provides the implementation for known module IDs (`walker` and `populator`); a manifest by itself is not a dynamic-plugin SDK. Missing or malformed packages are reported in the Modules page without preventing the core viewer from running.
+
+**Populator** draws the world population the client itself ships. It reads the selected client's `element/data/task_npc.data`, resolves each of the 1,572 placements to its `NPC_ESSENCE` template in `elements.data`, and draws that template's real rig from `models.pck` at the authored world position and height. Spawn distance defaults to the client's own 420-unit scene window and is adjustable with the number of simultaneously drawn actors, the templates' own `休闲` idle animation and an optional camera-facing turn; the settings window sits beside the Walker panel. Mobs load the real 4,208 `MONSTER_ESSENCE` templates but stay unspawned, because mob placement lives in the server's `gamedata/npcgen.data`, which the client does not ship; for the same reason actors move only along real navigation paths and therefore stand still without server route data. Nothing is invented to fill those gaps, and there is no combat, dialogue or other interaction.
 
 **Security:** The application executes the 32-bit `speedtreert.dll` from the selected client through an embedded helper. Only use a client you trust. Settings and the selected path are stored under `%LOCALAPPDATA%\PerfectWorldViewer`; derived tree geometry is cached in its `tree-cache` subfolder. The installation itself is not modified. Do not upload client data or the derived cache.
 
