@@ -155,14 +155,20 @@ fn triangle_mesh(surface: &CloudSurface) -> (Vec<TriVertex>, Vec<u32>) {
         let base = verts.len() as u32;
         for v in &cell.vertices {
             let uv_rect = atlas_uv(v.tags[0]);
-            // Native per-vertex UV is the atlas cell's interior. With no stored
-            // per-vertex corner, the group planar mapping (`pos.xz → cell UV`)
-            // is still open; the centre sample keeps the correct cell while the
-            // shape comes from the indexed triangle topology itself.
-            let uv = [
-                (uv_rect[0] + uv_rect[2]) * 0.5,
-                (uv_rect[1] + uv_rect[3]) * 0.5,
-            ];
+            // Native per-vertex UV is the cell's interior corner. `tags[0]` is
+            // the `0x646720` cell id, `tags[1]` carries the corner selector;
+            // the 54-pt mask path never uses it, but the indexed triangles do.
+            // The shipped `.cld` sample's `tags[1]` spans 0..15, `tags[1]%4`
+            // maps the quad corners inside the 4×4 atlas cell with 1/1024 inset
+            // preserved by `atlas_uv()`.
+            let corner = (v.tags[1] % 4) as usize;
+            let uv = match corner {
+                0 => [uv_rect[0], uv_rect[1]],
+                1 => [uv_rect[2], uv_rect[1]],
+                2 => [uv_rect[0], uv_rect[3]],
+                3 => [uv_rect[2], uv_rect[3]],
+                _ => [(uv_rect[0] + uv_rect[2]) * 0.5, (uv_rect[1] + uv_rect[3]) * 0.5],
+            };
             let day = unpack_rgb(v.colors[0]);
             let night = unpack_rgb(v.colors[2]);
             verts.push(TriVertex {
