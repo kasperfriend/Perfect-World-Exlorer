@@ -1345,6 +1345,18 @@ impl<'a> Lookup<'a> {
         }
     }
 
+    /// A flag the client reads as "not zero" rather than "equal to one".
+    /// `IsUseHSVInterp` is parsed that way: `0x724416` tests the scanned value
+    /// against itself and `0x72441f` stores the `setne` result in emitter+0xb0,
+    /// so any nonzero value selects the HSV sampler. Rejecting 2 here would be a
+    /// stricter reader than the binary has.
+    fn nonzero_flag(&self, key: &str, default: bool) -> Result<bool, String> {
+        match self.one(key) {
+            Some(value) => Ok(integer(key, value)? != 0),
+            None => Ok(default),
+        }
+    }
+
     fn vector(&self, key: &str) -> Result<Vec3, String> {
         let value = self.required(key)?;
         let parts = components(key, value)?;
@@ -1577,7 +1589,7 @@ fn particle(lookup: &Lookup, id: u32) -> Result<Particle, String> {
         is_drag: lookup.flag("IsDrag", false)?,
         drag_power: lookup.number("DragPow", 1.)?,
         initial_direction: lookup.optional_vector("ParIniDir")?.unwrap_or(Vec3::ZERO),
-        use_hsv_interpolation: lookup.flag("IsUseHSVInterp", false)?,
+        use_hsv_interpolation: lookup.nonzero_flag("IsUseHSVInterp", false)?,
         area_size: lookup.optional_vector("AreaSize")?,
         radius: match lookup.one("Radius") {
             Some(value) => Some(float("Radius", value)?),
@@ -2825,6 +2837,30 @@ mod tests {
         assert_eq!(fields.len(), 3);
         assert_eq!(fields[1], ("Name".to_string(), "a:b:c".to_string()));
         assert_eq!(fields[2].1, "");
+    }
+
+    /// `0x724416` scans `IsUseHSVInterp` into an integer, `0x72441d` tests that
+    /// value against itself and `0x724422` stores the `setne` result in
+    /// emitter+0xb0, so the client selects the HSV sampler on any nonzero value.
+    /// The flags beside it are compared against one and stay strict: only this
+    /// key has disassembly behind a wider reading.
+    #[test]
+    fn the_hsv_flag_is_a_nonzero_test_not_an_equality_test() {
+        let fields = tokenize("IsUseHSVInterp: 2\nIsBind: 0\nIsSurface: 2\n");
+        let lookup = Lookup::new(&fields);
+        assert!(lookup.nonzero_flag("IsUseHSVInterp", false).unwrap());
+        assert!(
+            !lookup.nonzero_flag("IsBind", true).unwrap(),
+            "a present zero is false whatever the default"
+        );
+        assert!(
+            !lookup.nonzero_flag("Absent", false).unwrap(),
+            "and an absent key takes its default"
+        );
+        assert!(
+            lookup.flag("IsSurface", false).is_err(),
+            "a strict flag rejects 2"
+        );
     }
 
     #[test]

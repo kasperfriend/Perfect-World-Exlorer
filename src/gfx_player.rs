@@ -73,11 +73,16 @@
 //!   quaternion helper `0x7b6fd0`, so the polar angle is uniform in
 //!   `[0, Angle]` and `Angle` is never clamped.
 //!
-//! Three native behaviours are deliberately not copied, each with its evidence
-//! recorded in `Findings/`: the emitter colour slot's HSV path (emitter+0xb0,
-//! branching at `0x72380c` into `0x723812`), the emission-count detail factor
-//! gated at `0x715b88`, which multiplies by a global the binary initializes at
-//! run time, and `ParIniDir`, which the parser turns into a quaternion with the
+//! * Colour. `0x7237f0` returns equal endpoints untouched and otherwise takes
+//!   one of two samplers on the `IsUseHSVInterp` byte at emitter+0xb0
+//!   (`0x723804`): four independent `rand()` draws interpolated per channel, or
+//!   a single shared draw interpolated in the HSV the parser stored at +0x38
+//!   and +0x48 (`0x723812`, converting back through `0x7898f0`).
+//!
+//! Two native behaviours are deliberately not copied, each with its evidence
+//! recorded in `Findings/`: the emission-count detail factor gated at
+//! `0x715b88`, which multiplies by a global the binary initializes at run time,
+//! and `ParIniDir`, which the parser turns into a quaternion with the
 //! Euler-to-quaternion routine `0x7b6f10` rather than treating as a direction
 //! vector.
 
@@ -1871,7 +1876,7 @@ fn spawn(
         age: 0.,
         ttl: particle.ttl,
         rotation,
-        color: random_color(particle.color_min, particle.color_max, rng),
+        color: random_color(particle, rng),
         position,
         previous: position,
         direction,
@@ -1971,23 +1976,38 @@ fn random_unit(rng: &mut Rng) -> Vec3 {
     Vec3::new(radius * theta.cos(), radius * theta.sin(), z)
 }
 
-/// Per-channel uniform sample between `ColorMin` and `ColorMax`, drawn the way
-/// the client's colour slot `0x7237f0` draws it: when the two are equal it
-/// returns them untouched, otherwise four independent `rand()` values, one per
-/// channel, each combined as `min * (1 - u) + max * u` and passed through the
-/// float-to-int helper `0x892e78`, which truncates toward zero, so a sample
-/// lands up to one unit below what rounding would give it.
+/// Spawn colour, drawn the way the client's colour slot `0x7237f0` draws it.
 ///
-/// Two native details are left out on purpose. The alpha channel is multiplied
-/// by emitter+0x8c before its truncation, and that factor is the element's live
-/// alpha, which this player already applies once while building the quad; the
-/// HSV path taken when `IsUseHSVInterp` (emitter+0xb0) is set lerps the HSV
-/// copies the parser makes at +0x38 and +0x48 through `0x7898f0`, and 168 retail
-/// elements ask for it. Both are recorded in `Findings/`.
-fn random_color(min: u32, max: u32, rng: &mut Rng) -> u32 {
-    if min == max {
-        return min;
+/// Equal endpoints short-circuit at `0x7237fc` and come back untouched.
+/// Otherwise `IsUseHSVInterp` (emitter+0xb0, tested at `0x723804`) picks between
+/// two samplers that are not variations on a theme: the RGB path draws four
+/// independent random values and the HSV path draws one and shares it, so the
+/// HSV path's channels move together. 168 retail elements ask for the HSV one.
+///
+/// One native detail is left out on purpose. The RGB path multiplies its alpha
+/// by emitter+0x8c before truncating it (`0x723955`), and that factor is the
+/// element's live alpha, which this player already applies once while building
+/// the quad; applying it here as well would square it. The HSV path has no such
+/// factor — its alpha is simply the fourth lerped channel. Recorded in
+/// `Findings/`.
+fn random_color(particle: &Particle, rng: &mut Rng) -> u32 {
+    if particle.color_min == particle.color_max {
+        return particle.color_min;
     }
+    if particle.use_hsv_interpolation {
+        random_color_hsv(particle.color_min, particle.color_max, rng)
+    } else {
+        random_color_rgb(particle.color_min, particle.color_max, rng)
+    }
+}
+
+/// The RGB sampler: four independent `rand()` values, one per channel, each
+/// combined as `min * (1 - u) + max * u` and passed through `_ftol` (thunk
+/// `0x892e78`, `MSVCRT._ftol`), which truncates toward zero, so a sample lands
+/// up to one unit below what rounding would give it. The client draws in the
+/// order red, green, blue, alpha (`0x7238cc` to `0x723908`); with draws this
+/// independent the order is not observable, so this walks the shifts ascending.
+fn random_color_rgb(min: u32, max: u32, rng: &mut Rng) -> u32 {
     let mut packed = 0u32;
     for shift in [0u32, 8, 16, 24] {
         let low = ((min >> shift) & 0xff) as f32;
@@ -1996,6 +2016,132 @@ fn random_color(min: u32, max: u32, rng: &mut Rng) -> u32 {
         packed |= ((low * (1. - u) + high * u) as u32) << shift;
     }
     packed
+}
+
+/// The HSV sampler. `0x723812` draws **one** `rand()` and uses it for all four
+/// channels, and it lerps the other way round from the RGB path —
+/// `min * u + max * (1 - u)` — which for a uniform draw is the same
+/// distribution, so only the coupling of the channels differs.
+///
+/// Hue is a circle and the client knows it: `0x723829` compares the two hues and
+/// takes the branch at `0x72383b` when the minimum is the larger one, adding a
+/// full turn to the maximum and subtracting it again from any result above one
+/// (`0x72385e`). An author writing 0.9 down to 0.1 gets the short way round
+/// through red rather than the long way back through the spectrum.
+fn random_color_hsv(min: u32, max: u32, rng: &mut Rng) -> u32 {
+    let low = rgb_to_hsva(min);
+    let high = rgb_to_hsva(max);
+    let u = f64::from(rng.unit());
+    let inverse = 1. - u;
+    // The client stores all four results as singles (`0x723876`, `0x723890`,
+    // `0x7238a0`, `0x7238ae`) before handing them to the converter, so each is
+    // rounded to f32 here at the same point.
+    let channel =
+        |index: usize| (f64::from(low[index]) * u + f64::from(high[index]) * inverse) as f32;
+    let hue = if low[0] <= high[0] {
+        f64::from(low[0]) * u + f64::from(high[0]) * inverse
+    } else {
+        let wrapped = f64::from(low[0]) * u + (f64::from(high[0]) + 1.) * inverse;
+        if wrapped > 1. {
+            wrapped - 1.
+        } else {
+            wrapped
+        }
+    };
+    hsva_to_packed([hue as f32, channel(1), channel(2), channel(3)])
+}
+
+/// The client's RGB→HSV, `0x789ad0`. The element parser calls it once per
+/// emitter — `0x724434` for `ColorMin` into emitter+0x38 and `0x724440` for
+/// `ColorMax` into emitter+0x48 — and it does so unconditionally: the
+/// `IsUseHSVInterp` byte only decides which sampler reads the copies.
+///
+/// Each byte is scaled by the f32 one-over-255 at `0x8f0928`, the alpha rides
+/// along as that same float (`0x789be8` copies its bits), and the hue comes out
+/// normalised: the three-way maximum test at `0x789c33`/`0x789c52`/`0x789c77`
+/// offsets the sector by 0, 2 or 4, `0x789c98` scales to degrees, `0x789cab`
+/// adds a full turn to a negative result and `0x789cb1` divides by 360.
+fn rgb_to_hsva(packed: u32) -> [f32; 4] {
+    const BYTE: f32 = 1. / 255.;
+    let red = ((packed >> 16) & 0xff) as f32 * BYTE;
+    let green = ((packed >> 8) & 0xff) as f32 * BYTE;
+    let blue = (packed & 0xff) as f32 * BYTE;
+    let alpha = (packed >> 24) as f32 * BYTE;
+    let highest = red.max(green).max(blue);
+    let lowest = red.min(green).min(blue);
+    let delta = highest - lowest;
+    // `0x789bf6` tests the value channel against zero before dividing, so black
+    // stores a zero saturation instead of a quotient; `0x789c29` then stores a
+    // literal zero hue for any achromatic colour.
+    let saturation = if highest == 0. {
+        0.
+    } else {
+        (f64::from(delta) / f64::from(highest)) as f32
+    };
+    let hue = if saturation == 0. {
+        0.
+    } else {
+        // The x87 keeps its intermediates wider than f32 and only rounds when it
+        // stores, so the hue chain is walked in f64 and rounded once at the end.
+        let delta = f64::from(delta);
+        let sector = if red == highest {
+            (f64::from(green) - f64::from(blue)) / delta
+        } else if green == highest {
+            (f64::from(blue) - f64::from(red)) / delta + 2.
+        } else {
+            (f64::from(red) - f64::from(green)) / delta + 4.
+        };
+        let degrees = sector * 60.;
+        let wrapped = if degrees < 0. {
+            degrees + 360.
+        } else {
+            degrees
+        };
+        (wrapped * (1. / 360.)) as f32
+    };
+    [hue, saturation, highest, alpha]
+}
+
+/// The client's HSV→RGB, `0x7898f0`: the six-sector hexcone of the switch at
+/// `0x7899d1` (jump table `0x789ab8`), with three details worth keeping.
+///
+/// The value channel is scaled by 255 and then biased by the 0.5 at `0x8eff98`
+/// before `_ftol` truncates it, so value is rounded to nearest, while the alpha
+/// at `0x789919` is only scaled and so is truncated. A zero saturation
+/// short-circuits to grey at `0x789933`, and a hue of exactly 1.0 is folded to
+/// 0.0 at `0x789956` so the top of the circle lands in sector 0 instead of off
+/// the end of the switch.
+fn hsva_to_packed(hsva: [f32; 4]) -> u32 {
+    let [hue, saturation, value, alpha] = hsva;
+    let v = f64::from(value) * 255. + 0.5;
+    let a = (f64::from(alpha) * 255.) as u32;
+    let (red, green, blue) = if saturation == 0. {
+        let grey = v as u32;
+        (grey, grey, grey)
+    } else {
+        let folded = if hue == 1. { 0. } else { hue };
+        let scaled = f64::from(folded) * 6.;
+        // `floor` through the IAT at `0x8d54b4`, then `_ftol` at `0x789975`.
+        let index = scaled.floor();
+        let fraction = scaled - index;
+        let s = f64::from(saturation);
+        let p = (1. - s) * v;
+        let q = (1. - s * fraction) * v;
+        let t = (1. - s * (1. - fraction)) * v;
+        // `cmp $5,%eax; ja 0x789a8f` sends a seventh sector to a path that reads
+        // the value slot as an integer. Hue is normalised into [0, 1] so the
+        // branch is unreachable; the sixth case is what it would have to be.
+        let channels = match index as i64 {
+            0 => (v, t, p),
+            1 => (q, v, p),
+            2 => (p, v, t),
+            3 => (p, q, v),
+            4 => (t, p, v),
+            _ => (v, p, q),
+        };
+        (channels.0 as u32, channels.1 as u32, channels.2 as u32)
+    };
+    (a << 24) | (red << 16) | (green << 8) | blue
 }
 
 /// One integration step: every affector through the client's temp-struct
@@ -3050,7 +3196,7 @@ mod tests {
         let mut always_truncates = true;
         let mut differs_from_rounding = false;
         for _ in 0..500 {
-            let got = random_color(min, max, &mut actual);
+            let got = random_color_rgb(min, max, &mut actual);
             let mut want_truncated = 0u32;
             let mut want_rounded = 0u32;
             for shift in [0u32, 8, 16, 24] {
@@ -3066,6 +3212,172 @@ mod tests {
         }
         assert!(always_truncates, "0x892e78 truncates toward zero");
         assert!(differs_from_rounding, "and that is observable");
+    }
+
+    /// `0x789ad0`: the byte layout the converter reads, the zero-saturation
+    /// special cases at `0x789bf6` and `0x789c29`, and the alpha that rides
+    /// along as a float instead of being converted back.
+    #[test]
+    fn rgb_to_hsva_matches_the_client_converter() {
+        assert_eq!(rgb_to_hsva(0xffff_0000), [0., 1., 1., 1.], "pure red");
+        for (packed, hue) in [(0xff00_ff00u32, 1. / 3.), (0xff00_00ff, 2. / 3.)] {
+            let got = rgb_to_hsva(packed);
+            assert!((got[0] - hue).abs() < 1e-6, "0x{packed:08x} hue {}", got[0]);
+            assert_eq!((got[1], got[2]), (1., 1.));
+        }
+        let grey = rgb_to_hsva(0xff80_8080);
+        assert_eq!(
+            grey[0], 0.,
+            "an achromatic colour stores a literal zero hue"
+        );
+        assert_eq!(grey[1], 0., "and a zero saturation");
+        let black = rgb_to_hsva(0xff00_0000);
+        assert_eq!(black[2], 0.);
+        assert_eq!(black[1], 0., "the value channel is tested before dividing");
+        assert!(
+            (rgb_to_hsva(0x8000_0000)[3] - 128. / 255.).abs() < 1e-6,
+            "alpha is scaled like the colour bytes and kept as a float"
+        );
+        // Magenta is the branch whose sector offset needs the negative-hue wrap
+        // at `0x789cab`: (red - green) / delta + 4 = 4, and blue being the
+        // maximum is what selects it.
+        assert!(
+            (rgb_to_hsva(0xffff_00ff)[0] - 5. / 6.).abs() < 1e-6,
+            "magenta"
+        );
+    }
+
+    /// The parser stores what the sampler reads back (`0x724434` into emitter+0x38,
+    /// `0x723826` out of it), so a colour surviving the round trip is the
+    /// available check that the two routines agree on the layout, the six
+    /// sectors and the value channel's rounding bias.
+    #[test]
+    fn hsv_conversion_round_trips_the_palette() {
+        let mut checked = 0;
+        for alpha in [0u32, 0x40, 0x80, 0xff] {
+            for red in (0..=255).step_by(17) {
+                for green in (0..=255).step_by(17) {
+                    for blue in (0..=255).step_by(17) {
+                        let packed = (alpha << 24) | (red << 16) | (green << 8) | blue;
+                        let got = hsva_to_packed(rgb_to_hsva(packed));
+                        assert_eq!(got, packed, "0x{packed:08x} came back 0x{got:08x}");
+                        checked += 1;
+                    }
+                }
+            }
+        }
+        assert_eq!(checked, 4 * 16 * 16 * 16);
+    }
+
+    /// `0x789906` scales the value channel by 255 and `0x78990c` adds the 0.5 at
+    /// `0x8eff98` before `_ftol` truncates, so value rounds; the alpha at
+    /// `0x789919` is only scaled, so it truncates. Both are visible on a half.
+    #[test]
+    fn the_value_channel_rounds_and_the_alpha_truncates() {
+        let packed = hsva_to_packed([0., 1., 0.5, 0.5]);
+        assert_eq!(
+            (packed >> 16) & 0xff,
+            128,
+            "0.5 * 255 + 0.5 truncates to 128"
+        );
+        assert_eq!(packed >> 24, 127, "0.5 * 255 truncates to 127");
+    }
+
+    /// `0x789933` skips the sector maths entirely for a zero saturation, so the
+    /// hue is not even looked at.
+    #[test]
+    fn zero_saturation_is_grey_whatever_the_hue() {
+        let packed = hsva_to_packed([0.73, 0., 0.4, 1.]);
+        assert_eq!(packed & 0x00ff_ffff, 0x0066_6666, "trunc(0.4 * 255 + 0.5)");
+        assert_eq!(packed >> 24, 255);
+    }
+
+    /// `0x789947` compares the hue with 1.0 and `0x789956` folds an exact 1.0 to
+    /// 0.0, so the top of the circle lands in sector 0 instead of running off the
+    /// end of the switch at `0x7899d1`. The witness has to be fully saturated:
+    /// at a saturation of 0.5 the byte quantisation swallows the difference
+    /// between sector 5's tail and sector 0's head.
+    #[test]
+    fn a_hue_of_exactly_one_folds_into_sector_zero() {
+        let wrapped = hsva_to_packed([1., 1., 1., 1.]);
+        assert_eq!(wrapped, hsva_to_packed([0., 1., 1., 1.]));
+        assert_eq!(
+            wrapped & 0x00ff_ffff,
+            0x00ff_0000,
+            "sector 0 at f = 0 is red"
+        );
+        assert_ne!(wrapped, hsva_to_packed([0.99, 1., 1., 1.]));
+    }
+
+    /// `0x723812` draws once for all four channels where the RGB path draws four
+    /// times (`0x7238cc`, `0x7238e0`, `0x7238f4`, `0x723908`). The generator's
+    /// state afterwards says which happened.
+    #[test]
+    fn the_hsv_path_shares_one_draw_between_its_channels() {
+        let (min, max) = (0xff10_2030u32, 0x8040_5060u32);
+
+        let mut hsv = Rng::new(5);
+        random_color_hsv(min, max, &mut hsv);
+        let mut one_draw = Rng::new(5);
+        one_draw.next_u32();
+        assert_eq!(hsv.0, one_draw.0, "one draw feeds every channel");
+
+        let mut rgb = Rng::new(5);
+        random_color_rgb(min, max, &mut rgb);
+        let mut four_draws = Rng::new(5);
+        for _ in 0..4 {
+            four_draws.next_u32();
+        }
+        assert_eq!(rgb.0, four_draws.0, "and the RGB path draws per channel");
+    }
+
+    /// Between red and cyan the HSV path can only produce fully saturated
+    /// colours, because saturation is `1 * u + 1 * (1 - u)` whatever the draw.
+    /// The RGB path interpolates each channel on its own and spends most of its
+    /// samples in the grey middle. That is what the 168 elements asking for
+    /// `IsUseHSVInterp` are after, and it is the difference this port keeps.
+    #[test]
+    fn the_hsv_path_holds_saturation_across_a_hue_sweep() {
+        let (min, max) = (0xffff_0000u32, 0xff00_ffffu32);
+        let mut rng = Rng::new(3);
+        let mut hsv_saturated = 0;
+        let mut rgb_saturated = 0;
+        for _ in 0..400 {
+            if rgb_to_hsva(random_color_hsv(min, max, &mut rng))[1] > 0.99 {
+                hsv_saturated += 1;
+            }
+            if rgb_to_hsva(random_color_rgb(min, max, &mut rng))[1] > 0.99 {
+                rgb_saturated += 1;
+            }
+        }
+        assert_eq!(hsv_saturated, 400, "a shared draw cannot desaturate");
+        assert!(
+            rgb_saturated < 200,
+            "independent draws mostly do: {rgb_saturated}"
+        );
+    }
+
+    /// `0x723829` compares the two hues and `0x72383b` takes the wrapped branch
+    /// when the minimum is the larger one: a full turn is added to the maximum
+    /// and taken off any result above one, so 0.9 down to 0.1 goes the short way
+    /// through red instead of back through the whole spectrum.
+    #[test]
+    fn hue_wraps_the_short_way_when_the_minimum_is_above_the_maximum() {
+        let min = hsva_to_packed([0.9, 1., 1., 1.]);
+        let max = hsva_to_packed([0.1, 1., 1., 1.]);
+        let mut rng = Rng::new(11);
+        let mut above = 0;
+        let mut below = 0;
+        for _ in 0..500 {
+            let hue = rgb_to_hsva(random_color_hsv(min, max, &mut rng))[0];
+            assert!(
+                hue >= 0.85 || hue <= 0.15,
+                "hue {hue} left the short arc between 0.9 and 0.1"
+            );
+            above += (hue >= 0.85) as i32;
+            below += (hue <= 0.15) as i32;
+        }
+        assert!(above > 0 && below > 0, "both sides of the wrap are used");
     }
 
     #[test]
