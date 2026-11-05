@@ -1,17 +1,18 @@
-//! Native MOXB cloud surface (`world.cld`, `0x645150`) — `CECClouds` via
-//! `0x646450` triangle lists and `0x646720` atlas mapping.
-//!
-//! Each `MOXB` cell carries 36-byte vertices (`pos[3] f32` + `tags[2] u32` +
-//! `colors[4] u32`) and a set of groups (`params[4] f32` + `indices[] u32`).
-//! `0x646720` maps `tags[0]-1` into one of 16 cells of the `4×4`
-//! `cumulus01.tga` atlas exactly as `atlas_uv()` does; the billboard path
-//! below keeps that recovered mapping. Native builds actual world-space
-//! triangles from `indices` (triangle list, not billboards) with per-vertex
-//! day/night colors and a size curve driven by `params[3]` (`20/50/70`). That
-//! triangle path is parsed as `CloudSurface` and is ready for indexed draws;
-//! the billboard path remains the active renderer until the water secondary
-//! view (`0x799f88` band-adjacent) and the `params[0..2]` fog coupling are
-//! traced. SpeedTree (`*.spt` via `SpeedTreeRT.dll`) is unrelated.
+//! Native MOXB cloud surface (`world.cld` `0x645150` `CECClouds`) — groups as
+//! `0x646450` indexed triangle lists (`20 B` header `params[4]` + `indexCount` +
+//! `indices[]`, `36 B` vertices `pos[3] f32` + `tags[2] u32` + `colors[4] u32`)
+//! and `0x646720` first-tag → `4×4` `cumulus01.tga` atlas mapping. That atlas
+//! mapping is recovered verbatim as `atlas_uv()` below (`(tag-1)%4/4`,
+//! `1/1024` inset). Native submits the `indices` as `D3DPT_TRIANGLELIST` in
+//! world space with per-vertex day/night `colors` and a `params[3]` size class
+//! (`20/50/70` → `10/25/35` half-extent, outliers `14175`/`889206080` clamped
+//! to `25`); `params[0..2]` drive the fog coupling and the water secondary
+//! view that sits next to the `0x799f88` band. `CloudSurface::parse` keeps all
+//! of it and `billboard_instances` currently re-emits each indexed vertex as a
+//! camera-facing quad preserving `atlas_uv` — the index topology is ready for a
+//! direct `DrawIndexed` of the `MOXB` triangles and will replace the billboard
+//! once the secondary view is traced. SpeedTree `*.spt` (`SpeedTreeRT.dll`) is
+//! a separate tree resource.
 use crate::cloud_surface::CloudSurface;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};

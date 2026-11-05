@@ -632,11 +632,16 @@ fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> 
     if reflected || sun[0] <= 0. || elevation <= 0. || clip.w <= 1e-6 {
         return ([0., 0.], 0.);
     }
-    // TODO(flare-occlusion): sample depth at the 54 `0x7855c0` points around
-    // `clip.xy/clip.w`, accumulate through `0x786840` and scale by `0.4*6`.
-    // For now the weight is the visibility fade only; occlusion is tracked as
-    // `celestial.w` remains 0 when the sun is behind terrain via the depth
-    // pre-pass in `gpu.rs` (not yet wired).
+    // Native `0x4b4290` builds a 54-point occlusion mask (`0x7855c0`
+    // `D3DPT_POINTLIST`, 68 vertices, 1604 indices) around the sun's screen
+    // point, accumulates the depth-tested points into the off-screen
+    // `0x786840` target and lets `ps/solarflare_14` sample it 6× at 0.4
+    // (saturated sum → flare alpha). The viewer cannot yet sample its own
+    // depth pre-pass here, so the weight stays the visibility fade; the mask
+    // is tracked as a future `flare_occlusion(depth, clip)` that will scale
+    // `celestial.w` by that 6×0.4 sum. The 90-vertex flare strip (`0x4b5b74`,
+    // `0x4b6270` 15×6 vertices `add ebx,0xc0` / `cmp ebp,0x3c`) is already
+    // represented by the 15 `flare_size/offset/uv` tables below.
     ([clip.x / clip.w, clip.y / clip.w], sun[0].clamp(0., 1.))
 }
 

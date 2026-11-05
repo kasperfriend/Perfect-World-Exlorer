@@ -1,10 +1,14 @@
-//! Camera-relative world-space precipitation using the client's rain/snow
-//! masks and native 33 ms object clock. Particle generation is a deterministic
-//! visual model, not a recovered copy of the client's particle RNG/lifetime,
-//! but the two objects' own `Speed`/`SpeedVariation`/`Size`/`SizeVariation`
-//! stores ([`crate::client_weather::RAIN`], [`crate::client_weather::SNOW`]) are
-//! consumed here instead of viewer-chosen numbers. Parsed water-area masks
-//! suppress the view when the camera is submerged.
+//! Camera-relative world-space precipitation driven by the native 33 ms tick
+//! (`CECWorld::Tick` `0x429378` `>0x21` → `CECWeather::Update` vtable `+0x48`,
+//! `0x9b3eec` accumulator) and the `EC-BSD` area flags (`0x421520` bits 1+2
+//! → `WeatherSelection::RAIN/SNOW`). The two objects' own stores are consumed
+//! verbatim: `rain.tga` `Speed 0.5 Size 0.04 ±30% ±50%` (`0x42901c` `RAIN`) and
+//! `snow.bmp` `Size 0.3` / `Speed 0.5→0.06` (`0x42919f` `SNOW`), with the
+//! `ps/snow` luminance→alpha mask and the 33 ms `WeatherClock` exactly as
+//! shipped. Generation is still a deterministic camera-centred volume, not the
+//! client's RNG/lifetimes/collisions, and the `0x786840`-style off-screen
+//! accumulation is not used — the particles are drawn directly with the
+//! `Speed`/`Size` lanes `particle[0..3]`/`motion[0..3]` (see `profile_lanes`).
 use crate::client_weather::{
     PrecipitationProfile, WeatherClock, WeatherSelection, RAIN, SNOW, SNOW_SPEED_SCALE,
 };
