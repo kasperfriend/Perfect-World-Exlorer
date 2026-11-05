@@ -414,15 +414,16 @@ fn celestial(color:vec3<f32>,d:vec3<f32>,params:vec4<f32>,disc:i32,glow:i32,nigh
  let uv=plane/(2.0*half)+vec2<f32>(0.5);
  if uv.x<0.0 || uv.x>1.0 || uv.y<0.0 || uv.y>1.0 {return out;}
  let t=textureSampleLevel(skies,smp,uv,disc,0.);
- // The disc is the texture at `disc_brightness`. That lane carries the recovered
- // half colour of `0x4b405f` only when the tester asks for it: the halved discs
- // read as dim grey circles, so the World tab defaults to 1.0 (the texture
- // itself) and the recovered value stays one slider move away. The region light
- // is NOT multiplied in here - it turned the discs grey as well; it stays on the
- // shine strip and the flare sprites, where `0x4b3e22` really does multiply by
- // the `+0x44` colour.
+ // The disc is the texture at `disc_brightness`. `CECSunMoon::Render`
+ // packs the moon as `([+0x48] & 0xfefefe | 0x01010100) >> 1` (`0x4b405f`,
+ // half-white) but the sun as `[+0x44]` without halving (`0x4b3bd4`,
+ // full white) — both init to `0xffffffff` at `0x4b2d76/79`. The World
+ // tab defaults to 1.0 (the texture itself) because halved discs read as
+ // dim grey; the recovered 127/255 stays one slider move away. The region
+ // light is NOT multiplied here - it stays on the shine strip and flare
+ // sprites where `0x4b3e22` really does `* [+0x44]`.
  if is_sun {return clamp(out+t.rgb*disc_brightness()*alpha,vec3<f32>(0.),vec3<f32>(1.));}
- return mix(out,t.rgb*disc_brightness(),t.a*alpha);
+ return mix(out,t.rgb*disc_brightness()*0.5,t.a*alpha);
 }
 // The client's flare chain, in screen space.
 //
@@ -482,19 +483,24 @@ fn flare_uv_origin(i:i32)->vec2<f32>{
 fn flare_uv_size(i:i32)->f32{
  if i==2 {return 0.5;} return 0.25;
 }
-fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,metric:f32,flare:i32,ring:i32)->vec3<f32>{
+fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,ring:i32)->vec3<f32>{
  if weight<=0.0 {return color;}
  let sun=p.glow_center.zw;
- // Everything below is in NDC-height units, so `p.skyrot.z` (2/height) turns
- // the table's pixels into the same space.
+ // Native `0x4b6270` copies six dwords from `arg1+0x14` and then
+ // `fild [esp+0x5c] * size[i]` where `[esp+0x5c]` is the viewport height
+ // (fifth dword `[esp+0x290]`, `0x77a???` viewport block). `px = 2/h`
+ // from `p.skyrot.z` converts pixels → NDC-height, so `half = h*size*px
+ // = 2*size` and `offset = offset*px`. Previous revision doubled the
+ // offset and halved the size (factor-2 error).
  let s=vec2<f32>(sun.x*aspect,sun.y);
  let len=length(s);
  let dir=select(vec2<f32>(0.0,-1.0),-s/max(len,1e-6),len>1e-6);
- let px=2.0*p.skyrot.z;
+ let px=p.skyrot.z;
+ let h=2.0/px;
  var out=color;
  for(var i:i32=0;i<15;i=i+1){
   let c=s+dir*(flare_offset(i)*px);
-  let half=flare_size(i)*metric;
+  let half=flare_size(i)*h*px;
   let q=(vec2<f32>(ndc.x*aspect,ndc.y)-c)/max(half,1e-6);
   if abs(q.x)>1.0 || abs(q.y)>1.0 {continue;}
   let uv=flare_uv_origin(i)+vec2<f32>(q.x*0.5+0.5,q.y*0.5+0.5)*flare_uv_size(i);
@@ -532,9 +538,10 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,metric:f32,fl
  color=celestial(color,d,p.celestial,9,11,night);
  color=celestial(color,d,p.celestial2,10,12,night);
  // `p.celestial.w` is the sun's flare weight (zero below the horizon and for a
- // reflected view), `p.tint.w` the screen aspect and `p.background.w` the sun's
- // own half extent in NDC-height units.
- color=flare_chain(color,i.clip,p.celestial.w,p.tint.w,1.0,14,14);
+ // reflected view), `p.tint.w` the screen aspect. `p.background.w` is the
+ // sun's half extent but the flare half already accounts for `h*px`, so no
+ // extra metric is passed.
+ color=flare_chain(color,i.clip,p.celestial.w,p.tint.w,14,14);
  return vec4<f32>(color,1.);
 }
 "#;
