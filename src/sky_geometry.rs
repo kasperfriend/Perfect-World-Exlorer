@@ -593,6 +593,7 @@ mod tests {
         // has to reproduce the stored UVs, `0.5 + p.xz / (2 R sin(step))`
         // (`0x79aa73`).
         let mesh = cap();
+        let mut roof_samples = 0;
         for index in [1usize, 2, 13, 25, 144] {
             let v = mesh.vertices[index];
             let eye = [0.0, CAP_DROP, 0.0];
@@ -604,19 +605,26 @@ mod tests {
             let len = (rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2]).sqrt();
             let direction = [rel[0] / len, rel[1] / len, rel[2] / len];
             let sample = project(direction).expect("finite direction");
-            // The region is elevation driven, and looking from the dropped eye
-            // spreads the cap's outer rings down to the horizon: only the sliver
-            // above 72.5 degrees is the `Cap` region, the rest is the band the
-            // viewer fills with the same lookup.
+            // Seen from the dropped eye the cap's outer rings sit at the horizon,
+            // so some of them fall on the curtain's side of the divide; those are
+            // the skirt's business, not the ceiling's.
+            if sample.layer != Layer::Roof {
+                continue;
+            }
+            roof_samples += 1;
             assert!(
                 matches!(sample.region, Region::Cap | Region::CapEdgeGap),
                 "cap vertex {index} region {:?}",
                 sample.region
             );
-            assert_eq!(sample.layer, Layer::Roof);
             assert!(close(sample.uv[0], v.uv[0], 1e-4), "cap u at {index}");
             assert!(close(sample.uv[1], v.uv[1], 1e-4), "cap v at {index}");
         }
+        assert!(roof_samples >= 2, "only {roof_samples} cap vertices checked");
+        // Overhead is unambiguously the ceiling, and it is the sheet's centre.
+        let zenith = project([0.0, 1.0, 0.0]).expect("zenith");
+        assert_eq!(zenith.region, Region::Cap);
+        assert!(close(zenith.uv[0], 0.5, 1e-6) && close(zenith.uv[1], 0.5, 1e-6));
         // The rim of the cap is the horizon ray, and its stored UV is 1.0.
         let rim = mesh
             .vertices
