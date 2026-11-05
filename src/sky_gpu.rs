@@ -666,7 +666,7 @@ fn flare_occlusion(
         [0.0, -0.015],
         [0.022, 0.022],
     ];
-    let mut sum = 0.0;
+    let mut sum: f32 = 0.0;
     for tap in TAPS {
         let p = [sun_ndc[0] + tap[0], sun_ndc[1] + tap[1]];
         // Depth in reversed-Z (0 = far sky, 1 = near) or linear 0..1; native
@@ -675,10 +675,10 @@ fn flare_occlusion(
         // the sky pass; `depth > 0.999` is far (unoccluded), otherwise occluded.
         let d = sample_depth(p);
         if d > 0.999 || d <= 0.0001 {
-            sum += 0.4;
+            sum += 0.4_f32;
         }
     }
-    (fade * sum.clamp(0.0, 1.0)).clamp(0.0, 1.0)
+    (fade * sum.clamp(0.0_f32, 1.0_f32)).clamp(0.0_f32, 1.0_f32)
 }
 
 fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> ([f32; 2], f32) {
@@ -948,16 +948,25 @@ impl SkyGpu {
         // around glow_center.zw (0x7855c0 54-pt mask → 0x786840 → ps/solarflare_14 6×0.4).
         let depth_dummy = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("sky depth dummy"),
-            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-            mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[],
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
         });
         let depth_dummy_view = depth_dummy.create_view(&Default::default());
         let depth_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("sky depth sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge, address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest, min_filter: wgpu::FilterMode::Nearest,
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -995,8 +1004,22 @@ impl SkyGpu {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry { binding: 4, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
-                wgpu::BindGroupLayoutEntry { binding: 5, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering), count: None },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    count: None,
+                },
             ],
         });
         let bind = |b: &wgpu::Buffer| {
@@ -1004,12 +1027,30 @@ impl SkyGpu {
                 label: Some("sky material"),
                 layout: &layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: b.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
-                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&roof_sampler) },
-                    wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&depth_dummy_view) },
-                    wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&depth_sampler) },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: b.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&roof_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(&depth_dummy_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::Sampler(&depth_sampler),
+                    },
                 ],
             })
         };
@@ -1182,12 +1223,30 @@ impl SkyGpu {
                 label: Some("sky material"),
                 layout: &self.layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: b.as_entire_binding() },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.skies_view) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
-                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&self.roof_sampler) },
-                    wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(depth_view) },
-                    wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&self.depth_sampler) },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: b.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&self.skies_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&self.roof_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(depth_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::Sampler(&self.depth_sampler),
+                    },
                 ],
             })
         };
