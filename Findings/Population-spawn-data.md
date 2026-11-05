@@ -119,10 +119,12 @@ with 120 (ornament range) and 800 as further presets.
   never moved. Many props (stalls, wagons, low platforms, crates) ship render
   geometry and **no collision hull at all**, which is why their placements used
   to fall through to the terrain: the same lit-model load now also derives each
-  model's upward-facing top (triangles with `normal.y > 0.5`, models under 8
-  units tall and under 24 units wide) and uses it when no hull floor exists. A
-  hull floor still wins, so a bridge deck is never replaced by a prop standing
-  under the span.
+  model's upward-facing surfaces (triangles with `normal.y > 0.5`, models under
+  8 units tall and under 24 units wide, bucketed into 2-unit tiles so a step or
+  a ramp keeps its own height instead of the model's tallest point) and uses
+  them when no hull floor exists. A hull floor still wins, so a bridge deck is
+  never replaced by a prop standing under the span, and the surface a placement
+  gets is always the tile directly beneath it.
 * Idle playback: a combined action the viewer can schedule runs through
   `Playback`; otherwise the ordinary clip that combined action names loops on
   the module clock. `pose_action_at_time` takes absolute track time and clamps
