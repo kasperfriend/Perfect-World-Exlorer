@@ -18,8 +18,9 @@ zoom; turntable and animation controls are below the image. Preview models and
 textures require the corresponding client archives. Missing resources and
 unsupported models are reported in the preview instead of being substituted.
 The mannequin is a simplified body/equipment preview rather than a complete
-character customization. Skeletons with unsupported reflection or constraint
-controllers use an explicitly labelled approximate preview pose.
+character customization. The preview hides body triangles near the selected
+item to reduce clothing intersections; skeletons with unsupported reflection
+or constraint controllers use an explicitly labelled approximate pose.
 
 Client files and localized data vary. Unknown item fields and add-on types are
 not guessed: unrecognized add-ons are shown as raw values. The comparison shows

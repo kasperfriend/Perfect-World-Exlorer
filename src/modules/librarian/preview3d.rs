@@ -117,7 +117,9 @@ impl Preview {
                     format!("models/{path}")
                 };
                 let result = if let Some(worn) = path.strip_prefix("worn:") {
-                    load_worn(assets, worn).map(|asset| (asset, Vec::new()))
+                    load_worn(assets, worn).map(|asset| (asset, vec![
+                        "Worn preview hides nearby body triangles to reduce equipment clipping.".into(),
+                    ]))
                 } else if path.ends_with(".ecm") {
                     ModelAsset::load_unique_with(&path, |p| assets.read_model_resource(p))
                 } else if path.ends_with(".smd") {
@@ -552,6 +554,14 @@ mod tests {
     }
 
     #[test]
+    fn body_cover_distance_handles_inside_edges_and_degenerate_triangles() {
+        let t = [Vec3::ZERO, Vec3::X, Vec3::Y];
+        assert!((point_triangle_distance_squared(Vec3::new(0.2, 0.2, 0.1), t) - 0.01).abs() < 1e-6);
+        assert!((point_triangle_distance_squared(Vec3::new(1.2, 0., 0.), t) - 0.04).abs() < 1e-6);
+        assert!((point_triangle_distance_squared(Vec3::Y, [Vec3::ZERO; 3]) - 1.).abs() < 1e-6);
+    }
+
+    #[test]
     fn preview_camera_mirrors_x_and_uses_reversed_depth() {
         let matrix = camera_matrix(Vec3::ZERO, 1., 1., 0., 0.);
         let projected = |p: Vec3| {
@@ -615,5 +625,81 @@ fn load_worn(assets: &mut LibrarianAssets, request: &str) -> Result<ModelAsset, 
             .skins
             .push(crate::model_asset::SkinAsset { path, data });
     }
+    hide_covered_body(&mut asset)?;
     Ok(asset)
+}
+
+/// Worn skins and the base body can intersect in an isolated preview. Remove
+/// only body triangles close to the equipment surface in bind pose, preserving
+/// uncovered skin. This is a preview-only approximation; source skins and the
+/// Designer renderer are never changed.
+fn hide_covered_body(asset: &mut ModelAsset) -> Result<(), String> {
+    const DISTANCE: f32 = 0.03;
+    let (poses, _) = preview_pose(asset, None)?;
+    let mut triangles = Vec::new();
+    for pose in poses.iter().filter(|pose| pose.skin == 2) {
+        let mesh = &asset.skins[pose.skin].data.meshes[pose.mesh];
+        for indices in mesh.indices.chunks_exact(3) {
+            let p = [indices[0], indices[1], indices[2]]
+                .map(|index| Vec3::from_array(pose.vertices[index as usize].position));
+            if p.iter().all(|point| point.is_finite()) {
+                let min = p[0].min(p[1]).min(p[2]) - Vec3::splat(DISTANCE);
+                let max = p[0].max(p[1]).max(p[2]) + Vec3::splat(DISTANCE);
+                triangles.push((p, min, max));
+            }
+        }
+    }
+    for pose in poses.iter().filter(|pose| pose.skin == 0) {
+        let mesh = &mut asset.skins[pose.skin].data.meshes[pose.mesh];
+        let mut kept = Vec::with_capacity(mesh.indices.len());
+        for indices in mesh.indices.chunks_exact(3) {
+            let p = indices
+                .iter()
+                .map(|&index| Vec3::from_array(pose.vertices[index as usize].position))
+                .sum::<Vec3>()
+                / 3.;
+            let covered = p.is_finite()
+                && triangles.iter().any(|(tri, min, max)| {
+                    p.cmpge(*min).all()
+                        && p.cmple(*max).all()
+                        && point_triangle_distance_squared(p, *tri) < DISTANCE * DISTANCE
+                });
+            if !covered {
+                kept.extend_from_slice(indices);
+            }
+        }
+        mesh.indices = kept;
+    }
+    Ok(())
+}
+
+fn point_triangle_distance_squared(p: Vec3, triangle: [Vec3; 3]) -> f32 {
+    let [a, b, c] = triangle;
+    let ab = b - a;
+    let ac = c - a;
+    let ap = p - a;
+    let d00 = ab.dot(ab);
+    let d01 = ab.dot(ac);
+    let d11 = ac.dot(ac);
+    let d20 = ap.dot(ab);
+    let d21 = ap.dot(ac);
+    let den = d00 * d11 - d01 * d01;
+    if den > 1e-12 {
+        let v = (d11 * d20 - d01 * d21) / den;
+        let w = (d00 * d21 - d01 * d20) / den;
+        if v >= 0. && w >= 0. && v + w <= 1. {
+            return (p - (a + v * ab + w * ac)).length_squared();
+        }
+    }
+    let segment = |a: Vec3, b: Vec3| {
+        let d = b - a;
+        let length = d.length_squared();
+        let t = if length > 0. {
+            ((p - a).dot(d) / length).clamp(0., 1.)
+        } else {
+            0.
+        };
+        (p - (a + t * d)).length_squared()
+    };
+    segment(a, b).min(segment(b, c)).min(segment(c, a))
 }
