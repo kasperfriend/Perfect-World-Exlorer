@@ -24,7 +24,9 @@ struct State {
     icons: IconCache,
     database: Database,
     category: Option<Category>,
-    subtype: Option<u32>,
+    section: Option<usize>,
+    major: Option<(usize, u32)>,
+    subtype: Option<(usize, u32)>,
     search: String,
     selected: Option<usize>,
     comparison: Vec<usize>,
@@ -88,6 +90,8 @@ impl Librarian {
                     icons,
                     database,
                     category: None,
+                    section: None,
+                    major: None,
                     subtype: None,
                     search: String::new(),
                     selected: None,
@@ -150,6 +154,8 @@ impl State {
             {
                 self.compare_open = false;
                 self.category = None;
+                self.section = None;
+                self.major = None;
                 self.subtype = None;
             }
             for category in Category::ALL {
@@ -162,6 +168,8 @@ impl State {
                 {
                     self.compare_open = false;
                     self.category = Some(category);
+                    self.section = None;
+                    self.major = None;
                     self.subtype = None;
                 }
             }
@@ -183,34 +191,105 @@ impl State {
             ui.label(format!("{} records", self.database.items.len()));
         });
         if let Some(category) = self.category {
-            let mut subtypes: Vec<(u32, String)> = self
+            let mut sections: Vec<usize> = self
                 .database
                 .items
                 .iter()
                 .filter(|item| item.category == category)
+                .map(|item| item.section)
+                .collect();
+            sections.sort_unstable();
+            sections.dedup();
+            if sections.len() > 1 {
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .selectable_label(self.section.is_none(), "All types")
+                        .clicked()
+                    {
+                        self.section = None;
+                        self.major = None;
+                        self.subtype = None;
+                    }
+                    for section in sections {
+                        if ui
+                            .selectable_label(
+                                self.section == Some(section),
+                                database::section_name(section),
+                            )
+                            .clicked()
+                        {
+                            self.section = Some(section);
+                            self.major = None;
+                            self.subtype = None;
+                        }
+                    }
+                });
+            }
+            let mut majors: Vec<((usize, u32), String)> = self
+                .database
+                .items
+                .iter()
+                .filter(|item| {
+                    item.category == category
+                        && self.section.map_or(true, |section| section == item.section)
+                })
+                .filter_map(|item| {
+                    item.major.map(|id| {
+                        let name = database::major_table(item.section)
+                            .and_then(|table| self.database.category_names.get(&(table, id)))
+                            .filter(|name| !name.is_empty())
+                            .cloned()
+                            .unwrap_or_else(|| format!("Type {id}"));
+                        ((item.section, id), name)
+                    })
+                })
+                .collect();
+            majors.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+            majors.dedup_by_key(|entry| entry.0);
+            if !majors.is_empty() {
+                egui::ComboBox::from_label("Type")
+                    .selected_text(
+                        self.major
+                            .and_then(|id| majors.iter().find(|entry| entry.0 == id))
+                            .map(|entry| entry.1.as_str())
+                            .unwrap_or("All types"),
+                    )
+                    .show_ui(ui, |ui| {
+                        if ui
+                            .selectable_value(&mut self.major, None, "All types")
+                            .changed()
+                        {
+                            self.subtype = None;
+                        }
+                        for (id, name) in &majors {
+                            if ui
+                                .selectable_value(&mut self.major, Some(*id), name)
+                                .changed()
+                            {
+                                self.subtype = None;
+                            }
+                        }
+                    });
+            }
+            let mut subtypes: Vec<((usize, u32), String)> = self
+                .database
+                .items
+                .iter()
+                .filter(|item| {
+                    item.category == category
+                        && self.section.map_or(true, |section| section == item.section)
+                        && self.major.map_or(true, |(section, id)| {
+                            item.section == section && item.major == Some(id)
+                        })
+                })
                 .filter_map(|item| {
                     item.subtype.map(|id| {
-                        let table = match item.section {
-                            3 => 2,
-                            6 => 5,
-                            9 => 8,
-                            12 => 11,
-                            15 => 14,
-                            22 => 21,
-                            32 => 31,
-                            36 => 35,
-                            84 => 83,
-                            123 => 122,
-                            _ => usize::MAX,
-                        };
-                        let name = self
-                            .database
-                            .category_names
-                            .get(&(table, id))
+                        let name = database::subtype_table(item.section)
+                            .and_then(|table| self.database.category_names.get(&(table, id)))
                             .filter(|name| !name.is_empty())
                             .cloned()
                             .unwrap_or_else(|| format!("Subtype {id}"));
-                        (id, name)
+                        ((item.section, id), name)
                     })
                 })
                 .collect();
@@ -242,9 +321,13 @@ impl State {
                 if self
                     .category
                     .is_some_and(|category| category != item.category)
-                    || self
-                        .subtype
-                        .is_some_and(|subtype| item.subtype != Some(subtype))
+                    || self.section.is_some_and(|section| item.section != section)
+                    || self.major.is_some_and(|(section, id)| {
+                        item.section != section || item.major != Some(id)
+                    })
+                    || self.subtype.is_some_and(|(section, id)| {
+                        item.section != section || item.subtype != Some(id)
+                    })
                     || (!query.is_empty()
                         && !item.name.to_lowercase().contains(&query)
                         && !item.id.to_string().contains(&query))
@@ -299,6 +382,9 @@ impl State {
                             if let Some(preview) = &mut self.preview {
                                 if let Some(error) = &preview.error {
                                     ui.colored_label(egui::Color32::LIGHT_RED, error);
+                                }
+                                for warning in &preview.warnings {
+                                    ui.colored_label(egui::Color32::YELLOW, warning);
                                 }
                                 let size = ui.available_width().min(300.);
                                 let response = ui.add(
@@ -375,56 +461,31 @@ impl State {
                         if !item.model.is_empty() {
                             ui.label(format!("Model: {}", item.model));
                         }
-                        let addon_ids = item.addon_ids();
-                        if !addon_ids.is_empty() {
+                        if let Some((name, kind, level, speed)) = self.database.pet_info(item) {
                             ui.separator();
-                            ui.strong("Possible add-on records");
-                            for addon_id in addon_ids {
-                                let kind = self
-                                    .database
-                                    .addon_types
-                                    .get(&addon_id)
-                                    .map(|value| format!(" · type {value}"))
-                                    .unwrap_or_default();
-                                if let Some(record) = self.database.addons.get(&addon_id) {
-                                    let count =
-                                        u32::from_le_bytes(record[68..72].try_into().unwrap())
-                                            .min(3);
-                                    let values: Vec<_> = (0..count as usize)
-                                        .map(|index| {
-                                            let offset = 72 + index * 4;
-                                            i32::from_le_bytes(
-                                                record[offset..offset + 4].try_into().unwrap(),
-                                            )
-                                            .to_string()
-                                        })
-                                        .collect();
-                                    if self.database.addon_types.get(&addon_id) == Some(&55)
-                                        && !values.is_empty()
-                                    {
-                                        if let Ok(skill) = values[0].parse::<u32>() {
-                                            if let Some(name) = self
-                                                .database
-                                                .skill_names
-                                                .get(&skill.saturating_mul(10))
-                                            {
-                                                ui.label(format!(
-                                                    "Skill: {}",
-                                                    descriptions::plain_text(name)
-                                                ));
-                                            }
-                                        }
-                                    }
-                                    ui.label(format!(
-                                        "Add-on {addon_id}{kind}: {} (raw)",
-                                        values.join(", ")
-                                    ));
-                                } else {
-                                    ui.label(format!("Add-on {addon_id}{kind}"));
-                                }
+                            ui.strong("Pet or mount");
+                            ui.label(format!("{name} · {kind}"));
+                            ui.label(format!("Required level: {level}"));
+                            if speed.is_finite() {
+                                ui.label(format!("Base speed: {speed:.2}"));
                             }
                         }
-                        for (_, name, members) in self.database.suites_for(item.id) {
+                        for (group, addons) in item.addon_groups() {
+                            ui.separator();
+                            ui.strong(format!("{group} add-on pool"));
+                            for (addon_id, weight) in addons {
+                                let weight = if weight.is_finite() {
+                                    format!(" (weight {weight:.3})")
+                                } else {
+                                    String::new()
+                                };
+                                ui.label(format!(
+                                    "{}{weight}",
+                                    self.database.addon_label(addon_id)
+                                ));
+                            }
+                        }
+                        for (suite_id, name, members) in self.database.suites_for(item.id) {
                             ui.separator();
                             ui.strong(format!("Set: {name}"));
                             for member in members {
@@ -434,6 +495,13 @@ impl State {
                                     }
                                 } else {
                                     ui.label(format!("Item {member}"));
+                                }
+                            }
+                            let bonuses = self.database.suite_addons(suite_id);
+                            if !bonuses.is_empty() {
+                                ui.label("Set add-ons:");
+                                for bonus in bonuses {
+                                    ui.label(bonus);
                                 }
                             }
                         }
@@ -489,32 +557,22 @@ impl State {
                         for (name, values) in compare::rows(&items) {
                             ui.label(name);
                             let baseline = values.first().copied().flatten();
-                            // Requirements, prices and cooldowns are costs, not bonuses.
-                            let lower_is_better = matches!(
-                                name,
-                                "Strength"
-                                    | "Dexterity"
-                                    | "Magic"
-                                    | "Vitality"
-                                    | "Required level"
-                                    | "Price"
-                                    | "Shop price"
-                                    | "Reputation"
-                                    | "Cooldown (ms)"
-                            );
-                            let best = if lower_is_better {
-                                values.iter().flatten().copied().reduce(f64::min)
-                            } else {
-                                values.iter().flatten().copied().reduce(f64::max)
-                            };
+                            let best = compare::best(name, &values);
                             for value in values {
                                 match value {
                                     Some(value) => {
                                         let delta = baseline.map(|base| value - base).unwrap_or(0.);
+                                        let format_number = |n: f64| {
+                                            if n.fract() == 0. {
+                                                format!("{n:.0}")
+                                            } else {
+                                                format!("{n:.2}")
+                                            }
+                                        };
                                         let text = if delta == 0. {
-                                            format!("{value}")
+                                            format_number(value)
                                         } else {
-                                            format!("{value} ({delta:+})")
+                                            format!("{} ({:+.2})", format_number(value), delta)
                                         };
                                         if best == Some(value) {
                                             ui.colored_label(egui::Color32::LIGHT_GREEN, text);
@@ -540,6 +598,8 @@ impl State {
         if let Some(index) = jump {
             self.selected = Some(index);
             self.category = None;
+            self.section = None;
+            self.major = None;
             self.subtype = None;
             self.compare_open = false;
         }

@@ -13,6 +13,29 @@ pub fn rows(items: &[&Item]) -> BTreeMap<&'static str, Vec<Option<f64>>> {
     rows
 }
 
+/// Some numeric fields are identifiers, not quantities with a better value.
+pub fn best(name: &str, values: &[Option<f64>]) -> Option<f64> {
+    if matches!(name, "Pet ID" | "Skill ID" | "Skill level" | "Dye count") {
+        return None;
+    }
+    let smaller = matches!(
+        name,
+        "Strength"
+            | "Dexterity"
+            | "Magic"
+            | "Vitality"
+            | "Required level"
+            | "Buy price"
+            | "Repair price"
+            | "Cooldown (ms)"
+    );
+    if smaller {
+        values.iter().flatten().copied().reduce(f64::min)
+    } else {
+        values.iter().flatten().copied().reduce(f64::max)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -40,5 +63,12 @@ mod tests {
         assert_eq!(rows["Grade"], vec![Some(0.), Some(0.)]);
         assert_eq!(rows["Physical attack min"], vec![Some(0.), None]);
         assert_eq!(rows["Physical defense min"], vec![None, Some(0.)]);
+    }
+    #[test]
+    fn best_direction_matches_the_attribute() {
+        let values = [Some(10.), Some(20.), None];
+        assert_eq!(best("Required level", &values), Some(10.));
+        assert_eq!(best("Sell price", &values), Some(20.));
+        assert_eq!(best("Pet ID", &values), None);
     }
 }

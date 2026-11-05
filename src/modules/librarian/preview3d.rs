@@ -16,6 +16,7 @@ pub struct Preview {
     draw: Option<Draw>,
     loaded_path: String,
     pub error: Option<String>,
+    pub warnings: Vec<String>,
     pub yaw: f32,
     pub pitch: f32,
     pub zoom: f32,
@@ -72,7 +73,8 @@ impl Preview {
             asset: None,
             draw: None,
             loaded_path: String::new(),
-            error: None,
+            error: Some("Select an item with a supported model.".into()),
+            warnings: Vec::new(),
             yaw: 0.6,
             pitch: 0.2,
             zoom: 1.,
@@ -99,17 +101,19 @@ impl Preview {
             self.asset = None;
             self.draw = None;
             self.error = None;
-            if !path.is_empty() {
+            self.warnings.clear();
+            if path.is_empty() || path == "0" {
+                self.error = Some("No model is referenced by this item.".into());
+            } else {
                 let path = if path.starts_with("worn:") || path.starts_with("models/") {
                     path.to_owned()
                 } else {
                     format!("models/{path}")
                 };
                 let result = if let Some(worn) = path.strip_prefix("worn:") {
-                    load_worn(assets, worn)
+                    load_worn(assets, worn).map(|asset| (asset, Vec::new()))
                 } else if path.ends_with(".ecm") {
                     ModelAsset::load_unique_with(&path, |p| assets.read_model_resource(p))
-                        .map(|(asset, _)| asset)
                 } else if path.ends_with(".smd") {
                     assets
                         .read_model_resource(&path)
@@ -128,11 +132,12 @@ impl Preview {
                             ModelAsset::load_static_skins_with(&skeleton, &skins, |p| {
                                 assets.read_model_resource(p)
                             })
+                            .map(|asset| (asset, Vec::new()))
                         })
                 } else {
                     Err("This item does not reference a supported ECM or SMD model.".into())
                 };
-                match result.and_then(|asset| {
+                match result.and_then(|(asset, warnings)| {
                     let poses = asset.pose_bind(Mat4::IDENTITY)?;
                     let mut min = Vec3::splat(f32::INFINITY);
                     let mut max = Vec3::splat(f32::NEG_INFINITY);
@@ -171,9 +176,10 @@ impl Preview {
                         self.frame(),
                         |p| assets.read_model_resource(p),
                     )?;
-                    Ok((asset, draw))
+                    Ok((asset, draw, warnings))
                 }) {
-                    Ok((asset, draw)) => {
+                    Ok((asset, draw, warnings)) => {
+                        self.warnings = warnings;
                         self.asset = Some(asset);
                         self.draw = Some(draw);
                         self.elapsed = 0.;

@@ -144,6 +144,10 @@ impl Database {
                     model: model.map(|offset| path(record, offset)).unwrap_or_default(),
                     record: record.to_vec(),
                 };
+                let mut item = item;
+                if section == 3 && (item.model.is_empty() || item.model == "0") {
+                    item.model = path(record, 208);
+                }
                 db.by_id.entry(id).or_insert(db.items.len());
                 db.items.push(item);
             }
@@ -158,6 +162,66 @@ impl Database {
             }
         }
         Ok(db)
+    }
+    pub fn pet_info(&self, item: &Item) -> Option<(String, String, u32, f32)> {
+        if item.section != 96 {
+            return None;
+        }
+        let pet = self.pets.get(&number(&item.record, 324))?;
+        let kind = number(pet, 4);
+        let label = self
+            .category_names
+            .get(&(94, kind))
+            .cloned()
+            .unwrap_or_else(|| format!("Type {kind}"));
+        Some((
+            wide(pet, 8),
+            label,
+            number(pet, 336),
+            f32::from_bits(number(pet, 384)),
+        ))
+    }
+    pub fn addon_label(&self, addon_id: u32) -> String {
+        let kind = self.addon_types.get(&addon_id).copied();
+        let Some(record) = self.addons.get(&addon_id) else {
+            return format!("Add-on {addon_id} (record missing)");
+        };
+        let count = number(record, 68).min(3) as usize;
+        let params: Vec<i32> = (0..count)
+            .map(|index| number(record, 72 + index * 4) as i32)
+            .collect();
+        if let Some(text) = kind.and_then(|kind| super::descriptions::describe_addon(kind, &params))
+        {
+            return format!("{text} (add-on {addon_id})");
+        }
+        if kind == Some(55) {
+            if let Some(name) = params
+                .first()
+                .and_then(|id| u32::try_from(*id).ok())
+                .and_then(|id| self.skill_names.get(&id.saturating_mul(10)))
+            {
+                return format!(
+                    "Skill: {} (add-on {addon_id})",
+                    super::descriptions::plain_text(name)
+                );
+            }
+        }
+        format!(
+            "Add-on {addon_id}{}: {:?} (raw)",
+            kind.map(|value| format!(" · type {value}"))
+                .unwrap_or_default(),
+            params
+        )
+    }
+    pub fn suite_addons(&self, suite_id: u32) -> Vec<String> {
+        let Some(record) = self.suites.get(&suite_id) else {
+            return Vec::new();
+        };
+        (0..11)
+            .map(|index| number(record, 120 + index * 4))
+            .filter(|id| *id != 0)
+            .map(|id| self.addon_label(id))
+            .collect()
     }
     pub fn suites_for(&self, id: u32) -> Vec<(u32, String, Vec<u32>)> {
         let mut result = Vec::new();
@@ -208,11 +272,100 @@ mod tests {
         assert_eq!(item.category, Category::Weapons);
     }
     #[test]
+    fn weapon_addon_groups_keep_independent_weights() {
+        let mut record = vec![0; 1412];
+        record[728..732].copy_from_slice(&7u32.to_le_bytes());
+        record[732..736].copy_from_slice(&0.25f32.to_le_bytes());
+        record[984..988].copy_from_slice(&8u32.to_le_bytes());
+        record[988..992].copy_from_slice(&0.5f32.to_le_bytes());
+        let db = Database::parse_v27(&super::super::elements::synthetic_file(3, &record)).unwrap();
+        let groups = db.items[0].addon_groups();
+        assert_eq!(
+            groups,
+            vec![("Drop", vec![(7, 0.25)]), ("Craft", vec![(8, 0.5)])]
+        );
+    }
+    #[test]
     fn known_layouts_use_correct_name_and_icon_offsets() {
         let (category, _, _, name, icon, _) = layout(3).unwrap();
         assert_eq!(category, Category::Weapons);
         assert_eq!((name, icon), (12, 464));
         assert!(layout(1).is_none());
+    }
+}
+
+pub fn section_name(section: usize) -> &'static str {
+    match section {
+        3 => "Weapons",
+        6 => "Armor",
+        9 => "Ornaments",
+        12 => "Medicine",
+        15 => "Materials",
+        17 => "Weapon runes",
+        19 => "Armor runes",
+        22 => "Skill books",
+        23 => "Fly swords",
+        24 => "Wings",
+        25 => "Town scrolls",
+        27 => "Revival scrolls",
+        28 => "Elements",
+        29 => "Quest items",
+        30 => "Thrown items",
+        32 => "Ammunition",
+        34 => "Quivers",
+        36 => "Gems",
+        75 => "Task dice",
+        76 => "Task items",
+        84 => "Fashion",
+        87 => "Appearance tickets",
+        90 => "Appearance pills",
+        96 => "Pet eggs",
+        97 => "Pet food",
+        98 => "Pet tickets",
+        99 => "Fireworks",
+        100 => "War machines",
+        108 => "Skill items",
+        109 => "Refine tickets",
+        110 => "Destroy items",
+        114 => "Tomes",
+        115 => "Speakers",
+        116 => "Auto HP",
+        117 => "Auto MP",
+        118 => "Double experience",
+        119 => "Teleport scrolls",
+        120 => "Dye",
+        121 => "Genies",
+        123 => "Genie equipment",
+        124 => "Genie experience",
+        125 => "Certificates",
+        126 => "Target items",
+        127 => "Information items",
+        _ => "Other items",
+    }
+}
+pub fn subtype_table(section: usize) -> Option<usize> {
+    match section {
+        3 => Some(2),
+        6 => Some(5),
+        9 => Some(8),
+        12 => Some(11),
+        15 => Some(14),
+        22 => Some(21),
+        32 => Some(31),
+        36 => Some(35),
+        84 => Some(83),
+        123 => Some(122),
+        _ => None,
+    }
+}
+pub fn major_table(section: usize) -> Option<usize> {
+    match section {
+        3 => Some(1),
+        6 => Some(4),
+        9 => Some(7),
+        12 => Some(10),
+        15 => Some(13),
+        _ => None,
     }
 }
 
@@ -250,22 +403,36 @@ impl Category {
 impl Item {
     /// Only fields whose interpretation is known are exposed. Unknown fields
     /// are deliberately not guessed from their raw binary representation.
-    pub fn addon_ids(&self) -> Vec<u32> {
-        let range = match self.section {
-            3 => Some((728, 984)),
-            6 => Some((556, 812)),
-            9 => Some((608, 864)),
-            _ => None,
+    /// Each entry is an ID and the client's authored selection weight.
+    pub fn addon_groups(&self) -> Vec<(&'static str, Vec<(u32, f32)>)> {
+        let groups: &[(&str, usize, usize)] = match self.section {
+            3 => &[("Drop", 728, 32), ("Craft", 984, 32), ("Unique", 1240, 16)],
+            6 => &[("Drop", 556, 32), ("Craft", 812, 32)],
+            9 => &[("Drop", 608, 32), ("Craft", 864, 32)],
+            _ => &[],
         };
-        range
-            .map(|(start, end)| {
-                (start..end)
-                    .step_by(8)
-                    .map(|offset| number(&self.record, offset))
-                    .filter(|id| *id != 0)
-                    .collect()
+        groups
+            .iter()
+            .filter_map(|&(name, start, count)| {
+                let entries: Vec<_> = (0..count)
+                    .filter_map(|index| {
+                        let offset = start + index * 8;
+                        let id = number(&self.record, offset);
+                        let weight = f32::from_bits(number(&self.record, offset + 4));
+                        if id == 0 {
+                            None
+                        } else {
+                            Some((id, weight))
+                        }
+                    })
+                    .collect();
+                if entries.is_empty() {
+                    None
+                } else {
+                    Some((name, entries))
+                }
             })
-            .unwrap_or_default()
+            .collect()
     }
 
     pub fn equipment_name(&self) -> Option<String> {
@@ -295,14 +462,16 @@ impl Item {
                 ("Required level", 612),
                 ("Grade", 616),
                 ("Physical attack min", 624),
-                ("Physical attack max", 628),
+                ("Physical attack max (min)", 628),
+                ("Physical attack max (max)", 632),
                 ("Magic attack min", 636),
-                ("Magic attack max", 640),
+                ("Magic attack max (min)", 640),
+                ("Magic attack max (max)", 644),
                 ("Durability min", 656),
                 ("Durability max", 660),
-                ("Price", 672),
-                ("Shop price", 676),
-                ("Reputation", 680),
+                ("Sell price", 672),
+                ("Buy price", 676),
+                ("Repair price", 680),
             ],
             6 => &[
                 ("Grade", 368),
@@ -313,11 +482,27 @@ impl Item {
                 ("Required level", 392),
                 ("Physical defense min", 400),
                 ("Physical defense max", 404),
+                ("Metal defense min", 408),
+                ("Metal defense max", 412),
+                ("Wood defense min", 416),
+                ("Wood defense max", 420),
+                ("Water defense min", 424),
+                ("Water defense max", 428),
+                ("Fire defense min", 432),
+                ("Fire defense max", 436),
+                ("Earth defense min", 440),
+                ("Earth defense max", 444),
+                ("MP min", 448),
+                ("MP max", 452),
+                ("HP min", 456),
+                ("HP max", 460),
+                ("Evasion min", 464),
+                ("Evasion max", 468),
                 ("Durability min", 472),
                 ("Durability max", 476),
-                ("Price", 488),
-                ("Shop price", 492),
-                ("Reputation", 496),
+                ("Sell price", 488),
+                ("Buy price", 492),
+                ("Repair price", 496),
             ],
             9 => &[
                 ("Grade", 460),
@@ -332,14 +517,30 @@ impl Item {
                 ("Magic attack max", 504),
                 ("Physical defense min", 508),
                 ("Physical defense max", 512),
-                ("Price", 580),
-                ("Shop price", 584),
-                ("Reputation", 588),
+                ("Metal defense min", 516),
+                ("Metal defense max", 520),
+                ("Wood defense min", 524),
+                ("Wood defense max", 528),
+                ("Water defense min", 532),
+                ("Water defense max", 536),
+                ("Fire defense min", 540),
+                ("Fire defense max", 544),
+                ("Earth defense min", 548),
+                ("Earth defense max", 552),
+                ("Evasion min", 556),
+                ("Evasion max", 560),
+                ("Durability min", 564),
+                ("Durability max", 568),
+                ("Sell price", 580),
+                ("Buy price", 584),
+                ("Repair price", 588),
             ],
             84 => &[
-                ("Grade", 368),
-                ("Price", 380),
-                ("Shop price", 384),
+                ("Item level", 368),
+                ("Required level", 372),
+                ("Dye count", 376),
+                ("Sell price", 380),
+                ("Buy price", 384),
                 ("Stack limit", 388),
             ],
             12 => &[
@@ -347,35 +548,83 @@ impl Item {
                 ("Cooldown (ms)", 336),
                 ("HP recovery", 340),
                 ("MP recovery", 348),
-                ("Price", 356),
-                ("Shop price", 360),
+                ("Sell price", 356),
+                ("Buy price", 360),
                 ("Stack limit", 364),
             ],
-            15 => &[("Price", 332), ("Shop price", 336), ("Stack limit", 356)],
+            15 => &[
+                ("Sell price", 332),
+                ("Buy price", 336),
+                ("Stack limit", 356),
+            ],
             23 => &[
-                ("Price", 452),
-                ("Shop price", 456),
+                ("Sell price", 452),
+                ("Buy price", 456),
                 ("Grade", 460),
                 ("Required level", 464),
             ],
-            24 => &[("Price", 452), ("Shop price", 456), ("Required level", 460)],
+            24 => &[
+                ("Sell price", 452),
+                ("Buy price", 456),
+                ("Required level", 460),
+            ],
+            17 => &[
+                ("Weapon level min", 332),
+                ("Weapon level max", 336),
+                ("Bonus", 340),
+                ("Sell price", 344),
+                ("Buy price", 348),
+                ("Stack limit", 352),
+            ],
+            19 => &[("Required level", 588), ("Stack limit", 612)],
+            22 => &[
+                ("Sell price", 328),
+                ("Buy price", 332),
+                ("Stack limit", 336),
+            ],
+            96 => &[("Pet ID", 324), ("Loyalty", 328), ("Required level", 340)],
+            108 => &[
+                ("Required level", 324),
+                ("Skill ID", 328),
+                ("Skill level", 332),
+            ],
+            116 => &[("HP recovery", 324), ("Cooldown (ms)", 332)],
+            118 => &[("Duration", 324)],
+            124 => &[("Experience", 324), ("Required level", 328)],
             36 => &[
                 ("Required level", 328),
-                ("Price", 336),
-                ("Shop price", 340),
+                ("Sell price", 336),
+                ("Buy price", 340),
                 ("Stack limit", 424),
             ],
             123 => &[
                 ("Required level", 332),
-                ("Price", 372),
-                ("Shop price", 376),
+                ("Sell price", 372),
+                ("Buy price", 376),
                 ("Stack limit", 380),
             ],
             _ => &[],
         };
-        fields
+        let mut result: Vec<_> = fields
             .iter()
             .map(|(name, offset)| (*name, number(&self.record, *offset) as i32 as f64))
-            .collect()
+            .collect();
+        let float_fields: &[(&str, usize)] = match self.section {
+            3 => &[("Attack range", 648)],
+            23 => &[
+                ("Flight speed min", 468),
+                ("Flight speed max", 472),
+                ("Rush speed min", 476),
+                ("Rush speed max", 480),
+            ],
+            _ => &[],
+        };
+        for (name, offset) in float_fields {
+            let value = f32::from_bits(number(&self.record, *offset));
+            if value.is_finite() {
+                result.push((*name, value as f64));
+            }
+        }
+        result
     }
 }

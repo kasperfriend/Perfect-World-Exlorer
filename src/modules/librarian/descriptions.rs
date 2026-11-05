@@ -154,3 +154,66 @@ pub fn addon_types(bytes: &[u8]) -> HashMap<u32, u32> {
     }
     types
 }
+
+/// Interpret a conservative subset of v27 property types. Unknown types retain
+/// their raw parameters in the UI rather than being assigned a guessed meaning.
+pub fn describe_addon(kind: u32, params: &[i32]) -> Option<String> {
+    let (label, percent, floating) = match kind {
+        0 => ("Physical attack", false, false),
+        1 => ("Maximum physical attack", false, false),
+        2 => ("Physical attack", true, true),
+        3 => ("Magic attack", false, false),
+        4 => ("Maximum magic attack", false, false),
+        5 => ("Magic attack", true, true),
+        10 => ("Attack range", false, true),
+        11 => ("Channeling time", true, true),
+        12 => ("Physical defense", false, false),
+        13 => ("Physical defense", true, true),
+        14 => ("Elemental defense", false, false),
+        35 => ("HP", false, false),
+        36 => ("MP", false, false),
+        37 => ("HP", true, true),
+        38 => ("MP", true, true),
+        39 => ("HP recovery", false, false),
+        40 => ("MP recovery", false, false),
+        41 => ("Strength", false, false),
+        42 => ("Dexterity", false, false),
+        43 => ("Magic", false, false),
+        44 => ("Vitality", false, false),
+        45 => ("Critical rate", true, true),
+        46 => ("Accuracy", false, false),
+        47 => ("Accuracy", true, true),
+        48 => ("Movement speed", false, true),
+        49 => ("Movement speed", true, true),
+        50 => ("Evasion", false, false),
+        51 => ("Evasion", true, true),
+        52 => ("Durability", false, false),
+        53 => ("Durability", true, true),
+        59 => ("Attack level", false, false),
+        60 => ("Defense level", false, false),
+        61 => ("Elemental defense", true, true),
+        _ => return None,
+    };
+    let raw = *params.first()?;
+    if floating {
+        let number = f32::from_bits(raw as u32);
+        if !number.is_finite() {
+            return None;
+        }
+        Some(if percent {
+            format!(
+                "{label}: {:+.2}%",
+                number * if kind == 11 { -100. } else { 100. }
+            )
+        } else {
+            format!("{label}: {number:+.2}")
+        })
+    } else if let Some(&high) = params
+        .get(1)
+        .filter(|&&high| matches!(kind, 1 | 4 | 41 | 42 | 43 | 44 | 46) && high != raw && high != 0)
+    {
+        Some(format!("{label}: {raw:+} to {high:+}"))
+    } else {
+        Some(format!("{label}: {raw:+}"))
+    }
+}
