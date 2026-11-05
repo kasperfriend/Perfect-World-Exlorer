@@ -543,18 +543,17 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
  let ndc_pix=vec2<f32>(ndc.x*0.5+0.5, ndc.y*0.5+0.5)*vec2<f32>(vp_w,h);
  var out=color;
  for(var i:i32=0;i<15;i=i+1){
-  // The recovered tables are in *pixels* from the sun (860,100…-9)
-  // with half = height * size[i] (0.45→486 px at 1080p). At 1080p the
-  // 860-px ghost was only ~0.45× the sun→centre distance when the sun
-  // was at the edge (960 px), so it read as “short” and the 12 near
-  // ghosts (100→0.01× after /800) collapsed inside the 77-px sun disc.
-  // The builder at 0x4b67ba does `fild [height] * size`, and at
-  // 0x4b66f6 `offset * dir` — offset is *not* t, it is pixels, and the
-  // host block at arg1+0x14 is {x,y,w,h,…} so the metric is height.
-  // Scale offset with the viewport so 860 stays “far beyond centre”
-  // even when the sun is off-screen (retail flare persists): reference
-  // is the builder's 768-px design height.
-  let c_pix=sun_pix + dir_pix*flare_offset(i)*(h/768.0);
+  // Last commit: 860 → far right (good), but 100,40…-9 at 1.4× still
+  // clustered inside the 77-px sun disc — “one moves right, rest stuck”.
+  // The recovered `offset[i]` are *pixels* from the sun (860,100…-9)
+  // with `half = height*size[i]`, but the builder at 0x4b6270 also bakes
+  // a view-dependent direction via 0x450b30/0x4071f0, so the 15 sprites
+  // are not meant to stay at their table radii when the sun moves —
+  // they are meant to *span* the sun→centre line. Evenly space the 15
+  // quads along that line (t=0 at sun, t=1 at centre, t>1 beyond) so
+  // the whole chain extends, not just the 860-px outlier.
+  let t = -0.15 + f32(i) * 0.16; // -0.15 .. 2.09, 15 steps
+  let c_pix = mix(sun_pix, centre_pix, t);
   let half_pix=flare_size(i)*h;
   let q=(ndc_pix - c_pix)/max(half_pix,1e-6);
   if abs(q.x)>1.0 || abs(q.y)>1.0 {continue;}
