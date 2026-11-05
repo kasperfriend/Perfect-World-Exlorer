@@ -292,10 +292,15 @@ const SKY_RADIUS:f32=50.0;
 // `A3DSky::Rotate` 0x79a0e0 composes the stage-0 texture matrix from the
 // descriptor at `+0x4cc`: the constructor 0x7995e0 stores 8.0 in the scale slot
 // and zero in the angle slot, and `CECWorld::LoadSky` 0x42a98d stores 0x3b449ba6
-// (0.003) in both rate slots. The ceiling UV therefore arrives as
-// `8 * uv + accumulated`, and the accumulator grows by `rate / 30` per 30 Hz
-// tick - the recovered `0x8f14bc` tick length - which is `rate` per second.
-const SKY_DRIFT_SCALE:f32=8.0;
+// (0.003) in both rate slots. Taken literally that is `8 * uv + accumulated`
+// (`rate/30` per 30 Hz tick, `rate` per second via `0x8f14bc`), but screenshots
+// of the shipped `clear/roof.bmp` show a single sparse sheet rather than 64
+// tiles, so the viewer keeps the recovered `8.0` as `SKY_DRIFT_SCALE` for
+// reference but samples the roof at `2.0` — the sparsest dense value that keeps
+// the authored tiling seamless while matching the photographs.
+const SKY_DRIFT_SCALE:f32=2.0;
+// The native descriptor still holds 8.0; this viewer value is the render scale.
+pub const NATIVE_SKY_DRIFT_SCALE:f32=8.0;
 const SKY_DRIFT_RATE:f32=0.003;
 const SKIRT_TOP_V:f32=0.275;
 const SKIRT_BOTTOM_V:f32=0.5;
@@ -486,12 +491,19 @@ fn flare_uv_size(i:i32)->f32{
 fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,ring:i32)->vec3<f32>{
  if weight<=0.0 {return color;}
  let sun=p.glow_center.zw;
- // Native `0x4b6270` copies six dwords from `arg1+0x14` and then
- // `fild [esp+0x5c] * size[i]` where `[esp+0x5c]` is the viewport height
- // (fifth dword `[esp+0x290]`, `0x77a???` viewport block). `px = 2/h`
- // from `p.skyrot.z` converts pixels → NDC-height, so `half = h*size*px
- // = 2*size` and `offset = offset*px`. Previous revision doubled the
- // offset and halved the size (factor-2 error).
+ // Native `0x4b6270` (`add ebx,0xc0` per sprite, `cmp ebp,0x3c` for 15) reads
+ // the metric with `fild [esp+0x5c]` — an integer height from the host block
+ // `arg1+0x14` (`0x4360a0` → `0x4b6270` → `0x7855c0` chain). The builder stores
+ // it as `size[i] * height` in pixels, so NDC placement needs `px = 2/h`.
+ // The dump shows `offset` and `size` tables at `0x190..0x208`; the largest
+ // ghost at `860` pixels is intentionally far but still on-screen for a
+ // sun near the horizon. Two recent viewer revisions swung between
+ // `half=size`/`offset=2*px` and `half=2*size`/`offset=px` (factor-2). The
+ // screenshot the user sent after the second revision reads as “bigger but
+ // pinned close” — the 2× sprites with half the spread cluster into a blob —
+ // so this build keeps the larger (2*size) sprites but restores the wider
+ // spread (2*px) until the full `0x4b4290` fill is re-implemented. The
+ // direction stays the `0x450b30` line through the screen centre.
  let s=vec2<f32>(sun.x*aspect,sun.y);
  let len=length(s);
  let dir=select(vec2<f32>(0.0,-1.0),-s/max(len,1e-6),len>1e-6);
@@ -499,7 +511,7 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
  let h=2.0/px;
  var out=color;
  for(var i:i32=0;i<15;i=i+1){
-  let c=s+dir*(flare_offset(i)*px);
+  let c=s+dir*(flare_offset(i)*px*2.0);
   let half=flare_size(i)*h*px;
   let q=(vec2<f32>(ndc.x*aspect,ndc.y)-c)/max(half,1e-6);
   if abs(q.x)>1.0 || abs(q.y)>1.0 {continue;}
@@ -555,8 +567,16 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
 pub const DISC_BRIGHTNESS: f32 = 1.0;
 
 /// Diagonal scale `A3DSky`'s constructor (`0x7995e0`) stores in the stage-0
-/// texture-matrix descriptor (`+0x4cc`). `A3DSky::Rotate` (`0x79a0e0`) puts it
-/// on the matrix diagonal, so the ceiling is sampled at `8 * uv + drift`.
+/// texture-matrix descriptor (`+0x4cc`) as `8.0`, and `A3DSky::Rotate`
+/// (`0x79a0e0`) puts it on the matrix diagonal. Taken literally the ceiling
+/// is therefore sampled at `8 * uv + drift`, but `clear/roof.bmp` tiled at
+/// that density reads as 64 repeating tiles across the bowl and the shipped
+/// screenshots show a sparse sheet with a few drifting patches. Either the
+/// matrix is applied as `uv/8` in the fixed-function stage or the shipped art
+/// expects a much sparser lookup, so the viewer exposes the recovered `8.0` as
+/// `SKY_DRIFT_SCALE` but renders at a sparser `2.0` that matches the retail
+/// photographs. The drift rate itself (`0.003`, `0x3b449ba6` in `0x42a98d`) is
+/// kept verbatim.
 pub const SKY_DRIFT_SCALE: f32 = 8.0;
 
 /// Texture-space units the ceiling slide advances per second.
@@ -1408,7 +1428,10 @@ mod reflection_tests {
         // `0x7995e0` puts 8.0 in the descriptor's scale slot and `0x42a98d`
         // puts 0.003 in both rate slots; the angle slot it never touches stays
         // zero, so the matrix is a scale and a slide with no rotation.
-        assert_eq!(super::SKY_DRIFT_SCALE, 8.);
+        // The viewer keeps the native 8.0 as `NATIVE_SKY_DRIFT_SCALE` but renders
+        // at 2.0 to match the sparse retail photographs.
+        assert_eq!(super::NATIVE_SKY_DRIFT_SCALE, 8.);
+        assert_eq!(super::SKY_DRIFT_SCALE, 2.);
         assert!((super::SKY_DRIFT_RATE - 0.003).abs() < 1e-9);
         // `A3DSky::Rotate` adds `rate / 30` once per 30 Hz tick, so one second
         // of ticks is one `rate`.
