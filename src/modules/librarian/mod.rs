@@ -18,7 +18,7 @@ pub struct Librarian {
     root: PathBuf,
     state: Option<State>,
     error: Option<String>,
-    pending_free: Option<egui::TextureId>,
+    pending_free: Vec<egui::TextureId>,
 }
 struct State {
     assets: LibrarianAssets,
@@ -43,7 +43,7 @@ impl Librarian {
             root,
             state: None,
             error: None,
-            pending_free: None,
+            pending_free: Vec::new(),
         }
     }
     pub fn active(&self) -> bool {
@@ -59,9 +59,14 @@ impl Librarian {
     pub fn set_active(&mut self, active: bool) {
         if !active {
             if let Some(state) = self.state.take() {
-                self.pending_free = state.preview.map(|preview| preview.texture_id);
+                if let Some(preview) = state.preview {
+                    self.pending_free.push(preview.texture_id);
+                }
             }
             self.error = None;
+            return;
+        }
+        if self.active() {
             return;
         }
         let mut assets = LibrarianAssets::open(&self.root);
@@ -117,7 +122,7 @@ impl Librarian {
         format: wgpu::TextureFormat,
         visible: bool,
     ) {
-        if let Some(id) = self.pending_free.take() {
+        for id in self.pending_free.drain(..) {
             renderer.free_texture(&id);
         }
         if !visible {
@@ -366,6 +371,9 @@ impl State {
                             .clicked()
                         {
                             self.selected = Some(index);
+                            if let Some(gender) = item.fashion_gender() {
+                                self.preview_female = gender == 1;
+                            }
                         }
                     }
                 });
@@ -376,6 +384,29 @@ impl State {
                         let item = &self.database.items[index];
                         ui.heading(&item.name);
                         ui.label(format!("ID {} · {}", item.id, item.category.name()));
+                        if let Some(mask) = item.class_mask() {
+                            let classes = Class::ALL
+                                .iter()
+                                .filter(|class| mask & class.bit() != 0)
+                                .map(|class| class.name())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            ui.label(if classes.is_empty() {
+                                format!("Class mask: {mask:#x}")
+                            } else {
+                                format!("Classes: {classes}")
+                            });
+                        }
+                        if let Some(gender) = item.fashion_gender() {
+                            ui.label(format!(
+                                "Fashion gender: {}",
+                                match gender {
+                                    0 => "Male",
+                                    1 => "Female",
+                                    _ => "Unknown",
+                                }
+                            ));
+                        }
                         if let Some(color) = self.database.colors.get(&item.id) {
                             ui.label(format!("Client color category: {color}"));
                         }
@@ -499,8 +530,21 @@ impl State {
                         for (name, value) in item.attributes() {
                             ui.label(format!("{name}: {value}"));
                         }
+                        if let Some(major) = item.major {
+                            let name = database::major_table(item.section)
+                                .and_then(|table| self.database.category_names.get(&(table, major)))
+                                .map(String::as_str)
+                                .unwrap_or("Unknown");
+                            ui.label(format!("Type: {name} ({major})"));
+                        }
                         if let Some(subtype) = item.subtype {
-                            ui.label(format!("Subtype ID: {subtype}"));
+                            let name = database::subtype_table(item.section)
+                                .and_then(|table| {
+                                    self.database.category_names.get(&(table, subtype))
+                                })
+                                .map(String::as_str)
+                                .unwrap_or("Unknown");
+                            ui.label(format!("Subtype: {name} ({subtype})"));
                         }
                         if !item.model.is_empty() {
                             ui.label(format!("Model: {}", item.model));

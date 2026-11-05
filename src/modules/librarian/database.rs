@@ -104,7 +104,7 @@ fn layout(
         121 => (Genies, None, None, 4, 708, Some(68)),
         124 => (Genies, None, None, 4, 196, None),
         125 => (QuestAndPacks, None, None, 4, 200, None),
-        25 | 27 | 28 | 99 | 100 | 108 | 109 | 114 | 115 | 116 | 117 | 118 | 119 | 120 => {
+        25 | 26 | 27 | 28 | 99 | 100 | 108 | 109 | 114 | 115 | 116 | 117 | 118 | 119 | 120 => {
             (Consumables, None, None, 4, 196, None)
         }
         _ => return None,
@@ -320,6 +320,7 @@ pub fn section_name(section: usize) -> &'static str {
         23 => "Fly swords",
         24 => "Wings",
         25 => "Town scrolls",
+        26 => "Union scrolls",
         27 => "Revival scrolls",
         28 => "Elements",
         29 => "Quest items",
@@ -447,6 +448,23 @@ impl Item {
                 }
             })
             .collect()
+    }
+
+    pub fn class_mask(&self) -> Option<u32> {
+        match self.section {
+            3 => Some(number(&self.record, 608)),
+            6 => Some(number(&self.record, 388)),
+            9 => Some(number(&self.record, 480)),
+            23 => Some(number(&self.record, 500)),
+            _ => None,
+        }
+    }
+    pub fn fashion_gender(&self) -> Option<u32> {
+        if self.section == 84 {
+            Some(number(&self.record, 388))
+        } else {
+            None
+        }
     }
 
     pub fn equipment_name(&self) -> Option<String> {
@@ -583,19 +601,44 @@ impl Item {
                 ("Required level", 460),
             ],
             17 => &[
-                ("Weapon level min", 332),
-                ("Weapon level max", 336),
-                ("Bonus", 340),
-                ("Sell price", 344),
-                ("Buy price", 348),
+                ("Sell price", 332),
+                ("Buy price", 336),
+                ("Weapon level min", 340),
+                ("Weapon level max", 344),
+                ("Bonus", 348),
                 ("Stack limit", 352),
             ],
-            19 => &[("Required level", 588), ("Stack limit", 612)],
+            19 => &[
+                ("Sell price", 588),
+                ("Buy price", 592),
+                ("Required level min", 596),
+                ("Required level max", 600),
+                ("Uses", 608),
+                ("Stack limit", 612),
+            ],
             22 => &[
                 ("Sell price", 328),
                 ("Buy price", 332),
                 ("Stack limit", 336),
             ],
+            25 | 26 => &[
+                ("Sell price", 328),
+                ("Buy price", 332),
+                ("Stack limit", 336),
+            ],
+            27 => &[
+                ("Cooldown (ms)", 328),
+                ("Sell price", 332),
+                ("Buy price", 336),
+                ("Stack limit", 340),
+            ],
+            28 => &[
+                ("Grade", 324),
+                ("Sell price", 328),
+                ("Buy price", 332),
+                ("Stack limit", 336),
+            ],
+            29 => &[("Stack limit", 196)],
             96 => &[("Pet ID", 324), ("Loyalty", 328), ("Required level", 340)],
             108 => &[
                 ("Required level", 324),
@@ -625,6 +668,9 @@ impl Item {
             .collect();
         let float_fields: &[(&str, usize)] = match self.section {
             3 => &[("Attack range", 648)],
+            19 => &[("Damage reduction", 604)],
+            24 => &[("Flight speed", 464)],
+            25 | 26 | 27 => &[("Cast time", 324)],
             23 => &[
                 ("Flight speed min", 468),
                 ("Flight speed max", 472),
