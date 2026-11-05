@@ -54,9 +54,10 @@ impl Modules {
         queue: &wgpu::Queue,
         renderer: &mut egui_wgpu::Renderer,
         format: wgpu::TextureFormat,
+        visible: bool,
     ) {
         self.librarian
-            .prepare_preview(device, queue, renderer, format);
+            .prepare_preview(device, queue, renderer, format, visible);
     }
 
     pub fn walker_active(&self) -> bool {

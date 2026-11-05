@@ -3993,8 +3993,8 @@ pub fn run(
                                 renderer.render_minimap(&full_map_view,&full_map_depth,&camera,0.,true);
                                 map_refresh=Instant::now();
                             }
+                            renderer.modules.prepare_librarian_preview(&renderer.device, &renderer.queue, &mut egui_renderer, format, menu_page==MenuPage::Modules);
                             if menu_page.is_open() || settings.show_minimap || zone_banner.as_ref().is_some_and(|(_,t)|t.elapsed().as_secs_f32()<4.) {
-                                renderer.modules.prepare_librarian_preview(&renderer.device, &renderer.queue, &mut egui_renderer, format);
                                 let input=egui_state.take_egui_input(&window);
                                 let output=egui_ctx.run(input,|ctx| {
                                     if menu_page==MenuPage::Main {

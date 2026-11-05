@@ -112,9 +112,13 @@ impl Librarian {
         queue: &wgpu::Queue,
         renderer: &mut egui_wgpu::Renderer,
         format: wgpu::TextureFormat,
+        visible: bool,
     ) {
         if let Some(id) = self.pending_free.take() {
             renderer.free_texture(&id);
+        }
+        if !visible {
+            return;
         }
         let Some(state) = &mut self.state else { return };
         if !state.show_3d {
@@ -603,5 +607,57 @@ impl State {
             self.subtype = None;
             self.compare_open = false;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browsing_and_comparison_render_without_optional_archives() {
+        let mut record = vec![0; 1412];
+        record[..4].copy_from_slice(&42u32.to_le_bytes());
+        for (index, unit) in "Test weapon".encode_utf16().enumerate() {
+            record[12 + 2 * index..14 + 2 * index].copy_from_slice(&unit.to_le_bytes());
+        }
+        let database = Database::parse_v27(&elements::synthetic_file(3, &record)).unwrap();
+        let mut assets = LibrarianAssets::open(std::path::Path::new("/nonexistent-librarian-test"));
+        let icons = IconCache::load(&mut assets);
+        let mut state = State {
+            assets,
+            icons,
+            database,
+            category: Some(Category::Weapons),
+            section: None,
+            major: None,
+            subtype: None,
+            search: String::new(),
+            selected: Some(0),
+            comparison: vec![0],
+            compare_open: false,
+            preview: None,
+            show_3d: false,
+            preview_female: false,
+        };
+        let ctx = egui::Context::default();
+        let run = |state: &mut State| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1200., 800.),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| state.ui(ui));
+                },
+            );
+        };
+        run(&mut state);
+        state.compare_open = true;
+        run(&mut state);
+        assert_eq!(state.database.items[state.comparison[0]].id, 42);
     }
 }
