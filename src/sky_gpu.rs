@@ -183,6 +183,11 @@ pub struct SkyGpu {
     reflected: wgpu::BindGroup,
     normal_buf: wgpu::Buffer,
     reflected_buf: wgpu::Buffer,
+    layout: wgpu::BindGroupLayout,
+    skies_view: wgpu::TextureView,
+    sampler: wgpu::Sampler,
+    roof_sampler: wgpu::Sampler,
+    depth_sampler: wgpu::Sampler,
     /// Whether `sun.bmp` and `moon.tga` decoded out of the package. A missing
     /// disc texture leaves the layer transparent, so the billboard is submitted
     /// and still invisible; the settings tab reports that instead of the disc
@@ -273,6 +278,8 @@ fn shine_ramp(n:f32)->f32{
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var skies:texture_2d_array<f32>;
 @group(0) @binding(2) var smp:sampler;
+@group(0) @binding(4) var depth_tex:texture_depth_2d;
+@group(0) @binding(5) var depth_smp:sampler;
 // The ceiling's lookup runs `0.5 + t * d.xz / 30.070580`, so it reaches the
 // sheet's rim (0 and 1) on the horizon; with the stage-0 matrix's 8x scale that
 // is `2.8 .. 5.2`, i.e. the repeat addressing the client enables with
@@ -485,8 +492,23 @@ fn flare_uv_origin(i:i32)->vec2<f32>{
 fn flare_uv_size(i:i32)->f32{
  if i==2 {return 0.5;} return 0.25;
 }
+fn depth_occlusion(sun_ndc:vec2<f32>)->f32{
+ // 6-tap reduction of 54-pt 0x7855c0 mask sampling 0x786840 at 0.4 — native ps/solarflare_14
+ let taps=array<vec2<f32>,6>(vec2<f32>(0.0,0.0),vec2<f32>(0.015,0.0),vec2<f32>(-0.015,0.0),vec2<f32>(0.0,0.015),vec2<f32>(0.0,-0.015),vec2<f32>(0.022,0.022));
+ var sum:f32=0.0;
+ for(var i:i32=0;i<6;i=i+1){
+  let p=sun_ndc+taps[i];
+  let uv=p*0.5+vec2<f32>(0.5,0.5);
+  // reversed-Z depth: 0 far sky, 1 near — far means unoccluded
+  let d=textureSample(depth_tex,depth_smp,uv);
+  if (d>0.999 || d<0.0001) { sum+=0.4; }
+ }
+ return clamp(sum,0.0,1.0);
+}
 fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,ring:i32)->vec3<f32>{
  if weight<=0.0 {return color;}
+ let occ=depth_occlusion(p.glow_center.zw);
+ let w=weight*occ;
  let sun=p.glow_center.zw;
  // Native `0x4b6270` (`add ebx,0xc0` per sprite, `cmp ebp,0x3c` for 15) reads
  // the metric with `fild [esp+0x5c]` — an integer height from the host block
@@ -514,7 +536,7 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
   if abs(q.x)>1.0 || abs(q.y)>1.0 {continue;}
   let uv=flare_uv_origin(i)+vec2<f32>(q.x*0.5+0.5,q.y*0.5+0.5)*flare_uv_size(i);
   let tex=textureSampleLevel(skies,smp,uv,flare,0.);
-  out=clamp(out+tex.rgb*tex.a*(weight*disc_brightness())*p.tint.rgb,vec3<f32>(0.0),vec3<f32>(1.0));
+  out=clamp(out+tex.rgb*tex.a*(w*disc_brightness())*p.tint.rgb,vec3<f32>(0.0),vec3<f32>(1.0));
  }
  return out;
 }
@@ -921,6 +943,23 @@ impl SkyGpu {
         };
         let normal_buf = make_buf();
         let reflected_buf = make_buf();
+        // Dummy 1×1 depth for init — no terrain depth yet. Real depth view is
+        // rebound each frame via set_depth(); the shader samples it at 6 taps
+        // around glow_center.zw (0x7855c0 54-pt mask → 0x786840 → ps/solarflare_14 6×0.4).
+        let depth_dummy = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("sky depth dummy"),
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST, view_formats: &[],
+        });
+        let depth_dummy_view = depth_dummy.create_view(&Default::default());
+        let depth_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("sky depth sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge, address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest, min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("sky bindings"),
             entries: &[
@@ -956,6 +995,8 @@ impl SkyGpu {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry { binding: 4, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 5, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering), count: None },
             ],
         });
         let bind = |b: &wgpu::Buffer| {
@@ -963,22 +1004,12 @@ impl SkyGpu {
                 label: Some("sky material"),
                 layout: &layout,
                 entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: b.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Sampler(&roof_sampler),
-                    },
+                    wgpu::BindGroupEntry { binding: 0, resource: b.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&view) },
+                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&sampler) },
+                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&roof_sampler) },
+                    wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(&depth_dummy_view) },
+                    wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&depth_sampler) },
                 ],
             })
         };
@@ -1028,6 +1059,11 @@ impl SkyGpu {
             reflected,
             normal_buf,
             reflected_buf,
+            layout,
+            skies_view: view,
+            sampler,
+            roof_sampler,
+            depth_sampler,
             disc_layers,
             glow_layers,
             day_set,
@@ -1136,6 +1172,27 @@ impl SkyGpu {
     /// `sky_id_night` resolved through `sky.lst`.
     pub fn night_set(&self) -> usize {
         self.night_set
+    }
+    /// Rebind the real scene depth texture for shader-side 54-pt occlusion.
+    /// Called each frame after the world depth target is (re)created; the
+    /// shader samples it at 6 taps around glow_center.zw with 0.4 weight.
+    pub fn set_depth(&mut self, device: &wgpu::Device, depth_view: &wgpu::TextureView) {
+        let bind = |b: &wgpu::Buffer| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("sky material"),
+                layout: &self.layout,
+                entries: &[
+                    wgpu::BindGroupEntry { binding: 0, resource: b.as_entire_binding() },
+                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&self.skies_view) },
+                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(&self.roof_sampler) },
+                    wgpu::BindGroupEntry { binding: 4, resource: wgpu::BindingResource::TextureView(depth_view) },
+                    wgpu::BindGroupEntry { binding: 5, resource: wgpu::BindingResource::Sampler(&self.depth_sampler) },
+                ],
+            })
+        };
+        self.normal = bind(&self.normal_buf);
+        self.reflected = bind(&self.reflected_buf);
     }
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, reflected: bool) {
         pass.set_pipeline(&self.pipeline);
