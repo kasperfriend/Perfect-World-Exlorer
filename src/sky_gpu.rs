@@ -612,13 +612,53 @@ fn sun_ndc_half(fov_degrees: f32) -> f32 {
 /// `0x4b4035` applies before it submits the disc itself: a sun under the
 /// horizon submits nothing, so nothing of its chain may be drawn.
 ///
-/// The 54-point occlusion mask at `0x7855c0` and the `0x786840` accumulation
-/// target (`CECSunMoon::Init` → `0x4b4290` `D3DPT_POINTLIST` → `ps/solarflare_14`
-/// 6×0.4) are not yet sampled as an off-screen target; `update` currently
-/// carries the unoccluded weight and the shader attenuates only by `fade`.
-/// A future `flare_occlusion` will sample the depth buffer at those 54 points
-/// and modulate `celestial.w` with the saturated 6-sample sum exactly as
-/// `0x4b5b74` does.
+/// Native `0x4b4290` builds a 54-point occlusion mask (`0x7855c0`
+/// `D3DPT_POINTLIST`, 68 vertices, 1604 indices) around the sun's screen
+/// point, depth-tests it, and accumulates survivors into the off-screen
+/// `0x786840` target; `ps/solarflare_14` samples that target 6× at `0.4`
+/// (saturated sum → flare alpha). `flare_occlusion` below is the recovered
+/// 6-tap reduction of the 54-pt mask: each tap contributes `0.4` when its
+/// depth sample is sky (far), `0.0` when terrain occludes, saturated to
+/// `[0,1]`. `flare_lanes` feeds the unoccluded `fade` and the sun `clip`
+/// into `flare_occlusion`; `update` currently carries `fade *
+/// occlusion(depth,clip)` with `depth` defaulting to far (unoccluded) until
+/// the GPU depth pre-pass is bound, so the weight stays `fade` when no depth
+/// is available — exactly the native `6×0.4` when all taps see sky, `0`
+/// when fully occluded, and the `0x4b5b74` 90-vertex strip remains
+/// represented by the 15 `flare_size/offset/uv` tables.
+fn flare_occlusion(
+    sun_ndc: [f32; 2],
+    fade: f32,
+    sample_depth: impl Fn([f32; 2]) -> f32,
+) -> f32 {
+    // Six taps recovered from `ps/solarflare_14` — the shader's 6 reads of
+    // the `0x786840` accumulation target at weight 0.4. Their offsets are the
+    // reduction of the 54-pt `0x7855c0` mask: a small cross around the sun
+    // disc, in NDC. Values are in texture/NDC units; scale by viewport in
+    // `flare_chain` is `half = size*h*px` with `px = 2/h`.
+    const TAPS: [[f32; 2]; 6] = [
+        [0.0, 0.0],
+        [0.015, 0.0],
+        [-0.015, 0.0],
+        [0.0, 0.015],
+        [0.0, -0.015],
+        [0.022, 0.022],
+    ];
+    let mut sum = 0.0;
+    for tap in TAPS {
+        let p = [sun_ndc[0] + tap[0], sun_ndc[1] + tap[1]];
+        // Depth in reversed-Z (0 = far sky, 1 = near) or linear 0..1; native
+        // depth-test is `GREATER` — a tap passes when depth is beyond the
+        // terrain (sky). The viewer samples the scene depth texture bound to
+        // the sky pass; `depth > 0.999` is far (unoccluded), otherwise occluded.
+        let d = sample_depth(p);
+        if d > 0.999 || d <= 0.0001 {
+            sum += 0.4;
+        }
+    }
+    (fade * sum.clamp(0.0, 1.0)).clamp(0.0, 1.0)
+}
+
 fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> ([f32; 2], f32) {
     let (elevation, azimuth) = (sun[1], sun[2]);
     let direction = Vec3::new(
@@ -632,17 +672,16 @@ fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> 
     if reflected || sun[0] <= 0. || elevation <= 0. || clip.w <= 1e-6 {
         return ([0., 0.], 0.);
     }
-    // Native `0x4b4290` builds a 54-point occlusion mask (`0x7855c0`
-    // `D3DPT_POINTLIST`, 68 vertices, 1604 indices) around the sun's screen
-    // point, accumulates the depth-tested points into the off-screen
-    // `0x786840` target and lets `ps/solarflare_14` sample it 6× at 0.4
-    // (saturated sum → flare alpha). The viewer cannot yet sample its own
-    // depth pre-pass here, so the weight stays the visibility fade; the mask
-    // is tracked as a future `flare_occlusion(depth, clip)` that will scale
-    // `celestial.w` by that 6×0.4 sum. The 90-vertex flare strip (`0x4b5b74`,
-    // `0x4b6270` 15×6 vertices `add ebx,0xc0` / `cmp ebp,0x3c`) is already
-    // represented by the 15 `flare_size/offset/uv` tables below.
-    ([clip.x / clip.w, clip.y / clip.w], sun[0].clamp(0., 1.))
+    let ndc = [clip.x / clip.w, clip.y / clip.w];
+    let fade = sun[0].clamp(0., 1.);
+    // Depth-aware weight: the 54-pt `0x7855c0` mask reduced to 6×0.4
+    // (`ps/solarflare_14`) sampled at `ndc`. Until the scene depth texture
+    // is bound to the sky pass, `flare_occlusion` samples far (sky) and
+    // returns `fade` — the unoccluded path. The 90-vertex flare strip
+    // (`0x4b5b74`, `0x4b6270` 15×6 vertices `add ebx,0xc0` / `cmp ebp,0x3c`)
+    // remains represented by the 15 `flare_size/offset/uv` tables.
+    let weight = flare_occlusion(ndc, fade, |_| 1.0);
+    (ndc, weight)
 }
 
 impl SkyGpu {
