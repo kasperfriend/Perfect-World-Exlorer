@@ -543,12 +543,20 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
  let ndc_pix=vec2<f32>(ndc.x*0.5+0.5, ndc.y*0.5+0.5)*vec2<f32>(vp_w,h);
  var out=color;
  for(var i:i32=0;i<15;i=i+1){
-  // Spread was too tight at 1080p+ — the 860-px ghost stayed within ~0.8× the
-  // sun→centre distance and the cluster read as rotating on the disc. Scale the
-  // recovered pixel tables with the viewport so the line always runs
-  // sun→centre→beyond, not sun+small radius.
-  let c_pix=sun_pix + dir_pix*flare_offset(i)*1.8;
-  let half_pix=flare_size(i)*h*1.25;
+  // Retail ghosts sit on the *sun→centre* line, not at a fixed pixel radius
+  // around the sun — when you stare at the sun they collapse *into* it,
+  // when you turn away they stretch across the screen and persist even
+  // when the sun is just off-screen. The recovered pixel tables are the
+  // builder's `offset[i]` in *pixels* from the sun, but the builder's
+  // direction is view-dependent and the metric is the viewport height, so
+  // a fixed-radius orbit reads as “rotates on the disc”. Re-express the
+  // tables as *t* along sun→centre (t=0 at sun, t=1 at centre): the 860-px
+  // table entry is ~1.07× the sun→centre distance at 800 px reference, so
+  // the chain always spans sun→beyond-centre and the near ghosts (4,10…)
+  // sit *in* the disc when you look straight at it.
+  let t=flare_offset(i)/800.0;
+  let c_pix=mix(sun_pix, centre_pix, t);
+  let half_pix=flare_size(i)*h;
   let q=(ndc_pix - c_pix)/max(half_pix,1e-6);
   if abs(q.x)>1.0 || abs(q.y)>1.0 {continue;}
   let uv=flare_uv_origin(i)+vec2<f32>(q.x*0.5+0.5,q.y*0.5+0.5)*flare_uv_size(i);
