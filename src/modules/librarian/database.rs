@@ -220,8 +220,13 @@ impl Database {
                 .and_then(|id| u32::try_from(*id).ok())
                 .and_then(|id| self.skill_names.get(&id.saturating_mul(10)))
             {
+                let level = params
+                    .get(1)
+                    .filter(|&&level| level > 0)
+                    .map(|level| format!(" Lv. {level}"))
+                    .unwrap_or_default();
                 return format!(
-                    "Skill: {} (add-on {addon_id})",
+                    "Skill: {}{level} (add-on {addon_id})",
                     super::descriptions::plain_text(name)
                 );
             }

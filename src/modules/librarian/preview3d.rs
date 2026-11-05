@@ -461,7 +461,19 @@ mod tests {
         let weapon = &db.items[*db.by_id.get(&6).unwrap()];
         let armor = &db.items[*db.by_id.get(&128).unwrap()];
         let worn = format!("worn:0:m:{}", armor.equipment_name().unwrap());
-        for path in [&weapon.model, &worn] {
+        let fashion = &db.items[*db.by_id.get(&4276).unwrap()];
+        let fashion = format!("worn:0:m:{}", fashion.equipment_name().unwrap());
+        let flight = &db.items[*db.by_id.get(&2093).unwrap()].model;
+        let pet = &db.items[*db.by_id.get(&9069).unwrap()].model;
+        let genie = &db.items[*db.by_id.get(&22181).unwrap()].model;
+        for (label, path) in [
+            ("weapon", &weapon.model),
+            ("worn", &worn),
+            ("fashion", &fashion),
+            ("flight", flight),
+            ("pet", pet),
+            ("genie", genie),
+        ] {
             preview.update(&device, &queue, format, &mut assets, path);
             assert!(preview.error.is_none(), "{path}: {:?}", preview.error);
             if path == &worn {
@@ -513,13 +525,8 @@ mod tests {
             rx.recv().unwrap().expect("map preview");
             let data = slice.get_mapped_range();
             if let Some(dir) = std::env::var_os("PW_LIBRARIAN_SCREENSHOTS") {
-                let name = if path == &worn {
-                    "worn.png"
-                } else {
-                    "weapon.png"
-                };
                 image::save_buffer(
-                    std::path::Path::new(&dir).join(name),
+                    std::path::Path::new(&dir).join(format!("{label}.png")),
                     &data,
                     512,
                     512,
