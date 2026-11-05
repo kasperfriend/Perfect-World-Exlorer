@@ -543,18 +543,15 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
  let ndc_pix=vec2<f32>(ndc.x*0.5+0.5, ndc.y*0.5+0.5)*vec2<f32>(vp_w,h);
  var out=color;
  for(var i:i32=0;i<15;i=i+1){
-  // Retail ghosts sit on the *sun→centre* line, not at a fixed pixel radius
-  // around the sun — when you stare at the sun they collapse *into* it,
-  // when you turn away they stretch across the screen and persist even
-  // when the sun is just off-screen. The recovered pixel tables are the
-  // builder's `offset[i]` in *pixels* from the sun, but the builder's
-  // direction is view-dependent and the metric is the viewport height, so
-  // a fixed-radius orbit reads as “rotates on the disc”. Re-express the
-  // tables as *t* along sun→centre (t=0 at sun, t=1 at centre): the 860-px
-  // table entry is ~1.07× the sun→centre distance at 800 px reference, so
-  // the chain always spans sun→beyond-centre and the near ghosts (4,10…)
-  // sit *in* the disc when you look straight at it.
-  let t=flare_offset(i)/800.0;
+  // 860/800 was still clustered: 100→0.12 left the 12 near ghosts
+  // collapsed *in* the 11° disc (77 px radius at 1080p). Scale the
+  // recovered pixel offsets so the 15 table entries span the whole
+  // sun→beyond-centre line: 860→~1.7× (far beyond centre), 100→0.5×
+  // (mid-way), 40→0.2×, 25→0.12× ... -2.5→-0.01× (just behind the sun).
+  // That reproduces the retail “one moves right and extends, the rest
+  // were stuck inside” report: the far ghost was the only one that
+  // escaped the disc.
+  let t=flare_offset(i)/200.0;
   let c_pix=mix(sun_pix, centre_pix, t);
   let half_pix=flare_size(i)*h;
   let q=(ndc_pix - c_pix)/max(half_pix,1e-6);
