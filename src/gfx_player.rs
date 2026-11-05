@@ -3292,6 +3292,218 @@ mod tests {
         );
     }
 
+    /// The retail archive, when `tools/pck_lib.py` has extracted it beside the
+    /// checkout. CI has no archive, so the corpus tests skip instead of failing.
+    /// Member names have to be decoded GBK: anything else silently breaks child
+    /// reference resolution, which surfaces as warnings and never as an error, so
+    /// the resolved count is the thing worth reading.
+    fn corpus_root() -> Option<std::path::PathBuf> {
+        let root = std::path::PathBuf::from("google_drive/x");
+        root.is_dir().then_some(root)
+    }
+
+    /// Every file under a directory, sorted, so a sweep is reproducible. The
+    /// archive holds one member whose name is literally `.gfx`, which a `*.gfx`
+    /// glob would skip.
+    fn corpus_files(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let mut entries: Vec<_> = std::fs::read_dir(root)
+            .map(|dir| {
+                dir.filter_map(|entry| entry.ok())
+                    .map(|entry| entry.path())
+                    .collect()
+            })
+            .unwrap_or_default();
+        entries.sort();
+        for entry in entries {
+            if entry.is_dir() {
+                corpus_files(&entry, out);
+            } else {
+                out.push(entry);
+            }
+        }
+    }
+
+    /// Every corpus element that takes id 123's surface path has to land on the
+    /// ellipsoid its own authored `AreaSize` spans, including the degenerate
+    /// values a synthetic fixture would not think of. The zero-safe form of the
+    /// property is `position == -direction * (AreaSize * 0.5)` component-wise,
+    /// which still holds when an extent is zero; the ellipsoid equation itself is
+    /// only checked where all three extents are non-zero.
+    #[test]
+    fn corpus_surface_emission_holds_on_authored_area_sizes() {
+        let Some(root) = corpus_root() else {
+            return;
+        };
+        let mut files = Vec::new();
+        corpus_files(&root, &mut files);
+        let view = view();
+        let common = Common::default();
+        let context = spawn_context(&view, &common);
+        let (mut parsed, mut elements) = (0usize, 0usize);
+        let (mut zeroed, mut negative, mut missing) = (0usize, 0usize, 0usize);
+        for file in &files {
+            let Ok(bytes) = std::fs::read(file) else {
+                continue;
+            };
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            let Ok(parsed_root) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            parsed += 1;
+            for element in &parsed_root.elements {
+                if element.id != 123 {
+                    continue;
+                }
+                let crate::gfx_file::Spec::Particle(particle) = &element.spec else {
+                    continue;
+                };
+                if !particle.is_surface {
+                    continue;
+                }
+                elements += 1;
+                let half = match particle.area_size {
+                    Some(area) => {
+                        if area.x == 0. || area.y == 0. || area.z == 0. {
+                            zeroed += 1;
+                        }
+                        if area.x < 0. || area.y < 0. || area.z < 0. {
+                            negative += 1;
+                        }
+                        area * 0.5
+                    }
+                    None => {
+                        missing += 1;
+                        Vec3::ZERO
+                    }
+                };
+                let mut rng = Rng::new(elements as u32 * 7919 + 11);
+                for _ in 0..8 {
+                    let state = spawn(particle, None, &mut rng, &context);
+                    let tolerance = 1e-4 * half.length().max(1.);
+                    assert!(
+                        state.position.is_finite() && state.direction.is_finite(),
+                        "{} spawned position {} direction {}",
+                        file.display(),
+                        state.position,
+                        state.direction
+                    );
+                    assert!(
+                        (state.direction.length() - 1.).abs() < 1e-4,
+                        "{} spawned a non-unit direction {}",
+                        file.display(),
+                        state.direction
+                    );
+                    let expected = -state.direction * half;
+                    assert!(
+                        (state.position - expected).length() < tolerance,
+                        "{} spawned {} where the surface sample implies {}",
+                        file.display(),
+                        state.position,
+                        expected
+                    );
+                    if half.x != 0. && half.y != 0. && half.z != 0. {
+                        let normalized = state.position / half;
+                        assert!(
+                            (normalized.length_squared() - 1.).abs() < 1e-3,
+                            "{} spawned {} off its ellipsoid",
+                            file.display(),
+                            state.position
+                        );
+                    }
+                }
+            }
+        }
+        println!(
+            "corpus surface: {parsed} files parsed, {elements} id-123 surface elements, \
+             {zeroed} with a zero extent, {negative} negative, {missing} without AreaSize"
+        );
+        assert!(
+            parsed > 5_000,
+            "the census parsed 5,457 files, got {parsed}"
+        );
+        assert!(
+            elements > 1_000,
+            "the census found 1,520 id-123 surface elements, got {elements}"
+        );
+    }
+
+    /// The surface path moves particles; it does not create or destroy them, so a
+    /// play-through of the whole archive should stay finite and still run to
+    /// completion. This is the check that real authored data, with values no
+    /// fixture anticipated, produces neither a panic nor NaN geometry. 120 frames
+    /// of 16 ms, one player per file, children resolved from the same archive.
+    #[test]
+    fn corpus_plays_through_with_the_surface_path() {
+        let Some(root) = corpus_root() else {
+            return;
+        };
+        let mut files = Vec::new();
+        corpus_files(&root, &mut files);
+        let view = view();
+        let (mut parsed, mut played, mut finished) = (0usize, 0usize, 0usize);
+        let (mut quads, mut nonfinite, mut children) = (0usize, 0usize, 0usize);
+        let mut warnings: std::collections::BTreeSet<String> = Default::default();
+        for file in &files {
+            let Ok(bytes) = std::fs::read(file) else {
+                continue;
+            };
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            let Ok(parsed_root) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            parsed += 1;
+            let archive = root.clone();
+            let mut player = match Player::new(parsed_root, 7, &mut |path: &str| {
+                let bytes =
+                    std::fs::read(archive.join(path)).map_err(|e| format!("{path}: {e}"))?;
+                let (source, _) = crate::gfx_file::decode(&bytes);
+                crate::gfx_file::parse(&source)
+            }) {
+                Ok(player) => player,
+                Err(_) => continue,
+            };
+            played += 1;
+            for _ in 0..120 {
+                if player.advance(16., &view, Mat4::IDENTITY, 1., 1.).is_err() {
+                    break;
+                }
+                for quad in player.quads() {
+                    quads += 1;
+                    if quad
+                        .positions
+                        .iter()
+                        .flatten()
+                        .any(|component| !component.is_finite())
+                    {
+                        nonfinite += 1;
+                    }
+                }
+            }
+            children += player.stats().children;
+            if player.finished() {
+                finished += 1;
+            }
+            warnings.extend(player.warnings().iter().cloned());
+        }
+        println!(
+            "corpus sweep: {parsed} parsed, {played} played, {quads} quads, {finished} finished, \
+             {children} child elements, {} distinct warnings, {nonfinite} non-finite quads",
+            warnings.len()
+        );
+        assert_eq!(
+            nonfinite, 0,
+            "the surface path produced non-finite geometry"
+        );
+        assert!(
+            parsed > 5_000,
+            "the census parsed 5,457 files, got {parsed}"
+        );
+        assert!(
+            played > 5_000,
+            "the census played 5,457 files, got {played}"
+        );
+    }
+
     /// The ball sample is uniform in volume, which is what the client's
     /// rejection loop produces (`0x728270`: three draws of
     /// `rand() * (2/32767) - 1`, retried while `x*x + y*y + z*z > 1`). Its mean
