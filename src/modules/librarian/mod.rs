@@ -8,6 +8,7 @@ mod elements;
 mod icons;
 mod preview3d;
 
+use crate::modules::designer::catalog::{Class, Gender};
 use archive::LibrarianAssets;
 use database::{Category, Database};
 use icons::IconCache;
@@ -34,6 +35,7 @@ struct State {
     preview: Option<preview3d::Preview>,
     show_3d: bool,
     preview_female: bool,
+    preview_class: Class,
 }
 impl Librarian {
     pub fn new(root: PathBuf) -> Self {
@@ -100,6 +102,7 @@ impl Librarian {
                     preview: None,
                     show_3d: false,
                     preview_female: false,
+                    preview_class: Class::Blademaster,
                 });
                 self.error = None;
             }
@@ -133,7 +136,8 @@ impl Librarian {
             .equipment_name()
             .map(|name| {
                 format!(
-                    "worn:{}:{name}",
+                    "worn:{}:{}:{name}",
+                    state.preview_class.index(),
                     if state.preview_female { "f" } else { "m" }
                 )
             })
@@ -377,10 +381,42 @@ impl State {
                         });
                         if self.show_3d {
                             if item.equipment_name().is_some() {
+                                egui::ComboBox::from_label("Mannequin class")
+                                    .selected_text(self.preview_class.name())
+                                    .show_ui(ui, |ui| {
+                                        for class in Class::ALL {
+                                            ui.selectable_value(
+                                                &mut self.preview_class,
+                                                class,
+                                                class.name(),
+                                            );
+                                        }
+                                    });
+                                let gender = if self.preview_female {
+                                    Gender::Female
+                                } else {
+                                    Gender::Male
+                                };
+                                if !self.preview_class.allows(gender) {
+                                    self.preview_female =
+                                        self.preview_class.default_gender() == Gender::Female;
+                                }
                                 ui.horizontal(|ui| {
-                                    ui.label("Blademaster mannequin:");
-                                    ui.selectable_value(&mut self.preview_female, false, "Male");
-                                    ui.selectable_value(&mut self.preview_female, true, "Female");
+                                    ui.label("Mannequin gender:");
+                                    if self.preview_class.allows(Gender::Male) {
+                                        ui.selectable_value(
+                                            &mut self.preview_female,
+                                            false,
+                                            "Male",
+                                        );
+                                    }
+                                    if self.preview_class.allows(Gender::Female) {
+                                        ui.selectable_value(
+                                            &mut self.preview_female,
+                                            true,
+                                            "Female",
+                                        );
+                                    }
                                 });
                             }
                             if let Some(preview) = &mut self.preview {
@@ -639,6 +675,7 @@ mod tests {
             preview: None,
             show_3d: false,
             preview_female: false,
+            preview_class: Class::Blademaster,
         };
         let ctx = egui::Context::default();
         let run = |state: &mut State| {

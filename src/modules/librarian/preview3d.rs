@@ -276,24 +276,16 @@ impl Preview {
         self.pan += (-right * delta.x + up * delta.y) * self.radius * self.zoom * 0.004;
     }
     fn frame(&self) -> Frame {
-        let distance = self.radius * 3.5 * self.zoom;
-        let target = self.center + self.pan;
-        let eye = target
-            + Vec3::new(
-                self.yaw.sin() * self.pitch.cos(),
-                self.pitch.sin(),
-                self.yaw.cos() * self.pitch.cos(),
-            ) * distance;
-        let projection = Mat4::from_scale(Vec3::new(-1., 1., 1.))
-            * Mat4::perspective_rh(
-                45f32.to_radians(),
-                1.,
-                distance + self.radius * 10.,
-                (distance * 0.01).max(0.001),
-            );
+        let matrix = camera_matrix(
+            self.center + self.pan,
+            self.radius,
+            self.zoom,
+            self.yaw,
+            self.pitch,
+        );
         Frame {
             blend_enabled: false,
-            matrix: (projection * Mat4::look_at_rh(eye, target, Vec3::Y)).to_cols_array_2d(),
+            matrix: matrix.to_cols_array_2d(),
             lighting: Lighting {
                 environment_ambient: [0.6, 0.6, 0.6, 1.],
                 additional_ambient: [0.; 4],
@@ -320,15 +312,56 @@ impl Preview {
     }
 }
 
+fn camera_matrix(target: Vec3, radius: f32, zoom: f32, yaw: f32, pitch: f32) -> Mat4 {
+    let distance = radius * 3.5 * zoom;
+    let eye = target
+        + Vec3::new(
+            yaw.sin() * pitch.cos(),
+            pitch.sin(),
+            yaw.cos() * pitch.cos(),
+        ) * distance;
+    let near = (distance * 0.01).max(0.001);
+    let far = distance + radius * 10.;
+    Mat4::from_scale(Vec3::new(-1., 1., 1.))
+        * Mat4::perspective_rh(45f32.to_radians(), 1., far, near)
+        * Mat4::look_at_rh(eye, target, Vec3::Y)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn preview_camera_mirrors_x_and_uses_reversed_depth() {
+        let matrix = camera_matrix(Vec3::ZERO, 1., 1., 0., 0.);
+        let projected = |p: Vec3| {
+            let p = matrix * p.extend(1.);
+            p.truncate() / p.w
+        };
+        assert!(projected(Vec3::X).x < 0.);
+        assert!(projected(Vec3::new(0., 0., 2.)).z > projected(Vec3::new(0., 0., -2.)).z);
+    }
+}
+
 fn load_worn(assets: &mut LibrarianAssets, request: &str) -> Result<ModelAsset, String> {
     use crate::modules::designer::catalog::{Class, Gender};
-    let (gender, realname) = request.split_once(':').ok_or("invalid equipment preview")?;
+    let (class, remainder) = request.split_once(':').ok_or("invalid equipment preview")?;
+    let (gender, realname) = remainder
+        .split_once(':')
+        .ok_or("invalid equipment preview")?;
+    let class = class
+        .parse::<usize>()
+        .ok()
+        .and_then(|index| Class::ALL.get(index))
+        .copied()
+        .ok_or("invalid mannequin class")?;
     let gender = if gender == "f" {
         Gender::Female
     } else {
         Gender::Male
     };
-    let class = Class::Blademaster;
+    if !class.allows(gender) {
+        return Err("class and gender are incompatible".into());
+    }
     let mut asset = ModelAsset::load_without_skins_with(&class.body_model(gender), |path| {
         assets.read_model_resource(path)
     })?;

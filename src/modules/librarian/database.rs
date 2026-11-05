@@ -89,7 +89,7 @@ fn layout(
         3 => (Weapons, Some(4), Some(8), 12, 464, Some(80)),
         6 => (Armor, Some(4), Some(8), 12, 236, None),
         9 => (Ornaments, Some(4), Some(8), 12, 332, Some(76)),
-        84 => (Fashion, None, Some(4), 12, 236, None),
+        84 => (Fashion, Some(4), Some(8), 12, 236, None),
         12 => (Consumables, Some(4), Some(8), 12, 204, None),
         15 => (Materials, Some(4), Some(8), 12, 204, None),
         87 | 90 => (Consumables, Some(4), Some(8), 12, 204, None),
@@ -365,6 +365,7 @@ pub fn major_table(section: usize) -> Option<usize> {
         9 => Some(7),
         12 => Some(10),
         15 => Some(13),
+        84 => Some(82),
         _ => None,
     }
 }
@@ -541,7 +542,7 @@ impl Item {
                 ("Dye count", 376),
                 ("Sell price", 380),
                 ("Buy price", 384),
-                ("Stack limit", 388),
+                ("Stack limit", 400),
             ],
             12 => &[
                 ("Required level", 332),
