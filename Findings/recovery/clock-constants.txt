@@ -1,0 +1,12 @@
+# clock constants: address, raw 8 bytes, f64, f32, note
+0x008d58a0  0000000000004844  f64 8.8544371553805848e+20  f32 0  0.0
+0x008d5c28  0000803f00000000  f64 5.2635442471208903e-315  f32 1  1.0
+0x008d6138  000000000000f03f  f64 1  f32 0  wrap constant the fraction is reduced by (Tick, SetTime)
+0x008d6a8c  b4a29138cdcccc3f  f64 0.22500005018379954  f32 6.94444461e-05  seconds-of-day -> day fraction (SetTime caller 0x428f7d)
+0x008d6a94  000000bf00000040  f64 2.000001423060894  f32 -0.5  legacy disc scale A (not read by 0x4b3e00)
+0x008d6a98  000000400000c842  f64 52776566521856  f32 2  legacy disc scale B (not read by 0x4b3e00)
+0x008d6a9c  0000c84200000000  f64 5.5355285709140466e-315  f32 100  disc placement distance
+0x008db100  52499d3900000000  f64 4.7756841547232261e-315  f32 0.000300000014  disc visibility per millisecond (0x4b5f77)
+0x008db108  b9791f962fa4723e  f64 6.944444444444444e-08  f32 -1.28823266e-25  day fraction added per millisecond (Tick 0x4b5f2a)
+0x008db138  b76ddb405555153e  f64 1.2417633617795814e-09  f32 6.85714293  reciprocal used by the sun ramp (0x4b60f9)
+0x008db13c  5555153e35000000  f64 1.1298038853045735e-312  f32 0.145833328  sunrise threshold compared against the fraction (0x4b60e8)

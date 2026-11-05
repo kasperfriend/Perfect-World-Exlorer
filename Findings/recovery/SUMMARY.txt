@@ -30,3 +30,6 @@ elementclient.exe: base 0x400000, 6 sections, 107 sky strings
   xref functions: 58 bodies
   25-sunmoon-tick-callers: 1 call site(s)
   26-sunmoon-settime-callers: 5 call site(s)
+  28-worldtick-callers: 1 call site(s)
+  clock constants: 11 dumped
+  clock references: 2 addresses
