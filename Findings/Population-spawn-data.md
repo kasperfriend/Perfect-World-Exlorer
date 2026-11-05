@@ -106,8 +106,22 @@ with 120 (ornament range) and 800 as further presets.
 ## Module behaviour that follows from this
 
 * Spawn, appear, idle: the 515 client-placed NPCs at authored positions and
-  heights, rigs and idle `休闲` scene action straight out of `models.pck`.
-  The 1,057 server-placed records are reported, never stacked at the origin.
+  heights, rigs, overhead names and the idle `休闲` scene action straight out of
+  `models.pck`. The 1,057 server-placed records are reported, never stacked at
+  the origin.
+* Standing surface: a record whose height is `0` has no Y at all — the server
+  supplies it — so the placement is resolved against the client's own BMD
+  collision hulls before the terrain sample: the lowest walkable building floor
+  within 16 units above the terrain (bridge deck, platform, interior floor).
+  That is what puts the bridge and platform placements on their decks instead
+  of in the arch or the wall below them. The hulls are the same ones the Walker
+  module collides with, loaded on demand; an authored height always wins and is
+  never moved.
+* Idle playback: a combined action the viewer can schedule runs through
+  `Playback`; otherwise the ordinary clip that combined action names loops on
+  the module clock. `pose_action_at_time` takes absolute track time and clamps
+  at the last key, so a clock that only grew would freeze a rig mid-idle after
+  one cycle — the loop wraps inside the clip's own millisecond range instead.
 * The settings window reports how many placements are inside the spawn radius
   and can move the camera to the nearest one: at the client's native 420 units
   the origin has 9 placements, Archosaur North 61, Raging Tides 0.
@@ -116,3 +130,24 @@ with 120 (ornament range) and 800 as further presets.
   at 96.
 * No combat, dialogue or interaction; positions, names, heights and greetings
   are the files' own, and nothing is synthesised to fill the mob/route gaps.
+
+## Facing (investigated, not present)
+
+The user-visible facing of every client-placed NPC is **not in the client's
+files**, and this was checked rather than assumed:
+
+* `task_npc.data` is a 12-byte fixed header followed by 1,572 fixed 12-byte
+  records: `id: u32`, `x: i16`, `z: i16`, `height: i16`, `task_count: u16`
+  (18,876 bytes = 12 + 1,572 × 12, so there are no trailing fields at all).
+* The `[58] NPC_ESSENCE` record (2,838 × 852 bytes) was scanned column by
+  column: no u32 column is dominated by 1..7 or 1..360 values, no byte column
+  in the tail is a uniform 0..255 direction byte, and no float column holds an
+  angle. Its tail bytes from 728 on are a text block (GBK/UTF-16 ASCII),
+  matching the greeting field layout.
+* The remaining orientation source is the server's `gamedata/npcgen.data`,
+  which the client does not ship.
+
+Every placement therefore keeps the rig's own authored forward axis (yaw 0,
+local `+Z` forward, exactly `walker::character::character_transform`), which is
+why the observed facing looks right in game. The viewer's earlier optional
+"turn to face the camera" is removed.

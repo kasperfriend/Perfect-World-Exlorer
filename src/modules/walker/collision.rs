@@ -306,6 +306,92 @@ impl CollisionWorld {
         best
     }
 
+    /// The lowest walkable *building* surface at or above `feet`, searching
+    /// upward. [`Self::support`] answers "what is under this point", which picks
+    /// a roof or a ceiling when an actor is authored onto a bridge deck or an
+    /// interior floor above the terrain sample. The client's own NPC placements
+    /// carry no height at all (`task_npc.data` stores 0 for "the server's
+    /// height"), so the placement whoever authored them stands on is the first
+    /// floor plate above the bare terrain in that column.
+    ///
+    /// Tree hulls are deliberately excluded: a quest NPC does not stand on a
+    /// canopy, and their hulls are the only other brush source here.
+    fn floor_above(&self, feet: Vec3, extents: Vec3, max_up: f32) -> Option<Ground> {
+        if !max_up.is_finite() || max_up < 0.0 {
+            return None;
+        }
+        // Probe upward in short steps and accept the first plane a downward
+        // sweep reaches, so a bridge deck wins over the river bed below it and
+        // an interior floor wins over the terrain poking through it.
+        const STEP: f32 = 0.25;
+        const CONTACT_LIFT: f32 = 0.01;
+        let delta = Vec3::NEG_Y * (STEP + CONTACT_LIFT * 2.0);
+        let mut lift = 0.0;
+        while lift <= max_up {
+            let start = feet + Vec3::Y * (lift + extents.y + CONTACT_LIFT);
+            if let Some(hit) = self.trace_buildings(start, delta, extents) {
+                if !hit.start_solid && hit.normal.y >= 0.5 {
+                    let center = start + delta * hit.fraction;
+                    return Some(Ground {
+                        height: center.y - extents.y,
+                        normal: hit.normal,
+                    });
+                }
+            }
+            lift += STEP;
+        }
+        None
+    }
+
+    /// [`Self::trace`] restricted to BMD building brushes.
+    fn trace_buildings(&self, start: Vec3, delta: Vec3, extents: Vec3) -> Option<Trace> {
+        let end = start + delta;
+        let min = start.min(end) - extents;
+        let max = start.max(end) + extents;
+        let query_center = (min + max) * 0.5;
+        let query_extents = (max - min) * 0.5;
+        let mut building_ids = self.large_buildings.clone();
+        let mut cover_all = true;
+        if let Some((x0, x1, z0, z1, count)) = cell_count(min, max) {
+            if count <= MAX_CELLS_PER_QUERY {
+                cover_all = false;
+                for x in x0..=x1 {
+                    for z in z0..=z1 {
+                        if let Some(ids) = self.building_grid.get(&(x, z)) {
+                            building_ids.extend_from_slice(ids);
+                        }
+                    }
+                }
+            }
+        }
+        if cover_all {
+            building_ids.extend(0..self.buildings.len());
+        }
+        building_ids.sort_unstable();
+        building_ids.dedup();
+        let mut best: Option<Trace> = None;
+        for index in building_ids {
+            let brush = &self.buildings[index];
+            if brush.flags & CHDATA_SKIP_COLLISION != 0 {
+                continue;
+            }
+            if !overlaps(
+                query_center,
+                query_extents,
+                Vec3::from_array(brush.center),
+                Vec3::from_array(brush.extents),
+            ) {
+                continue;
+            }
+            if let Some(hit) = trace_brush(brush, start, delta, extents) {
+                if best.is_none_or(|old| hit.fraction < old.fraction) {
+                    best = Some(hit);
+                }
+            }
+        }
+        best
+    }
+
     fn support(&self, feet: Vec3, extents: Vec3, max_down: f32) -> Option<Ground> {
         if !max_down.is_finite() || max_down < 0.0 {
             return None;
@@ -363,6 +449,22 @@ impl CollisionWorld {
             blocked,
             normal: last_normal,
         }
+    }
+}
+
+/// The Populator resolves authored placement heights against the same building
+/// hulls Walker walks on, so a quest NPC authored onto a bridge deck or an
+/// interior floor stands there instead of on the terrain under the geometry.
+impl crate::modules::populator::FloorSource for Collision {
+    fn lowest_floor(&self, feet: Vec3, extents: Vec3, max_up: f32) -> Option<f32> {
+        self.floor_above(feet, extents, max_up)
+            .map(|ground| ground.height)
+    }
+
+    fn floor_stamp(&self) -> u64 {
+        // Every streamed batch grows the hull set once; the completion flag
+        // covers the final batch and a loader that produced nothing.
+        (self.buildings() as u64) * 2 + u64::from(self.building_done)
     }
 }
 
@@ -663,6 +765,18 @@ impl Collision {
 
     pub fn support(&self, feet: Vec3, extents: Vec3, max_down: f32) -> Option<Ground> {
         self.world.support(feet, extents, max_down)
+    }
+
+    /// The lowest walkable building floor at or above `feet`; see
+    /// [`CollisionWorld::floor_above`].
+    pub fn floor_above(&self, feet: Vec3, extents: Vec3, max_up: f32) -> Option<Ground> {
+        self.world.floor_above(feet, extents, max_up)
+    }
+
+    /// Number of building hulls already streamed in, so a consumer can tell
+    /// when a placement resolved against an incomplete world should be retried.
+    pub fn buildings(&self) -> usize {
+        self.world.buildings.len()
     }
 
     pub fn status(&self) -> String {

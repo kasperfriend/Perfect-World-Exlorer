@@ -264,7 +264,7 @@ impl Modules {
         );
         ui.label(
             egui::RichText::new(
-                "While enabled: every NPC from the client's own task_npc.data appears where the game places it, with its own rig and idle animation. Spawn distance, actor cap, idle animation and camera-facing turn are in the Populator settings window beneath the minimap. Mob placement is server data the client does not ship, and actors move only along real navigation paths.",
+                "While enabled: every NPC from the client's own task_npc.data appears where the game places it, with its own rig, idle animation and overhead name, standing on the client's own building floors where the placement calls for one. Spawn distance, actor cap, idle animation, names and building-floor support are in the Populator settings window beneath the minimap. Mob placement is server data the client does not ship, and actors move only along real navigation paths.",
             )
             .small()
             .weak(),
@@ -340,7 +340,15 @@ impl Modules {
         pitch: f32,
         eye: Vec3,
     ) -> Option<Vec3> {
-        self.populator.update(delta, eye);
+        // The Populator stands authored placements on real BMD floors, so it
+        // asks the Walker module for the building hulls it already owns. The
+        // loader only runs while the option and the module are on.
+        let floors = self.populator.wants_floors();
+        if floors {
+            self.walker.prepare_object_collision();
+        }
+        let source = floors.then(|| self.walker.floors());
+        self.populator.update(delta, eye, source);
         // A module may ask the host for a one-shot camera move (the Populator's
         // "go to the nearest placement"). The Walker wins when it drives the
         // camera; otherwise the request is honoured for that frame.
@@ -349,6 +357,23 @@ impl Modules {
             Some(position) => Some(position),
             None => request,
         }
+    }
+
+    /// Overhead world-space labels the add-ons paint in the host's UI pass. The
+    /// host supplies the frame's view-projection and the logical screen rect.
+    pub fn overlay_ui(
+        &mut self,
+        ctx: &egui::Context,
+        view_projection: glam::Mat4,
+        screen: egui::Rect,
+    ) {
+        self.populator.overlay_ui(ctx, view_projection, screen);
+    }
+
+    /// Whether any add-on needs the UI pass for a world-space overlay, so the
+    /// host does not have to run egui for an empty frame.
+    pub fn overlay_active(&self) -> bool {
+        self.populator.names_active()
     }
 
     pub fn update_walker_audio(&mut self, enabled: bool, volume: f32) {

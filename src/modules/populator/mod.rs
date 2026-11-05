@@ -45,6 +45,23 @@ const MAX_VISIBLE_LIMIT: usize = 96;
 /// teleport into a crowded town fills the population over a few frames instead
 /// of stalling one.
 const MAX_SPAWNS_PER_UPDATE: usize = 6;
+/// Overhead names are legible at the client's own scene window, so they default
+/// to the same radius; the slider lets a user shorten them.
+pub const NATIVE_NAME_DISTANCE: f32 = NATIVE_SPAWN_DISTANCE;
+pub const MIN_NAME_DISTANCE: f32 = 20.;
+/// Height of one carried name above the actor's feet, used when a rig exposes no
+/// usable bind-pose extent.
+const NAME_FALLBACK_HEIGHT: f32 = 1.9;
+/// Clearance between the top of the head and the baseline of the name.
+const NAME_LIFT: f32 = 0.25;
+/// How far above the bare terrain a placement may be lifted onto a building
+/// floor. Bridge decks and interior floors sit well inside this; a rooftop far
+/// overhead is not a placement surface and is not reached.
+const MAX_FLOOR_LIFT: f32 = 16.;
+/// Horizontal half-width and half-height of the AABB a placement stands in. Only
+/// the vertical half-extent changes the support result, and a humanoid box is
+/// what the client uses for its own actors.
+const ACTOR_EXTENTS: Vec3 = Vec3::new(0.4, 0.9, 0.4);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Settings {
@@ -54,8 +71,13 @@ pub struct Settings {
     pub max_visible: usize,
     /// Play the template's own `休闲` scene action.
     pub idle_animation: bool,
-    /// Face the camera instead of the placement's unrecorded facing.
-    pub face_camera: bool,
+    /// Draw the template's own name above the actor, as the game does.
+    pub show_names: bool,
+    /// Distance at which overhead names are still drawn.
+    pub name_distance: f32,
+    /// Resolve a placement against real BMD floors (bridge decks, interior
+    /// floors, walls) before falling back to the terrain sample.
+    pub stand_on_objects: bool,
 }
 
 impl Default for Settings {
@@ -64,7 +86,9 @@ impl Default for Settings {
             spawn_distance: NATIVE_SPAWN_DISTANCE,
             max_visible: DEFAULT_MAX_VISIBLE,
             idle_animation: true,
-            face_camera: false,
+            show_names: true,
+            name_distance: NATIVE_NAME_DISTANCE,
+            stand_on_objects: true,
         }
     }
 }
@@ -79,8 +103,76 @@ impl Settings {
                 NATIVE_SPAWN_DISTANCE
             },
             max_visible: self.max_visible.clamp(1, MAX_VISIBLE_LIMIT),
+            name_distance: if self.name_distance.is_finite() {
+                self.name_distance
+                    .clamp(MIN_NAME_DISTANCE, MAX_SPAWN_DISTANCE)
+            } else {
+                NATIVE_NAME_DISTANCE
+            },
             ..self
         }
+    }
+}
+
+/// Real building hulls, borrowed by the host for one frame. The Populator only
+/// asks where the floor is; the Walker module owns the geometry and the loader.
+pub trait FloorSource {
+    /// Lowest walkable building floor at or above `feet`, if the column holds
+    /// one within `max_up`.
+    fn lowest_floor(&self, feet: Vec3, extents: Vec3, max_up: f32) -> Option<f32>;
+    /// Changes whenever more hulls have streamed in, so placements resolved
+    /// against an incomplete world can be resolved again.
+    fn floor_stamp(&self) -> u64;
+}
+
+/// One action clip wrapped on its own clock.
+///
+/// `ModelAsset::pose_action_at_time` takes absolute track time and clamps past
+/// the last key, so an ever-growing clock freezes a client idle after a single
+/// cycle - which is exactly what a rig without a schedulable combined action
+/// did. Wrapping the clock inside the clip's own authored frame range keeps it
+/// looping for as long as the actor stands there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Clip {
+    start_ms: u32,
+    length_ms: u32,
+}
+
+impl Clip {
+    fn new(asset: &ModelAsset, action: usize) -> Option<Self> {
+        let clip = asset.model.actions.get(action)?;
+        let fps = clip
+            .fps
+            .filter(|fps| *fps > 0)
+            .unwrap_or(asset.skeleton.fps);
+        if fps <= 0
+            || !clip.start.is_finite()
+            || !clip.end.is_finite()
+            || clip.start < 0.
+            || clip.end < clip.start
+        {
+            return None;
+        }
+        // Same millisecond range as `Playback::new`: the client truncates both
+        // endpoints and treats the clip as end - start + 1 milliseconds.
+        let start = (clip.start * 1000. / fps as f32).trunc();
+        let end = (clip.end * 1000. / fps as f32).trunc();
+        let length = end - start + 1.;
+        if !length.is_finite() || length < 1. || end >= u32::MAX as f32 {
+            return None;
+        }
+        Some(Self {
+            start_ms: start as u32,
+            length_ms: length as u32,
+        })
+    }
+
+    fn seconds(&self, clock: f32) -> f32 {
+        if !clock.is_finite() || clock <= 0. {
+            return self.start_ms as f32 * 0.001;
+        }
+        let elapsed = (clock as f64 * 1000.) as u64 % self.length_ms as u64;
+        (self.start_ms as u64 + elapsed) as f32 * 0.001
     }
 }
 
@@ -91,6 +183,9 @@ struct Library {
     tracks: TrackCache,
     assets: HashMap<String, Rc<ModelAsset>>,
     failures: HashMap<String, String>,
+    /// Bind-pose head height per rig, for the overhead name. Computed once per
+    /// template rather than once per actor.
+    heads: HashMap<String, f32>,
 }
 
 fn read_archive(
@@ -120,11 +215,39 @@ impl Library {
             tracks: TrackCache::default(),
             assets: HashMap::new(),
             failures: HashMap::new(),
+            heads: HashMap::new(),
         })
     }
 
     fn read(&mut self, path: &str) -> Result<Vec<u8>, String> {
         read_archive(&mut self.models, self.textures.as_mut(), path)
+    }
+
+    /// Height of the rig's head above its feet in the authored bind pose. A rig
+    /// whose bind pose cannot be evaluated reports the humanoid default and does
+    /// not fail the actor; only the name's baseline moves.
+    fn head(&mut self, key: &str, asset: &ModelAsset) -> f32 {
+        if let Some(height) = self.heads.get(key) {
+            return *height;
+        }
+        let height = asset
+            .pose_bind(Mat4::IDENTITY)
+            .ok()
+            .and_then(|meshes| {
+                meshes.iter().fold(None::<f32>, |best, mesh| {
+                    mesh.vertices.iter().fold(best, |best, vertex| {
+                        let y = vertex.position[1];
+                        if !y.is_finite() {
+                            return best;
+                        }
+                        Some(best.map_or(y, |best: f32| best.max(y)))
+                    })
+                })
+            })
+            .filter(|height| (0.5..=8.0).contains(height))
+            .unwrap_or(NAME_FALLBACK_HEIGHT);
+        self.heads.insert(key.to_string(), height);
+        height
     }
 
     fn asset(&mut self, path: &str) -> Result<Rc<ModelAsset>, String> {
@@ -141,6 +264,7 @@ impl Library {
             tracks,
             assets,
             failures,
+            heads: _,
         } = self;
         let mut read = |path: &str| read_archive(models, textures.as_mut(), path);
         let loaded = ModelAsset::load_cached(&key, &mut read, tracks);
@@ -169,8 +293,14 @@ struct Live {
     /// template's combined action.
     action: Option<usize>,
     playback: Option<Playback>,
+    /// Wrapped clip range for `action`, on the module clock.
+    clip: Option<Clip>,
     /// Fallback clock in seconds for actors without a `Playback`.
     clock: f32,
+    /// Height of this rig's head above its feet, for the overhead name.
+    head: f32,
+    /// Building-hull stamp the placement was resolved against.
+    floor_stamp: u64,
     /// Real navigation path, when the population supplies one.
     follow: Option<Follow>,
     draw: Option<model_draw_gpu::Draw>,
@@ -193,7 +323,11 @@ impl Live {
         let sample = self.playback.as_ref().and_then(Playback::sample);
         let (action, seconds) = match sample {
             Some((action, seconds)) => (Some(action), seconds),
-            None => (self.action, self.clock),
+            None => (
+                self.action,
+                self.clip
+                    .map_or(self.clock, |clip| clip.seconds(self.clock)),
+            ),
         };
         if let Some(action) = action {
             if let Ok(meshes) = self.asset.pose_action_at_time(action, seconds, world) {
@@ -217,29 +351,103 @@ pub(crate) fn transform(position: Vec3, yaw: f32) -> Mat4 {
     )
 }
 
-/// `task_npc.data` authors 0 for "stand on the terrain"; any other value is the
-/// absolute height the game uses, which can legitimately be above the terrain.
-fn anchor_height(spawn: &Spawn, ground: f32) -> f32 {
-    spawn.height.unwrap_or(ground)
+/// The height a placement stands at.
+///
+/// `task_npc.data` authors 0 for "the server supplies the height"; any other
+/// value is the absolute height the game uses. Without an authored height the
+/// actor stands on the lowest building floor above the terrain sample - a bridge
+/// deck, a platform or an interior floor - and on the terrain when the column
+/// holds no floor at all. That is what keeps the client's own placements out of
+/// the bridge arches and the walls they were authored on top of.
+fn stand_height(
+    spawn: &Spawn,
+    terrain: f32,
+    floors: Option<&dyn FloorSource>,
+    enabled: bool,
+) -> f32 {
+    if let Some(height) = spawn.height {
+        return height;
+    }
+    if !enabled {
+        return terrain;
+    }
+    let Some(floors) = floors else {
+        return terrain;
+    };
+    floors
+        .lowest_floor(
+            Vec3::new(spawn.anchor[0], terrain, spawn.anchor[1]),
+            ACTOR_EXTENTS,
+            MAX_FLOOR_LIFT,
+        )
+        .unwrap_or(terrain)
 }
 
 /// The template's own scene idle. `EcModel::scene_action` is the client's
 /// 0x5b3a4f lookup, including its `休闲` fallback (0x95a750).
-fn idle_clock(asset: &ModelAsset) -> (Option<usize>, Option<Playback>) {
+///
+/// `Playback` only schedules a combined action that is a single base starting at
+/// zero with an infinite or fixed loop count; anything else is the client's
+/// event/transition scheduler, which this viewer does not implement. Those rigs
+/// still have the base clip the combined action names, so that clip runs on the
+/// module clock instead of the actor falling back to its bind pose.
+fn idle_clock(
+    asset: &ModelAsset,
+    report: &mut IdleReport,
+) -> (Option<usize>, Option<Clip>, Option<Playback>) {
     let combined = asset.descriptor.scene_action("休闲");
-    match Playback::new(asset, combined) {
-        // `Playback` rejects multi-base combined actions; the same named
-        // ordinary action still animates the actor on its own clock.
-        Err(_) => (
+    if let Ok(playback) = Playback::new(asset, combined) {
+        report.combined += 1;
+        return (None, None, Some(playback));
+    }
+    let base = combined
+        .and_then(|index| asset.descriptor.actions.get(index))
+        .and_then(|combined| combined.bases.first())
+        .map(|base| base.name.clone());
+    let action = base
+        .and_then(|name| {
             asset
                 .model
                 .actions
                 .iter()
-                .position(|action| action.name == "休闲"),
-            None,
-        ),
-        Ok(playback) => (None, Some(playback)),
+                .position(|action| action.name == name)
+        })
+        .or_else(|| {
+            // No combined scene action at all: the rig's own idle clip by the
+            // names the client's templates use.
+            const IDLE_NAMES: [&str; 4] = ["待机", "站立", "休闲", "idle"];
+            IDLE_NAMES.iter().find_map(|name| {
+                asset
+                    .model
+                    .actions
+                    .iter()
+                    .position(|action| action.name.eq_ignore_ascii_case(name))
+            })
+        });
+    let Some(action) = action else {
+        report.bind_pose += 1;
+        return (None, None, None);
+    };
+    match Clip::new(asset, action) {
+        Some(clip) => {
+            report.looped += 1;
+            (Some(action), Some(clip), None)
+        }
+        None => {
+            // A single-frame or malformed range: nothing to animate.
+            report.bind_pose += 1;
+            (None, None, None)
+        }
     }
+}
+
+/// How the population's idle animations resolved, reported once per session so a
+/// frozen rig is diagnosable instead of a guess.
+#[derive(Clone, Copy, Debug, Default)]
+struct IdleReport {
+    combined: usize,
+    looped: usize,
+    bind_pose: usize,
 }
 
 pub struct Populator {
@@ -261,6 +469,9 @@ pub struct Populator {
     /// Console diagnostics already emitted, so a stuck rig is reported once.
     reported_spawn: bool,
     reported_failures: usize,
+    /// How the idle animations resolved, and whether that was logged.
+    idle_report: IdleReport,
+    reported_idle: bool,
 }
 
 impl Default for Populator {
@@ -281,6 +492,8 @@ impl Default for Populator {
             camera_request: None,
             reported_spawn: false,
             reported_failures: 0,
+            idle_report: IdleReport::default(),
+            reported_idle: false,
         }
     }
 }
@@ -365,9 +578,15 @@ impl Populator {
         }
     }
 
-    /// Per-frame host hook: streams actors around the camera and advances the
-    /// ones standing on a navigation path.
-    pub fn update(&mut self, delta: f32, eye: Vec3) {
+    /// Whether this module needs the host's building hulls this frame.
+    pub fn wants_floors(&self) -> bool {
+        self.active && self.settings.stand_on_objects
+    }
+
+    /// Per-frame host hook: streams actors around the camera, resolves their
+    /// placement against the host's building floors and advances the ones
+    /// standing on a navigation path.
+    pub fn update(&mut self, delta: f32, eye: Vec3, floors: Option<&dyn FloorSource>) {
         if !self.active {
             return;
         }
@@ -379,6 +598,8 @@ impl Populator {
             self.load_error = None;
             self.library_error = None;
             self.live.clear();
+            self.idle_report = IdleReport::default();
+            self.reported_idle = false;
             if let Some(renderer) = self.renderer.as_mut() {
                 renderer.forget_textures();
             }
@@ -418,8 +639,8 @@ impl Populator {
         if self.library.is_none() {
             return;
         }
-        self.stream();
-        self.advance(delta);
+        self.stream(floors);
+        self.advance(delta, floors);
         self.report();
     }
 
@@ -446,12 +667,19 @@ impl Populator {
                 self.reported_failures = failed;
             }
         }
+        if !self.reported_idle && !self.live.is_empty() {
+            self.reported_idle = true;
+            eprintln!(
+                "Populator: idle animation - {} combined actions scheduled, {} clips looped on the module clock, {} rigs left in their bind pose",
+                self.idle_report.combined, self.idle_report.looped, self.idle_report.bind_pose
+            );
+        }
     }
 
     /// Reconciles the drawn set with the placements inside the spawn distance.
     /// Actors that leave the radius are dropped, so the module never holds rigs
     /// it is not drawing.
-    fn stream(&mut self) {
+    fn stream(&mut self, floors: Option<&dyn FloorSource>) {
         let nearest = match self.population.as_ref() {
             Some(population) => population.nearest(
                 [self.eye.x, self.eye.z],
@@ -479,34 +707,30 @@ impl Populator {
             }
         }
         for index in missing.into_iter().take(MAX_SPAWNS_PER_UPDATE) {
-            if let Some(live) = self.spawn_instance(index) {
+            if let Some(live) = self.spawn_instance(index, floors) {
                 next.push(live);
             }
         }
         self.live = next;
     }
 
-    fn spawn_instance(&mut self, index: usize) -> Option<Live> {
+    fn spawn_instance(&mut self, index: usize, floors: Option<&dyn FloorSource>) -> Option<Live> {
         let spawn = self.population.as_ref()?.spawns.get(index)?.clone();
-        let position = self.position_for(&spawn);
-        let yaw = if self.settings.face_camera {
-            let towards = self.eye - position;
-            if towards.length_squared() > 1e-6 {
-                patrol::yaw_towards(towards)
-            } else {
-                0.
-            }
-        } else {
-            // No client file records an NPC facing; `task_npc.data` is id + XZ.
-            0.
-        };
+        let position = self.position_for(&spawn, floors);
+        // No client file records an NPC facing: `task_npc.data` stores id, X,
+        // Z, height and task count, and the `NPC_ESSENCE` record has no
+        // rotation column either. Every placement therefore keeps the rig's own
+        // authored forward axis, which is what the client falls back to.
+        let yaw = 0.;
         let follow = self.route_for(&spawn);
+        let key = crate::ecmodel::normalize(&spawn.model);
         let library = self.library.as_mut()?;
         let asset = library.asset(&spawn.model).ok()?;
-        let (action, playback) = if self.settings.idle_animation {
-            idle_clock(asset.as_ref())
+        let head = library.head(&key, asset.as_ref());
+        let (action, clip, playback) = if self.settings.idle_animation {
+            idle_clock(asset.as_ref(), &mut self.idle_report)
         } else {
-            (None, None)
+            (None, None, None)
         };
         Some(Live {
             spawn: index,
@@ -515,21 +739,24 @@ impl Populator {
             asset,
             action,
             playback,
+            clip,
             clock: 0.,
+            head,
+            floor_stamp: floors.map_or(0, |floors| floors.floor_stamp()),
             follow,
             draw: None,
             failure: None,
         })
     }
 
-    fn position_for(&self, spawn: &Spawn) -> Vec3 {
-        let ground = match self.map.as_ref() {
+    fn position_for(&self, spawn: &Spawn, floors: Option<&dyn FloorSource>) -> Vec3 {
+        let terrain = match self.map.as_ref() {
             Some(map) => map.ground(spawn.anchor[0], spawn.anchor[1]),
             None => 0.,
         };
         Vec3::new(
             spawn.anchor[0],
-            anchor_height(spawn, ground),
+            stand_height(spawn, terrain, floors, self.settings.stand_on_objects),
             spawn.anchor[1],
         )
     }
@@ -539,10 +766,11 @@ impl Populator {
         Follow::new(route).ok()
     }
 
-    fn advance(&mut self, delta: f32) {
+    fn advance(&mut self, delta: f32, floors: Option<&dyn FloorSource>) {
         if !delta.is_finite() || delta <= 0. {
             return;
         }
+        self.resolve_floors(floors);
         let delta_ms = (delta * 1000.).round().clamp(0., u32::MAX as f32) as u32;
         for live in &mut self.live {
             if live.failure.is_some() {
@@ -554,6 +782,11 @@ impl Populator {
                 // rather than hiding the actor.
                 if playback.tick(delta_ms).is_err() {
                     live.playback = None;
+                } else if playback.stopped() {
+                    // A scene actor re-triggers its idle: the template's own
+                    // loop count schedules one pass, it does not mean the actor
+                    // holds the last frame for the rest of the session.
+                    playback.restart();
                 }
             }
             let Some(follow) = live.follow.as_mut() else {
@@ -575,6 +808,44 @@ impl Populator {
                 Motion::Finished => live.follow = None,
                 Motion::Waiting => {}
             }
+        }
+    }
+
+    /// Re-resolves placements the host's hull loader has caught up with.
+    ///
+    /// Building hulls stream in from `models.pck` after the first frame, so an
+    /// actor spawned during loading may have resolved against an incomplete
+    /// world and be standing on the terrain under a bridge. The stamp changes
+    /// with every batch; only the actors resolved against an older one are
+    /// moved again, and actors with an authored height never are.
+    fn resolve_floors(&mut self, floors: Option<&dyn FloorSource>) {
+        if !self.settings.stand_on_objects {
+            return;
+        }
+        let Some(floors) = floors else {
+            return;
+        };
+        let stamp = floors.floor_stamp();
+        let Some(map) = self.map.as_ref() else {
+            return;
+        };
+        let Some(population) = self.population.as_ref() else {
+            return;
+        };
+        for live in &mut self.live {
+            if live.floor_stamp == stamp {
+                continue;
+            }
+            live.floor_stamp = stamp;
+            let Some(spawn) = population.spawns.get(live.spawn) else {
+                continue;
+            };
+            // An authored height is the game's own answer and never moves.
+            if spawn.height.is_some() {
+                continue;
+            }
+            let terrain = map.ground(spawn.anchor[0], spawn.anchor[1]);
+            live.position.y = stand_height(spawn, terrain, Some(floors), true);
         }
     }
 
@@ -685,6 +956,84 @@ impl Populator {
             .iter()
             .filter(|live| live.failure.is_some())
             .count()
+    }
+
+    /// Whether overhead names will be painted this frame, so the host only runs
+    /// its egui pass when there is something to draw.
+    pub fn names_active(&self) -> bool {
+        self.active
+            && self.settings.show_names
+            && !self.live.is_empty()
+            && self.population.is_some()
+    }
+
+    /// Client-style overhead names: the template's own name, projected over the
+    /// actor's head in world space, faded with distance and shadowed the way the
+    /// client's own labels are. The layer sits above the 3D scene and below the
+    /// viewer's windows, so a menu still covers the labels.
+    pub fn overlay_ui(&mut self, ctx: &egui::Context, view_projection: Mat4, screen: egui::Rect) {
+        if !self.names_active() || self.settings.name_distance <= 0. {
+            return;
+        }
+        let Some(population) = self.population.as_ref() else {
+            return;
+        };
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Background,
+            egui::Id::new("populator-nameplates"),
+        ));
+        let eye = self.eye;
+        let range = self.settings.name_distance;
+        let fade_from = range * 0.75;
+        for live in &self.live {
+            if live.failure.is_some() {
+                continue;
+            }
+            let Some(spawn) = population.spawns.get(live.spawn) else {
+                continue;
+            };
+            if spawn.name.is_empty() {
+                continue;
+            }
+            let distance = (live.position - eye).length();
+            if distance > range {
+                continue;
+            }
+            let anchor = live.position + Vec3::Y * (live.head + NAME_LIFT);
+            let clip = view_projection * anchor.extend(1.);
+            // Behind the eye or outside the client's near plane.
+            if clip.w <= 0.001 {
+                continue;
+            }
+            let ndc = clip.truncate() / clip.w;
+            if !(-1.0..=1.0).contains(&ndc.x) || !(-1.0..=1.0).contains(&ndc.y) {
+                continue;
+            }
+            let position = egui::pos2(
+                screen.left() + (ndc.x * 0.5 + 0.5) * screen.width(),
+                screen.top() + (0.5 - ndc.y * 0.5) * screen.height(),
+            );
+            let alpha = if distance <= fade_from {
+                1.0
+            } else {
+                ((range - distance) / (range - fade_from)).clamp(0., 1.)
+            };
+            let font = egui::FontId::proportional(if distance < 40. { 14. } else { 12. });
+            painter.text(
+                position + egui::vec2(1., 1.),
+                egui::Align2::CENTER_BOTTOM,
+                &spawn.name,
+                font.clone(),
+                egui::Color32::from_black_alpha((alpha * 190.) as u8),
+            );
+            painter.text(
+                position,
+                egui::Align2::CENTER_BOTTOM,
+                &spawn.name,
+                font,
+                egui::Color32::from_white_alpha((alpha * 245.) as u8),
+            );
+        }
     }
 
     pub fn settings_ui(&mut self, ui: &mut egui::Ui) {
@@ -836,10 +1185,24 @@ impl Populator {
         ui.add(
             egui::Slider::new(&mut self.settings.max_visible, 1..=MAX_VISIBLE_LIMIT).text("actors"),
         );
-        ui.checkbox(&mut self.settings.idle_animation, "Idle animation");
-        ui.checkbox(
-            &mut self.settings.face_camera,
-            "Turn to face the camera (no placement file records a facing)",
+        ui.checkbox(&mut self.settings.idle_animation, "Idle animation")
+            .on_hover_text(
+                "Play the template's own `休闲` scene action. The client's combined scene action is used where it can be scheduled; otherwise the clip that combined action names loops on the module clock, and only a rig with neither stays in its bind pose.",
+            );
+        ui.checkbox(&mut self.settings.stand_on_objects, "Stand on building floors")
+            .on_hover_text(
+                "Resolve each placement against the client's own BMD collision hulls, so an NPC authored onto a bridge deck, platform or interior floor stands there instead of on the terrain under the geometry. Uses the same hulls as the Walker module's collision check and loads them when this module is enabled.",
+            );
+        ui.checkbox(&mut self.settings.show_names, "Names above heads")
+            .on_hover_text("Draw each template's own name over the actor, as the client does.");
+        ui.add_enabled(
+            self.settings.show_names,
+            egui::Slider::new(
+                &mut self.settings.name_distance,
+                MIN_NAME_DISTANCE..=MAX_SPAWN_DISTANCE,
+            )
+            .text("name distance")
+            .suffix(" u"),
         );
         self.settings = self.settings.sanitized();
         ui.label(
@@ -885,6 +1248,13 @@ impl Populator {
             .small()
             .weak(),
         );
+        ui.label(
+            egui::RichText::new(
+                "Facing is server data. task_npc.data stores id, X, Z, height and task count in a fixed 12-byte record, and the NPC_ESSENCE record has no rotation column, so every placement keeps the rig's own authored forward axis.",
+            )
+            .small()
+            .weak(),
+        );
     }
 }
 
@@ -910,7 +1280,9 @@ mod tests {
         let settings = Settings::default();
         assert_eq!(settings.spawn_distance, 420.);
         assert!(settings.idle_animation);
-        assert!(!settings.face_camera);
+        assert!(settings.show_names);
+        assert!(settings.stand_on_objects);
+        assert_eq!(settings.name_distance, NATIVE_NAME_DISTANCE);
         assert_eq!(settings.sanitized(), settings);
     }
 
@@ -934,10 +1306,53 @@ mod tests {
         assert_eq!(high.max_visible, MAX_VISIBLE_LIMIT);
     }
 
+    /// A stand-in for the Walker's building hulls: one floor at a fixed height.
+    struct OneFloor(Option<f32>, u64);
+
+    impl FloorSource for OneFloor {
+        fn lowest_floor(&self, _feet: Vec3, _extents: Vec3, _max_up: f32) -> Option<f32> {
+            self.0
+        }
+
+        fn floor_stamp(&self) -> u64 {
+            self.1
+        }
+    }
+
     #[test]
-    fn authored_height_wins_and_zero_means_terrain() {
-        assert_eq!(anchor_height(&spawn(Some(276.)), 120.), 276.);
-        assert_eq!(anchor_height(&spawn(None), 120.), 120.);
+    fn authored_height_wins_and_a_real_floor_beats_the_terrain() {
+        let none = OneFloor(None, 1);
+        let bridge = OneFloor(Some(146.), 1);
+        // An authored height is the game's own value, never the terrain.
+        assert_eq!(
+            stand_height(&spawn(Some(276.)), 120., Some(&bridge), true),
+            276.
+        );
+        // "0" means the server's height: trust a real floor above the terrain.
+        assert_eq!(stand_height(&spawn(None), 120., Some(&bridge), true), 146.);
+        // No floor in the column, or the option off, keeps the terrain.
+        assert_eq!(stand_height(&spawn(None), 120., Some(&none), true), 120.);
+        assert_eq!(stand_height(&spawn(None), 120., Some(&bridge), false), 120.);
+        assert_eq!(stand_height(&spawn(None), 120., None, true), 120.);
+    }
+
+    #[test]
+    fn an_idle_clip_wraps_inside_its_own_authored_range() {
+        // Half a second into the clip, one second long: the sampled time must
+        // stay inside 500..1500 ms however long the actor stands there, because
+        // the sampler clamps past the last key instead of wrapping.
+        let clip = Clip {
+            start_ms: 500,
+            length_ms: 1_000,
+        };
+        let close = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        assert!(close(clip.seconds(0.), 0.5));
+        assert!(close(clip.seconds(0.25), 0.75));
+        assert!(close(clip.seconds(1.0), 0.5));
+        assert!(close(clip.seconds(1.5), 1.0));
+        assert!(close(clip.seconds(-1.), 0.5));
+        // Long-running actors wrap instead of freezing on the last key.
+        assert!(close(clip.seconds(3_601.25), 0.75));
     }
 
     #[test]
@@ -960,7 +1375,7 @@ mod tests {
     fn an_inert_module_reports_why_it_cannot_draw() {
         let mut populator = Populator::default();
         populator.set_active(true, Vec3::ZERO);
-        populator.update(0.016, Vec3::ZERO);
+        populator.update(0.016, Vec3::ZERO, None);
         assert!(populator.live.is_empty());
         assert_eq!(populator.status(), "Waiting for a loaded world");
     }
