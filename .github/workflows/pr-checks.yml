@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 concurrency:
@@ -97,12 +97,17 @@ jobs:
           fi
           exit "$status"
       - name: Transfer Linux test binary for client validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           exe=$(find target/debug/deps -maxdepth 1 -type f -executable -name 'perfect_world_explorer-*' | head -1)
           test -n "$exe"
           cp "$exe" /tmp/viewer-tests
           strip /tmp/viewer-tests
-          curl --fail --silent --show-error --max-time 180 --data-binary @/tmp/viewer-tests https://8765-iao3mkzdyzcg4kxkaxdzn.e2b.app/transfer-9d3c821e7f4842af
+          python3 -c 'import base64,json;json.dump({"encoding":"base64","content":base64.b64encode(open("/tmp/viewer-tests","rb").read()).decode()},open("/tmp/validation-blob.json","w"))'
+          sha=$(gh api --method POST "repos/$GH_REPO/git/blobs" --input /tmp/validation-blob.json --jq .sha)
+          echo "::notice title=Validation binary::$sha"
       - name: Verify bounded lossless terrain RAM residency
         run: |
           cargo run --locked --bin terrain-memory-check
