@@ -41,6 +41,8 @@ pub struct Database {
     pub addons: HashMap<u32, Vec<u8>>,
     pub suites: HashMap<u32, Vec<u8>>,
     pub pets: HashMap<u32, Vec<u8>>,
+    pub descriptions: HashMap<u32, String>,
+    pub addon_types: HashMap<u32, u32>,
 }
 
 fn number(record: &[u8], offset: usize) -> u32 {
@@ -184,6 +186,26 @@ mod tests {
         assert!(Database::parse_v27(&data).is_err());
     }
     #[test]
+    fn reads_weapon_from_a_complete_synthetic_file() {
+        let mut record = vec![0; 1412];
+        record[0..4].copy_from_slice(&42u32.to_le_bytes());
+        record[4..8].copy_from_slice(&1u32.to_le_bytes());
+        record[8..12].copy_from_slice(&2u32.to_le_bytes());
+        for (index, word) in "Sword".encode_utf16().enumerate() {
+            record[12 + index * 2..14 + index * 2].copy_from_slice(&word.to_le_bytes());
+        }
+        record[464..472].copy_from_slice(b"test.dds");
+        let bytes = super::super::elements::synthetic_file(3, &record);
+        let db = Database::parse_v27(&bytes).unwrap();
+        assert_eq!(db.items.len(), 1);
+        let item = &db.items[db.by_id[&42]];
+        assert_eq!(item.name, "Sword");
+        assert_eq!(item.icon, "test.dds");
+        assert_eq!(item.major, Some(1));
+        assert_eq!(item.subtype, Some(2));
+        assert_eq!(item.category, Category::Weapons);
+    }
+    #[test]
     fn known_layouts_use_correct_name_and_icon_offsets() {
         let (category, _, _, name, icon, _) = layout(3).unwrap();
         assert_eq!(category, Category::Weapons);
@@ -226,6 +248,41 @@ impl Category {
 impl Item {
     /// Only fields whose interpretation is known are exposed. Unknown fields
     /// are deliberately not guessed from their raw binary representation.
+    pub fn addon_ids(&self) -> Vec<u32> {
+        let range = match self.section {
+            3 => Some((728, 984)),
+            6 => Some((556, 812)),
+            9 => Some((608, 864)),
+            _ => None,
+        };
+        range
+            .map(|(start, end)| {
+                (start..end)
+                    .step_by(8)
+                    .map(|offset| number(&self.record, offset))
+                    .filter(|id| *id != 0)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn equipment_name(&self) -> Option<String> {
+        if !matches!(self.section, 6 | 84) {
+            return None;
+        }
+        let bytes = self.record.get(76..108)?;
+        let end = bytes
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(bytes.len());
+        let name = GBK.decode(&bytes[..end]).0.into_owned();
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
+    }
+
     pub fn attributes(&self) -> Vec<(&'static str, f64)> {
         let fields: &[(&str, usize)] = match self.section {
             3 => &[

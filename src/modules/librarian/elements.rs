@@ -272,3 +272,25 @@ mod tests {
         assert!(visit_v27_records(&bytes[..bytes.len() - 1], |_, _| Ok(())).is_err());
     }
 }
+
+#[cfg(test)]
+pub(super) fn synthetic_file(section_index: usize, record: &[u8]) -> Vec<u8> {
+    let mut bytes = ELEMENTS_V27.to_le_bytes().to_vec();
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    for (index, size) in SECTION_SIZES.iter().copied().enumerate() {
+        match size {
+            Size::Fixed(size) => {
+                let present = index == section_index;
+                bytes.extend_from_slice(&(present as u32).to_le_bytes());
+                if present {
+                    assert_eq!(record.len(), size);
+                    bytes.extend_from_slice(record);
+                }
+            }
+            Size::Talk => bytes.extend_from_slice(&0u32.to_le_bytes()),
+            Size::ControlTimestamp => bytes.extend_from_slice(&[0; 12]),
+            Size::ControlPlain => bytes.extend_from_slice(&[0; 8]),
+        }
+    }
+    bytes
+}

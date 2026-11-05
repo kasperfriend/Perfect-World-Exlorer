@@ -24,7 +24,9 @@ pub struct Preview {
     center: Vec3,
     pub pan: Vec3,
     radius: f32,
-    started: std::time::Instant,
+    updated: std::time::Instant,
+    elapsed: f32,
+    pub action: usize,
 }
 impl Preview {
     pub fn new(
@@ -79,7 +81,9 @@ impl Preview {
             center: Vec3::ZERO,
             pan: Vec3::ZERO,
             radius: 1.,
-            started: std::time::Instant::now(),
+            updated: std::time::Instant::now(),
+            elapsed: 0.,
+            action: 0,
         }
     }
     pub fn update(
@@ -96,12 +100,14 @@ impl Preview {
             self.draw = None;
             self.error = None;
             if !path.is_empty() {
-                let path = if path.starts_with("models/") {
+                let path = if path.starts_with("worn:") || path.starts_with("models/") {
                     path.to_owned()
                 } else {
                     format!("models/{path}")
                 };
-                let result = if path.ends_with(".ecm") {
+                let result = if let Some(worn) = path.strip_prefix("worn:") {
+                    load_worn(assets, worn)
+                } else if path.ends_with(".ecm") {
                     ModelAsset::load_unique_with(&path, |p| assets.read_model_resource(p))
                         .map(|(asset, _)| asset)
                 } else if path.ends_with(".smd") {
@@ -170,19 +176,37 @@ impl Preview {
                     Ok((asset, draw)) => {
                         self.asset = Some(asset);
                         self.draw = Some(draw);
-                        self.started = std::time::Instant::now();
+                        self.elapsed = 0.;
+                        self.action = 0;
                     }
                     Err(error) => self.error = Some(error),
                 }
             }
         }
+        let now = std::time::Instant::now();
+        let dt = now.duration_since(self.updated).as_secs_f32().min(0.1);
+        self.updated = now;
         if self.turntable {
-            self.yaw += 0.01;
+            self.yaw += 0.6 * dt;
+        }
+        if self.playing {
+            self.elapsed += dt;
         }
         if let (Some(asset), Some(draw)) = (&self.asset, &self.draw) {
-            let poses = if self.playing && !asset.model.actions.is_empty() {
+            let poses = if let Some(clip) = asset.model.actions.get(self.action) {
+                let fps = clip
+                    .fps
+                    .filter(|fps| *fps > 0)
+                    .unwrap_or(asset.skeleton.fps)
+                    .max(1) as f32;
+                let start = clip.start / fps;
+                let duration = ((clip.end - clip.start) / fps).max(0.001);
                 asset
-                    .pose_action_at_time(0, self.started.elapsed().as_secs_f32(), Mat4::IDENTITY)
+                    .pose_action_at_time(
+                        self.action,
+                        start + self.elapsed % duration,
+                        Mat4::IDENTITY,
+                    )
                     .or_else(|_| asset.pose_bind(Mat4::IDENTITY))
             } else {
                 asset.pose_bind(Mat4::IDENTITY)
@@ -226,6 +250,19 @@ impl Preview {
             }
         }
         queue.submit(Some(encoder.finish()));
+    }
+    pub fn action_names(&self) -> Vec<String> {
+        self.asset
+            .as_ref()
+            .map(|asset| {
+                asset
+                    .model
+                    .actions
+                    .iter()
+                    .map(|action| action.name.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
     pub fn pan_by(&mut self, delta: egui::Vec2) {
         let right = Vec3::new(self.yaw.cos(), 0., -self.yaw.sin());
@@ -275,4 +312,37 @@ impl Preview {
             alpha_reference: 84. / 255.,
         }
     }
+}
+
+fn load_worn(assets: &mut LibrarianAssets, request: &str) -> Result<ModelAsset, String> {
+    use crate::modules::designer::catalog::{Class, Gender};
+    let (gender, realname) = request.split_once(':').ok_or("invalid equipment preview")?;
+    let gender = if gender == "f" {
+        Gender::Female
+    } else {
+        Gender::Male
+    };
+    let class = Class::Blademaster;
+    let mut asset = ModelAsset::load_without_skins_with(&class.body_model(gender), |path| {
+        assets.read_model_resource(path)
+    })?;
+    let paths = [
+        class.body_skin(gender, 0),
+        class.equipment_skin(gender, realname, 0),
+    ];
+    for path in paths {
+        let data = crate::skin::Skin::parse(&assets.read_model_resource(&path)?)
+            .map_err(|error| format!("{path}: {error}"))?;
+        let index = asset.skins.len();
+        if index == 1 {
+            asset
+                .diffuse_alpha_meshes
+                .extend((0..data.meshes.len()).map(|mesh| (index, mesh)));
+        }
+        asset.model.skins.push(path.clone());
+        asset
+            .skins
+            .push(crate::model_asset::SkinAsset { path, data });
+    }
+    Ok(asset)
 }

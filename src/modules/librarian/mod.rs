@@ -3,6 +3,7 @@
 mod archive;
 mod compare;
 mod database;
+mod descriptions;
 mod elements;
 mod icons;
 mod preview3d;
@@ -30,6 +31,7 @@ struct State {
     compare_open: bool,
     preview: Option<preview3d::Preview>,
     show_3d: bool,
+    preview_female: bool,
 }
 impl Librarian {
     pub fn new(root: PathBuf) -> Self {
@@ -63,7 +65,17 @@ impl Librarian {
             .read_elements_data()
             .and_then(|bytes| Database::parse_v27(&bytes))
         {
-            Ok(database) => {
+            Ok(mut database) => {
+                for name in ["configs/item_desc.txt", "configs/item_ext_desc.txt"] {
+                    if let Some(bytes) = assets.read_config(name) {
+                        database
+                            .descriptions
+                            .extend(descriptions::keyed_strings(&bytes));
+                    }
+                }
+                if let Some(bytes) = assets.read_config("configs/item_ext_prop.txt") {
+                    database.addon_types = descriptions::addon_types(&bytes);
+                }
                 let icons = IconCache::load(&mut assets);
                 self.state = Some(State {
                     assets,
@@ -77,6 +89,7 @@ impl Librarian {
                     compare_open: false,
                     preview: None,
                     show_3d: false,
+                    preview_female: false,
                 });
                 self.error = None;
             }
@@ -101,13 +114,17 @@ impl Librarian {
         let preview = state
             .preview
             .get_or_insert_with(|| preview3d::Preview::new(device, renderer, format));
-        preview.update(
-            device,
-            queue,
-            format,
-            &mut state.assets,
-            &state.database.items[index].model,
-        );
+        let item = &state.database.items[index];
+        let path = item
+            .equipment_name()
+            .map(|name| {
+                format!(
+                    "worn:{}:{name}",
+                    if state.preview_female { "f" } else { "m" }
+                )
+            })
+            .unwrap_or_else(|| item.model.clone());
+        preview.update(device, queue, format, &mut state.assets, &path);
     }
     pub fn ui(&mut self, ctx: &egui::Context) {
         let Some(state) = &mut self.state else { return };
@@ -263,6 +280,13 @@ impl State {
                             ui.selectable_value(&mut self.show_3d, true, "3D model");
                         });
                         if self.show_3d {
+                            if item.equipment_name().is_some() {
+                                ui.horizontal(|ui| {
+                                    ui.label("Blademaster mannequin:");
+                                    ui.selectable_value(&mut self.preview_female, false, "Male");
+                                    ui.selectable_value(&mut self.preview_female, true, "Female");
+                                });
+                            }
                             if let Some(preview) = &mut self.preview {
                                 if let Some(error) = &preview.error {
                                     ui.colored_label(egui::Color32::LIGHT_RED, error);
@@ -292,6 +316,28 @@ impl State {
                                     ui.checkbox(&mut preview.turntable, "Turntable");
                                     ui.checkbox(&mut preview.playing, "Animation");
                                 });
+                                let actions = preview.action_names();
+                                if !actions.is_empty() {
+                                    egui::ComboBox::from_label("Action")
+                                        .selected_text(
+                                            actions
+                                                .get(preview.action)
+                                                .map(String::as_str)
+                                                .unwrap_or("Bind pose"),
+                                        )
+                                        .show_ui(ui, |ui| {
+                                            for (index, name) in actions.iter().enumerate() {
+                                                ui.selectable_value(
+                                                    &mut preview.action,
+                                                    index,
+                                                    name,
+                                                );
+                                            }
+                                        });
+                                }
+                                if preview.playing || preview.turntable {
+                                    ui.ctx().request_repaint();
+                                }
                                 ui.label("Drag to orbit; Shift-drag to pan; scroll to zoom.");
                             } else {
                                 ui.label("Preparing preview…");
@@ -307,6 +353,10 @@ impl State {
                             self.comparison.push(index);
                         }
                         ui.separator();
+                        if let Some(description) = self.database.descriptions.get(&item.id) {
+                            ui.label(descriptions::plain_text(description));
+                            ui.separator();
+                        }
                         for (name, value) in item.attributes() {
                             ui.label(format!("{name}: {value}"));
                         }
@@ -315,6 +365,39 @@ impl State {
                         }
                         if !item.model.is_empty() {
                             ui.label(format!("Model: {}", item.model));
+                        }
+                        let addon_ids = item.addon_ids();
+                        if !addon_ids.is_empty() {
+                            ui.separator();
+                            ui.strong("Possible add-on records");
+                            for addon_id in addon_ids {
+                                let kind = self
+                                    .database
+                                    .addon_types
+                                    .get(&addon_id)
+                                    .map(|value| format!(" · type {value}"))
+                                    .unwrap_or_default();
+                                if let Some(record) = self.database.addons.get(&addon_id) {
+                                    let count =
+                                        u32::from_le_bytes(record[68..72].try_into().unwrap())
+                                            .min(3);
+                                    let values: Vec<_> = (0..count as usize)
+                                        .map(|index| {
+                                            let offset = 72 + index * 4;
+                                            i32::from_le_bytes(
+                                                record[offset..offset + 4].try_into().unwrap(),
+                                            )
+                                            .to_string()
+                                        })
+                                        .collect();
+                                    ui.label(format!(
+                                        "Add-on {addon_id}{kind}: {} (raw)",
+                                        values.join(", ")
+                                    ));
+                                } else {
+                                    ui.label(format!("Add-on {addon_id}{kind}"));
+                                }
+                            }
                         }
                         for (_, name, members) in self.database.suites_for(item.id) {
                             ui.separator();
