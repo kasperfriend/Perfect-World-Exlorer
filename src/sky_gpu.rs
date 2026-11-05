@@ -492,17 +492,22 @@ fn flare_uv_origin(i:i32)->vec2<f32>{
 fn flare_uv_size(i:i32)->f32{
  if i==2 {return 0.5;} return 0.25;
 }
+fn depth_sample(p:vec2<f32>)->f32{
+ let uv=p*0.5+vec2<f32>(0.5,0.5);
+ let d=textureSample(depth_tex,depth_smp,uv);
+ if (d>0.999 || d<0.0001) { return 0.4; }
+ return 0.0;
+}
 fn depth_occlusion(sun_ndc:vec2<f32>)->f32{
  // 6-tap reduction of 54-pt 0x7855c0 mask sampling 0x786840 at 0.4 — native ps/solarflare_14
- let taps=array<vec2<f32>,6>(vec2<f32>(0.0,0.0),vec2<f32>(0.015,0.0),vec2<f32>(-0.015,0.0),vec2<f32>(0.0,0.015),vec2<f32>(0.0,-0.015),vec2<f32>(0.022,0.022));
+ // Unrolled: naga forbids variable indexing of the taps array.
  var sum:f32=0.0;
- for(var i:i32=0;i<6;i=i+1){
-  let p=sun_ndc+taps[i];
-  let uv=p*0.5+vec2<f32>(0.5,0.5);
-  // reversed-Z depth: 0 far sky, 1 near — far means unoccluded
-  let d=textureSample(depth_tex,depth_smp,uv);
-  if (d>0.999 || d<0.0001) { sum+=0.4; }
- }
+ sum+=depth_sample(sun_ndc+vec2<f32>(0.0,0.0));
+ sum+=depth_sample(sun_ndc+vec2<f32>(0.015,0.0));
+ sum+=depth_sample(sun_ndc+vec2<f32>(-0.015,0.0));
+ sum+=depth_sample(sun_ndc+vec2<f32>(0.0,0.015));
+ sum+=depth_sample(sun_ndc+vec2<f32>(0.0,-0.015));
+ sum+=depth_sample(sun_ndc+vec2<f32>(0.022,0.022));
  return clamp(sum,0.0,1.0);
 }
 fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,ring:i32)->vec3<f32>{
