@@ -2,10 +2,13 @@
 //!
 //! Two retail client files carry the shipped population:
 //!
-//! * `data/task_npc.data` — the main world's NPC placement table. The shipped
-//!   file is 18,876 bytes: `u32 total_size`, `u32 timestamp (0x4b39c937)`,
+//! * `data/task_npc.data` — the main world's task-NPC table. The shipped file is
+//!   18,876 bytes: `u32 total_size`, `u32 timestamp (0x4b39c937)`,
 //!   `u16 version = 1`, `u16 count = 1,572`, then 1,572 records of
 //!   `u32 npc_id`, `i16 x`, `i16 z`, `i16 height`, `u16 task_count`.
+//!   1,057 of those records carry `x = z = 0`: they are the NPCs the server
+//!   spawns for quests, and the client never places them, so the module does
+//!   not draw them at the map origin — 515 records carry a real position.
 //!   Every id resolves to an `NPC_ESSENCE` row and the two coordinate columns
 //!   land on the client's own destination landmarks with the first column as
 //!   world X and the second as world Z (Archosaur North
@@ -154,6 +157,8 @@ pub struct Spawn {
 #[derive(Clone, Debug, Default)]
 pub struct Population {
     pub spawns: Vec<Spawn>,
+    /// Records at `x = z = 0`, the table's "the server places this one" marker.
+    pub unplaced: usize,
     /// Placements whose template was missing or not spawnable.
     pub skipped: usize,
     /// Real navigation paths, in spawn-index order of appearance. Empty for
@@ -199,8 +204,16 @@ impl Population {
     /// the template's authored name and rig; nothing is substituted.
     pub fn from_tables(catalog: &Catalog, table: &TaskNpcTable, elements_label: String) -> Self {
         let mut spawns = Vec::with_capacity(table.entries.len());
+        let mut unplaced = 0usize;
         let mut skipped = 0usize;
         for entry in &table.entries {
+            // Zero/zero is the table's own "no client position" encoding: the
+            // entry is a quest NPC the server spawns, and drawing it would put
+            // a thousand characters on the map origin.
+            if entry.x == 0 && entry.z == 0 {
+                unplaced += 1;
+                continue;
+            }
             let Some(npc) = catalog.npc(entry.npc_id) else {
                 skipped += 1;
                 continue;
@@ -224,13 +237,14 @@ impl Population {
             provenance: vec![
                 elements_label,
                 format!(
-                    "data/task_npc.data: v{}, {}, {} NPC placements",
+                    "data/task_npc.data: v{}, {} B, {} records",
                     table.version,
                     table.declared_size,
                     table.entries.len()
                 ),
             ],
             spawns,
+            unplaced,
             skipped,
             routes: Vec::new(),
             npc_templates: catalog.npcs.len(),
@@ -245,6 +259,23 @@ impl Population {
                            server npcgen.data"
                 .to_string(),
         }
+    }
+
+    /// Number of real placements within `radius` of `camera`, for the status
+    /// line: an empty radius is a data answer, not a rendering failure.
+    pub fn count_within(&self, camera: [f32; 2], radius: f32) -> usize {
+        if !radius.is_finite() || radius <= 0. {
+            return 0;
+        }
+        let radius2 = radius * radius;
+        self.spawns
+            .iter()
+            .filter(|spawn| {
+                let dx = spawn.anchor[0] - camera[0];
+                let dz = spawn.anchor[1] - camera[1];
+                dx * dx + dz * dz <= radius2
+            })
+            .count()
     }
 
     /// Nearest spawns to `camera` within `radius`, closest first, capped at
@@ -435,7 +466,10 @@ mod tests {
         let population = Population::open(element).unwrap();
         assert_eq!(population.npc_templates, 2_838);
         assert_eq!(population.monster_templates, 4_208);
-        assert_eq!(population.spawns.len(), 1_572);
+        // 1,572 records: 515 with a real position, 1,057 marked `0,0` for the
+        // server to place. None is dropped for its template or its name.
+        assert_eq!(population.spawns.len(), 515);
+        assert_eq!(population.unplaced, 1_057);
         assert_eq!(population.skipped, 0);
         let apothecary = population
             .spawns
@@ -444,8 +478,9 @@ mod tests {
             .unwrap();
         assert_eq!(apothecary.name, "Apothecary Cheng");
         assert!(apothecary.model.ends_with("/男npc4.ecm"));
-        // Every placement resolves to an `.ecm`; 1,571 sit under `models/npcs`,
-        // one is an animated scene creature under `models/场景活物`.
+        // Every real placement resolves to an `.ecm`; 514 sit under
+        // `models/npcs`, one is an animated scene creature under
+        // `models/场景活物`.
         assert!(population
             .spawns
             .iter()
@@ -456,17 +491,21 @@ mod tests {
                 .iter()
                 .filter(|spawn| spawn.model.starts_with("models/npcs/"))
                 .count(),
-            1_571
+            514
         );
-        // 282 real placements are nameless props (palace lanterns and the
-        // like); they are still drawn, so the spawn list keeps them.
+        // 19 placed NPCs sit at an authored height instead of on the terrain.
         assert_eq!(
             population
                 .spawns
                 .iter()
-                .filter(|spawn| spawn.name.is_empty())
+                .filter(|spawn| spawn.height.is_some())
                 .count(),
-            282
+            19
+        );
+        // Archosaur North stays the densest cluster the client can place.
+        assert_eq!(
+            population.count_within([1470.490, 1180.864], 420.),
+            61
         );
     }
 }

@@ -66,6 +66,10 @@ impl Modules {
         self.walker.is_active()
     }
 
+    pub fn populator_active(&self) -> bool {
+        self.populator.is_active()
+    }
+
     pub fn walker_zoom(&mut self, steps: f32) {
         self.walker.zoom(steps);
     }
@@ -337,7 +341,14 @@ impl Modules {
         eye: Vec3,
     ) -> Option<Vec3> {
         self.populator.update(delta, eye);
-        self.walker.update(delta, input_enabled, keys, yaw, pitch)
+        // A module may ask the host for a one-shot camera move (the Populator's
+        // "go to the nearest placement"). The Walker wins when it drives the
+        // camera; otherwise the request is honoured for that frame.
+        let request = self.populator.take_camera_request();
+        match self.walker.update(delta, input_enabled, keys, yaw, pitch) {
+            Some(position) => Some(position),
+            None => request,
+        }
     }
 
     pub fn update_walker_audio(&mut self, enabled: bool, volume: f32) {
@@ -352,8 +363,10 @@ impl Modules {
         self.walker.audio_diagnostic()
     }
 
+    /// The host calls this only when the Walker add-on itself is visible in the
+    /// pass; the two add-ons are independent.
     #[allow(clippy::too_many_arguments)]
-    pub fn render(
+    pub fn render_walker(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -365,6 +378,19 @@ impl Modules {
     ) {
         self.walker
             .render(device, queue, format, encoder, target, depth, frame);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_population(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        format: wgpu::TextureFormat,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        depth: &wgpu::TextureView,
+        frame: model_draw_gpu::Frame,
+    ) {
         self.populator
             .render(device, queue, format, encoder, target, depth, frame);
     }

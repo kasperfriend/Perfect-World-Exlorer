@@ -256,6 +256,11 @@ pub struct Populator {
     live: Vec<Live>,
     eye: Vec3,
     reload_pending: bool,
+    /// One-shot camera move the settings window can ask the host for.
+    camera_request: Option<Vec3>,
+    /// Console diagnostics already emitted, so a stuck rig is reported once.
+    reported_spawn: bool,
+    reported_failures: usize,
 }
 
 impl Default for Populator {
@@ -273,6 +278,9 @@ impl Default for Populator {
             live: Vec::new(),
             eye: Vec3::ZERO,
             reload_pending: false,
+            camera_request: None,
+            reported_spawn: false,
+            reported_failures: 0,
         }
     }
 }
@@ -305,6 +313,31 @@ impl Populator {
         self.settings
     }
 
+    /// One-shot camera move requested by the settings window. The host owns the
+    /// camera, so the module only asks.
+    pub fn take_camera_request(&mut self) -> Option<Vec3> {
+        self.camera_request.take()
+    }
+
+    /// Camera pose showing the nearest real placement, for the settings
+    /// window's "go there" button: the module cannot verify what it cannot
+    /// reach, and most of the map genuinely has no task NPC nearby.
+    fn nearest_camera_target(&self) -> Option<Vec3> {
+        let population = self.population.as_ref()?;
+        let map = self.map.as_ref()?;
+        let nearest = population.nearest([self.eye.x, self.eye.z], f32::MAX, 1);
+        let (index, _) = nearest.first().copied()?;
+        let spawn = population.spawns.get(index)?;
+        let ground = spawn
+            .height
+            .unwrap_or_else(|| map.ground(spawn.anchor[0], spawn.anchor[1]));
+        Some(Vec3::new(
+            spawn.anchor[0] + 30.,
+            ground + 6.,
+            spawn.anchor[1] + 30.,
+        ))
+    }
+
     pub fn status(&self) -> String {
         if let Some(error) = &self.load_error {
             return format!("Population unavailable: {error}");
@@ -316,11 +349,20 @@ impl Populator {
             return "Waiting for a loaded world".into();
         }
         match &self.population {
-            Some(population) => format!(
-                "{} real placements, {} drawn",
-                population.spawns.len(),
-                self.live.len()
-            ),
+            Some(population) => {
+                let in_range = population.count_within(
+                    [self.eye.x, self.eye.z],
+                    self.settings.spawn_distance,
+                );
+                format!(
+                    "{} client-placed NPCs ({} records total, {} server-placed): {} in range, {} drawn",
+                    population.spawns.len(),
+                    population.spawns.len() + population.unplaced + population.skipped,
+                    population.unplaced,
+                    in_range,
+                    self.live.len()
+                )
+            }
             None => "Loading the real population...".into(),
         }
     }
@@ -348,8 +390,19 @@ impl Populator {
         }
         if self.population.is_none() && self.load_error.is_none() {
             match Population::open(&self.element) {
-                Ok(population) => self.population = Some(population),
-                Err(error) => self.load_error = Some(error),
+                Ok(population) => {
+                    eprintln!(
+                        "Populator: {} client-placed NPCs, {} server-placed records, {} skipped",
+                        population.spawns.len(),
+                        population.unplaced,
+                        population.skipped
+                    );
+                    self.population = Some(population);
+                }
+                Err(error) => {
+                    eprintln!("Populator: population unavailable: {error}");
+                    self.load_error = Some(error);
+                }
             }
         }
         if self.population.is_none() {
@@ -358,7 +411,10 @@ impl Populator {
         if self.library.is_none() && self.library_error.is_none() {
             match Library::open(&self.element) {
                 Ok(library) => self.library = Some(library),
-                Err(error) => self.library_error = Some(error),
+                Err(error) => {
+                    eprintln!("Populator: models.pck unavailable: {error}");
+                    self.library_error = Some(error);
+                }
             }
         }
         if self.library.is_none() {
@@ -366,6 +422,32 @@ impl Populator {
         }
         self.stream();
         self.advance(delta);
+        self.report();
+    }
+
+    /// Console diagnostics, so a user who never opens the settings window still
+    /// sees whether the module is streaming and which rigs could not load.
+    fn report(&mut self) {
+        if !self.reported_spawn && !self.live.is_empty() {
+            self.reported_spawn = true;
+            eprintln!(
+                "Populator: streaming {} actors within {} units",
+                self.live.len(),
+                self.settings.spawn_distance
+            );
+        }
+        let failed = self
+            .library
+            .as_ref()
+            .map_or(0, |library| library.failures.len());
+        if let Some(library) = self.library.as_ref() {
+            if failed > self.reported_failures {
+                for (path, error) in library.failures.iter().skip(self.reported_failures).take(5) {
+                    eprintln!("Populator: rig {path}: {error}");
+                }
+                self.reported_failures = failed;
+            }
+        }
     }
 
     /// Reconciles the drawn set with the placements inside the spawn distance.
@@ -613,6 +695,7 @@ impl Populator {
         ui.separator();
 
         ui.heading("Real population");
+        let mut go_to_nearest = false;
         match (&self.population, &self.load_error) {
             (_, Some(error)) => {
                 ui.colored_label(egui::Color32::LIGHT_RED, error);
@@ -633,16 +716,15 @@ impl Populator {
                     .iter()
                     .filter(|spawn| spawn.task_count > 0)
                     .count();
+                let records = population.spawns.len() + population.unplaced + population.skipped;
                 ui.label(format!(
-                    "{npcs} NPC and {monsters} monster placements, {linked} with task links, {} skipped",
-                    population.skipped
+                    "{npcs} client-placed NPCs, {monsters} monster placements, {linked} with task links, {} server-placed, {} skipped",
+                    population.unplaced, population.skipped
                 ));
                 ui.label(
                     egui::RichText::new(format!(
-                        "task_npc.data: {} bytes, timestamp 0x{:08x}, {} records",
-                        population.table_size,
-                        population.table_timestamp,
-                        population.spawns.len() + population.skipped
+                        "task_npc.data: {} bytes, timestamp 0x{:08x}, {records} records",
+                        population.table_size, population.table_timestamp
                     ))
                     .small()
                     .weak(),
@@ -658,9 +740,44 @@ impl Populator {
                     .small()
                     .weak(),
                 );
+                let in_range = population.count_within(
+                    [self.eye.x, self.eye.z],
+                    self.settings.spawn_distance,
+                );
+                if in_range == 0 {
+                    let server_placed = if records > 0 {
+                        100. * population.unplaced as f32 / records as f32
+                    } else {
+                        0.
+                    };
+                    ui.colored_label(
+                        egui::Color32::from_rgb(240, 190, 80),
+                        format!(
+                            "Nothing is placed within {:.0} units of the camera. {server_placed:.0}% of this table is server-placed, and the client's own placements cluster in towns: widen the spawn distance, or use the button below.",
+                            self.settings.spawn_distance
+                        ),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{in_range} placements within {:.0} units of the camera",
+                            self.settings.spawn_distance
+                        ))
+                        .small()
+                        .weak(),
+                    );
+                }
+                if ui.button("Go to the nearest placement").clicked() {
+                    go_to_nearest = true;
+                }
             }
             (None, None) => {
                 ui.label("Reading elements.data and task_npc.data...");
+            }
+        }
+        if go_to_nearest {
+            if let Some(target) = self.nearest_camera_target() {
+                self.camera_request = Some(target);
             }
         }
         if let Some(error) = &self.library_error {

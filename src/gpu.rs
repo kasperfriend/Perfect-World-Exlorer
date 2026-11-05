@@ -2431,7 +2431,10 @@ impl Renderer {
     /// The host player is not an ornamental EC model: WaterEffect 0 must not
     /// suppress it. Native host-player reflection/refraction uses its feet-based
     /// profession AABB, independently of the world-model class gate above.
-    fn draw_walker(
+    /// Add-on pass. Each module decides for itself whether it appears in this
+    /// pass; the host only supplies the frame and the water-visibility gates the
+    /// Walker needs. Enabling one add-on never depends on another being on.
+    fn draw_addons(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
@@ -2440,7 +2443,7 @@ impl Renderer {
         camera: &Camera,
         view: Pass,
     ) {
-        let visible = match view {
+        let walker = match view {
             Pass::Reflection => self
                 .modules
                 .walker_visible_in_water_pass(uniform.clip[0], true),
@@ -2449,7 +2452,8 @@ impl Renderer {
                 .walker_visible_in_water_pass(uniform.clip[0], false),
             _ => self.modules.walker_active(),
         };
-        if !visible {
+        let population = self.modules.populator_active();
+        if !walker && !population {
             return;
         }
         if let Some(light) = camera.regional_light {
@@ -2457,15 +2461,28 @@ impl Renderer {
         }
         if let Some(light) = camera.regional_light.or(self.retained_regional_light) {
             let frame = receiving_model_frame(uniform, camera, light);
-            self.modules.render(
-                &self.device,
-                &self.queue,
-                self.module_format,
-                encoder,
-                target,
-                depth,
-                frame,
-            );
+            if walker {
+                self.modules.render_walker(
+                    &self.device,
+                    &self.queue,
+                    self.module_format,
+                    encoder,
+                    target,
+                    depth,
+                    frame,
+                );
+            }
+            if population {
+                self.modules.render_population(
+                    &self.device,
+                    &self.queue,
+                    self.module_format,
+                    encoder,
+                    target,
+                    depth,
+                    frame,
+                );
+            }
         }
     }
 
@@ -2678,7 +2695,7 @@ impl Renderer {
             Pass::Main,
             true,
         );
-        self.draw_walker(
+        self.draw_addons(
             &mut e,
             &model_target,
             &scene_depth,
@@ -2912,7 +2929,7 @@ impl Renderer {
                     }),
                 );
                 let model_view = self.water.refraction_raw();
-                self.draw_walker(
+                self.draw_addons(
                     &mut re,
                     &model_view,
                     &reflect_depth,
@@ -3003,7 +3020,7 @@ impl Renderer {
                         false,
                     );
                 }
-                self.draw_walker(
+                self.draw_addons(
                     &mut re,
                     &model_view,
                     &reflect_depth,
@@ -3111,7 +3128,7 @@ impl Renderer {
                 Pass::Reflection,
                 false,
             );
-            self.draw_walker(
+            self.draw_addons(
                 &mut e,
                 &model_view,
                 &reflect_depth,

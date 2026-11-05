@@ -14,11 +14,21 @@ Stride 12, no padding, end of file exactly at `12 + 1572 * 12`.
 |---|---|
 | records | 1,572, all distinct ids |
 | ids resolving to `NPC_ESSENCE` | 1,572 (0 to `MONSTER_ESSENCE`) |
-| x range | −2,914 … 3,065 |
-| z range | −2,439 … 4,497 |
-| height = 0 | 1,553 (means "stand on the terrain") |
-| height > 0 | 19, up to 934 |
+| records at exactly `x = z = 0` | **1,057** |
+| records with a real position | **515** |
+| x range (real) | −2,914 … 3,065 |
+| z range (real) | −2,439 … 4,497 |
+| height = 0 | 1,553 overall; 496 of the 515 real ones |
+| height > 0 | 19, up to 934 (all real) |
 | `task_count` = 0 | 0 |
+
+**The `0,0` records are the server's.** 1,057 entries sit at exactly `x = z = 0`,
+every one of them with `height = 0` and a `task_count` between 23 and 30,657.
+They are the quest NPCs the server spawns; the client never places them, and a
+viewer that trusted the column would stack a thousand characters on the map
+origin. They are counted (`Population::unplaced`) and not drawn. With them out
+of the way, 515 NPCs remain, all of them named, 514 under `models/npcs/` and one
+animated scene creature under `models/场景活物/`.
 
 **Coordinate convention.** Column 1 is world X and column 2 is world Z. Against
 the client's own destinations (`element/maps/world/world_targets.txt`) within a
@@ -34,9 +44,9 @@ The swapped mapping also fails the world bounds for the taller half of the map,
 so the shipped file can only be read one way.
 
 **Nameless records.** 282 of the 1,572 have an empty `NPC_ESSENCE` name and a
-valid rig — the `宫灯` palace lanterns and similar decorative props. They are
-real placements and are drawn; only the rig is required for spawnability.
-1,571 rigs live under `models/npcs/…`, one (`场景活物`) under `models/场景活物/…`.
+valid rig — the `宫灯` palace lanterns and similar decorative props. All 282 are
+`0,0` records, i.e. server-placed scenery, so spawnability tests the rig rather
+than the name and none of the 515 drawn placements is nameless.
 
 **No facing.** The record carries id + XZ + height + task count only. The
 Populator therefore leaves yaw at 0 unless the user opts into facing the
@@ -95,8 +105,12 @@ with 120 (ornament range) and 800 as further presets.
 
 ## Module behaviour that follows from this
 
-* Spawn, appear, idle: 1,572 real NPCs at authored positions and heights, rigs
-  and idle `休闲` scene action straight out of `models.pck`.
+* Spawn, appear, idle: the 515 client-placed NPCs at authored positions and
+  heights, rigs and idle `休闲` scene action straight out of `models.pck`.
+  The 1,057 server-placed records are reported, never stacked at the origin.
+* The settings window reports how many placements are inside the spawn radius
+  and can move the camera to the nearest one: at the client's native 420 units
+  the origin has 9 placements, Archosaur North 61, Raging Tides 0.
 * Streamed around the camera, at most 6 new rigs per frame (an 888 MB archive
   is decompressed on the render thread), 48 actors by default with a hard cap
   at 96.
