@@ -79,12 +79,16 @@
 //!   a single shared draw interpolated in the HSV the parser stored at +0x38
 //!   and +0x48 (`0x723812`, converting back through `0x7898f0`).
 //!
-//! Two native behaviours are deliberately not copied, each with its evidence
+//! Four native behaviours are deliberately not copied, each with its evidence
 //! recorded in `Findings/`: the emission-count detail factor gated at
-//! `0x715b88`, which multiplies by a global the binary initializes at run time,
-//! and `ParIniDir`, which the parser turns into a quaternion with the
+//! `0x715b88`, which multiplies by a global the binary initializes at run time;
+//! `ParIniDir`, which the parser turns into a quaternion with the
 //! Euler-to-quaternion routine `0x7b6f10` rather than treating as a direction
-//! vector.
+//! vector; `IsSurface`, whose four per-class samplers place particles on the
+//! emitter's own `AreaSize` ellipsoid through a vector library that is not
+//! decoded yet; and the rotation the unbound emission basis takes from the
+//! quaternion at emitter+0x74, whose writer is the same unknown that blocks
+//! `ParIniDir`.
 
 use crate::{
     ecmodel,
@@ -1853,8 +1857,17 @@ fn spawn(
     context: &ElementContext,
 ) -> ParticleState {
     // The client's shape routine `0x728270` multiplies a uniform unit-ball
-    // sample by the matrix at emitter+0xc0, which `0x729670` fills from
-    // `AreaSize` as `diag(AreaSize * 0.5)` and then adds the emitter position.
+    // sample by the matrix at emitter+0xc0 and then adds the emitter position.
+    // `0x729670` fills that matrix and branches on `IsBind` at emitter+0x85.
+    // Bound emitters get `diag(AreaSize * 0.5)` laid against the three global
+    // unit axes `0x9c0358`, `0x9c0348` and `0x9c0338`, which is what this
+    // reproduces. Unbound emitters take `0x729763` instead: one scalar argument
+    // multiplied into all three `AreaSize` components, then rotated by the
+    // quaternion at emitter+0x74 -- `0x7297f4` doubles its w, the first term of
+    // the quaternion-to-matrix conversion. That rotation is not reproduced,
+    // because nothing decoded so far writes emitter+0x74, which is also what
+    // blocks `ParIniDir`. 8,259 of the corpus's 13,665 particle elements are
+    // bound, so 5,406 take the unbound path.
     let offset = match (particle.radius, particle.area_size) {
         (Some(radius), _) => random_unit_ball(rng) * radius.max(0.),
         (None, Some(area)) => random_unit_ball(rng) * area * 0.5,
