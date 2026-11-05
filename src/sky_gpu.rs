@@ -317,7 +317,7 @@ const SKIRT_BOTTOM_Y:f32=-10.602875;
 // `u = (1 + x / (R sin(step))) / 2`, so the sheet spans the whole cap with its
 // centre overhead and its rim on the horizon. `Render` drops the object by
 // `cos(+0x4c4) * [+0x4c8] = 47.685848` (`0x799a53`), so the eye sits that far
-// below the sphere's centre and a ray of elevation `dy` reaches the surface at
+// above the sphere's centre and a ray of elevation `dy` reaches the surface at
 // `t = -47.685848*dy + sqrt(2500 - 2273.9399*(1 - dy*dy))`: 15.035290 at the
 // horizon, 2.314152 overhead. The lookup is therefore
 // `0.5 + t * d.xz / 30.070580`, the disc being `2 R sin(step)`.
