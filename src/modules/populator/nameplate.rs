@@ -71,7 +71,7 @@ pub struct NameFont {
     pub source: String,
     /// Registered files, primary first.
     pub files: Vec<FontFile>,
-    /// Set once `install_handler` has handed the files to egui.
+    /// Set once [`NameFont::install`] has handed the files to egui.
     installed: bool,
 }
 

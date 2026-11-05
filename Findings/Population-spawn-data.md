@@ -215,7 +215,10 @@ run time and uses that family and size for every label:
   and symbol names always resolve;
 * labels are drawn at the table's 12 px in every direction — no distance-based
   size change, no fade — centred on the head with one pixel of black outline,
-  matching the client's own `字体描边` (font border) option;
+  matching the client's own `字体描边` (font border) option. The shipped table
+  carries no colour column and no other client file names an overhead-name
+  colour, so the label is white on the client's black border rather than a
+  colour invented here;
 * a label is dropped when the head is not visible: the viewer samples the
   terrain along the camera-to-head ray and sweeps the same BMD building/tree
   hulls the Walker collides with, so no name is ever visible through a wall,
