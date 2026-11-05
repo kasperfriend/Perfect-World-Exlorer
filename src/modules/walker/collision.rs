@@ -10,7 +10,7 @@
 
 use super::physics::Ground;
 use crate::{bmd::CollisionBrush, pck, scene};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -676,26 +676,41 @@ enum BuildingMessage {
 /// Largest half-extent a model may span and still count as a prop: buildings,
 /// walls and terrain shells are wider and keep relying on their collision hulls.
 const MAX_DECK_HALF_EXTENT: f32 = 12.0;
-/// Tallest model that may provide a standing deck. Pillars and trees stay out.
+/// Tallest model that may provide a standing surface. Pillars, statues and trees
+/// stay out, so nothing is lifted onto them by accident.
 const MAX_DECK_HEIGHT: f32 = 8.0;
+/// Edge of one deck tile. Upward-facing geometry is bucketed into tiles this
+/// wide, which keeps a staircase, a ramp or a stepped platform usable: each tile
+/// carries its own height instead of the model's highest point.
+const DECK_TILE: f32 = 2.0;
 
-/// Upward-facing top surface of a world-baked lit model.
+/// Upward-facing standing surfaces of a world-baked lit model.
 ///
-/// Lit-model vertices are already in world space, so the surface needs no
-/// transform. Only faces that point up (`normal.y > 0.5`, the same threshold the
-/// hull trace uses) contribute, which keeps a wagon's cargo or a stall's canopy
-/// from raising the deck above the surface an actor actually stands on.
-fn model_decks(model: &crate::bmd::Model) -> Option<PropDeck> {
+/// Lit-model vertices are already in world space, so no transform is needed.
+/// Only faces that point up (`normal.y > 0.5`, the same threshold the hull trace
+/// uses) contribute, which keeps a wagon's cargo or a stall's canopy from raising
+/// the surface an actor actually stands on. The up-facing geometry is bucketed
+/// into [`DECK_TILE`]-wide tiles, so the surface a placement gets is the one
+/// directly under it rather than the tallest point of the whole model.
+fn model_decks(model: &crate::bmd::Model) -> Vec<PropDeck> {
     let mut min = Vec3::splat(f32::MAX);
     let mut max = Vec3::splat(f32::MIN);
-    let mut deck_min = Vec3::splat(f32::MAX);
-    let mut deck_max = Vec3::splat(f32::MIN);
     for mesh in &model.meshes {
         for vertex in &mesh.vertices {
             let position = Vec3::from_array(vertex.position);
             min = min.min(position);
             max = max.max(position);
         }
+    }
+    if max.y - min.y > MAX_DECK_HEIGHT {
+        return Vec::new();
+    }
+    // Collect the up-facing triangles and their own XZ bounds first, so the tile
+    // grid covers only the surface that can carry an actor.
+    let mut faces = Vec::new();
+    let mut area_min = Vec2::splat(f32::MAX);
+    let mut area_max = Vec2::splat(f32::MIN);
+    for mesh in &model.meshes {
         for triangle in mesh.indices.chunks_exact(3) {
             let Some(a) = mesh.vertices.get(triangle[0] as usize) else {
                 continue;
@@ -714,33 +729,52 @@ fn model_decks(model: &crate::bmd::Model) -> Option<PropDeck> {
                 continue;
             }
             for point in [a, b, c] {
-                deck_min = deck_min.min(point);
-                deck_max = deck_max.max(point);
+                area_min = area_min.min(Vec2::new(point.x, point.z));
+                area_max = area_max.max(Vec2::new(point.x, point.z));
             }
+            let centroid = Vec2::new(a.x + b.x + c.x, a.z + b.z + c.z) / 3.0;
+            let top = a.y.max(b.y).max(c.y);
+            faces.push((centroid, top));
         }
     }
-    if deck_min.x > deck_max.x {
-        return None;
+    if faces.is_empty() {
+        return Vec::new();
     }
-    let extents = (deck_max - deck_min) * 0.5;
-    if extents.x > MAX_DECK_HALF_EXTENT
-        || extents.z > MAX_DECK_HALF_EXTENT
-        || extents.x < 0.25
-        || extents.z < 0.25
-    {
-        return None;
+    let extents = (area_max - area_min) * 0.5;
+    if extents.x > MAX_DECK_HALF_EXTENT || extents.y > MAX_DECK_HALF_EXTENT {
+        return Vec::new();
     }
-    if max.y - min.y > MAX_DECK_HEIGHT {
-        return None;
+    let columns = ((area_max.x - area_min.x) / DECK_TILE).ceil().max(1.0) as usize;
+    let rows = ((area_max.y - area_min.y) / DECK_TILE).ceil().max(1.0) as usize;
+    let mut tops = vec![f32::MIN; columns * rows];
+    for (centroid, top) in faces {
+        let column = (((centroid.x - area_min.x) / DECK_TILE) as usize).min(columns - 1);
+        let row = (((centroid.y - area_min.y) / DECK_TILE) as usize).min(rows - 1);
+        let slot = &mut tops[row * columns + column];
+        *slot = slot.max(top);
     }
-    Some(PropDeck {
-        center: [
-            (deck_min.x + deck_max.x) * 0.5,
-            (deck_min.z + deck_max.z) * 0.5,
-        ],
-        extents: [extents.x, extents.z],
-        top: deck_max.y,
-    })
+    let mut decks = Vec::new();
+    for row in 0..rows {
+        for column in 0..columns {
+            let top = tops[row * columns + column];
+            if top == f32::MIN {
+                continue;
+            }
+            let x0 = area_min.x + column as f32 * DECK_TILE;
+            let z0 = area_min.y + row as f32 * DECK_TILE;
+            let x1 = (x0 + DECK_TILE).min(area_max.x);
+            let z1 = (z0 + DECK_TILE).min(area_max.y);
+            if x1 - x0 < 0.25 || z1 - z0 < 0.25 {
+                continue;
+            }
+            decks.push(PropDeck {
+                center: [(x0 + x1) * 0.5, (z0 + z1) * 0.5],
+                extents: [(x1 - x0) * 0.5, (z1 - z0) * 0.5],
+                top,
+            });
+        }
+    }
+    decks
 }
 
 fn building_worker(element: PathBuf, paths: Vec<String>, tx: SyncSender<BuildingMessage>) {
@@ -1170,6 +1204,76 @@ mod tests {
             extents: [half, half],
             top,
         }
+    }
+
+    fn up_quad(x0: f32, x1: f32, y: f32, z0: f32, z1: f32) -> ([[f32; 3]; 3], [[f32; 3]; 3]) {
+        (
+            [[x0, y, z0], [x1, y, z1], [x1, y, z0]],
+            [[x0, y, z0], [x0, y, z1], [x1, y, z1]],
+        )
+    }
+
+    fn model_with(quads: &[(([[f32; 3]; 3], [[f32; 3]; 3]))]) -> crate::bmd::Model {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        for (a, b) in quads {
+            for triangle in [a, b] {
+                for point in triangle {
+                    indices.push(vertices.len() as u16);
+                    vertices.push(crate::bmd::Vertex {
+                        position: *point,
+                        uv: [0., 0.],
+                        normal: [0., 1., 0.],
+                        diffuse: 0,
+                        day_diffuse: 0,
+                        night_diffuse: 0,
+                    });
+                }
+            }
+        }
+        crate::bmd::Model {
+            scale: [1., 1., 1.],
+            direction: [0., 0., 1.],
+            up: [0., 1., 0.],
+            position: [0., 0., 0.],
+            meshes: vec![crate::bmd::Mesh {
+                name: String::new(),
+                version: 0,
+                material: None,
+                texture: String::new(),
+                vertices,
+                indices,
+            }],
+            collision: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_step_keeps_its_own_height_instead_of_the_models_tallest_point() {
+        // Two steps of one model: a placement on the low step must not be lifted
+        // to the height of the high one.
+        let model = model_with(&[up_quad(0., 2., 0., 0., 2.), up_quad(2., 4., 2., 0., 2.)]);
+        let decks = model_decks(&model);
+        let at = |x: f32, z: f32| {
+            decks
+                .iter()
+                .filter(|deck| {
+                    (x - deck.center[0]).abs() <= deck.extents[0]
+                        && (z - deck.center[1]).abs() <= deck.extents[1]
+                })
+                .map(|deck| deck.top)
+                .fold(None::<f32>, |best, top| {
+                    Some(best.map_or(top, |b: f32| b.max(top)))
+                })
+        };
+        assert_eq!(at(1., 1.), Some(0.));
+        assert_eq!(at(3., 1.), Some(2.));
+    }
+
+    #[test]
+    fn a_tall_model_offers_no_standing_surface() {
+        let model = model_with(&[up_quad(0., 2., 9., 0., 2.)]);
+        assert!(model_decks(&model).is_empty());
     }
 
     #[test]

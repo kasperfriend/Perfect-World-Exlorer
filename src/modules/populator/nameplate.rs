@@ -336,6 +336,24 @@ mod tests {
         assert!(family_file_names("Unknown Family").contains(&"unknownfamily.ttf".to_owned()));
     }
 
+    /// The shipped client, when its archives are staged locally: the table the
+    /// client parses must be the one this module reads, and the fonts it ships
+    /// must be there for the fallback path.
+    #[test]
+    fn the_shipped_client_archive_names_the_same_overhead_font() {
+        let element = Path::new("google_drive/pw142/element");
+        if !element.join("configs.pck").exists() {
+            return;
+        }
+        let (family, size) = read_font_table(element).expect("configs/fonts.txt parses");
+        assert_eq!(family, "Arial Unicode MS");
+        assert_eq!(size, 12.0);
+        // The client's own CJK font is the fallback for machines without the
+        // system family, and it comes out of either data/ or fonts.pck.
+        let fallback = client_cjk_font(element).expect("the client ships its font");
+        assert!(fallback.bytes.len() > 100_000, "{}", fallback.label);
+    }
+
     #[test]
     fn an_unresolved_font_still_draws_with_the_viewer_default() {
         let font = NameFont {
