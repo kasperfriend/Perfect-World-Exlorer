@@ -745,13 +745,17 @@ mod tests {
             eprintln!("effect target test skipped: no WGPU adapter");
             return;
         };
-        let error = Draw::new(
+        // `Draw` holds GPU resources and is not `Debug`, so the rejection is
+        // matched rather than unwrapped.
+        let error = match Draw::new(
             &harness.device,
             &harness.queue,
             wgpu::TextureFormat::Rgba16Float,
             None,
-        )
-        .unwrap_err();
+        ) {
+            Ok(_) => panic!("a non-UNORM target must be rejected"),
+            Err(error) => error,
+        };
         assert!(error.contains("encoded UNORM"), "{error}");
 
         let mut draw = Draw::new(
