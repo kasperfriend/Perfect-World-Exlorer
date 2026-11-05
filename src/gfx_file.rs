@@ -97,7 +97,11 @@ pub struct Root {
     pub aabb_half: Vec3,
     /// Present from version 57 on.
     pub use_aabb: bool,
-    /// Bitfield: bit 0 shakes the camera position, bit 1 shakes its scale.
+    /// The authored `ShakeCam` value. The client does not keep it as a bitfield:
+    /// `0x6e38d9` tests the scanned integer against itself and `0x6e38de` stores
+    /// the `setne` result in a single byte at root+0x1f6, so any nonzero value
+    /// means "shake". The corpus agrees — all 5,459 roots author 0 (5,216) or 1
+    /// (241), never a bit pattern.
     pub shake_cam: u32,
     /// Root-level controllers (241 retail roots carry one noise controller).
     pub controls: Vec<Control>,
@@ -111,12 +115,11 @@ pub struct Root {
 }
 
 impl Root {
-    pub fn shakes_camera_position(&self) -> bool {
-        self.shake_cam & 1 != 0
-    }
-
-    pub fn shakes_camera_scale(&self) -> bool {
-        self.shake_cam & 2 != 0
+    /// `0x6e38de` stores `setne(ShakeCam)` in root+0x1f6 and `0x6e4dc9` gates the
+    /// shake routine on that byte, so the client's reading is "nonzero", with no
+    /// position/scale split to read out of it.
+    pub fn shakes_camera(&self) -> bool {
+        self.shake_cam != 0
     }
 
     /// Authored bounds. Roots without `UseAABB` still carry the `Vec:` pair the
@@ -2193,7 +2196,10 @@ mod tests {
         assert!(root.fade_by_dist);
         assert_eq!((root.fade_start, root.fade_end), (100., 400.));
         assert!(root.use_aabb && root.phys_exist);
-        assert!(root.shakes_camera_position() && root.shakes_camera_scale());
+        assert!(
+            root.shakes_camera(),
+            "the fixture authors 3, which the client's setne stores as a plain true"
+        );
         assert_eq!(root.controls.len(), 1);
         let control = &root.controls[0];
         assert_eq!(control.kind, 112);
