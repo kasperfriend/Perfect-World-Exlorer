@@ -301,6 +301,16 @@ mod tests {
         );
     }
     #[test]
+    fn egg_prices_and_loyalty_use_separate_fields() {
+        let mut record = vec![0; 628];
+        record[328..332].copy_from_slice(&100u32.to_le_bytes());
+        record[336..340].copy_from_slice(&55u32.to_le_bytes());
+        let db = Database::parse_v27(&super::super::elements::synthetic_file(96, &record)).unwrap();
+        let attributes = db.items[0].attributes();
+        assert!(attributes.contains(&("Incubation price", 100.)));
+        assert!(attributes.contains(&("Loyalty", 55.)));
+    }
+    #[test]
     fn authentic_client_catalog_when_available() {
         let Ok(path) = std::env::var("PW_LIBRARIAN_ELEMENTS") else {
             return;
@@ -653,15 +663,47 @@ impl Item {
                 ("Stack limit", 336),
             ],
             29 => &[("Stack limit", 196)],
-            96 => &[("Pet ID", 324), ("Loyalty", 328), ("Required level", 340)],
+            96 => &[
+                ("Pet ID", 324),
+                ("Incubation price", 328),
+                ("Recovery price", 332),
+                ("Loyalty", 336),
+                ("Required level", 340),
+                ("Pet experience", 344),
+                ("Skill points", 348),
+                ("Sell price", 608),
+                ("Buy price", 612),
+                ("Stack limit", 616),
+            ],
             108 => &[
                 ("Required level", 324),
                 ("Skill ID", 328),
                 ("Skill level", 332),
             ],
             116 => &[("HP recovery", 324), ("Cooldown (ms)", 332)],
+            117 => &[("MP recovery", 324), ("Cooldown (ms)", 332)],
             118 => &[("Duration", 324)],
-            124 => &[("Experience", 324), ("Required level", 328)],
+            120 => &[
+                ("Sell price", 348),
+                ("Buy price", 352),
+                ("Stack limit", 356),
+            ],
+            121 => &[
+                ("Genie strength", 1224),
+                ("Genie dexterity", 1228),
+                ("Genie magic", 1232),
+                ("Genie vitality", 1236),
+                ("Max refine level", 1240),
+                ("Sell price", 1244),
+                ("Buy price", 1248),
+            ],
+            124 => &[
+                ("Experience", 324),
+                ("Required level", 328),
+                ("Sell price", 332),
+                ("Buy price", 336),
+                ("Stack limit", 340),
+            ],
             36 => &[
                 ("Required level", 328),
                 ("Sell price", 336),
@@ -670,6 +712,15 @@ impl Item {
             ],
             123 => &[
                 ("Required level", 332),
+                ("Genie strength bonus", 336),
+                ("Genie dexterity bonus", 340),
+                ("Genie magic bonus", 344),
+                ("Genie vitality bonus", 348),
+                ("Genie metal affinity", 352),
+                ("Genie wood affinity", 356),
+                ("Genie water affinity", 360),
+                ("Genie fire affinity", 364),
+                ("Genie earth affinity", 368),
                 ("Sell price", 372),
                 ("Buy price", 376),
                 ("Stack limit", 380),
@@ -689,6 +740,15 @@ impl Item {
             19 => &[("Damage reduction", 604)],
             24 => &[("Flight speed", 464)],
             25 | 26 | 27 => &[("Cast time", 324)],
+            120 => &[
+                ("Hue min", 324),
+                ("Hue max", 328),
+                ("Saturation min", 332),
+                ("Saturation max", 336),
+                ("Value min", 340),
+                ("Value max", 344),
+            ],
+            121 => &[("Experience factor", 1220)],
             23 => &[
                 ("Flight speed min", 468),
                 ("Flight speed max", 472),
