@@ -350,6 +350,50 @@ fn camera_matrix(target: Vec3, radius: f32, zoom: f32, yaw: f32, pitch: f32) -> 
 mod tests {
     use super::*;
     #[test]
+    fn authentic_client_models_when_available() {
+        let Ok(root) = std::env::var("PW_LIBRARIAN_ELEMENT_ROOT") else {
+            return;
+        };
+        let mut assets = LibrarianAssets::open(std::path::Path::new(&root));
+        let db = super::super::database::Database::parse_v27(&assets.read_elements_data().unwrap())
+            .unwrap();
+        let weapon = &db.items[*db.by_id.get(&6).expect("weapon 6")];
+        let (asset, _) =
+            ModelAsset::load_unique_with(&weapon.model, |path| assets.read_model_resource(path))
+                .expect("load real weapon model");
+        assert!(!asset
+            .pose_bind(Mat4::IDENTITY)
+            .expect("weapon bind pose")
+            .is_empty());
+
+        let name =
+            db.items
+                .iter()
+                .filter(|item| item.section == 6)
+                .filter_map(|item| item.equipment_name())
+                .find(|name| {
+                    let path = crate::modules::designer::catalog::Class::Blademaster
+                        .equipment_skin(crate::modules::designer::catalog::Gender::Male, name, 0);
+                    assets.read_model_resource(&path).is_ok()
+                })
+                .expect("an armor skin for the male blademaster");
+        let worn = load_worn(&mut assets, &format!("0:m:{name}")).expect("load worn armor");
+        assert!(!worn
+            .pose_bind(Mat4::IDENTITY)
+            .expect("worn bind pose")
+            .is_empty());
+        if let Some(action) = worn.model.actions.first() {
+            let fps = action
+                .fps
+                .filter(|v| *v > 0)
+                .unwrap_or(worn.skeleton.fps)
+                .max(1) as f32;
+            worn.pose_action_at_time(0, action.start / fps, Mat4::IDENTITY)
+                .expect("worn animation pose");
+        }
+    }
+
+    #[test]
     fn preview_camera_mirrors_x_and_uses_reversed_depth() {
         let matrix = camera_matrix(Vec3::ZERO, 1., 1., 0., 0.);
         let projected = |p: Vec3| {

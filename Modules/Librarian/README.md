@@ -28,3 +28,7 @@ character's final combat stats or apply randomized add-ons.
 For optional tests against an installed client, set `PW_LIBRARIAN_ELEMENTS` to
 its `data/elements.data` path and `PW_LIBRARIAN_ELEMENT_ROOT` to its element
 folder before running `cargo test --locked --bin perfect-world-explorer`.
+
+The supplied `pw142` client indexes 13,483 unique items across 43 nonempty
+item tables, exceeding the 12,922-item reference. Counts may differ between
+client builds; the browser does not discard extra records to force a count.

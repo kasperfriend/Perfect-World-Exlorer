@@ -339,7 +339,18 @@ mod tests {
         };
         let bytes = std::fs::read(&path).expect("read PW_LIBRARIAN_ELEMENTS");
         let db = Database::parse_v27(&bytes).expect("parse authentic v27 elements.data");
-        assert_eq!(db.items.len(), 12_922, "unexpected v27 item count");
+        // Client builds may contain additional item tables or records. The
+        // reference 1.4.2 catalog must include at least the requested 12,922.
+        assert!(
+            db.items.len() >= 12_922,
+            "unexpectedly small v27 item catalog: {}",
+            db.items.len()
+        );
+        assert_eq!(
+            db.by_id.len(),
+            db.items.len(),
+            "duplicate item IDs in the reference catalog"
+        );
         let weapon = &db.items[*db.by_id.get(&6).expect("weapon 6")];
         assert_eq!(weapon.category, Category::Weapons);
         assert!(!weapon.name.is_empty());
