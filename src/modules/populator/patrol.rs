@@ -224,10 +224,15 @@ mod tests {
         assert!((yaw_towards(Vec3::Z) - PI).abs() < 1e-6);
         assert!((yaw_towards(Vec3::X) - FRAC_PI_2).abs() < 1e-6);
         assert!((yaw_towards(Vec3::NEG_X) + FRAC_PI_2).abs() < 1e-6);
-        for step in 0..16 {
+        // Every yaw maps to one horizontal direction and comes back to the
+        // same angle modulo a full turn (`yaw_towards` returns atan2's range).
+        let turn = 2. * PI;
+        for step in -32..=32 {
             let yaw = step as f32 * 0.25;
             let direction = Vec3::new(yaw.sin(), 0., -yaw.cos());
-            assert!((yaw_towards(direction) - yaw).abs() < 1e-4);
+            let turned = yaw_towards(direction);
+            let wrapped = (turned - yaw + PI).rem_euclid(turn) - PI;
+            assert!(wrapped.abs() < 1e-4, "yaw {yaw} round-tripped to {turned}");
         }
     }
 }
