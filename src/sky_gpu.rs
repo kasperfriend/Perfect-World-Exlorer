@@ -543,16 +543,10 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
  let ndc_pix=vec2<f32>(ndc.x*0.5+0.5, ndc.y*0.5+0.5)*vec2<f32>(vp_w,h);
  var out=color;
  for(var i:i32=0;i<15;i=i+1){
-  // Last commit: 860 → far right (good), but 100,40…-9 at 1.4× still
-  // clustered inside the 77-px sun disc — “one moves right, rest stuck”.
-  // The recovered `offset[i]` are *pixels* from the sun (860,100…-9)
-  // with `half = height*size[i]`, but the builder at 0x4b6270 also bakes
-  // a view-dependent direction via 0x450b30/0x4071f0, so the 15 sprites
-  // are not meant to stay at their table radii when the sun moves —
-  // they are meant to *span* the sun→centre line. Evenly space the 15
-  // quads along that line (t=0 at sun, t=1 at centre, t>1 beyond) so
-  // the whole chain extends, not just the 860-px outlier.
-  let t = -0.15 + f32(i) * 0.16; // -0.15 .. 2.09, 15 steps
+  // Evenly spaced on sun→centre (t=0 sun, t=1 centre): first ghost now
+  // sits *in* the sun when stared at, max 1.60 keeps the chain compact
+  // (was -0.15..2.09, first behind sun and max too stretched).
+  let t = f32(i) * 0.1142857; // 0.0 .. 1.60, 15 steps
   let c_pix = mix(sun_pix, centre_pix, t);
   let half_pix=flare_size(i)*h;
   let q=(ndc_pix - c_pix)/max(half_pix,1e-6);
