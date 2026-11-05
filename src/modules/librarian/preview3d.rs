@@ -440,6 +440,45 @@ mod tests {
     }
 
     #[test]
+    fn authentic_client_mannequins_when_available() {
+        let Ok(root) = std::env::var("PW_LIBRARIAN_ELEMENT_ROOT") else {
+            return;
+        };
+        use crate::modules::designer::catalog::{Class, Gender};
+        let mut assets = LibrarianAssets::open(std::path::Path::new(&root));
+        let db = super::super::database::Database::parse_v27(&assets.read_elements_data().unwrap())
+            .unwrap();
+        for class in Class::ALL {
+            for gender in Gender::ALL {
+                if !class.allows(gender) {
+                    continue;
+                }
+                let name = db
+                    .items
+                    .iter()
+                    .filter(|item| item.section == 6)
+                    .filter_map(|item| item.equipment_name())
+                    .find(|name| assets.model_exists(&class.equipment_skin(gender, name, 0)))
+                    .unwrap_or_else(|| {
+                        panic!("no armor skin for {} {}", class.name(), gender.name())
+                    });
+                let request = format!(
+                    "{}:{}:{name}",
+                    class.index(),
+                    if gender == Gender::Female { "f" } else { "m" }
+                );
+                let asset = load_worn(&mut assets, &request).unwrap_or_else(|error| {
+                    panic!("{} {} {name}: {error}", class.name(), gender.name())
+                });
+                let poses = preview_pose(&asset, None).expect("mannequin bind pose").0;
+                assert!(poses
+                    .iter()
+                    .any(|pose| pose.skin == 2 && !pose.vertices.is_empty()));
+            }
+        }
+    }
+
+    #[test]
     fn authentic_client_gpu_preview_when_available() {
         if std::env::var_os("PW_LIBRARIAN_GPU").is_none() {
             return;
