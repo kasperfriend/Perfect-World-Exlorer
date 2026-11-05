@@ -94,9 +94,7 @@ impl IconSheet {
         }
         let mut by_name = HashMap::new();
         for (index, name) in lines.take(rows.checked_mul(cols)? as usize).enumerate() {
-            by_name
-                .entry(name.to_lowercase())
-                .or_insert(index as u32);
+            by_name.entry(name.to_lowercase()).or_insert(index as u32);
         }
         Some(Self {
             cell_width,
@@ -132,8 +130,8 @@ impl IconSheet {
         let stride = self.cell_width as usize * 4;
         for by in 0..cell_by {
             for bx in 0..cell_bx {
-                let offset = DDS_HEADER_BYTES
-                    + ((start_by + by) * sheet_bx + (start_bx + bx)) * block_bytes;
+                let offset =
+                    DDS_HEADER_BYTES + ((start_by + by) * sheet_bx + (start_bx + bx)) * block_bytes;
                 let block = self.dds.get(offset..offset + block_bytes)?;
                 let pixels = decode_dxt_block(block, self.format);
                 for py in 0..4usize {
@@ -296,10 +294,7 @@ impl IconCache {
 
     fn fallback_id(&mut self, ctx: &egui::Context) -> Option<egui::TextureId> {
         if self.fallback.is_none() {
-            let decoded = self
-                .ivtrm
-                .as_ref()
-                .and_then(|sheet| sheet.decode_index(0));
+            let decoded = self.ivtrm.as_ref().and_then(|sheet| sheet.decode_index(0));
             if let Some((w, h, rgba)) = decoded {
                 let image =
                     egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);

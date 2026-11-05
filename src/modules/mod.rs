@@ -48,9 +48,15 @@ impl Modules {
         }
     }
 
-    pub fn prepare_librarian_preview(&mut self, device: &wgpu::Device, queue: &wgpu::Queue,
-        renderer: &mut egui_wgpu::Renderer, format: wgpu::TextureFormat) {
-        self.librarian.prepare_preview(device, queue, renderer, format);
+    pub fn prepare_librarian_preview(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        renderer: &mut egui_wgpu::Renderer,
+        format: wgpu::TextureFormat,
+    ) {
+        self.librarian
+            .prepare_preview(device, queue, renderer, format);
     }
 
     pub fn walker_active(&self) -> bool {
@@ -209,7 +215,14 @@ impl Modules {
         ui.add_space(8.);
         if installed.id == "librarian" {
             let active = self.librarian.active();
-            if ui.button(if active { "Disable Librarian" } else { "Enable Librarian" }).clicked() {
+            if ui
+                .button(if active {
+                    "Disable Librarian"
+                } else {
+                    "Enable Librarian"
+                })
+                .clicked()
+            {
                 self.librarian.set_active(!active);
             }
             ui.label(self.librarian.status());

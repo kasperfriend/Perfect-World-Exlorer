@@ -28,7 +28,11 @@ impl PckArchive {
         for (index, entry) in entries.iter().enumerate() {
             by_path.insert(normalize_archive_path(&entry.name), index);
         }
-        Ok(Self { file, entries, by_path })
+        Ok(Self {
+            file,
+            entries,
+            by_path,
+        })
     }
 
     pub fn contains(&self, path: &str) -> bool {

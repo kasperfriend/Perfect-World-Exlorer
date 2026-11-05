@@ -44,26 +44,42 @@ pub struct Database {
 }
 
 fn number(record: &[u8], offset: usize) -> u32 {
-    record.get(offset..offset + 4)
+    record
+        .get(offset..offset + 4)
         .and_then(|b| b.try_into().ok())
         .map(u32::from_le_bytes)
         .unwrap_or(0)
 }
 fn wide(record: &[u8], offset: usize) -> String {
-    let Some(bytes) = record.get(offset..offset + 64) else { return String::new() };
-    let units: Vec<_> = bytes.chunks_exact(2)
+    let Some(bytes) = record.get(offset..offset + 64) else {
+        return String::new();
+    };
+    let units: Vec<_> = bytes
+        .chunks_exact(2)
         .map(|b| u16::from_le_bytes([b[0], b[1]]))
-        .take_while(|c| *c != 0).collect();
+        .take_while(|c| *c != 0)
+        .collect();
     String::from_utf16_lossy(&units)
 }
 fn path(record: &[u8], offset: usize) -> String {
-    let Some(bytes) = record.get(offset..offset + 128) else { return String::new() };
+    let Some(bytes) = record.get(offset..offset + 128) else {
+        return String::new();
+    };
     let end = bytes.iter().position(|b| *b == 0).unwrap_or(bytes.len());
     crate::ecmodel::normalize(&GBK.decode(&bytes[..end]).0)
 }
 
 // (category, major offset, subtype offset, name offset, icon offset, model offset)
-fn layout(section: usize) -> Option<(Category, Option<usize>, Option<usize>, usize, usize, Option<usize>)> {
+fn layout(
+    section: usize,
+) -> Option<(
+    Category,
+    Option<usize>,
+    Option<usize>,
+    usize,
+    usize,
+    Option<usize>,
+)> {
     use Category::*;
     let item = match section {
         3 => (Weapons, Some(4), Some(8), 12, 464, Some(80)),
@@ -84,8 +100,9 @@ fn layout(section: usize) -> Option<(Category, Option<usize>, Option<usize>, usi
         121 => (Genies, None, None, 4, 708, Some(68)),
         124 => (Genies, None, None, 4, 196, None),
         125 => (QuestAndPacks, None, None, 4, 200, None),
-        25 | 27 | 28 | 99 | 100 | 108 | 109 | 114 | 115 | 116 | 117 | 118 | 119 | 120 =>
-            (Consumables, None, None, 4, 196, None),
+        25 | 27 | 28 | 99 | 100 | 108 | 109 | 114 | 115 | 116 | 117 | 118 | 119 | 120 => {
+            (Consumables, None, None, 4, 196, None)
+        }
         _ => return None,
     };
     Some(item)
@@ -97,9 +114,15 @@ impl Database {
         visit_v27_records(bytes, |section, record| {
             let id = number(record, 0);
             match section {
-                0 => { db.addons.insert(id, record.to_vec()); }
-                91 => { db.suites.insert(id, record.to_vec()); }
-                95 => { db.pets.insert(id, record.to_vec()); }
+                0 => {
+                    db.addons.insert(id, record.to_vec());
+                }
+                91 => {
+                    db.suites.insert(id, record.to_vec());
+                }
+                95 => {
+                    db.pets.insert(id, record.to_vec());
+                }
                 1 | 2 | 4 | 5 | 7 | 8 | 10 | 11 | 13 | 14 | 21 | 31 | 35 | 82 | 83 | 94 | 122 => {
                     db.category_names.insert((section, id), wide(record, 4));
                 }
@@ -107,10 +130,13 @@ impl Database {
             }
             if let Some((category, major, subtype, name, icon, model)) = layout(section) {
                 let item = Item {
-                    id, section, category,
+                    id,
+                    section,
+                    category,
                     major: major.map(|offset| number(record, offset)),
                     subtype: subtype.map(|offset| number(record, offset)),
-                    name: wide(record, name), icon: path(record, icon),
+                    name: wide(record, name),
+                    icon: path(record, icon),
                     model: model.map(|offset| path(record, offset)).unwrap_or_default(),
                     record: record.to_vec(),
                 };
@@ -119,7 +145,29 @@ impl Database {
             }
             Ok(())
         })?;
+        // Eggs point to the creature definition, whose model can be previewed.
+        for item in &mut db.items {
+            if item.section == 96 {
+                if let Some(pet) = db.pets.get(&number(&item.record, 324)) {
+                    item.model = path(pet, 72);
+                }
+            }
+        }
         Ok(db)
+    }
+    pub fn suites_for(&self, id: u32) -> Vec<(u32, String, Vec<u32>)> {
+        let mut result = Vec::new();
+        for (suite_id, record) in &self.suites {
+            let members: Vec<u32> = (0..12)
+                .map(|index| number(record, 72 + index * 4))
+                .filter(|member| *member != 0)
+                .collect();
+            if members.contains(&id) {
+                result.push((*suite_id, wide(record, 4), members));
+            }
+        }
+        result.sort_by(|a, b| a.1.cmp(&b.1));
+        result
     }
 }
 
@@ -146,16 +194,30 @@ mod tests {
 
 impl Category {
     pub const ALL: [Self; 11] = [
-        Self::Weapons, Self::Armor, Self::Ornaments, Self::Fashion, Self::Flight,
-        Self::PetsAndMounts, Self::Genies, Self::Consumables, Self::GemsBooksAmmo,
-        Self::Materials, Self::QuestAndPacks,
+        Self::Weapons,
+        Self::Armor,
+        Self::Ornaments,
+        Self::Fashion,
+        Self::Flight,
+        Self::PetsAndMounts,
+        Self::Genies,
+        Self::Consumables,
+        Self::GemsBooksAmmo,
+        Self::Materials,
+        Self::QuestAndPacks,
     ];
     pub fn name(self) -> &'static str {
         match self {
-            Self::Weapons => "Weapons", Self::Armor => "Armor", Self::Ornaments => "Ornaments",
-            Self::Fashion => "Fashion", Self::Flight => "Flight", Self::PetsAndMounts => "Pets & Mounts",
-            Self::Genies => "Genies", Self::Consumables => "Consumables",
-            Self::GemsBooksAmmo => "Gems, Books & Ammo", Self::Materials => "Materials",
+            Self::Weapons => "Weapons",
+            Self::Armor => "Armor",
+            Self::Ornaments => "Ornaments",
+            Self::Fashion => "Fashion",
+            Self::Flight => "Flight",
+            Self::PetsAndMounts => "Pets & Mounts",
+            Self::Genies => "Genies",
+            Self::Consumables => "Consumables",
+            Self::GemsBooksAmmo => "Gems, Books & Ammo",
+            Self::Materials => "Materials",
             Self::QuestAndPacks => "Quest & Packs",
         }
     }
@@ -166,27 +228,95 @@ impl Item {
     /// are deliberately not guessed from their raw binary representation.
     pub fn attributes(&self) -> Vec<(&'static str, f64)> {
         let fields: &[(&str, usize)] = match self.section {
-            3 => &[("Strength",592),("Dexterity",596),("Magic",600),("Vitality",604),
-                ("Required level",612),("Grade",616),("Physical attack min",624),
-                ("Physical attack max",628),("Magic attack min",636),("Magic attack max",640),
-                ("Durability min",656),("Durability max",660),("Price",672),("Shop price",676),("Reputation",680)],
-            6 => &[("Grade",368),("Strength",372),("Dexterity",376),("Magic",380),("Vitality",384),
-                ("Required level",392),("Physical defense min",400),("Physical defense max",404),
-                ("Durability min",472),("Durability max",476),("Price",488),("Shop price",492),("Reputation",496)],
-            9 => &[("Grade",460),("Strength",464),("Dexterity",468),("Magic",472),("Vitality",476),
-                ("Required level",484),("Physical attack min",492),("Physical attack max",496),
-                ("Magic attack min",500),("Magic attack max",504),("Physical defense min",508),
-                ("Physical defense max",512),("Price",580),("Shop price",584),("Reputation",588)],
-            84 => &[("Grade",368),("Price",380),("Shop price",384),("Stack limit",388)],
-            12 => &[("Required level",332),("Cooldown (ms)",336),("HP recovery",340),
-                ("MP recovery",348),("Price",356),("Shop price",360),("Stack limit",364)],
-            15 => &[("Price",332),("Shop price",336),("Stack limit",356)],
-            23 => &[("Price",452),("Shop price",456),("Grade",460),("Required level",464)],
-            24 => &[("Price",452),("Shop price",456),("Required level",460)],
-            36 => &[("Required level",328),("Price",336),("Shop price",340),("Stack limit",424)],
-            123 => &[("Required level",332),("Price",372),("Shop price",376),("Stack limit",380)],
+            3 => &[
+                ("Strength", 592),
+                ("Dexterity", 596),
+                ("Magic", 600),
+                ("Vitality", 604),
+                ("Required level", 612),
+                ("Grade", 616),
+                ("Physical attack min", 624),
+                ("Physical attack max", 628),
+                ("Magic attack min", 636),
+                ("Magic attack max", 640),
+                ("Durability min", 656),
+                ("Durability max", 660),
+                ("Price", 672),
+                ("Shop price", 676),
+                ("Reputation", 680),
+            ],
+            6 => &[
+                ("Grade", 368),
+                ("Strength", 372),
+                ("Dexterity", 376),
+                ("Magic", 380),
+                ("Vitality", 384),
+                ("Required level", 392),
+                ("Physical defense min", 400),
+                ("Physical defense max", 404),
+                ("Durability min", 472),
+                ("Durability max", 476),
+                ("Price", 488),
+                ("Shop price", 492),
+                ("Reputation", 496),
+            ],
+            9 => &[
+                ("Grade", 460),
+                ("Strength", 464),
+                ("Dexterity", 468),
+                ("Magic", 472),
+                ("Vitality", 476),
+                ("Required level", 484),
+                ("Physical attack min", 492),
+                ("Physical attack max", 496),
+                ("Magic attack min", 500),
+                ("Magic attack max", 504),
+                ("Physical defense min", 508),
+                ("Physical defense max", 512),
+                ("Price", 580),
+                ("Shop price", 584),
+                ("Reputation", 588),
+            ],
+            84 => &[
+                ("Grade", 368),
+                ("Price", 380),
+                ("Shop price", 384),
+                ("Stack limit", 388),
+            ],
+            12 => &[
+                ("Required level", 332),
+                ("Cooldown (ms)", 336),
+                ("HP recovery", 340),
+                ("MP recovery", 348),
+                ("Price", 356),
+                ("Shop price", 360),
+                ("Stack limit", 364),
+            ],
+            15 => &[("Price", 332), ("Shop price", 336), ("Stack limit", 356)],
+            23 => &[
+                ("Price", 452),
+                ("Shop price", 456),
+                ("Grade", 460),
+                ("Required level", 464),
+            ],
+            24 => &[("Price", 452), ("Shop price", 456), ("Required level", 460)],
+            36 => &[
+                ("Required level", 328),
+                ("Price", 336),
+                ("Shop price", 340),
+                ("Stack limit", 424),
+            ],
+            123 => &[
+                ("Required level", 332),
+                ("Price", 372),
+                ("Shop price", 376),
+                ("Stack limit", 380),
+            ],
             _ => &[],
         };
-        fields.iter().map(|(name, offset)| (*name, number(&self.record, *offset) as i32 as f64)).collect()
+        fields
+            .iter()
+            .map(|(name, offset)| (*name, number(&self.record, *offset) as i32 as f64))
+            .collect()
     }
 }
