@@ -299,6 +299,8 @@ struct Live {
     clock: f32,
     /// Height of this rig's head above its feet, for the overhead name.
     head: f32,
+    /// Whether this actor stands on a building floor rather than the terrain.
+    on_floor: bool,
     /// Building-hull stamp the placement was resolved against.
     floor_stamp: u64,
     /// Real navigation path, when the population supplies one.
@@ -735,7 +737,7 @@ impl Populator {
 
     fn spawn_instance(&mut self, index: usize, floors: Option<&dyn FloorSource>) -> Option<Live> {
         let spawn = self.population.as_ref()?.spawns.get(index)?.clone();
-        let position = self.position_for(&spawn, floors);
+        let (position, on_floor) = self.position_for(&spawn, floors);
         // No client file records an NPC facing: `task_npc.data` stores id, X,
         // Z, height and task count, and the `NPC_ESSENCE` record has no
         // rotation column either. Every placement therefore keeps the rig's own
@@ -761,6 +763,7 @@ impl Populator {
             clip,
             clock: 0.,
             head,
+            on_floor,
             floor_stamp: floors.map_or(0, |floors| floors.floor_stamp()),
             follow,
             draw: None,
@@ -768,15 +771,18 @@ impl Populator {
         })
     }
 
-    fn position_for(&self, spawn: &Spawn, floors: Option<&dyn FloorSource>) -> Vec3 {
+    /// World position of one placement, and whether it stands on a building
+    /// floor rather than the terrain sample.
+    fn position_for(&self, spawn: &Spawn, floors: Option<&dyn FloorSource>) -> (Vec3, bool) {
         let terrain = match self.map.as_ref() {
             Some(map) => map.ground(spawn.anchor[0], spawn.anchor[1]),
             None => 0.,
         };
-        Vec3::new(
-            spawn.anchor[0],
-            stand_height(spawn, terrain, floors, self.settings.stand_on_objects),
-            spawn.anchor[1],
+        let height = stand_height(spawn, terrain, floors, self.settings.stand_on_objects);
+        let on_floor = spawn.height.is_none() && height > terrain + 0.5;
+        (
+            Vec3::new(spawn.anchor[0], height, spawn.anchor[1]),
+            on_floor,
         )
     }
 
@@ -864,7 +870,9 @@ impl Populator {
                 continue;
             }
             let terrain = map.ground(spawn.anchor[0], spawn.anchor[1]);
-            live.position.y = stand_height(spawn, terrain, Some(floors), true);
+            let height = stand_height(spawn, terrain, Some(floors), true);
+            live.position.y = height;
+            live.on_floor = height > terrain + 0.5;
         }
     }
 
@@ -968,6 +976,12 @@ impl Populator {
 
     fn drawn_count(&self) -> usize {
         self.live.iter().filter(|live| live.draw.is_some()).count()
+    }
+
+    /// Actors standing on a real building floor instead of the terrain, so the
+    /// settings window can show whether the support query actually engaged.
+    fn on_floor_count(&self) -> usize {
+        self.live.iter().filter(|live| live.on_floor).count()
     }
 
     fn failed_count(&self) -> usize {
@@ -1216,8 +1230,9 @@ impl Populator {
         self.settings = self.settings.sanitized();
         ui.label(
             egui::RichText::new(format!(
-                "{} drawn, {} failed, {} rigs cached, {} textures cached",
+                "{} drawn, {} on building floors, {} failed, {} rigs cached, {} textures cached",
                 self.drawn_count(),
+                self.on_floor_count(),
                 self.failed_count(),
                 self.library
                     .as_ref()
