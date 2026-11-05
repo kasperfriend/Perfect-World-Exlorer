@@ -86,6 +86,19 @@ mod tests {
         assert!(!types.contains_key(&999));
     }
     #[test]
+    fn formats_known_and_rejects_nonfinite_addons() {
+        assert_eq!(
+            describe_addon(41, &[3, 5]).as_deref(),
+            Some("Strength: +3 to +5")
+        );
+        assert_eq!(
+            describe_addon(45, &[0.05f32.to_bits() as i32]).as_deref(),
+            Some("Critical rate: +5.00%")
+        );
+        assert_eq!(describe_addon(45, &[f32::NAN.to_bits() as i32]), None);
+        assert_eq!(describe_addon(900, &[3]), None);
+    }
+    #[test]
     fn reads_utf16_text() {
         let mut bytes = vec![0xff, 0xfe];
         for unit in "42 \"Name\"".encode_utf16() {

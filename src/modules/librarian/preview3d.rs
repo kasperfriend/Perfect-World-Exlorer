@@ -156,6 +156,8 @@ impl Preview {
                     self.radius = ((max - min).length() * 0.5).max(0.1);
                     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
                         label: Some("Librarian model sampler"),
+                        address_mode_u: wgpu::AddressMode::Repeat,
+                        address_mode_v: wgpu::AddressMode::Repeat,
                         mag_filter: wgpu::FilterMode::Linear,
                         min_filter: wgpu::FilterMode::Linear,
                         mipmap_filter: wgpu::FilterMode::Linear,
