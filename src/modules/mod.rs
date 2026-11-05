@@ -3,6 +3,8 @@
 //! hooks; a disabled module has no effect on core features.
 
 mod designer;
+#[cfg(test)]
+mod librarian;
 mod package;
 mod walker;
 
