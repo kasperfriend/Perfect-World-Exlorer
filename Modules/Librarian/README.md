@@ -18,7 +18,8 @@ zoom; turntable and animation controls are below the image. Preview models and
 textures require the corresponding client archives. Missing resources and
 unsupported models are reported in the preview instead of being substituted.
 The mannequin is a simplified body/equipment preview rather than a complete
-character customization.
+character customization. Skeletons with unsupported reflection or constraint
+controllers use an explicitly labelled approximate preview pose.
 
 Client files and localized data vary. Unknown item fields and add-on types are
 not guessed: unrecognized add-ons are shown as raw values. The comparison shows
@@ -28,6 +29,8 @@ character's final combat stats or apply randomized add-ons.
 For optional tests against an installed client, set `PW_LIBRARIAN_ELEMENTS` to
 its `data/elements.data` path and `PW_LIBRARIAN_ELEMENT_ROOT` to its element
 folder before running `cargo test --locked --bin perfect-world-explorer`.
+Set `PW_LIBRARIAN_GPU=1` as well to render real weapon and worn-armor previews
+and read back their pixels on a headless GPU.
 
 The supplied `pw142` client indexes 13,483 unique items across 43 nonempty
 item tables, exceeding the 12,922-item reference. Counts may differ between

@@ -463,6 +463,17 @@ mod tests {
         for path in [&weapon.model, &worn] {
             preview.update(&device, &queue, format, &mut assets, path);
             assert!(preview.error.is_none(), "{path}: {:?}", preview.error);
+            if path == &worn {
+                assert!(
+                    !preview.action_names().is_empty(),
+                    "worn mannequin has no actions"
+                );
+                assert!(
+                    preview.animation_error.is_none(),
+                    "worn animation: {:?}",
+                    preview.animation_error
+                );
+            }
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
                 size: 512 * 512 * 4,
