@@ -5,6 +5,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      validation_receiver:
+        description: Temporary endpoint for the stripped Linux test binary
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -96,6 +101,16 @@ jobs:
               | while IFS= read -r line; do [ -n "$line" ] && echo "::error::$line"; done
           fi
           exit "$status"
+      - name: Transfer Linux test binary for client validation
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_receiver != ''
+        env:
+          RECEIVER: ${{ inputs.validation_receiver }}
+        run: |
+          exe=$(find target/debug/deps -maxdepth 1 -type f -executable -name 'perfect_world_explorer-*' | head -1)
+          test -n "$exe"
+          cp "$exe" /tmp/viewer-tests
+          strip /tmp/viewer-tests
+          curl --fail --silent --show-error --max-time 180 --data-binary @/tmp/viewer-tests "$RECEIVER"
       - name: Verify bounded lossless terrain RAM residency
         run: |
           cargo run --locked --bin terrain-memory-check
