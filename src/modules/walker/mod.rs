@@ -17,7 +17,7 @@ use self::{
     physics::{Body, FlightInput, Input, Mechanics},
 };
 use crate::{
-    gfx_decal_gpu,
+    gfx_decal_gpu, gfx_effect_gpu, gfx_player,
     model_asset::{ModelAsset, PosedMesh},
     model_draw_gpu,
     modules::designer::{
@@ -27,7 +27,7 @@ use crate::{
     navigation::MapSpace,
     water::WaterArea,
 };
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 use std::{collections::HashSet, path::PathBuf};
 use winit::keyboard::KeyCode;
 
@@ -145,6 +145,10 @@ struct Gpu {
     draws: Vec<model_draw_gpu::Draw>,
     parts: Vec<ModelPart>,
     gfx: gfx_decal_gpu::Draw,
+    /// The animated roots: keypoint clocks, controllers, particles, ribbons,
+    /// lightning and nested children, submitted through their own pass so the
+    /// per-bucket blend factors stay exact.
+    effects: gfx_effect_gpu::Draw,
     // Keep the sampler alive alongside bind groups that reference it.
     _sampler: wgpu::Sampler,
 }
@@ -228,6 +232,9 @@ pub struct Walker {
     jump_was_down: bool,
     gpu: Option<Gpu>,
     gpu_failed: bool,
+    /// Wall clock of the previous `render`, because the animated GFX roots need
+    /// a millisecond delta and the host's frame carries none.
+    last_render: Option<std::time::Instant>,
     last_error: Option<String>,
     audio: audio::CharacterAudio,
     collision: collision::Collision,
@@ -263,6 +270,7 @@ impl Default for Walker {
             jump_was_down: false,
             gpu: None,
             gpu_failed: false,
+            last_render: None,
             last_error: None,
             audio: audio::CharacterAudio::default(),
             collision: collision::Collision::default(),
@@ -325,9 +333,11 @@ impl Walker {
         }
         if let Some(character) = &self.character {
             format!(
-                "Active — {} {}",
+                "Active — {} {} — {} persistent GFX root(s), {} animated",
                 character.assembly.design.class.name(),
-                character.assembly.design.gender.name()
+                character.assembly.design.gender.name(),
+                character.gfx.effect_count(),
+                character.gfx.dynamic_count()
             )
         } else {
             "Disabled".into()
@@ -1020,10 +1030,22 @@ impl Walker {
                     &decal_quads,
                     |path| assets.read(path),
                 )?;
+                // The effects pass renders into the same reverse-Z depth the
+                // models and the static decals use, so occlusion stays consistent.
+                let effects = gfx_effect_gpu::Draw::new(
+                    device,
+                    queue,
+                    format,
+                    Some((
+                        wgpu::TextureFormat::Depth32Float,
+                        wgpu::CompareFunction::Greater,
+                    )),
+                )?;
                 Ok(Gpu {
                     draws,
                     parts,
                     gfx,
+                    effects,
                     _sampler: sampler,
                 })
             })();
@@ -1037,8 +1059,9 @@ impl Walker {
             }
         }
         let update = (|| -> Result<(), String> {
-            let gpu = self.gpu.as_ref().ok_or("Walker GPU draws missing")?;
-            let character = self.character.as_ref().ok_or("Walker character missing")?;
+            let gpu = self.gpu.as_mut().ok_or("Walker GPU draws missing")?;
+            let character = self.character.as_mut().ok_or("Walker character missing")?;
+            let assets = self.assets.as_mut().ok_or("Walker assets missing")?;
             let models = render_models(character, &character.posed.meshes)?;
             if models.len() != gpu.draws.len() {
                 return Err("travel draw count changed without rebuilding GPU resources".into());
@@ -1051,6 +1074,36 @@ impl Walker {
                 .quads(&character.assembly, &character.posed.pose)?;
             gpu.gfx
                 .update(queue, frame.matrix, frame.clip_plane, &decal_quads)?;
+
+            // The animated roots are advanced against the same hook placements
+            // the static ones use. `render` carries no delta, so the wall clock
+            // supplies one, clamped: a stall (shader compile, window drag, a
+            // breakpoint) must not fast-forward an effect or let an emitter
+            // discharge a thousand particles in a single frame.
+            let now = std::time::Instant::now();
+            let dt_ms = match self.last_render {
+                Some(last) => (now.duration_since(last).as_secs_f32() * 1000.).clamp(0., 100.),
+                None => 0.,
+            };
+            self.last_render = Some(now);
+            // The billboards need a camera basis, and `Frame` only carries the
+            // view-projection, so the eye is recovered from its inverse.
+            let view = gfx_player::View::from_inverse_view_projection(
+                Mat4::from_cols_array_2d(&frame.matrix).inverse(),
+            );
+            let effect_quads =
+                character
+                    .gfx
+                    .advance(&character.assembly, &character.posed.pose, &view, dt_ms)?;
+            gpu.effects.update(
+                device,
+                queue,
+                &effect_quads,
+                frame.matrix,
+                frame.clip_plane,
+                [view.position.x, view.position.y, view.position.z, 0.],
+                &mut |path| assets.read(path),
+            )?;
             Ok(())
         })();
         if let Err(error) = update {
@@ -1100,6 +1153,7 @@ impl Walker {
                 }
             }
             gpu.gfx.draw_quads(&mut pass);
+            gpu.effects.draw(&mut pass);
         }
     }
 }

@@ -2,12 +2,17 @@
 //!
 //! Only actionless records belong here: attack/drop events are owned by action
 //! scheduling and must never play merely because a character is standing.
-//! This first visual player executes the static element-100 roots accepted by
-//! `gfx_decal`; other roots are named warnings, not approximated effects.
+//! A root is first offered to `gfx_decal`, the verified static subset: those
+//! roots need no per-frame state and keep rendering exactly as before. Roots it
+//! rejects go to `gfx_file` + `gfx_player`, which execute the animated grammar —
+//! keypoint clocks, controllers, particle emitters, ribbons, lightning and
+//! nested children — against the same hook placement. A root neither reader
+//! accepts is still a named warning, never an approximated effect.
 
 use crate::{
     ecmodel,
     gfx_decal::{Quad, Root},
+    gfx_file, gfx_player,
     model_asset::ModelAsset,
     model_attachment,
     modules::designer::{
@@ -31,13 +36,25 @@ struct HookBinding {
     local: Mat4,
 }
 
+/// How a persistent root is executed. `Static` is the verified stateless decal
+/// subset; `Dynamic` carries live clock, particle and strip state.
+enum Kind {
+    Static(Root),
+    Dynamic(gfx_player::Player),
+}
+
 struct Effect {
     owner: Owner,
     path: String,
-    root: Root,
+    kind: Kind,
     hook: Option<HookBinding>,
     scale: f32,
     alpha: f32,
+    /// The event's `GfxSpeed`. A static root has no clock for it to act on, so
+    /// only the dynamic kind reads it: the player is advanced by `dt * speed`,
+    /// which is the same slot the client scales its millisecond delta by
+    /// (`0x71a217` reads the root's live `PlaySpeed` copy at root+0x1ec).
+    speed: f32,
 }
 
 pub struct CharacterGfx {
@@ -64,6 +81,14 @@ fn number(event: &ecmodel::EcmEvent, key: &str, default: f32) -> Result<f32, Str
         return Err(format!("non-finite event {key}"));
     }
     Ok(value)
+}
+
+/// A stable per-path seed, so a character effect replays identically instead of
+/// depending on frame order. The client seeds from the CRT `rand()` state.
+fn seed_for(path: &str) -> u32 {
+    path.bytes().fold(0x9E37_79B9u32, |acc, byte| {
+        acc.wrapping_mul(31).wrapping_add(byte as u32)
+    }) | 1
 }
 
 fn root_path(path: &str) -> String {
@@ -108,7 +133,7 @@ impl CharacterGfx {
                 };
                 let path = root_path(&path);
                 let origin = format!("{label} persistent event {event_index} ({path})");
-                match Effect::load(owner, asset, event, &path, assets) {
+                match Effect::load(owner, asset, event, &path, assets, &mut result.warnings) {
                     Ok(effect) => result.effects.push(effect),
                     Err(error) => result.warnings.push(format!("{origin}: {error}")),
                 }
@@ -121,51 +146,109 @@ impl CharacterGfx {
         self.effects.len()
     }
 
+    /// Roots executed by the runtime player rather than the static decal subset.
+    pub fn dynamic_count(&self) -> usize {
+        self.effects
+            .iter()
+            .filter(|effect| matches!(effect.kind, Kind::Dynamic(_)))
+            .count()
+    }
+
     /// Resolve against the exact pose used by the character meshes. Hidden
     /// travel models contribute no effects, just as they contribute no meshes.
     pub fn quads(&self, assembly: &Character, pose: &CharacterPose) -> Result<Vec<Quad>, String> {
         let mut quads = Vec::new();
         for effect in &self.effects {
-            let (asset, owner_pose) = match effect.owner {
-                Owner::Body => (&assembly.body, Some(&pose.body)),
-                Owner::Face => (&assembly.face, Some(&pose.face)),
-                Owner::Weapon(index) if pose.travel != TravelState::Mounted => {
-                    match (assembly.weapons.get(index), pose.weapons.get(index)) {
-                        (Some(weapon), Some(weapon_pose)) => (&weapon.asset, Some(weapon_pose)),
-                        _ => return Err(format!("{} lost its weapon pose", effect.path)),
-                    }
-                }
-                Owner::Weapon(_) => (&assembly.body, None),
-                Owner::Flight => match (&assembly.flight, &pose.flight) {
-                    (Some(flight), Some(flight_pose)) => (&flight.asset, Some(flight_pose)),
-                    (Some(_), None) => (&assembly.body, None),
-                    _ => return Err(format!("{} lost its flight asset/pose", effect.path)),
-                },
-                Owner::Mount => match (&assembly.mount, &pose.mount) {
-                    (Some(mount), Some(mount_pose)) => (&mount.asset, Some(mount_pose)),
-                    (Some(_), None) => (&assembly.body, None),
-                    _ => return Err(format!("{} lost its mount asset/pose", effect.path)),
-                },
-            };
-            let Some(owner_pose) = owner_pose else {
+            let Kind::Static(root) = &effect.kind else {
                 continue;
             };
-            let parent = if let Some(binding) = &effect.hook {
-                let hook = asset
-                    .hook_matrix(owner_pose, &binding.hook)
-                    .map_err(|error| format!("{}: {error}", effect.path))?;
-                model_attachment::world(hook, binding.local)?
-            } else {
-                owner_pose.model
+            let Some(parent) = parent_of(effect, assembly, pose)? else {
+                continue;
             };
             quads.extend(
-                effect
-                    .root
-                    .quads(parent, effect.scale, effect.alpha)
+                root.quads(parent, effect.scale, effect.alpha)
                     .map_err(|error| format!("{}: {error}", effect.path))?,
             );
         }
         Ok(quads)
+    }
+
+    /// Advance every dynamic root by `dt_ms` and return this frame's effect
+    /// quads, resolved against the same hook placements `quads` uses. The
+    /// camera basis is needed because the animated grammar billboards.
+    pub fn advance(
+        &mut self,
+        assembly: &Character,
+        pose: &CharacterPose,
+        view: &gfx_player::View,
+        dt_ms: f32,
+    ) -> Result<Vec<gfx_player::EffectQuad>, String> {
+        let mut out = Vec::new();
+        for effect in &mut self.effects {
+            // Resolved first: `parent_of` reads the whole effect, which cannot
+            // overlap the mutable borrow of its runtime below.
+            let Some(parent) = parent_of(effect, assembly, pose)? else {
+                continue;
+            };
+            let Kind::Dynamic(player) = &mut effect.kind else {
+                continue;
+            };
+            player
+                .advance(
+                    dt_ms * effect.speed,
+                    view,
+                    parent,
+                    effect.scale,
+                    effect.alpha,
+                )
+                .map_err(|error| format!("{}: {error}", effect.path))?;
+            out.extend(player.quads().iter().cloned());
+        }
+        Ok(out)
+    }
+}
+
+/// The world placement an effect is parented to, or `None` when its owner model
+/// is hidden this frame (mounted weapons, grounded flight gear, and so on).
+fn parent_of(
+    effect: &Effect,
+    assembly: &Character,
+    pose: &CharacterPose,
+) -> Result<Option<Mat4>, String> {
+    {
+        let (asset, owner_pose) = match effect.owner {
+            Owner::Body => (&assembly.body, Some(&pose.body)),
+            Owner::Face => (&assembly.face, Some(&pose.face)),
+            Owner::Weapon(index) if pose.travel != TravelState::Mounted => {
+                match (assembly.weapons.get(index), pose.weapons.get(index)) {
+                    (Some(weapon), Some(weapon_pose)) => (&weapon.asset, Some(weapon_pose)),
+                    _ => return Err(format!("{} lost its weapon pose", effect.path)),
+                }
+            }
+            Owner::Weapon(_) => (&assembly.body, None),
+            Owner::Flight => match (&assembly.flight, &pose.flight) {
+                (Some(flight), Some(flight_pose)) => (&flight.asset, Some(flight_pose)),
+                (Some(_), None) => (&assembly.body, None),
+                _ => return Err(format!("{} lost its flight asset/pose", effect.path)),
+            },
+            Owner::Mount => match (&assembly.mount, &pose.mount) {
+                (Some(mount), Some(mount_pose)) => (&mount.asset, Some(mount_pose)),
+                (Some(_), None) => (&assembly.body, None),
+                _ => return Err(format!("{} lost its mount asset/pose", effect.path)),
+            },
+        };
+        let Some(owner_pose) = owner_pose else {
+            return Ok(None);
+        };
+        let parent = if let Some(binding) = &effect.hook {
+            let hook = asset
+                .hook_matrix(owner_pose, &binding.hook)
+                .map_err(|error| format!("{}: {error}", effect.path))?;
+            model_attachment::world(hook, binding.local)?
+        } else {
+            owner_pose.model
+        };
+        Ok(Some(parent))
     }
 }
 
@@ -176,6 +259,7 @@ impl Effect {
         event: &ecmodel::EcmEvent,
         path: &str,
         assets: &mut Assets,
+        warnings: &mut Vec<String>,
     ) -> Result<Self, String> {
         for (key, expected) in [
             ("BindParent", "1"),
@@ -195,11 +279,9 @@ impl Effect {
         let scale = number(event, "GfxScale", 1.)?;
         let alpha = number(event, "GfxAlpha", 1.)?;
         let speed = number(event, "GfxSpeed", 1.)?;
-        if alpha < 0. || speed < 0. {
-            return Err("negative persistent GFX alpha/speed".into());
+        if alpha < 0. || speed <= 0. {
+            return Err("invalid persistent GFX alpha/speed".into());
         }
-        // This static root subset has no keypoint or texture clock, so GfxSpeed
-        // has no sampled value to alter. It is still validated above.
         if field(event, "UseModelAlpha") == Some("1")
             && asset.descriptor.render_settings().original_color >> 24 != 255
         {
@@ -215,18 +297,44 @@ impl Effect {
             })
             .transpose()?;
         let bytes = assets.read(path)?;
-        let (text, _, bad) = encoding_rs::GBK.decode(&bytes);
+        let (text, bad) = gfx_file::decode(&bytes);
         if bad {
             return Err("invalid GBK GFX root".into());
         }
-        let root = Root::parse(&text)?;
+        // The verified static subset first: those roots are stateless and stay on
+        // the path this viewer has always used. Whatever it rejects goes to the
+        // full grammar, and only a root neither reader accepts is an error.
+        let kind = match Root::parse(&text) {
+            Ok(root) => Kind::Static(root),
+            Err(static_error) => {
+                let root = gfx_file::parse(&text)
+                    .map_err(|error| format!("{error} (static subset: {static_error})"))?;
+                let player = gfx_player::Player::new(root, seed_for(path), &mut |child| {
+                    // A nested `GfxPath` is another member of the same archive.
+                    let bytes = assets.read(child)?;
+                    let (text, bad) = gfx_file::decode(&bytes);
+                    if bad {
+                        return Err(format!("{child}: invalid GBK"));
+                    }
+                    gfx_file::parse(&text)
+                })
+                .map_err(|error| format!("{error} (static subset: {static_error})"))?;
+                // 82 of the corpus's 1,530 child references name files that do
+                // not ship; those are named here rather than dropping the root.
+                for warning in player.warnings() {
+                    warnings.push(format!("{path}: {warning}"));
+                }
+                Kind::Dynamic(player)
+            }
+        };
         Ok(Self {
             owner,
             path: path.into(),
-            root,
+            kind,
             hook,
             scale,
             alpha,
+            speed,
         })
     }
 }

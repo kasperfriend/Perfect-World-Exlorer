@@ -20,3 +20,4 @@ This folder preserves research and open questions for the inspected client build
 These are engineering notes, not proof of visual equivalence or an independent verification of original engine behavior. Use legally obtained client files for further research and do not commit them.
 
 - [RAM-first lossless terrain paging follow-up (2026-11-04)](RAM-paging-2026-11-04.md): block-at-a-time disk backing, bounded shared hot set, smaller texture LRU and streamed PNG exports.
+- [GFX effect container: grammar, runtime player and corpus verification (2026-11-05)](Gfx-effects-reverse-engineering-2026-11-05.md): the full `.gfx` grammar with its version gates and element census, the controller/particle/ribbon runtime with native addresses, cross-verification against the static decal reader, the whole-archive sweep result, the four bugs that verification found, and what remains interpreted rather than proven.
