@@ -511,6 +511,21 @@ mod tests {
             device.poll(wgpu::Maintain::Wait);
             rx.recv().unwrap().expect("map preview");
             let data = slice.get_mapped_range();
+            if let Some(dir) = std::env::var_os("PW_LIBRARIAN_SCREENSHOTS") {
+                let name = if path == &worn {
+                    "worn.png"
+                } else {
+                    "weapon.png"
+                };
+                image::save_buffer(
+                    std::path::Path::new(&dir).join(name),
+                    &data,
+                    512,
+                    512,
+                    image::ColorType::Rgba8,
+                )
+                .unwrap();
+            }
             let background = &data[..4];
             let changed = data
                 .chunks_exact(4)
