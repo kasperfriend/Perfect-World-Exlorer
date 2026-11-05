@@ -36,6 +36,9 @@ const WORLD_LIMIT_Z: f32 = 5632.;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TemplateKind {
     Npc,
+    /// Reachable as soon as a real mob placement source exists; the client
+    /// ships none, so nothing constructs this variant today.
+    #[allow(dead_code)]
     Monster,
 }
 

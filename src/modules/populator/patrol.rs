@@ -85,10 +85,6 @@ impl Follow {
         })
     }
 
-    pub fn finished(&self) -> bool {
-        self.finished
-    }
-
     /// Moves `position` along the route. Height is left to the caller so the
     /// actor can follow the terrain it is standing on.
     pub fn step(&mut self, position: &mut Vec3, delta: f32) -> Motion {
@@ -199,10 +195,9 @@ mod tests {
         assert!((position.x - 10.).abs() < 1e-4);
         // The endpoint holds for its own dwell time, then the path ends.
         assert_eq!(follow.step(&mut position, 0.25), Motion::Waiting);
-        assert!(!follow.finished());
         assert_eq!(follow.step(&mut position, 0.25), Motion::Waiting);
         assert_eq!(follow.step(&mut position, 1.), Motion::Finished);
-        assert!(follow.finished());
+        assert_eq!(follow.step(&mut position, 1.), Motion::Finished);
         assert_eq!(position, Vec3::new(10., 0., 0.));
     }
 
@@ -212,11 +207,14 @@ mod tests {
         loop_route.looping = true;
         let mut follow = Follow::new(&loop_route).unwrap();
         let mut position = Vec3::ZERO;
+        let mut motions = Vec::new();
         for _ in 0..64 {
-            follow.step(&mut position, 0.5);
+            motions.push(follow.step(&mut position, 0.5));
         }
-        assert!(!follow.finished());
+        // A looping route never ends, and it always travels on its own legs.
+        assert!(!motions.contains(&Motion::Finished));
         assert!((-1e-3..10.5).contains(&position.x));
+        assert!(motions.contains(&Motion::Walking));
     }
 
     #[test]
