@@ -29,6 +29,7 @@ pub struct Item {
     pub name: String,
     pub icon: String,
     pub model: String,
+    pub attack_interval: Option<f32>,
     /// Raw v27 fields are retained for subsequent typed interpretation.
     pub record: Vec<u8>,
 }
@@ -38,6 +39,7 @@ pub struct Database {
     pub items: Vec<Item>,
     pub by_id: HashMap<u32, usize>,
     pub category_names: HashMap<(usize, u32), String>,
+    pub weapon_intervals: HashMap<u32, f32>,
     pub addons: HashMap<u32, Vec<u8>>,
     pub suites: HashMap<u32, Vec<u8>>,
     pub pets: HashMap<u32, Vec<u8>>,
@@ -129,6 +131,12 @@ impl Database {
                 }
                 1 | 2 | 4 | 5 | 7 | 8 | 10 | 11 | 13 | 14 | 21 | 31 | 35 | 82 | 83 | 94 | 122 => {
                     db.category_names.insert((section, id), wide(record, 4));
+                    if section == 2 {
+                        let interval = f32::from_bits(number(record, 344));
+                        if interval.is_finite() && interval > 0. {
+                            db.weapon_intervals.insert(id, interval);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -142,6 +150,7 @@ impl Database {
                     name: wide(record, name),
                     icon: path(record, icon),
                     model: model.map(|offset| path(record, offset)).unwrap_or_default(),
+                    attack_interval: None,
                     record: record.to_vec(),
                 };
                 let mut item = item;
@@ -155,6 +164,12 @@ impl Database {
         })?;
         // Eggs point to the creature definition, whose model can be previewed.
         for item in &mut db.items {
+            if item.section == 3 {
+                item.attack_interval = item
+                    .subtype
+                    .and_then(|id| db.weapon_intervals.get(&id))
+                    .copied();
+            }
             if item.section == 96 {
                 if let Some(pet) = db.pets.get(&number(&item.record, 324)) {
                     item.model = path(pet, 72);
@@ -666,6 +681,10 @@ impl Item {
             .iter()
             .map(|(name, offset)| (*name, number(&self.record, *offset) as i32 as f64))
             .collect();
+        if let Some(interval) = self.attack_interval {
+            result.push(("Attack interval (s)", interval as f64));
+            result.push(("Attacks per second", 1. / interval as f64));
+        }
         let float_fields: &[(&str, usize)] = match self.section {
             3 => &[("Attack range", 648)],
             19 => &[("Damage reduction", 604)],

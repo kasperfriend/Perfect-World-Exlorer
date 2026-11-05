@@ -28,6 +28,7 @@ pub fn best(name: &str, values: &[Option<f64>]) -> Option<f64> {
             | "Buy price"
             | "Repair price"
             | "Cooldown (ms)"
+            | "Attack interval (s)"
     );
     if smaller {
         values.iter().flatten().copied().reduce(f64::min)
@@ -55,6 +56,7 @@ mod tests {
             name: String::new(),
             icon: String::new(),
             model: String::new(),
+            attack_interval: None,
             record: vec![0; size],
         };
         let weapon = make(3, Category::Weapons, 1412);
