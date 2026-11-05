@@ -1091,14 +1091,13 @@ impl Populator {
             let font = self
                 .name_font
                 .get_or_insert_with(|| NameFont::load(&element));
-            // egui picks new font definitions up at the start of the next frame,
-            // so the frame that registers the client font still uses the
-            // viewer's own at the client's size.
-            if font.install(ctx) {
-                font.font_id()
-            } else {
-                egui::FontId::proportional(font.size)
+            // egui applies new font definitions at the start of the next frame,
+            // so the frame that registers the client font draws no label rather
+            // than forcing the family early.
+            if !font.install(ctx) {
+                return;
             }
+            font.font_id()
         };
         let Some(population) = self.population.as_ref() else {
             return;
@@ -1320,7 +1319,6 @@ impl Populator {
             let font = self
                 .name_font
                 .get_or_insert_with(|| NameFont::load(&element));
-            let _ = font.install(ui.ctx());
             ui.label(egui::RichText::new(font.describe()).small().weak())
                 .on_hover_text(
                     "The client's own `Configs\\fonts.txt` names the font of the player and NPC labels above their heads. That row is read out of `configs.pck` and used for every name, so the typeface and the size are the client's, not the viewer's; the client's shipped CJK font is stacked behind it for glyphs the system font lacks.",
