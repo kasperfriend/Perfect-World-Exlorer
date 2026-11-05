@@ -48,6 +48,11 @@ impl Modules {
         }
     }
 
+    pub fn prepare_librarian_preview(&mut self, device: &wgpu::Device, queue: &wgpu::Queue,
+        renderer: &mut egui_wgpu::Renderer, format: wgpu::TextureFormat) {
+        self.librarian.prepare_preview(device, queue, renderer, format);
+    }
+
     pub fn walker_active(&self) -> bool {
         self.walker.is_active()
     }

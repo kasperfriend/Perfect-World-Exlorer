@@ -5,6 +5,7 @@ mod compare;
 mod database;
 mod elements;
 mod icons;
+mod preview3d;
 
 use archive::LibrarianAssets;
 use database::{Category, Database};
@@ -15,6 +16,7 @@ pub struct Librarian {
     root: PathBuf,
     state: Option<State>,
     error: Option<String>,
+    pending_free: Option<egui::TextureId>,
 }
 struct State {
     assets: LibrarianAssets,
@@ -26,27 +28,43 @@ struct State {
     selected: Option<usize>,
     comparison: Vec<usize>,
     compare_open: bool,
+    preview: Option<preview3d::Preview>,
+    show_3d: bool,
 }
 impl Librarian {
     pub fn new(root: PathBuf) -> Self {
-        Self { root, state: None, error: None }
+        Self { root, state: None, error: None, pending_free: None }
     }
     pub fn active(&self) -> bool { self.state.is_some() }
     pub fn status(&self) -> &str {
         if self.active() { "Enabled" } else { self.error.as_deref().unwrap_or("Disabled") }
     }
     pub fn set_active(&mut self, active: bool) {
-        if !active { self.state = None; self.error = None; return; }
+        if !active {
+            if let Some(state) = self.state.take() {
+                self.pending_free = state.preview.map(|preview| preview.texture_id);
+            }
+            self.error = None; return;
+        }
         let mut assets = LibrarianAssets::open(&self.root);
         match assets.read_elements_data().and_then(|bytes| Database::parse_v27(&bytes)) {
             Ok(database) => {
                 let icons = IconCache::load(&mut assets);
                 self.state = Some(State { assets, icons, database, category: None, subtype: None,
-                    search: String::new(), selected: None, comparison: Vec::new(), compare_open: false });
+                    search: String::new(), selected: None, comparison: Vec::new(), compare_open: false, preview: None, show_3d: false });
                 self.error = None;
             }
             Err(error) => self.error = Some(error),
         }
+    }
+    pub fn prepare_preview(&mut self, device: &wgpu::Device, queue: &wgpu::Queue,
+        renderer: &mut egui_wgpu::Renderer, format: wgpu::TextureFormat) {
+        if let Some(id) = self.pending_free.take() { renderer.free_texture(&id); }
+        let Some(state) = &mut self.state else { return };
+        if !state.show_3d { return; }
+        let Some(index) = state.selected else { return };
+        let preview = state.preview.get_or_insert_with(|| preview3d::Preview::new(device, renderer, format));
+        preview.update(device, queue, format, &mut state.assets, &state.database.items[index].model);
     }
     pub fn ui(&mut self, ctx: &egui::Context) {
         let Some(state) = &mut self.state else { return };
@@ -74,6 +92,31 @@ impl State {
             ui.label("Search:"); ui.text_edit_singleline(&mut self.search);
             ui.label(format!("{} records", self.database.items.len()));
         });
+        if let Some(category) = self.category {
+            let mut subtypes: Vec<(u32, String)> = self.database.items.iter()
+                .filter(|item| item.category == category)
+                .filter_map(|item| item.subtype.map(|id| {
+                    let table = match item.section {
+                        3 => 2, 6 => 5, 9 => 8, 12 => 11, 15 => 14,
+                        22 => 21, 32 => 31, 36 => 35, 84 => 83, 123 => 122,
+                        _ => usize::MAX,
+                    };
+                    let name = self.database.category_names.get(&(table, id))
+                        .filter(|name| !name.is_empty()).cloned().unwrap_or_else(|| format!("Subtype {id}"));
+                    (id, name)
+                })).collect();
+            subtypes.sort_by(|a, b| a.1.cmp(&b.1).then(a.0.cmp(&b.0)));
+            subtypes.dedup_by_key(|entry| entry.0);
+            if !subtypes.is_empty() {
+                egui::ComboBox::from_label("Subtype")
+                    .selected_text(self.subtype.and_then(|id| subtypes.iter().find(|entry| entry.0 == id))
+                        .map(|entry| entry.1.as_str()).unwrap_or("All subtypes"))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut self.subtype, None, "All subtypes");
+                        for (id, name) in &subtypes { ui.selectable_value(&mut self.subtype, Some(*id), name); }
+                    });
+            }
+        }
         let query = self.search.to_lowercase();
         let indices: Vec<usize> = self.database.items.iter().enumerate().filter_map(|(index, item)| {
             if self.category.is_some_and(|category| category != item.category)
@@ -98,7 +141,28 @@ impl State {
                     let item = &self.database.items[index];
                     ui.heading(&item.name);
                     ui.label(format!("ID {} · {}", item.id, item.category.name()));
-                    if let Some(icon) = self.icons.get(ui.ctx(), &mut self.assets, &item.icon) {
+                    ui.horizontal(|ui| {
+                        ui.selectable_value(&mut self.show_3d, false, "2D icon");
+                        ui.selectable_value(&mut self.show_3d, true, "3D model");
+                    });
+                    if self.show_3d {
+                        if let Some(preview) = &mut self.preview {
+                            if let Some(error) = &preview.error { ui.colored_label(egui::Color32::LIGHT_RED, error); }
+                            let size = ui.available_width().min(300.);
+                            let response = ui.add(egui::Image::new((preview.texture_id, egui::vec2(size, size))).sense(egui::Sense::drag()));
+                            if response.dragged() {
+                                let delta = ui.input(|i| i.pointer.delta());
+                                preview.yaw += delta.x * 0.01;
+                                preview.pitch = (preview.pitch - delta.y * 0.01).clamp(-1.45, 1.45);
+                            }
+                            if response.hovered() {
+                                let scroll = ui.input(|i| i.smooth_scroll_delta.y);
+                                preview.zoom = (preview.zoom * (-scroll * 0.001).exp()).clamp(0.3, 5.);
+                            }
+                            ui.horizontal(|ui| { ui.checkbox(&mut preview.turntable, "Turntable"); ui.checkbox(&mut preview.playing, "Animation"); });
+                            ui.label("Drag to orbit; scroll to zoom.");
+                        } else { ui.label("Preparing preview…"); }
+                    } else if let Some(icon) = self.icons.get(ui.ctx(), &mut self.assets, &item.icon) {
                         ui.image((icon, egui::vec2(64.,64.)));
                     }
                     if ui.button("Add to comparison").clicked() && !self.comparison.contains(&index) {
@@ -108,7 +172,6 @@ impl State {
                     for (name, value) in item.attributes() { ui.label(format!("{name}: {value}")); }
                     if let Some(subtype) = item.subtype { ui.label(format!("Subtype ID: {subtype}")); }
                     if !item.model.is_empty() { ui.label(format!("Model: {}", item.model)); }
-                    ui.label("3D preview is not yet available.");
                 } else { ui.label("Select an item to see its details."); }
             });
         });
