@@ -8,7 +8,7 @@ use crate::{ecmodel, pck};
 use std::{
     collections::HashMap,
     fs::{self, File},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 pub struct PckArchive {
@@ -58,6 +58,17 @@ pub fn normalize_archive_path(path: &str) -> String {
         .to_lowercase()
 }
 
+fn safe_join(root: &Path, path: &str) -> Option<PathBuf> {
+    let path = Path::new(path);
+    if path
+        .components()
+        .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return None;
+    }
+    Some(root.join(path))
+}
+
 pub struct LibrarianAssets {
     element_root: PathBuf,
     configs: Option<PckArchive>,
@@ -97,8 +108,8 @@ impl LibrarianAssets {
                 return Some(bytes);
             }
         }
-        let disk = self.element_root.join(normalize_archive_path(path));
-        fs::read(disk).ok()
+        let normalized = normalize_archive_path(path);
+        fs::read(safe_join(&self.element_root, &normalized)?).ok()
     }
 
     pub fn read_surface(&mut self, path: &str) -> Result<Vec<u8>, String> {
@@ -113,7 +124,7 @@ impl LibrarianAssets {
                 return Ok(bytes);
             }
         }
-        let disk = self.element_root.join(&full);
+        let disk = safe_join(&self.element_root, &full).ok_or("invalid surface asset path")?;
         if disk.is_file() {
             return fs::read(&disk)
                 .map_err(|error| format!("cannot read {}: {error}", disk.display()));
@@ -189,5 +200,17 @@ impl LibrarianAssets {
             }
         }
         Err(format!("unsupported Librarian asset path '{normalized}'"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn loose_asset_paths_cannot_escape_client_root() {
+        let root = Path::new("element");
+        assert!(safe_join(root, "surfaces/icon.dds").is_some());
+        assert!(safe_join(root, "surfaces/../../secret").is_none());
+        assert!(safe_join(root, "/etc/passwd").is_none());
     }
 }
