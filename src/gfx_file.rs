@@ -529,9 +529,12 @@ pub struct Particle {
     pub drag_power: f32,
     pub initial_direction: Vec3,
     pub use_hsv_interpolation: bool,
-    /// Box emitters (121, 123, 124): the box extents.
+    /// Emitters 121, 123 and 124: the *diameters* of the spawn ellipsoid. The
+    /// client fills its shape matrix as `diag(AreaSize * 0.5)` (`0x729670`) and
+    /// multiplies a uniform unit-ball sample by it (`0x728270`), so the volume is
+    /// an ellipsoid of semi-axes `AreaSize / 2`, not a box of those half extents.
     pub area_size: Option<Vec3>,
-    /// Sphere emitter (125).
+    /// Sphere emitter (125): the spawn radius.
     pub radius: Option<f32>,
     pub is_average_generation: Option<bool>,
     pub alpha_segments: Option<u32>,

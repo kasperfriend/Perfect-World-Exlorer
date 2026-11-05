@@ -56,11 +56,30 @@
 //!   calls every affector's `Update` (vtable slot 1) in list order and copies
 //!   the result back; this player mutates the particle in the same order.
 //!
-//! One native behaviour is deliberately not copied: the emitter shape classes
-//! were never located in the binary, so box and sphere spawns distribute
-//! uniformly inside the authored `AreaSize` / `Radius` rather than following
-//! whatever the client's shape objects do. Everything else above is instruction
-//! for instruction.
+//! * Birth. The emitter factory is `0x723ab0`: `id - 100` indexes a six-case jump
+//!   table at `0x723de4`, so each particle element owns an emitter of ids
+//!   100..105 and 120..125, and every emitter shares the same vtable slots —
+//!   1 samples the direction (`0x723440`), 2 the TTL (`0x7237e0`), 3 the colour
+//!   (`0x7237f0`), 5 the scale (`0x723a20`), 6 the rotation (`0x723a50`) and 8
+//!   places the new particle (element 123's is `0x727e40`). The particle object
+//!   calls them from its own emit routine `0x715b50`.
+//! * Spawn volume. `0x728270` rejection-samples the unit ball — three
+//!   `rand() * (2/32767) - 1` draws retried while `x*x + y*y + z*z > 1` — and
+//!   multiplies it by the matrix at emitter+0xc0, which `0x729670` fills from
+//!   `AreaSize` as `diag(AreaSize * 0.5)`, then adds the emitter position at
+//!   +0x68. `AreaSize` is therefore an ellipsoid of semi-axes `AreaSize/2`.
+//! * Cone. `0x723440` draws `alpha = rand() * (1/32767) * Angle` and
+//!   `beta = rand() * (2*pi/32767)` and applies both through the axis-angle
+//!   quaternion helper `0x7b6fd0`, so the polar angle is uniform in
+//!   `[0, Angle]` and `Angle` is never clamped.
+//!
+//! Three native behaviours are deliberately not copied, each with its evidence
+//! recorded in `Findings/`: the emitter colour slot's HSV path (emitter+0xb0,
+//! branching at `0x72380c` into `0x723812`), the emission-count detail factor
+//! gated at `0x715b88`, which multiplies by a global the binary initializes at
+//! run time, and `ParIniDir`, which the parser turns into a quaternion with the
+//! Euler-to-quaternion routine `0x7b6f10` rather than treating as a direction
+//! vector.
 
 use crate::{
     ecmodel,
@@ -1809,23 +1828,23 @@ fn travel_uv(state: &ParticleState, particle: &Particle) -> [[f32; 2]; 4] {
     [[0., travel], [1., travel], [0., 1.], [1., 1.]]
 }
 
-/// Create one particle. The emitter shape classes were not located in the
-/// binary, so the box and sphere distributions follow the authored `AreaSize`
-/// and `Radius` with a uniform sample; every randomized value is the container's
-/// own range (`ScaleMin..ScaleMax`, `RotMin..RotMax`, `ColorMin..ColorMax`).
+/// Create one particle. Every randomized value is the container's own range
+/// (`ScaleMin..ScaleMax`, `RotMin..RotMax`, `ColorMin..ColorMax`), drawn through
+/// the same emitter vtable slots the client calls from its emit routine
+/// `0x715b50`: slot 2 the TTL, slot 3 the colour, slot 5 the scale, slot 6 the
+/// rotation and slot 8 the placement.
 fn spawn(
     particle: &Particle,
     path: Option<&[Vec3]>,
     rng: &mut Rng,
     context: &ElementContext,
 ) -> ParticleState {
+    // The client's shape routine `0x728270` multiplies a uniform unit-ball
+    // sample by the matrix at emitter+0xc0, which `0x729670` fills from
+    // `AreaSize` as `diag(AreaSize * 0.5)` and then adds the emitter position.
     let offset = match (particle.radius, particle.area_size) {
-        (Some(radius), _) => random_unit(rng) * radius.max(0.) * rng.unit().cbrt(),
-        (None, Some(area)) => Vec3::new(
-            rng.signed() * area.x * 0.5,
-            rng.signed() * area.y * 0.5,
-            rng.signed() * area.z * 0.5,
-        ),
+        (Some(radius), _) => random_unit_ball(rng) * radius.max(0.),
+        (None, Some(area)) => random_unit_ball(rng) * area * 0.5,
         (None, None) => Vec3::ZERO,
     };
     let position = match path {
@@ -1833,7 +1852,7 @@ fn spawn(
         None => offset,
     };
     let axis = emission_axis(particle, context);
-    let direction = if particle.angle > 0. {
+    let direction = if particle.angle != 0. {
         cone_direction(axis, particle.angle, rng)
     } else {
         axis
@@ -1859,6 +1878,19 @@ fn spawn(
 
 /// The emission axis: `ParIniDir` when the author wrote one, otherwise the
 /// element's own up axis after the keypoint orientation.
+///
+/// The client does not read `ParIniDir` as a direction. Its parser at
+/// `0x7242e2` hands the three floats to the Euler-to-quaternion routine
+/// `0x7b6f10` — which halves each argument by the 0.5 at `0x8eff98` and takes
+/// sines and cosines of them, the `sin(a/2)cos(b/2)...` expansion of three
+/// successive rotations — then combines the result with the quaternion already
+/// at emitter+0x74 and stores four floats at +0xa0. The corpus agrees: the only
+/// non-zero `ParIniDir` values are exact degree conversions (`0.017453` = 1
+/// degree, `1.570796` = 90), which a unit direction would never be. About a
+/// hundred of the 13,665 particle elements author one, so the vector reading
+/// below is wrong for those and right for the rest; reproducing the quaternion
+/// needs the provenance of emitter+0x74, which is not in the parse path. Both
+/// halves of that are recorded in `Findings/`.
 fn emission_axis(particle: &Particle, context: &ElementContext) -> Vec3 {
     if particle.initial_direction.length_squared() > 1e-9 {
         let axis = context
@@ -1874,24 +1906,54 @@ fn emission_axis(particle: &Particle, context: &ElementContext) -> Vec3 {
     }
 }
 
+/// Sample an emission direction inside the authored cone. The client's sampler
+/// `0x723440` returns the emission basis unchanged while `Angle` (emitter+0x10)
+/// compares equal to the 0.0 at `0x8d58a0`, and otherwise draws two independent
+/// uniforms: `alpha = rand() * (1/32767) * Angle` for the polar angle and
+/// `beta = rand() * (2*pi/32767)` for the azimuth, each fed to the axis-angle
+/// quaternion helper `0x7b6fd0` and applied to the basis in turn.
+///
+/// So the polar angle is uniform in `[0, Angle]`, *not* uniform in solid angle
+/// (which would need `cos(alpha)` uniform), and `Angle` is never clamped. Of the
+/// 13,665 particle elements in the corpus 416 author a 30 degree cap, 248 author
+/// `3.141593` and 2,130 author `6.283185` — a half turn sweeps the polar angle
+/// from the axis to its opposite, so both of those are a whole sphere, the full
+/// turn folding back onto the same directions — and 36 author a negative angle,
+/// a cap mirrored through the emitter. Clamping to `[0, pi]` would leave the
+/// sphere cases distributed by solid angle rather than by angle, and the
+/// `angle > 0` gate that went with it collapsed the mirrored ones onto a single
+/// ray along the axis.
 fn cone_direction(axis: Vec3, angle: f32, rng: &mut Rng) -> Vec3 {
     let axis = if axis.length_squared() > 1e-9 {
         axis.normalize()
     } else {
         Vec3::Y
     };
-    let cos_angle = angle.clamp(0., std::f32::consts::PI).cos();
-    let z = rng.range(cos_angle, 1.);
-    let radius = (1. - z * z).max(0.).sqrt();
-    let theta = rng.unit() * std::f32::consts::TAU;
-    let local = Vec3::new(radius * theta.cos(), radius * theta.sin(), z);
-    // `from_rotation_arc` maps the cone's +Z onto the emission axis. A single
-    // rotation is enough: the sample is already uniform around the cone.
+    // Draw order matches `0x723440`: the polar draw comes first.
+    let polar = rng.unit() * angle;
+    let azimuth = rng.unit() * std::f32::consts::TAU;
+    let (sin_polar, cos_polar) = polar.sin_cos();
+    let local = Vec3::new(
+        sin_polar * azimuth.cos(),
+        sin_polar * azimuth.sin(),
+        cos_polar,
+    );
+    // `from_rotation_arc` maps the cone's +Z onto the emission axis; the azimuth
+    // draw then spins the sample uniformly around it, which is what the second
+    // native quaternion rotation does.
     if (axis - Vec3::Z).length_squared() < 1e-9 {
         local
     } else {
         Quat::from_rotation_arc(Vec3::Z, axis) * local
     }
+}
+
+/// A uniform sample of the unit ball. `0x728270` rejection-samples three
+/// `rand() * (2/32767) - 1` draws and retries while `x*x + y*y + z*z > 1`; a
+/// uniform direction scaled by the cube root of a uniform radius is the same
+/// distribution, without burning an unbounded number of draws.
+fn random_unit_ball(rng: &mut Rng) -> Vec3 {
+    random_unit(rng) * rng.unit().cbrt()
 }
 
 fn random_unit(rng: &mut Rng) -> Vec3 {
@@ -1901,19 +1963,29 @@ fn random_unit(rng: &mut Rng) -> Vec3 {
     Vec3::new(radius * theta.cos(), radius * theta.sin(), z)
 }
 
-/// Per-channel uniform sample between `ColorMin` and `ColorMax`. The container
-/// has no per-channel weights, so `IsUseHSVInterp` changes nothing a byte-wise
-/// sample can express; the flag is parsed and reported instead of guessed at.
+/// Per-channel uniform sample between `ColorMin` and `ColorMax`, drawn the way
+/// the client's colour slot `0x7237f0` draws it: when the two are equal it
+/// returns them untouched, otherwise four independent `rand()` values, one per
+/// channel, each combined as `min * (1 - u) + max * u` and passed through the
+/// float-to-int helper `0x892e78`, which truncates toward zero, so a sample
+/// lands up to one unit below what rounding would give it.
+///
+/// Two native details are left out on purpose. The alpha channel is multiplied
+/// by emitter+0x8c before its truncation, and that factor is the element's live
+/// alpha, which this player already applies once while building the quad; the
+/// HSV path taken when `IsUseHSVInterp` (emitter+0xb0) is set lerps the HSV
+/// copies the parser makes at +0x38 and +0x48 through `0x7898f0`, and 168 retail
+/// elements ask for it. Both are recorded in `Findings/`.
 fn random_color(min: u32, max: u32, rng: &mut Rng) -> u32 {
     if min == max {
         return min;
     }
     let mut packed = 0u32;
     for shift in [0u32, 8, 16, 24] {
-        let a = ((min >> shift) & 0xff) as f32;
-        let b = ((max >> shift) & 0xff) as f32;
-        let value = (a + (b - a) * rng.unit()).round().clamp(0., 255.) as u32;
-        packed |= value << shift;
+        let low = ((min >> shift) & 0xff) as f32;
+        let high = ((max >> shift) & 0xff) as f32;
+        let u = rng.unit();
+        packed |= ((low * (1. - u) + high * u) as u32) << shift;
     }
     packed
 }
@@ -2821,6 +2893,172 @@ mod tests {
         InterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 0.000000, 0.000000, 0.000000\r\nColor: -1\r\n\
         Scale: 1.000000\r\nDirection: 0.000000, 0.000000, 0.000000, 1.000000\r\nRad_2D: 0.000000\r\n\
         CtrlMethodCount: 0\r\n";
+
+    /// A spawn context with an identity placement, so a particle offset can be
+    /// read straight off the returned state.
+    fn spawn_context<'a>(view: &'a View, common: &'a Common) -> ElementContext<'a> {
+        ElementContext {
+            placement: Mat4::IDENTITY,
+            view,
+            common,
+            version: 37,
+            color: u32::MAX,
+            color_scale: 1.,
+            scale: 1.,
+            rotation: 0.,
+            clock: 0.,
+        }
+    }
+
+    /// `AreaSize` is an ellipsoid of semi-axes `AreaSize * 0.5`: `0x729670`
+    /// scales each basis axis by half the authored extent and `0x728270`
+    /// multiplies a unit-ball sample by the result before adding the emitter
+    /// position. A box of the same extents would put particles at its corners,
+    /// where the ellipsoid inequality fails by a factor of three.
+    #[test]
+    fn area_size_spawns_inside_its_ellipsoid() {
+        let view = view();
+        let common = Common::default();
+        let context = spawn_context(&view, &common);
+        let mut particle = Particle::default();
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        let mut rng = Rng::new(31);
+        let mut reach = Vec3::ZERO;
+        for _ in 0..4_000 {
+            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let normalized = offset / Vec3::new(1., 0.5, 0.25);
+            assert!(
+                normalized.length_squared() <= 1. + 1e-4,
+                "{offset} is outside the ellipsoid"
+            );
+            reach = reach.max(offset.abs());
+        }
+        // The volume is filled out to its semi-axes, not held well inside them.
+        assert!(reach.x > 0.9 && reach.y > 0.45 && reach.z > 0.2, "{reach}");
+    }
+
+    /// The ball sample is uniform in volume, which is what the client's
+    /// rejection loop produces (`0x728270`: three draws of
+    /// `rand() * (2/32767) - 1`, retried while `x*x + y*y + z*z > 1`). Its mean
+    /// radius is 3/4; a sample confined to the surface would average 1.
+    #[test]
+    fn unit_ball_samples_fill_the_volume() {
+        let mut rng = Rng::new(37);
+        let samples = 4_000;
+        let mut total = 0f32;
+        for _ in 0..samples {
+            let point = random_unit_ball(&mut rng);
+            assert!(point.length() <= 1. + 1e-5, "{point} is outside the ball");
+            total += point.length();
+        }
+        let mean = total / samples as f32;
+        assert!(
+            (0.72..0.78).contains(&mean),
+            "the mean radius should be 0.75, got {mean}"
+        );
+    }
+
+    /// The client's cone sampler makes the polar angle uniform in `[0, Angle]`
+    /// (`0x723440` draws `alpha = rand() * (1/32767) * Angle` and feeds it to the
+    /// axis-angle helper `0x7b6fd0`), not uniform in solid angle. Half of a 90
+    /// degree cone's samples therefore sit inside 45 degrees of the axis, where a
+    /// solid-angle sample would put only `1 - cos(45) = 0.293` of them.
+    #[test]
+    fn cone_polar_angle_is_uniform_in_the_angle() {
+        let axis = Vec3::Y;
+        let rim = std::f32::consts::FRAC_PI_4.cos();
+        let mut rng = Rng::new(11);
+        let samples = 4_000;
+        let mut inside = 0usize;
+        for _ in 0..samples {
+            let direction = cone_direction(axis, std::f32::consts::FRAC_PI_2, &mut rng);
+            assert!(
+                (direction.length() - 1.).abs() < 1e-4,
+                "{direction} is not a unit vector"
+            );
+            if direction.dot(axis) > rim {
+                inside += 1;
+            }
+        }
+        let fraction = inside as f32 / samples as f32;
+        assert!(
+            (0.45..0.55).contains(&fraction),
+            "half of the cone should sit inside 45 degrees, got {fraction}"
+        );
+    }
+
+    /// `Angle` is measured from the emission axis and is never clamped, which
+    /// the corpus needs: 416 elements author 30 degrees, 248 author a half turn
+    /// and 2,130 a full turn — both of which sweep the whole sphere — and 36
+    /// author a negative value. The sphere cases have to reach behind the axis
+    /// and the negative ones have to open a mirrored cone instead of collapsing
+    /// onto the axis, which the `angle > 0` gate they replaced did.
+    #[test]
+    fn cone_angle_is_never_clamped() {
+        let axis = Vec3::new(0., 0., 1.);
+        let mut rng = Rng::new(13);
+
+        let rim = (std::f32::consts::FRAC_PI_6 + 1e-4).cos();
+        for _ in 0..1_000 {
+            let direction = cone_direction(axis, std::f32::consts::FRAC_PI_6, &mut rng);
+            assert!(
+                direction.dot(axis) > rim,
+                "{direction} escaped a 30 degree cone"
+            );
+        }
+
+        let mut behind = 0usize;
+        for _ in 0..1_000 {
+            let direction = cone_direction(axis, std::f32::consts::TAU, &mut rng);
+            if direction.dot(axis) < -0.9 {
+                behind += 1;
+            }
+        }
+        assert!(
+            behind > 10,
+            "a full turn covers the whole sphere, got {behind}"
+        );
+
+        let mut forward = 0usize;
+        let mut spread = 0f32;
+        for _ in 0..1_000 {
+            let direction = cone_direction(axis, -std::f32::consts::FRAC_PI_2, &mut rng);
+            forward += (direction.dot(axis) > 0.) as usize;
+            spread = spread.max(1. - direction.dot(axis));
+        }
+        assert_eq!(forward, 1_000, "a mirrored cone stays in front of its axis");
+        assert!(spread > 0.9, "and is not a single ray: spread {spread}");
+    }
+
+    /// The colour slot `0x7237f0` lerps each channel as `min * (1 - u) + max * u`
+    /// and truncates it through the float-to-int helper `0x892e78`, so a sample
+    /// never lands above its exact value. Rounding would, on most draws.
+    #[test]
+    fn color_channels_truncate_instead_of_rounding() {
+        let (min, max) = (0x0011_2233u32, 0xffee_ddccu32);
+        // Seeded alike, so the reference rng replays `random_color`'s own draws.
+        let mut actual = Rng::new(23);
+        let mut reference = Rng::new(23);
+        let mut always_truncates = true;
+        let mut differs_from_rounding = false;
+        for _ in 0..500 {
+            let got = random_color(min, max, &mut actual);
+            let mut want_truncated = 0u32;
+            let mut want_rounded = 0u32;
+            for shift in [0u32, 8, 16, 24] {
+                let low = ((min >> shift) & 0xff) as f32;
+                let high = ((max >> shift) & 0xff) as f32;
+                let u = reference.unit();
+                let exact = low * (1. - u) + high * u;
+                want_truncated |= (exact as u32) << shift;
+                want_rounded |= (exact.round().clamp(0., 255.) as u32) << shift;
+            }
+            always_truncates &= got == want_truncated;
+            differs_from_rounding |= got != want_rounded;
+        }
+        assert!(always_truncates, "0x892e78 truncates toward zero");
+        assert!(differs_from_rounding, "and that is observable");
+    }
 
     #[test]
     fn flipbook_cells_walk_the_authored_grid() {
