@@ -259,6 +259,10 @@ impl IconCache {
         }
     }
 
+    pub fn has_atlas(&self) -> bool {
+        self.ivtrm.is_some() || self.ivtrf.is_some() || self.pet.is_some() || self.elf.is_some()
+    }
+
     pub fn get(
         &mut self,
         ctx: &egui::Context,
@@ -354,6 +358,18 @@ impl IconCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn authentic_client_atlas_when_available() {
+        let Ok(root) = std::env::var("PW_LIBRARIAN_ELEMENT_ROOT") else {
+            return;
+        };
+        let mut assets = LibrarianAssets::open(std::path::Path::new(&root));
+        let sheet = IconSheet::load(&mut assets, "iconlist_ivtrm").expect("load inventory atlas");
+        assert_eq!((sheet.cell_width, sheet.cell_height), (32, 32));
+        let (_, _, rgba) = sheet.decode_index(0).expect("decode first atlas cell");
+        assert_eq!(rgba.len(), 32 * 32 * 4);
+    }
 
     #[test]
     fn slices_dxt1_icon_sheet_cell_accurately() {

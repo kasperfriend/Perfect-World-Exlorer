@@ -1,0 +1,30 @@
+# Librarian
+
+Librarian browses the Perfect World 1.4.2 v27 `elements.data` installed in the
+selected client directory. Enable it from **Escape → Modules → Librarian**.
+It reads client archives without modifying them; missing optional archives do
+not prevent the item index from opening.
+
+Select a category and type, search by name or ID, and select a result for its
+icon, decoded attributes, available add-on pools, and linked equipment sets.
+Add items to the Comparison tab to align their known numeric attributes. The
+first column is the baseline; arrows reorder columns, × removes a column, and
+the item name returns to its details. Add-on weights are the authored pool
+weights, not necessarily final in-game probabilities.
+
+Switch to **3D model** for an offscreen ECM/SMD preview, or a class/gender
+mannequin for armor and fashion. Drag to orbit, Shift-drag to pan, and scroll to
+zoom; turntable and animation controls are below the image. Preview models and
+textures require the corresponding client archives. Missing resources and
+unsupported models are reported in the preview instead of being substituted.
+The mannequin is a simplified body/equipment preview rather than a complete
+character customization.
+
+Client files and localized data vary. Unknown item fields and add-on types are
+not guessed: unrecognized add-ons are shown as raw values. The comparison shows
+only attributes currently decoded for each item type, and does not calculate a
+character's final combat stats or apply randomized add-ons.
+
+For optional tests against an installed client, set `PW_LIBRARIAN_ELEMENTS` to
+its `data/elements.data` path and `PW_LIBRARIAN_ELEMENT_ROOT` to its element
+folder before running `cargo test --locked --bin perfect-world-explorer`.

@@ -147,6 +147,7 @@ impl Librarian {
     pub fn ui(&mut self, ctx: &egui::Context) {
         let Some(state) = &mut self.state else { return };
         egui::Window::new("Librarian")
+            .default_pos(egui::pos2(320., 70.))
             .default_size([1050., 700.])
             .min_size([650., 400.])
             .resizable(true)
@@ -189,6 +190,9 @@ impl State {
             }
         });
         ui.separator();
+        if !self.icons.has_atlas() {
+            ui.colored_label(egui::Color32::YELLOW, "Inventory icon atlases could not be loaded from surfaces.pck; loose icons may still be available.");
+        }
         if self.compare_open {
             self.comparison_ui(ui);
             return;

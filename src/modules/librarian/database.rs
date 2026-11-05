@@ -286,6 +286,19 @@ mod tests {
         );
     }
     #[test]
+    fn authentic_client_catalog_when_available() {
+        let Ok(path) = std::env::var("PW_LIBRARIAN_ELEMENTS") else {
+            return;
+        };
+        let bytes = std::fs::read(&path).expect("read PW_LIBRARIAN_ELEMENTS");
+        let db = Database::parse_v27(&bytes).expect("parse authentic v27 elements.data");
+        assert_eq!(db.items.len(), 12_922, "unexpected v27 item count");
+        assert_eq!(
+            db.items[*db.by_id.get(&6).expect("weapon 6")].name,
+            "☆Steel Falchion"
+        );
+    }
+    #[test]
     fn known_layouts_use_correct_name_and_icon_offsets() {
         let (category, _, _, name, icon, _) = layout(3).unwrap();
         assert_eq!(category, Category::Weapons);
