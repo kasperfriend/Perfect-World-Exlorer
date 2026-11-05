@@ -562,6 +562,7 @@ fn load_worn(assets: &mut LibrarianAssets, request: &str) -> Result<ModelAsset, 
     })?;
     let paths = [
         class.body_skin(gender, 0),
+        class.head_skin(gender, 0),
         class.equipment_skin(gender, realname, 0),
     ];
     for path in paths {
@@ -578,7 +579,7 @@ fn load_worn(assets: &mut LibrarianAssets, request: &str) -> Result<ModelAsset, 
                 }
             }
         }
-        if index == 1 {
+        if index == 2 {
             asset
                 .diffuse_alpha_meshes
                 .extend((0..data.meshes.len()).map(|mesh| (index, mesh)));
