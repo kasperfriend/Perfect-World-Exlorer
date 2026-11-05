@@ -196,11 +196,30 @@ glow does not wander off the swelled disc.
 
 ## 6. Validation
 
-* `cargo check --all-targets`, the requirement-status audits and the GFX light
-  audit pass in CI on this branch; the viewer unit tests run the new resident,
-  warm-start, clock and celestial-hang tests.
-* The recovery dumps listed above are committed under `Findings/recovery/` so
-  the numbers in this report can be checked without the client.
-* Not covered here: no GPU frame comparison was rendered in the sandbox, so the
-  sunset fix is verified geometrically (the tests assert the emitted top edge is
-  on the horizon and the quad centre is below it) rather than by pixels.
+The whole `PR checks and Windows build` workflow is green on this branch,
+including both jobs:
+
+* `cargo check --all-targets`, the recovered-arithmetic check, the two
+  requirement-status audits and the GFX light audit;
+* the 734 viewer unit tests, among them the new resident-terrain completeness
+  and rejection tests, the warm-start reuse and damaged-index tests, the source
+  identity test, the recovered 4-hour-day clock tests and
+  `the_disc_hangs_from_the_emitted_point_so_the_gate_is_a_real_sunset`;
+* the bounded lossless terrain RAM residency check;
+* the Phase 1 shader regressions, which now include
+  `phase5-sky-transition-gpu-check`'s sun/glow bright-core alignment test — it
+  renders at 60 degrees instead of 20, because the hung, swelled disc spans
+  21.5 degrees and a half-peak centroid of a *clipped* disc is not the disc's
+  core. Two extra findings came out of that step and are in this PR: the
+  sun-shine strip now gates on the native rectangle instead of the shifted
+  sampling coordinate, so the glow the shader draws is the client's 120 x 40
+  strip rather than that rectangle stretched by `sunshine.bmp`'s own core
+  offset;
+* the terrain per-view GPU check, and the Windows x64 build with the native
+  gamma and audio fixtures.
+
+The recovery dumps listed above are committed under `Findings/recovery/` so the
+numbers in this report can be checked without the client. No GPU frame
+comparison was rendered in the sandbox, so the sunset fix is also verified
+geometrically: the tests assert the emitted top edge is on the horizon and the
+quad centre is below it.

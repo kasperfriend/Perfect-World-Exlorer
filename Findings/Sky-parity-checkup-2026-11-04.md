@@ -181,8 +181,11 @@ the sun stops and loses its glow". `sky_celestial::template_hang` now drops the
 centre by `half` along the quad's up axis (the swelled `1 + 2n` half for the
 dusk sun, 20 units for the moon), and `sky_gpu` samples both the disc
 (`uv = vec2(x / 2h, (y - h) / 2h) + 0.5`) and the `sunshine.bmp` strip on the
-hanging, swelled rectangle. The elevation curve is unchanged: it is now the
-elevation of the setting line, so `el == 0` is a disc that has just fully set.
+hanging, swelled rectangle, gated on that rectangle rather than on the shifted
+sampling coordinate (the shift exists only to put `sunshine.bmp`'s own core, at
+0.75 of its height, on the disc; gating it stretched the drawn strip into a red
+tail). The elevation curve is unchanged: it is now the elevation of the setting
+line, so `el == 0` is a disc that has just fully set.
 
 **One game day is four real hours.** `CECSunMoon::Tick` (`0x4b5f10`) adds
 `elapsed_ms * ds:0x8db108` to the day fraction and `ds:0x8db108` is
