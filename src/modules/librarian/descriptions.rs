@@ -2,8 +2,30 @@
 //! independently, so malformed or comment lines never shift another item's ID.
 use std::collections::HashMap;
 
+fn decode(bytes: &[u8]) -> String {
+    if bytes.starts_with(&[0xff, 0xfe]) {
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        encoding_rs::GBK.decode(bytes).0.into_owned()
+    }
+}
+
+pub fn numeric_pairs(bytes: &[u8]) -> HashMap<u32, u32> {
+    decode(bytes)
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+        })
+        .collect()
+}
+
 pub fn keyed_strings(bytes: &[u8]) -> HashMap<u32, String> {
-    let text = encoding_rs::GBK.decode(bytes).0;
+    let text = decode(bytes);
     let mut result = HashMap::new();
     for line in text.lines() {
         let line = line.trim();
@@ -56,12 +78,30 @@ mod tests {
         assert_eq!(plain_text(&values[&42]), "Sword\nFine");
         assert_eq!(plain_text("a^oops"), "a^oops");
     }
+    #[test]
+    fn addon_blocks_ignore_comments() {
+        let types = addon_types(b"/* type 7 {999} */ type: 2 { 41,42 } // 5 { 1 }\ntype: 3 {43}");
+        assert_eq!(types.get(&41), Some(&2));
+        assert_eq!(types.get(&43), Some(&3));
+        assert!(!types.contains_key(&999));
+    }
+    #[test]
+    fn reads_utf16_text() {
+        let mut bytes = vec![0xff, 0xfe];
+        for unit in "42 \"Name\"".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        assert_eq!(
+            keyed_strings(&bytes).get(&42).map(String::as_str),
+            Some("Name")
+        );
+    }
 }
 
 /// Parse the client type blocks in item_ext_prop.txt. Comments are removed
 /// before tokenizing so example numbers do not become addon IDs.
 pub fn addon_types(bytes: &[u8]) -> HashMap<u32, u32> {
-    let raw = encoding_rs::GBK.decode(bytes).0;
+    let raw = decode(bytes);
     let mut clean = String::new();
     let mut chars = raw.chars().peekable();
     while let Some(ch) = chars.next() {

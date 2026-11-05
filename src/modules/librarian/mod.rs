@@ -76,6 +76,12 @@ impl Librarian {
                 if let Some(bytes) = assets.read_config("configs/item_ext_prop.txt") {
                     database.addon_types = descriptions::addon_types(&bytes);
                 }
+                if let Some(bytes) = assets.read_config("configs/item_color.txt") {
+                    database.colors = descriptions::numeric_pairs(&bytes);
+                }
+                if let Some(bytes) = assets.read_config("configs/skillstr.txt") {
+                    database.skill_names = descriptions::keyed_strings(&bytes);
+                }
                 let icons = IconCache::load(&mut assets);
                 self.state = Some(State {
                     assets,
@@ -275,6 +281,9 @@ impl State {
                         let item = &self.database.items[index];
                         ui.heading(&item.name);
                         ui.label(format!("ID {} · {}", item.id, item.category.name()));
+                        if let Some(color) = self.database.colors.get(&item.id) {
+                            ui.label(format!("Client color category: {color}"));
+                        }
                         ui.horizontal(|ui| {
                             ui.selectable_value(&mut self.show_3d, false, "2D icon");
                             ui.selectable_value(&mut self.show_3d, true, "3D model");
@@ -390,6 +399,22 @@ impl State {
                                             .to_string()
                                         })
                                         .collect();
+                                    if self.database.addon_types.get(&addon_id) == Some(&55)
+                                        && !values.is_empty()
+                                    {
+                                        if let Ok(skill) = values[0].parse::<u32>() {
+                                            if let Some(name) = self
+                                                .database
+                                                .skill_names
+                                                .get(&skill.saturating_mul(10))
+                                            {
+                                                ui.label(format!(
+                                                    "Skill: {}",
+                                                    descriptions::plain_text(name)
+                                                ));
+                                            }
+                                        }
+                                    }
                                     ui.label(format!(
                                         "Add-on {addon_id}{kind}: {} (raw)",
                                         values.join(", ")

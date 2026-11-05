@@ -43,6 +43,8 @@ pub struct Database {
     pub pets: HashMap<u32, Vec<u8>>,
     pub descriptions: HashMap<u32, String>,
     pub addon_types: HashMap<u32, u32>,
+    pub colors: HashMap<u32, u32>,
+    pub skill_names: HashMap<u32, String>,
 }
 
 fn number(record: &[u8], offset: usize) -> u32 {
