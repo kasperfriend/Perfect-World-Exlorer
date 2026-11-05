@@ -1272,7 +1272,8 @@ mod tests {
 
     #[test]
     fn a_tall_model_offers_no_standing_surface() {
-        let model = model_with(&[up_quad(0., 2., 9., 0., 2.)]);
+        // A nine-unit-tall model (base and top) is scenery, not a prop.
+        let model = model_with(&[up_quad(0., 2., 0., 0., 2.), up_quad(0., 2., 9., 0., 2.)]);
         assert!(model_decks(&model).is_empty());
     }
 
