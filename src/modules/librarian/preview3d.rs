@@ -463,7 +463,7 @@ mod tests {
         let worn = format!("worn:0:m:{}", armor.equipment_name().unwrap());
         let fashion = &db.items[*db.by_id.get(&4276).unwrap()];
         let fashion = format!("worn:0:m:{}", fashion.equipment_name().unwrap());
-        let flight = &db.items[*db.by_id.get(&2093).unwrap()].model;
+        let flight = &db.items[*db.by_id.get(&2092).unwrap()].model;
         let pet = &db.items[*db.by_id.get(&9069).unwrap()].model;
         let genie = &db.items[*db.by_id.get(&22181).unwrap()].model;
         for (label, path) in [
