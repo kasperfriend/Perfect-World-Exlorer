@@ -759,9 +759,10 @@ mod tests {
         assert_eq!(verts.len(), 3);
         assert_eq!(idx, vec![0, 1, 2]);
         assert_eq!(verts[0].pos, [0., 0., 0.]);
+        // tags[1]=0 selects corner 0 => min of cell 5
         assert_eq!(verts[1].uv, {
             let r = atlas_uv(5);
-            [(r[0] + r[2]) * 0.5, (r[1] + r[3]) * 0.5]
+            [r[0], r[1]]
         });
     }
 }
