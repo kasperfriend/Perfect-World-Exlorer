@@ -1331,8 +1331,8 @@ pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Place
 /// intermediates stay at the full window size and are resized separately.
 fn resize_world_targets(renderer: &mut Renderer, w: u32, h: u32) {
     renderer.depth = depth(&renderer.device, w, h);
-    let depth_view = renderer.depth.create_view(&Default::default());
-    renderer.sky.set_depth(&renderer.device, &depth_view);
+    // Sky keeps its dummy depth — sampling the real depth in the same
+    // pass that writes it is a feedback hazard.
     renderer.water.resize(&renderer.device, w, h);
     renderer.post.resize(&renderer.device, w, h);
 }
@@ -1492,8 +1492,7 @@ impl Renderer {
             ],
         });
         let depth_tex = depth(&device, w, h);
-        let mut sky = crate::sky_gpu::SkyGpu::new(&device, &queue, format, &t.element)?;
-        sky.set_depth(&device, &depth_tex.create_view(&Default::default()));
+        let sky = crate::sky_gpu::SkyGpu::new(&device, &queue, format, &t.element)?;
         let weather =
             crate::weather_gpu::WeatherGpu::new(&device, &queue, &t.element, format, &t.water);
         let cloud = t.cloud_surface.as_deref().and_then(|surface| {
@@ -2122,13 +2121,6 @@ impl Renderer {
             },
             drift: self.sky_drift,
         };
-        // Shader-side flare occlusion samples the scene depth at 6 taps around
-        // glow_center.zw (54-pt 0x7855c0 → 0x786840 → ps/solarflare_14 6×0.4).
-        // Rebind the current depth view before uploading the new glow_center.
-        {
-            let depth_view = self.depth.create_view(&Default::default());
-            self.sky.set_depth(&self.device, &depth_view);
-        }
         self.sky
             .update(&self.queue, direction, w, h, frame, main_sets, false);
         self.sky

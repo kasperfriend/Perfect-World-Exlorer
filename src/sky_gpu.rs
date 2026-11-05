@@ -493,9 +493,11 @@ fn flare_uv_size(i:i32)->f32{
  if i==2 {return 0.5;} return 0.25;
 }
 fn depth_sample(p:vec2<f32>)->f32{
+ // Real depth is not rebound this frame (same-pass feedback hazard).
+ // Keep the 6×0.4 path wired with the dummy 1×1, always unoccluded.
  let uv=p*0.5+vec2<f32>(0.5,0.5);
  let d=textureSample(depth_tex,depth_smp,uv);
- if (d>0.999 || d<0.0001) { return 0.4; }
+ if (d>0.999 || d<0.0001 || true) { return 0.4; }
  return 0.0;
 }
 fn depth_occlusion(sun_ndc:vec2<f32>)->f32{
