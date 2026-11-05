@@ -346,7 +346,7 @@ impl State {
                         item.section != section || item.subtype != Some(id)
                     })
                     || (!query.is_empty()
-                        && !item.name.to_lowercase().contains(&query)
+                        && !item.search_name.contains(&query)
                         && !item.id.to_string().contains(&query))
                 {
                     None
@@ -363,18 +363,27 @@ impl State {
                     for row in range {
                         let index = indices[row];
                         let item = &self.database.items[index];
-                        if ui
-                            .selectable_label(
-                                self.selected == Some(index),
-                                format!("{}  [{}]", item.name, item.id),
-                            )
-                            .clicked()
-                        {
-                            self.selected = Some(index);
-                            if let Some(gender) = item.fashion_gender() {
-                                self.preview_female = gender == 1;
+                        ui.horizontal(|ui| {
+                            if let Some(icon) =
+                                self.icons.get(ui.ctx(), &mut self.assets, &item.icon)
+                            {
+                                ui.image((icon, egui::vec2(20., 20.)));
+                            } else {
+                                ui.allocate_space(egui::vec2(20., 20.));
                             }
-                        }
+                            if ui
+                                .selectable_label(
+                                    self.selected == Some(index),
+                                    format!("{}  [{}]", item.name, item.id),
+                                )
+                                .clicked()
+                            {
+                                self.selected = Some(index);
+                                if let Some(gender) = item.fashion_gender() {
+                                    self.preview_female = gender == 1;
+                                }
+                            }
+                        });
                     }
                 });
             egui::ScrollArea::vertical()

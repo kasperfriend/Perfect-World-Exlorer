@@ -392,6 +392,16 @@ fn load_worn(assets: &mut LibrarianAssets, request: &str) -> Result<ModelAsset, 
         let data = crate::skin::Skin::parse(&assets.read_model_resource(&path)?)
             .map_err(|error| format!("{path}: {error}"))?;
         let index = asset.skins.len();
+        if index == 0 {
+            for (mesh, part) in data.meshes.iter().enumerate() {
+                if part.texture == 0 {
+                    asset.face_shaders.insert(
+                        (index, mesh),
+                        crate::model_asset::FaceShader::Body { color: u32::MAX },
+                    );
+                }
+            }
+        }
         if index == 1 {
             asset
                 .diffuse_alpha_meshes

@@ -57,6 +57,7 @@ mod tests {
             major: None,
             subtype: None,
             name: String::new(),
+            search_name: String::new(),
             icon: String::new(),
             model: String::new(),
             attack_interval: None,

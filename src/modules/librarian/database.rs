@@ -27,6 +27,7 @@ pub struct Item {
     pub major: Option<u32>,
     pub subtype: Option<u32>,
     pub name: String,
+    pub search_name: String,
     pub icon: String,
     pub model: String,
     pub attack_interval: Option<f32>,
@@ -143,13 +144,15 @@ impl Database {
                 _ => {}
             }
             if let Some((category, major, subtype, name, icon, model)) = layout(section) {
+                let name = wide(record, name);
                 let item = Item {
                     id,
                     section,
                     category,
                     major: major.map(|offset| number(record, offset)),
                     subtype: subtype.map(|offset| number(record, offset)),
-                    name: wide(record, name),
+                    search_name: name.to_lowercase(),
+                    name,
                     icon: path(record, icon),
                     model: model.map(|offset| path(record, offset)).unwrap_or_default(),
                     attack_interval: None,
