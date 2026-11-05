@@ -620,7 +620,10 @@ mod tests {
             assert!(close(sample.uv[0], v.uv[0], 1e-4), "cap u at {index}");
             assert!(close(sample.uv[1], v.uv[1], 1e-4), "cap v at {index}");
         }
-        assert!(roof_samples >= 2, "only {roof_samples} cap vertices checked");
+        assert!(
+            roof_samples >= 2,
+            "only {roof_samples} cap vertices checked"
+        );
         // Overhead is unambiguously the ceiling, and it is the sheet's centre.
         let zenith = project([0.0, 1.0, 0.0]).expect("zenith");
         assert_eq!(zenith.region, Region::Cap);

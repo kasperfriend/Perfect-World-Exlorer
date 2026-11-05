@@ -393,8 +393,8 @@ fn main() {
         u[37] = sets.1;
         u[38] = sets.2;
         u[39] = 0.; // night strength: day, so the sun keeps its native size
-        // u[44] and u[45] stay zero: no drift in this probe. u[46] is the flare
-        // pixel scale, unused here. u[47] is the descriptor's recovered scale.
+                    // u[44] and u[45] stay zero: no drift in this probe. u[46] is the flare
+                    // pixel scale, unused here. u[47] is the descriptor's recovered scale.
         u[47] = 8.;
         u
     };

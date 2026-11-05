@@ -2053,8 +2053,8 @@ impl Renderer {
         // so there is no rotation to replay. `A3DSky::Render` (`0x799a40`) hangs
         // the matrix on texture stage 0, which is the ceiling only; the curtain
         // inherits the identity stage-1 matrix and keeps its authored UVs.
-        let drift_step = crate::sky_gpu::SKY_DRIFT_RATE
-            * (camera.logic_delta_ms.max(0) as f32 / 1000.);
+        let drift_step =
+            crate::sky_gpu::SKY_DRIFT_RATE * (camera.logic_delta_ms.max(0) as f32 / 1000.);
         self.sky_drift[0] += drift_step;
         self.sky_drift[1] += drift_step;
         // World-tab override: publish one pinned `sky.lst` row. The machine
