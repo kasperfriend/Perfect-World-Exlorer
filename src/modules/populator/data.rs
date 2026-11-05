@@ -503,9 +503,6 @@ mod tests {
             19
         );
         // Archosaur North stays the densest cluster the client can place.
-        assert_eq!(
-            population.count_within([1470.490, 1180.864], 420.),
-            61
-        );
+        assert_eq!(population.count_within([1470.490, 1180.864], 420.), 61);
     }
 }

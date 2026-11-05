@@ -350,10 +350,8 @@ impl Populator {
         }
         match &self.population {
             Some(population) => {
-                let in_range = population.count_within(
-                    [self.eye.x, self.eye.z],
-                    self.settings.spawn_distance,
-                );
+                let in_range =
+                    population.count_within([self.eye.x, self.eye.z], self.settings.spawn_distance);
                 format!(
                     "{} client-placed NPCs ({} records total, {} server-placed): {} in range, {} drawn",
                     population.spawns.len(),
@@ -740,10 +738,8 @@ impl Populator {
                     .small()
                     .weak(),
                 );
-                let in_range = population.count_within(
-                    [self.eye.x, self.eye.z],
-                    self.settings.spawn_distance,
-                );
+                let in_range =
+                    population.count_within([self.eye.x, self.eye.z], self.settings.spawn_distance);
                 if in_range == 0 {
                     let server_placed = if records > 0 {
                         100. * population.unplaced as f32 / records as f32
