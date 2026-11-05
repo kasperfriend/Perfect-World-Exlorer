@@ -28,3 +28,5 @@ elementclient.exe: base 0x400000, 6 sections, 107 sky strings
   24-matrix-math: 227 lines
   20-sky-module: 3715 lines
   xref functions: 58 bodies
+  25-sunmoon-tick-callers: 1 call site(s)
+  26-sunmoon-settime-callers: 5 call site(s)
