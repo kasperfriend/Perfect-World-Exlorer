@@ -4,12 +4,153 @@ use crate::{gpu::Vertex, trees::Trees};
 mod cutoff_residency;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
+/// One instance record: `[position.xyz, 0]`, then `[fraction, mode, 0, 0]`.
+///
+/// Two `vec4`s rather than a `vec3` + `vec2`: WGSL pads a storage-array element
+/// to a 16-byte boundary, so `info` would land at offset 16 there but at 12 in a
+/// packed 20-byte struct. Writing the record as two `vec4`s makes the compute
+/// pass that fills it and the vertex attributes that read it agree by
+/// construction. Mode is 0 (single level), 1 (outgoing) or 2 (incoming).
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Instance {
-    position: [f32; 3],
-    info: [f32; 2], // transition progress; 0 single, 1 outgoing, 2 incoming
+    data: [f32; 8],
 }
+impl Instance {
+    fn new(position: [f32; 3], info: [f32; 2]) -> Self {
+        Self {
+            data: [
+                position[0], position[1], position[2], 0., info[0], info[1], 0., 0.,
+            ],
+        }
+    }
+}
+/// One tree placement, immutable for the whole session: the LOD compute pass
+/// reads these and nothing else has to be uploaded per frame.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct Placement {
+    pub(crate) pos_height: [f32; 4],
+    pub(crate) group: u32,
+    pub(crate) pad: [u32; 3],
+}
+/// Per-group constants the LOD pass needs, plus where its instances live.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct GroupInfo {
+    pub(crate) height: f32,
+    /// First indirect-args record of this group (`first_batch`, three levels).
+    pub(crate) args_base: u32,
+    /// First instance slot of level 0 in the instance buffer.
+    pub(crate) first_instance: u32,
+    /// Placements per level, i.e. the capacity of each level's slice.
+    pub(crate) capacity: u32,
+}
+/// Per-frame inputs of the LOD compute pass.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct LodParams {
+    /// Eye position; `.w` is the LOD scale the frame uses.
+    pub(crate) camera: [f32; 4],
+    /// Admitted XZ square (`x0, x1, z0, z1`); ignored when `counts.z` is 0.
+    pub(crate) bounds: [f32; 4],
+    /// `placements, groups, bounds_active, 0`.
+    pub(crate) counts: [u32; 4],
+}
+/// `DrawIndexedIndirectArgs`, also the record the compute pass bumps.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub(crate) struct LodArgs {
+    pub(crate) index_count: u32,
+    pub(crate) instance_count: u32,
+    pub(crate) first_index: u32,
+    pub(crate) base_vertex: i32,
+    pub(crate) first_instance: u32,
+}
+/// Bytes of one `LodArgs` record; the stride the indirect draws use.
+pub(crate) const LOD_ARGS: u64 = std::mem::size_of::<LodArgs>() as u64;
+
+/// The LOD selection pass.
+///
+/// This is `tree_lod::client_distance` + `tree_lod::select` transcribed into
+/// WGSL and run once per placement on the GPU, so a camera move no longer costs
+/// a walk over every tree placement in the world plus a full instance-buffer
+/// upload. Both functions are pure arithmetic and are reproduced operation for
+/// operation: the same fast square root on the squared distance
+/// (`(bits >> 1) + 0x1fc00000`), the same 10 % transition windows around
+/// `height * 5 * scale` and `height * 16 * scale`. The only difference is that
+/// the CPU sums the squared deltas in f64 and rounds once; the GPU sums in f32,
+/// which can move a distance by ~1e-7 relative — inside a transition window that
+/// changes the fade fraction, never whether the tree is drawn.
+pub(crate) const LOD_COMPUTE: &str = r#"
+struct LodParamsGpu {camera:vec4<f32>,bounds:vec4<f32>,counts:vec4<u32>};
+struct Placement {pos_height:vec4<f32>,group:u32,pad0:u32,pad1:u32,pad2:u32};
+struct GroupInfo {height:f32,args_base:u32,first_instance:u32,capacity:u32};
+struct Args {index_count:u32,instance_count:atomic<u32>,first_index:u32,base_vertex:i32,first_instance:u32};
+struct Instance {data0:vec4<f32>,data1:vec4<f32>};
+@group(0) @binding(0) var<uniform> p:LodParamsGpu;
+@group(0) @binding(1) var<storage,read> placements:array<Placement>;
+@group(0) @binding(2) var<storage,read> groups:array<GroupInfo>;
+@group(0) @binding(3) var<storage,read_write> instances:array<Instance>;
+@group(0) @binding(4) var<storage,read_write> args:array<Args>;
+fn is_finite(v:f32)->bool {return v>=-3.0e38 && v<=3.0e38;}
+// SpeedTreeRT 0x100282b0's estimate: f32 squared distance, then the float-bit
+// square root. Matches `tree_lod::client_distance`.
+fn client_distance(position:vec3<f32>,eye:vec3<f32>)->f32 {
+ let d=position-eye;
+ let d2=d.x*d.x+d.y*d.y+d.z*d.z;
+ if !is_finite(d2) {return -1.;}
+ return bitcast<f32>((bitcast<u32>(d2)>>1u)+0x1fc00000u);
+}
+// Returns (primary, secondary, fraction, has_secondary); matches
+// `tree_lod::select` including the order the two transition windows are tested.
+fn select_level(distance:f32,height:f32,scale:f32)->vec4<f32> {
+ let h=max(height,5.);
+ let s=clamp(scale,0.25,4.);
+ let a=h*5.*s;
+ let b=h*16.*s;
+ for(var i=0u;i<2u;i=i+1u){
+  let boundary=select(a,b,i==1u);
+  let start=boundary*0.9;
+  let end=boundary*1.1;
+  if distance>=start && distance<end {
+   return vec4<f32>(f32(i),f32(i+1u),clamp((distance-start)/(end-start),0.,1.),1.);
+  }
+ }
+ var primary=2.;
+ if distance<a {primary=0.;} else if distance<b {primary=1.;}
+ return vec4<f32>(primary,3.,0.,0.);
+}
+fn append(group_index:u32,level:u32,position:vec3<f32>,info:vec2<f32>) {
+ let g=groups[group_index];
+ if level>2u {return;}
+ let slot=atomicAdd(&args[g.args_base+level].instance_count,1u);
+ if slot>=g.capacity {return;}
+ instances[g.first_instance+level*g.capacity+slot]=Instance(vec4<f32>(position,0.),vec4<f32>(info,0.,1.));
+}
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id:vec3<u32>) {
+ let index=id.x;
+ if index>=p.counts.x {return;}
+ let placement=placements[index];
+ let position=placement.pos_height.xyz;
+ if !is_finite(position.x) || !is_finite(position.y) || !is_finite(position.z) {return;}
+ if p.counts.z!=0u {
+  if position.x<p.bounds.x || position.x>=p.bounds.y {return;}
+  if position.z<p.bounds.z || position.z>=p.bounds.w {return;}
+ }
+ let constants=groups[placement.group];
+ let distance=client_distance(position,p.camera.xyz);
+ if distance<0. {return;}
+ let selection=select_level(distance,constants.height,p.camera.w);
+ let fraction=selection.z;
+ let secondary=selection.w>0.5;
+ append(placement.group,u32(selection.x),position,vec2<f32>(fraction,select(0.,1.,secondary)));
+ if secondary {
+  append(placement.group,u32(selection.y),position,vec2<f32>(fraction,2.));
+ }
+}
+"#;
 struct Batch {
     indices: std::ops::Range<u32>,
     instances: std::ops::Range<u32>,
@@ -19,6 +160,13 @@ struct Group {
     height: f32,
     first_batch: usize,
 }
+/// The cutoff test the LOD pass applies to a placement, exposed so the checks
+/// can compute the same expectation the GPU does.
+#[allow(dead_code)]
+pub fn lod_admits(bounds: Option<[f32; 4]>, p: [f32; 3]) -> bool {
+    cutoff_residency::contains(bounds, p)
+}
+
 pub struct FarTrees {
     pipeline: wgpu::RenderPipeline,
     bind: wgpu::BindGroup,
@@ -30,6 +178,16 @@ pub struct FarTrees {
     groups: Vec<Group>,
     staging: Vec<Instance>,
     last_resident_update: Option<([f32; 3], f32, Option<[f32; 4]>)>,
+    /// The LOD selection pass: a camera move dispatches this instead of walking
+    /// every placement on the CPU and re-uploading the instance buffer.
+    lod_pipeline: wgpu::ComputePipeline,
+    lod_bind: wgpu::BindGroup,
+    lod_params: wgpu::Buffer,
+    placements: u32,
+    /// Indirect args, one record per batch (`LOD_ARGS` bytes each), plus the
+    /// static part of each record with `instance_count` zeroed.
+    lod_args: wgpu::Buffer,
+    lod_args_reset: Vec<u8>,
 }
 const SHADER: &str = r#"
 struct Camera {matrix:mat4x4<f32>,direction:vec4<f32>,clip:vec4<f32>,bounds:vec4<f32>,tree_bounds:vec4<f32>,sun:vec4<f32>,light:vec4<f32>,region_ambient:vec4<f32>,region_diffuse:vec4<f32>,region_direction:vec4<f32>,grass_eye:vec4<f32>,grass_wind:vec4<f32>,grass_history:array<vec4<f32>,80>,fog_range:vec4<f32>,fog_color:vec4<f32>};
@@ -236,10 +394,11 @@ impl FarTrees {
                 let rocking_base = rocking_samples.len() / 64;
                 rocking_samples.extend(lod.rocking.iter().map(|v| [v[0], v[1], v[2], 0.]));
                 let start_inst = instances.len() as u32;
-                instances.extend(positions.iter().map(|&position| Instance {
-                    position,
-                    info: [0., 0.],
-                }));
+                instances.extend(
+                    positions
+                        .iter()
+                        .map(|&position| Instance::new(position, [0., 0.])),
+                );
                 let end_inst = instances.len() as u32;
                 let start_idx = indices.len() as u32;
                 for (part, slot_id, kind, native_alpha) in [
@@ -561,8 +720,20 @@ impl FarTrees {
             push_constant_ranges: &[],
         });
         const ATTR: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x4,4=>Float32,7=>Uint32,8=>Uint32];
-        const INST: [wgpu::VertexAttribute; 2] =
-            wgpu::vertex_attr_array![5=>Float32x3,6=>Float32x2];
+        // `Instance` is two `vec4`s (see its doc): position at 0, transition
+        // info at 16. `vertex_attr_array!` would pack them at 0 and 12.
+        const INST: [wgpu::VertexAttribute; 2] = [
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x3,
+                offset: 0,
+                shader_location: 5,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x2,
+                offset: 16,
+                shader_location: 6,
+            },
+        ];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("instanced far trees"),
             layout: Some(&pl),
@@ -617,10 +788,192 @@ impl FarTrees {
         });
         let instance_count = instances.len() / 3;
         let staging = instances;
+        // The instance buffer is the LOD compute pass's output as well as the
+        // vertex input, so it keeps every (group, level) slice allocated once.
         let instances = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("all tree placements"),
+            label: Some("tree instances (LOD compute target)"),
             contents: bytemuck::cast_slice(&staging),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::VERTEX
+                | wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        });
+        // Placement table, per-group constants and the indirect args are built
+        // once here. Nothing per-frame is uploaded any more: a camera move only
+        // dispatches `LOD_COMPUTE` over the placement table.
+        let mut placement_data = Vec::new();
+        let mut group_data = Vec::new();
+        for (index, group) in groups.iter().enumerate() {
+            for &position in &group.positions {
+                placement_data.push(Placement {
+                    pos_height: [position[0], position[1], position[2], 0.],
+                    group: index as u32,
+                    pad: [0; 3],
+                });
+            }
+            group_data.push(GroupInfo {
+                height: group.height,
+                args_base: (group.first_batch * 3) as u32,
+                first_instance: batches[group.first_batch].instances.start,
+                capacity: group.positions.len() as u32,
+            });
+        }
+        if placement_data.is_empty() {
+            placement_data.push(Placement {
+                pos_height: [0.; 4],
+                group: 0,
+                pad: [0; 3],
+            });
+        }
+        if group_data.is_empty() {
+            group_data.push(GroupInfo {
+                height: 5.,
+                args_base: 0,
+                first_instance: 0,
+                capacity: 0,
+            });
+        }
+        let placement_count = placement_data.len() as u32;
+        let placement_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("tree placements"),
+            contents: bytemuck::cast_slice(&placement_data),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+        let lod_group_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("tree lod groups"),
+            contents: bytemuck::cast_slice(&group_data),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+        let lod_params = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree lod params"),
+            size: std::mem::size_of::<LodParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut args = Vec::with_capacity(batches.len().max(1));
+        for batch in &batches {
+            args.push(LodArgs {
+                index_count: batch.indices.end - batch.indices.start,
+                instance_count: 0,
+                first_index: batch.indices.start,
+                base_vertex: 0,
+                first_instance: 0,
+            });
+        }
+        if args.is_empty() {
+            args.push(LodArgs {
+                index_count: 0,
+                instance_count: 0,
+                first_index: 0,
+                base_vertex: 0,
+                first_instance: 0,
+            });
+        }
+        let lod_args_reset = bytemuck::cast_slice::<LodArgs, u8>(&args).to_vec();
+        let lod_args = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("tree lod indirect args"),
+            contents: &lod_args_reset,
+            usage: wgpu::BufferUsages::INDIRECT
+                | wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+        });
+        let lod_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("tree lod compute"),
+            source: wgpu::ShaderSource::Wgsl(LOD_COMPUTE.into()),
+        });
+        let lod_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("tree lod"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let lod_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("tree lod selection"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("tree lod"),
+                    bind_group_layouts: &[&lod_layout],
+                    push_constant_ranges: &[],
+                }),
+            ),
+            module: &lod_module,
+            entry_point: "main",
+        });
+        let lod_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("tree lod"),
+            layout: &lod_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: lod_params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: placement_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: lod_group_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: instances.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: lod_args.as_entire_binding(),
+                },
+            ],
         });
         eprintln!(
             "Uploaded {} tree placements in {} GPU LOD batches ({} textures, {}px atlas{} with foliage mips)",
@@ -641,10 +994,24 @@ impl FarTrees {
             groups,
             staging,
             last_resident_update: None,
+            lod_pipeline,
+            lod_bind,
+            lod_params,
+            placements: placement_count,
+            lod_args,
+            lod_args_reset,
         }
     }
-    /// Compact only admitted placements. This releases the former world-sized
-    /// instance buffer on cutoff and avoids re-uploading an unchanged camera.
+    /// Select every placement's LOD on the GPU.
+    ///
+    /// The CPU used to walk the whole placement table here — distance, LOD
+    /// choice and a full instance-buffer upload — on every frame the camera
+    /// moved, which on a whole-world load is tens of thousands of placements.
+    /// Now the placement table is uploaded once at load and a single compute
+    /// dispatch (`LOD_COMPUTE`) writes the visible instances and the per-batch
+    /// instance counts the indirect draws read. Nothing is uploaded per frame,
+    /// and the pass is skipped entirely when the camera, scale and cutoff are
+    /// unchanged, exactly like the old staging rebuild.
     pub fn update_resident_lods(
         &mut self,
         device: &wgpu::Device,
@@ -657,72 +1024,42 @@ impl FarTrees {
         if self.last_resident_update == Some(key) {
             return;
         }
-        let mut staging = Vec::new();
-        // One set of per-level staging buffers for the whole pass: this runs on
-        // every frame the camera moves, and a fresh trio per group was the only
-        // per-frame allocation left in the resident tree path. The buffers are
-        // cleared per group, so their capacity stays at one group's placements
-        // and the world-sized `staging` release rule below is untouched.
-        let mut levels: [Vec<Instance>; 3] = Default::default();
-        for group in &self.groups {
-            for level in levels.iter_mut() {
-                level.clear();
-            }
-            for &p in &group.positions {
-                if !cutoff_residency::contains(bounds, p) {
-                    continue;
-                }
-                let Some(dist) = crate::tree_lod::client_distance(p, camera) else {
-                    continue;
-                };
-                let selection = crate::tree_lod::select(dist, group.height, scale);
-                levels[selection.primary].push(Instance {
-                    position: p,
-                    info: if selection.secondary.is_some() {
-                        [selection.fraction, 1.]
-                    } else {
-                        [0., 0.]
-                    },
-                });
-                if let Some(level) = selection.secondary {
-                    levels[level].push(Instance {
-                        position: p,
-                        info: [selection.fraction, 2.],
-                    });
-                }
-            }
-            for (level, instances) in levels.iter_mut().enumerate() {
-                let start = staging.len() as u32;
-                staging.append(instances);
-                self.batches[group.first_batch + level].instances = start..staging.len() as u32;
-            }
-        }
-        let bytes = (staging.len().max(1) * std::mem::size_of::<Instance>()) as u64;
-        if self.instances.size() != bytes {
-            self.instances = device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("resident tree instances"),
-                size: bytes,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
+        let params = LodParams {
+            camera: [camera[0], camera[1], camera[2], scale],
+            bounds: bounds.unwrap_or([0.; 4]),
+            counts: [
+                self.placements,
+                self.groups.len() as u32,
+                u32::from(bounds.is_some()),
+                0,
+            ],
+        };
+        // Zero the per-batch instance counts, keep the static draw spans.
+        queue.write_buffer(&self.lod_args, 0, &self.lod_args_reset);
+        queue.write_buffer(&self.lod_params, 0, bytemuck::bytes_of(&params));
+        let mut e = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = e.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("tree lod selection"),
+                timestamp_writes: None,
             });
+            pass.set_pipeline(&self.lod_pipeline);
+            pass.set_bind_group(0, &self.lod_bind, &[]);
+            pass.dispatch_workgroups(self.placements.div_ceil(64), 1, 1);
         }
-        if !staging.is_empty() {
-            queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&staging));
-        }
-        // Do not keep the old all-world CPU staging allocation as spare capacity.
-        self.staging = staging;
+        queue.submit(Some(e.finish()));
         self.last_resident_update = Some(key);
     }
+    /// CPU LOD packing, kept for the checks that place one tree at a distance.
+    ///
+    /// Production uses `update_resident_lods`; this path writes the same
+    /// instance slices by hand and publishes their counts as indirect args, so
+    /// `draw` is one implementation for both.
+    #[allow(dead_code)]
     pub fn update_lods(&mut self, queue: &wgpu::Queue, camera: [f32; 3], scale: f32) {
-        // Group the small set of placements on the CPU; all tree geometry and
-        // leaf billboarding stay GPU-instanced. Avoid submitting all 3 LODs.
         for group in &self.groups {
             let mut counts = [0u32; 3];
             for &p in &group.positions {
-                // Match the runtime's 3D distance estimate rather than
-                // ignoring elevation. Snapshot thresholds and fades below
-                // are still approximate until the cache stores every native
-                // component LOD and its transition parameters.
                 let Some(dist) = crate::tree_lod::client_distance(p, camera) else {
                     continue;
                 };
@@ -747,19 +1084,91 @@ impl FarTrees {
                     }
                     let batch = &self.batches[group.first_batch + level];
                     let index = (batch.instances.start + counts[level]) as usize;
-                    self.staging[index] = Instance { position: p, info };
+                    self.staging[index] = Instance::new(p, info);
                     counts[level] += 1;
                 }
             }
             for (i, count) in counts.into_iter().enumerate() {
-                let b = &mut self.batches[group.first_batch + i];
-                b.instances.end = b.instances.start + count;
+                // The indirect args carry the count now; each batch keeps its
+                // full-capacity slice, so the instance offsets are the ones the
+                // compute pass uses too.
+                let at = (group.first_batch + i) * LOD_ARGS as usize;
+                for (offset, byte) in count.to_ne_bytes().iter().enumerate() {
+                    self.lod_args_reset[at + 4 + offset] = *byte;
+                }
             }
         }
         queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&self.staging));
+        queue.write_buffer(&self.lod_args, 0, &self.lod_args_reset);
     }
     pub fn residency_stats(&self) -> (usize, u64) {
         (self.staging.len(), self.instances.size())
+    }
+    /// The per-group height the LOD pass uses, in group order.
+    #[allow(dead_code)]
+    pub fn group_heights(&self) -> Vec<f32> {
+        self.groups.iter().map(|group| group.height).collect()
+    }
+    /// Per-batch instance counts the LOD pass wrote, in indirect-args order.
+    ///
+    /// Reads the args buffer back, so a check can compare the GPU's selection
+    /// against `tree_lod::select` directly instead of inferring it from pixels.
+    #[allow(dead_code)]
+    pub fn lod_instance_counts(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u32> {
+        let bytes = self.read_back(device, queue, &self.lod_args, 0, self.lod_args.size());
+        bytes
+            .chunks_exact(LOD_ARGS as usize)
+            .map(|record| u32::from_ne_bytes([record[4], record[5], record[6], record[7]]))
+            .collect()
+    }
+    /// The `(fraction, mode)` the LOD pass wrote for one instance slot, so a
+    /// check can compare the cross-fade against `tree_lod::select` as well.
+    #[allow(dead_code)]
+    pub fn lod_instance_info(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        group: usize,
+        level: usize,
+        slot: usize,
+    ) -> [f32; 2] {
+        let size = std::mem::size_of::<Instance>() as u64;
+        let start = self.batches[self.groups[group].first_batch + level]
+            .instances
+            .start as u64;
+        let bytes =
+            self.read_back(device, queue, &self.instances, (start + slot as u64) * size, size);
+        let data: &[f32; 8] = bytemuck::from_bytes(&bytes);
+        [data[4], data[5]]
+    }
+    /// Copy `size` bytes out of `buffer` at `offset` and map them back.
+    fn read_back(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        buffer: &wgpu::Buffer,
+        offset: u64,
+        size: u64,
+    ) -> Vec<u8> {
+        let read = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("tree lod readback"),
+            size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut e = device.create_command_encoder(&Default::default());
+        e.copy_buffer_to_buffer(buffer, offset, &read, 0, size);
+        queue.submit(Some(e.finish()));
+        let slice = read.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv().unwrap().unwrap();
+        let bytes = slice.get_mapped_range().to_vec();
+        read.unmap();
+        bytes
     }
     pub fn draw<'a>(&'a self, p: &mut wgpu::RenderPass<'a>, reflected: bool) {
         p.set_pipeline(&self.pipeline);
@@ -773,13 +1182,18 @@ impl FarTrees {
             &[],
         );
         p.set_vertex_buffer(0, self.vertices.slice(..));
-        p.set_vertex_buffer(1, self.instances.slice(..));
         p.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
-        for b in &self.batches {
-            if b.instances.is_empty() {
-                continue;
-            }
-            p.draw_indexed(b.indices.clone(), 0, b.instances.clone());
+        // One indirect draw per batch: the count comes from the LOD pass, so an
+        // empty level costs a draw with zero instances instead of a host-side
+        // check and no CPU knowledge of what is visible at all.
+        let stride = std::mem::size_of::<Instance>() as u64;
+        for (index, batch) in self.batches.iter().enumerate() {
+            p.set_vertex_buffer(
+                1,
+                self.instances
+                    .slice(batch.instances.start as u64 * stride..),
+            );
+            p.draw_indexed_indirect(&self.lod_args, index as u64 * LOD_ARGS);
         }
     }
 }

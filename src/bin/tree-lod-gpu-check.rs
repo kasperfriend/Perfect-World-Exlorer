@@ -172,7 +172,7 @@ pub fn run(authored_mips: bool) {
     let view = target.create_view(&Default::default());
     let dv = depth.create_view(&Default::default());
     let mut frames = Vec::new();
-    for (frame_index, (dist, strength, time)) in [
+    let mut plans: Vec<(f32, f32, f32)> = vec![
         (20., 0., 0.),
         (25., 0., 0.),
         (30., 0., 0.),
@@ -190,10 +190,13 @@ pub fn run(authored_mips: bool) {
         (20., 0., 0.),
         (20., 0., 0.),
         (20., 0., 0.),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    ];
+    // Two extra views sit inside the transition windows, where the pass has to
+    // write a cross-fade fraction instead of a plain level.
+    let lod_height = renderer.group_heights()[0].max(5.);
+    plans.push((lod_height * 5. * 0.95, 0., 0.));
+    plans.push((lod_height * 16. * 1.05, 0., 0.));
+    for (frame_index, (dist, strength, time)) in plans.into_iter().enumerate() {
         if frame_index == 9 || frame_index == 10 {
             let (a, d) = if frame_index == 9 {
                 ([89., 115., 142.], [75., 88., 107.])
@@ -232,9 +235,57 @@ pub fn run(authored_mips: bool) {
         }
         renderer.update_resident_lods(&device, &queue, [dist, 0., 0.], 1., bounds);
         let (count, bytes) = renderer.residency_stats();
-        assert_eq!(bytes, (count.max(1) * 20) as u64);
-        if frame_index == 15 {
-            assert_eq!(count, 0);
+        // The instance buffer keeps every (group, level) slice: two `vec4`s per
+        // record, three levels per group.
+        assert_eq!(bytes, (count.max(1) * 32) as u64);
+        // The selection itself now happens in the compute pass. Compare the
+        // counts it produced against `tree_lod::select` for this frame's
+        // distance and cutoff — the CPU half of the equivalence.
+        let counts = renderer.lod_instance_counts(&device, &queue);
+        let height = renderer.group_heights()[0];
+        let mut expected = [0u32; 3];
+        if far_trees_gpu::lod_admits(bounds, [0., 0., 0.]) {
+            if let Some(distance) = tree_lod::client_distance([0., 0., 0.], [dist, 0., 0.]) {
+                let selection = tree_lod::select(distance, height, 1.);
+                expected[selection.primary as usize] += 1;
+                if let Some(second) = selection.secondary {
+                    expected[second as usize] += 1;
+                }
+            }
+        }
+        assert_eq!(
+            counts, expected,
+            "frame {frame_index}: GPU LOD selection differs from tree_lod::select at distance {dist}"
+        );
+        // The cross-fade has to agree as well, not just the level choice: read
+        // back the `(fraction, mode)` the pass wrote and compare it with the
+        // CPU's. f32 versus f64 distance moves the fraction by ~1e-7 at most.
+        let cpu = tree_lod::client_distance([0., 0., 0.], [dist, 0., 0.])
+            .map(|distance| tree_lod::select(distance, height, 1.));
+        for level in 0..3 {
+            if counts[level] == 0 {
+                continue;
+            }
+            let got = renderer.lod_instance_info(&device, &queue, 0, level, 0);
+            let want = cpu.expect("placement outside the cutoff was still drawn");
+            let want_mode = if want.primary as usize == level {
+                if want.secondary.is_some() {
+                    1.
+                } else {
+                    0.
+                }
+            } else {
+                2.
+            };
+            assert_eq!(got[1], want_mode, "frame {frame_index}: instance mode");
+            if want.secondary.is_some() {
+                assert!(
+                    (got[0] - want.fraction).abs() < 1e-5,
+                    "frame {frame_index}: fade fraction {} vs {}",
+                    got[0],
+                    want.fraction
+                );
+            }
         }
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
