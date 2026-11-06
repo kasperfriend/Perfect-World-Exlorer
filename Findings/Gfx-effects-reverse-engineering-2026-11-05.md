@@ -81,6 +81,72 @@ sample to node+0x44 itself and nothing overwrites it — while ids 121 and 124 h
 the direction slot called afterwards and their samplers write no direction at
 all. Ids 122 and 125 never read emitter`+0x84`.
 
+### The emitter object
+
+The vtables are consecutive in `.rdata`, twelve slots each, so all seven can be
+read off in one dump (`objdump -s -j .rdata`, `0x8edf24`–`0x8ee0ec`). The base
+row is what the shared constructor writes before the per-class tail overwrites
+its own slots.
+
+| Class | Vtable | [0] | [1] | [2] | [3] | [4] | [5] | [6] | [7] | [8] birth | [9] basis | [10] | [11] |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| base | `0x8edf24` | `723410` | `723440` | `7237e0` | `7237f0` | `723a80` | `723a20` | `723a50` | `892f56` | `724ab0` | `56fbb0` | `724b20` | `7248d0` |
+| 120 | `0x8ee0bc` | `726540` | " | " | " | " | " | " | `726530` | `727230` | **`56fbb0`** | `724b20` | `7248d0` |
+| 121 | `0x8ee078` | `725e20` | " | " | " | " | " | " | `726530` | `727760` | `729670` | `724b20` | `729b00` |
+| 122 | `0x8ee034` | `7264b0` | " | " | " | " | " | " | `7288e0` | `7288f0` | **`56fbb0`** | `724b20` | `7290b0` |
+| 123 | `0x8edff0` | `725e20` | " | " | " | " | " | " | `726530` | `727e40` | `729670` | `724b20` | `727c20` |
+| 124 | `0x8edfac` | `725e20` | " | " | " | " | " | " | `726530` | `729b40` | `729670` | `724b20` | `729b00` |
+| 125 | `0x8edf68` | `725c00` | " | " | " | " | " | " | `7256b0` | `726570` | `727220` | `724b20` | `726ff0` |
+
+Six of the twelve slots are identical in all seven tables — `[1]` the direction,
+`[2]` the TTL, `[3]` the colour, `[4]` the phase, `[5]` the scale, `[6]` the
+rotation and `[10]` `0x724b20`. Slot `[9]` is *not*: ids 121, 123 and 124 get the
+basis builder `0x729670` that fills `+0xc0…+0xe0` from `AreaSize`, while 120 and
+122 get `0x56fbb0`, an engine routine outside the gfx region, and 125 gets its own
+`0x727220`. That is why id 120's surface block reads no basis at all — its class
+never builds one.
+
+The shared constructor is `0x723250`. It zeroes `+0x1c/+0x20`, sets `+0x24` to
+`-1.0f` (the constant at `0x8d5c2c`), zeroes the position at `+0x68…+0x70`, loads
+the orientation quaternion at `+0x74…+0x80` from four globals
+(`0x9c0318`, `0x9c031c`, `0x9c0320`, `0x9c0324`), zeroes the three Euler angles at
+`+0x94/+0x98/+0x9c` and `+0xb0`, writes the base vtable at `0x7232b2`, sets
+`+0x04/+0x30/+0x34` to `-1` and calls `0x789ad0`. The four orientation globals sit
+on the same `.data` page as the three unit axes the samplers use
+(`0x9c0338`, `0x9c0348`, `0x9c0358`) and are initialized at run time, so their
+values are not in the file.
+
+`+0xa0…+0xac` is not the colour the earlier offset map called it. Two sites write
+it, and both compute the same thing: the emitter's three Euler angles converted to
+a quaternion and Hamilton-multiplied by the orientation quaternion at
+`+0x74…+0x80`. At parse time that is `0x7242ee` (`sscanf` through `%ebx` fills
+`+0x94/+0x98/+0x9c`), `0x724313` (`0x7b6f10`, Euler→quaternion), the products
+against `+0x80/+0x74/+0x78/+0x7c` from `0x72431c`, and the destination
+`lea 0xa0(%edi),%eax` at `0x7243b8`. At run time `0x71b450` repeats it exactly —
+`flds +0x9c/+0x98/+0x94`, `call 0x7b6f10` at `0x71b479`, the same four products,
+then `add $0xa0,%esi` at `0x71b492` and four dword writes at
+`0x71b524/0x71b52c/0x71b537/0x71b53a`, `ret` at `0x71b541`. The birth routines copy
+those four floats into node`+0x34` (`0x728241`–`0x72825d` for id 123), which is
+what that node field carries.
+
+The orientation quaternion itself does have a writer, at `0x716025`, inside the
+element's spawn loop (`0x715f00`–`0x716176`, with a second copy of the tail at
+`0x7160ca`–`0x716146`). Per iteration the loop takes a node from the free list at
+element`+0x198` (`call 0x6e00b0` at `0x715f14`), links it (`call 0x4287c0` at
+`0x715f22`), interpolates a position as `t·(*ebx) + (1−t)·(element+0x210,
++0x214, +0x218)` with `t = index × [esp+0x34]` (two `Vec3::new` calls at
+`0x715f9d` and `0x715fca`), builds a quaternion with four arguments at
+`call 0x7b7010` (`0x716003`, one of them `&element+0x21c`), then takes
+`ebp = element+0x140` and writes **emitter`+0x68…+0x70`** from the interpolated
+vector (`0x716019`, via `0x401cc0`) and **emitter`+0x74…+0x80`** as four dwords
+copied from `[esp+0xb8]` (`0x716025`–`0x71603b`), followed immediately by
+`call 0x71b450` at `0x716040` to recompose `+0xa0`. So the emitter's position and
+orientation both move as the element spawns, and the unbound emission basis is
+rotated by a real orientation rather than the constructor's initial one. What is
+still not decoded is the meaning of `element+0x210…+0x21c` and of the quaternion at
+`[esp+0xb8]`, and the condition under which this loop runs at all — the entry
+guard at `0x715f00` is only `element+0x198 != 0`.
+
 ## Runtime player
 
 The root clock advances in milliseconds and is scaled by `PlaySpeed`; controllers integrate in seconds of scaled time. An element's clock is its keypoint spans plus `RepeatDelay`, repeated `RepeatCount` times (1 = once, −1 = open-ended, N = N passes, and the corpus's 10,000/2147483647 values are "effectively forever"); a phase no keypoint covers draws nothing but does not end the element, and the root reports itself finished only when *every* element is over and none loops. `RotFromView` decides where a sprite's basis comes from — 598 retail sprites take it from the camera, 8,271 keep the authored keypoint direction — and the root's `FaceToViewer` forces the camera basis for all of them. Flipbook cells walk `floor(clock/TexInterval) % clamp(TexAnimMaxTime/TexInterval, 1, rows*cols)` with v growing downwards, and `TexSpeed` scrolls U and V continuously. `InterpolateMode` is 0 in every corpus keypoint, so linear blending between keypoints is implemented but never exercised by retail data.
