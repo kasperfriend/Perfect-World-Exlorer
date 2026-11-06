@@ -9,8 +9,14 @@ mod animation;
 mod client_regional_light;
 #[path = "../ecmodel.rs"]
 mod ecmodel;
+#[path = "../gfx_catalog.rs"]
+mod gfx_catalog;
 #[path = "../gfx_color_track.rs"]
 mod gfx_color_track;
+#[path = "../gfx_decal.rs"]
+mod gfx_decal;
+#[path = "../gfx_file.rs"]
+mod gfx_file;
 #[path = "../gfx_light.rs"]
 mod gfx_light;
 #[path = "../gfx_owner.rs"]
