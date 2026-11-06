@@ -45,8 +45,7 @@ fn main() {
             // Ask for the single-call draw path; the frame loop below renders
             // both paths and compares them.
             required_features: adapter.features()
-                & (wgpu::Features::MULTI_DRAW_INDIRECT
-                    | wgpu::Features::INDIRECT_FIRST_INSTANCE),
+                & (wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE),
             required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
         },
         None,
@@ -452,9 +451,9 @@ fn main() {
     let view = target.create_view(&Default::default());
     let dv = dep.create_view(&Default::default());
     let mut clear_frame = Vec::new();
-    let device_multi = device.features().contains(
-        wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE,
-    );
+    let device_multi = device
+        .features()
+        .contains(wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE);
     for (clip, fog) in [(false, false), (true, false), (false, true)] {
         uni[380..384].copy_from_slice(if fog { &[0., 0.5, 1., 0.] } else { &[0.; 4] });
         uni[384..388].copy_from_slice(&[0.5, 0.25, 0.75, 1.]);

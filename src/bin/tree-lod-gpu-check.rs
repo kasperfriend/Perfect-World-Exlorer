@@ -4,10 +4,10 @@
 mod dxt;
 #[path = "../far_trees_gpu.rs"]
 mod far_trees_gpu;
-#[path = "../indirect_args.rs"]
-mod indirect_args;
 #[path = "../foliage_mips.rs"]
 mod foliage_mips;
+#[path = "../indirect_args.rs"]
+mod indirect_args;
 #[path = "../model_dds.rs"]
 mod model_dds;
 #[path = "../pck.rs"]
@@ -117,8 +117,7 @@ pub fn run(authored_mips: bool) {
             // Exercise the single-call path; the mip checks keep their
             // devices feature-free and cover the per-batch fallback.
             required_features: adapter.features()
-                & (wgpu::Features::MULTI_DRAW_INDIRECT
-                    | wgpu::Features::INDIRECT_FIRST_INSTANCE),
+                & (wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE),
             required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
         },
         None,
