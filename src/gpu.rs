@@ -3160,9 +3160,9 @@ impl Renderer {
                     &self.reflected_bind,
                     true,
                     false,
-                    Pass::Refraction,
                     // Queued as `refracted = normal`: the main matrix, so the
                     // main view's blocks are the right set.
+                    Pass::Refraction,
                     ViewRuns::Main,
                     None,
                     Some(wgpu::Color {
@@ -3218,8 +3218,8 @@ impl Renderer {
                     &self.reflected_bind,
                     true,
                     false,
-                    Pass::Refraction,
                     // Queued as `above = normal`: the main matrix again.
+                    Pass::Refraction,
                     ViewRuns::Main,
                     None,
                     None,
@@ -3333,9 +3333,9 @@ impl Renderer {
                 &self.reflected_bind,
                 true,
                 true,
-                Pass::Reflection,
-                // `matrix * flip` mirrors the view, so this submit uses the
+                // `matrix * flip` mirrors the view, so this submit draws the
                 // reflected block set queued just above it.
+                Pass::Reflection,
                 ViewRuns::Reflected,
                 None,
                 None,
@@ -4927,10 +4927,10 @@ mod frame_snapshot_tests {
     fn pass_kinds_are_submitted_from_production_call_sites() {
         let src = source();
         for needle in [
-            "            main_pass,\n            Some(&self.depth),",
-            "                    Pass::Refraction,\n                    None,",
-            "                Pass::Reflection,\n                None,",
-            "            if full_world { Pass::FullMap } else { Pass::Minimap },",
+            "            main_pass,\n            ViewRuns::Main,\n            Some(&self.depth),",
+            "                    Pass::Refraction,\n                    ViewRuns::Main,",
+            "                Pass::Reflection,\n                ViewRuns::Reflected,",
+            "                Pass::Minimap\n            },\n            view_runs,",
             "&normal, camera, Pass::Main, true);",
             "                        &above,\n                        camera,\n                        Pass::Refraction,",
             "                &reflected,\n                camera,\n                Pass::Reflection,",
