@@ -573,7 +573,11 @@ mod tests {
                     panic!("{} {} {name}: {error}", class.name(), gender.name())
                 });
                 let poses = preview_pose(&asset, None).expect("equipment bind pose").0;
-                assert_eq!(asset.skins.len(), 1, "only the equipment skin should be loaded");
+                assert_eq!(
+                    asset.skins.len(),
+                    1,
+                    "only the equipment skin should be loaded"
+                );
                 assert!(poses
                     .iter()
                     .any(|pose| pose.skin == 0 && !pose.vertices.is_empty()));
@@ -750,8 +754,12 @@ fn load_worn(assets: &mut LibrarianAssets, request: &str) -> Result<ModelAsset, 
     let path = class.equipment_skin(gender, realname, 0);
     let data = crate::skin::Skin::parse(&assets.read_model_resource(&path)?)
         .map_err(|error| format!("{path}: {error}"))?;
-    asset.diffuse_alpha_meshes.extend((0..data.meshes.len()).map(|mesh| (0, mesh)));
+    asset
+        .diffuse_alpha_meshes
+        .extend((0..data.meshes.len()).map(|mesh| (0, mesh)));
     asset.model.skins.push(path.clone());
-    asset.skins.push(crate::model_asset::SkinAsset { path, data });
+    asset
+        .skins
+        .push(crate::model_asset::SkinAsset { path, data });
     Ok(asset)
 }

@@ -4,9 +4,16 @@ use std::collections::BTreeMap;
 
 /// Positions in the comparison list, retained in their user-defined order.
 pub fn category_columns(items: &[Item], comparison: &[usize], category: Category) -> Vec<usize> {
-    comparison.iter().enumerate().filter_map(|(position, &index)| {
-        items.get(index).filter(|item| item.category == category).map(|_| position)
-    }).collect()
+    comparison
+        .iter()
+        .enumerate()
+        .filter_map(|(position, &index)| {
+            items
+                .get(index)
+                .filter(|item| item.category == category)
+                .map(|_| position)
+        })
+        .collect()
 }
 
 pub fn rows(items: &[&Item]) -> BTreeMap<&'static str, Vec<Option<f64>>> {
@@ -80,13 +87,28 @@ mod tests {
     #[test]
     fn category_groups_preserve_comparison_order() {
         let make = |category| Item {
-            id: 0, section: 0, category, major: None, subtype: None,
-            name: String::new(), search_name: String::new(), icon: String::new(),
-            model: String::new(), attack_interval: None, record: Vec::new(),
+            id: 0,
+            section: 0,
+            category,
+            major: None,
+            subtype: None,
+            name: String::new(),
+            search_name: String::new(),
+            icon: String::new(),
+            model: String::new(),
+            attack_interval: None,
+            record: Vec::new(),
         };
-        let items = vec![make(Category::Armor), make(Category::Weapons), make(Category::Armor)];
+        let items = vec![
+            make(Category::Armor),
+            make(Category::Weapons),
+            make(Category::Armor),
+        ];
         let order = [2, 1, 0];
-        assert_eq!(category_columns(&items, &order, Category::Armor), vec![0, 2]);
+        assert_eq!(
+            category_columns(&items, &order, Category::Armor),
+            vec![0, 2]
+        );
         assert_eq!(category_columns(&items, &order, Category::Weapons), vec![1]);
         assert!(category_columns(&items, &order, Category::Materials).is_empty());
     }

@@ -163,7 +163,18 @@ impl State {
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             if ui
-                .add(egui::Button::new(egui::RichText::new("All Items").strong().color(egui::Color32::WHITE)).fill(if !self.compare_open && self.category.is_none() { egui::Color32::from_rgb(50, 113, 165) } else { egui::Color32::from_rgb(40, 65, 90) }))
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("All Items")
+                            .strong()
+                            .color(egui::Color32::WHITE),
+                    )
+                    .fill(if !self.compare_open && self.category.is_none() {
+                        egui::Color32::from_rgb(50, 113, 165)
+                    } else {
+                        egui::Color32::from_rgb(40, 65, 90)
+                    }),
+                )
                 .clicked()
             {
                 self.compare_open = false;
@@ -188,7 +199,18 @@ impl State {
                 }
             }
             if ui
-                .add(egui::Button::new(egui::RichText::new("Comparison").strong().color(egui::Color32::WHITE)).fill(if self.compare_open { egui::Color32::from_rgb(158, 104, 35) } else { egui::Color32::from_rgb(95, 68, 33) }))
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("Comparison")
+                            .strong()
+                            .color(egui::Color32::WHITE),
+                    )
+                    .fill(if self.compare_open {
+                        egui::Color32::from_rgb(158, 104, 35)
+                    } else {
+                        egui::Color32::from_rgb(95, 68, 33)
+                    }),
+                )
                 .clicked()
             {
                 self.compare_open = true;
@@ -656,77 +678,79 @@ impl State {
             .id_source("librarian_compare")
             .show(ui, |ui| {
                 for category in Category::ALL {
-                    let columns = compare::category_columns(
-                        &self.database.items, &self.comparison, category,
-                    );
-                    if columns.is_empty() { continue; }
+                    let columns =
+                        compare::category_columns(&self.database.items, &self.comparison, category);
+                    if columns.is_empty() {
+                        continue;
+                    }
                     ui.heading(category.name());
                     ui.label("Comparisons and baseline are limited to this category.");
                     egui::Grid::new(("librarian_comparison_grid", category.name()))
-                    .striped(true)
-                    .show(ui, |ui| {
-                        ui.strong("Attribute");
-                        for (group_col, &col) in columns.iter().enumerate() {
-                            let index = self.comparison[col];
-                            let item = &self.database.items[index];
-                            ui.vertical(|ui| {
-                                if ui.link(&item.name).clicked() {
-                                    jump = Some(index);
-                                }
-                                ui.horizontal(|ui| {
-                                    if group_col > 0 && ui.small_button("←").clicked() {
-                                        swap = Some((col, columns[group_col - 1]));
+                        .striped(true)
+                        .show(ui, |ui| {
+                            ui.strong("Attribute");
+                            for (group_col, &col) in columns.iter().enumerate() {
+                                let index = self.comparison[col];
+                                let item = &self.database.items[index];
+                                ui.vertical(|ui| {
+                                    if ui.link(&item.name).clicked() {
+                                        jump = Some(index);
                                     }
-                                    if group_col + 1 < columns.len()
-                                        && ui.small_button("→").clicked()
-                                    {
-                                        swap = Some((col, columns[group_col + 1]));
-                                    }
-                                    if ui.small_button("×").clicked() {
-                                        remove = Some(col);
-                                    }
-                                });
-                            });
-                        }
-                        ui.end_row();
-                        let items: Vec<_> = columns
-                            .iter()
-                            .map(|&col| &self.database.items[self.comparison[col]])
-                            .collect();
-                        for (name, values) in compare::rows(&items) {
-                            ui.label(name);
-                            let baseline = values.first().copied().flatten();
-                            let best = compare::best(name, &values);
-                            for value in values {
-                                match value {
-                                    Some(value) => {
-                                        let delta = baseline.map(|base| value - base).unwrap_or(0.);
-                                        let format_number = |n: f64| {
-                                            if n.fract() == 0. {
-                                                format!("{n:.0}")
-                                            } else {
-                                                format!("{n:.2}")
-                                            }
-                                        };
-                                        let text = if delta == 0. {
-                                            format_number(value)
-                                        } else {
-                                            format!("{} ({:+.2})", format_number(value), delta)
-                                        };
-                                        if best == Some(value) {
-                                            ui.colored_label(egui::Color32::LIGHT_GREEN, text);
-                                        } else {
-                                            ui.label(text);
+                                    ui.horizontal(|ui| {
+                                        if group_col > 0 && ui.small_button("←").clicked() {
+                                            swap = Some((col, columns[group_col - 1]));
                                         }
-                                    }
-                                    None => {
-                                        ui.label("—");
-                                    }
-                                }
+                                        if group_col + 1 < columns.len()
+                                            && ui.small_button("→").clicked()
+                                        {
+                                            swap = Some((col, columns[group_col + 1]));
+                                        }
+                                        if ui.small_button("×").clicked() {
+                                            remove = Some(col);
+                                        }
+                                    });
+                                });
                             }
                             ui.end_row();
-                        }
-                    });
+                            let items: Vec<_> = columns
+                                .iter()
+                                .map(|&col| &self.database.items[self.comparison[col]])
+                                .collect();
+                            for (name, values) in compare::rows(&items) {
+                                ui.label(name);
+                                let baseline = values.first().copied().flatten();
+                                let best = compare::best(name, &values);
+                                for value in values {
+                                    match value {
+                                        Some(value) => {
+                                            let delta =
+                                                baseline.map(|base| value - base).unwrap_or(0.);
+                                            let format_number = |n: f64| {
+                                                if n.fract() == 0. {
+                                                    format!("{n:.0}")
+                                                } else {
+                                                    format!("{n:.2}")
+                                                }
+                                            };
+                                            let text = if delta == 0. {
+                                                format_number(value)
+                                            } else {
+                                                format!("{} ({:+.2})", format_number(value), delta)
+                                            };
+                                            if best == Some(value) {
+                                                ui.colored_label(egui::Color32::LIGHT_GREEN, text);
+                                            } else {
+                                                ui.label(text);
+                                            }
+                                        }
+                                        None => {
+                                            ui.label("—");
+                                        }
+                                    }
+                                }
+                                ui.end_row();
+                            }
+                        });
                     ui.separator();
                 }
             });
