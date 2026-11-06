@@ -16,7 +16,12 @@ use std::path::PathBuf;
 
 // A reversed UV rectangle through Image's default rectangle tessellator is
 // treated as untextured. Draw a textured mesh explicitly to support flipping.
-fn preview_image(ui: &mut egui::Ui, texture: egui::TextureId, size: f32, flipped: bool) -> egui::Response {
+fn preview_image(
+    ui: &mut egui::Ui,
+    texture: egui::TextureId,
+    size: f32,
+    flipped: bool,
+) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::drag());
     let uv = if flipped {
         egui::Rect::from_min_max(egui::pos2(0., 1.), egui::pos2(1., 0.))
@@ -185,7 +190,15 @@ impl Librarian {
                 [255; 3]
             }
         });
-        preview.update(device, queue, format, &mut state.assets, &path, dye, item.category != Category::Weapons);
+        preview.update(
+            device,
+            queue,
+            format,
+            &mut state.assets,
+            &path,
+            dye,
+            item.category != Category::Weapons,
+        );
     }
     pub fn ui(&mut self, ctx: &egui::Context) {
         let Some(state) = &mut self.state else { return };
@@ -901,10 +914,13 @@ mod tests {
             });
         });
         let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
-        let mesh = primitives.iter().find_map(|p| match &p.primitive {
-            egui::epaint::Primitive::Mesh(mesh) if mesh.texture_id == texture => Some(mesh),
-            _ => None,
-        }).expect("flipped preview must remain textured");
+        let mesh = primitives
+            .iter()
+            .find_map(|p| match &p.primitive {
+                egui::epaint::Primitive::Mesh(mesh) if mesh.texture_id == texture => Some(mesh),
+                _ => None,
+            })
+            .expect("flipped preview must remain textured");
         assert_eq!(mesh.vertices[0].uv, egui::pos2(0., 1.));
         assert_eq!(mesh.vertices[3].uv, egui::pos2(1., 0.));
     }

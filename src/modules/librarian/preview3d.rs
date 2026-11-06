@@ -464,7 +464,9 @@ impl Preview {
             }
         }
         if let (Some(asset), Some(draw)) = (&self.asset, &self.draw) {
-            let poses = if let Some(clip) = animation_index(allow_animation, self.action).and_then(|index| asset.model.actions.get(index)) {
+            let poses = if let Some(clip) = animation_index(allow_animation, self.action)
+                .and_then(|index| asset.model.actions.get(index))
+            {
                 let fps = clip
                     .fps
                     .filter(|fps| *fps > 0)
@@ -944,7 +946,15 @@ mod tests {
             ("pet", pet),
             ("genie", genie),
         ] {
-            preview.update(&device, &queue, format, &mut assets, path, None, !matches!(label, "weapon" | "club" | "hammer"));
+            preview.update(
+                &device,
+                &queue,
+                format,
+                &mut assets,
+                path,
+                None,
+                !matches!(label, "weapon" | "club" | "hammer"),
+            );
             assert!(preview.error.is_none(), "{path}: {:?}", preview.error);
             if path == flight_sword {
                 assert!(preview
