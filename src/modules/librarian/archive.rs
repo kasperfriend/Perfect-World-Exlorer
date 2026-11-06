@@ -239,7 +239,10 @@ mod tests {
         std::fs::write(root.join("models/test/item.ecm"), b"model").unwrap();
         let mut assets = LibrarianAssets::open(&root);
         assert!(assets.model_exists("models/test/item.ecm"));
-        assert_eq!(assets.read_model_resource("models/test/item.ecm").unwrap(), b"model");
+        assert_eq!(
+            assets.read_model_resource("models/test/item.ecm").unwrap(),
+            b"model"
+        );
         assert!(assets.read_model_resource("models/../../outside").is_err());
         std::fs::remove_dir_all(root).unwrap();
     }

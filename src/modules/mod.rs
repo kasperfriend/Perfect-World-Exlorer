@@ -20,7 +20,8 @@ use winit::keyboard::KeyCode;
 // when more than one module installs a font during the same egui frame.
 fn extend_fonts(ctx: &egui::Context, extend: impl FnOnce(&mut egui::FontDefinitions)) {
     let id = egui::Id::new("module_shared_font_definitions");
-    let mut definitions = ctx.data_mut(|data| data.get_temp::<egui::FontDefinitions>(id))
+    let mut definitions = ctx
+        .data_mut(|data| data.get_temp::<egui::FontDefinitions>(id))
         .unwrap_or_else(|| ctx.fonts(|fonts| fonts.lock().fonts.definitions().clone()));
     extend(&mut definitions);
     ctx.data_mut(|data| data.insert_temp(id, definitions.clone()));
@@ -252,7 +253,14 @@ impl Modules {
             "populator" => self.populator_module_ui(ui, spawn),
             "librarian" => {
                 let active = self.librarian.active();
-                if ui.button(if active { "Disable Librarian" } else { "Enable Librarian" }).clicked() {
+                if ui
+                    .button(if active {
+                        "Disable Librarian"
+                    } else {
+                        "Enable Librarian"
+                    })
+                    .clicked()
+                {
                     self.librarian.set_active(!active);
                 }
                 ui.label(self.librarian.status());

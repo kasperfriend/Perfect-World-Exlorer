@@ -176,7 +176,11 @@ impl Preview {
                 dimension: wgpu::TextureDimension::D2,
                 format,
                 usage,
-                view_formats: &[],
+                view_formats: if format == PREVIEW_FORMAT {
+                    &[wgpu::TextureFormat::Rgba8UnormSrgb]
+                } else {
+                    &[]
+                },
             })
         };
         let color = texture(
@@ -193,7 +197,12 @@ impl Preview {
         );
         let texture_id = renderer.register_native_texture(
             device,
-            &color.create_view(&Default::default()),
+            // Model blending writes encoded colors to UNORM; egui expects an
+            // sRGB-sampling view and performs its own display conversion.
+            &color.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+                ..Default::default()
+            }),
             wgpu::FilterMode::Linear,
         );
         Self {

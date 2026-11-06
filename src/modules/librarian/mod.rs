@@ -171,9 +171,17 @@ impl Librarian {
                 if let Ok(bytes) = std::fs::read(path) {
                     if !bytes.is_empty() && bytes.len() <= 16 * 1024 * 1024 {
                         super::extend_fonts(ctx, |fonts| {
-                            fonts.font_data.insert("pw-client-cjk".into(), egui::FontData::from_owned(bytes));
-                            for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-                                fonts.families.entry(family).or_default().push("pw-client-cjk".into());
+                            fonts
+                                .font_data
+                                .insert("pw-client-cjk".into(), egui::FontData::from_owned(bytes));
+                            for family in
+                                [egui::FontFamily::Proportional, egui::FontFamily::Monospace]
+                            {
+                                fonts
+                                    .families
+                                    .entry(family)
+                                    .or_default()
+                                    .push("pw-client-cjk".into());
                             }
                         });
                         state.has_cjk_font = true;
@@ -552,7 +560,9 @@ impl State {
                                 if response.dragged() {
                                     let (mut delta, pan) =
                                         ui.input(|i| (i.pointer.delta(), i.modifiers.shift));
-                                    if preview.flip_vertical { delta.y = -delta.y; }
+                                    if preview.flip_vertical {
+                                        delta.y = -delta.y;
+                                    }
                                     if pan {
                                         preview.pan_by(delta);
                                     } else {
@@ -567,8 +577,14 @@ impl State {
                                         (preview.zoom * (-scroll * 0.001).exp()).clamp(0.3, 5.);
                                 }
                                 let mut magnification = 1. / preview.zoom;
-                                if ui.add(egui::Slider::new(&mut magnification, 0.2..=1. / 0.3)
-                                    .logarithmic(true).text("Zoom")).changed() {
+                                if ui
+                                    .add(
+                                        egui::Slider::new(&mut magnification, 0.2..=1. / 0.3)
+                                            .logarithmic(true)
+                                            .text("Zoom"),
+                                    )
+                                    .changed()
+                                {
                                     preview.zoom = 1. / magnification;
                                 }
                                 ui.checkbox(&mut preview.flip_vertical, "Flip vertically");
