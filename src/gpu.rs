@@ -2493,7 +2493,10 @@ impl Renderer {
     /// The host player is not an ornamental EC model: WaterEffect 0 must not
     /// suppress it. Native host-player reflection/refraction uses its feet-based
     /// profession AABB, independently of the world-model class gate above.
-    fn draw_walker(
+    /// Add-on pass. Each module decides for itself whether it appears in this
+    /// pass; the host only supplies the frame and the water-visibility gates the
+    /// Walker needs. Enabling one add-on never depends on another being on.
+    fn draw_addons(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
@@ -2502,7 +2505,7 @@ impl Renderer {
         camera: &Camera,
         view: Pass,
     ) {
-        let visible = match view {
+        let walker = match view {
             Pass::Reflection => self
                 .modules
                 .walker_visible_in_water_pass(uniform.clip[0], true),
@@ -2511,7 +2514,8 @@ impl Renderer {
                 .walker_visible_in_water_pass(uniform.clip[0], false),
             _ => self.modules.walker_active(),
         };
-        if !visible {
+        let population = self.modules.populator_active();
+        if !walker && !population {
             return;
         }
         if let Some(light) = camera.regional_light {
@@ -2519,15 +2523,28 @@ impl Renderer {
         }
         if let Some(light) = camera.regional_light.or(self.retained_regional_light) {
             let frame = receiving_model_frame(uniform, camera, light);
-            self.modules.render(
-                &self.device,
-                &self.queue,
-                self.module_format,
-                encoder,
-                target,
-                depth,
-                frame,
-            );
+            if walker {
+                self.modules.render_walker(
+                    &self.device,
+                    &self.queue,
+                    self.module_format,
+                    encoder,
+                    target,
+                    depth,
+                    frame,
+                );
+            }
+            if population {
+                self.modules.render_population(
+                    &self.device,
+                    &self.queue,
+                    self.module_format,
+                    encoder,
+                    target,
+                    depth,
+                    frame,
+                );
+            }
         }
     }
 
@@ -2744,7 +2761,7 @@ impl Renderer {
             Pass::Main,
             true,
         );
-        self.draw_walker(
+        self.draw_addons(
             &mut e,
             &model_target,
             &scene_depth,
@@ -2978,7 +2995,7 @@ impl Renderer {
                     }),
                 );
                 let model_view = self.water.refraction_raw();
-                self.draw_walker(
+                self.draw_addons(
                     &mut re,
                     &model_view,
                     &reflect_depth,
@@ -3069,7 +3086,7 @@ impl Renderer {
                         false,
                     );
                 }
-                self.draw_walker(
+                self.draw_addons(
                     &mut re,
                     &model_view,
                     &reflect_depth,
@@ -3177,7 +3194,7 @@ impl Renderer {
                 Pass::Reflection,
                 false,
             );
-            self.draw_walker(
+            self.draw_addons(
                 &mut e,
                 &model_view,
                 &reflect_depth,
@@ -3834,7 +3851,7 @@ pub fn run(
                     last = Instant::now();
                     // Add-ons get an optional camera-owner hook. `None` leaves
                     // the original free-flight controls completely untouched.
-                    let addon_camera = renderer.modules.update(dt, !menu_page.is_open(), &keys, camera.yaw, camera.pitch);
+                    let addon_camera = renderer.modules.update(dt, !menu_page.is_open(), &keys, camera.yaw, camera.pitch, camera.pos);
                     renderer.modules.update_walker_audio(settings.effects_enabled, settings.effects_volume);
                     if let Some(position) = addon_camera {
                         camera.pos = position;
@@ -4074,7 +4091,7 @@ pub fn run(
                                 renderer.render_minimap(&full_map_view,&full_map_depth,&camera,0.,true);
                                 map_refresh=Instant::now();
                             }
-                            if menu_page.is_open() || settings.show_minimap || zone_banner.as_ref().is_some_and(|(_,t)|t.elapsed().as_secs_f32()<4.) {
+                            if menu_page.is_open() || settings.show_minimap || renderer.modules.overlay_active() || zone_banner.as_ref().is_some_and(|(_,t)|t.elapsed().as_secs_f32()<4.) {
                                 let input=egui_state.take_egui_input(&window);
                                 let output=egui_ctx.run(input,|ctx| {
                                     if menu_page==MenuPage::Main {
@@ -4176,6 +4193,16 @@ pub fn run(
                                         } else { ui.add(egui::Image::new((map_id,egui::vec2(MINIMAP_HUD,MINIMAP_HUD))).rounding(round)) };
                                         let center=image.rect.center();let dir=egui::vec2(camera.yaw.sin(),camera.yaw.cos());let side=egui::vec2(-dir.y,dir.x);let points=vec![center+dir*10.,center-dir*7.+side*5.,center-dir*7.-side*5.];ui.painter().add(egui::Shape::convex_polygon(points,egui::Color32::from_rgb(255,225,130),egui::Stroke::new(1.0f32,egui::Color32::BLACK)));ui.painter().text(image.rect.left_top()+egui::vec2(5.,5.),egui::Align2::LEFT_TOP,"N",egui::FontId::proportional(14.),egui::Color32::WHITE);});});}
                                     if menu_page.is_open(){renderer.modules.settings_panel(ctx,config.width as f32/window.scale_factor() as f32);}
+                                    if renderer.modules.overlay_active() {
+                                        // Overhead names: the same view-projection the world
+                                        // pass used, so a label sits exactly over its actor.
+                                        let scale=window.scale_factor() as f32;
+                                        renderer.modules.overlay_ui(
+                                            ctx,
+                                            camera.matrix(config.width, config.height, camera.far),
+                                            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(config.width as f32/scale, config.height as f32/scale)),
+                                        );
+                                    }
                                     if settings.show_zone_entry {if let Some((name,started))=&zone_banner {let elapsed=started.elapsed().as_secs_f32();if elapsed<4. {let alpha=(elapsed.min(4.-elapsed)*2.).clamp(0.,1.);egui::Area::new(egui::Id::new("zone-entry")).anchor(egui::Align2::CENTER_TOP,egui::vec2(0.,65.)).interactable(false).show(ctx,|ui|{ui.label(egui::RichText::new(format!("Entering {name}")).size(24.).color(egui::Color32::from_white_alpha((alpha*255.) as u8)));});}}}
                                 });
                                 egui_state.handle_platform_output(&window,output.platform_output);

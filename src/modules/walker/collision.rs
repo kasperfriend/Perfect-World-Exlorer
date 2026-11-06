@@ -10,7 +10,7 @@
 
 use super::physics::Ground;
 use crate::{bmd::CollisionBrush, pck, scene};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -23,6 +23,8 @@ const DIST_EPSILON: f32 = 0.03125;
 const CHDATA_SKIP_COLLISION: u32 = 0x00000004;
 const MAX_CELLS_PER_QUERY: usize = 4096;
 const MAX_SLIDE_ITERATIONS: usize = 4;
+/// Half-width of the box the name line-of-sight test sweeps along the view ray.
+const SIGHT_PROBE: f32 = 0.02;
 
 type Cell = (i32, i32);
 
@@ -153,11 +155,27 @@ struct TreeInstance {
     extents: Vec3,
 }
 
+/// The upward-facing top of one world model, kept for the models that ship no
+/// collision hull (props, stalls, wagons, low platforms). A placement that the
+/// hull set cannot support still stands on the model it was authored onto
+/// instead of on the terrain under it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PropDeck {
+    /// XZ centre of the model's upward-facing surface.
+    pub center: [f32; 2],
+    /// XZ half-extents of that surface.
+    pub extents: [f32; 2],
+    /// Height of the surface.
+    pub top: f32,
+}
+
 #[derive(Debug, Default)]
 struct CollisionWorld {
     buildings: Vec<CollisionBrush>,
     building_grid: HashMap<Cell, Vec<usize>>,
     large_buildings: Vec<usize>,
+    decks: Vec<PropDeck>,
+    deck_grid: HashMap<Cell, Vec<usize>>,
     tree_types: Vec<Option<Vec<CollisionBrush>>>,
     trees: Vec<TreeInstance>,
     tree_grid: HashMap<Cell, Vec<usize>>,
@@ -184,6 +202,51 @@ impl CollisionWorld {
                 }
             }
         }
+    }
+
+    fn add_decks(&mut self, decks: Vec<PropDeck>) {
+        for deck in decks {
+            let index = self.decks.len();
+            let min = Vec3::new(
+                deck.center[0] - deck.extents[0],
+                deck.top,
+                deck.center[1] - deck.extents[1],
+            );
+            let max = Vec3::new(
+                deck.center[0] + deck.extents[0],
+                deck.top,
+                deck.center[1] + deck.extents[1],
+            );
+            self.decks.push(deck);
+            if let Some((x0, x1, z0, z1, count)) = cell_count(min, max) {
+                if count <= MAX_CELLS_PER_QUERY {
+                    for x in x0..=x1 {
+                        for z in z0..=z1 {
+                            self.deck_grid.entry((x, z)).or_default().push(index);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Lowest model deck under `x`/`z` whose top lies inside `min_y..=max_y`.
+    fn deck_top(&self, x: f32, z: f32, min_y: f32, max_y: f32) -> Option<f32> {
+        let ids = self.deck_grid.get(&(cell(x), cell(z)))?;
+        let mut best: Option<f32> = None;
+        for &index in ids {
+            let deck = &self.decks[index];
+            if (x - deck.center[0]).abs() > deck.extents[0]
+                || (z - deck.center[1]).abs() > deck.extents[1]
+            {
+                continue;
+            }
+            if deck.top < min_y || deck.top > max_y {
+                continue;
+            }
+            best = Some(best.map_or(deck.top, |best: f32| best.min(deck.top)));
+        }
+        best
     }
 
     fn add_tree_type(&mut self, tree_type: usize, brushes: Vec<CollisionBrush>) {
@@ -306,6 +369,98 @@ impl CollisionWorld {
         best
     }
 
+    /// The lowest walkable *building* surface at or above `feet`, searching
+    /// upward. [`Self::support`] answers "what is under this point", which picks
+    /// a roof or a ceiling when an actor is authored onto a bridge deck or an
+    /// interior floor above the terrain sample. The client's own NPC placements
+    /// carry no height at all (`task_npc.data` stores 0 for "the server's
+    /// height"), so the placement whoever authored them stands on is the first
+    /// floor plate above the bare terrain in that column.
+    ///
+    /// Tree hulls are deliberately excluded: a quest NPC does not stand on a
+    /// canopy, and their hulls are the only other brush source here.
+    fn floor_above(&self, feet: Vec3, extents: Vec3, max_up: f32) -> Option<Ground> {
+        if !max_up.is_finite() || max_up < 0.0 {
+            return None;
+        }
+        // Probe upward in short steps and accept the first plane a downward
+        // sweep reaches, so a bridge deck wins over the river bed below it and
+        // an interior floor wins over the terrain poking through it.
+        const STEP: f32 = 0.25;
+        const CONTACT_LIFT: f32 = 0.01;
+        let delta = Vec3::NEG_Y * (STEP + CONTACT_LIFT * 2.0);
+        let mut lift = 0.0;
+        while lift <= max_up {
+            let start = feet + Vec3::Y * (lift + extents.y + CONTACT_LIFT);
+            if let Some(hit) = self.trace_buildings(start, delta, extents) {
+                if !hit.start_solid && hit.normal.y >= 0.5 {
+                    let center = start + delta * hit.fraction;
+                    return Some(Ground {
+                        height: center.y - extents.y,
+                        normal: hit.normal,
+                    });
+                }
+            }
+            lift += STEP;
+        }
+        // No hull at all: many props (stalls, wagons, low platforms) ship only
+        // render geometry, so their authored top surface is the support.
+        self.deck_top(feet.x, feet.z, feet.y, feet.y + max_up)
+            .map(|top| Ground {
+                height: top,
+                normal: Vec3::Y,
+            })
+    }
+
+    /// [`Self::trace`] restricted to BMD building brushes.
+    fn trace_buildings(&self, start: Vec3, delta: Vec3, extents: Vec3) -> Option<Trace> {
+        let end = start + delta;
+        let min = start.min(end) - extents;
+        let max = start.max(end) + extents;
+        let query_center = (min + max) * 0.5;
+        let query_extents = (max - min) * 0.5;
+        let mut building_ids = self.large_buildings.clone();
+        let mut cover_all = true;
+        if let Some((x0, x1, z0, z1, count)) = cell_count(min, max) {
+            if count <= MAX_CELLS_PER_QUERY {
+                cover_all = false;
+                for x in x0..=x1 {
+                    for z in z0..=z1 {
+                        if let Some(ids) = self.building_grid.get(&(x, z)) {
+                            building_ids.extend_from_slice(ids);
+                        }
+                    }
+                }
+            }
+        }
+        if cover_all {
+            building_ids.extend(0..self.buildings.len());
+        }
+        building_ids.sort_unstable();
+        building_ids.dedup();
+        let mut best: Option<Trace> = None;
+        for index in building_ids {
+            let brush = &self.buildings[index];
+            if brush.flags & CHDATA_SKIP_COLLISION != 0 {
+                continue;
+            }
+            if !overlaps(
+                query_center,
+                query_extents,
+                Vec3::from_array(brush.center),
+                Vec3::from_array(brush.extents),
+            ) {
+                continue;
+            }
+            if let Some(hit) = trace_brush(brush, start, delta, extents) {
+                if best.is_none_or(|old| hit.fraction < old.fraction) {
+                    best = Some(hit);
+                }
+            }
+        }
+        best
+    }
+
     fn support(&self, feet: Vec3, extents: Vec3, max_down: f32) -> Option<Ground> {
         if !max_down.is_finite() || max_down < 0.0 {
             return None;
@@ -363,6 +518,31 @@ impl CollisionWorld {
             blocked,
             normal: last_normal,
         }
+    }
+}
+
+/// The Populator resolves authored placement heights against the same building
+/// hulls Walker walks on, so a quest NPC authored onto a bridge deck or an
+/// interior floor stands there instead of on the terrain under the geometry.
+impl crate::modules::populator::FloorSource for Collision {
+    fn lowest_floor(&self, feet: Vec3, extents: Vec3, max_up: f32) -> Option<f32> {
+        self.floor_above(feet, extents, max_up)
+            .map(|ground| ground.height)
+    }
+
+    fn floor_stamp(&self) -> u64 {
+        // Every streamed batch grows both the hull and the model-deck sets; the
+        // completion flag covers the final batch and a loader that produced
+        // nothing.
+        (self.buildings() as u64 + self.decks() as u64) * 2 + u64::from(self.building_done)
+    }
+
+    fn sight_blocked(&self, from: Vec3, to: Vec3) -> bool {
+        Collision::sight_blocked(self, from, to)
+    }
+
+    fn solid_at(&self, feet: Vec3, extents: Vec3) -> bool {
+        Collision::solid_at(self, feet, extents)
     }
 }
 
@@ -489,11 +669,116 @@ enum BuildingMessage {
     Batch {
         processed: usize,
         brushes: Vec<CollisionBrush>,
+        decks: Vec<PropDeck>,
     },
     Done {
         failed: usize,
     },
     Fatal(String),
+}
+
+/// Largest half-extent a model may span and still count as a prop: buildings,
+/// walls and terrain shells are wider and keep relying on their collision hulls.
+const MAX_DECK_HALF_EXTENT: f32 = 12.0;
+/// Tallest model that may provide a standing surface. Pillars, statues and trees
+/// stay out, so nothing is lifted onto them by accident.
+const MAX_DECK_HEIGHT: f32 = 8.0;
+/// Edge of one deck tile. Upward-facing geometry is bucketed into tiles this
+/// wide, which keeps a staircase, a ramp or a stepped platform usable: each tile
+/// carries its own height instead of the model's highest point.
+const DECK_TILE: f32 = 2.0;
+
+/// Upward-facing standing surfaces of a world-baked lit model.
+///
+/// Lit-model vertices are already in world space, so no transform is needed.
+/// Only faces that point up (`normal.y > 0.5`, the same threshold the hull trace
+/// uses) contribute, which keeps a wagon's cargo or a stall's canopy from raising
+/// the surface an actor actually stands on. The up-facing geometry is bucketed
+/// into [`DECK_TILE`]-wide tiles, so the surface a placement gets is the one
+/// directly under it rather than the tallest point of the whole model.
+fn model_decks(model: &crate::bmd::Model) -> Vec<PropDeck> {
+    let mut min = Vec3::splat(f32::MAX);
+    let mut max = Vec3::splat(f32::MIN);
+    for mesh in &model.meshes {
+        for vertex in &mesh.vertices {
+            let position = Vec3::from_array(vertex.position);
+            min = min.min(position);
+            max = max.max(position);
+        }
+    }
+    if max.y - min.y > MAX_DECK_HEIGHT {
+        return Vec::new();
+    }
+    // Collect the up-facing triangles and their own XZ bounds first, so the tile
+    // grid covers only the surface that can carry an actor.
+    let mut faces = Vec::new();
+    let mut area_min = Vec2::splat(f32::MAX);
+    let mut area_max = Vec2::splat(f32::MIN);
+    for mesh in &model.meshes {
+        for triangle in mesh.indices.chunks_exact(3) {
+            let Some(a) = mesh.vertices.get(triangle[0] as usize) else {
+                continue;
+            };
+            let Some(b) = mesh.vertices.get(triangle[1] as usize) else {
+                continue;
+            };
+            let Some(c) = mesh.vertices.get(triangle[2] as usize) else {
+                continue;
+            };
+            let a = Vec3::from_array(a.position);
+            let b = Vec3::from_array(b.position);
+            let c = Vec3::from_array(c.position);
+            let normal = (b - a).cross(c - a);
+            if normal.length_squared() < 1e-8 || normal.normalize().y <= 0.5 {
+                continue;
+            }
+            for point in [a, b, c] {
+                area_min = area_min.min(Vec2::new(point.x, point.z));
+                area_max = area_max.max(Vec2::new(point.x, point.z));
+            }
+            let centroid = Vec2::new(a.x + b.x + c.x, a.z + b.z + c.z) / 3.0;
+            let top = a.y.max(b.y).max(c.y);
+            faces.push((centroid, top));
+        }
+    }
+    if faces.is_empty() {
+        return Vec::new();
+    }
+    let extents = (area_max - area_min) * 0.5;
+    if extents.x > MAX_DECK_HALF_EXTENT || extents.y > MAX_DECK_HALF_EXTENT {
+        return Vec::new();
+    }
+    let columns = ((area_max.x - area_min.x) / DECK_TILE).ceil().max(1.0) as usize;
+    let rows = ((area_max.y - area_min.y) / DECK_TILE).ceil().max(1.0) as usize;
+    let mut tops = vec![f32::MIN; columns * rows];
+    for (centroid, top) in faces {
+        let column = (((centroid.x - area_min.x) / DECK_TILE) as usize).min(columns - 1);
+        let row = (((centroid.y - area_min.y) / DECK_TILE) as usize).min(rows - 1);
+        let slot = &mut tops[row * columns + column];
+        *slot = slot.max(top);
+    }
+    let mut decks = Vec::new();
+    for row in 0..rows {
+        for column in 0..columns {
+            let top = tops[row * columns + column];
+            if top == f32::MIN {
+                continue;
+            }
+            let x0 = area_min.x + column as f32 * DECK_TILE;
+            let z0 = area_min.y + row as f32 * DECK_TILE;
+            let x1 = (x0 + DECK_TILE).min(area_max.x);
+            let z1 = (z0 + DECK_TILE).min(area_max.y);
+            if x1 - x0 < 0.25 || z1 - z0 < 0.25 {
+                continue;
+            }
+            decks.push(PropDeck {
+                center: [(x0 + x1) * 0.5, (z0 + z1) * 0.5],
+                extents: [(x1 - x0) * 0.5, (z1 - z0) * 0.5],
+                top,
+            });
+        }
+    }
+    decks
 }
 
 fn building_worker(element: PathBuf, paths: Vec<String>, tx: SyncSender<BuildingMessage>) {
@@ -507,17 +792,28 @@ fn building_worker(element: PathBuf, paths: Vec<String>, tx: SyncSender<Building
         for start in (0..paths.len()).step_by(32) {
             let end = (start + 32).min(paths.len());
             let mut brushes = Vec::new();
+            let mut decks = Vec::new();
             for path in &paths[start..end] {
+                // Lit models live under `litmodels/world/`, but a few props ship
+                // under a shorter key. Trying the alternatives loads the ones the
+                // first form misses instead of losing their hulls and tops.
                 let key = format!("litmodels/world/{path}");
-                let result = entries
-                    .get(&key)
+                let entry = entries.get(&key).or_else(|| {
+                    [format!("litmodels/{path}"), path.clone()]
+                        .iter()
+                        .find_map(|alternative| entries.get(alternative))
+                });
+                let result = entry
                     .ok_or_else(|| format!("missing model {key}"))
                     .and_then(|entry| pck::read_entry(&mut file, entry))
                     .and_then(|data| {
                         crate::bmd::Model::parse(&data).map_err(|error| format!("{key}: {error}"))
                     });
                 match result {
-                    Ok(model) => brushes.extend(model.collision),
+                    Ok(model) => {
+                        decks.extend(model_decks(&model));
+                        brushes.extend(model.collision);
+                    }
                     Err(error) => {
                         failed += 1;
                         eprintln!("Walker object collision: {error}");
@@ -528,6 +824,7 @@ fn building_worker(element: PathBuf, paths: Vec<String>, tx: SyncSender<Building
                 .send(BuildingMessage::Batch {
                     processed: end,
                     brushes,
+                    decks,
                 })
                 .is_err()
             {
@@ -628,9 +925,14 @@ impl Collision {
                 None => break,
             };
             match message {
-                Ok(BuildingMessage::Batch { processed, brushes }) => {
+                Ok(BuildingMessage::Batch {
+                    processed,
+                    brushes,
+                    decks,
+                }) => {
                     self.building_processed = processed;
                     self.world.add_buildings(brushes);
+                    self.world.add_decks(decks);
                 }
                 Ok(BuildingMessage::Done { failed }) => {
                     self.building_failed = failed;
@@ -665,6 +967,48 @@ impl Collision {
         self.world.support(feet, extents, max_down)
     }
 
+    /// The lowest walkable building floor at or above `feet`; see
+    /// [`CollisionWorld::floor_above`].
+    pub fn floor_above(&self, feet: Vec3, extents: Vec3, max_up: f32) -> Option<Ground> {
+        self.world.floor_above(feet, extents, max_up)
+    }
+
+    /// Number of building hulls already streamed in, so a consumer can tell
+    /// when a placement resolved against an incomplete world should be retried.
+    pub fn buildings(&self) -> usize {
+        self.world.buildings.len()
+    }
+
+    /// Model top surfaces that back placements no collision hull supports.
+    pub fn decks(&self) -> usize {
+        self.world.decks.len()
+    }
+
+    /// True when something solid stands between `from` (a camera) and `to` (an
+    /// overhead name): the client hides a name it cannot see, so the label must
+    /// never show through a building, a tree trunk or the terrain.
+    /// True when an `extents`-sized box standing on `feet` already overlaps a
+    /// building hull: the placement is inside a wall, a counter or a bridge
+    /// arch. This is a zero-length sweep, so it answers "is this box inside the
+    /// brush right now" and needs no motion. Tree hulls are excluded on purpose:
+    /// standing under a canopy is not standing in a wall.
+    pub fn solid_at(&self, feet: Vec3, extents: Vec3) -> bool {
+        self.world
+            .trace_buildings(feet + Vec3::Y * extents.y, Vec3::ZERO, extents)
+            .is_some_and(|hit| hit.start_solid)
+    }
+
+    pub fn sight_blocked(&self, from: Vec3, to: Vec3) -> bool {
+        let delta = to - from;
+        if delta.length_squared() <= 1e-6 {
+            return false;
+        }
+        match self.world.trace(from, delta, Vec3::splat(SIGHT_PROBE)) {
+            Some(hit) => !hit.start_solid && hit.fraction < 1.0,
+            None => false,
+        }
+    }
+
     pub fn status(&self) -> String {
         let loading = if self.building_paths.is_empty() {
             "no BMD placements".to_owned()
@@ -680,8 +1024,9 @@ impl Collision {
             "BMD loading starts with Walker".to_owned()
         };
         format!(
-            "{} building hulls • {} tree instances ({}/{} tree hull types) • {} • terrain always on",
+            "{} building hulls • {} model tops • {} tree instances ({}/{} tree hull types) • {} • terrain always on",
             self.world.buildings.len(),
+            self.world.decks.len(),
             self.world.trees.len(),
             self.tree_report.loaded_types,
             self.tree_report.loaded_types + self.tree_report.missing + self.tree_report.failed,
@@ -719,8 +1064,14 @@ impl Collision {
 
     #[cfg(test)]
     fn from_parts(buildings: Vec<CollisionBrush>) -> Self {
+        Self::from_parts_and_decks(buildings, Vec::new())
+    }
+
+    #[cfg(test)]
+    fn from_parts_and_decks(buildings: Vec<CollisionBrush>, decks: Vec<PropDeck>) -> Self {
         let mut world = CollisionWorld::default();
         world.add_buildings(buildings);
+        world.add_decks(decks);
         Self {
             world,
             ..Self::default()
@@ -860,5 +1211,123 @@ mod tests {
         let result = collision.resolve(Vec3::ZERO, Vec3::new(3.0, 0.0, 0.0), Vec3::splat(0.3));
         assert!(result.blocked);
         assert_eq!(result.feet, Vec3::new(3.0, 0.0, 0.0));
+    }
+
+    fn crate_deck(top: f32, half: f32) -> PropDeck {
+        PropDeck {
+            center: [0., 0.],
+            extents: [half, half],
+            top,
+        }
+    }
+
+    fn up_quad(x0: f32, x1: f32, y: f32, z0: f32, z1: f32) -> ([[f32; 3]; 3], [[f32; 3]; 3]) {
+        (
+            [[x0, y, z0], [x1, y, z1], [x1, y, z0]],
+            [[x0, y, z0], [x0, y, z1], [x1, y, z1]],
+        )
+    }
+
+    fn model_with(quads: &[(([[f32; 3]; 3], [[f32; 3]; 3]))]) -> crate::bmd::Model {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        for (a, b) in quads {
+            for triangle in [a, b] {
+                for point in triangle {
+                    indices.push(vertices.len() as u16);
+                    vertices.push(crate::bmd::Vertex {
+                        position: *point,
+                        uv: [0., 0.],
+                        normal: [0., 1., 0.],
+                        diffuse: 0,
+                        day_diffuse: 0,
+                        night_diffuse: 0,
+                    });
+                }
+            }
+        }
+        crate::bmd::Model {
+            scale: [1., 1., 1.],
+            direction: [0., 0., 1.],
+            up: [0., 1., 0.],
+            position: [0., 0., 0.],
+            meshes: vec![crate::bmd::Mesh {
+                name: String::new(),
+                version: 0,
+                material: None,
+                texture: String::new(),
+                vertices,
+                indices,
+            }],
+            collision: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_step_keeps_its_own_height_instead_of_the_models_tallest_point() {
+        // Two steps of one model: a placement on the low step must not be lifted
+        // to the height of the high one.
+        let model = model_with(&[up_quad(0., 2., 0., 0., 2.), up_quad(2., 4., 2., 0., 2.)]);
+        let decks = model_decks(&model);
+        let at = |x: f32, z: f32| {
+            decks
+                .iter()
+                .filter(|deck| {
+                    (x - deck.center[0]).abs() <= deck.extents[0]
+                        && (z - deck.center[1]).abs() <= deck.extents[1]
+                })
+                .map(|deck| deck.top)
+                .fold(None::<f32>, |best, top| {
+                    Some(best.map_or(top, |b: f32| b.max(top)))
+                })
+        };
+        assert_eq!(at(1., 1.), Some(0.));
+        assert_eq!(at(3., 1.), Some(2.));
+    }
+
+    #[test]
+    fn a_tall_model_offers_no_standing_surface() {
+        // A nine-unit-tall model (base and top) is scenery, not a prop.
+        let model = model_with(&[up_quad(0., 2., 0., 0., 2.), up_quad(0., 2., 9., 0., 2.)]);
+        assert!(model_decks(&model).is_empty());
+    }
+
+    #[test]
+    fn a_model_top_supports_a_placement_that_has_no_hull() {
+        // Props ship render geometry but often no collision hull, which used to
+        // drop their NPCs onto the terrain under them.
+        let collision = Collision::from_parts_and_decks(Vec::new(), vec![crate_deck(3., 2.)]);
+        let ground = collision
+            .floor_above(Vec3::new(0., 0.5, 0.), Vec3::new(0.4, 0.9, 0.4), 16.)
+            .expect("the crate top is a floor");
+        assert!((ground.height - 3.).abs() < 1e-5, "{ground:?}");
+        // Outside the footprint the terrain stays the support.
+        assert!(collision
+            .floor_above(Vec3::new(5., 0.5, 0.), Vec3::new(0.4, 0.9, 0.4), 16.,)
+            .is_none());
+    }
+
+    #[test]
+    fn a_real_hull_floor_still_beats_a_model_top() {
+        // The bridge deck is what the Walker walks on, so it also wins for a
+        // placement standing over a prop that happens to be under the span.
+        let collision = Collision::from_parts_and_decks(vec![cube()], vec![crate_deck(3., 2.)]);
+        let ground = collision
+            .floor_above(Vec3::new(0., -5., 0.), Vec3::new(0.4, 0.9, 0.4), 16.)
+            .expect("the cube top is a floor");
+        // The sweep starts one contact lift above the plane, so the surface it
+        // reports sits that much above the cube's own top.
+        assert!((ground.height - 1.).abs() < 0.05, "{ground:?}");
+    }
+
+    #[test]
+    fn a_name_is_hidden_when_something_stands_between_camera_and_head() {
+        let collision = Collision::from_parts(vec![cube()]);
+        // Straight through the cube from one side to the other.
+        assert!(collision.sight_blocked(Vec3::new(-4., 0., 0.), Vec3::new(4., 0., 0.)));
+        // Clear line of sight beside it.
+        assert!(!collision.sight_blocked(Vec3::new(-4., 5., 0.), Vec3::new(4., 5., 0.)));
+        // A camera inside geometry is a clipping artefact, not an occlusion.
+        assert!(!collision.sight_blocked(Vec3::new(0., 0., 0.), Vec3::new(4., 0., 0.)));
     }
 }

@@ -294,6 +294,20 @@ impl Walker {
         self.body.is_some() && self.character.is_some()
     }
 
+    /// Starts and advances the building-hull loader on behalf of another
+    /// add-on. The Populator stands authored placements on real BMD floors, so
+    /// it needs the same hulls Walker collides with even when Walker itself is
+    /// inactive; the load is only requested, never forced.
+    pub fn prepare_object_collision(&mut self) {
+        self.collision.ensure_loading();
+        self.collision.poll();
+    }
+
+    /// The building hulls, for placement support queries.
+    pub fn floors(&self) -> &dyn crate::modules::populator::FloorSource {
+        &self.collision
+    }
+
     /// CECCamera::Action changes distance by the configured native 1 m zoom
     /// step per wheel notch and clamps to 0..20 m. Positive wheel steps zoom in.
     pub fn zoom(&mut self, steps: f32) {

@@ -76,6 +76,7 @@ if (-not [string]::IsNullOrWhiteSpace($ArchivePath)) {
         foreach ($required in @(
             'Perfect World Explorer/Perfect-World-Explorer.exe',
             'Perfect World Explorer/Modules/Walker/module.ini',
+            'Perfect World Explorer/Modules/Populator/module.ini',
             'Perfect World Explorer/SHA256SUMS.txt'
         )) {
             if ($entries -notcontains $required) {
