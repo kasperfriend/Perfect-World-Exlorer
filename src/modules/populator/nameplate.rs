@@ -149,22 +149,22 @@ impl NameFont {
         if !self.resolved() || self.installed {
             return true;
         }
-        let mut fonts = egui::FontDefinitions::default();
-        let mut family = Vec::new();
-        for (index, file) in self.files.iter().enumerate() {
-            let key = format!("{FAMILY}-{index}");
+        super::super::extend_fonts(ctx, |fonts| {
+            let mut family = Vec::new();
+            for (index, file) in self.files.iter().enumerate() {
+                let key = format!("{FAMILY}-{index}");
+                fonts
+                    .font_data
+                    .insert(key.clone(), egui::FontData::from_owned(file.bytes.clone()));
+                family.push(key);
+            }
+            if let Some(defaults) = fonts.families.get(&egui::FontFamily::Proportional) {
+                family.extend(defaults.iter().cloned());
+            }
             fonts
-                .font_data
-                .insert(key.clone(), egui::FontData::from_owned(file.bytes.clone()));
-            family.push(key);
-        }
-        if let Some(defaults) = fonts.families.get(&egui::FontFamily::Proportional) {
-            family.extend(defaults.iter().cloned());
-        }
-        fonts
-            .families
-            .insert(egui::FontFamily::Name(FAMILY.into()), family);
-        ctx.set_fonts(fonts);
+                .families
+                .insert(egui::FontFamily::Name(FAMILY.into()), family);
+        });
         self.installed = true;
         false
     }
