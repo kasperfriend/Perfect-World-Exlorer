@@ -130,6 +130,20 @@ with 120 (ornament range) and 800 as further presets.
   the module clock. `pose_action_at_time` takes absolute track time and clamps
   at the last key, so a clock that only grew would freeze a rig mid-idle after
   one cycle — the loop wraps inside the clip's own millisecond range instead.
+* Which idle a rig gets is the rig's own data, in this order: the combined
+  action `休闲` (the client's own lookup, `EcModel::scene_action`), else the
+  ordinary clip that combined action's first base names, else the rig's own clip
+  called `待机`, `站立`, `休闲` or `idle`, else the authored bind pose. A rig with
+  no usable idle is drawn in its bind pose rather than vanishing, and the reason
+  is logged.
+* "Not stuck still" is checked against the drawn geometry, not the schedule: the
+  viewer fingerprints a spread of posed vertices each frame, and an actor whose
+  vertices have not changed for half a second is counted as holding a still pose
+  and reported (settings line `N animating`, plus a one-shot console line after
+  three drawn seconds). Two defects that produced statues are fixed by this: an
+  absent combined action used to be accepted as an inert `Playback` (every rig
+  without a `休闲` combined action then kept its bind pose for the session), and
+  a pose that failed to evaluate fell back to the bind pose silently.
 * The settings window reports how many placements are inside the spawn radius
   and can move the camera to the nearest one: at the client's native 420 units
   the origin has 9 placements, Archosaur North 61, Raging Tides 0.

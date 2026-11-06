@@ -312,6 +312,12 @@ struct Live {
     head: f32,
     /// Whether this actor stands on a building floor rather than the terrain.
     on_floor: bool,
+    /// Why the idle clip could not be evaluated, when it could not: the actor is
+    /// drawn in its bind pose and the report names the rig.
+    pose_error: Option<String>,
+    /// Whether the drawn pose has been changing, so a frozen idle is visible in
+    /// the settings window instead of being something the user has to spot.
+    motion: MotionProbe,
     /// Whether the camera can actually see this actor's head: the client hides
     /// a name it cannot see, so an occluded actor keeps its body and loses its
     /// label instead of showing it through a wall.
@@ -335,7 +341,7 @@ impl Live {
     /// ordinary `休闲` action runs on the module clock, and a rig that can
     /// evaluate neither falls back to its authored bind pose rather than
     /// disappearing.
-    fn pose(&self) -> Result<Vec<PosedMesh>, String> {
+    fn pose(&mut self) -> Result<Vec<PosedMesh>, String> {
         let world = self.world();
         let sample = self.playback.as_ref().and_then(Playback::sample);
         let (action, seconds) = match sample {
@@ -347,8 +353,17 @@ impl Live {
             ),
         };
         if let Some(action) = action {
-            if let Ok(meshes) = self.asset.pose_action_at_time(action, seconds, world) {
-                return Ok(meshes);
+            match self.asset.pose_action_at_time(action, seconds, world) {
+                Ok(meshes) => return Ok(meshes),
+                // A rig whose idle tracks cannot be evaluated is drawn in its
+                // bind pose rather than disappearing, and the reason is kept so
+                // the session report can name it instead of leaving a silent
+                // statue in the world.
+                Err(error) => {
+                    if self.pose_error.is_none() {
+                        self.pose_error = Some(error);
+                    }
+                }
             }
         }
         self.asset.pose_bind(world)
@@ -446,9 +461,15 @@ fn idle_clock(
     report: &mut IdleReport,
 ) -> (Option<usize>, Option<Clip>, Option<Playback>) {
     let combined = asset.descriptor.scene_action("休闲");
-    if let Ok(playback) = Playback::new(asset, combined) {
-        report.combined += 1;
-        return (None, None, Some(playback));
+    // `Playback::new` accepts "no scene action at all" as an inert playback that
+    // samples nothing. Taking that as the answer left every rig without a `休闲`
+    // combined action frozen in its bind pose for the whole session, so only a
+    // real combined action may take this path.
+    if combined.is_some() {
+        if let Ok(playback) = Playback::new(asset, combined) {
+            report.combined += 1;
+            return (None, None, Some(playback));
+        }
     }
     let base = combined
         .and_then(|index| asset.descriptor.actions.get(index))
@@ -484,11 +505,71 @@ fn idle_clock(
             (Some(action), Some(clip), None)
         }
         None => {
-            // A single-frame or malformed range: nothing to animate.
-            report.bind_pose += 1;
+            // The clip exists but has no sampleable range or frame rate, so the
+            // rig falls back to its bind pose. Reported apart from "no idle
+            // action at all" so the two causes stay distinguishable.
+            report.unusable_clip += 1;
             (None, None, None)
         }
     }
+}
+
+/// Frames of unchanged geometry after which an actor counts as holding a still
+/// pose. Half a second at 60 Hz: an idle that only breathes still clears it.
+const MOTION_WINDOW: u32 = 30;
+
+/// Watches an actor's posed geometry to answer "is this one actually moving?".
+///
+/// The module can resolve an idle clip and still draw a frozen character - a
+/// single-frame clip, a clip whose tracks are empty, or a clock that stopped -
+/// so the drawn pose itself is sampled instead of trusting the schedule.
+#[derive(Clone, Copy, Debug, Default)]
+struct MotionProbe {
+    signature: Option<u64>,
+    still_frames: u32,
+}
+
+impl MotionProbe {
+    fn observe(&mut self, signature: u64) {
+        match self.signature {
+            Some(previous) if previous == signature => {
+                self.still_frames = self.still_frames.saturating_add(1);
+            }
+            _ => {
+                self.signature = Some(signature);
+                self.still_frames = 0;
+            }
+        }
+    }
+
+    fn animating(&self) -> bool {
+        self.still_frames < MOTION_WINDOW
+    }
+
+    fn observed(&self) -> bool {
+        self.signature.is_some()
+    }
+}
+
+/// Cheap fingerprint of a posed rig: a spread of vertices, quantised so float
+/// noise does not read as movement. A frozen animation repeats it exactly.
+fn pose_signature(meshes: &[PosedMesh]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    let mut sampled = 0;
+    for mesh in meshes {
+        let step = (mesh.vertices.len() / 8).max(1);
+        for vertex in mesh.vertices.iter().step_by(step).take(8) {
+            for axis in vertex.position {
+                hash ^= (axis * 100.0) as i64 as u64;
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+            sampled += 1;
+        }
+        if sampled >= 16 {
+            break;
+        }
+    }
+    hash
 }
 
 /// How the population's idle animations resolved, reported once per session so a
@@ -497,6 +578,9 @@ fn idle_clock(
 struct IdleReport {
     combined: usize,
     looped: usize,
+    /// A clip was found but its range or frame rate cannot be sampled.
+    unusable_clip: usize,
+    /// No idle action at all: the rig is drawn in its authored bind pose.
     bind_pose: usize,
 }
 
@@ -522,6 +606,12 @@ pub struct Populator {
     /// How the idle animations resolved, and whether that was logged.
     idle_report: IdleReport,
     reported_idle: bool,
+    /// Seconds the population has been drawn for, and whether the "is anything
+    /// actually moving" line was logged.
+    motion_seconds: f32,
+    reported_motion: bool,
+    /// How many bind-pose fallbacks have already been logged.
+    reported_pose_errors: usize,
     /// The client's own overhead-name font, read from `configs/fonts.txt` and
     /// handed to the host's egui context on first use.
     name_font: Option<NameFont>,
@@ -547,6 +637,9 @@ impl Default for Populator {
             reported_failures: 0,
             idle_report: IdleReport::default(),
             reported_idle: false,
+            motion_seconds: 0.,
+            reported_motion: false,
+            reported_pose_errors: 0,
             name_font: None,
         }
     }
@@ -656,6 +749,9 @@ impl Populator {
             self.live.clear();
             self.idle_report = IdleReport::default();
             self.reported_idle = false;
+            self.motion_seconds = 0.;
+            self.reported_motion = false;
+            self.reported_pose_errors = 0;
             if let Some(renderer) = self.renderer.as_mut() {
                 renderer.forget_textures();
             }
@@ -726,9 +822,41 @@ impl Populator {
         if !self.reported_idle && !self.live.is_empty() {
             self.reported_idle = true;
             eprintln!(
-                "Populator: idle animation - {} combined actions scheduled, {} clips looped on the module clock, {} rigs left in their bind pose",
-                self.idle_report.combined, self.idle_report.looped, self.idle_report.bind_pose
+                "Populator: idle animation - {} combined actions scheduled, {} clips looped on the module clock, {} rigs whose clip cannot be sampled, {} rigs with no idle action (bind pose)",
+                self.idle_report.combined,
+                self.idle_report.looped,
+                self.idle_report.unusable_clip,
+                self.idle_report.bind_pose
             );
+        }
+        let pose_errors: Vec<&String> = self
+            .live
+            .iter()
+            .filter_map(|live| live.pose_error.as_ref())
+            .collect();
+        if !pose_errors.is_empty() && pose_errors.len() > self.reported_pose_errors {
+            for error in pose_errors.iter().skip(self.reported_pose_errors).take(3) {
+                eprintln!("Populator: idle tracks unusable, drawing the bind pose: {error}");
+            }
+            self.reported_pose_errors = pose_errors.len();
+        }
+        // Three drawn seconds is long enough for a real idle to have moved and
+        // for a frozen one to have proven it.
+        if !self.reported_motion && self.motion_seconds >= 3. && !self.live.is_empty() {
+            self.reported_motion = true;
+            if self.settings.idle_animation {
+                eprintln!(
+                    "Populator: {} of {} drawn actors are animating, {} hold a still pose",
+                    self.animating_count(),
+                    self.live.len(),
+                    self.frozen_count()
+                );
+            } else {
+                eprintln!(
+                    "Populator: idle animation is off, so all {} drawn actors hold a still pose",
+                    self.live.len()
+                );
+            }
         }
     }
 
@@ -800,6 +928,8 @@ impl Populator {
             head,
             on_floor,
             name_visible: true,
+            pose_error: None,
+            motion: MotionProbe::default(),
             floor_stamp: floors.map_or(0, |floors| floors.floor_stamp()),
             follow,
             draw: None,
@@ -833,6 +963,7 @@ impl Populator {
         }
         self.resolve_floors(floors);
         self.update_name_visibility(floors);
+        self.motion_seconds += delta;
         let delta_ms = (delta * 1000.).round().clamp(0., u32::MAX as f32) as u32;
         for live in &mut self.live {
             if live.failure.is_some() {
@@ -983,7 +1114,10 @@ impl Populator {
                 continue;
             }
             match live.pose() {
-                Ok(meshes) => posed.push((index, meshes)),
+                Ok(meshes) => {
+                    live.motion.observe(pose_signature(&meshes));
+                    posed.push((index, meshes));
+                }
                 Err(error) => live.failure = Some(error),
             }
         }
@@ -1055,6 +1189,25 @@ impl Populator {
     /// settings window can show whether the support query actually engaged.
     fn on_floor_count(&self) -> usize {
         self.live.iter().filter(|live| live.on_floor).count()
+    }
+
+    /// Actors whose drawn pose changed within the last half second.
+    fn animating_count(&self) -> usize {
+        self.live
+            .iter()
+            .filter(|live| live.failure.is_none() && live.motion.animating())
+            .count()
+    }
+
+    /// Actors that have been drawn but whose geometry has not changed for
+    /// [`MOTION_WINDOW`] frames.
+    fn frozen_count(&self) -> usize {
+        self.live
+            .iter()
+            .filter(|live| {
+                live.failure.is_none() && live.motion.observed() && !live.motion.animating()
+            })
+            .count()
     }
 
     fn failed_count(&self) -> usize {
@@ -1327,8 +1480,9 @@ impl Populator {
         self.settings = self.settings.sanitized();
         ui.label(
             egui::RichText::new(format!(
-                "{} drawn, {} on building floors, {} failed, {} rigs cached, {} textures cached",
+                "{} drawn, {} animating, {} on building floors, {} failed, {} rigs cached, {} textures cached",
                 self.drawn_count(),
+                self.animating_count(),
                 self.on_floor_count(),
                 self.failed_count(),
                 self.library
@@ -1478,6 +1632,142 @@ mod tests {
         assert!(close(clip.seconds(-1.), 0.5));
         // Long-running actors wrap instead of freezing on the last key.
         assert!(close(clip.seconds(3_601.25), 0.75));
+    }
+
+    /// A rig with no scene actions at all, the case that used to be mistaken for
+    /// a scheduled combined action and froze the actor in its bind pose.
+    fn rig_without_combined_actions() -> ModelAsset {
+        let (asset, _) = crate::model_draw_fixture::fixture();
+        asset
+    }
+
+    fn idle_action(name: &str, start: f32, end: f32) -> crate::ecmodel::Action {
+        crate::ecmodel::Action {
+            name: name.into(),
+            start,
+            end,
+            fps: Some(30),
+            track_file: String::new(),
+            joints: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_rig_without_a_combined_idle_still_loops_its_own_idle_clip() {
+        // No descriptor (combined) actions at all: the old code accepted an
+        // inert `Playback` here and never looked for the rig's own clip.
+        let mut asset = rig_without_combined_actions();
+        asset.model.actions.push(idle_action("待机", 0., 30.));
+        let mut report = IdleReport::default();
+        let (action, clip, playback) = idle_clock(&asset, &mut report);
+        assert!(playback.is_none(), "no combined action to schedule");
+        assert_eq!(action, Some(0));
+        let clip = clip.expect("the rig's own idle clip is used");
+        assert_eq!(report.looped, 1);
+        assert_eq!(report.combined, 0);
+        assert_eq!(report.bind_pose, 0);
+        // A 30-frame clip at 30 fps runs for a second and moves through it.
+        assert!((clip.length_ms as f32 - 1_001.).abs() < 1.);
+        assert!((clip.seconds(0.5) - clip.seconds(0.0) - 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_combined_scene_idle_goes_through_the_playback_clock() {
+        let mut asset = rig_without_combined_actions();
+        asset.model.actions.push(idle_action("base", 0., 30.));
+        asset.skeleton.fps = 30;
+        asset
+            .descriptor
+            .actions
+            .push(crate::ecmodel::CombinedAction {
+                name: "休闲".into(),
+                loops: Some(1),
+                speed: Some(1.),
+                bases: vec![crate::ecmodel::BaseAction {
+                    name: "base".into(),
+                    start_ms: Some(0),
+                    loop_min: Some(-1),
+                    loop_max: Some(-1),
+                }],
+            });
+        let mut report = IdleReport::default();
+        let (action, clip, playback) = idle_clock(&asset, &mut report);
+        let mut playback = playback.expect("the combined action is scheduled");
+        assert!(action.is_none() && clip.is_none());
+        assert_eq!(report.combined, 1);
+        let (_, first) = playback.sample().expect("the combined action samples");
+        playback.tick(250).expect("the clock advances");
+        let (_, later) = playback.sample().expect("still sampling");
+        assert!(later > first, "{first} -> {later}");
+    }
+
+    #[test]
+    fn a_rig_with_no_idle_action_at_all_is_reported_as_a_bind_pose() {
+        let asset = rig_without_combined_actions();
+        let mut report = IdleReport::default();
+        assert_eq!(idle_clock(&asset, &mut report), (None, None, None));
+        assert_eq!(report.bind_pose, 1);
+        assert_eq!(report.looped, 0);
+    }
+
+    #[test]
+    fn a_single_frame_idle_holds_the_files_own_pose_instead_of_the_bind_pose() {
+        // A one-frame clip is a posed stand, not a missing animation: sample it
+        // at its own single frame rather than falling back to the bind pose.
+        let mut asset = rig_without_combined_actions();
+        asset.model.actions.push(idle_action("站立", 7., 7.));
+        let mut report = IdleReport::default();
+        let (action, clip, _) = idle_clock(&asset, &mut report);
+        assert_eq!(action, Some(0));
+        let clip = clip.expect("a one-frame clip is still a clip");
+        assert_eq!(clip.length_ms, 1);
+        assert_eq!(report.looped, 1);
+        assert_eq!(report.bind_pose, 0);
+    }
+
+    #[test]
+    fn a_clip_whose_range_cannot_be_sampled_is_reported_apart_from_a_missing_one() {
+        let mut asset = rig_without_combined_actions();
+        asset.model.actions.push(idle_action("待机", 5., 2.));
+        let mut report = IdleReport::default();
+        assert_eq!(idle_clock(&asset, &mut report), (None, None, None));
+        assert_eq!(report.unusable_clip, 1);
+        assert_eq!(report.bind_pose, 0);
+    }
+
+    #[test]
+    fn a_pose_that_never_changes_reads_as_frozen() {
+        let mut probe = MotionProbe::default();
+        // Nothing observed yet: not proven frozen either.
+        assert!(!probe.observed());
+        probe.observe(7);
+        assert!(probe.animating());
+        for _ in 0..MOTION_WINDOW {
+            probe.observe(7);
+        }
+        assert!(!probe.animating());
+        // One changed pose is movement again.
+        probe.observe(8);
+        assert!(probe.animating());
+    }
+
+    fn posed(y: f32) -> Vec<PosedMesh> {
+        vec![PosedMesh {
+            skin: 0,
+            mesh: 0,
+            vertices: vec![crate::skin_pose::PosedVertex {
+                position: [0., y, 0.],
+                normal: [0., 1., 0.],
+            }],
+        }]
+    }
+
+    #[test]
+    fn the_pose_signature_notices_a_moving_rig_and_ignores_sub_millimetre_noise() {
+        assert_eq!(pose_signature(&posed(1.)), pose_signature(&posed(1.)));
+        assert_ne!(pose_signature(&posed(1.)), pose_signature(&posed(1.5)));
+        // A tenth of a millimetre is not a visible move.
+        assert_eq!(pose_signature(&posed(1.)), pose_signature(&posed(1.0001)));
     }
 
     #[test]
