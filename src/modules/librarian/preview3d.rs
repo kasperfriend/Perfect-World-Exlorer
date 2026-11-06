@@ -19,8 +19,11 @@ fn effect_model_paths(text: &str) -> Vec<String> {
         } else if kind == "160" {
             if let Some(value) = line.strip_prefix("ModelPath:") {
                 let path = crate::ecmodel::normalize(value);
-                if !path.is_empty() && path.ends_with(".smd")
-                    && !path.split('/').any(|part| part == "." || part == ".." || part.contains(':'))
+                if !path.is_empty()
+                    && path.ends_with(".smd")
+                    && !path
+                        .split('/')
+                        .any(|part| part == "." || part == ".." || part.contains(':'))
                 {
                     paths.push(format!("gfx/models/{path}"));
                 }
@@ -30,37 +33,73 @@ fn effect_model_paths(text: &str) -> Vec<String> {
     paths
 }
 
-fn load_effect_model(assets: &mut LibrarianAssets, asset: &ModelAsset) -> Result<ModelAsset, String> {
+fn load_effect_model(
+    assets: &mut LibrarianAssets,
+    asset: &ModelAsset,
+) -> Result<ModelAsset, String> {
     let mut errors = Vec::new();
-    for gfx in asset.descriptor.events.iter().filter_map(|event| event.gfx_path()) {
+    for gfx in asset
+        .descriptor
+        .events
+        .iter()
+        .filter_map(|event| event.gfx_path())
+    {
         let gfx = crate::ecmodel::normalize(&gfx);
-        if gfx.split('/').any(|part| part == "." || part == ".." || part.contains(':')) {
+        if gfx
+            .split('/')
+            .any(|part| part == "." || part == ".." || part.contains(':'))
+        {
             continue;
         }
-        let path = if gfx.starts_with("gfx/") { gfx } else { format!("gfx/{gfx}") };
+        let path = if gfx.starts_with("gfx/") {
+            gfx
+        } else {
+            format!("gfx/{gfx}")
+        };
         let data = match assets.read_model_resource(&path) {
             Ok(data) => data,
-            Err(error) => { errors.push(error); continue; }
+            Err(error) => {
+                errors.push(error);
+                continue;
+            }
         };
         let (text, _, bad) = encoding_rs::GBK.decode(&data);
-        if bad { errors.push(format!("{path}: invalid GBK GFX")); continue; }
+        if bad {
+            errors.push(format!("{path}: invalid GBK GFX"));
+            continue;
+        }
         for model in effect_model_paths(&text) {
             let result = (|| {
                 let smd = crate::ecmodel::parse_smd(&assets.read_model_resource(&model)?)?;
                 let parent = model.rsplit_once('/').map_or("", |v| v.0);
                 let relative = |value: &str| {
                     let path = crate::ecmodel::normalize(value);
-                    if path.starts_with("gfx/") || path.starts_with("models/") { path }
-                    else { format!("{parent}/{path}") }
+                    if path.starts_with("gfx/") || path.starts_with("models/") {
+                        path
+                    } else {
+                        format!("{parent}/{path}")
+                    }
                 };
                 let skeleton = relative(&smd.skeleton);
                 let skins: Vec<_> = smd.skins.iter().map(|p| relative(p)).collect();
-                ModelAsset::load_static_skins_with(&skeleton, &skins, |p| assets.read_model_resource(p))
+                ModelAsset::load_static_skins_with(&skeleton, &skins, |p| {
+                    assets.read_model_resource(p)
+                })
             })();
-            match result { Ok(model) => return Ok(model), Err(error) => errors.push(error) }
+            match result {
+                Ok(model) => return Ok(model),
+                Err(error) => errors.push(error),
+            }
         }
     }
-    Err(format!("Effect-only model has no supported embedded GFX model{}", if errors.is_empty() { String::new() } else { format!(": {}", errors.join("; ")) }))
+    Err(format!(
+        "Effect-only model has no supported embedded GFX model{}",
+        if errors.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", errors.join("; "))
+        }
+    ))
 }
 
 pub struct Preview {
@@ -543,7 +582,10 @@ mod tests {
     #[test]
     fn effect_model_paths_accept_only_safe_embedded_smds() {
         let text = "GFXELEMENTID: 123\nModelPath: wrong.smd\nGFXELEMENTID: 160\nModelPath: 飞剑\\飞剑.SMD\nModelPath: ../bad.smd\nModelPath: C:/bad.smd\nGFXELEMENTID: 100\nModelPath: wrong.smd";
-        assert_eq!(super::effect_model_paths(text), vec!["gfx/models/飞剑/飞剑.smd"]);
+        assert_eq!(
+            super::effect_model_paths(text),
+            vec!["gfx/models/飞剑/飞剑.smd"]
+        );
     }
 
     #[test]
@@ -591,7 +633,10 @@ mod tests {
             preview.update(&device, &queue, format, &mut assets, path);
             assert!(preview.error.is_none(), "{path}: {:?}", preview.error);
             if path == flight_sword {
-                assert!(preview.warnings.iter().any(|w| w.contains("Partial GFX preview")));
+                assert!(preview
+                    .warnings
+                    .iter()
+                    .any(|w| w.contains("Partial GFX preview")));
             }
             if path == &worn {
                 assert!(
