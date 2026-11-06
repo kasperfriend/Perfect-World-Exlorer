@@ -173,9 +173,13 @@ impl LibrarianAssets {
     pub fn model_exists(&mut self, path: &str) -> bool {
         let normalized = normalize_archive_path(path);
         let in_archive = if normalized.starts_with("facedata/") {
-            self.ensure_facedata().map(|archive| archive.contains(&normalized)).unwrap_or(false)
+            self.ensure_facedata()
+                .map(|archive| archive.contains(&normalized))
+                .unwrap_or(false)
         } else if normalized.starts_with("models/") {
-            self.ensure_models().map(|archive| archive.contains(&normalized)).unwrap_or(false)
+            self.ensure_models()
+                .map(|archive| archive.contains(&normalized))
+                .unwrap_or(false)
         } else {
             false
         };
@@ -197,22 +201,31 @@ impl LibrarianAssets {
                 Err(error) => Err(error.clone()),
             }
         } else if normalized.starts_with("models/") {
-            self.ensure_models().and_then(|archive| archive.read(&normalized))
+            self.ensure_models()
+                .and_then(|archive| archive.read(&normalized))
         } else if normalized.starts_with("facedata/") {
-            self.ensure_facedata().and_then(|archive| archive.read(&normalized))
+            self.ensure_facedata()
+                .and_then(|archive| archive.read(&normalized))
         } else if normalized.starts_with("textures/") {
-            self.ensure_textures().and_then(|archive| archive.read(&normalized))
+            self.ensure_textures()
+                .and_then(|archive| archive.read(&normalized))
         } else if normalized.starts_with("surfaces/") {
             self.read_surface(&normalized)
         } else if normalized.starts_with("configs/") {
-            self.configs.as_mut().ok_or_else(|| "configs.pck unavailable".to_owned())
+            self.configs
+                .as_mut()
+                .ok_or_else(|| "configs.pck unavailable".to_owned())
                 .and_then(|archive| archive.read(&normalized))
         } else {
             Err(format!("unsupported Librarian asset path '{normalized}'"))
         };
-        result.or_else(|error| self.loose_resource(path).ok_or_else(|| {
-            format!("{error}; check that the matching client archive or loose asset is installed")
-        }))
+        result.or_else(|error| {
+            self.loose_resource(path).ok_or_else(|| {
+                format!(
+                    "{error}; check that the matching client archive or loose asset is installed"
+                )
+            })
+        })
     }
 }
 

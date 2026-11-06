@@ -154,7 +154,11 @@ impl Librarian {
             })
             .unwrap_or_else(|| item.model.clone());
         let dye = item.equipment_name().map(|_| {
-            if item.dyeable() { state.preview_dye } else { [255; 3] }
+            if item.dyeable() {
+                state.preview_dye
+            } else {
+                [255; 3]
+            }
         });
         preview.update(device, queue, format, &mut state.assets, &path, dye);
     }
@@ -167,9 +171,16 @@ impl Librarian {
                 if let Ok(bytes) = std::fs::read(path) {
                     if !bytes.is_empty() && bytes.len() <= 16 * 1024 * 1024 {
                         let mut fonts = egui::FontDefinitions::default();
-                        fonts.font_data.insert("pw-client-cjk".into(), egui::FontData::from_owned(bytes));
-                        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
-                            fonts.families.entry(family).or_default().push("pw-client-cjk".into());
+                        fonts
+                            .font_data
+                            .insert("pw-client-cjk".into(), egui::FontData::from_owned(bytes));
+                        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace]
+                        {
+                            fonts
+                                .families
+                                .entry(family)
+                                .or_default()
+                                .push("pw-client-cjk".into());
                         }
                         ctx.set_fonts(fonts);
                         state.has_cjk_font = true;
@@ -530,12 +541,17 @@ impl State {
                                             self.preview_dye = [255; 3];
                                         }
                                     });
-                                    ui.small("Approximate color tint; actual dye masks may differ.");
+                                    ui.small(
+                                        "Approximate color tint; actual dye masks may differ.",
+                                    );
                                 }
                                 let size = ui.available_width().min(300.);
                                 let response = ui.add(
                                     egui::Image::new((preview.texture_id, egui::vec2(size, size)))
-                                        .uv(egui::Rect::from_min_max(egui::pos2(0., 1.), egui::pos2(1., 0.)))
+                                        .uv(egui::Rect::from_min_max(
+                                            egui::pos2(0., 1.),
+                                            egui::pos2(1., 0.),
+                                        ))
                                         .sense(egui::Sense::drag()),
                                 );
                                 if response.dragged() {
@@ -554,16 +570,28 @@ impl State {
                                     preview.zoom =
                                         (preview.zoom * (-scroll * 0.001).exp()).clamp(0.3, 5.);
                                 }
-                                ui.add(egui::Slider::new(&mut preview.zoom, 0.3..=5.0).logarithmic(true).text("Distance"));
+                                ui.add(
+                                    egui::Slider::new(&mut preview.zoom, 0.3..=5.0)
+                                        .logarithmic(true)
+                                        .text("Distance"),
+                                );
                                 ui.horizontal(|ui| {
                                     ui.checkbox(&mut preview.turntable, "Turntable");
                                     ui.checkbox(&mut preview.playing, "Animation");
                                 });
                                 let actions = preview.action_names();
                                 if !actions.is_empty() {
-                                    let labels: Vec<String> = actions.iter().enumerate().map(|(i, name)| {
-                                        if self.has_cjk_font || name.is_ascii() { name.clone() } else { format!("Action {}", i + 1) }
-                                    }).collect();
+                                    let labels: Vec<String> = actions
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, name)| {
+                                            if self.has_cjk_font || name.is_ascii() {
+                                                name.clone()
+                                            } else {
+                                                format!("Action {}", i + 1)
+                                            }
+                                        })
+                                        .collect();
                                     egui::ComboBox::from_label("Action")
                                         .selected_text(
                                             labels
@@ -739,15 +767,31 @@ impl State {
                                         jump = Some(index);
                                     }
                                     ui.horizontal(|ui| {
-                                        if group_col > 0 && ui.small_button("Left").on_hover_text("Move item left within this category").clicked() {
+                                        if group_col > 0
+                                            && ui
+                                                .small_button("Left")
+                                                .on_hover_text(
+                                                    "Move item left within this category",
+                                                )
+                                                .clicked()
+                                        {
                                             swap = Some((col, columns[group_col - 1]));
                                         }
                                         if group_col + 1 < columns.len()
-                                            && ui.small_button("Right").on_hover_text("Move item right within this category").clicked()
+                                            && ui
+                                                .small_button("Right")
+                                                .on_hover_text(
+                                                    "Move item right within this category",
+                                                )
+                                                .clicked()
                                         {
                                             swap = Some((col, columns[group_col + 1]));
                                         }
-                                        if ui.small_button("Remove").on_hover_text("Remove item from comparison").clicked() {
+                                        if ui
+                                            .small_button("Remove")
+                                            .on_hover_text("Remove item from comparison")
+                                            .clicked()
+                                        {
                                             remove = Some(col);
                                         }
                                     });

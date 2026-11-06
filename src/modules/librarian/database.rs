@@ -336,7 +336,8 @@ mod tests {
     fn dye_control_only_for_fashion_with_dye_count() {
         let mut fashion = vec![0; 412];
         fashion[376..380].copy_from_slice(&2u32.to_le_bytes());
-        let db = Database::parse_v27(&super::super::elements::synthetic_file(84, &fashion)).unwrap();
+        let db =
+            Database::parse_v27(&super::super::elements::synthetic_file(84, &fashion)).unwrap();
         assert!(db.items[0].dyeable());
         let mut weapon = vec![0; 1412];
         weapon[376..380].copy_from_slice(&2u32.to_le_bytes());

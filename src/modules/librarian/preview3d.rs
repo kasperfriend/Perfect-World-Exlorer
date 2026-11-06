@@ -123,8 +123,10 @@ fn apply_reflect_alpha(asset: &mut ModelAsset) {
 }
 
 fn apply_preview_dye(asset: &mut ModelAsset, color: [u8; 3]) {
-    let argb = 0xff00_0000 | (u32::from(color[0]) << 16)
-        | (u32::from(color[1]) << 8) | u32::from(color[2]);
+    let argb = 0xff00_0000
+        | (u32::from(color[0]) << 16)
+        | (u32::from(color[1]) << 8)
+        | u32::from(color[2]);
     for (skin, data) in asset.skins.iter().enumerate() {
         for mesh in 0..data.data.meshes.len() {
             asset.mesh_tints.insert((skin, mesh), argb);
@@ -578,14 +580,22 @@ mod tests {
 
     #[test]
     fn authentic_reflective_weapons_when_available() {
-        let Ok(root) = std::env::var("PW_LIBRARIAN_ELEMENT_ROOT") else { return; };
+        let Ok(root) = std::env::var("PW_LIBRARIAN_ELEMENT_ROOT") else {
+            return;
+        };
         let mut assets = LibrarianAssets::open(std::path::Path::new(&root));
-        let db = super::super::database::Database::parse_v27(&assets.read_elements_data().unwrap()).unwrap();
+        let db = super::super::database::Database::parse_v27(&assets.read_elements_data().unwrap())
+            .unwrap();
         for id in [89, 119] {
             let item = &db.items[*db.by_id.get(&id).expect("weapon ID")];
-            let (mut asset, _) = ModelAsset::load_unique_with(&item.model, |path| assets.read_model_resource(path)).expect("load weapon");
+            let (mut asset, _) =
+                ModelAsset::load_unique_with(&item.model, |path| assets.read_model_resource(path))
+                    .expect("load weapon");
             apply_reflect_alpha(&mut asset);
-            assert!(!asset.diffuse_alpha_meshes.is_empty(), "weapon {id} needs reflective texture alpha");
+            assert!(
+                !asset.diffuse_alpha_meshes.is_empty(),
+                "weapon {id} needs reflective texture alpha"
+            );
         }
     }
 
