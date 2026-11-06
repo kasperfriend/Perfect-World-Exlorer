@@ -924,13 +924,13 @@ mod page_tests {
         DrawCmd { page, start, end }
     }
 
-    fn pages(spans: &[&[PlacementRange]], counts: &[u32]) -> Vec<PageSpans> {
+    fn pages<'a>(spans: &[&'a [PlacementRange]], counts: &[u32]) -> Vec<PageSpans<'a>> {
         spans
             .iter()
             .zip(counts)
             .map(|(placements, count)| PageSpans {
                 count: *count,
-                placements,
+                placements: *placements,
             })
             .collect()
     }
