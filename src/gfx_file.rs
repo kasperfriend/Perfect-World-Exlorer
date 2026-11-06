@@ -16,9 +16,12 @@
 //!   extent at +0x20c..+0x220; `UseAABB` at +0x26c; `FadeByDist`/`FadeStart`/
 //!   `FadeEnd` at +0x26e/+0x270/+0x274; the three 2D flags at +0x2b4..+0x2b6.
 //! * Element loader `0x6f99f0` (shared keys) and the sprite loader at
-//!   `0x71df00`: every optional key is version gated, and the gate ladder is
+//!   `0x71dc07`: every optional key is version gated, and the gate ladder is
 //!   `cmp` against 4/8/9/22/28/32/33/34/41/45/57/58/74/75 for the shared keys
-//!   and 42/54/55/61 for `ZOffset`/`MatchSurface`/`MaxExtent`/`YawEffect`. The
+//!   and 9/26/36/42/54/55/61 for `RotFromView`/`GrndNormOnly`/`NoScale`+`OrgPt`/
+//!   `ZOffset`/`MatchSurface`/`MaxExtent`/`YawEffect` — the sprite loader walks
+//!   the key table at `0x97f1d4`..`0x97f204`, thirteen entries from `Width` to
+//!   `YawEffect`, so the table order and the gate order are the same order. The
 //!   format strings are `%d` or `%f`, which fixes each native type: `BindEle`
 //!   and `DummyEle` are `%s` (element *names*, copied to element+0x9c by
 //!   `0x7638a0`), `GroundHeight` is `%d` reduced to a byte by `value != 0` at
@@ -1547,10 +1550,44 @@ fn sprite(lookup: &Lookup, id: u32, version: u32) -> Result<Sprite, String> {
     // quad about its origin, which is what those roots draw.
     let width = lookup.number("Width", 0.)?;
     let height = lookup.number("Height", 0.)?;
-    // Version gates from the sprite loader: `cmp $0x2a/$0x36/$0x37/$0x3d`
-    // before `ZOffset`, `MatchSurface`, `MaxExtent` and `YawEffect`. An older
-    // root keeps the constructed defaults even if the key is present; no corpus
-    // root violates a gate.
+    // Version gates from the sprite loader `0x71dc07`, which walks the key
+    // table at `0x97f1d4`..`0x97f204` with a `cmp $imm,%ebx; jb` before each
+    // group: `Width`/`Height` are ungated, `RotFromView` needs 9 (`0x71dd61`),
+    // `GrndNormOnly` 26 (`0x71deaa`), both `NoScale` and both `OrgPt` values 36
+    // (`0x71def0`), then `ZOffset` 42 (`cmp $0x2a`), `MatchSurface` 54
+    // (`$0x36`), `MaxExtent` 55 (`$0x37`) and `YawEffect` 61 (`$0x3d`). An older
+    // root keeps the constructed defaults even if the key is present.
+    // `TexRow`/`TexCol`/`TexInterval` share the version-9 gate but are read
+    // once here, from the shared block, which is where the client's second read
+    // of them lands too.
+    let rotate_from_view = version >= 9 && lookup.flag("RotFromView", false)?;
+    let ground_normal_only = version >= 26 && lookup.flag("GrndNormOnly", false)?;
+    let no_scale = if version >= 36 {
+        [
+            lookup.all("NoScale").first().is_some_and(|v| *v == "1"),
+            lookup.all("NoScale").get(1).is_some_and(|v| *v == "1"),
+        ]
+    } else {
+        [false; 2]
+    };
+    let origin = if version >= 36 {
+        [
+            lookup
+                .all("OrgPt")
+                .first()
+                .map(|v| float("OrgPt", v))
+                .transpose()?
+                .unwrap_or(0.5),
+            lookup
+                .all("OrgPt")
+                .get(1)
+                .map(|v| float("OrgPt", v))
+                .transpose()?
+                .unwrap_or(0.5),
+        ]
+    } else {
+        [0.5; 2]
+    };
     let z_offset = if version >= 42 {
         lookup.number("ZOffset", 0.)?
     } else {
@@ -1574,26 +1611,10 @@ fn sprite(lookup: &Lookup, id: u32, version: u32) -> Result<Sprite, String> {
     Ok(Sprite {
         width,
         height,
-        rotate_from_view: lookup.flag("RotFromView", false)?,
-        ground_normal_only: lookup.flag("GrndNormOnly", false)?,
-        no_scale: [
-            lookup.all("NoScale").first().is_some_and(|v| *v == "1"),
-            lookup.all("NoScale").get(1).is_some_and(|v| *v == "1"),
-        ],
-        origin: [
-            lookup
-                .all("OrgPt")
-                .first()
-                .map(|v| float("OrgPt", v))
-                .transpose()?
-                .unwrap_or(0.5),
-            lookup
-                .all("OrgPt")
-                .get(1)
-                .map(|v| float("OrgPt", v))
-                .transpose()?
-                .unwrap_or(0.5),
-        ],
+        rotate_from_view,
+        ground_normal_only,
+        no_scale,
+        origin,
         z_offset,
         match_surface,
         max_extent,
@@ -2255,6 +2276,51 @@ mod tests {
         assert_eq!(root.duration_ms(), None);
         assert_eq!(element.duration_ms(), None);
         assert!(root.has_visual_elements());
+    }
+
+    /// The sprite loader gates three key groups below the class keys as well:
+    /// `RotFromView` needs version 9 (`0x71dd61`), `GrndNormOnly` 26
+    /// (`0x71deaa`) and both `NoScale` and both `OrgPt` values 36 (`0x71def0`).
+    /// An older root keeps the constructed defaults even when the keys are
+    /// present. No corpus root violates any of them — the 943 roots below
+    /// version 36, which reach down to version 28, author neither `NoScale` nor
+    /// `OrgPt` — so this completes the ladder rather than changing behaviour.
+    #[test]
+    fn sprite_keys_below_their_version_gate_keep_their_defaults() {
+        let authored = SPRITE.replace(
+            "RotFromView: 0\r\nGrndNormOnly: 0\r\n",
+            "RotFromView: 1\r\nGrndNormOnly: 1\r\nNoScale: 1\r\nNoScale: 1\r\n\
+             OrgPt: 0\r\nOrgPt: 0\r\n",
+        );
+        assert_ne!(authored, SPRITE, "the fixture has to carry the gated keys");
+        let sprite_of = |source: String| -> Sprite {
+            let root = parse(&source).unwrap();
+            match &root.elements[0].spec {
+                Spec::Sprite(sprite) => sprite.clone(),
+                other => panic!("element 100 is a sprite, got {other:?}"),
+            }
+        };
+
+        // Version 37 clears every gate the fixture exercises.
+        let open = sprite_of(header37(1) + &authored);
+        assert!(open.rotate_from_view && open.ground_normal_only);
+        assert_eq!(open.no_scale, [true, true]);
+        assert_eq!(open.origin, [0., 0.]);
+
+        // Version 30 clears 9 and 26 but not 36.
+        let header30 = header37(1).replace("MOXTVersion: 37", "MOXTVersion: 30");
+        let gated = sprite_of(header30 + &authored);
+        assert!(gated.rotate_from_view && gated.ground_normal_only);
+        assert_eq!(gated.no_scale, [false, false], "NoScale needs version 36");
+        assert_eq!(gated.origin, [0.5, 0.5], "OrgPt needs version 36");
+
+        // Version 25 is below GrndNormOnly's gate too, but above RotFromView's.
+        let header25 = header37(1).replace("MOXTVersion: 37", "MOXTVersion: 25");
+        let oldest = sprite_of(header25 + &authored);
+        assert!(oldest.rotate_from_view, "RotFromView only needs version 9");
+        assert!(!oldest.ground_normal_only, "GrndNormOnly needs version 26");
+        assert_eq!(oldest.no_scale, [false, false]);
+        assert_eq!(oldest.origin, [0.5, 0.5]);
     }
 
     /// `MaxExtent` is computed when it is zero or absent, and kept when it is
