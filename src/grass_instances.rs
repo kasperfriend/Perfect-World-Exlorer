@@ -337,13 +337,7 @@ impl Gpu {
     fn buffers(
         device: &wgpu::Device,
         mut data: Data,
-    ) -> (
-        wgpu::Buffer,
-        wgpu::Buffer,
-        wgpu::Buffer,
-        Vec<Batch>,
-        wgpu::Buffer,
-    ) {
+    ) -> (wgpu::Buffer, wgpu::Buffer, wgpu::Buffer, wgpu::Buffer, Vec<Batch>) {
         if data.vertices.is_empty() {
             data.vertices.push(bytemuck::Zeroable::zeroed());
         }
