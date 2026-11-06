@@ -465,6 +465,136 @@ pub fn run(authored_mips: bool) {
         println!("regional tree frame {index}, expected {expected:?}, matched {matched} pixels");
     }
     println!("Tree LOD GPU test: {lit} pixels, same across boundaries; sampled leaf motion changes with time and stops at wind=0");
+    // One group cannot catch a mis-based record table; three can.
+    multi_group(&device, &queue);
+}
+
+/// Multi-group regression for the LOD pass's record layout.
+///
+/// The single-tree run above only ever has group 0, whose record base is zero in
+/// the right table *and* in a table that scales it. A whole-world cache has
+/// dozens of groups, each owning three consecutive indirect records, and a
+/// scaled base sends every group after the first into a later group's records:
+/// the level that should draw keeps a zero count, and the record that was
+/// borrowed draws with a count it never earned — trees missing at distance,
+/// other trees drawn with the wrong level's geometry, and a forest that changes
+/// as the borrowed counts do. This drives the production pass over three groups
+/// whose heights put them on different levels at the same distance, and compares
+/// every record with `tree_lod::select`.
+fn multi_group(device: &wgpu::Device, queue: &wgpu::Queue) {
+    std::env::set_var("PW_SMALL_TREE_ATLAS", "1");
+    let tex = image::RgbaImage::from_pixel(128, 128, image::Rgba([240, 190, 70, 255]));
+    let composite = image::RgbaImage::from_pixel(128, 128, image::Rgba([20, 240, 30, 255]));
+    // Same tree stretched by 1x, 3x and 8x: heights 5, 15 and 40, so the three
+    // groups cross the `height * 5` and `height * 16` boundaries at different
+    // distances.
+    let stretch = |k: f32| {
+        let mut lod = lod();
+        for part in [&mut lod.branch, &mut lod.frond] {
+            for v in &mut part.vertices {
+                v.pos[2] *= k;
+            }
+        }
+        for leaf in &mut lod.leaves {
+            leaf.center[2] *= k;
+        }
+        lod
+    };
+    let mut types = Vec::new();
+    for k in [1f32, 3., 8.] {
+        types.push(Some(trees::TreeMesh {
+            lods: vec![stretch(k), stretch(k), stretch(k)],
+            bark: tex.clone(),
+            composite: composite.clone(),
+            bark_mips: Vec::new(),
+            composite_mips: Vec::new(),
+        }));
+    }
+    let placements = (0..3u32)
+        .map(|tree_type| scene::Tree {
+            tree_type,
+            position: [0., 0., 0.],
+        })
+        .collect();
+    let trees = trees::Trees { types, placements };
+    // The LOD pass never reads the camera uniform; the forest only has to bind
+    // one, so nothing here is drawn through it.
+    let camera = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("multi group camera"),
+        size: 1024,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut renderer = far_trees_gpu::FarTrees::new(
+        device,
+        queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+        &trees,
+        &camera,
+        &camera,
+        false,
+    );
+    let heights = renderer.group_heights();
+    assert_eq!(heights.len(), 3, "three tree types, three groups");
+    for dist in [20f32, 40., 120., 300., 1000., 3000., 12000.] {
+        renderer.update_resident_lods(device, queue, [dist, 0., 0.], 1., None);
+        let counts = renderer.lod_instance_counts(device, queue);
+        assert_eq!(counts.len(), heights.len() * 3, "one record per group level");
+        let cpu: Vec<_> = heights
+            .iter()
+            .map(|height| {
+                tree_lod::client_distance([0., 0., 0.], [dist, 0., 0.])
+                    .map(|distance| tree_lod::select(distance, *height, 1.))
+            })
+            .collect();
+        let mut expected = vec![0u32; heights.len() * 3];
+        for (group, selection) in cpu.iter().enumerate() {
+            let Some(selection) = selection else { continue };
+            expected[group * 3 + selection.primary] += 1;
+            if let Some(second) = selection.secondary {
+                expected[group * 3 + second] += 1;
+            }
+        }
+        assert_eq!(
+            counts, expected,
+            "distance {dist}: GPU records differ from tree_lod::select per group"
+        );
+        for (group, selection) in cpu.iter().enumerate() {
+            let Some(selection) = selection else { continue };
+            for level in 0..3 {
+                if counts[group * 3 + level] == 0 {
+                    continue;
+                }
+                let got = renderer.lod_instance_info(device, queue, group, level, 0);
+                let want_mode = if selection.primary == level {
+                    if selection.secondary.is_some() {
+                        1.
+                    } else {
+                        0.
+                    }
+                } else {
+                    2.
+                };
+                assert_eq!(
+                    got[1], want_mode,
+                    "distance {dist}: group {group} level {level} instance mode"
+                );
+                if selection.secondary.is_some() {
+                    assert!(
+                        (got[0] - selection.fraction).abs() < 1e-5,
+                        "distance {dist}: group {group} level {level} fade fraction {} vs {}",
+                        got[0],
+                        selection.fraction
+                    );
+                }
+            }
+        }
+    }
+    println!(
+        "::notice::tree LOD laid {} groups over {} indirect records; every level draws from its own record",
+        heights.len(),
+        heights.len() * 3
+    );
 }
 
 fn main() {

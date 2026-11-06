@@ -120,6 +120,10 @@ fn select_level(distance:f32,height:f32,scale:f32)->vec4<f32> {
 fn append(group_index:u32,level:u32,position:vec3<f32>,info:vec2<f32>) {
  let g=groups[group_index];
  if level>2u {return;}
+ // A group whose cache carries fewer than three levels has no records of its
+ // own, so it is uploaded with a zero capacity and never counted: taking a slot
+ // first would bump the next group's record.
+ if g.capacity==0u {return;}
  let slot=atomicAdd(&args[g.args_base+level].instance_count,1u);
  if slot>=g.capacity {return;}
  instances[g.first_instance+level*g.capacity+slot]=Instance(vec4<f32>(position,0.),vec4<f32>(info,0.,1.));
@@ -155,6 +159,45 @@ struct Group {
     positions: Vec<[f32; 3]>,
     height: f32,
     first_batch: usize,
+}
+/// Per-group constants for the LOD pass.
+///
+/// The indirect-args buffer holds **one record per batch**, and a group owns its
+/// three level batches back to back, so `args_base` is that first batch index and
+/// level `L` is `args_base + L`. Scaling it (the old `first_batch * 3`) sends
+/// every group but the first into a later group's records: the level that should
+/// draw keeps a zero count, and the group whose record was borrowed draws with a
+/// count it never earned.
+///
+/// Only a group with the three levels the selection chooses between has records
+/// of its own; anything shorter is uploaded with a zero capacity so the pass
+/// writes nothing for it instead of spilling into the next group.
+fn group_table(groups: &[Group], batches: &[Batch]) -> Vec<GroupInfo> {
+    groups
+        .iter()
+        .enumerate()
+        .map(|(index, group)| {
+            let end = groups
+                .get(index + 1)
+                .map_or(batches.len(), |next| next.first_batch);
+            let levels = end.saturating_sub(group.first_batch);
+            if levels < 3 {
+                eprintln!(
+                    "Tree group {index} has {levels} LOD level(s); the LOD pass needs three, so the group draws nothing instead of borrowing the next group's records"
+                );
+            }
+            GroupInfo {
+                height: group.height,
+                args_base: group.first_batch as u32,
+                first_instance: batches[group.first_batch].instances.start,
+                capacity: if levels >= 3 {
+                    group.positions.len() as u32
+                } else {
+                    0
+                },
+            }
+        })
+        .collect()
 }
 /// The cutoff test the LOD pass applies to a placement, exposed so the checks
 /// can compute the same expectation the GPU does.
@@ -807,7 +850,6 @@ impl FarTrees {
         // once here. Nothing per-frame is uploaded any more: a camera move only
         // dispatches `LOD_COMPUTE` over the placement table.
         let mut placement_data = Vec::new();
-        let mut group_data = Vec::new();
         for (index, group) in groups.iter().enumerate() {
             for &position in &group.positions {
                 placement_data.push(Placement {
@@ -816,13 +858,9 @@ impl FarTrees {
                     pad: [0; 3],
                 });
             }
-            group_data.push(GroupInfo {
-                height: group.height,
-                args_base: (group.first_batch * 3) as u32,
-                first_instance: batches[group.first_batch].instances.start,
-                capacity: group.positions.len() as u32,
-            });
         }
+        // `args_base` is a batch index (`first_batch + level`), not a group index.
+        let mut group_data = group_table(&groups, &batches);
         if placement_data.is_empty() {
             placement_data.push(Placement {
                 pos_height: [0.; 4],
@@ -1233,8 +1271,104 @@ impl FarTrees {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn legacy_cutout_still_covers_fronds_and_leaves_without_native_refs() {
         assert!(super::SHADER.contains("else if i.kind>3.5 && tex.a<0.5 {discard;}"));
+    }
+
+    /// Three groups of three levels, one placement per group: the layout the
+    /// client's cache has and the one the shader walks. Every group's records are
+    /// its own `first_batch + level`, and each level's instance slice starts
+    /// exactly where `first_instance + level * capacity` points.
+    #[test]
+    fn the_group_table_points_every_level_at_its_own_record() {
+        let mut batches = Vec::new();
+        let mut groups = Vec::new();
+        for group in 0..3usize {
+            let first_batch = batches.len();
+            for level in 0..3usize {
+                let start = ((group * 3 + level) * 4) as u32;
+                batches.push(Batch {
+                    indices: (group * 3 + level) as u32 * 6..(group * 3 + level) as u32 * 6 + 6,
+                    instances: start..start + 4,
+                });
+            }
+            groups.push(Group {
+                positions: vec![[0.; 3]; 4],
+                height: 5. * (group as f32 + 1.),
+                first_batch,
+            });
+        }
+        let table = group_table(&groups, &batches);
+        assert_eq!(table.len(), groups.len());
+        for (index, info) in table.iter().enumerate() {
+            let group = &groups[index];
+            assert_eq!(info.args_base as usize, group.first_batch, "group {index}");
+            assert_eq!(
+                info.capacity,
+                group.positions.len() as u32,
+                "group {index}"
+            );
+            for level in 0..3usize {
+                let batch = &batches[info.args_base as usize + level];
+                assert_eq!(
+                    info.args_base as usize + level,
+                    group.first_batch + level,
+                    "group {index} level {level} must not borrow another group's record"
+                );
+                assert_eq!(
+                    info.first_instance + level as u32 * info.capacity,
+                    batch.instances.start,
+                    "group {index} level {level} instance slice"
+                );
+            }
+        }
+        // The first group is where a scaled base would still have been right;
+        // the second is what the old `first_batch * 3` broke.
+        assert_eq!(table[0].args_base, 0);
+        assert_eq!(table[1].args_base, 3);
+        assert_eq!(table[2].args_base, 6);
+        assert!(table[2].args_base as usize + 2 < batches.len());
+    }
+
+    /// A group with fewer than three levels must not claim capacity: the pass
+    /// would otherwise count into the next group's records.
+    #[test]
+    fn a_group_without_three_levels_is_left_out_of_the_forest() {
+        let batches = vec![
+            Batch {
+                indices: 0..6,
+                instances: 0..2,
+            },
+            Batch {
+                indices: 6..12,
+                instances: 2..4,
+            },
+            Batch {
+                indices: 12..18,
+                instances: 4..6,
+            },
+            Batch {
+                indices: 18..24,
+                instances: 6..8,
+            },
+        ];
+        let groups = vec![
+            Group {
+                positions: vec![[0.; 3]; 2],
+                height: 5.,
+                first_batch: 0,
+            },
+            Group {
+                positions: vec![[0.; 3]; 2],
+                height: 9.,
+                first_batch: 3,
+            },
+        ];
+        let table = group_table(&groups, &batches);
+        assert_eq!(table[0].capacity, 2);
+        assert_eq!(table[1].capacity, 0, "one level is not three");
     }
 }
