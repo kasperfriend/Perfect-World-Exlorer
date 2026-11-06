@@ -608,17 +608,21 @@ mod tests {
                 required_limits: wgpu::Limits::downlevel_defaults(),
             },
             None,
-        )).unwrap();
-        let mut renderer = egui_wgpu::Renderer::new(
-            &device, wgpu::TextureFormat::Bgra8UnormSrgb, None, 1,
-        );
+        ))
+        .unwrap();
+        let mut renderer =
+            egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Bgra8UnormSrgb, None, 1);
         let preview = Preview::new(&device, &mut renderer, wgpu::TextureFormat::Bgra8UnormSrgb);
         assert_eq!(preview.color.format(), PREVIEW_FORMAT);
         let (asset, poses) = crate::model_draw_fixture::fixture();
         let sampler = device.create_sampler(&Default::default());
         let texture = std::sync::Arc::new(device.create_texture(&wgpu::TextureDescriptor {
             label: None,
-            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -627,12 +631,22 @@ mod tests {
             view_formats: &[],
         }));
         let draw = Draw::with_textures(
-            &device, &queue, PREVIEW_FORMAT,
-            Some((wgpu::TextureFormat::Depth32Float, wgpu::CompareFunction::Greater)),
-            true, &sampler, &asset, &poses, preview.frame(),
+            &device,
+            &queue,
+            PREVIEW_FORMAT,
+            Some((
+                wgpu::TextureFormat::Depth32Float,
+                wgpu::CompareFunction::Greater,
+            )),
+            true,
+            &sampler,
+            &asset,
+            &poses,
+            preview.frame(),
             &mut crate::model_draw_gpu::ReceiverCache::default(),
             |_| Ok((texture.clone(), false)),
-        ).expect("sRGB window must not be used as the model attachment format");
+        )
+        .expect("sRGB window must not be used as the model attachment format");
         let color = preview.color.create_view(&Default::default());
         let depth = preview.depth.create_view(&Default::default());
         let mut encoder = device.create_command_encoder(&Default::default());
@@ -640,12 +654,19 @@ mod tests {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &color, resolve_target: None,
-                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                    view: &color,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &depth,
-                    depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Clear(0.), store: wgpu::StoreOp::Store }),
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.),
+                        store: wgpu::StoreOp::Store,
+                    }),
                     stencil_ops: None,
                 }),
                 timestamp_writes: None,
