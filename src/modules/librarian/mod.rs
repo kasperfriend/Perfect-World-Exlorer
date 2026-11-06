@@ -623,8 +623,11 @@ impl State {
                                         )
                                         .show_ui(ui, |ui| {
                                             for (index, name) in labels.iter().enumerate() {
-                                                if ui.selectable_label(preview.action == index, name)
-                                                    .on_hover_text(&actions[index]).clicked() {
+                                                if ui
+                                                    .selectable_label(preview.action == index, name)
+                                                    .on_hover_text(&actions[index])
+                                                    .clicked()
+                                                {
                                                     preview.select_action(index);
                                                 }
                                             }

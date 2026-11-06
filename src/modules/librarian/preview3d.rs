@@ -798,7 +798,10 @@ mod tests {
             egui_wgpu::Renderer::new(&device, wgpu::TextureFormat::Bgra8UnormSrgb, None, 1);
         let preview = Preview::new(&device, &mut renderer, wgpu::TextureFormat::Bgra8UnormSrgb);
         assert_eq!(preview.color.format(), PREVIEW_FORMAT);
-        assert!(preview.frame().reverse_front, "mirrored preview must keep the native front faces");
+        assert!(
+            preview.frame().reverse_front,
+            "mirrored preview must keep the native front faces"
+        );
         let (asset, poses) = crate::model_draw_fixture::fixture();
         let sampler = device.create_sampler(&Default::default());
         let texture = std::sync::Arc::new(device.create_texture(&wgpu::TextureDescriptor {
