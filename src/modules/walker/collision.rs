@@ -919,7 +919,12 @@ impl Collision {
 
     pub fn poll(&mut self) {
         let mut finished = false;
+        let mut batches_processed = 0;
+        const MAX_BATCHES_PER_FRAME: usize = 3;
         loop {
+            if batches_processed >= MAX_BATCHES_PER_FRAME {
+                break;
+            }
             let message = match self.receiver.as_ref() {
                 Some(receiver) => receiver.try_recv(),
                 None => break,
@@ -930,6 +935,7 @@ impl Collision {
                     brushes,
                     decks,
                 }) => {
+                    batches_processed += 1;
                     self.building_processed = processed;
                     self.world.add_buildings(brushes);
                     self.world.add_decks(decks);

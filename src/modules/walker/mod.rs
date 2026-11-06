@@ -677,7 +677,7 @@ impl Walker {
             0.0
         };
 
-        let map = self.map.as_ref()?.clone();
+        let map = self.map.as_ref()?;
         let body = self.body.as_mut()?;
         let previous_position = body.position;
         if input_enabled {
@@ -688,14 +688,14 @@ impl Walker {
                     Input { direction, jump },
                     water_vertical,
                     swim_speed,
-                    &map,
+                    map,
                     &self.water,
                     movement_constants,
                 ),
                 TravelState::Mounted => {
                     let mut mechanics = self.settings.mechanics;
                     mechanics.move_speed = mount_speed?;
-                    body.advance_mounted(delta, &mechanics, Input { direction, jump }, &map);
+                    body.advance_mounted(delta, &mechanics, Input { direction, jump }, map);
                 }
                 TravelState::Flying => body.advance_flight(
                     delta,
@@ -704,7 +704,7 @@ impl Walker {
                         vertical,
                         speed: flight_speed?,
                     },
-                    &map,
+                    map,
                     &self.water,
                     movement_constants,
                 ),
@@ -728,7 +728,7 @@ impl Walker {
         // Object collision is an additional layer, never a terrain toggle.
         // Reapply permanent terrain support after wall sliding as the new x/z
         // may reference a higher terrain triangle than the old position did.
-        let support = physics::ground(&map, body.position.x, body.position.z);
+        let support = physics::ground(map, body.position.x, body.position.z);
         if body.position.y < support.height {
             body.position.y = support.height;
             if support.normal.y >= 0.5 && body.vertical_velocity <= 0.0 {
@@ -777,7 +777,7 @@ impl Walker {
             let cp = pitch.cos();
             let look = Vec3::new(s * cp, pitch.sin(), -c * cp);
             let mut camera = eye - look * self.settings.camera_distance;
-            let clearance = physics::ground(&map, camera.x, camera.z).height + 0.25;
+            let clearance = physics::ground(map, camera.x, camera.z).height + 0.25;
             camera.y = camera.y.max(clearance);
             self.camera_position = Some(camera);
             return Some(camera);
@@ -1058,7 +1058,7 @@ impl Walker {
                 return Err("travel draw count changed without rebuilding GPU resources".into());
             }
             for (index, model) in models.into_iter().enumerate() {
-                gpu.draws[index].update(queue, model.asset, model.poses, frame)?;
+                gpu.draws[index].update_posed(queue, model.asset, model.poses, frame)?;
             }
             let decal_quads = character
                 .gfx
