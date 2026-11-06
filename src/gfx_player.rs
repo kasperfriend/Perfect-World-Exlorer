@@ -584,6 +584,80 @@ fn rgba(color: u32, scale: f32) -> [f32; 4] {
     ]
 }
 
+/// One ground query, the shape the engine's raycast returns. The owner runs it
+/// once per frame at `0x6e53f0`: `0x41a430(&pos, owner+0x194)` returns a float
+/// height that is stored at owner+0x1a0 (and copied to owner+0x170 at
+/// `0x6e55a4`) and writes the surface normal to owner+0x194, which is what
+/// `0x6e5b90` then turns into an orientation. `walker::physics::ground` already
+/// produces exactly this pair, so the viewer takes it as an argument rather
+/// than owning terrain it does not have.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GroundHit {
+    /// Ground height under the query position, in world units.
+    pub height: f32,
+    /// Surface normal there. The client normalises it before use.
+    pub normal: Vec3,
+}
+
+/// How close the root has to be to the ground for `MatchGrnd` on its own to
+/// take effect. `0x6e54a1` subtracts the raycast height from the owner's y,
+/// `0x6e54ac` compares the difference against the float at `0x8eb828` and
+/// `0x6e54bb`/`0x6e54c4` store the result as the byte at owner+0x284, which
+/// `0x6fa7ee` and `0x6fa831` then read.
+const GROUND_NEAR_DISTANCE: f32 = 0.2;
+
+/// The steepest surface the client will align an effect to. `0x6e5bb9` takes
+/// the absolute dot of the normal with world up and `0x6e5bc1` rejects it below
+/// the float at `0x9bff88`, which `0x6e5b80` computes once at startup as `fcos`
+/// of the double at `0x8d5990` — exactly 5.0 degrees. A wall or a steep slope
+/// therefore leaves the effect on its own orientation rather than tilting it.
+const GROUND_MAX_TILT_COSINE: f32 = 0.996_194_7;
+
+/// The rotation that takes world up onto `normal`, instruction for instruction
+/// from `0x6e5b90`: the axis is `cross(up, normal)` divided by its own length
+/// (`fdivrs` against 1.0 at `0x8d5c28`, `0x6e5c5e`), the angle is
+/// `acos(dot(up, normal))` through `_CIacos` at `0x892f06`, and `0x7b6fd0`
+/// turns the pair into a quaternion. The up vector is not an assumption —
+/// `0x6ea170` initialises the global at `0x9c0348` to (0.0, 1.0, 0.0).
+///
+/// `None` is the client's own rejection for a surface tilted more than five
+/// degrees, plus the single case it does not guard: when the normal points
+/// straight down the cross product vanishes and `0x6e5c5e` divides by zero, so
+/// there is no native result to reproduce and the element keeps the orientation
+/// it already had, which is what `0x6e54d8` leaves in owner+0x1b4 when
+/// `0x6e5b90` returns false.
+fn ground_alignment(normal: Vec3) -> Option<Quat> {
+    let dot = Vec3::Y.dot(normal);
+    if !dot.is_finite() || dot.abs() < GROUND_MAX_TILT_COSINE {
+        return None;
+    }
+    let axis = Vec3::Y.cross(normal);
+    let length = axis.length();
+    if !(length > 1e-6) {
+        return (dot > 0.).then_some(Quat::IDENTITY);
+    }
+    Some(Quat::from_axis_angle(
+        axis / length,
+        dot.clamp(-1., 1.).acos(),
+    ))
+}
+
+/// The owner-level frames `0x6e53f0` rebuilds every frame so that `0x6fa7c0`
+/// can hand one of them to an element.
+#[derive(Clone, Copy, Debug)]
+struct GroundFrames {
+    /// owner+0x284: the root is within [`GROUND_NEAR_DISTANCE`] of the ground.
+    near_ground: bool,
+    /// owner+0xfc: the owner's orientation composed with the ground alignment —
+    /// owner+0x1b4, built by the Hamilton product at `0x6e57e0` — placed at
+    /// ground height. `0x6e5540`..`0x6e556e` forms that translation from pos.x,
+    /// the raycast height at owner+0x1a0 and pos.z.
+    aligned: Mat4,
+    /// owner+0x13c: the owner's own orientation at ground height, the copy of
+    /// the base matrix that `0x6e5592` re-transforms with the ground height.
+    height_only: Mat4,
+}
+
 /// One live root instance.
 pub struct Player {
     root: Root,
@@ -780,6 +854,29 @@ impl Player {
         scale: f32,
         alpha: f32,
     ) -> Result<(), String> {
+        self.advance_with_ground(dt_ms, view, transform, scale, alpha, None)
+    }
+
+    /// Advance one frame with the ground under the root already sampled.
+    ///
+    /// The owner runs the raycast itself (`0x6e53f0` calls `0x41a430` with the
+    /// owner's own position) and the effect only consumes the height and the
+    /// normal, so the viewer takes them as an argument instead of owning terrain
+    /// it does not have. `None` stands for an owner whose byte at +0x1f4 is
+    /// clear, and every ground path is gated on that byte — `0x6e540f` skips the
+    /// whole pass, `0x6fa7c5` and `0x6fa813` both fall through to the un-snapped
+    /// frame — so `MatchGrnd` and `GroundHeight` stay inert exactly as they are
+    /// in the client for an owner that cannot raycast.
+    #[allow(clippy::too_many_arguments)]
+    pub fn advance_with_ground(
+        &mut self,
+        dt_ms: f32,
+        view: &View,
+        transform: Mat4,
+        scale: f32,
+        alpha: f32,
+        ground: Option<GroundHit>,
+    ) -> Result<(), String> {
         if !dt_ms.is_finite() || dt_ms < 0. {
             return Err(format!("invalid effect delta {dt_ms}"));
         }
@@ -802,6 +899,10 @@ impl Player {
         // path, so a non-uniform placement cannot shear the billboards.
         let base = normalize_basis(transform)
             * Mat4::from_scale(Vec3::splat(self.root.default_scale * scale));
+        // The owner's ground pass runs once per frame, before any element asks
+        // for a frame (`0x6e53f0` is the owner's tick, `0x6fa7c0` is called from
+        // the corner builder later in the same frame).
+        let frames = ground.and_then(|hit| self.ground_frames(hit, transform, base));
         let color_scale =
             self.root.default_alpha * alpha * distance_fade(&self.root, view.position, base);
         let time = self.time;
@@ -817,16 +918,21 @@ impl Player {
         // one second sprite is still playing while the flash is done.
         let mut finished = !self.elements.is_empty();
         for slot in 0..self.elements.len() {
+            let index = self.elements[slot].index;
+            // The element's own frame is the one `0x6fa7c0` selects from the
+            // ground state; a bind target then substitutes its placement, which
+            // is what `0x710121` does with the target's matrix.
+            let own = self.ground_parent(frames.as_ref(), &self.root.elements[index], base);
             // A bound element takes its parent basis from its target's last
             // placement. `0x710121` multiplies the element's own basis by the
             // matrix `0x6fe120` copies out of the target, which is the same
             // substitution with the target standing in for the root.
             let (parent, target_ended) = match self.elements[slot].bind_target {
                 Some(target) => (
-                    self.elements[target].placement.unwrap_or(base),
+                    self.elements[target].placement.unwrap_or(own),
                     self.elements[target].ended,
                 ),
-                None => (base, false),
+                None => (own, false),
             };
             if target_ended {
                 // `0x6fa69a`: the tick returns without updating. The target's
@@ -835,7 +941,6 @@ impl Player {
                 self.elements[slot].ended = true;
                 continue;
             }
-            let index = self.elements[slot].index;
             let element = &self.root.elements[index];
             let runtime = &mut self.elements[slot];
             let done = advance_element(
@@ -871,6 +976,68 @@ impl Player {
             .elements
             .iter()
             .any(|element| element.common.repeat_count <= 0)
+    }
+
+    /// The owner's per-frame ground pass, `0x6e53f0`. One query result becomes
+    /// the near-ground byte at owner+0x284 and the two frames `0x6fa7c0` chooses
+    /// between. The frames carry the same scale `base` does, so matching the
+    /// ground can move and tilt an effect but never resize it.
+    fn ground_frames(&self, hit: GroundHit, transform: Mat4, base: Mat4) -> Option<GroundFrames> {
+        if !hit.height.is_finite() || !hit.normal.is_finite() {
+            return None;
+        }
+        let origin = transform.w_axis.truncate();
+        // 0x6e54a1/0x6e54ac: the owner's y against the raycast height, with the
+        // 0.2 at 0x8eb828.
+        let near_ground = origin.y - hit.height < GROUND_NEAR_DISTANCE;
+        let own = Quat::from_mat4(&normalize_basis(transform));
+        let scale = Mat4::from_scale(Vec3::splat(base.x_axis.length()));
+        // 0x6e5540..0x6e556e: the ground frame's translation is (pos.x, the
+        // raycast height, pos.z).
+        let at_ground = Vec3::new(origin.x, hit.height, origin.z);
+        // 0x6e54d8 copies owner+0x1a4 into owner+0x1b4 before the query, and
+        // 0x6e5506 skips the product when 0x6e5b90 rejects the normal, so a
+        // rejected surface leaves the owner's own orientation in place.
+        let aligned =
+            own * ground_alignment(hit.normal.normalize_or_zero()).unwrap_or(Quat::IDENTITY);
+        Some(GroundFrames {
+            near_ground,
+            aligned: Mat4::from_rotation_translation(aligned, at_ground) * scale,
+            height_only: Mat4::from_rotation_translation(own, at_ground) * scale,
+        })
+    }
+
+    /// `0x6fa7c0`, the frame the corner builder asks for at `0x71eb3b`, as a
+    /// truth table over the two element bytes and the owner state:
+    ///
+    /// ```text
+    /// no ground query                        -> the un-snapped frame
+    /// GroundHeight &&  MatchGrnd             -> owner+0xfc   aligned
+    /// GroundHeight && !MatchGrnd             -> owner+0x13c  height only
+    /// !GroundHeight && MatchGrnd && near     -> owner+0xfc   aligned
+    /// otherwise                              -> the un-snapped frame
+    /// ```
+    ///
+    /// Both bytes are reduced with `setne` at load time, so the number authored
+    /// for `GroundHeight` does not matter, only whether it is nonzero. The
+    /// companion selector `0x6fa810` picks the element's *orientation* with the
+    /// same conditions — the ground-aligned quaternion at owner+0x1b4 exactly
+    /// when `MatchGrnd && (GroundHeight || owner+0x284)` — which is why one
+    /// frame substitution covers both: the aligned frame is built from that
+    /// quaternion at `0x6e5539`, so it already carries the aligned orientation.
+    fn ground_parent(&self, frames: Option<&GroundFrames>, element: &Element, base: Mat4) -> Mat4 {
+        let Some(frames) = frames else { return base };
+        if element.common.ground_height != 0. {
+            return if element.common.match_ground {
+                frames.aligned
+            } else {
+                frames.height_only
+            };
+        }
+        if element.common.match_ground && frames.near_ground {
+            return frames.aligned;
+        }
+        base
     }
 }
 
@@ -5103,6 +5270,326 @@ mod tests {
         assert_eq!(duplicate_names, 0, "element names are unique within a root");
         assert_eq!(authored, 968, "the corpus authors 968 BindEle names");
         assert_eq!(resolved, 967, "967 of them resolve to a sibling");
+    }
+
+    /// `SPRITE` with the two ground bytes authored as asked and the element at
+    /// the origin, so a quad centre is exactly the frame translation the client
+    /// builds. `GroundHeight` is only read from version 57 on, so these belong
+    /// with `header79`.
+    fn ground_sprite(match_ground: bool, ground_height: bool) -> String {
+        SPRITE
+            .replace(
+                "MatchGrnd: 0",
+                &format!(
+                    "MatchGrnd: {}\r\nGroundHeight: {}",
+                    match_ground as u8, ground_height as u8
+                ),
+            )
+            .replace("Position: 1, 2, 3", "Position: 0, 0, 0")
+    }
+
+    /// Version 79, the newest in the corpus and one of the twelve that reads
+    /// `GroundHeight`.
+    fn header79(elements: u32) -> String {
+        header37(elements).replace("MOXTVersion: 37", "MOXTVersion: 79")
+    }
+
+    /// A ground normal tilted `degrees` away from world up, in the XY plane.
+    fn tilted_normal(degrees: f32) -> Vec3 {
+        let radians = degrees.to_radians();
+        Vec3::new(radians.sin(), radians.cos(), 0.).normalize()
+    }
+
+    fn step_grounded(player: &mut Player, transform: Mat4, ground: Option<GroundHit>) {
+        player
+            .advance_with_ground(16., &view(), transform, 1., 1., ground)
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// `0x6e5b90` builds the rotation that takes world up onto the ground
+    /// normal: the axis is `cross(up, normal)` divided by its own length
+    /// (`fdivrs` against the 1.0 at `0x8d5c28`, `0x6e5c5e`), the angle is
+    /// `acos(up·normal)` through `_CIacos` at `0x892f06`, and the up vector is
+    /// the global `0x6ea170` initialises to (0.0, 1.0, 0.0). Applying the result
+    /// to +Y must therefore land on the normal itself.
+    #[test]
+    fn ground_alignment_takes_world_up_onto_the_normal() {
+        for degrees in [0f32, 0.5, 1., 2., 3., 4.9] {
+            let normal = tilted_normal(degrees);
+            let alignment = ground_alignment(normal)
+                .unwrap_or_else(|| panic!("{degrees}° is inside the five-degree limit"));
+            let up = alignment * Vec3::Y;
+            assert!(
+                (up - normal).length() < 1e-4,
+                "{degrees}°: up landed on {up}, expected {normal}"
+            );
+        }
+    }
+
+    /// The rejection threshold is cos(5°), which `0x6e5b80` computes once at
+    /// startup as `fcos` of the double at `0x8d5990`; `0x6e5bc1` fails the query
+    /// below it, so a steep slope or a wall is not ground and the effect keeps
+    /// the orientation it was authored with.
+    #[test]
+    fn a_surface_tilted_past_five_degrees_is_not_ground() {
+        assert!(ground_alignment(tilted_normal(4.)).is_some());
+        assert!(ground_alignment(tilted_normal(6.)).is_none());
+        assert!(
+            ground_alignment(tilted_normal(90.)).is_none(),
+            "a wall is not ground"
+        );
+        assert_eq!(ground_alignment(Vec3::Y), Some(Quat::IDENTITY));
+        // Straight down passes the five-degree test but the cross product
+        // vanishes, and `0x6e5c5e` divides by its length without a guard, so
+        // there is no native result to reproduce.
+        assert_eq!(ground_alignment(Vec3::NEG_Y), None);
+    }
+
+    /// `MatchGrnd` with the root standing on the ground tilts the element onto
+    /// the surface: `0x6fa7fd` returns owner+0xfc, which `0x6e5539` builds from
+    /// the quaternion `0x6e57e0` composes out of the owner's own orientation and
+    /// the ground alignment. The root is at the ground height here, so the byte
+    /// at owner+0x284 is set and `MatchGrnd` on its own is enough.
+    #[test]
+    fn match_ground_tilts_the_element_onto_the_surface() {
+        let normal = tilted_normal(3.);
+        let mut player = build(&(header79(1) + &ground_sprite(true, false)));
+        let transform = Mat4::from_translation(Vec3::new(3., 7., -2.));
+        step_grounded(
+            &mut player,
+            transform,
+            Some(GroundHit { height: 7., normal }),
+        );
+        let placement = player.elements[0]
+            .placement
+            .expect("the element was placed");
+        let up = placement.transform_vector3(Vec3::Y).normalize();
+        assert!(
+            (up - normal).length() < 1e-3,
+            "the element's up axis lies on the ground normal, got {up} for {normal}"
+        );
+        let centre = quad_centre(&player.quads()[0]);
+        assert!(
+            (centre - Vec3::new(3., 7., -2.)).length() < 1e-3,
+            "and it stays over the point it was authored above, got {centre}"
+        );
+    }
+
+    /// `GroundHeight` without `MatchGrnd` takes the height and leaves the
+    /// orientation alone: `0x6fa7e3` returns owner+0x13c, the copy of the base
+    /// matrix `0x6e5592` re-transforms with the raycast height, and the
+    /// orientation selector `0x6fa810` returns the un-aligned owner+0x1a4
+    /// because `MatchGrnd` is clear. Every corner is therefore the corner the
+    /// element would have had with no ground at all, moved down by the
+    /// difference in height.
+    #[test]
+    fn ground_height_alone_moves_the_element_without_tilting_it() {
+        let source = header79(1) + &ground_sprite(false, true);
+        let transform = Mat4::from_translation(Vec3::new(3., 7., -2.));
+        let mut without = build(&source);
+        step_grounded(&mut without, transform, None);
+        let mut with = build(&source);
+        step_grounded(
+            &mut with,
+            transform,
+            Some(GroundHit {
+                height: 2.,
+                normal: tilted_normal(3.),
+            }),
+        );
+        let expected = without.quads()[0].positions;
+        let got = with.quads()[0].positions;
+        for index in 0..4 {
+            let want = Vec3::from_array(expected[index]) + Vec3::new(0., 2. - 7., 0.);
+            assert!(
+                (Vec3::from_array(got[index]) - want).length() < 1e-4,
+                "corner {index} is a pure translation of the un-snapped one: {got:?} against {want}"
+            );
+        }
+        let centre = quad_centre(&with.quads()[0]);
+        assert!(
+            (centre.y - 2.).abs() < 1e-4,
+            "the element sits at the ground height, got {centre}"
+        );
+    }
+
+    /// `MatchGrnd` on its own only applies within 0.2 units of the ground:
+    /// `0x6fa7ee` reads owner+0x284, which `0x6e54ac` sets from `pos.y - height`
+    /// against the float at `0x8eb828`. A root floating above the surface keeps
+    /// the frame it was authored with, which is how the corpus can put
+    /// `MatchGrnd` on an effect that is meant to hang in the air and only tilt
+    /// when it actually reaches the ground.
+    #[test]
+    fn match_ground_alone_needs_the_root_on_the_ground() {
+        let mut player = build(&(header79(1) + &ground_sprite(true, false)));
+        let transform = Mat4::from_translation(Vec3::new(0., 9., 0.));
+        step_grounded(
+            &mut player,
+            transform,
+            Some(GroundHit {
+                height: 0.,
+                normal: tilted_normal(3.),
+            }),
+        );
+        let centre = quad_centre(&player.quads()[0]);
+        assert!(
+            (centre.y - 9.).abs() < 1e-4,
+            "nine units up the element stays where it was authored, got {centre}"
+        );
+    }
+
+    /// `GroundHeight` has no such limit — `0x6fa7e3` returns the height frame
+    /// without consulting owner+0x284 — and with `MatchGrnd` set the same root
+    /// takes the aligned frame from any distance, which is the
+    /// `GroundHeight && MatchGrnd` row of `0x6fa7c0`.
+    #[test]
+    fn ground_height_snaps_from_any_distance() {
+        let normal = tilted_normal(3.);
+        let mut player = build(&(header79(1) + &ground_sprite(true, true)));
+        let transform = Mat4::from_translation(Vec3::new(0., 9., 0.));
+        step_grounded(
+            &mut player,
+            transform,
+            Some(GroundHit { height: 0., normal }),
+        );
+        let centre = quad_centre(&player.quads()[0]);
+        assert!(
+            centre.y.abs() < 1e-4,
+            "snapped down to the ground, got {centre}"
+        );
+        let up = player.elements[0]
+            .placement
+            .expect("placed")
+            .transform_vector3(Vec3::Y)
+            .normalize();
+        assert!(
+            (up - normal).length() < 1e-3,
+            "and tilted onto the surface, got {up}"
+        );
+    }
+
+    /// Without a ground query nothing moves. The byte at owner+0x1f4 gates the
+    /// whole owner pass at `0x6e540f` and both selectors at `0x6fa7c5` and
+    /// `0x6fa813`, and no key in a `.gfx` file sets it, so a host that cannot
+    /// raycast leaves `MatchGrnd` and `GroundHeight` inert. That is the state
+    /// every effect in the viewer was in before this, and it is why 1,781 corpus
+    /// elements authoring a non-zero `MatchGrnd` needed an owner rather than a
+    /// parser change.
+    #[test]
+    fn ground_keys_are_inert_without_a_query() {
+        let source = header79(1) + &ground_sprite(true, true);
+        let transform = Mat4::from_translation(Vec3::new(0., 9., 0.));
+        let mut plain = build(&source);
+        plain
+            .advance(16., &view(), transform, 1., 1.)
+            .unwrap_or_else(|error| panic!("{error}"));
+        let mut grounded = build(&source);
+        step_grounded(&mut grounded, transform, None);
+        assert_eq!(plain.quads()[0].positions, grounded.quads()[0].positions);
+        let centre = quad_centre(&grounded.quads()[0]);
+        assert!(
+            (centre.y - 9.).abs() < 1e-4,
+            "an owner that cannot raycast leaves the element alone, got {centre}"
+        );
+        assert!(grounded.warnings().is_empty(), "{:?}", grounded.warnings());
+    }
+
+    /// All 459 roots that author a ground key still play with a query supplied,
+    /// and the query is not a no-op on real data: 455 of them ask through
+    /// `MatchGrnd` and four through `GroundHeight` alone. The ground is a flat
+    /// plane at y = 0 tilted three degrees and the root stands 0.1 above it,
+    /// inside the 0.2 that `0x6e54ac` measures, so `MatchGrnd` alone applies and
+    /// the aligned frame is what those roots get.
+    #[test]
+    fn corpus_plays_through_with_a_ground_query() {
+        let Some(root) = corpus_root() else {
+            return;
+        };
+        let mut files = Vec::new();
+        corpus_files(&root, &mut files);
+        let view = view();
+        let ground = GroundHit {
+            height: 0.,
+            normal: tilted_normal(3.),
+        };
+        let transform = Mat4::from_translation(Vec3::new(0., 0.1, 0.));
+        let (mut played, mut changed, mut nonfinite) = (0usize, 0usize, 0usize);
+        for file in &files {
+            let Ok(bytes) = std::fs::read(file) else {
+                continue;
+            };
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            let Ok(probe) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            let asks = probe
+                .elements
+                .iter()
+                .any(|element| element.common.match_ground || element.common.ground_height != 0.);
+            if !asks {
+                continue;
+            }
+            let mut players = Vec::new();
+            for _ in 0..2 {
+                let Ok(parsed) = crate::gfx_file::parse(&source) else {
+                    break;
+                };
+                match Player::new(parsed, 7, &mut |_| Err("no children".into())) {
+                    Ok(player) => players.push(player),
+                    Err(_) => break,
+                }
+            }
+            if players.len() != 2 {
+                continue;
+            }
+            let mut grounded = players.pop().expect("two players were built");
+            let mut plain = players.pop().expect("two players were built");
+            played += 1;
+            let mut differs = false;
+            for _ in 0..8 {
+                if plain.advance(16., &view, transform, 1., 1.).is_err() {
+                    break;
+                }
+                if grounded
+                    .advance_with_ground(16., &view, transform, 1., 1., Some(ground))
+                    .is_err()
+                {
+                    break;
+                }
+                assert_eq!(
+                    plain.quads().len(),
+                    grounded.quads().len(),
+                    "the ground pass cannot change how much geometry a root emits"
+                );
+                for (index, quad) in plain.quads().iter().enumerate() {
+                    let other = &grounded.quads()[index];
+                    for corner in &other.positions {
+                        if corner.iter().any(|component| !component.is_finite()) {
+                            nonfinite += 1;
+                        }
+                    }
+                    if quad.positions != other.positions {
+                        differs = true;
+                    }
+                }
+            }
+            if differs {
+                changed += 1;
+            }
+        }
+        println!("corpus ground: {played} roots asked, {changed} changed");
+        assert_eq!(
+            nonfinite, 0,
+            "the ground frames produced non-finite geometry"
+        );
+        assert!(
+            played >= 450,
+            "only {played} of the 459 ground-authoring roots played"
+        );
+        assert!(
+            changed > 0,
+            "no root's geometry changed, so the ground pass is inert"
+        );
     }
 
     /// The child element from `gfx_file`'s own fixture, with the forever
