@@ -1,0 +1,228 @@
+# 24-matrix-math  0x787100-0x787300
+; resynced -0x20: nearest function boundary, dumping from 0x7870e0
+007870e0: xor eax, eax                            
+007870e2: mov dword ptr [ecx + 8], eax            
+007870e5: mov dword ptr [ecx + 4], eax            
+007870e8: mov dword ptr [ecx + 0x14], eax         
+007870eb: mov dword ptr [ecx + 0xc], eax          
+007870ee: mov dword ptr [ecx + 0x1c], eax         
+007870f1: mov dword ptr [ecx + 0x18], eax         
+007870f4: mov eax, 0x3f800000                     
+007870f9: mov dword ptr [ecx + 0x20], eax         
+007870fc: mov dword ptr [ecx + 0x10], eax         
+007870ff: mov dword ptr [ecx], eax                
+00787101: ret                                     
+00787102: nop                                     
+00787103: nop                                     
+00787104: nop                                     
+00787105: nop                                     
+00787106: nop                                     
+00787107: nop                                     
+00787108: nop                                     
+00787109: nop                                     
+0078710a: nop                                     
+0078710b: nop                                     
+0078710c: nop                                     
+0078710d: nop                                     
+0078710e: nop                                     
+0078710f: nop                                     
+00787110: mov ecx, dword ptr [esp + 0xc]          
+00787114: mov eax, dword ptr [esp + 8]            
+00787118: fld dword ptr [ecx + 0x20]              
+0078711b: fmul dword ptr [eax + 8]                
+0078711e: fld dword ptr [ecx + 0x14]              
+00787121: fmul dword ptr [eax + 4]                
+00787124: faddp st(1)                             
+00787126: fld dword ptr [ecx + 8]                 
+00787129: fmul dword ptr [eax]                    
+0078712b: faddp st(1)                             
+0078712d: fld dword ptr [ecx + 0x1c]              
+00787130: fmul dword ptr [eax + 8]                
+00787133: fld dword ptr [ecx + 0x10]              
+00787136: fmul dword ptr [eax + 4]                
+00787139: faddp st(1)                             
+0078713b: fld dword ptr [ecx + 4]                 
+0078713e: fmul dword ptr [eax]                    
+00787140: faddp st(1)                             
+00787142: fld dword ptr [ecx + 0x18]              
+00787145: fmul dword ptr [eax + 8]                
+00787148: fld dword ptr [ecx + 0xc]               
+0078714b: fmul dword ptr [eax + 4]                
+0078714e: faddp st(1)                             
+00787150: fld dword ptr [eax]                     
+00787152: fmul dword ptr [ecx]                    
+00787154: mov eax, dword ptr [esp + 4]            
+00787158: faddp st(1)                             
+0078715a: fstp dword ptr [eax]                    
+0078715c: fstp dword ptr [eax + 4]                
+0078715f: fstp dword ptr [eax + 8]                
+00787162: ret                                     
+00787163: nop                                     
+00787164: nop                                     
+00787165: nop                                     
+00787166: nop                                     
+00787167: nop                                     
+00787168: nop                                     
+00787169: nop                                     
+0078716a: nop                                     
+0078716b: nop                                     
+0078716c: nop                                     
+0078716d: nop                                     
+0078716e: nop                                     
+0078716f: nop                                     
+00787170: sub esp, 0x28                           
+00787173: push ebx                                
+00787174: mov ebx, dword ptr [esp + 0x34]         
+00787178: lea eax, [esp + 8]                      
+0078717c: push ebp                                
+0078717d: sub ebx, eax                            
+0078717f: push esi                                
+00787180: push edi                                
+00787181: mov dword ptr [esp + 0x1c], 0           
+00787189: mov dword ptr [esp + 0x18], 0           
+00787191: mov dword ptr [esp + 0x14], 0           
+00787199: mov dword ptr [esp + 0x28], 0           
+007871a1: mov dword ptr [esp + 0x24], 0           
+007871a9: mov dword ptr [esp + 0x20], 0           
+007871b1: mov dword ptr [esp + 0x34], 0           
+007871b9: mov dword ptr [esp + 0x30], 0           
+007871c1: mov dword ptr [esp + 0x2c], 0           
+007871c9: lea esi, [esp + 0x14]                   
+007871cd: mov dword ptr [esp + 0x10], ebx         
+007871d1: mov dword ptr [esp + 0x40], 3           
+007871d9: jmp 0x7871df                              ; f32 657.946
+007871db: mov ebx, dword ptr [esp + 0x10]         
+007871df: mov edi, dword ptr [esp + 0x44]         
+007871e3: add ebx, esi                            
+007871e5: mov ebp, 3                              
+007871ea: fld dword ptr [esi]                     
+007871ec: mov eax, ebx                            
+007871ee: mov ecx, edi                            
+007871f0: mov edx, 3                              
+007871f5: fld dword ptr [eax]                     
+007871f7: fmul dword ptr [ecx]                    
+007871f9: add eax, 4                              
+007871fc: add ecx, 0xc                            
+007871ff: dec edx                                 
+00787200: faddp st(1)                             
+00787202: jne 0x7871f5                            
+00787204: fstp dword ptr [esi]                    
+00787206: add esi, 4                              
+00787209: add edi, 4                              
+0078720c: dec ebp                                 
+0078720d: jne 0x7871ea                              ; f32 -278.053
+0078720f: mov eax, dword ptr [esp + 0x40]         
+00787213: dec eax                                 
+00787214: mov dword ptr [esp + 0x40], eax         
+00787218: jne 0x7871db                            
+0078721a: mov eax, dword ptr [esp + 0x3c]         
+0078721e: mov ecx, 9                              
+00787223: lea esi, [esp + 0x14]                   
+00787227: mov edi, eax                            
+00787229: rep movsd dword ptr es:[edi], dword ptr [esi]
+0078722b: pop edi                                 
+0078722c: pop esi                                 
+0078722d: pop ebp                                 
+0078722e: pop ebx                                 
+0078722f: add esp, 0x28                           
+00787232: ret                                     
+00787233: nop                                     
+00787234: nop                                     
+00787235: nop                                     
+00787236: nop                                     
+00787237: nop                                     
+00787238: nop                                     
+00787239: nop                                     
+0078723a: nop                                     
+0078723b: nop                                     
+0078723c: nop                                     
+0078723d: nop                                     
+0078723e: nop                                     
+0078723f: nop                                     
+00787240: call 0x7870e0                             ; f32 17.2188
+00787245: mov eax, dword ptr [esp + 4]            
+00787249: mov edx, dword ptr [esp + 8]            
+0078724d: mov dword ptr [ecx + 0x18], eax         
+00787250: mov dword ptr [ecx + 0x1c], edx         
+00787253: ret 8                                   
+00787256: nop                                     
+00787257: nop                                     
+00787258: nop                                     
+00787259: nop                                     
+0078725a: nop                                     
+0078725b: nop                                     
+0078725c: nop                                     
+0078725d: nop                                     
+0078725e: nop                                     
+0078725f: nop                                     
+00787260: call 0x7870e0                             ; f32 17.2188
+00787265: fld dword ptr [esp + 4]                 
+00787269: fcos                                    
+0078726b: fst dword ptr [ecx]                     
+0078726d: fstp dword ptr [ecx + 0x10]             
+00787270: fld dword ptr [esp + 4]                 
+00787274: fsin                                    
+00787276: fst dword ptr [ecx + 4]                 
+00787279: fchs                                    
+0078727b: fstp dword ptr [ecx + 0xc]              
+0078727e: ret 4                                   
+00787281: nop                                     
+00787282: nop                                     
+00787283: nop                                     
+00787284: nop                                     
+00787285: nop                                     
+00787286: nop                                     
+00787287: nop                                     
+00787288: nop                                     
+00787289: nop                                     
+0078728a: nop                                     
+0078728b: nop                                     
+0078728c: nop                                     
+0078728d: nop                                     
+0078728e: nop                                     
+0078728f: nop                                     
+00787290: mov eax, dword ptr [esp + 0xc]          
+00787294: mov ecx, dword ptr [esp + 8]            
+00787298: sub esp, 0xc                            
+0078729b: lea edx, [esp]                          
+0078729f: push eax                                
+007872a0: push ecx                                
+007872a1: push edx                                
+007872a2: call 0x7f4471                           
+007872a7: fld dword ptr [esp]                     
+007872ab: mov eax, dword ptr [esp + 0x10]         
+007872af: mov ecx, dword ptr [esp + 4]            
+007872b3: mov edx, dword ptr [esp + 8]            
+007872b7: fstp dword ptr [eax]                    
+007872b9: mov dword ptr [eax + 4], ecx            
+007872bc: mov dword ptr [eax + 8], edx            
+007872bf: add esp, 0xc                            
+007872c2: ret                                     
+007872c3: nop                                     
+007872c4: nop                                     
+007872c5: nop                                     
+007872c6: nop                                     
+007872c7: nop                                     
+007872c8: nop                                     
+007872c9: nop                                     
+007872ca: nop                                     
+007872cb: nop                                     
+007872cc: nop                                     
+007872cd: nop                                     
+007872ce: nop                                     
+007872cf: nop                                     
+007872d0: mov eax, dword ptr [esp + 8]            
+007872d4: mov ecx, dword ptr [esp + 0xc]          
+007872d8: sub esp, 0xc                            
+007872db: lea edx, [esp]                          
+007872df: push eax                                
+007872e0: push ecx                                
+007872e1: push edx                                
+007872e2: call 0x7f4471                           
+007872e7: fld dword ptr [esp]                     
+007872eb: mov eax, dword ptr [esp + 0x10]         
+007872ef: mov ecx, dword ptr [esp + 4]            
+007872f3: mov edx, dword ptr [esp + 8]            
+007872f7: fstp dword ptr [eax]                    
+007872f9: mov dword ptr [eax + 4], ecx            
+007872fc: mov dword ptr [eax + 8], edx            

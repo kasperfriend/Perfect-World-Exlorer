@@ -9,6 +9,9 @@ pub struct Playback {
     end: u32,
     current: u32,
     remaining: i32,
+    /// The authored loop budget, kept so a re-triggered action starts over with
+    /// the same policy instead of the value the tick loop has decremented.
+    loops: i32,
     speed: f32,
 }
 impl Playback {
@@ -20,6 +23,7 @@ impl Playback {
                 end: 0,
                 current: 0,
                 remaining: 0,
+                loops: 0,
                 speed: 1.,
             });
         };
@@ -81,6 +85,7 @@ impl Playback {
             end: end as u32,
             current: start as u32,
             remaining,
+            loops: remaining,
             speed,
         })
     }
@@ -129,6 +134,18 @@ impl Playback {
     }
     pub fn stopped(&self) -> bool {
         self.action.is_none() || self.remaining == 0
+    }
+    /// Starts the same action over with its authored loop budget.
+    ///
+    /// The client re-triggers a scene actor's idle when the clip finishes, so a
+    /// finite authored loop count schedules one pass and not a pose the actor
+    /// holds for the rest of the session. Nothing happens for an action that has
+    /// no clip at all.
+    pub fn restart(&mut self) {
+        if self.action.is_some() {
+            self.current = self.start;
+            self.remaining = self.loops;
+        }
     }
 }
 /// The scene loader imports MSVCRT.dll!rand at IAT 0x8d5478 and applies
@@ -198,6 +215,23 @@ mod tests {
         assert_eq!(p.current, 1000);
         p.tick(4005).unwrap();
         assert_eq!(p.current, 1001);
+    }
+    #[test]
+    fn a_scene_actor_restarts_its_idle_instead_of_holding_the_last_pose() {
+        let mut a = asset();
+        a.descriptor.actions[0].bases[0].loop_min = Some(1);
+        a.descriptor.actions[0].bases[0].loop_max = Some(1);
+        let mut p = Playback::new(&a, Some(0)).unwrap();
+        p.tick(2001).unwrap();
+        assert!(p.stopped());
+        p.restart();
+        assert!(!p.stopped());
+        assert_eq!(p.sample(), Some((0, 1.)));
+        // A playback with no clip at all stays inert.
+        let mut p = Playback::new(&a, None).unwrap();
+        p.restart();
+        assert!(p.stopped());
+        assert_eq!(p.sample(), None);
     }
     #[test]
     fn finite_loop_stops_at_last_pose_and_failed_dispatch_does_not_play() {

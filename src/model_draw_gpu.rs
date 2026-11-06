@@ -195,6 +195,10 @@ pub struct Draw {
     alpha_receiver: Option<std::sync::Arc<raster::Receiver>>,
     /// Indexed by prepared-mesh position; `None` is a hidden queue mesh.
     meshes: Vec<Option<Mesh>>,
+    /// Pose index each retained mesh was built from, in the same order as
+    /// `meshes`. `prepare` drops hidden and empty meshes, so this is what lets
+    /// [`Self::update_posed`] convert vertices without re-running it.
+    pose_of: Vec<usize>,
     alpha_meshes: Vec<usize>,
     // Keep authored textures alive and share repeated per-skin texture slots.
     textures: Vec<std::sync::Arc<wgpu::Texture>>,
@@ -281,6 +285,23 @@ impl Draw {
         mut load: impl FnMut(&str) -> Result<(std::sync::Arc<wgpu::Texture>, bool), String>,
     ) -> Result<Self, String> {
         let prepared = model_draw::prepare(asset, poses)?;
+        // `prepare` is free to drop meshes, so record which pose each surviving
+        // mesh came from while the correspondence is still known.
+        let pose_of: Vec<usize> = {
+            let mut lookup = std::collections::HashMap::with_capacity(poses.len());
+            for (index, pose) in poses.iter().enumerate() {
+                lookup.insert((pose.skin, pose.mesh), index);
+            }
+            prepared
+                .iter()
+                .map(|m| {
+                    lookup
+                        .get(&(m.skin, m.mesh))
+                        .copied()
+                        .ok_or_else(|| "prepared mesh has no retained pose".to_string())
+                })
+                .collect::<Result<_, _>>()?
+        };
         let settings = asset.descriptor.render_settings();
         // Validate every frame/material before allocating or uploading anything.
         let params: Vec<_> = prepared
@@ -451,6 +472,7 @@ impl Draw {
             receiver,
             alpha_receiver,
             meshes,
+            pose_of,
             alpha_meshes,
             textures,
         })
@@ -494,6 +516,83 @@ impl Draw {
         }
         Ok(())
     }
+    /// Upload a pose whose topology has not changed since this draw was built.
+    ///
+    /// [`Self::update`] runs `model_draw::prepare` on every call: it re-validates
+    /// every index buffer, re-checks every weighted vertex and re-derives the
+    /// material, texture assignment and face shader. That answer cannot change
+    /// for a rig that is already retained, and a crowd pays for it every frame.
+    /// This path keeps the retained topology, converts the posed vertices
+    /// straight into the receiver's vertex layout and refreshes the per-pass
+    /// constants. A pose that no longer matches the retained mesh is an explicit
+    /// error, never a silently different draw.
+    pub fn update_posed(
+        &self,
+        queue: &wgpu::Queue,
+        asset: &ModelAsset,
+        poses: &[PosedMesh],
+        frame: Frame,
+    ) -> Result<(), String> {
+        if frame.blend_enabled != self.blend_enabled {
+            return Err("model pass blending changed; rebuild its pipeline".into());
+        }
+        let original = asset.descriptor.render_settings().original_color;
+        let mut updates = Vec::with_capacity(self.meshes.len());
+        for (index, gpu) in self.meshes.iter().enumerate() {
+            let Some(gpu) = gpu else {
+                // A hidden queue mesh keeps its buffers untouched.
+                continue;
+            };
+            let pose = self
+                .pose_of
+                .get(index)
+                .and_then(|&pose| poses.get(pose))
+                .ok_or("model pose does not cover every retained mesh")?;
+            if (pose.skin, pose.mesh) != gpu.key || pose.vertices.len() != gpu.vertices {
+                return Err("model pose no longer matches the retained draw".into());
+            }
+            let skin = asset.skins.get(pose.skin).ok_or("missing retained skin")?;
+            let source = skin
+                .data
+                .meshes
+                .get(pose.mesh)
+                .ok_or("missing retained mesh")?;
+            let material = usize::try_from(source.material)
+                .ok()
+                .and_then(|i| skin.data.materials.get(i))
+                .ok_or("missing retained material")?;
+            let color = if gpu.face_shader.is_some() {
+                u32::MAX
+            } else {
+                asset.mesh_color(pose.skin, pose.mesh, original)
+            };
+            let diffuse_alpha_only = asset.diffuse_alpha_meshes.contains(&gpu.key);
+            let params = frame.params(
+                material,
+                color,
+                diffuse_alpha_only,
+                gpu.face_shader.as_ref(),
+            )?;
+            let mut vertices = Vec::with_capacity(pose.vertices.len());
+            for (source, posed) in source.vertices.iter().zip(&pose.vertices) {
+                vertices.push(raster::Vertex {
+                    position: posed.position,
+                    normal: posed.normal,
+                    uv: source.uv,
+                    fog: frame.vertex_fog,
+                });
+            }
+            updates.push((index, vertices, params));
+        }
+        for (index, vertices, params) in updates {
+            if let Some(gpu) = &self.meshes[index] {
+                gpu.mesh.update(queue, &vertices)?;
+                gpu.binding.update(queue, &params)?;
+            }
+        }
+        Ok(())
+    }
+
     /// World-owned immutable topology: pass changes only require constants,
     /// not another prepare/copy/upload of the exact same posed vertices.
     pub fn update_constants(

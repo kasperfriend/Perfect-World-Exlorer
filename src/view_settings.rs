@@ -1,4 +1,6 @@
 //! Persisted viewer controls; malformed values fall back safely.
+use crate::client_weather::WeatherOverride;
+use crate::sky_transition::SkyOverride;
 #[path = "post_plan.rs"]
 mod post_plan;
 /// The renderer must allocate/execute the post chain for each independent
@@ -146,6 +148,18 @@ pub struct ViewSettings {
     /// approved generated-mip world path (P4.08). Applied at startup; restart to change.
     pub vegetation_authored_mips: bool,
     pub celestial_discs: bool,
+    /// Ignore the area's own sun/moon bits and always draw both discs.
+    ///
+    /// `0x420992` extracts the sun from bit 3 and the moon from bit 4 of the
+    /// selected area's flag word (`world.ecbsd` record `+4`), so a zone authored
+    /// without bit 3 really has no sun disc. This switch is for telling that
+    /// apart from a viewer defect: turn it on in a zone where the sun vanishes.
+    pub ignore_celestial_flags: bool,
+    /// How strongly the sun and moon discs are drawn. 1.0 is the texture
+    /// itself; the client packs the disc diffuse as half the object colour
+    /// (`0x4b405f`, 127/255), which read as dim grey circles, so the recovered
+    /// value is offered on the slider but is not the default.
+    pub celestial_brightness: f32,
     /// Client `CloudDetail` gate for the native `.cld` surface.
     pub cloud_detail: bool,
     /// World map artwork (the full-world page).
@@ -158,6 +172,10 @@ pub struct ViewSettings {
     /// 100 is native; the Graphics tab exposes 10 (fast/blurry) to 200
     /// (supersampled). UI and presentation always stay at native resolution.
     pub resolution_scale: f32,
+    /// World tab: force one precipitation effect instead of the area flags.
+    pub weather_override: WeatherOverride,
+    /// World tab: pin one `sky.lst` row instead of the day/night ladder.
+    pub sky_override: SkyOverride,
 }
 impl Default for ViewSettings {
     fn default() -> Self {
@@ -204,11 +222,23 @@ impl Default for ViewSettings {
             // The client sun and moon are the only discs the shipped
             // `Sky\clear` set does not paint, so they are on by default.
             celestial_discs: true,
+            celestial_brightness: 1.,
+            // Courage Path and similar outdoor zones ship with a flag word
+            // that has no sun bit (0x420992 reads `+0x80` bit 3), so the native
+            // client would hide the sun in the open. The viewer now ignores
+            // those flag words by default so outdoor zones keep their sun;
+            // the checkbox still lets a tester see the native gating.
+            ignore_celestial_flags: true,
             cloud_detail: true,
             world_map_style: MapStyle::Realistic,
             minimap_style: MapStyle::Realistic,
             minimap_shape: MinimapShape::Square,
             resolution_scale: 100.,
+            // Both overrides default to the client's own behaviour; the World
+            // tab offers them only so the recovered sets and particle
+            // constants can be inspected anywhere.
+            weather_override: WeatherOverride::Auto,
+            sky_override: SkyOverride::Auto,
         }
     }
 }
@@ -305,6 +335,18 @@ impl ViewSettings {
                 "area_grass_lightmaps" => flag!(s.area_grass_lightmaps),
                 "vegetation_authored_mips" => flag!(s.vegetation_authored_mips),
                 "celestial_discs" => flag!(s.celestial_discs),
+                "celestial_brightness" => number!(s.celestial_brightness, 0.1, 1.),
+                "ignore_celestial_flags" => flag!(s.ignore_celestial_flags),
+                "weather_override" => {
+                    if let Some(option) = WeatherOverride::parse(v) {
+                        s.weather_override = option;
+                    }
+                }
+                "sky_override" => {
+                    if let Some(option) = SkyOverride::parse(v) {
+                        s.sky_override = option;
+                    }
+                }
                 "cloud_detail" => flag!(s.cloud_detail),
                 "whole_world" => flag!(s.whole_world),
                 "water_reflections" => flag!(s.water_reflections),
@@ -341,13 +383,14 @@ impl ViewSettings {
             "radius={}\nterrain_cutoff={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nambience_enabled={}\nsound_volume={}\neffects_enabled={}\neffects_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncelestial_brightness={}\nignore_celestial_flags={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\nweather_override={}\nsky_override={}\n"),
             self.detail.radius,self.detail.terrain_cutoff,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.ambience_enabled,self.sound_volume,self.effects_enabled,self.effects_volume,self.fullscreen,self.show_zone_entry,
-            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.cloud_detail,self.sharpen,self.resolution_scale,
+            self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.celestial_brightness,self.ignore_celestial_flags,self.cloud_detail,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
-            self.minimap_shape.label())
+            self.minimap_shape.label(),
+            self.weather_override.token(),self.sky_override.token())
     }
     fn file() -> Option<std::path::PathBuf> {
         #[cfg(windows)]
@@ -623,6 +666,66 @@ mod tests {
         assert_eq!(invalid.bloom_brightness_fade, 0.);
         assert_eq!(invalid.bloom_opacity_fade, 1.);
     }
+    #[test]
+    fn the_disc_brightness_defaults_to_the_plain_texture_and_is_bounded() {
+        // The recovered half colour (0x4b405f: ([+0x48] & 0xfefefe | 0x01010100) >> 1)
+        // read as a dim grey disc, so the default is the texture itself and the
+        // recovered 127/255 is still a legal setting.
+        assert_eq!(ViewSettings::default().celestial_brightness, 1.);
+        // The area-flag override is on by default so Courage Path keeps
+        // its sun despite a missing sun bit; it still round-trips.
+        assert!(ViewSettings::default().ignore_celestial_flags);
+        let flags = ViewSettings::decode("ignore_celestial_flags=true");
+        assert!(flags.ignore_celestial_flags);
+        assert!(ViewSettings::decode(&flags.encode()).ignore_celestial_flags);
+        assert_eq!(
+            ViewSettings::decode("celestial_brightness=0.49803922").celestial_brightness,
+            0.49803922
+        );
+        let s = ViewSettings::decode("celestial_brightness=0.25");
+        assert_eq!(s.celestial_brightness, 0.25);
+        assert_eq!(ViewSettings::decode(&s.encode()), s);
+        // Out of range, non-numeric and non-finite values fall back safely.
+        for (text, expected) in [
+            ("celestial_brightness=0", 0.1),
+            ("celestial_brightness=4", 1.0),
+            ("celestial_brightness=NaN", 1.0),
+            ("celestial_brightness=bogus", 1.0),
+        ] {
+            let s = ViewSettings::decode(text);
+            assert!(
+                (s.celestial_brightness - expected).abs() < 1e-6,
+                "{text} -> {}",
+                s.celestial_brightness
+            );
+        }
+    }
+
+    #[test]
+    fn the_weather_and_sky_overrides_default_to_the_client_and_round_trip() {
+        let d = ViewSettings::default();
+        assert_eq!(d.weather_override, WeatherOverride::Auto);
+        assert_eq!(d.sky_override, SkyOverride::Auto);
+        // A file written before the overrides existed keeps both on Auto.
+        let legacy = ViewSettings::decode("celestial_discs=true\nroutine=none");
+        assert_eq!(legacy.weather_override, WeatherOverride::Auto);
+        assert_eq!(legacy.sky_override, SkyOverride::Auto);
+        for weather in WeatherOverride::ALL {
+            for sky in SkyOverride::ALL {
+                let mut s = ViewSettings::default();
+                s.weather_override = weather;
+                s.sky_override = sky;
+                let back = ViewSettings::decode(&s.encode());
+                assert_eq!(back.weather_override, weather);
+                assert_eq!(back.sky_override, sky);
+            }
+        }
+        // Unknown spellings leave the defaults alone.
+        let bad = ViewSettings::decode("weather_override=Hail\nsky_override=night");
+        assert_eq!(bad.weather_override, WeatherOverride::Auto);
+        assert_eq!(bad.sky_override, SkyOverride::Auto);
+    }
+
     #[test]
     fn render_resolution_scale_is_persisted_and_bounded() {
         assert_eq!(ViewSettings::default().resolution_scale, 100.);

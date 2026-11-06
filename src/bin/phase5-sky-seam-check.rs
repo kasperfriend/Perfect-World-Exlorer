@@ -201,7 +201,9 @@ fn main() {
     machine.resources_ready();
     machine.step();
     let (base, incoming, weight) = sky_transition::frame_sets(&machine);
-    assert_eq!((base, incoming), (0, 2));
+    // `Triple::NIGHT` is set 1 (the client's `sky_id_night = 1`, 阴天01), so the
+    // fade runs from group 0 to group 1.
+    assert_eq!((base, incoming), (0, 1));
     assert!(weight > 0.0 && weight < 1.0, "expected a mid-fade weight");
     for phase in 0..3 {
         for side in 0..2 {

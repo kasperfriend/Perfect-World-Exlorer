@@ -1208,6 +1208,11 @@ struct Renderer {
     /// Sub-tick remainder of the sky clock in milli-thirty-seconds: the native
     /// tick is a 1/30 s step and the viewer's frames are not a multiple of it.
     sky_tick_residual: u64,
+    /// Stage-0 sky texture-matrix translation. `A3DSky::Tick` (`0x79a040`)
+    /// advances the descriptor's x/z accumulators by `rate / 30` per 30 Hz tick
+    /// and `A3DSky::Render` installs the resulting matrix on texture stage 0, so
+    /// the ceiling art slides at `rate` per second in both axes.
+    sky_drift: [f32; 2],
     // Native SetLightParam/SetAmbient state persists when a frame selects no
     // environment box (0x41ec65 keeps the in-flight environment). Keeping the
     // last published regional light avoids erasing ordinary model light on an
@@ -1234,7 +1239,9 @@ pub(crate) fn depth(device: &wgpu::Device, w: u32, h: u32) -> wgpu::Texture {
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Depth32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     })
 }
@@ -1324,6 +1331,8 @@ pub fn ten_class_placements(t: &Terrain) -> Vec<crate::scenery_visibility::Place
 /// intermediates stay at the full window size and are resized separately.
 fn resize_world_targets(renderer: &mut Renderer, w: u32, h: u32) {
     renderer.depth = depth(&renderer.device, w, h);
+    // Sky keeps its dummy depth — sampling the real depth in the same
+    // pass that writes it is a feedback hazard.
     renderer.water.resize(&renderer.device, w, h);
     renderer.post.resize(&renderer.device, w, h);
 }
@@ -1482,6 +1491,7 @@ impl Renderer {
                 },
             ],
         });
+        let depth_tex = depth(&device, w, h);
         let sky = crate::sky_gpu::SkyGpu::new(&device, &queue, format, &t.element)?;
         let weather =
             crate::weather_gpu::WeatherGpu::new(&device, &queue, &t.element, format, &t.water);
@@ -1674,7 +1684,7 @@ impl Renderer {
             m.grass,
             Some(&terrain_gpu.grass_light_layout),
         );
-        let d = depth(&device, w, h);
+        let d = depth_tex;
         let post = crate::post_gpu::PostGpu::new(&device, format, w, h);
         let local_pages = m
             .local_pages
@@ -1723,6 +1733,17 @@ impl Renderer {
         } else {
             None
         };
+        // Install the day/night pair the client's own `autoscene.cfg` names
+        // (`sky_id_day = 0`, `sky_id_night = 1` for this build) after the
+        // `sky.lst` rows have been loaded. The machine starts on the day set;
+        // the first frame's phase drives the native swap.
+        let mut sky_transition = crate::sky_transition::Machine::new(
+            crate::sky_transition::Triple(sky.day_set().min(2) as u8),
+        );
+        let _ = sky_transition.author(
+            crate::sky_transition::Triple(sky.day_set().min(2) as u8),
+            crate::sky_transition::Triple(sky.night_set().min(2) as u8),
+        );
         Ok(Self {
             modules: crate::modules::Modules::default(),
             module_format: format.remove_srgb_suffix(),
@@ -1767,8 +1788,9 @@ impl Renderer {
             world_glow: crate::post_gpu::WorldGlow::default(),
             celestial_visibility: crate::client_sun::Visibility::default(),
             celestial_flags: 0x18,
-            sky_transition: Default::default(),
+            sky_transition,
             sky_tick_residual: 0,
+            sky_drift: [0.; 2],
             retained_regional_light: None,
             glow_requested_fade: None,
             grass_wind_state: crate::grass_wind::GrassWind::new(),
@@ -1817,10 +1839,18 @@ impl Renderer {
         let latched = self.celestial_visibility.flags();
         let flag_note = if latched & 0x18 == 0 {
             " (latched word has neither disc bit)".to_string()
+        } else if camera.ignore_celestial_flags && latched != flag_word {
+            format!(" (source 0x{flag_word:02x}; area disc flags ignored, latched 0x{latched:02x})")
         } else if flag_word & 0x18 == 0 {
             // `+0x80` is unpinned: the viewer keeps both discs visible instead of
             // hiding them on a word whose producer is not identified, and says so.
             format!(" (source 0x{flag_word:02x} has no disc bit; viewer latches 0x{latched:02x})")
+        } else if flag_word & 0x08 == 0 {
+            // 0x420992 takes the sun from bit 3 and the moon from bit 4, so a zone
+            // whose word clears bit 3 really has no sun disc in the client either.
+            format!(" (source 0x{flag_word:02x} clears the sun bit; 0x420992 hides the sun disc)")
+        } else if flag_word & 0x10 == 0 {
+            format!(" (source 0x{flag_word:02x} clears the moon bit; 0x420992 hides the moon)")
         } else {
             String::new()
         };
@@ -1831,6 +1861,7 @@ impl Renderer {
             self.celestial_visibility.fade(false),
             true,
             true,
+            state.night_strength,
         ) {
             match disc {
                 Ok(disc) => {
@@ -1844,33 +1875,36 @@ impl Renderer {
                     if !self.sky.disc_texture_present(sun) {
                         out.push_str(" (client texture missing)");
                     }
-                    // The sun's additive shine quad is what makes the retail
-                    // disc read large; its size is the viewer's, so say which
-                    // half is not the client's rather than implying the
-                    // billboard is wrong. The moon carries no shine quad in the
-                    // client's own block, and its retail halo is the flare
-                    // chain (0x4b374b..) that this build does not draw.
+                    // The quad sizes below are the client's own stream
+                    // templates. The flare chain is the exception: its placement
+                    // generator (`0x4b5b74`) and occlusion mask are not reduced,
+                    // so only its textures and its 0.4 weight are the client's.
+                    // The sun's shine strip is the recovered 120 x 40 quad, drawn
+                    // inside the recovered night-strength window.
                     if sun {
-                        let factor = crate::sky_celestial::glow_texture_factor(
+                        let strength = crate::sky_celestial::shine_ramp(
                             state.night_strength,
                             state.night_flag,
                         );
-                        let weight = (factor / 5.).clamp(0., 1.);
                         if self.sky.shine_texture_present(true) {
                             out.push_str(&format!(
-                                " + sunshine.bmp x{:.0} at {:.0}% (viewer size)",
-                                crate::sky_gpu::GLOW_SCALE,
-                                weight * 100.
+                                " + sunshine.bmp 120x40 units at {:.0}%",
+                                strength * 100.
                             ));
                         } else {
                             out.push_str(" (sunshine.bmp missing)");
                         }
-                    } else if self.sky.shine_texture_present(false) {
-                        out.push_str(
-                            " (no shine quad; moonflare.bmp waits for the client flare pass)",
-                        );
+                        if self.sky.flare_texture_present() {
+                            out.push_str(" + sunflare/flares ghosts at 0.4 cover");
+                            out.push_str(" (sprite placement unrecovered)");
+                        } else {
+                            out.push_str(" (sunflare/flares missing)");
+                        }
                     } else {
-                        out.push_str(" (no shine quad; moonflare.bmp missing)");
+                        // The moon has no halo quad: retail draws its halo from the
+                        // flare chain, which this build only does for the sun, and a
+                        // concentric quad landed off the painted disc.
+                        out.push_str(" (no halo quad; retail takes it from the flare chain)");
                     }
                 }
                 Err(error) => out.push_str(&format!("; {error}")),
@@ -1940,14 +1974,16 @@ impl Renderer {
         // would silently disappear) and the viewer feeds `0x18` instead.
         let source_flags = region_light.map(|l| l.celestial_flags).unwrap_or(0x18);
         self.celestial_flags = source_flags;
-        self.celestial_visibility.update(
-            camera.logic_delta_ms,
-            if source_flags & 0x18 == 0 {
-                0x18
-            } else {
-                source_flags
-            },
-        );
+        // World-tab switch: a zone authored without bit 3 has no sun disc in the
+        // client either, so this exists to tell that apart from a viewer defect -
+        // turn it on where the sun vanishes and the disc comes back.
+        let latched_flags = if camera.ignore_celestial_flags || source_flags & 0x18 == 0 {
+            0x18
+        } else {
+            source_flags
+        };
+        self.celestial_visibility
+            .update(camera.logic_delta_ms, latched_flags);
         // Disc placement follows the render path 0x4b3e00: each object uses its
         // own recovered elevation curve and the shared regional azimuth.
         // `sun_dir` is a light direction, which 0x4b60b0 stores negated.
@@ -1964,9 +2000,9 @@ impl Renderer {
                 // shine quad with. Only the sun has one: `0x4b3e00` builds its
                 // stage-1 texture factor as `(1 - [+0x70]) * 5.0` (times 0.8 on
                 // the night set) from `sunshine.bmp`. The moon's block at
-                // `0x4b4049` halves its `+0x48` colour and scales nothing, so
-                // the moon gets no shine here; what retail shows around the moon
-                // is the screen-space flare chain, which is not implemented.
+                // `0x4b4049` halves its `+0x48` colour and scales nothing; its
+                // halo is `moonflare.bmp` plus the recovered `sunflare`/`flares`
+                // chain, both drawn by the sky shader.
                 let shine = crate::sky_celestial::glow_texture_factor(
                     state.night_strength,
                     state.night_flag,
@@ -2015,7 +2051,27 @@ impl Renderer {
         // one tick is 1/30 s and `0x79a040` is the object's per-frame update.
         self.sky_transition
             .step_ms(camera.logic_delta_ms, &mut self.sky_tick_residual);
-        let sets = crate::sky_transition::frame_sets(&self.sky_transition);
+        // The same tick rebuilds `A3DSky`'s stage-0 texture matrix (`0x79a0e0`
+        // driven by `0x79a040`): both accumulators of the descriptor at `+0x4cc`
+        // advance by `rate / 30` per 30 Hz tick, so at an arbitrary frame rate
+        // the slide is `rate` per second. The descriptor's angle slot is zero,
+        // so there is no rotation to replay. `A3DSky::Render` (`0x799a40`) hangs
+        // the matrix on texture stage 0, which is the ceiling only; the curtain
+        // inherits the identity stage-1 matrix and keeps its authored UVs.
+        let drift_step =
+            crate::sky_gpu::SKY_DRIFT_RATE * (camera.logic_delta_ms.max(0) as f32 / 1000.);
+        self.sky_drift[0] += drift_step;
+        self.sky_drift[1] += drift_step;
+        // World-tab override: publish one pinned `sky.lst` row. The machine
+        // above still advances underneath, so returning to `Auto` resumes the
+        // client's own ladder instead of snapping to a stale set, but nothing it
+        // requests can reach the shader while a row is pinned. `Auto` is
+        // `0x4203f4`; the pinned row draws with no incoming set, so it never
+        // fades.
+        let sets = camera
+            .sky_override
+            .sets()
+            .unwrap_or_else(|| crate::sky_transition::frame_sets(&self.sky_transition));
         // P5.08: one snapshot, two uploads. The reflected buffer receives the
         // same hour, sets, blend, celestial direction and alpha; only the ray
         // basis differs, so the sky cannot disagree between views. `view_sets`
@@ -2058,6 +2114,12 @@ impl Renderer {
             background: camera.air_fog.color,
             fog_enabled: camera.atmospheric_fog,
             tint,
+            disc_brightness: if camera.celestial_discs {
+                camera.celestial_brightness
+            } else {
+                0.
+            },
+            drift: self.sky_drift,
         };
         self.sky
             .update(&self.queue, direction, w, h, frame, main_sets, false);
@@ -2431,7 +2493,10 @@ impl Renderer {
     /// The host player is not an ornamental EC model: WaterEffect 0 must not
     /// suppress it. Native host-player reflection/refraction uses its feet-based
     /// profession AABB, independently of the world-model class gate above.
-    fn draw_walker(
+    /// Add-on pass. Each module decides for itself whether it appears in this
+    /// pass; the host only supplies the frame and the water-visibility gates the
+    /// Walker needs. Enabling one add-on never depends on another being on.
+    fn draw_addons(
         &mut self,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
@@ -2440,7 +2505,7 @@ impl Renderer {
         camera: &Camera,
         view: Pass,
     ) {
-        let visible = match view {
+        let walker = match view {
             Pass::Reflection => self
                 .modules
                 .walker_visible_in_water_pass(uniform.clip[0], true),
@@ -2449,7 +2514,8 @@ impl Renderer {
                 .walker_visible_in_water_pass(uniform.clip[0], false),
             _ => self.modules.walker_active(),
         };
-        if !visible {
+        let population = self.modules.populator_active();
+        if !walker && !population {
             return;
         }
         if let Some(light) = camera.regional_light {
@@ -2457,15 +2523,28 @@ impl Renderer {
         }
         if let Some(light) = camera.regional_light.or(self.retained_regional_light) {
             let frame = receiving_model_frame(uniform, camera, light);
-            self.modules.render(
-                &self.device,
-                &self.queue,
-                self.module_format,
-                encoder,
-                target,
-                depth,
-                frame,
-            );
+            if walker {
+                self.modules.render_walker(
+                    &self.device,
+                    &self.queue,
+                    self.module_format,
+                    encoder,
+                    target,
+                    depth,
+                    frame,
+                );
+            }
+            if population {
+                self.modules.render_population(
+                    &self.device,
+                    &self.queue,
+                    self.module_format,
+                    encoder,
+                    target,
+                    depth,
+                    frame,
+                );
+            }
         }
     }
 
@@ -2571,6 +2650,10 @@ impl Renderer {
             crate::client_weather::WeatherSelection::default(),
             |light| light.weather_selection(),
         );
+        // The World tab's override replaces the area's own flag bits before any
+        // view consumes them, so the main, reflection and above-water passes all
+        // see one selection. `Auto` is the client's `0x421520` answer.
+        let selected_weather = camera.weather_override.apply(selected_weather);
         let main_weather = if camera.underwater_depth > 0.0 {
             crate::client_weather::WeatherSelection::default()
         } else {
@@ -2678,7 +2761,7 @@ impl Renderer {
             Pass::Main,
             true,
         );
-        self.draw_walker(
+        self.draw_addons(
             &mut e,
             &model_target,
             &scene_depth,
@@ -2912,7 +2995,7 @@ impl Renderer {
                     }),
                 );
                 let model_view = self.water.refraction_raw();
-                self.draw_walker(
+                self.draw_addons(
                     &mut re,
                     &model_view,
                     &reflect_depth,
@@ -3003,7 +3086,7 @@ impl Renderer {
                         false,
                     );
                 }
-                self.draw_walker(
+                self.draw_addons(
                     &mut re,
                     &model_view,
                     &reflect_depth,
@@ -3111,7 +3194,7 @@ impl Renderer {
                 Pass::Reflection,
                 false,
             );
-            self.draw_walker(
+            self.draw_addons(
                 &mut e,
                 &model_view,
                 &reflect_depth,
@@ -3189,6 +3272,13 @@ struct Camera {
     water_reflections: bool,
     atmospheric_fog: bool,
     celestial_discs: bool,
+    /// How strongly the discs are drawn; the texture itself by default.
+    celestial_brightness: f32,
+    /// Viewer switch: draw both discs whatever the area's flag word says.
+    ignore_celestial_flags: bool,
+    /// World-tab overrides. `Auto` on both is the client's own behaviour.
+    weather_override: crate::client_weather::WeatherOverride,
+    sky_override: crate::sky_transition::SkyOverride,
     cloud_detail: bool,
     bloom: bool,
     sharpen: bool,
@@ -3238,6 +3328,10 @@ impl Camera {
             water_reflections: true,
             atmospheric_fog: false,
             celestial_discs: false,
+            celestial_brightness: 1.,
+            ignore_celestial_flags: false,
+            weather_override: crate::client_weather::WeatherOverride::Auto,
+            sky_override: crate::sky_transition::SkyOverride::Auto,
             cloud_detail: true,
             bloom: false,
             sharpen: false,
@@ -3757,7 +3851,7 @@ pub fn run(
                     last = Instant::now();
                     // Add-ons get an optional camera-owner hook. `None` leaves
                     // the original free-flight controls completely untouched.
-                    let addon_camera = renderer.modules.update(dt, !menu_page.is_open(), &keys, camera.yaw, camera.pitch);
+                    let addon_camera = renderer.modules.update(dt, !menu_page.is_open(), &keys, camera.yaw, camera.pitch, camera.pos);
                     renderer.modules.update_walker_audio(settings.effects_enabled, settings.effects_volume);
                     if let Some(position) = addon_camera {
                         camera.pos = position;
@@ -3897,6 +3991,10 @@ pub fn run(
                     camera.water_reflections=settings.water_reflections;
                     camera.atmospheric_fog=settings.atmospheric_fog;
                     camera.celestial_discs=settings.celestial_discs;
+                    camera.celestial_brightness=settings.celestial_brightness;
+                    camera.ignore_celestial_flags=settings.ignore_celestial_flags;
+                    camera.weather_override=settings.weather_override;
+                    camera.sky_override=settings.sky_override;
                     camera.cloud_detail=settings.cloud_detail;
                     camera.bloom=settings.bloom;
                     camera.bloom_strength=settings.bloom_strength;
@@ -3993,7 +4091,7 @@ pub fn run(
                                 renderer.render_minimap(&full_map_view,&full_map_depth,&camera,0.,true);
                                 map_refresh=Instant::now();
                             }
-                            if menu_page.is_open() || settings.show_minimap || zone_banner.as_ref().is_some_and(|(_,t)|t.elapsed().as_secs_f32()<4.) {
+                            if menu_page.is_open() || settings.show_minimap || renderer.modules.overlay_active() || zone_banner.as_ref().is_some_and(|(_,t)|t.elapsed().as_secs_f32()<4.) {
                                 let input=egui_state.take_egui_input(&window);
                                 let output=egui_ctx.run(input,|ctx| {
                                     if menu_page==MenuPage::Main {
@@ -4037,8 +4135,8 @@ pub fn run(
                                                 ui.label(egui::RichText::new("Gold tick and label show the default value").small().weak());
                                                 match settings_tab {
                                                     0=>{ui.heading("Graphics");marked_slider(ui,egui::Slider::new(&mut settings.resolution_scale,10.0..=200.0).integer().suffix("%"),"Resolution scale",defaults.resolution_scale,10.,200.,false,true);ui.label(egui::RichText::new("3D render resolution (10%–200% of the window). UI stays at native resolution.").small().weak());ui.checkbox(&mut settings.fullscreen,"Fullscreen (borderless)");ui.checkbox(&mut settings.bloom,"Bloom");ui.checkbox(&mut settings.sharpen,"Client fullscreen sharpen");marked_slider(ui,egui::Slider::new(&mut settings.bloom_strength,0.0..=4.0),"Bloom strength",defaults.bloom_strength,0.,4.,false,settings.bloom);egui::ComboBox::from_label("Bloom mode").selected_text(match settings.bloom_mode {4=>"Client special 4 (mono)",5=>"Client special 5 (low glow)",_=>"Automatic"}).show_ui(ui,|ui| {ui.selectable_value(&mut settings.bloom_mode,0,"Automatic");ui.selectable_value(&mut settings.bloom_mode,4,"Client special 4 (mono)");ui.selectable_value(&mut settings.bloom_mode,5,"Client special 5 (low glow)");});ui.label("Client glow caller tint / opacity (preview)");let mut tint=[((settings.bloom_tint>>16)&255)as f32/255.,((settings.bloom_tint>>8)&255)as f32/255.,(settings.bloom_tint&255)as f32/255.,(settings.bloom_tint>>24)as f32/255.];if ui.color_edit_button_rgba_unmultiplied(&mut tint).changed() {let c=tint.map(|v|(v.clamp(0.,1.)*255.).round()as u32);settings.bloom_tint=(c[3]<<24)|(c[0]<<16)|(c[1]<<8)|c[2];}marked_slider(ui,egui::Slider::new(&mut settings.bloom_brightness_fade,0.0..=1.0),"Glow fade target (1s transition)",0.,0.,1.,false,settings.bloom);marked_slider(ui,egui::Slider::new(&mut settings.bloom_opacity_fade,0.0..=1.0),"Glow opacity fade (preview)",0.,0.,1.,false,settings.bloom);ui.checkbox(&mut settings.client_gamma,"Client gamma (fullscreen only)");marked_slider(ui,egui::Slider::new(&mut settings.gamma_setting,0.0..=100.0),"Gamma",defaults.gamma_setting,0.,100.,false,settings.client_gamma);}
-                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.detail.terrain_cutoff,"Original-game terrain cutoff (saves memory)").on_hover_text("Live, saved terrain and scenery cutoff. Keeps the block window below; releases distant terrain geometry and unused blend-mask atlas pages. Combine independently with Client atmospheric fog. Fog keeps the authored colour and caps its distance to the resident window (viewer adaptation). Distant scenery preload is paused; global lightmaps and shared tree assets still have memory costs; realistic maps show only resident terrain.");ui.label(renderer.terrain_gpu.residency_label());let (trees,bytes)=renderer.far_trees.residency_stats();ui.label(format!("Tree LOD instances: {trees}; instance buffer {:.1} KiB",bytes as f64/1024.));ui.add_enabled(!settings.detail.terrain_cutoff,egui::Checkbox::new(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)")).on_hover_text("Paused and its pages released while native cutoff is enabled.");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.client_tree_wind_preview,"Client wind signal (preview)").on_hover_text("Modulates the existing 16-second sampled leaf loop with the recovered client wind signal. This is an approximation, not the original live leaf animation.");marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon").on_hover_text("Native billboards: centre at direction*100, half extent 1.0 (1.146 degrees), gated on the recovered elevation curve and the 0.0003/ms visibility ramps. Sun adds its texture, moon alpha-blends it. The sun also carries its recovered sunshine.bmp shine quad at a viewer-chosen size; the moon carries none, because the client scales nothing for it and its retail halo is the screen-space flare chain this build does not draw. The status line below says both.");ui.checkbox(&mut settings.cloud_detail,"Cloud detail (Client CloudDetail gate)").on_hover_text("Shows the native world.cld cloud surface. Point sizing and water-view parity remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.vegetation_authored_mips,"Authored vegetation mips (experimental, restart)").on_hover_text("P4.07 opt-in: preserve authored DDS mip chains for vegetation and use SpeedTree PWTREE08 per-LOD branch/frond alpha references plus the verified leaf reference 84. Default off keeps the approved legacy path. Applied at startup; restart after changing. Native sampler parity, grass anisotropy, and deeper-than-LOD-7 tails remain unresolved.");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");ui.checkbox(&mut settings.grass_wind_enabled,"Grass wind").on_hover_text("Native wind from the recovered logic clock. The client scales it with authored per-area data (+0x6c..+0x74), not a user setting, so this is an on/off switch.");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_amplitude,0.0..=2.0),"Grass wind sway",defaults.grass_wind_amplitude,0.,2.,false,settings.grass_wind_enabled).on_hover_text("Viewer-only multiplier on the wind history. The mark (1.0) is the recovered amplitude: the client's only wind inputs are the noise sample and the authored axis weights (+0x6c..+0x74 = 1.0, -0.5, 0.0), with no scale of its own, so there is no single retail number to show. The spring is critically damped at the recovered stiffness, which bounds the sway by that target instead of letting it resonate.");ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Whole-world texture atlases are shared; geometry and unique source textures still require GPU memory.");}
-                                                    2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());let audio_diagnostic=music.diagnostic();if !audio_diagnostic.is_empty(){ui.label(audio_diagnostic);}ui.checkbox(&mut settings.ambience_enabled,"Play zone ambience (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.sound_volume,0.0..=1.0),"Ambience volume",defaults.sound_volume,0.,1.,false,true);ui.label(ambience.status());ui.checkbox(&mut settings.effects_enabled,"Play world and character effects (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.effects_volume,0.0..=1.0),"Effects volume",defaults.effects_volume,0.,1.,false,true);ui.label(world_audio.status());if let Some(error)=world_audio.diagnostic(){ui.label(error);}ui.label(renderer.modules.walker_audio_status());if let Some(error)=renderer.modules.walker_audio_diagnostic(){ui.label(error);}ui.label("Character movement uses authentic animation SFX events and files; local playback is non-spatial. Zone selection, world sound timing and spatialization are approximations. Other gameplay, combat and weather effects are not implemented.");}
+                                                    1=>{ui.heading("World");ui.checkbox(&mut settings.detail.terrain_cutoff,"Original-game terrain cutoff (saves memory)").on_hover_text("Live, saved terrain and scenery cutoff. Keeps the block window below; releases distant terrain geometry and unused blend-mask atlas pages. Combine independently with Client atmospheric fog. Fog keeps the authored colour and caps its distance to the resident window (viewer adaptation). Distant scenery preload is paused; global lightmaps and shared tree assets still have memory costs; realistic maps show only resident terrain.");ui.label(renderer.terrain_gpu.residency_label());let (trees,bytes)=renderer.far_trees.residency_stats();ui.label(format!("Tree LOD instances: {trees}; instance buffer {:.1} KiB",bytes as f64/1024.));ui.add_enabled(!settings.detail.terrain_cutoff,egui::Checkbox::new(&mut settings.whole_world,"Render whole world (trees, rocks, buildings)")).on_hover_text("Paused and its pages released while native cutoff is enabled.");ui.label(&world_status);if let Some(models)=&renderer.models {let (ready,failed,total)=models.status();ui.label(format!("Animated world models: {ready}/{total}; rejected {failed}"));let g=models.gfx_status();let alpha=models.alpha_status();ui.label(format!("FX light producers: {} loaded, {} pending, {} elements, {} non-light roots, {} failed, {} unsupported binary roots; alpha meshes ordered {}/{} ({} drawable of {} slots, {} failed, {} without bounds)",g.live,g.pending,g.emitters,g.non_light_owners,g.failures,g.unsupported,alpha.ordered,alpha.alpha_meshes,alpha.drawable,alpha.slots,alpha.failed,alpha.without_bounds)).on_hover_text(format!("Loader queue: {} frame(s) ticked, one pending root admitted per frame (native 0x5b1a00). Non-light roots loaded cleanly but contain no LightType element, so the sprites/particles/trails inside them are outside this pass. Failed counts FX roots only; world-model and alpha-queue problems are listed below. Unsupported binary roots are valid assets in a container this reader cannot parse yet.{}{}",g.frames,models.gfx_failures().iter().take(4).map(|e|format!("\nFailed: {e}")).collect::<String>(),models.gfx_unsupported().iter().take(2).map(|e|format!("\nUnsupported: {e}")).collect::<String>()));}marked_slider(ui,egui::Slider::new(&mut settings.far,2000.0..=24000.0),"View distance",defaults.far,2000.,24000.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.radius,2..=12),"Terrain block window (blocks)",defaults.detail.radius as f32,2.,12.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.tree_lod_scale,0.25..=4.0),"Tree LOD distance scale",defaults.detail.tree_lod_scale,0.25,4.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.detail.scenery_quality,0..=5),"Scenery quality preset",defaults.detail.scenery_quality as f32,0.,5.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.tree_wind_strength,0.0..=1.0),"Tree leaf rocking",defaults.tree_wind_strength,0.,1.,false,true);ui.checkbox(&mut settings.client_tree_wind_preview,"Client wind signal (preview)").on_hover_text("Modulates the existing 16-second sampled leaf loop with the recovered client wind signal. This is an approximation, not the original live leaf animation.");marked_slider(ui,egui::Slider::new(&mut settings.time_of_day,0.0..=24.0),"Time of day",defaults.time_of_day,0.,24.,false,true);egui::ComboBox::from_label("Sky set").selected_text(settings.sky_override.label()).show_ui(ui,|ui|{for o in crate::sky_transition::SkyOverride::ALL{ui.selectable_value(&mut settings.sky_override,o,o.label());}}).response.on_hover_text("Pins one sky.lst row (0 晴天 clear, 1 阴天01 overcast, 2 夕阳 sunset) instead of the client's day/night ladder (0x4203f4 -> autoscene sky_id_day/sky_id_night). Auto is the shipped behaviour; a pinned row never fades and the swap machine keeps running underneath, so returning to Auto resumes where the clock says. The night row is the overcast set, not a painted night panorama: the client darkens it with the regional light colour.");egui::ComboBox::from_label("Weather").selected_text(settings.weather_override.label()).show_ui(ui,|ui|{for o in crate::client_weather::WeatherOverride::ALL{ui.selectable_value(&mut settings.weather_override,o,o.label());}}).response.on_hover_text("Auto is the area's own EC-BSD flag word (world.ecbsd+0x04 bits 1 and 2, read at 0x421520): rain and snow are independent, and a zone may ask for both. The other rows force one effect anywhere. Rain and snow are falling particle quads, not a simulated weather system: the client owns the clock (33 ms object tick) and the textures (rain.tga, snow.bmp); the viewer now spawns them with the objects' own Speed 0.5 / Size 0.04 (rain, +-30 % size, +-50 % speed) and Size 0.3 (snow). The fall volume, the streak length and the flake descent scale are viewer values.");ui.checkbox(&mut settings.water_reflections,"Water reflections");ui.checkbox(&mut settings.celestial_discs,"Client sun and moon").on_hover_text("Native billboards: centre at direction*100 at the recovered template sizes (20-unit sun, 11.42 degrees; 40-unit moon, 22.62 degrees), gated on the recovered elevation curve and the 0.0003/ms visibility ramps. Sun adds its texture, moon alpha-blends it. The sun swells by 1+2n and adds its recovered 120x40 sunshine.bmp strip inside the recovered night-strength window; the moon carries no halo quad (retail takes every moon halo from the flare chain, and a centred quad landed off the painted disc because moon.tga's art is not centred in its texture). Both discs are submitted at half their object colour: 0x4b405f packs ([+0x48] & 0xfefefe | 0x01010100) >> 1, i.e. the recovered halving applied to the object's white default, so the texture is drawn at 127/255 instead of at full strength. Which record fills +0x48 is not recovered. The sun is tinted by the region's light colour (the object's only colour data is light data) and the sun also draws the client's whole flare chain: the fifteen quads `0x4b6270` pre-builds from `textures/nature/flares.bmp` (a 4x4 atlas, six vertices each, `add ebx,0xc0` per sprite and `cmp ebp,0x3c`), with the builder's own size, offset and UV tables. Sprite i sits `offset[i]` pixels from the sun along the line from the sun through the screen centre - the direction `0x450b30` computes - and its half extent is `metric * size[i]`, where the metric is the viewport height: `0x4360a0` hands `0x4b6270` a host block, the builder copies six dwords of it from `+0x14` and reads the fifth (`+0x24`) as an integer (`fild qword [esp+0x5c]`), which is the height of the viewport rectangle that block carries. The sprite colour is the disc's, so the chain shares the disc's half colour and the region light tint. The disc sizes and textures are the client's; the status line below says which part is which.");marked_slider(ui,egui::Slider::new(&mut settings.celestial_brightness,0.1..=1.0),"Star brightness",defaults.celestial_brightness,0.1,1.,false,settings.celestial_discs).on_hover_text("How strongly the sun and moon are drawn. 1.0 (the mark) is the texture itself. 0x4b405f packs each disc as ([+0x48] & 0xfefefe | 0x01010100) >> 1, half the object colour, but drawn that way both discs read as dim grey circles, so the recovered 0.498 is not the default; slide to it to compare. The region light is not multiplied into the discs for the same reason; it stays on the shine strip and the flare sprites, where 0x4b3e22 really does apply the +0x44 colour.");ui.checkbox(&mut settings.ignore_celestial_flags,"Ignore area sun/moon flags").on_hover_text("Every zone\'s EC-BSD record carries a flag word (record +4, read at 0x420992): bit 3 draws the sun, bit 4 the moon. A zone authored without bit 3 has no sun disc in the client either, which is what makes the sun vanish in some open areas while sky and lighting stay correct. This switch latches 0x18 instead of the zone word, so the disc always draws; the status line still prints the zone\'s own word, so flipping it tells the two causes apart.");ui.checkbox(&mut settings.cloud_detail,"Cloud detail (Client CloudDetail gate)").on_hover_text("Shows the native world.cld cloud surface. Point sizing and water-view parity remain approximate.");ui.checkbox(&mut settings.atmospheric_fog,"Client atmospheric fog (limits distant visibility)");ui.checkbox(&mut settings.terrain_lightmaps,"Client terrain lightmaps");ui.checkbox(&mut settings.area_grass_lightmaps,"Grass area-centered lightmaps").on_hover_text("Client area-center selection with clamped tile edges. Disable only to compare the legacy per-vertex selection.");ui.checkbox(&mut settings.regional_tree_lighting,"Experimental regional tree lighting");ui.checkbox(&mut settings.vegetation_authored_mips,"Authored vegetation mips (experimental, restart)").on_hover_text("P4.07 opt-in: preserve authored DDS mip chains for vegetation and use SpeedTree PWTREE08 per-LOD branch/frond alpha references plus the verified leaf reference 84. Default off keeps the approved legacy path. Applied at startup; restart after changing. Native sampler parity, grass anisotropy, and deeper-than-LOD-7 tails remain unresolved.");ui.checkbox(&mut settings.streamed_regions,"Streamed regional lighting/fog (experimental)").on_hover_text("Select environment regions from nearby world blocks using client-like priority. Changes atmospheric and underwater fog; affects trees only when experimental regional tree lighting is enabled. Asynchronous client load order is not yet reproduced.");ui.checkbox(&mut settings.grass_distance_fade,"Client grass distance fade");ui.checkbox(&mut settings.grass_wind_enabled,"Grass wind").on_hover_text("Native wind from the recovered logic clock. The client scales it with authored per-area data (+0x6c..+0x74), not a user setting, so this is an on/off switch.");marked_slider(ui,egui::Slider::new(&mut settings.grass_wind_amplitude,0.0..=2.0),"Grass wind sway",defaults.grass_wind_amplitude,0.,2.,false,settings.grass_wind_enabled).on_hover_text("Viewer-only multiplier on the wind history. The mark (1.0) is the recovered amplitude: the client's only wind inputs are the noise sample and the authored axis weights (+0x6c..+0x74 = 1.0, -0.5, 0.0), with no scale of its own, so there is no single retail number to show. The spring is critically damped at the recovered stiffness, which bounds the sway by that target instead of letting it resonate.");ui.checkbox(&mut settings.model_backface_culling,"Cull building back faces (experimental)");if camera.underwater_depth>0.{ui.label("Underwater effect active");}ui.label("Whole-world texture atlases are shared; geometry and unique source textures still require GPU memory.");}
+                                                    2=>{ui.heading("Sound");ui.checkbox(&mut settings.music_enabled,"Play music from current zone");marked_slider(ui,egui::Slider::new(&mut settings.music_volume,0.0..=1.0),"Music volume",defaults.music_volume,0.,1.,false,true);ui.label(music.status());let audio_diagnostic=music.diagnostic();if !audio_diagnostic.is_empty(){ui.label(audio_diagnostic);}ui.checkbox(&mut settings.ambience_enabled,"Play zone ambience (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.sound_volume,0.0..=1.0),"Ambience volume",defaults.sound_volume,0.,1.,false,true);ui.label(ambience.status());ui.checkbox(&mut settings.effects_enabled,"Play world effects (experimental)");marked_slider(ui,egui::Slider::new(&mut settings.effects_volume,0.0..=1.0),"Effects volume",defaults.effects_volume,0.,1.,false,true);ui.label(world_audio.status());if let Some(error)=world_audio.diagnostic(){ui.label(error);}ui.label("Zone selection, world sound timing and spatialization are approximations. Gameplay, combat and weather effects are not implemented.");}
                                                     _=>{ui.heading("Interface");ui.checkbox(&mut settings.show_zone_entry,"Show entering zone notification");ui.checkbox(&mut settings.show_minimap,"Show minimap");marked_slider(ui,egui::Slider::new(&mut settings.minimap_range,100.0..=600.0),"Minimap half-width (world units)",defaults.minimap_range,100.,600.,false,settings.show_minimap);ui.separator();egui::ComboBox::from_label("Minimap style").selected_text(settings.minimap_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.minimap_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the world from above each frame; Original shows the client's own minimap tiles (surfaces/minimaps/world) at their native resolution.").small().weak());egui::ComboBox::from_label("Minimap shape").selected_text(settings.minimap_shape.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Square,"Square");ui.selectable_value(&mut settings.minimap_shape,MinimapShape::Circular,"Circular");});egui::ComboBox::from_label("World map style").selected_text(settings.world_map_style.label()).show_ui(ui,|ui|{ui.selectable_value(&mut settings.world_map_style,MapStyle::Realistic,"Realistic");ui.selectable_value(&mut settings.world_map_style,MapStyle::Original,"Original");});ui.label(egui::RichText::new("Realistic renders the whole world from above; Original shows the client's map tiles (surfaces/maps).").small().weak());ui.separator();ui.heading("Camera controls");marked_slider(ui,egui::Slider::new(&mut settings.camera_speed,10.0..=3000.0).logarithmic(true),"Flight speed",defaults.camera_speed,10.,3000.,true,true);marked_slider(ui,egui::Slider::new(&mut settings.boost,1.0..=10.0),"Shift multiplier",defaults.boost,1.,10.,false,true);marked_slider(ui,egui::Slider::new(&mut settings.sensitivity,0.0005..=0.01).logarithmic(true),"Mouse sensitivity",defaults.sensitivity,0.0005,0.01,true,true);}
                                                 }
                                                 ui.separator();ui.horizontal(|ui|{if ui.add_sized([135.,32.],egui::Button::new("Back to menu")).clicked(){menu_page=MenuPage::Main;}if ui.button("Restore defaults").clicked(){settings=ViewSettings::default();}});
@@ -4095,6 +4193,16 @@ pub fn run(
                                         } else { ui.add(egui::Image::new((map_id,egui::vec2(MINIMAP_HUD,MINIMAP_HUD))).rounding(round)) };
                                         let center=image.rect.center();let dir=egui::vec2(camera.yaw.sin(),camera.yaw.cos());let side=egui::vec2(-dir.y,dir.x);let points=vec![center+dir*10.,center-dir*7.+side*5.,center-dir*7.-side*5.];ui.painter().add(egui::Shape::convex_polygon(points,egui::Color32::from_rgb(255,225,130),egui::Stroke::new(1.0f32,egui::Color32::BLACK)));ui.painter().text(image.rect.left_top()+egui::vec2(5.,5.),egui::Align2::LEFT_TOP,"N",egui::FontId::proportional(14.),egui::Color32::WHITE);});});}
                                     if menu_page.is_open(){renderer.modules.settings_panel(ctx,config.width as f32/window.scale_factor() as f32);}
+                                    if renderer.modules.overlay_active() {
+                                        // Overhead names: the same view-projection the world
+                                        // pass used, so a label sits exactly over its actor.
+                                        let scale=window.scale_factor() as f32;
+                                        renderer.modules.overlay_ui(
+                                            ctx,
+                                            camera.matrix(config.width, config.height, camera.far),
+                                            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(config.width as f32/scale, config.height as f32/scale)),
+                                        );
+                                    }
                                     if settings.show_zone_entry {if let Some((name,started))=&zone_banner {let elapsed=started.elapsed().as_secs_f32();if elapsed<4. {let alpha=(elapsed.min(4.-elapsed)*2.).clamp(0.,1.);egui::Area::new(egui::Id::new("zone-entry")).anchor(egui::Align2::CENTER_TOP,egui::vec2(0.,65.)).interactable(false).show(ctx,|ui|{ui.label(egui::RichText::new(format!("Entering {name}")).size(24.).color(egui::Color32::from_white_alpha((alpha*255.) as u8)));});}}}
                                 });
                                 egui_state.handle_platform_output(&window,output.platform_output);
@@ -4180,6 +4288,10 @@ pub fn preview(
             water_reflections: true,
             atmospheric_fog: false,
             celestial_discs: false,
+            celestial_brightness: 1.,
+            ignore_celestial_flags: false,
+            weather_override: crate::client_weather::WeatherOverride::Auto,
+            sky_override: crate::sky_transition::SkyOverride::Auto,
             cloud_detail: true,
             bloom: false,
             sharpen: false,

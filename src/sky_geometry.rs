@@ -270,6 +270,40 @@ pub fn curtain_alpha(y: f32) -> f32 {
     (ROW_Y[0] - y) / (ROW_Y[0] - ROW_Y[1])
 }
 
+/// Vertical drop `A3DSky::Render` applies to the cap (`0x799a53`:
+/// `translation.y -= cos(+0x4c4) * [+0x4c8]`), which lands the rim on the
+/// horizon plane and the apex `RADIUS - CAP_DROP` above the eye.
+pub const CAP_DROP: f32 = 47.685_848;
+
+/// Where a ray of elevation `dy` meets the cap, measured from the eye.
+///
+/// The cap is the top of a sphere of radius [`RADIUS`] whose centre sits
+/// [`CAP_DROP`] below the eye, so `|t*d - (0, -CAP_DROP, 0)| = RADIUS` gives
+/// `t = -CAP_DROP*dy + sqrt(R² - CAP_DROP²(1 - dy²))`. At the horizon
+/// (`dy = 0`) that is `R*sin(step)` = 15.035290, the rim; at the zenith it is
+/// `RADIUS - CAP_DROP` = 2.314152, the apex geometry. `dy` is clamped to zero
+/// because the cap only exists above the eye.
+pub fn bowl_hit(dy: f32) -> f32 {
+    let dy = dy.max(0.0);
+    let under = RADIUS * RADIUS - CAP_DROP * CAP_DROP * (1.0 - dy * dy);
+    -CAP_DROP * dy + under.max(0.0).sqrt()
+}
+
+/// Planar cap lookup for a unit direction: `0.5 + hit.xz / disc`.
+///
+/// The value is the client's own vertex UV (`0x79aa73`: `(1 + p.x / (R
+/// sin(step))) / 2`, i.e. `0.5 + p.xz / (2 R sin(step))`), evaluated at the
+/// point the ray reaches on the dropped cap instead of at the vertex itself.
+/// The disc is therefore `2 R sin(step)` = 30.071 and the whole texture spans
+/// the cap: the centre lands on the zenith and the horizon ray lands on the
+/// rim, which is why the sampled radius runs from 0.5 at the horizon to 0
+/// overhead.
+pub fn cap_uv(d: [f32; 3]) -> [f32; 2] {
+    let disc = 2.0 * RADIUS * ANGULAR_STEP.sin();
+    let t = bowl_hit(d[1]);
+    [0.5 + t * d[0] / disc, 0.5 + t * d[2] / disc]
+}
+
 /// Project a unit view direction onto the recovered sky textures.
 ///
 /// Returns `None` only for a direction that is not finite. `CapEdgeGap` rays
@@ -286,11 +320,9 @@ pub fn project(direction: [f32; 3]) -> Option<Sample> {
     // The cap is a sphere, so a ray meets it at `50 * d`; the curtain is a
     // cylinder or radius 50, so a ray meets it at `50 * tan(elevation)`.
     if d[1] * RADIUS >= CAP_EDGE_Y {
-        // Planar disc: the cap's ring radius is `2 * R * sin(step)`.
-        let disc = 2.0 * RADIUS * ANGULAR_STEP.sin();
         return Some(Sample {
             layer: Layer::Roof,
-            uv: [0.5 + d[0] * RADIUS / disc, 0.5 + d[2] * RADIUS / disc],
+            uv: cap_uv(d),
             alpha: 1.0,
             region: Region::Cap,
         });
@@ -320,10 +352,9 @@ pub fn project(direction: [f32; 3]) -> Option<Sample> {
         // cap draws outside its 17.5 degree disc — and `clear\roof.bmp tiles`,
         // so the repeat sampler carries it past one tile. On the cap rim the
         // radius is exactly the cap's 0.5, so both surfaces are continuous.
-        let disc = 2.0 * RADIUS * ANGULAR_STEP.sin();
         return Some(Sample {
             layer: Layer::Roof,
-            uv: [0.5 + d[0] * RADIUS / disc, 0.5 + d[2] * RADIUS / disc],
+            uv: cap_uv(d),
             alpha: 1.0,
             region: Region::CapEdgeGap,
         });
@@ -556,24 +587,54 @@ mod tests {
 
     #[test]
     fn projection_agrees_with_the_vertex_buffer_inside_the_cap() {
+        // The mesh is built in object space, where the cap is a sphere around
+        // the origin; `A3DSky::Render` drops it by `CAP_DROP` so the eye sits
+        // `CAP_DROP` *above* that centre. Casting the ray from the eye is what
+        // has to reproduce the stored UVs, `0.5 + p.xz / (2 R sin(step))`
+        // (`0x79aa73`).
         let mesh = cap();
+        let mut roof_samples = 0;
         for index in [1usize, 2, 13, 25, 144] {
             let v = mesh.vertices[index];
-            let len = (v.position[0] * v.position[0]
-                + v.position[1] * v.position[1]
-                + v.position[2] * v.position[2])
-                .sqrt();
-            let direction = [
-                v.position[0] / len,
-                v.position[1] / len,
-                v.position[2] / len,
+            let eye = [0.0, CAP_DROP, 0.0];
+            let rel = [
+                v.position[0] - eye[0],
+                v.position[1] - eye[1],
+                v.position[2] - eye[2],
             ];
+            let len = (rel[0] * rel[0] + rel[1] * rel[1] + rel[2] * rel[2]).sqrt();
+            let direction = [rel[0] / len, rel[1] / len, rel[2] / len];
             let sample = project(direction).expect("finite direction");
-            assert_eq!(sample.region, Region::Cap, "cap vertex {index}");
-            assert_eq!(sample.layer, Layer::Roof);
+            // Seen from the dropped eye the cap's outer rings sit at the horizon,
+            // so some of them fall on the curtain's side of the divide; those are
+            // the skirt's business, not the ceiling's.
+            if sample.layer != Layer::Roof {
+                continue;
+            }
+            roof_samples += 1;
+            assert!(
+                matches!(sample.region, Region::Cap | Region::CapEdgeGap),
+                "cap vertex {index} region {:?}",
+                sample.region
+            );
             assert!(close(sample.uv[0], v.uv[0], 1e-4), "cap u at {index}");
             assert!(close(sample.uv[1], v.uv[1], 1e-4), "cap v at {index}");
         }
+        assert!(
+            roof_samples >= 2,
+            "only {roof_samples} cap vertices checked"
+        );
+        // Overhead is unambiguously the ceiling, and it is the sheet's centre.
+        let zenith = project([0.0, 1.0, 0.0]).expect("zenith");
+        assert_eq!(zenith.region, Region::Cap);
+        assert!(close(zenith.uv[0], 0.5, 1e-6) && close(zenith.uv[1], 0.5, 1e-6));
+        // The rim of the cap is the horizon ray, and its stored UV is 1.0.
+        let rim = mesh
+            .vertices
+            .iter()
+            .find(|v| (v.position[1] - CAP_DROP).abs() < 1e-3)
+            .expect("rim ring");
+        assert!(close(rim.uv[0], 1.0, 1e-4) || close(rim.uv[1], 1.0, 1e-4));
     }
 
     #[test]
@@ -604,20 +665,26 @@ mod tests {
             assert_eq!(sample.alpha, 1.0, "the band is opaque at {elevation}");
             radii.push((sample.uv[0] - 0.5).hypot(sample.uv[1] - 0.5));
         }
-        // Radius shrinks monotonically as the elevation rises, and passes one
-        // whole tile at the low end — which is why the roof sheet is sampled
-        // with the repeat sampler.
+        // Radius shrinks monotonically as the elevation rises: the horizon ray
+        // meets the rim of the dropped cap (radius 0.5 of the sheet) and the
+        // zenith meets its apex (radius 0).
         assert!(radii.windows(2).all(|w| w[1] < w[0]), "radii {radii:?}");
         assert!(
-            radii[0] > 1.28 && radii[0] < 1.32,
-            "curtain rim {}",
+            radii[0] > 0.085 && radii[0] < 0.1,
+            "band floor {}",
             radii[0]
         );
         assert!(
-            radii[3] > 0.5 && radii[3] < 0.6,
+            radii[3] > 0.025 && radii[3] < 0.032,
             "near the cap {}",
             radii[3]
         );
+        // The horizon ray lands on the sheet's rim, which is where the
+        // curtain's own texture edge is too.
+        let rim = project([1.0, 0.0, 0.0]).unwrap();
+        assert!(close(rim.uv[0], 1.0, 1e-4), "rim {}", rim.uv[0]);
+        let zenith = project([0.0, 1.0, 0.0]).unwrap();
+        assert!(close(zenith.uv[0], 0.5, 1e-4) && close(zenith.uv[1], 0.5, 1e-4));
         // Continuity with the cap: 72.4 and 72.6 degrees are the same texel.
         let (sin, cos) = 72.4_f32.to_radians().sin_cos();
         let below = project([cos, sin, 0.0]).unwrap();
