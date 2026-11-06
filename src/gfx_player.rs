@@ -2171,8 +2171,9 @@ fn surface_cone(rng: &mut Rng, angle: f32) -> Vec3 {
 /// `AreaSize` and their sum, and the draw is compared against `xy/sum`
 /// (`0x727857`-`0x727868`, the Z faces) and then against `yz/sum` on its own
 /// (`0x7278d6`-`0x7278df`, the X faces), falling through to the Y faces. That
-/// second comparison is not the cumulative ratio, so the split is not the area
-/// split a reader would expect; it is what the client does. The second draw picks
+/// second comparison is not the cumulative ratio, so the X faces are reachable
+/// only when `z > x` and a cube never emits from them at all; it is what the
+/// client does. The second draw picks
 /// the sign of the face's own coordinate, `-1.0` unless the draw is not below the
 /// 0.5 at `0x8d5894` (`0x727884`, `0x7278f9`, `0x72794c`). The third and fourth
 /// are `2/32767 - 1` uniforms for the two in-face coordinates, and which slot
@@ -3774,12 +3775,11 @@ mod tests {
     }
 
     /// Every id 121 sample sits on a face: one component at the full half-extent,
-    /// the other two inside it, and all three faces get used.
+    /// the other two inside it.
     #[test]
     fn id_121_surface_emission_lands_on_a_box_face() {
         let half = Vec3::new(1., 0.5, 0.25);
         let mut rng = Rng::new(97);
-        let mut faces = [0usize; 3];
         for _ in 0..2_000 {
             let p = box_surface_sample(&mut rng, half);
             assert!(
@@ -3794,15 +3794,53 @@ mod tests {
                 (p.z.abs() - half.z).abs() < 1e-6,
             ];
             assert!(on.iter().any(|v| *v), "{p} is on no face of {half}");
-            for (slot, hit) in faces.iter_mut().zip(on) {
-                if hit {
-                    *slot += 1;
+        }
+    }
+
+    /// The face choice is not the area split, and one pair can be unreachable.
+    /// `0x7278d6` compares the draw against `yz/sum` on its own rather than the
+    /// cumulative `(xy+yz)/sum`, so the X faces need a draw that is both at least
+    /// `xy/sum` and below `yz/sum` — possible only when `z > x`. With half-extents
+    /// (1, 0.5, 0.25) the areas would give Z 4/7, X 1/7, Y 2/7, and the client
+    /// gives Z 4/7, X none, Y 3/7: the X faces' share falls to the Y faces. A cube
+    /// is the extreme case, needing a draw both `>= 1/3` and `< 1/3`. Flipping the
+    /// extents so `z > x` opens all three again.
+    #[test]
+    fn id_121_face_choice_carries_the_clients_skew() {
+        let draws = 4_000;
+        let mut count = |half: Vec3| {
+            let mut rng = Rng::new(97);
+            let mut faces = [0usize; 3];
+            for _ in 0..draws {
+                let p = box_surface_sample(&mut rng, half);
+                let on = [
+                    (p.x.abs() - half.x).abs() < 1e-6,
+                    (p.y.abs() - half.y).abs() < 1e-6,
+                    (p.z.abs() - half.z).abs() < 1e-6,
+                ];
+                for (slot, hit) in faces.iter_mut().zip(on) {
+                    if hit {
+                        *slot += 1;
+                    }
                 }
             }
-        }
+            faces
+        };
+        let flat = count(Vec3::new(1., 0.5, 0.25));
+        assert_eq!(
+            flat[0], 0,
+            "the X faces are unreachable when z < x: {flat:?}"
+        );
+        let z_share = flat[2] as f32 / draws as f32;
         assert!(
-            faces.iter().all(|f| *f > 0),
-            "a face was never chosen: {faces:?}"
+            (z_share - 4. / 7.).abs() < 0.03,
+            "the Z faces took {z_share} of the draws, not the 4/7 the client's              xy/sum test implies"
+        );
+        assert!(flat[1] > 0, "the Y faces were never chosen: {flat:?}");
+        let tall = count(Vec3::new(0.25, 0.5, 1.));
+        assert!(
+            tall.iter().all(|f| *f > 0),
+            "with z > x all three face pairs are reachable: {tall:?}"
         );
     }
 

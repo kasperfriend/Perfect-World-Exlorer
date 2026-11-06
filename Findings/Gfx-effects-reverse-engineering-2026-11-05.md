@@ -156,6 +156,35 @@ products and both `IsBind` re-tests are read now, and `spawn` reproduces the blo
 for these 86 elements: `surface_cone` for the chain, `to_emitter_local` for the
 frame, and the same vector for the position and the direction.
 
+**Id 121's surface sampler `0x727800` is a box face, chosen by area.** It is scalar
+x87 from end to end and calls none of the vector helpers. `0x72780d`–`0x727843`
+reads `AreaSize` at emitter`+0xb4…+0xbc`, forms the three face products `x·y`,
+`y·z` and `x·z`, stores their sum and the ratio `yz/sum`, and one `rand()` draw
+(`0x727847`, scaled by the 1/32767 at `0x8e6f10`) then chooses: below `xy/sum`
+falls through to `0x72786a`, below `yz/sum` branches to `0x7278e1` (`0x7278d6`–
+`0x7278df`), and anything else to `0x727934`. Each branch writes a sign —
+`0xbf800000`, replaced by `0x3f800000` when a second draw is not below the 0.5 at
+`0x8d5894` (`0x727884`, `0x7278f9`, `0x72794c`) — into the slot the tail reads as
+that face's own coordinate, and two `2/32767 − 1` draws (`0x8e6efc`, `0x8d5c28`)
+into the other two: `0x7278af`/`0x7278c9` for the Z faces, `0x727924` for the X
+faces, `0x727977` for the Y faces. Four draws per particle on every path.
+
+The common tail `0x727991`–`0x727a41` multiplies the three coefficients by the
+basis rows at emitter`+0xc0`, `+0xcc` and `+0xd8` and writes node`+0x10…+0x18`, so
+the position is a point on the box those nine floats span. No direction is written;
+the birth flow calls the direction slot afterwards. Unbound particles then get the
+emitter position added at `0x727a6c`, node`+0x34` filled from emitter`+0xa0` at
+`0x727a90`, and the drag anchor at node`+0x28` when `IsDrag` (`0x727a5a`). Bound
+particles skip all three (`0x727a4e`).
+
+The face test is not the area test. Because `0x7278d6` compares against `yz/sum`
+alone rather than the cumulative `(xy+yz)/sum`, the X faces need a draw that is at
+once `>= xy/sum` and `< yz/sum`, which happens only when `AreaSize.z >
+AreaSize.x`; a cube never emits from its X faces at all. `box_surface_sample`
+reproduces that, and a zero extent sends both the client (all three ratios 0/0) and
+the sampler (guarded) to the Y-face branch against a zero basis, which is the
+origin — 512 corpus elements collapse that way.
+
 ### The direction slot `0x723440`, shared by all seven classes
 
 Vtable slot [1] is the same routine in every emitter vtable, and it is what fills
