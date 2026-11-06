@@ -16,6 +16,8 @@ Element IDs in the corpus, with counts: 100 sprite 3,537; 101 trail/quad 5,244; 
 | `0x5b18a1`, `0x5b1a00`, `0x70bd20`, `0x7b2520` | day/night-only roots rejected at 0.5, at most one new root admitted per frame, duplicate roots updated in place, hook resolution |
 | `0x71a1f1`, `0x71a217` | particle tick converts the integer millisecond delta (`fild; fmul 0.001`) and scales it by the root's live `PlaySpeed` copy at root+0x1ec |
 | `0x71a247` | lifetime: `age += dt; if (age >= ttl) unlink`, age at node+0x00, TTL at node+0x04 |
+| `0x715150` | the whole initialiser of the `.data` global `0x9c1318`: `flds 0x8edaa8` (10.0), `fmuls 0x8edab0` (0.8333333), `fstps 0x9c1318`, `ret` — so the emission-LOD numerator constant is **8.3333333**, a compile-time product rather than runtime state, and the LOD thresholds at `0x8edaa8`/`0x8edaac` are **10.0** and **40.0** |
+| `0x70ba00` | the `Priority` level-of-detail gate: `0x6fa670(arg)` first (`0x70ba0e`), the byte at element+0x12e next (`0x70ba23`), then `Priority` at element+0xdc against `+0x134` of the object `0x41a3c0` returns (`0x70ba36`–`0x70ba44`, signed greater wins), and element+0x50's negative case is the only `return false` on that path (`0x70ba4f`) |
 | `0x715b50`, `0x715c09` | emission, and the quota rule `count = min(count, quota - live)` with −1 unlimited (live at +0x1a8, quota at +0x1a4) |
 | `0x716240` | affector order: the node is copied into a 0x3c-byte temp struct (`+0x00` position, `+0x0c` colour, `+0x10` scale, `+0x24` rotation, `+0x28` velocity, `+0x34` age), every affector's `Update` (vtable slot 1) runs in list order, the result is copied back |
 | `0x7165b0` | particle integration: `speed += ParAcc*dt; d = (speed_old + speed_new)*0.5*dt; pos += d*dir`, with the displacement mirrored into node+0x50 and a second accumulator at node+0x5c for `Acc` along the authored `AccDir` (settings+0x1c) |
@@ -210,7 +212,10 @@ unbound:  node+0x44 = rotate(Z, q),   q = quat(emitter+0x74) = Q ⊗ keypoint.Di
 the 0.0 at `0x8d58a0`; `test $0x40,%ah` after `fnstsw` tests C3, the equality flag,
 and `jne 0x7237d6` exits through the epilogue with the base direction already
 stored. The gate is therefore **`Angle != 0`, not `Angle > 0`** — the corpus's 36
-negative angles do get a cone, mirrored through the emitter.
+negative angles do get a cone, mirrored through the emitter. The constant itself is
+read out of `.rdata` now: `0x8d58a0` holds the four bytes `00000000`, so it is
+`+0.0f` exactly and the comparison really is against zero, with 0.01 at `0x8d5898`,
+1000.0 at `0x8d589c` and 800.0 at `0x8d58a4` either side of it.
 
 **The cone.** Two `rand()` draws, through the IAT slot `0x8d5478` loaded once into
 `%ebx` at `0x72352f`:
