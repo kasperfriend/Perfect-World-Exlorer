@@ -91,7 +91,9 @@
 //! 124 (`0x729be0`, a cylinder) sample the emitter's own `AreaSize` volume, while
 //! id 120 (`0x7272aa`) samples no volume at all: it spreads the direction over
 //! the surface of a cone and leaves the particle one unit from the emitter. All
-//! three are reproduced. Id 121's `0x727800` is not.
+//! three are reproduced, and so is id 121's `0x727800`, which picks one of the
+//! box's three face pairs with probability proportional to its area and samples
+//! that face. Ids 122 and 125 never read the flag.
 
 use crate::{
     ecmodel,
@@ -1917,9 +1919,20 @@ fn spawn(
     // (`0x7276bc`, `0x7276d6`). Its particles therefore sit one unit out, on the
     // surface of a cone of half-angle `Angle` about the local Z.
     //
-    // Id 121 keeps the volume path: its `0x727800` spends ten draws and calls
-    // none of the vector helpers, so it is a different algorithm outright. Ids
-    // 122 and 125 never read the flag.
+    // Id 121's `0x727800` is a box surface, and it is the only sampler that
+    // chooses *which* face to use: `0x72780d`-`0x727843` form the three face
+    // products xy, yz and xz of `AreaSize`, their sum, and the ratio yz/sum, then
+    // one draw decides — below xy/sum takes the Z faces (`0x727868`), below
+    // yz/sum the X faces (`0x7278df`), otherwise the Y faces. The second test is
+    // against yz/sum alone rather than the cumulative (xy+yz)/sum, which is the
+    // client's own arithmetic and skews the split; it is reproduced as it stands.
+    // The chosen branch writes a +/-1.0f (`0xbf800000`, flipped to `0x3f800000`
+    // when a second draw is not below the 0.5 at `0x8d5894`) into the slot the
+    // tail multiplies by the face's own basis row, and two `2/32767 - 1` draws
+    // into the other two. `0x727991`-`0x727a41` is the basis multiply, so the
+    // position is a point on the box the nine floats at +0xc0 span, written to
+    // node+0x10 with no direction — id 121's birth flow calls the direction slot
+    // afterwards, so the cone still applies. Ids 122 and 125 never read the flag.
     // The basis builder's scalar argument: the interpolated keypoint `Scale`
     // times the root `PlaySpeed`. The bound branch ignores it, so it only reaches
     // the geometry of an unbound emitter, and only for the three classes that
@@ -1939,6 +1952,7 @@ fn spawn(
                 (sample * half, Some(-sample))
             }
             124 => (cylinder_sample(rng) * half, None),
+            121 => (box_surface_sample(rng, half), None),
             120 => {
                 // One draw, and the direction is the position: the client builds
                 // node+0x44 and node+0x10 from the same vector.
@@ -2148,6 +2162,47 @@ fn surface_cone(rng: &mut Rng, angle: f32) -> Vec3 {
     let azimuth = Quat::from_axis_angle(Vec3::Z, rng.unit() * tau);
     let tilt = Quat::from_axis_angle(azimuth * Vec3::X, std::f32::consts::FRAC_PI_2 - angle);
     (tilt * azimuth) * Vec3::Y
+}
+
+/// Id 121's surface sample: a point on the face of the box `half` describes.
+///
+/// `0x727800` spends four draws on every particle, in this order. The first
+/// chooses the face: `0x72780d`-`0x727843` build the three face products of
+/// `AreaSize` and their sum, and the draw is compared against `xy/sum`
+/// (`0x727857`-`0x727868`, the Z faces) and then against `yz/sum` on its own
+/// (`0x7278d6`-`0x7278df`, the X faces), falling through to the Y faces. That
+/// second comparison is not the cumulative ratio, so the split is not the area
+/// split a reader would expect; it is what the client does. The second draw picks
+/// the sign of the face's own coordinate, `-1.0` unless the draw is not below the
+/// 0.5 at `0x8d5894` (`0x727884`, `0x7278f9`, `0x72794c`). The third and fourth
+/// are `2/32767 - 1` uniforms for the two in-face coordinates, and which slot
+/// each lands in depends on the branch (`0x7278af`/`0x7278c9`, `0x727924`,
+/// `0x727977`).
+///
+/// The tail at `0x727991` multiplies all three by the basis rows at emitter+0xc0,
+/// +0xcc and +0xd8 and writes node+0x10, which for this player is the
+/// componentwise product with `half`.
+///
+/// A zero extent makes every ratio 0/0 in the client, both comparisons false, and
+/// the Y-face branch runs with a zero basis — the same branch the guard below
+/// picks, and the same zero position.
+fn box_surface_sample(rng: &mut Rng, half: Vec3) -> Vec3 {
+    let xy = half.x * half.y;
+    let yz = half.y * half.z;
+    let xz = half.x * half.z;
+    let total = xy + yz + xz;
+    let pick = rng.unit();
+    let sign = if rng.unit() >= 0.5 { 1. } else { -1. };
+    let first = rng.signed();
+    let second = rng.signed();
+    let unit = if total > 0. && pick < xy / total {
+        Vec3::new(first, second, sign)
+    } else if total > 0. && pick < yz / total {
+        Vec3::new(sign, first, second)
+    } else {
+        Vec3::new(first, sign, second)
+    };
+    unit * half
 }
 
 /// The volume offset every class shares when `IsSurface` does not apply.
@@ -3692,15 +3747,15 @@ mod tests {
         }
     }
 
-    /// Id 121's `0x727800` spends ten draws and calls none of the vector helpers,
-    /// and ids 122 and 125 never read the flag, so an element of another class
-    /// still fills the volume even with `IsSurface` set.
+    /// Ids 122 and 125 never read `IsSurface` — `0x7288f0` and `0x726570` do not
+    /// test emitter+0x84 at all — so an element of either class still fills the
+    /// volume even with the flag set.
     #[test]
     fn other_classes_keep_the_volume_path() {
         let view = view();
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
-        context.id = 121;
+        context.id = 122;
         let mut particle = Particle::default();
         particle.is_surface = true;
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
@@ -3714,8 +3769,64 @@ mod tests {
         // A surface sampler would pin every sample to exactly 1.
         assert!(
             closest < 0.5,
-            "id 121 should still fill the volume; its closest sample was {closest}"
+            "id 122 should still fill the volume; its closest sample was {closest}"
         );
+    }
+
+    /// Every id 121 sample sits on a face: one component at the full half-extent,
+    /// the other two inside it, and all three faces get used.
+    #[test]
+    fn id_121_surface_emission_lands_on_a_box_face() {
+        let half = Vec3::new(1., 0.5, 0.25);
+        let mut rng = Rng::new(97);
+        let mut faces = [0usize; 3];
+        for _ in 0..2_000 {
+            let p = box_surface_sample(&mut rng, half);
+            assert!(
+                p.x.abs() <= half.x + 1e-6
+                    && p.y.abs() <= half.y + 1e-6
+                    && p.z.abs() <= half.z + 1e-6,
+                "{p} is outside the box {half}"
+            );
+            let on = [
+                (p.x.abs() - half.x).abs() < 1e-6,
+                (p.y.abs() - half.y).abs() < 1e-6,
+                (p.z.abs() - half.z).abs() < 1e-6,
+            ];
+            assert!(on.iter().any(|v| *v), "{p} is on no face of {half}");
+            for (slot, hit) in faces.iter_mut().zip(on) {
+                if hit {
+                    *slot += 1;
+                }
+            }
+        }
+        assert!(
+            faces.iter().all(|f| *f > 0),
+            "a face was never chosen: {faces:?}"
+        );
+    }
+
+    /// Four draws, in the client's order: the face, the sign, then the two
+    /// in-face coordinates.
+    #[test]
+    fn box_surface_sample_spends_four_draws() {
+        let mut rng = Rng::new(101);
+        let mut reference = Rng::new(101);
+        let _ = box_surface_sample(&mut rng, Vec3::new(1., 0.5, 0.25));
+        for _ in 0..4 {
+            reference.next_u32();
+        }
+        assert_eq!(rng.next_u32(), reference.next_u32());
+    }
+
+    /// 512 corpus elements collapse to a zero extent, where the client's ratios
+    /// are all 0/0. Both fall out at the origin rather than as NaN.
+    #[test]
+    fn a_zero_extent_box_collapses_to_the_origin() {
+        let mut rng = Rng::new(103);
+        let p = box_surface_sample(&mut rng, Vec3::ZERO);
+        assert!(p.is_finite(), "{p} is not finite");
+        assert_eq!(p, Vec3::ZERO);
     }
 
     /// Id 124's surface sample is the lateral surface of a cylinder, not an
