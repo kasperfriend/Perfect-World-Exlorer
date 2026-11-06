@@ -567,15 +567,18 @@ impl Catalog {
 mod tests {
     use super::*;
 
-    /// A root with one sprite element, carrying every key `gfx_file::parse`
-    /// requires of a version-33 container — `FadeStart`, `FadeEnd` and the two
-    /// `Vec:` lines the AABB is read from — so both readers have something real
-    /// to decide about.
-    fn sprite_root(name: &str) -> String {
-        format!(
-            "MOXTVersion: 33\nDedaultScale: 2\nPlaySpeed: 1\nDefaultAlpha: 0.5\nRaytrace: 0\nFadeByDist: 0\nFadeStart: 0\nFadeEnd: 0\nVec: 0, 0, 0\nVec: 1, 1, 1\nShakeCam: 1\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 100\nName: {name}\nSrcBlend: 5\nDestBlend: 2\nRepeatCount: 1\nRepeatDelay: 0\nTexFile: 粒子\\glow.dds\nBindEle: \nZEnable: 0\nMatchGrnd: 0\nTexRow: 1\nTexCol: 1\nTexInterval: 50\nPriority: 2\nIsDummy: 0\nDummyEle: \nWarp: 0\nWidth: 0.25\nHeight: 0.5\nRotFromView: 0\nGrndNormOnly: 0\nStartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\nTimeSpan: -1\nPosition: 1, 2, 3\nColor: -1\nScale: 2\nDirection: 0, 0, 0, 1\nRad_2D: 0\nCtrlMethodCount: 0\n"
-        )
-    }
+    /// A real root from the shipped archive, `gfx/场景/彩虹.gfx` — version 30,
+    /// one sprite element, `Priority: 4`, `ShakeCam: 0`. A hand-written fixture
+    /// is a claim about what the parsers require, and the claim was wrong once
+    /// already: `gfx_file` reads `FadeStart`, `FadeEnd` and the two `Vec:` lines
+    /// in file order and errors without them, while `gfx_decal` does not. The
+    /// archive is the only fixture that cannot drift from the parsers.
+    const RAINBOW_ROOT: &str = "MOXTVersion: 30\nDedaultScale: 3.000000\nPlaySpeed: 0.500000\nDefaultAlpha: 1.000000\nRaytrace: 0\nFadeByDist: 0\nFadeStart: 10.000000\nFadeEnd: 50.000000\nVec: -51.436649, -23.977198, 0.000000\nVec: 53.563343, 24.022799, 0.000000\nShakeCam: 0\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 100\nName: Unnamed2\nSrcBlend: 5\nDestBlend: 2\nRepeatCount: 1\nRepeatDelay: 0\nTexFile: 物体\\caihong.dds\nBindEle: \nZEnable: 1\nMatchGrnd: 0\nTexRow: 1\nTexCol: 1\nTexInterval: 50\nPriority: 4\nWidth: 17.500000\nHeight: 8.000000\nRotFromView: 0\nGrndNormOnly: 0\nStartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\nTimeSpan: -1\nPosition: 0.354449, 0.007600, 0.000000\nColor: 855638015\nScale: 1.000000\nDirection: 0.000000, 0.000000, 0.000000, 1.000000\nRad_2D: 0.000000\nCtrlMethodCount: 0";
+
+    /// Also real: `gfx/策划联入/人物技能/击中/空.gfx`, version 79 and no elements
+    /// at all, which is the case where a maximum `Priority` has nothing to be
+    /// the maximum of.
+    const EMPTY_ROOT: &str = "MOXTVersion: 79\nDedaultScale: 1.000000\nPlaySpeed: 1.000000\nDefaultAlpha: 1.000000\nRaytrace: 0\nFaceToViewer: 0\nFadeByDist: 0\nFadeStart: 0.000000\nFadeEnd: 0.000000\nVec: 999999.000000, 999999.000000, 999999.000000\nVec: -999999.000000, -999999.000000, -999999.000000\nUseAABB: 1\nShakeCam: 0\nNoChangeDir: 0\n2DRender: 0\n2DBackLayer: 0\nPhysExist: 0\nGFXELEMENTCOUNT: 0";
 
     #[test]
     fn names_are_normalized_to_one_form() {
@@ -633,19 +636,27 @@ mod tests {
 
     #[test]
     fn capabilities_come_from_the_parser() {
-        let report = capabilities(&sprite_root("glow")).expect("sprite root parses");
+        let report = capabilities(RAINBOW_ROOT).expect("a shipped root parses");
         // Which of the two readers takes it is a choice of renderer, so the
         // assertion is that one of them does; the content is what has to be
         // exact, because that is what a caller decides on.
         assert!(matches!(report.reader, Reader::Static | Reader::Dynamic));
-        assert_eq!(report.version, 33);
+        assert_eq!(report.version, 30);
         assert_eq!(report.elements, 1);
-        assert_eq!(report.max_priority, 2);
-        // `ShakeCam: 1` shakes: `0x6e38de` stores `setne`, so any nonzero does.
-        assert!(report.shakes_camera);
-        assert_eq!(report.particles, 0);
+        assert_eq!(report.max_priority, 4);
+        assert!(!report.shakes_camera, "ShakeCam is 0 in this root");
+        assert_eq!(report.particles, 0, "id 100 is a sprite, not an emitter");
         assert_eq!(report.lights, 0);
+        assert_eq!(report.surface_emitters, 0);
+        assert_eq!(report.hsv_emitters, 0);
         assert!(report.children.is_empty());
+
+        let empty = capabilities(EMPTY_ROOT).expect("an element-less root parses");
+        assert_eq!(empty.version, 79);
+        assert_eq!(empty.elements, 0);
+        // With no elements there is no authored priority, and i32::MIN would
+        // leak out of a report a caller compares against a detail level.
+        assert_eq!(empty.max_priority, 0);
     }
 
     #[test]
@@ -653,9 +664,7 @@ mod tests {
         // `gfx_file` keeps an id the client never instantiates as `Spec::Unknown`
         // so the element clock stays exact, so this root is playable and the
         // report says what is in it rather than refusing it.
-        let report = capabilities(
-            "MOXTVersion: 33\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 999\nName: x\nStartTime: 0\nKEYPOINTCOUNT: 0\n",
-        );
+        let report = capabilities(&RAINBOW_ROOT.replace("GFXELEMENTID: 100", "GFXELEMENTID: 999"));
         match report {
             Ok(report) => {
                 assert_eq!(report.elements, 1);
