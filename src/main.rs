@@ -165,6 +165,289 @@ struct Terrain {
     /// Parsed native world cloud grid, if this map ships `world.cld` loose.
     cloud_surface: Option<std::sync::Arc<cloud_surface::CloudSurface>>,
 }
+
+/// Everything one tile needs to decode its blocks: the tile's own bytes plus the
+/// shared tables. Bundled so a worker only needs a borrow of it.
+struct TileDecode<'a> {
+    data: &'a [u8],
+    name: &'a str,
+    version: u32,
+    flags: u8,
+    layout: &'a terrain_block::Layout,
+    grid: usize,
+    sin_table: &'a [f32],
+    cos_table: &'a [f32],
+    blocks: usize,
+}
+
+/// One decoded block on its way back from a worker: its index in the tile and,
+/// when the decode succeeded, the `grid * grid` arrays.
+type BlockPayload = (usize, Result<(Vec<f32>, Vec<[i8; 3]>), String>);
+
+/// Per-block scratch, owned by whoever decodes a block.
+///
+/// Blocks are decoded on several threads (see `decode_blocks`), so each worker
+/// keeps its own scratch and only the two finished arrays travel back to the
+/// builder. Reusing the rest keeps the per-block allocation count at two.
+#[derive(Default)]
+struct BlockScratch {
+    decoded: Vec<u8>,
+    values: Vec<f32>,
+    normal_data: Vec<u8>,
+    block_normals: Vec<[i8; 3]>,
+    decoded_colour: Vec<u8>,
+    heights: Vec<f32>,
+    normals: Vec<[i8; 3]>,
+}
+
+/// Decode one block and move its two arrays out of the worker's scratch.
+fn decode_block_owned(
+    tile: &TileDecode,
+    scratch: &mut BlockScratch,
+    bi: usize,
+) -> Result<(Vec<f32>, Vec<[i8; 3]>), String> {
+    decode_block(tile, scratch, bi)?;
+    Ok((
+        std::mem::take(&mut scratch.heights),
+        std::mem::take(&mut scratch.normals),
+    ))
+}
+
+/// Decode every block of one tile, handing the finished arrays to `insert` in
+/// block order.
+///
+/// One thread per core (capped) decodes independently; finished blocks are held
+/// in a map and pushed into `insert` only once every lower index has gone in,
+/// so the builder sees a bit-identical sequence to the old sequential loop.
+/// `insert` runs on the calling thread, which is why the builder needs no
+/// locking. `PW_TERRAIN_THREADS=1` restores the plain loop.
+fn decode_blocks<F>(tile: &TileDecode, threads: usize, mut insert: F) -> Result<(), String>
+where
+    F: FnMut(usize, &[f32], &[[i8; 3]]) -> Result<(), String>,
+{
+    if tile.blocks == 0 {
+        return Ok(());
+    }
+    if threads.min(tile.blocks) <= 1 {
+        let mut scratch = BlockScratch::default();
+        for bi in 0..tile.blocks {
+            decode_block(tile, &mut scratch, bi)?;
+            insert(bi, &scratch.heights, &scratch.normals)?;
+        }
+        return Ok(());
+    }
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let (tx, rx) = std::sync::mpsc::channel::<BlockPayload>();
+    std::thread::scope(|scope| -> Result<(), String> {
+        for _ in 0..threads.min(tile.blocks) {
+            let tx = tx.clone();
+            let next = &next;
+            scope.spawn(move || {
+                let mut scratch = BlockScratch::default();
+                loop {
+                    let bi = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    if bi >= tile.blocks {
+                        break;
+                    }
+                    let decoded = decode_block_owned(tile, &mut scratch, bi);
+                    let failed = decoded.is_err();
+                    if tx.send((bi, decoded)).is_err() || failed {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(tx);
+        let mut next_expected = 0usize;
+        let mut pending = std::collections::BTreeMap::new();
+        while next_expected < tile.blocks {
+            let Ok((bi, decoded)) = rx.recv() else {
+                break;
+            };
+            match decoded {
+                Ok(pair) => {
+                    pending.insert(bi, pair);
+                }
+                Err(e) => return Err(e),
+            }
+            while let Some((heights, normals)) = pending.remove(&next_expected) {
+                insert(next_expected, &heights, &normals)?;
+                next_expected += 1;
+                if next_expected >= tile.blocks {
+                    break;
+                }
+            }
+        }
+        if next_expected < tile.blocks {
+            return Err(format!("{}: terrain decode stopped early", tile.name));
+        }
+        Ok(())
+    })
+}
+
+/// Decode one T2BK block into `scratch.heights` / `scratch.normals` (both
+/// `grid * grid`).
+///
+/// The function is pure with respect to the world: it only borrows the tile
+/// bytes and the shared trig tables, which is what lets the loader run several
+/// blocks of one tile at the same time. The returned arrays are exactly what
+/// the sequential loop used to hand to `Builder::block`.
+fn decode_block(tile: &TileDecode, scratch: &mut BlockScratch, bi: usize) -> Result<(), String> {
+    let TileDecode {
+        data,
+        name,
+        version,
+        flags,
+        layout,
+        grid,
+        sin_table,
+        cos_table,
+        ..
+    } = *tile;
+    let BlockScratch {
+        decoded,
+        values,
+        normal_data,
+        block_normals,
+        decoded_colour,
+        heights,
+        normals,
+    } = scratch;
+
+    let off = u32at(&data, 16 + bi * 4)? as usize;
+    let hs = u32at(&data, off + 16)? as usize;
+    let ns = u32at(&data, off + 20)? as usize;
+    let hdr = if version >= 6 {
+        36
+    } else if version >= 4 {
+        32
+    } else if version >= 3 {
+        28
+    } else {
+        24
+    };
+    let raw = data
+        .get(off + hdr..off + hdr + hs)
+        .ok_or("truncated height data")?;
+    decoded.clear();
+    if flags & 4 != 0 {
+        let mut d = ZlibDecoder::new(raw);
+        d.by_ref()
+            .take(((grid + 1) * (grid + 1) * 4 + 64) as u64)
+            .read_to_end(&mut decoded)
+            .map_err(|e| format!("{name} block {bi}: {e}"))?;
+    } else {
+        decoded.extend_from_slice(raw)
+    }
+    let nv = (grid + 1) * (grid + 1);
+    values.clear();
+    if flags & 8 != 0 {
+        let min = f32at(&decoded, 4)?;
+        let max = f32at(&decoded, 8)?;
+        if u32at(&decoded, 12)? as usize != nv {
+            return Err("bad incremental height count".into());
+        }
+        let mut acc = 0i32;
+        for j in 0..nv {
+            let p = 16 + j * 2;
+            let s = decoded.get(p..p + 2).ok_or("truncated deltas")?;
+            acc += i16::from_le_bytes([s[0], s[1]]) as i32;
+            values.push(min + acc as f32 * (max - min) / 32767.0);
+        }
+    } else {
+        if decoded.len() != nv * 4 {
+            return Err(format!(
+                "{name} block {bi}: bad height size {} expected {}",
+                decoded.len(),
+                nv * 4
+            ));
+        }
+        for j in 0..nv {
+            values.push(f32at(&decoded, j * 4)?)
+        }
+    }
+    let noff = off
+        .checked_add(hdr)
+        .and_then(|x| x.checked_add(hs))
+        .ok_or("normal offset overflow")?;
+    let normal_raw = data
+        .get(noff..noff.checked_add(ns).ok_or("normal size overflow")?)
+        .ok_or("truncated normal data")?;
+    normal_data.clear();
+    if flags & 0x10 != 0 {
+        ZlibDecoder::new(normal_raw)
+            .take((nv * 12 + 64) as u64)
+            .read_to_end(&mut normal_data)
+            .map_err(|e| format!("{name} block {bi} normals: {e}"))?;
+    } else {
+        normal_data.extend_from_slice(normal_raw)
+    }
+    block_normals.clear();
+    if flags & 0x20 != 0 {
+        let base = if u32at(&normal_data, 4).ok() == Some(nv as u32) {
+            8
+        } else if u32at(&normal_data, 1).ok() == Some(nv as u32) {
+            5
+        } else {
+            return Err(format!("{name} block {bi}: invalid normal header"));
+        };
+        for j in 0..nv {
+            let az =
+                *normal_data.get(base + 2 * j).ok_or("truncated normals")? as usize;
+            let el = *normal_data
+                .get(base + 2 * j + 1)
+                .ok_or("truncated normals")? as usize;
+            let se = sin_table[el];
+            block_normals.push([
+                (se * cos_table[az] * 127.) as i8,
+                (cos_table[el] * 127.) as i8,
+                (se * sin_table[az] * 127.) as i8,
+            ]);
+        }
+    } else {
+        for j in 0..nv {
+            let mut n = [0i8; 3];
+            for k in 0..3 {
+                let v = f32at(&normal_data, j * 12 + k * 4)?;
+                if !v.is_finite() {
+                    return Err("nonfinite normal".into());
+                }
+                n[k] = (v.clamp(-1., 1.) * 127.) as i8;
+            }
+            block_normals.push(n);
+        }
+    }
+    // Third section: per-vertex RGBA, present when flag bit 0x1 is set.
+    if let Some((cs, ce)) = layout.blocks[bi].colour {
+        let raw = data.get(cs..ce).ok_or("truncated vertex colour data")?;
+        decoded_colour.clear();
+        ZlibDecoder::new(raw)
+            .take((nv * 4 + 64) as u64)
+            .read_to_end(&mut decoded_colour)
+            .map_err(|e| format!("{name} block {bi} vertex colour: {e}"))?;
+        if decoded_colour.len() != nv * 4 {
+            return Err(format!(
+                "{name} block {bi}: vertex colour is {} bytes, expected {}",
+                decoded_colour.len(),
+                nv * 4
+            ));
+        }
+    }
+    heights.clear();
+    normals.clear();
+    for y in 0..grid {
+        for x in 0..grid {
+            let val = values[y * (grid + 1) + x];
+            if !val.is_finite() {
+                return Err("nonfinite height".into());
+            }
+            heights.push(val);
+            normals.push(block_normals[y * (grid + 1) + x]);
+        }
+    }
+    Ok(())
+}
+
 /// Load the world.
 ///
 /// `all_to_vram` is the persisted "keep everything resident" choice: it selects
@@ -258,18 +541,18 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
         .map(|i| (i as f32 * std::f32::consts::TAU / 256.).cos())
         .collect();
     let subs_x = cols / per;
-    // Scratch buffers, reused across blocks: a world is thousands of blocks and
-    // every one of them used to allocate seven fresh buffers of a few KiB each
-    // (the decoded height/normal sections, their narrowed copies, the optional
-    // colour section and the grid-sized block handed to the builder). Same
-    // values, same order, no per-block garbage.
-    let mut decoded: Vec<u8> = Vec::new();
-    let mut values: Vec<f32> = Vec::new();
-    let mut normal_data: Vec<u8> = Vec::new();
-    let mut block_normals: Vec<[i8; 3]> = Vec::new();
-    let mut decoded_colour: Vec<u8> = Vec::new();
-    let mut heights: Vec<f32> = Vec::new();
-    let mut normals: Vec<[i8; 3]> = Vec::new();
+    // Decoding threads for the block loop below: one per core unless pinned.
+    // Each block is independent, so this is pure throughput; the builder still
+    // sees the blocks in exactly the order the sequential loop produced them.
+    let threads = std::env::var("PW_TERRAIN_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| (1..=64).contains(n))
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+        });
     // A warm start already owns the grid, so the block loop is skipped entirely.
     if terrain_pages.is_some() {
         for (si, name) in names.iter().enumerate() {
@@ -303,145 +586,25 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
             // and it is what found the missing per-vertex colour section.
             let block_layout =
                 terrain_block::layout(&data, grid).map_err(|e| format!("{name}: {e}"))?;
-            for bi in 0..per * per {
-                let off = u32at(&data, 16 + bi * 4)? as usize;
-                let hs = u32at(&data, off + 16)? as usize;
-                let ns = u32at(&data, off + 20)? as usize;
-                let hdr = if v >= 6 {
-                    36
-                } else if v >= 4 {
-                    32
-                } else if v >= 3 {
-                    28
-                } else {
-                    24
-                };
-                let raw = data
-                    .get(off + hdr..off + hdr + hs)
-                    .ok_or("truncated height data")?;
-                decoded.clear();
-                if flags & 4 != 0 {
-                    let mut d = ZlibDecoder::new(raw);
-                    d.by_ref()
-                        .take(((grid + 1) * (grid + 1) * 4 + 64) as u64)
-                        .read_to_end(&mut decoded)
-                        .map_err(|e| format!("{name} block {bi}: {e}"))?;
-                } else {
-                    decoded.extend_from_slice(raw)
-                }
-                let nv = (grid + 1) * (grid + 1);
-                values.clear();
-                if flags & 8 != 0 {
-                    let min = f32at(&decoded, 4)?;
-                    let max = f32at(&decoded, 8)?;
-                    if u32at(&decoded, 12)? as usize != nv {
-                        return Err("bad incremental height count".into());
-                    }
-                    let mut acc = 0i32;
-                    for j in 0..nv {
-                        let p = 16 + j * 2;
-                        let s = decoded.get(p..p + 2).ok_or("truncated deltas")?;
-                        acc += i16::from_le_bytes([s[0], s[1]]) as i32;
-                        values.push(min + acc as f32 * (max - min) / 32767.0);
-                    }
-                } else {
-                    if decoded.len() != nv * 4 {
-                        return Err(format!(
-                            "{name} block {bi}: bad height size {} expected {}",
-                            decoded.len(),
-                            nv * 4
-                        ));
-                    }
-                    for j in 0..nv {
-                        values.push(f32at(&decoded, j * 4)?)
-                    }
-                }
-                let noff = off
-                    .checked_add(hdr)
-                    .and_then(|x| x.checked_add(hs))
-                    .ok_or("normal offset overflow")?;
-                let normal_raw = data
-                    .get(noff..noff.checked_add(ns).ok_or("normal size overflow")?)
-                    .ok_or("truncated normal data")?;
-                normal_data.clear();
-                if flags & 0x10 != 0 {
-                    ZlibDecoder::new(normal_raw)
-                        .take((nv * 12 + 64) as u64)
-                        .read_to_end(&mut normal_data)
-                        .map_err(|e| format!("{name} block {bi} normals: {e}"))?;
-                } else {
-                    normal_data.extend_from_slice(normal_raw)
-                }
-                block_normals.clear();
-                if flags & 0x20 != 0 {
-                    let base = if u32at(&normal_data, 4).ok() == Some(nv as u32) {
-                        8
-                    } else if u32at(&normal_data, 1).ok() == Some(nv as u32) {
-                        5
-                    } else {
-                        return Err(format!("{name} block {bi}: invalid normal header"));
-                    };
-                    for j in 0..nv {
-                        let az =
-                            *normal_data.get(base + 2 * j).ok_or("truncated normals")? as usize;
-                        let el = *normal_data
-                            .get(base + 2 * j + 1)
-                            .ok_or("truncated normals")? as usize;
-                        let se = sin_table[el];
-                        block_normals.push([
-                            (se * cos_table[az] * 127.) as i8,
-                            (cos_table[el] * 127.) as i8,
-                            (se * sin_table[az] * 127.) as i8,
-                        ]);
-                    }
-                } else {
-                    for j in 0..nv {
-                        let mut n = [0i8; 3];
-                        for k in 0..3 {
-                            let v = f32at(&normal_data, j * 12 + k * 4)?;
-                            if !v.is_finite() {
-                                return Err("nonfinite normal".into());
-                            }
-                            n[k] = (v.clamp(-1., 1.) * 127.) as i8;
-                        }
-                        block_normals.push(n);
-                    }
-                }
-                // Third section: per-vertex RGBA, present when flag bit 0x1 is set.
-                if let Some((cs, ce)) = block_layout.blocks[bi].colour {
-                    let raw = data.get(cs..ce).ok_or("truncated vertex colour data")?;
-                    decoded_colour.clear();
-                    ZlibDecoder::new(raw)
-                        .take((nv * 4 + 64) as u64)
-                        .read_to_end(&mut decoded_colour)
-                        .map_err(|e| format!("{name} block {bi} vertex colour: {e}"))?;
-                    if decoded_colour.len() != nv * 4 {
-                        return Err(format!(
-                            "{name} block {bi}: vertex colour is {} bytes, expected {}",
-                            decoded_colour.len(),
-                            nv * 4
-                        ));
-                    }
-                }
+            let tile = TileDecode {
+                data: &data,
+                name,
+                version: v,
+                flags,
+                layout: &block_layout,
+                grid,
+                sin_table: &sin_table,
+                cos_table: &cos_table,
+                blocks: per * per,
+            };
+            decode_blocks(&tile, threads, |bi, heights, normals| {
                 let br = (si / subs_x) * per + bi / per;
                 let bc = (si % subs_x) * per + bi % per;
-                heights.clear();
-                normals.clear();
-                for y in 0..grid {
-                    for x in 0..grid {
-                        let val = values[y * (grid + 1) + x];
-                        if !val.is_finite() {
-                            return Err("nonfinite height".into());
-                        }
-                        heights.push(val);
-                        normals.push(block_normals[y * (grid + 1) + x]);
-                    }
-                }
                 terrain_pages
                     .as_mut()
                     .expect("terrain builder present while parsing blocks")
-                    .block(bc, br, &heights, &normals)?;
-            }
+                    .block(bc, br, heights, normals)
+            })?;
             eprintln!("Loaded terrain tile {}/{}: {}", si + 1, count, name);
             #[cfg(windows)]
             windows_setup::loading_progress(format!("Loading terrain tiles {}/{}", si + 1, count));

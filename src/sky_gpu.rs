@@ -539,6 +539,9 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
  if weight<=0.0 {return color;}
  let occ=depth_occlusion(p.glow_center.zw);
  let w=weight*occ;
+ // `glow_center.zw` is the painted disc's centre: the host already dropped
+ // the emitted point by the quad's half extent (`flare_anchor`), because the
+ // recovered template hangs `half` below the point it is emitted from.
  let sun=p.glow_center.zw;
  // Native `0x4b6270` (`add ebx,0xc0` per sprite, `cmp ebp,0x3c` for 15) reads
  // the metric with `fild [esp+0x5c]` — an integer height from the host block
@@ -610,9 +613,10 @@ fn flare_chain(color:vec3<f32>,ndc:vec2<f32>,weight:f32,aspect:f32,flare:i32,rin
  color=celestial(color,d,p.celestial,9,11,night);
  color=celestial(color,d,p.celestial2,10,12,night);
  // `p.celestial.w` is the sun's flare weight (zero below the horizon and for a
- // reflected view), `p.tint.w` the screen aspect. `p.background.w` is the
- // sun's half extent but the flare half already accounts for `h*px`, so no
- // extra metric is passed.
+ // reflected view), `p.tint.w` the screen aspect. `p.background.w` is the sun's
+ // half extent in NDC; the host has already subtracted it (swelled by the night
+ // strength) from `glow_center.zw`, so the chain anchors on the disc's centre
+ // rather than on the point the quad is emitted from.
  color=flare_chain(color,i.clip,p.celestial.w,p.tint.w,14,14);
  return vec4<f32>(color,1.);
 }
@@ -664,8 +668,10 @@ fn sun_ndc_half(fov_degrees: f32) -> f32 {
 
 /// Where the flare chain hangs, and how strongly it is drawn.
 ///
-/// Returns the sun's screen position in NDC plus the weight, exactly the values
-/// `update` writes into `glow_center.zw` and `celestial.w`. The direction is the
+/// Returns the point the sun's quad is *emitted* from in NDC plus the weight.
+/// `update` runs it through `flare_anchor` before writing `glow_center.zw`,
+/// because the disc hangs below that point; the weight goes into
+/// `celestial.w` unchanged. The direction is the
 /// same `(cos az cos el, sin el, sin az cos el)` the shader rebuilds from
 /// `celestial.yz`, projected with the matrices the sky pass already uses.
 ///
@@ -741,6 +747,23 @@ fn flare_lanes(projection: Mat4, view: Mat4, sun: [f32; 4], reflected: bool) -> 
     // remains represented by the 15 `flare_size/offset/uv` tables.
     let weight = flare_occlusion(ndc, fade, |_| 1.0);
     (ndc, weight)
+}
+
+/// Where the flare chain must anchor on screen, in NDC.
+///
+/// `flare_lanes` projects the point the sun's quad is *emitted* from. The
+/// recovered template starts at `y == 0` and runs down to `-2 * half`, so the
+/// painted disc — and the middle of the flare chain that belongs on it — hangs
+/// `half` below that point, swelled by the recovered `1 + 2 * n` night strength
+/// exactly as `celestial` swells the quad. This is the same shift `celestial`
+/// applies to its `uv`, in screen space: NDC `y` grows upward while the quad's
+/// `plane.y` grows downward, so the centre is *lower* on screen than the
+/// projected point. Without it the whole chain reads as sitting a disc-radius
+/// above the sun.
+fn flare_anchor(projected: [f32; 2], half: f32, night: f32) -> [f32; 2] {
+    // The recovered `1 + 2 * n` swell, the same one `celestial` applies.
+    let swell = 1. + 2. * night.clamp(0., 1.);
+    [projected[0], projected[1] - half * swell]
 }
 
 impl SkyGpu {
@@ -1177,6 +1200,9 @@ impl SkyGpu {
         // only the forward vector loses the inverted vertical screen basis.
         let inv = sky_inverse(projection, view, reflected);
         let (flare_ndc, flare_weight) = flare_lanes(projection, view, frame.sun, reflected);
+        // The chain hangs on the painted disc's centre, which is one half-extent
+        // below the point the quad is emitted from (two halves at full night).
+        let flare_ndc = flare_anchor(flare_ndc, sun_ndc_half(FOV_DEGREES), frame.night_weight);
         let uniform = Uniform {
             inv: inv.to_cols_array_2d(),
             time: [
@@ -1616,6 +1642,45 @@ mod reflection_tests {
                 "the chain must stop the moment the disc does"
             );
         }
+    }
+
+    #[test]
+    fn the_flare_chain_anchors_on_the_painted_disc() {
+        // The quad is emitted `direction * 100` away, and its template runs
+        // `y 0..-2 * half`, so the painted disc hangs `sun_ndc_half` below that
+        // point. The chain has to follow the paint, not the emission point —
+        // the "flare sits a bit above the sun" report.
+        let half = super::sun_ndc_half(super::FOV_DEGREES);
+        let projected = [0.25, 0.5];
+        let anchor = super::flare_anchor(projected, half, 0.);
+        assert_eq!(anchor[0], projected[0]);
+        assert!((anchor[1] - (projected[1] - half)).abs() < 1e-6, "{anchor:?}");
+        assert!(
+            anchor[1] < projected[1],
+            "the disc centre is lower on screen than the projected point"
+        );
+        // The night swell grows the quad to three halves, and the centre drops
+        // with it, exactly as `celestial` swells the disc.
+        let swelled = super::flare_anchor(projected, half, 1.);
+        assert!((swelled[1] - (projected[1] - 3. * half)).abs() < 1e-6);
+        // Half-night sits between the two, and out-of-range strengths clamp.
+        let half_night = super::flare_anchor(projected, half, 0.5);
+        assert!((half_night[1] - (projected[1] - 2. * half)).abs() < 1e-6);
+        assert_eq!(super::flare_anchor(projected, half, -1.), anchor);
+        assert_eq!(super::flare_anchor(projected, half, 9.), swelled);
+        // A camera pointed at the sun projects it to the middle of the screen,
+        // so the chain hangs one half extent *below* the middle — inside the
+        // disc, not on its top edge.
+        let projection = Mat4::from_scale(Vec3::new(-1., 1., 1.))
+            * Mat4::perspective_rh(70f32.to_radians(), 16. / 9., 1., 16000.);
+        let (el, az) = (0.4f32, -0.5f32);
+        let sun_dir = Vec3::new(az.cos() * el.cos(), el.sin(), az.sin() * el.cos());
+        let view = Mat4::look_to_rh(Vec3::ZERO, sun_dir, Vec3::Y);
+        let (ndc, weight) = super::flare_lanes(projection, view, [1., el, az, 0.], false);
+        assert_eq!(weight, 1.);
+        let anchor = super::flare_anchor(ndc, half, 0.);
+        assert!(anchor[0].abs() < 1e-3, "{anchor:?}");
+        assert!((anchor[1] + half).abs() < 1e-3, "{anchor:?}");
     }
 
     #[test]
