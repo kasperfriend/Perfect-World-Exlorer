@@ -8,6 +8,61 @@ use crate::{
 };
 use glam::{Mat4, Vec3};
 
+// GFX can contain many independently animated elements. This intentionally
+// extracts only the first embedded skin model; it is not a GFX renderer.
+fn effect_model_paths(text: &str) -> Vec<String> {
+    let mut kind = "";
+    let mut paths = Vec::new();
+    for line in text.lines().map(str::trim) {
+        if let Some(value) = line.strip_prefix("GFXELEMENTID:") {
+            kind = value.trim();
+        } else if kind == "160" {
+            if let Some(value) = line.strip_prefix("ModelPath:") {
+                let path = crate::ecmodel::normalize(value);
+                if !path.is_empty() && path.ends_with(".smd")
+                    && !path.split('/').any(|part| part == "." || part == ".." || part.contains(':'))
+                {
+                    paths.push(format!("gfx/models/{path}"));
+                }
+            }
+        }
+    }
+    paths
+}
+
+fn load_effect_model(assets: &mut LibrarianAssets, asset: &ModelAsset) -> Result<ModelAsset, String> {
+    let mut errors = Vec::new();
+    for gfx in asset.descriptor.events.iter().filter_map(|event| event.gfx_path()) {
+        let gfx = crate::ecmodel::normalize(&gfx);
+        if gfx.split('/').any(|part| part == "." || part == ".." || part.contains(':')) {
+            continue;
+        }
+        let path = if gfx.starts_with("gfx/") { gfx } else { format!("gfx/{gfx}") };
+        let data = match assets.read_model_resource(&path) {
+            Ok(data) => data,
+            Err(error) => { errors.push(error); continue; }
+        };
+        let (text, _, bad) = encoding_rs::GBK.decode(&data);
+        if bad { errors.push(format!("{path}: invalid GBK GFX")); continue; }
+        for model in effect_model_paths(&text) {
+            let result = (|| {
+                let smd = crate::ecmodel::parse_smd(&assets.read_model_resource(&model)?)?;
+                let parent = model.rsplit_once('/').map_or("", |v| v.0);
+                let relative = |value: &str| {
+                    let path = crate::ecmodel::normalize(value);
+                    if path.starts_with("gfx/") || path.starts_with("models/") { path }
+                    else { format!("{parent}/{path}") }
+                };
+                let skeleton = relative(&smd.skeleton);
+                let skins: Vec<_> = smd.skins.iter().map(|p| relative(p)).collect();
+                ModelAsset::load_static_skins_with(&skeleton, &skins, |p| assets.read_model_resource(p))
+            })();
+            match result { Ok(model) => return Ok(model), Err(error) => errors.push(error) }
+        }
+    }
+    Err(format!("Effect-only model has no supported embedded GFX model{}", if errors.is_empty() { String::new() } else { format!(": {}", errors.join("; ")) }))
+}
+
 pub struct Preview {
     color: wgpu::Texture,
     depth: wgpu::Texture,
@@ -145,8 +200,15 @@ impl Preview {
                 } else {
                     Err("This item does not reference a supported ECM or SMD model.".into())
                 };
-                match result.and_then(|(asset, mut warnings)| {
-                    let (poses, approximate) = preview_pose(&asset, None)?;
+                match result.and_then(|(mut asset, mut warnings)| {
+                    let (mut poses, mut approximate) = preview_pose(&asset, None)?;
+                    if poses.iter().flat_map(|mesh| &mesh.vertices).next().is_none()
+                        && asset.descriptor.events.iter().any(|event| event.gfx_path().is_some())
+                    {
+                        asset = load_effect_model(assets, &asset)?;
+                        (poses, approximate) = preview_pose(&asset, None)?;
+                        warnings.push("Partial GFX preview: first embedded model only, in bind pose; effects, animation and GFX transforms are omitted.".into());
+                    }
                     if approximate {
                         warnings.push("Approximate preview: skeleton reflection or constraints are not applied.".into());
                     }
@@ -161,7 +223,7 @@ impl Preview {
                     }
                     if !min.is_finite() || !max.is_finite() {
                         if asset.descriptor.events.iter().any(|event| event.gfx_path().is_some()) {
-                            return Err("This model is effect-only; GFX effect previews are not supported yet.".into());
+                            return Err("This effect-only model has no finite preview geometry.".into());
                         }
                         return Err("Model contains no finite geometry".into());
                     }
@@ -479,6 +541,12 @@ mod tests {
     }
 
     #[test]
+    fn effect_model_paths_accept_only_safe_embedded_smds() {
+        let text = "GFXELEMENTID: 123\nModelPath: wrong.smd\nGFXELEMENTID: 160\nModelPath: 飞剑\\飞剑.SMD\nModelPath: ../bad.smd\nModelPath: C:/bad.smd\nGFXELEMENTID: 100\nModelPath: wrong.smd";
+        assert_eq!(super::effect_model_paths(text), vec!["gfx/models/飞剑/飞剑.smd"]);
+    }
+
+    #[test]
     fn authentic_client_gpu_preview_when_available() {
         if std::env::var_os("PW_LIBRARIAN_GPU").is_none() {
             return;
@@ -508,6 +576,7 @@ mod tests {
         let fashion = &db.items[*db.by_id.get(&4276).unwrap()];
         let fashion = format!("worn:0:m:{}", fashion.equipment_name().unwrap());
         let flight = &db.items[*db.by_id.get(&2092).unwrap()].model;
+        let flight_sword = &db.items[*db.by_id.get(&2093).unwrap()].model;
         let pet = &db.items[*db.by_id.get(&9069).unwrap()].model;
         let genie = &db.items[*db.by_id.get(&22181).unwrap()].model;
         for (label, path) in [
@@ -515,11 +584,15 @@ mod tests {
             ("worn", &worn),
             ("fashion", &fashion),
             ("flight", flight),
+            ("flight_sword", flight_sword),
             ("pet", pet),
             ("genie", genie),
         ] {
             preview.update(&device, &queue, format, &mut assets, path);
             assert!(preview.error.is_none(), "{path}: {:?}", preview.error);
+            if path == flight_sword {
+                assert!(preview.warnings.iter().any(|w| w.contains("Partial GFX preview")));
+            }
             if path == &worn {
                 assert!(
                     !preview.action_names().is_empty(),

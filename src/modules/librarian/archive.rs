@@ -74,6 +74,7 @@ pub struct LibrarianAssets {
     configs: Option<PckArchive>,
     surfaces: Option<PckArchive>,
     models: Option<Result<PckArchive, String>>,
+    gfx: Option<Result<PckArchive, String>>,
     textures: Option<Result<PckArchive, String>>,
     facedata: Option<Result<PckArchive, String>>,
 }
@@ -87,6 +88,7 @@ impl LibrarianAssets {
             configs,
             surfaces,
             models: None,
+            gfx: None,
             textures: None,
             facedata: None,
         }
@@ -182,6 +184,15 @@ impl LibrarianAssets {
     /// Unified package reader compatible with `ModelAsset` and `model_draw_gpu::Draw`.
     pub fn read_model_resource(&mut self, path: &str) -> Result<Vec<u8>, String> {
         let normalized = normalize_archive_path(path);
+        if normalized.starts_with("gfx/") {
+            if self.gfx.is_none() {
+                self.gfx = Some(PckArchive::open(&self.element_root, "gfx.pck"));
+            }
+            return match self.gfx.as_mut().unwrap() {
+                Ok(archive) => archive.read(&normalized),
+                Err(error) => Err(error.clone()),
+            };
+        }
         if normalized.starts_with("models/") {
             return self.ensure_models()?.read(&normalized);
         }
