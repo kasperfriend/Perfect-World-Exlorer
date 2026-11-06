@@ -89,6 +89,52 @@ sample to node+0x44 itself and nothing overwrites it — while ids 121 and 124 h
 the direction slot called afterwards and their samplers write no direction at
 all. Ids 122 and 125 never read emitter`+0x84`.
 
+**Id 120's surface block does not sample a surface.** `0x727230` is the whole
+birth routine, with the node as its argument (`ebp = [esp+0x94]` at `0x727238`) and
+the divert inline: `0x72729c` reads `IsSurface` at emitter`+0x84` and `je 0x7276a7`
+sends the volume case away. Before the divert the prologue fills node`+0x0c` from
+vtable[3] (`0x7237f0`, the colour slot, at `0x72724d`), node`+0x6c` from vtable[5]
+(`0x727257`), node`+0x08` from vtable[6] (`0x727261`), node`+0x60` from
+emitter`+0x14` — the `Speed` — at `0x727267`, and node`+0x34…+0x40` from the four
+runtime globals `0x9c0318`, `0x9c031c`, `0x9c0320`, `0x9c0324` at
+`0x727270`–`0x727290`, which is the particle's initial orientation before anything
+composes into it.
+
+The surface branch spends **one** `rand()` draw (`0x7272aa`), scales it by
+2π/32767 (`0x8e6f14`) at `0x7272bd` and turns it into a quaternion about the global
+Z axis `0x9c0338` through `0x7b6fd0` at `0x7272d1`. `0x7272ec`–`0x727376` then
+rotate the global X axis `0x9c0358` by that quaternion — the same inline Rodrigues
+chain as everywhere else, `0x4093d0` twice, `0x633700` with the doubled w and with
+`2.0`, `0x4071f0` twice — leaving the spun perpendicular at `[esp+0x74]`.
+`0x72737b` computes `π/2 − Angle` (`0x8ee228` minus emitter`+0x10`) and `0x727395`
+feeds it to `0x7b6fd0` with that spun axis, giving a quaternion stored at
+`[esp+0x20]`. `0x72739a`–`0x7273e1` is an inline quaternion-times-vector rotation
+in raw x87 rather than the vector library, `0x727448` stores the result through the
+four-argument setter `0x70a320`, and `0x72746a` re-tests `IsBind` to choose between
+two inline quaternion-times-quaternion products against emitter`+0xa0…+0xac`
+(`0x727478`–`0x727525`, stored through `0x70a320` at `0x727530`) — the composed
+orientation from `ParIniDir` and emitter`+0x74`. The final chain
+(`0x727561`–`0x7275f0`) rotates the global **Y** axis `0x9c0348` by the result and
+writes it to **node`+0x44`**, the direction, at `0x727603`–`0x72760c`.
+
+The position follows at `0x72760f`, branching on `IsBind` again. Bound
+(`0x727619`): `Vec3::new` of the direction's three components each multiplied by the
+float at `0x8ee224`, copied into node`+0x10`. Unbound (`0x72765a`): the direction
+scaled by the same constant through `0x401ce0`, added to emitter`+0x68` by
+`0x4071f0` at `0x72767a`, copied into node`+0x10`, and — when `IsDrag` at
+emitter`+0x86` is set (`0x72768b`) — the emitter position copied into node`+0x28` at
+`0x72769d`.
+
+`0x8ee224` is **0.001** (`0x3a83126f`, with π/2 at `0x8ee228` beside it), and the
+volume path multiplies by the same constant twice (`0x7276bc`, `0x7276d6`), so it is
+the engine's unit conversion on every node position rather than a surface radius.
+The consequence is the finding: id 120's surface particles sit **one file unit from
+the emitter** along a cone-spread direction around its Y axis, and the block never
+reads `AreaSize` at emitter`+0xb4` or the basis at `+0xc0…+0xe0` at all. What is not
+established is the operand order of the two quaternion products against `+0xa0` and
+which side of the `IsBind` re-test takes which, so the direction is not yet
+reproducible draw for draw.
+
 ### The direction slot `0x723440`, shared by all seven classes
 
 Vtable slot [1] is the same routine in every emitter vtable, and it is what fills
