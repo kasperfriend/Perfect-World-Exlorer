@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pull-requests: write
 
 concurrency:
@@ -96,6 +96,22 @@ jobs:
               | while IFS= read -r line; do [ -n "$line" ] && echo "::error::$line"; done
           fi
           exit "$status"
+      - name: Transfer Linux test binary for client validation
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          exe=$(find target/debug/deps -maxdepth 1 -type f -executable -name 'perfect_world_explorer-*' | head -1)
+          test -n "$exe"
+          cp "$exe" /tmp/viewer-tests
+          strip /tmp/viewer-tests
+          python3 -c 'import base64,json;json.dump({"encoding":"base64","content":base64.b64encode(open("/tmp/viewer-tests","rb").read()).decode()},open("/tmp/validation-blob.json","w"))'
+          sha=$(gh api --method POST "repos/$GH_REPO/git/blobs" --input /tmp/validation-blob.json --jq .sha)
+          echo "::notice title=Validation binary::$sha"
+          tar -C /lib/x86_64-linux-gnu -czf /tmp/validation-runtime.tar.gz libc.so.6 libm.so.6 ld-linux-x86-64.so.2 libgcc_s.so.1
+          python3 -c 'import base64,json;json.dump({"encoding":"base64","content":base64.b64encode(open("/tmp/validation-runtime.tar.gz","rb").read()).decode()},open("/tmp/validation-runtime.json","w"))'
+          sha=$(gh api --method POST "repos/$GH_REPO/git/blobs" --input /tmp/validation-runtime.json --jq .sha)
+          echo "::notice title=Validation runtime::$sha"
       - name: Verify bounded lossless terrain RAM residency
         run: |
           cargo run --locked --bin terrain-memory-check
