@@ -172,7 +172,8 @@ pub struct FarTrees {
     instances: wgpu::Buffer,
     batches: Vec<Batch>,
     groups: Vec<Group>,
-    staging: Vec<Instance>,
+    /// Slots in the instance buffer: three level slices per placement.
+    capacity: usize,
     last_resident_update: Option<([f32; 3], f32, Option<[f32; 4]>)>,
     /// The LOD selection pass: a camera move dispatches this instead of walking
     /// every placement on the CPU and re-uploading the instance buffer.
@@ -786,12 +787,17 @@ impl FarTrees {
             usage: wgpu::BufferUsages::INDEX,
         });
         let instance_count = instances.len() / 3;
-        let staging = instances;
+        // The loaded records seed the buffer and are then released: production
+        // never rebuilds them on the CPU again (the compute pass owns the
+        // buffer), so keeping a second world-sized copy in RAM would be dead
+        // weight.
+        let seed = instances;
+        let capacity = seed.len();
         // The instance buffer is the LOD compute pass's output as well as the
         // vertex input, so it keeps every (group, level) slice allocated once.
         let instances = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("tree instances (LOD compute target)"),
-            contents: bytemuck::cast_slice(&staging),
+            contents: bytemuck::cast_slice(&seed),
             usage: wgpu::BufferUsages::VERTEX
                 | wgpu::BufferUsages::STORAGE
                 | wgpu::BufferUsages::COPY_DST
@@ -999,7 +1005,7 @@ impl FarTrees {
             instances,
             batches,
             groups,
-            staging,
+            capacity,
             last_resident_update: None,
             lod_pipeline,
             lod_bind,
@@ -1065,6 +1071,9 @@ impl FarTrees {
     /// `draw` is one implementation for both.
     #[allow(dead_code)]
     pub fn update_lods(&mut self, queue: &wgpu::Queue, camera: [f32; 3], scale: f32) {
+        // Only the checks reach this path, so the packer allocates its staging
+        // copy per call instead of keeping one resident.
+        let mut staging = vec![Instance::zeroed(); self.capacity];
         // Counts go into a copy: the compute pass restores `lod_args_reset` on
         // every dispatch, and a check that runs both paths must not have this
         // one leave its counts behind.
@@ -1096,7 +1105,7 @@ impl FarTrees {
                     }
                     let batch = &self.batches[group.first_batch + level];
                     let index = (batch.instances.start + counts[level]) as usize;
-                    self.staging[index] = Instance::new(p, info);
+                    staging[index] = Instance::new(p, info);
                     counts[level] += 1;
                 }
             }
@@ -1110,11 +1119,11 @@ impl FarTrees {
                 }
             }
         }
-        queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&self.staging));
+        queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&staging));
         queue.write_buffer(&self.lod_args, 0, &args);
     }
     pub fn residency_stats(&self) -> (usize, u64) {
-        (self.staging.len(), self.instances.size())
+        (self.capacity, self.instances.size())
     }
     /// The per-group height the LOD pass uses, in group order.
     #[allow(dead_code)]
