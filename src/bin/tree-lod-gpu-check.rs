@@ -359,7 +359,7 @@ pub fn run(authored_mips: bool) {
             } else {
                 packed = Some(pixels);
             }
-                    }
+        }
         if let Some(packed) = packed {
             assert_eq!(
                 packed, frames[frame_index],
