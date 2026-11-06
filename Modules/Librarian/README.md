@@ -8,12 +8,14 @@ not prevent the item index from opening.
 Select a category and type, search by name or ID, and select a result for its
 icon, decoded attributes, available add-on pools, and linked equipment sets.
 Add items to the Comparison tab to align their known numeric attributes. The
-first column is the baseline; arrows reorder columns, × removes a column, and
+first column in each category is its baseline; arrows reorder columns within the
+category, × removes a column, and
 the item name returns to its details. Add-on weights are the authored pool
 weights, not necessarily final in-game probabilities.
 
 Switch to **3D model** for an offscreen ECM/SMD preview, or a class/gender
-mannequin for armor and fashion. Drag to orbit, Shift-drag to pan, and scroll to
+floating equipment mesh for armor and fashion. Select the class and gender
+variant used to load the equipment mesh; no character body is displayed. Drag to orbit, Shift-drag to pan, and scroll to
 zoom; turntable and animation controls are below the image. Preview models and
 textures require the corresponding client archives. Missing resources and
 unsupported models are reported in the preview instead of being substituted.
@@ -21,10 +23,8 @@ For effect-only models with an embedded GFX skin model, the preview can show
 the first embedded model in bind pose (requires `gfx.pck`). It omits GFX
 transforms, animation, particles, decals and other effects; effect-only models
 without a supported embedded model cannot be previewed.
-The mannequin is a simplified body/equipment preview rather than a complete
-character customization. The preview hides body triangles near the selected
-item to reduce clothing intersections; skeletons with unsupported reflection
-or constraint controllers use an explicitly labelled approximate pose.
+Skeletons with unsupported reflection or constraint controllers use an
+explicitly labelled approximate pose.
 
 Client files and localized data vary. Unknown item fields and add-on types are
 not guessed: unrecognized add-ons are shown as raw values. The comparison shows

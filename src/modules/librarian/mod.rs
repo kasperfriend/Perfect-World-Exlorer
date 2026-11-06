@@ -163,7 +163,7 @@ impl State {
     fn ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             if ui
-                .selectable_label(!self.compare_open && self.category.is_none(), "All Items")
+                .add(egui::Button::new(egui::RichText::new("All Items").strong().color(egui::Color32::WHITE)).fill(if !self.compare_open && self.category.is_none() { egui::Color32::from_rgb(50, 113, 165) } else { egui::Color32::from_rgb(40, 65, 90) }))
                 .clicked()
             {
                 self.compare_open = false;
@@ -188,7 +188,7 @@ impl State {
                 }
             }
             if ui
-                .selectable_label(self.compare_open, "Comparison")
+                .add(egui::Button::new(egui::RichText::new("Comparison").strong().color(egui::Color32::WHITE)).fill(if self.compare_open { egui::Color32::from_rgb(158, 104, 35) } else { egui::Color32::from_rgb(95, 68, 33) }))
                 .clicked()
             {
                 self.compare_open = true;
@@ -425,7 +425,7 @@ impl State {
                         });
                         if self.show_3d {
                             if item.equipment_name().is_some() {
-                                egui::ComboBox::from_label("Mannequin class")
+                                egui::ComboBox::from_label("Equipment class variant")
                                     .selected_text(self.preview_class.name())
                                     .show_ui(ui, |ui| {
                                         for class in Class::ALL {
@@ -446,7 +446,7 @@ impl State {
                                         self.preview_class.default_gender() == Gender::Female;
                                 }
                                 ui.horizontal(|ui| {
-                                    ui.label("Mannequin gender:");
+                                    ui.label("Equipment gender variant:");
                                     if self.preview_class.allows(Gender::Male) {
                                         ui.selectable_value(
                                             &mut self.preview_female,
@@ -655,24 +655,32 @@ impl State {
         egui::ScrollArea::both()
             .id_source("librarian_compare")
             .show(ui, |ui| {
-                egui::Grid::new("librarian_comparison_grid")
+                for category in Category::ALL {
+                    let columns = compare::category_columns(
+                        &self.database.items, &self.comparison, category,
+                    );
+                    if columns.is_empty() { continue; }
+                    ui.heading(category.name());
+                    ui.label("Comparisons and baseline are limited to this category.");
+                    egui::Grid::new(("librarian_comparison_grid", category.name()))
                     .striped(true)
                     .show(ui, |ui| {
                         ui.strong("Attribute");
-                        for (col, index) in self.comparison.iter().enumerate() {
-                            let item = &self.database.items[*index];
+                        for (group_col, &col) in columns.iter().enumerate() {
+                            let index = self.comparison[col];
+                            let item = &self.database.items[index];
                             ui.vertical(|ui| {
                                 if ui.link(&item.name).clicked() {
-                                    jump = Some(*index);
+                                    jump = Some(index);
                                 }
                                 ui.horizontal(|ui| {
-                                    if col > 0 && ui.small_button("←").clicked() {
-                                        swap = Some((col, col - 1));
+                                    if group_col > 0 && ui.small_button("←").clicked() {
+                                        swap = Some((col, columns[group_col - 1]));
                                     }
-                                    if col + 1 < self.comparison.len()
+                                    if group_col + 1 < columns.len()
                                         && ui.small_button("→").clicked()
                                     {
-                                        swap = Some((col, col + 1));
+                                        swap = Some((col, columns[group_col + 1]));
                                     }
                                     if ui.small_button("×").clicked() {
                                         remove = Some(col);
@@ -681,10 +689,9 @@ impl State {
                             });
                         }
                         ui.end_row();
-                        let items: Vec<_> = self
-                            .comparison
+                        let items: Vec<_> = columns
                             .iter()
-                            .map(|index| &self.database.items[*index])
+                            .map(|&col| &self.database.items[self.comparison[col]])
                             .collect();
                         for (name, values) in compare::rows(&items) {
                             ui.label(name);
@@ -720,6 +727,8 @@ impl State {
                             ui.end_row();
                         }
                     });
+                    ui.separator();
+                }
             });
         if let Some((a, b)) = swap {
             self.comparison.swap(a, b);

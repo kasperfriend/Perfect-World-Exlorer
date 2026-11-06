@@ -1,6 +1,13 @@
 //! Comparison rows aligned by semantic field name, rather than record offsets.
-use super::database::Item;
+use super::database::{Category, Item};
 use std::collections::BTreeMap;
+
+/// Positions in the comparison list, retained in their user-defined order.
+pub fn category_columns(items: &[Item], comparison: &[usize], category: Category) -> Vec<usize> {
+    comparison.iter().enumerate().filter_map(|(position, &index)| {
+        items.get(index).filter(|item| item.category == category).map(|_| position)
+    }).collect()
+}
 
 pub fn rows(items: &[&Item]) -> BTreeMap<&'static str, Vec<Option<f64>>> {
     let mut rows = BTreeMap::new();
@@ -69,6 +76,19 @@ mod tests {
         assert_eq!(rows["Grade"], vec![Some(0.), Some(0.)]);
         assert_eq!(rows["Physical attack min"], vec![Some(0.), None]);
         assert_eq!(rows["Physical defense min"], vec![None, Some(0.)]);
+    }
+    #[test]
+    fn category_groups_preserve_comparison_order() {
+        let make = |category| Item {
+            id: 0, section: 0, category, major: None, subtype: None,
+            name: String::new(), search_name: String::new(), icon: String::new(),
+            model: String::new(), attack_interval: None, record: Vec::new(),
+        };
+        let items = vec![make(Category::Armor), make(Category::Weapons), make(Category::Armor)];
+        let order = [2, 1, 0];
+        assert_eq!(category_columns(&items, &order, Category::Armor), vec![0, 2]);
+        assert_eq!(category_columns(&items, &order, Category::Weapons), vec![1]);
+        assert!(category_columns(&items, &order, Category::Materials).is_empty());
     }
     #[test]
     fn best_direction_matches_the_attribute() {
