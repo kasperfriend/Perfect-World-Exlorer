@@ -1306,11 +1306,7 @@ mod tests {
         for (index, info) in table.iter().enumerate() {
             let group = &groups[index];
             assert_eq!(info.args_base as usize, group.first_batch, "group {index}");
-            assert_eq!(
-                info.capacity,
-                group.positions.len() as u32,
-                "group {index}"
-            );
+            assert_eq!(info.capacity, group.positions.len() as u32, "group {index}");
             for level in 0..3usize {
                 let batch = &batches[info.args_base as usize + level];
                 assert_eq!(

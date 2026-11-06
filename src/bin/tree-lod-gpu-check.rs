@@ -539,7 +539,11 @@ fn multi_group(device: &wgpu::Device, queue: &wgpu::Queue) {
     for dist in [20f32, 40., 120., 300., 1000., 3000., 12000.] {
         renderer.update_resident_lods(device, queue, [dist, 0., 0.], 1., None);
         let counts = renderer.lod_instance_counts(device, queue);
-        assert_eq!(counts.len(), heights.len() * 3, "one record per group level");
+        assert_eq!(
+            counts.len(),
+            heights.len() * 3,
+            "one record per group level"
+        );
         let cpu: Vec<_> = heights
             .iter()
             .map(|height| {
