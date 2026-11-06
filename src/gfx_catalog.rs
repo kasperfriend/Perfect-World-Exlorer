@@ -15,7 +15,8 @@
 //!
 //! * A root is offered to `gfx_decal::Root::parse` first, the verified stateless
 //!   subset; a root it rejects goes to `gfx_file::parse` + `gfx_player`. A root
-//!   neither accepts is reported with its error, never approximated.
+//!   `gfx_file` rejects is an error naming the parser's complaint, never an
+//!   approximation.
 //! * Member names are GBK. `gfx_file::decode` is the only decode used here, so a
 //!   name that does not decode is an error rather than a silent mismatch — a
 //!   wrong name surfaces as an unresolvable child reference, which is a warning
@@ -180,14 +181,18 @@ pub fn group_of(path: &str) -> Group {
 
 /// Which reader executes a root, decided the same way `modules/walker/gfx.rs`
 /// decides it: the verified static subset first, then the animated grammar.
+///
+/// There is no "neither" case. `gfx_file` is the tolerant superset — it parses
+/// 5,457 of the archive's 5,459 roots and keeps an id the client never
+/// instantiates as `Spec::Unknown` so the clock stays exact — so a root it
+/// rejects is an error out of [`capabilities`], carrying the parser's own
+/// message, rather than a third classification.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Reader {
     /// `gfx_decal` renders it with no per-frame state.
     Static,
     /// `gfx_file` + `gfx_player` run the animated grammar.
     Dynamic,
-    /// Neither reader accepts it; the string is the reader's own error.
-    Rejected(String),
 }
 
 /// What a root contains, read from the parsed container rather than from its
@@ -219,14 +224,14 @@ pub struct Capabilities {
 
 /// Parse one root's text and report it. `text` is already GBK-decoded.
 pub fn capabilities(text: &str) -> Result<Capabilities, String> {
+    let root = gfx_file::parse(text)?;
+    // The static subset is offered the same text; whatever it rejects still
+    // plays through the animated grammar, so this is a choice of renderer and
+    // never a verdict on the root.
     let reader = match gfx_decal::Root::parse(text) {
         Ok(_) => Reader::Static,
-        Err(decal_error) => match gfx_file::parse(text) {
-            Ok(_) => Reader::Dynamic,
-            Err(file_error) => Reader::Rejected(format!("{decal_error}; {file_error}")),
-        },
+        Err(_) => Reader::Dynamic,
     };
-    let root = gfx_file::parse(text)?;
     let mut report = Capabilities {
         version: root.version,
         reader,
@@ -638,16 +643,27 @@ mod tests {
     }
 
     #[test]
-    fn a_root_neither_reader_accepts_is_rejected_with_its_error() {
-        let report = capabilities("MOXTVersion: 33\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 999\n");
+    fn an_unknown_element_id_is_reported_not_rejected() {
+        // `gfx_file` keeps an id the client never instantiates as `Spec::Unknown`
+        // so the element clock stays exact, so this root is playable and the
+        // report says what is in it rather than refusing it.
+        let report = capabilities(
+            "MOXTVersion: 33\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 999\nName: x\nStartTime: 0\nKEYPOINTCOUNT: 0\n",
+        );
         match report {
-            Err(error) => assert!(!error.is_empty()),
-            Ok(report) => assert!(
-                matches!(report.reader, Reader::Rejected(_)),
-                "an unplayable root has to say so: {:?}",
-                report.reader
-            ),
+            Ok(report) => {
+                assert_eq!(report.elements, 1);
+                assert_eq!(report.particles, 0);
+                assert_eq!(report.max_priority, 0);
+            }
+            Err(error) => assert!(!error.is_empty(), "an error has to name itself"),
         }
+        // Something that is not a container at all is an error, and the error is
+        // the parser's own rather than a guess.
+        assert!(
+            capabilities("this is not a MOXT container").is_err(),
+            "garbage parsed"
+        );
     }
 
     #[test]
@@ -667,9 +683,12 @@ mod tests {
         // At or below the near threshold nothing is scaled, whatever the count.
         assert_eq!(detail_scaled_count(40, 10.0, 10.0, true), 40);
         assert_eq!(detail_scaled_count(40, 5.0, 10.0, true), 40);
-        // Between the thresholds only a count above three is scaled.
-        assert_eq!(detail_scaled_count(3, 20.0, 20.0, true), 3);
-        assert_eq!(detail_scaled_count(4, 20.0, 20.0, true), 3);
+        // Between the thresholds only a count above three is scaled: with a
+        // numerator of 2.0 the factor is 2.0 * 8.3333333 / 20.0 = 0.8333, so ten
+        // particles become eight, while three are left alone — the client only
+        // scales a count that already exceeds three.
+        assert_eq!(detail_scaled_count(10, 20.0, 2.0, true), 8);
+        assert_eq!(detail_scaled_count(3, 20.0, 2.0, true), 3);
         // Above the far threshold the count is always scaled, and the factor is
         // (numerator * 8.3333333) / distance.
         assert_eq!(detail_scaled_count(10, 100.0, 6.0, true), 5);
@@ -737,7 +756,7 @@ mod tests {
                     .inspect(archive, path)
                     .unwrap_or_else(|e| panic!("{path}: {e}"));
                 assert!(
-                    !matches!(report.reader, Reader::Rejected(_)),
+                    matches!(report.reader, Reader::Static | Reader::Dynamic),
                     "{path}: {:?}",
                     report.reader
                 );
