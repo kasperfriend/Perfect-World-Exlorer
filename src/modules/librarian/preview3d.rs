@@ -105,6 +105,33 @@ fn load_effect_model(
     ))
 }
 
+// The client reflection replacement uses R_ texture alpha as a specular
+// mask, not opacity. Other texture names retain their authored opacity.
+fn apply_reflect_alpha(asset: &mut ModelAsset) {
+    for (skin_index, skin) in asset.skins.iter().enumerate() {
+        for (mesh_index, mesh) in skin.data.meshes.iter().enumerate() {
+            let reflect = usize::try_from(mesh.texture)
+                .ok()
+                .and_then(|index| skin.data.textures.get(index))
+                .and_then(|path| path.rsplit(['/', '\\']).next())
+                .is_some_and(|name| name.to_ascii_lowercase().starts_with("r_"));
+            if reflect {
+                asset.diffuse_alpha_meshes.insert((skin_index, mesh_index));
+            }
+        }
+    }
+}
+
+fn apply_preview_dye(asset: &mut ModelAsset, color: [u8; 3]) {
+    let argb = 0xff00_0000 | (u32::from(color[0]) << 16)
+        | (u32::from(color[1]) << 8) | u32::from(color[2]);
+    for (skin, data) in asset.skins.iter().enumerate() {
+        for mesh in 0..data.data.meshes.len() {
+            asset.mesh_tints.insert((skin, mesh), argb);
+        }
+    }
+}
+
 pub struct Preview {
     color: wgpu::Texture,
     depth: wgpu::Texture,
@@ -197,6 +224,7 @@ impl Preview {
         _format: wgpu::TextureFormat,
         assets: &mut LibrarianAssets,
         path: &str,
+        dye: Option<[u8; 3]>,
     ) {
         if self.loaded_path != path {
             self.loaded_path = path.to_owned();
@@ -241,11 +269,13 @@ impl Preview {
                     Err("This item does not reference a supported ECM or SMD model.".into())
                 };
                 match result.and_then(|(mut asset, mut warnings)| {
+                    apply_reflect_alpha(&mut asset);
                     let (mut poses, mut approximate) = preview_pose(&asset, None)?;
                     if poses.iter().flat_map(|mesh| &mesh.vertices).next().is_none()
                         && asset.descriptor.events.iter().any(|event| event.gfx_path().is_some())
                     {
                         asset = load_effect_model(assets, &asset)?;
+                        apply_reflect_alpha(&mut asset);
                         (poses, approximate) = preview_pose(&asset, None)?;
                         warnings.push("Partial GFX preview: first embedded model only, in bind pose; effects, animation and GFX transforms are omitted.".into());
                     }
@@ -315,6 +345,11 @@ impl Preview {
         }
         if self.playing {
             self.elapsed += dt;
+        }
+        if let Some(color) = dye {
+            if let Some(asset) = &mut self.asset {
+                apply_preview_dye(asset, color);
+            }
         }
         if let (Some(asset), Some(draw)) = (&self.asset, &self.draw) {
             let poses = if let Some(clip) = asset.model.actions.get(self.action) {
@@ -401,7 +436,7 @@ impl Preview {
     pub fn pan_by(&mut self, delta: egui::Vec2) {
         let right = Vec3::new(self.yaw.cos(), 0., -self.yaw.sin());
         let up = Vec3::Y;
-        self.pan += (-right * delta.x + up * delta.y) * self.radius * self.zoom * 0.004;
+        self.pan += (-right * delta.x - up * delta.y) * self.radius * self.zoom * 0.004;
     }
     fn frame(&self) -> Frame {
         let matrix = camera_matrix(
@@ -542,6 +577,19 @@ mod tests {
     }
 
     #[test]
+    fn authentic_reflective_weapons_when_available() {
+        let Ok(root) = std::env::var("PW_LIBRARIAN_ELEMENT_ROOT") else { return; };
+        let mut assets = LibrarianAssets::open(std::path::Path::new(&root));
+        let db = super::super::database::Database::parse_v27(&assets.read_elements_data().unwrap()).unwrap();
+        for id in [89, 119] {
+            let item = &db.items[*db.by_id.get(&id).expect("weapon ID")];
+            let (mut asset, _) = ModelAsset::load_unique_with(&item.model, |path| assets.read_model_resource(path)).expect("load weapon");
+            apply_reflect_alpha(&mut asset);
+            assert!(!asset.diffuse_alpha_meshes.is_empty(), "weapon {id} needs reflective texture alpha");
+        }
+    }
+
+    #[test]
     fn authentic_client_equipment_variants_when_available() {
         let Ok(root) = std::env::var("PW_LIBRARIAN_ELEMENT_ROOT") else {
             return;
@@ -583,6 +631,20 @@ mod tests {
                     .any(|pose| pose.skin == 0 && !pose.vertices.is_empty()));
             }
         }
+    }
+
+    #[test]
+    fn reflect_alpha_and_dye_apply_only_to_expected_meshes() {
+        let (mut asset, _) = crate::model_draw_fixture::fixture();
+        asset.skins[0].data.textures[0] = "R_club.dds".into();
+        apply_reflect_alpha(&mut asset);
+        assert!(asset.diffuse_alpha_meshes.contains(&(0, 0)));
+        asset.diffuse_alpha_meshes.clear();
+        asset.skins[0].data.textures[0] = "rw_club.dds".into();
+        apply_reflect_alpha(&mut asset);
+        assert!(asset.diffuse_alpha_meshes.is_empty());
+        apply_preview_dye(&mut asset, [10, 20, 30]);
+        assert_eq!(asset.mesh_tints[&(0, 0)], 0xff0a141e);
     }
 
     #[test]
@@ -720,7 +782,7 @@ mod tests {
             ("pet", pet),
             ("genie", genie),
         ] {
-            preview.update(&device, &queue, format, &mut assets, path);
+            preview.update(&device, &queue, format, &mut assets, path, None);
             assert!(preview.error.is_none(), "{path}: {:?}", preview.error);
             if path == flight_sword {
                 assert!(preview

@@ -333,6 +333,18 @@ mod tests {
         assert_eq!(db.items[0].pet_skills(), vec![(89, 3)]);
     }
     #[test]
+    fn dye_control_only_for_fashion_with_dye_count() {
+        let mut fashion = vec![0; 412];
+        fashion[376..380].copy_from_slice(&2u32.to_le_bytes());
+        let db = Database::parse_v27(&super::super::elements::synthetic_file(84, &fashion)).unwrap();
+        assert!(db.items[0].dyeable());
+        let mut weapon = vec![0; 1412];
+        weapon[376..380].copy_from_slice(&2u32.to_le_bytes());
+        let db = Database::parse_v27(&super::super::elements::synthetic_file(3, &weapon)).unwrap();
+        assert!(!db.items[0].dyeable());
+    }
+
+    #[test]
     fn tomes_and_dyes_are_in_their_relevant_categories() {
         assert_eq!(layout(114).unwrap().0, Category::GemsBooksAmmo);
         assert_eq!(layout(120).unwrap().0, Category::Fashion);
@@ -572,6 +584,10 @@ impl Item {
         } else {
             None
         }
+    }
+
+    pub fn dyeable(&self) -> bool {
+        self.section == 84 && number(&self.record, 376) > 0
     }
 
     pub fn equipment_name(&self) -> Option<String> {

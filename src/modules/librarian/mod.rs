@@ -36,6 +36,9 @@ struct State {
     show_3d: bool,
     preview_female: bool,
     preview_class: Class,
+    preview_dye: [u8; 3],
+    font_checked: bool,
+    has_cjk_font: bool,
 }
 impl Librarian {
     pub fn new(root: PathBuf) -> Self {
@@ -108,6 +111,9 @@ impl Librarian {
                     show_3d: false,
                     preview_female: false,
                     preview_class: Class::Blademaster,
+                    preview_dye: [255; 3],
+                    font_checked: false,
+                    has_cjk_font: false,
                 });
                 self.error = None;
             }
@@ -147,10 +153,31 @@ impl Librarian {
                 )
             })
             .unwrap_or_else(|| item.model.clone());
-        preview.update(device, queue, format, &mut state.assets, &path);
+        let dye = item.equipment_name().map(|_| {
+            if item.dyeable() { state.preview_dye } else { [255; 3] }
+        });
+        preview.update(device, queue, format, &mut state.assets, &path, dye);
     }
     pub fn ui(&mut self, ctx: &egui::Context) {
         let Some(state) = &mut self.state else { return };
+        if !state.font_checked {
+            state.font_checked = true;
+            for name in ["fzl2jw.ttf", "fzxh1jw.ttf"] {
+                let path = self.root.join("data").join(name);
+                if let Ok(bytes) = std::fs::read(path) {
+                    if !bytes.is_empty() && bytes.len() <= 16 * 1024 * 1024 {
+                        let mut fonts = egui::FontDefinitions::default();
+                        fonts.font_data.insert("pw-client-cjk".into(), egui::FontData::from_owned(bytes));
+                        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+                            fonts.families.entry(family).or_default().push("pw-client-cjk".into());
+                        }
+                        ctx.set_fonts(fonts);
+                        state.has_cjk_font = true;
+                        break;
+                    }
+                }
+            }
+        }
         egui::Window::new("Librarian")
             .default_pos(egui::pos2(320., 70.))
             .default_size([1050., 700.])
@@ -495,9 +522,20 @@ impl State {
                                 for warning in &preview.warnings {
                                     ui.colored_label(egui::Color32::YELLOW, warning);
                                 }
+                                if item.dyeable() {
+                                    ui.horizontal(|ui| {
+                                        ui.label("Dye preview:");
+                                        ui.color_edit_button_srgb(&mut self.preview_dye);
+                                        if ui.small_button("Reset dye").clicked() {
+                                            self.preview_dye = [255; 3];
+                                        }
+                                    });
+                                    ui.small("Approximate color tint; actual dye masks may differ.");
+                                }
                                 let size = ui.available_width().min(300.);
                                 let response = ui.add(
                                     egui::Image::new((preview.texture_id, egui::vec2(size, size)))
+                                        .uv(egui::Rect::from_min_max(egui::pos2(0., 1.), egui::pos2(1., 0.)))
                                         .sense(egui::Sense::drag()),
                                 );
                                 if response.dragged() {
@@ -508,7 +546,7 @@ impl State {
                                     } else {
                                         preview.yaw += delta.x * 0.01;
                                         preview.pitch =
-                                            (preview.pitch - delta.y * 0.01).clamp(-1.45, 1.45);
+                                            (preview.pitch + delta.y * 0.01).clamp(-1.45, 1.45);
                                     }
                                 }
                                 if response.hovered() {
@@ -516,21 +554,25 @@ impl State {
                                     preview.zoom =
                                         (preview.zoom * (-scroll * 0.001).exp()).clamp(0.3, 5.);
                                 }
+                                ui.add(egui::Slider::new(&mut preview.zoom, 0.3..=5.0).logarithmic(true).text("Distance"));
                                 ui.horizontal(|ui| {
                                     ui.checkbox(&mut preview.turntable, "Turntable");
                                     ui.checkbox(&mut preview.playing, "Animation");
                                 });
                                 let actions = preview.action_names();
                                 if !actions.is_empty() {
+                                    let labels: Vec<String> = actions.iter().enumerate().map(|(i, name)| {
+                                        if self.has_cjk_font || name.is_ascii() { name.clone() } else { format!("Action {}", i + 1) }
+                                    }).collect();
                                     egui::ComboBox::from_label("Action")
                                         .selected_text(
-                                            actions
+                                            labels
                                                 .get(preview.action)
                                                 .map(String::as_str)
                                                 .unwrap_or("Bind pose"),
                                         )
                                         .show_ui(ui, |ui| {
-                                            for (index, name) in actions.iter().enumerate() {
+                                            for (index, name) in labels.iter().enumerate() {
                                                 ui.selectable_value(
                                                     &mut preview.action,
                                                     index,
@@ -697,15 +739,15 @@ impl State {
                                         jump = Some(index);
                                     }
                                     ui.horizontal(|ui| {
-                                        if group_col > 0 && ui.small_button("←").clicked() {
+                                        if group_col > 0 && ui.small_button("Left").on_hover_text("Move item left within this category").clicked() {
                                             swap = Some((col, columns[group_col - 1]));
                                         }
                                         if group_col + 1 < columns.len()
-                                            && ui.small_button("→").clicked()
+                                            && ui.small_button("Right").on_hover_text("Move item right within this category").clicked()
                                         {
                                             swap = Some((col, columns[group_col + 1]));
                                         }
-                                        if ui.small_button("×").clicked() {
+                                        if ui.small_button("Remove").on_hover_text("Remove item from comparison").clicked() {
                                             remove = Some(col);
                                         }
                                     });
@@ -804,6 +846,9 @@ mod tests {
             show_3d: false,
             preview_female: false,
             preview_class: Class::Blademaster,
+            preview_dye: [255; 3],
+            font_checked: false,
+            has_cjk_font: false,
         };
         let ctx = egui::Context::default();
         let run = |state: &mut State| {

@@ -11,13 +11,17 @@ Add items to the Comparison tab to align their known numeric attributes. The
 first column in each category is its baseline; arrows reorder columns within the
 category, × removes a column, and
 the item name returns to its details. Add-on weights are the authored pool
-weights, not necessarily final in-game probabilities.
+weights, not necessarily final in-game probabilities. Comparison columns have
+explicit Left, Right and Remove controls.
 
 Switch to **3D model** for an offscreen ECM/SMD preview, or a class/gender
 floating equipment mesh for armor and fashion. Select the class and gender
 variant used to load the equipment mesh; no character body is displayed. Drag to orbit, Shift-drag to pan, and scroll to
-zoom; turntable and animation controls are below the image. Preview models and
-textures require the corresponding client archives. Missing resources and
+zoom, or use the Distance slider; turntable and animation controls are below the
+image. Dyeable fashion has an approximate color-tint picker, not an exact dye
+mask simulation. Chinese action names use the client’s data/fzl2jw.ttf or
+data/fzxh1jw.ttf if available; otherwise actions are numbered. Preview models and
+textures require the corresponding client archives or matching loose files. Missing resources and
 unsupported models are reported in the preview instead of being substituted.
 For effect-only models with an embedded GFX skin model, the preview can show
 the first embedded model in bind pose (requires `gfx.pck`). It omits GFX

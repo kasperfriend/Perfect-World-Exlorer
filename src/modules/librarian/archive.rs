@@ -164,53 +164,55 @@ impl LibrarianAssets {
         }
     }
 
+    fn loose_resource(&self, path: &str) -> Option<Vec<u8>> {
+        let path = path.replace('\\', "/");
+        let disk = safe_join(&self.element_root, &path)?;
+        std::fs::read(disk).ok()
+    }
+
     pub fn model_exists(&mut self, path: &str) -> bool {
         let normalized = normalize_archive_path(path);
-        if normalized.starts_with("facedata/") {
-            return self
-                .ensure_facedata()
-                .map(|archive| archive.contains(&normalized))
-                .unwrap_or(false);
-        }
-        if normalized.starts_with("models/") {
-            return self
-                .ensure_models()
-                .map(|archive| archive.contains(&normalized))
-                .unwrap_or(false);
-        }
-        false
+        let in_archive = if normalized.starts_with("facedata/") {
+            self.ensure_facedata().map(|archive| archive.contains(&normalized)).unwrap_or(false)
+        } else if normalized.starts_with("models/") {
+            self.ensure_models().map(|archive| archive.contains(&normalized)).unwrap_or(false)
+        } else {
+            false
+        };
+        in_archive || self.loose_resource(path).is_some()
     }
 
     /// Unified package reader compatible with `ModelAsset` and `model_draw_gpu::Draw`.
     pub fn read_model_resource(&mut self, path: &str) -> Result<Vec<u8>, String> {
         let normalized = normalize_archive_path(path);
-        if normalized.starts_with("gfx/") {
+        if safe_join(&self.element_root, &path.replace('\\', "/")).is_none() {
+            return Err(format!("invalid asset path '{path}'"));
+        }
+        let result = if normalized.starts_with("gfx/") {
             if self.gfx.is_none() {
                 self.gfx = Some(PckArchive::open(&self.element_root, "gfx.pck"));
             }
-            return match self.gfx.as_mut().unwrap() {
+            match self.gfx.as_mut().unwrap() {
                 Ok(archive) => archive.read(&normalized),
                 Err(error) => Err(error.clone()),
-            };
-        }
-        if normalized.starts_with("models/") {
-            return self.ensure_models()?.read(&normalized);
-        }
-        if normalized.starts_with("facedata/") {
-            return self.ensure_facedata()?.read(&normalized);
-        }
-        if normalized.starts_with("textures/") {
-            return self.ensure_textures()?.read(&normalized);
-        }
-        if normalized.starts_with("surfaces/") {
-            return self.read_surface(&normalized);
-        }
-        if let Some(configs) = self.configs.as_mut() {
-            if normalized.starts_with("configs/") {
-                return configs.read(&normalized);
             }
-        }
-        Err(format!("unsupported Librarian asset path '{normalized}'"))
+        } else if normalized.starts_with("models/") {
+            self.ensure_models().and_then(|archive| archive.read(&normalized))
+        } else if normalized.starts_with("facedata/") {
+            self.ensure_facedata().and_then(|archive| archive.read(&normalized))
+        } else if normalized.starts_with("textures/") {
+            self.ensure_textures().and_then(|archive| archive.read(&normalized))
+        } else if normalized.starts_with("surfaces/") {
+            self.read_surface(&normalized)
+        } else if normalized.starts_with("configs/") {
+            self.configs.as_mut().ok_or_else(|| "configs.pck unavailable".to_owned())
+                .and_then(|archive| archive.read(&normalized))
+        } else {
+            Err(format!("unsupported Librarian asset path '{normalized}'"))
+        };
+        result.or_else(|error| self.loose_resource(path).ok_or_else(|| {
+            format!("{error}; check that the matching client archive or loose asset is installed")
+        }))
     }
 }
 
