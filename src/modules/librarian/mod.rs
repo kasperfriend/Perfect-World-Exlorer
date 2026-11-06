@@ -546,23 +546,26 @@ impl State {
                                     );
                                 }
                                 let size = ui.available_width().min(300.);
+                                let uv = if preview.flip_vertical {
+                                    egui::Rect::from_min_max(egui::pos2(0., 1.), egui::pos2(1., 0.))
+                                } else {
+                                    egui::Rect::from_min_max(egui::pos2(0., 0.), egui::pos2(1., 1.))
+                                };
                                 let response = ui.add(
                                     egui::Image::new((preview.texture_id, egui::vec2(size, size)))
-                                        .uv(egui::Rect::from_min_max(
-                                            egui::pos2(0., 1.),
-                                            egui::pos2(1., 0.),
-                                        ))
+                                        .uv(uv)
                                         .sense(egui::Sense::drag()),
                                 );
                                 if response.dragged() {
-                                    let (delta, pan) =
+                                    let (mut delta, pan) =
                                         ui.input(|i| (i.pointer.delta(), i.modifiers.shift));
+                                    if preview.flip_vertical { delta.y = -delta.y; }
                                     if pan {
                                         preview.pan_by(delta);
                                     } else {
                                         preview.yaw += delta.x * 0.01;
                                         preview.pitch =
-                                            (preview.pitch + delta.y * 0.01).clamp(-1.45, 1.45);
+                                            (preview.pitch - delta.y * 0.01).clamp(-1.45, 1.45);
                                     }
                                 }
                                 if response.hovered() {
@@ -570,11 +573,12 @@ impl State {
                                     preview.zoom =
                                         (preview.zoom * (-scroll * 0.001).exp()).clamp(0.3, 5.);
                                 }
-                                ui.add(
-                                    egui::Slider::new(&mut preview.zoom, 0.3..=5.0)
-                                        .logarithmic(true)
-                                        .text("Distance"),
-                                );
+                                let mut magnification = 1. / preview.zoom;
+                                if ui.add(egui::Slider::new(&mut magnification, 0.2..=1. / 0.3)
+                                    .logarithmic(true).text("Zoom")).changed() {
+                                    preview.zoom = 1. / magnification;
+                                }
+                                ui.checkbox(&mut preview.flip_vertical, "Flip vertically");
                                 ui.horizontal(|ui| {
                                     ui.checkbox(&mut preview.turntable, "Turntable");
                                     ui.checkbox(&mut preview.playing, "Animation");

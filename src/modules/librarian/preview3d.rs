@@ -148,6 +148,7 @@ pub struct Preview {
     pub pitch: f32,
     pub zoom: f32,
     pub turntable: bool,
+    pub flip_vertical: bool,
     pub playing: bool,
     center: Vec3,
     pub pan: Vec3,
@@ -210,6 +211,7 @@ impl Preview {
             pitch: 0.2,
             zoom: 1.,
             turntable: false,
+            flip_vertical: false,
             playing: true,
             center: Vec3::ZERO,
             pan: Vec3::ZERO,
@@ -438,7 +440,7 @@ impl Preview {
     pub fn pan_by(&mut self, delta: egui::Vec2) {
         let right = Vec3::new(self.yaw.cos(), 0., -self.yaw.sin());
         let up = Vec3::Y;
-        self.pan += (-right * delta.x - up * delta.y) * self.radius * self.zoom * 0.004;
+        self.pan += (-right * delta.x + up * delta.y) * self.radius * self.zoom * 0.004;
     }
     fn frame(&self) -> Frame {
         let matrix = camera_matrix(
