@@ -323,7 +323,8 @@ impl Gpu {
             instances,
             batches,
             args,
-            multi_draw: crate::indirect_args::multi_draw(device),
+            multi_draw: crate::indirect_args::multi_draw(device)
+                && crate::indirect_args::base_instance(device),
         }
     }
     /// Choose the single-call path explicitly, so a check can render both.

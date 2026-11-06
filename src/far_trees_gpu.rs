@@ -2,7 +2,7 @@
 use crate::{gpu::Vertex, trees::Trees};
 #[path = "terrain_cutoff.rs"]
 mod cutoff_residency;
-use crate::indirect_args::{multi_draw, record, DrawIndexedArgs, DRAW_ARGS};
+use crate::indirect_args::{base_instance, multi_draw, record, DrawIndexedArgs, DRAW_ARGS};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 /// One instance record: `[position.xyz, 0]`, then `[fraction, mode, 0, 0]`.
@@ -860,7 +860,7 @@ impl FarTrees {
         // `first_instance` inside an indirect call. Both are optional features;
         // without them the batches are drawn one at a time, with the instance
         // buffer sliced per draw instead.
-        let one_call = multi_draw(device);
+        let one_call = multi_draw(device) && base_instance(device);
         let mut args = Vec::with_capacity(batches.len().max(1));
         for batch in &batches {
             let mut args_record = record(batch.indices.clone(), batch.instances.clone());

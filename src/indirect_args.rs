@@ -30,9 +30,15 @@ pub(crate) const DRAW_ARGS: u64 = std::mem::size_of::<DrawIndexedArgs>() as u64;
 
 /// Can this device walk a whole record list in one call?
 pub(crate) fn multi_draw(device: &wgpu::Device) -> bool {
+    device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT)
+}
+
+/// Can a record carry a non-zero base instance? Needed by any list whose
+/// batches sit at different places in one shared instance buffer.
+pub(crate) fn base_instance(device: &wgpu::Device) -> bool {
     device
         .features()
-        .contains(wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE)
+        .contains(wgpu::Features::INDIRECT_FIRST_INSTANCE)
 }
 
 /// One record for a batch: its index range plus the slice of the instance

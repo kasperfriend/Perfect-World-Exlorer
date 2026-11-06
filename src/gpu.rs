@@ -2684,6 +2684,14 @@ impl Renderer {
         crate::terrain_residency::visible_runs_into(&self.spans, matrix, &mut self.terrain_runs);
         self.terrain_gpu
             .visible_far_runs_into(matrix, &mut self.far_terrain_runs);
+        // One indirect record per run, so the terrain itself is one call per mesh
+        // instead of one call per run.
+        self.terrain_gpu.prepare_runs(
+            &self.device,
+            &self.queue,
+            Some(&self.terrain_runs),
+            Some(&self.far_terrain_runs),
+        );
         let frame = self.begin_frame(camera, w, h);
         self.weather.advance(camera.logic_delta_ms);
         let selected_weather = camera.regional_light.map_or(
