@@ -510,6 +510,47 @@ where the quad is built, and it now has a boundary test at 24/37/75/76/79. The
 parser keeps reporting the authored value, deliberately: applying the rule twice
 would hide it from anything that wants to know what the file said.
 
+**Ground matching is an owner capability, not a file property.** Two small
+thiscalls decide where a sprite is anchored, and both read `MatchGrnd`
+(element+0x131) and the `GroundHeight` flag (element+0x132) through the object at
+element+0x10:
+
+* `0x6fa810` returns `owner+0x1b4` when `owner+0x1f4 && MatchGrnd &&
+  (GroundHeight || owner+0x284)`, and `owner+0x1a4` otherwise. The two slots are
+  16 bytes apart, i.e. two vectors: the un-snapped position and the ground-snapped
+  one. This is the call the `YawEffect` path makes at `0x71f36f`.
+* `0x6fa7c0` returns `owner+0xfc` when ground matching applies, `owner+0x13c` when
+  `GroundHeight` is set without `MatchGrnd`, and otherwise tail-calls `0x6e5770`.
+  The corner builder calls it at `0x71eb3b`, so the four corner terms are applied
+  in whichever of those three frames the flags select.
+
+`owner+0x1f4` is **not** the root's `Raytrace`: 454 corpus roots author a
+non-zero `MatchGrnd` with `Raytrace: 0` and only one root has both, so reading
+`+0x1f4` as `Raytrace` would disable ground matching in almost every file that
+asks for it. The object at element+0x10 carries live copies of `DedaultScale`,
+`PlaySpeed` and `DefaultAlpha` at +0x1e8/+0x1ec/+0x1f0, which is the layout the
+root loader writes, so `+0x1f4` and `+0x284` are either further root fields or
+runtime state set after loading; neither is identified. The practical consequence
+stands either way: `MatchGrnd` cannot be honoured from the `.gfx` alone, it needs
+an owner that can answer a ground query. The walker has terrain sampling in
+`walker/physics.rs`, so walker-hosted effects are the place to wire it.
+
+**Element offsets, from the clone at `0x70a3d2`.** The copy routine enumerates
+the shared header field by field, which is the cheapest complete map available:
++0x34 element count, +0x38/+0x3c/+0x40/+0x48 copied words, +0x9c `BindEle`,
++0xa4 `DummyEle`, +0xb0/+0xb4/+0xb8 `TexRow` and neighbours, +0xc4/+0xc8,
++0xdc `Priority` (confirming the priority gate's read), +0xe0 a 64-byte block
+allocated by `0x763250` only when +0x12d is set, +0xf0, and the flag bytes
++0x12c..+0x12f, +0x130 `ZEnable`, +0x131 `MatchGrnd`, +0x132 `GroundHeight`,
++0x134..+0x139, +0x13c. Sprite fields continue at +0x140 `Width`, +0x144
+`Height`, +0x148 the byte which, when clear, switches the corner builder to the
+ground-matching path at `0x71f1be`,
++0x151/+0x152 the two `NoScale` bytes, +0x154/+0x158 `OrgPt`, +0x15c/+0x160/
++0x164/+0x168 the derived corner terms, +0x16c `ZOffset`, +0x170
+`MatchSurface`, +0x174 `MaxExtent`, +0x195 `YawEffect`. The spec payloads
+overlay each other, which is why the light writer's `Position: %f, %f, %f` also
+reads +0x174.
+
 Two traps worth recording for the next dig. The parser's format strings live in
 `.data` and are reached through arrays of pointers, so a key's string has **no
 direct cross-reference** — find the array by scanning the image for words equal
