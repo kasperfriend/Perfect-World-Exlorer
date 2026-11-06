@@ -23,6 +23,7 @@ fn read_string(b: &[u8], pos: &mut usize) -> Result<String, String> {
     *pos += n;
     String::from_utf8(s.to_vec()).map_err(|_| "non-UTF8 subterrain name".into())
 }
+mod angelica_pck;
 mod animation;
 mod bmd;
 mod bmd_baked;

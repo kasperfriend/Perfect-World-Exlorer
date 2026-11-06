@@ -1,0 +1,411 @@
+# 07-sky-builders  0x79a330-0x79a900
+0079a330: push -1                                 
+0079a332: push 0x8cd18b                           
+0079a337: mov eax, dword ptr fs:[0]               
+0079a33d: push eax                                
+0079a33e: mov dword ptr fs:[0], esp               
+0079a345: sub esp, 0x2c                           
+0079a348: push ebp                                
+0079a349: push esi                                
+0079a34a: mov esi, ecx                            
+0079a34c: xor eax, eax                            
+0079a34e: push 0x48                               
+0079a350: mov ax, word ptr [esi + 0x4c0]          
+0079a357: lea ecx, [eax + eax*4 + 5]              
+0079a35b: lea edx, [eax + eax*2]                  
+0079a35e: add ecx, ecx                            
+0079a360: shl edx, 4                              
+0079a363: mov dword ptr [esi + 0x58c], ecx        
+0079a369: mov dword ptr [esi + 0x590], edx        
+0079a36f: call 0x763250                           
+0079a374: add esp, 4                              
+0079a377: mov dword ptr [esp + 0x1c], eax         
+0079a37b: xor ebp, ebp                            
+0079a37d: cmp eax, ebp                            
+0079a37f: mov dword ptr [esp + 0x3c], ebp         
+0079a383: je 0x79a38e                               ; f32 -3004.01
+0079a385: mov ecx, eax                            
+0079a387: call 0x784d70                             ; f32 -736281
+0079a38c: jmp 0x79a390                              ; f32 1598.16
+0079a38e: xor eax, eax                            
+0079a390: cmp eax, ebp                            
+0079a392: mov dword ptr [esp + 0x3c], 0xffffffff  
+0079a39a: mov dword ptr [esi + 0x584], eax        
+0079a3a0: jne 0x79a3c7                            
+0079a3a2: push 0x98c08c                             ; 'A3DSkySphere::Init(), Not enough memory!'
+0079a3a7: push 0x9d2f20                           
+0079a3ac: call 0x7647d0                           
+0079a3b1: add esp, 8                              
+0079a3b4: xor al, al                              
+0079a3b6: pop esi                                 
+0079a3b7: pop ebp                                 
+0079a3b8: mov ecx, dword ptr [esp + 0x2c]         
+0079a3bc: mov dword ptr fs:[0], ecx               
+0079a3c3: add esp, 0x38                           
+0079a3c6: ret                                     
+0079a3c7: mov ecx, dword ptr [esi + 0x590]        
+0079a3cd: mov edx, dword ptr [esi + 0x58c]        
+0079a3d3: push 1                                  
+0079a3d5: push 1                                  
+0079a3d7: push ecx                                
+0079a3d8: mov ecx, dword ptr [esi + 0xc]          
+0079a3db: push edx                                
+0079a3dc: push 0x242                              
+0079a3e1: push 0x20                               
+0079a3e3: push ecx                                
+0079a3e4: mov ecx, eax                            
+0079a3e6: call 0x784f10                           
+0079a3eb: test al, al                             
+0079a3ed: jne 0x79a414                            
+0079a3ef: push 0x98c058                             ; 'A3DSkySphere::Init(), Stream Surround Init Fail!'
+0079a3f4: push 0x9d2f20                           
+0079a3f9: call 0x7647d0                           
+0079a3fe: add esp, 8                              
+0079a401: xor al, al                              
+0079a403: pop esi                                 
+0079a404: pop ebp                                 
+0079a405: mov ecx, dword ptr [esp + 0x2c]         
+0079a409: mov dword ptr fs:[0], ecx               
+0079a410: add esp, 0x38                           
+0079a413: ret                                     
+0079a414: mov ecx, dword ptr [esi + 0x584]        
+0079a41a: lea edx, [esp + 8]                      
+0079a41e: push ebp                                
+0079a41f: push edx                                
+0079a420: push ebp                                
+0079a421: push ebp                                
+0079a422: call 0x7855c0                           
+0079a427: test al, al                             
+0079a429: jne 0x79a450                            
+0079a42b: push 0x98c020                             ; 'A3DSkySphere::Init(), Stream Surround Lock Verts Fail!'
+0079a430: push 0x9d2f20                           
+0079a435: call 0x7647d0                           
+0079a43a: add esp, 8                              
+0079a43d: xor al, al                              
+0079a43f: pop esi                                 
+0079a440: pop ebp                                 
+0079a441: mov ecx, dword ptr [esp + 0x2c]         
+0079a445: mov dword ptr fs:[0], ecx               
+0079a44c: add esp, 0x38                           
+0079a44f: ret                                     
+0079a450: mov ecx, dword ptr [esi + 0x584]        
+0079a456: lea eax, [esp + 0xc]                    
+0079a45a: push ebp                                
+0079a45b: push eax                                
+0079a45c: push ebp                                
+0079a45d: push ebp                                
+0079a45e: call 0x785700                           
+0079a463: test al, al                             
+0079a465: jne 0x79a48c                            
+0079a467: push 0x98bfe4                             ; 'A3DSkySphere::Init(), Stream Surround Lock Indices Fail!'
+0079a46c: push 0x9d2f20                           
+0079a471: call 0x7647d0                           
+0079a476: add esp, 8                              
+0079a479: xor al, al                              
+0079a47b: pop esi                                 
+0079a47c: pop ebp                                 
+0079a47d: mov ecx, dword ptr [esp + 0x2c]         
+0079a481: mov dword ptr fs:[0], ecx               
+0079a488: add esp, 0x38                           
+0079a48b: ret                                     
+0079a48c: push ebx                                
+0079a48d: push edi                                
+0079a48e: mov di, word ptr [esi + 0x4c0]          
+0079a495: xor eax, eax                            
+0079a497: fld dword ptr [esi + 0x4c8]             
+0079a49d: fmul dword ptr [0x8f14d0]                 ; f32 0.7854
+0079a4a3: mov ecx, edi                            
+0079a4a5: mov dword ptr [esp + 0x20], ebp         
+0079a4a9: and ecx, 0xffff                         
+0079a4af: mov dword ptr [esp + 0x28], 0x3f800000  
+0079a4b7: mov dword ptr [esp + 0x2c], 0x3f000000  
+0079a4bf: mov dword ptr [esp + 0x30], 0x3e2b020c  
+0079a4c7: lea edx, [ecx + ecx + 2]                
+0079a4cb: mov dword ptr [esp + 0x34], eax         
+0079a4cf: mov dword ptr [esp + 0x1c], edx         
+0079a4d3: mov dword ptr [esp + 0x38], 0xbe8a3d71  
+0079a4db: mov dword ptr [esp + 0x18], ebp         
+0079a4df: mov ecx, dword ptr [esp + 0x18]         
+0079a4e3: lea edx, [ebp + ebp*2]                  
+0079a4e7: and ecx, 0xffff                         
+0079a4ed: xor ebx, ebx                            
+0079a4ef: fld st(0)                               
+0079a4f1: fmul dword ptr [esp + ecx*4 + 0x28]     
+0079a4f5: mov ecx, eax                            
+0079a4f7: add edx, edx                            
+0079a4f9: shl ecx, 5                              
+0079a4fc: mov ebp, ebx                            
+0079a4fe: and edi, 0xffff                         
+0079a504: and ebp, 0xffff                         
+0079a50a: mov dword ptr [esp + 0x24], ebp         
+0079a50e: fild dword ptr [esp + 0x24]             
+0079a512: fld dword ptr [0x8f14cc]                  ; f32 1.5708
+0079a518: mov dword ptr [esp + 0x24], edi         
+0079a51c: mov edi, dword ptr [esp + 0x10]         
+0079a520: fmul st(1)                              
+0079a522: fidiv dword ptr [esp + 0x24]            
+0079a526: fadd dword ptr [0x8f14cc]                 ; f32 1.5708
+0079a52c: fld st(0)                               
+0079a52e: fcos                                    
+0079a530: fmul dword ptr [esi + 0x4c8]            
+0079a536: fstp dword ptr [ecx + edi]              
+0079a539: mov edi, dword ptr [esp + 0x10]         
+0079a53d: fld st(2)                               
+0079a53f: fstp dword ptr [ecx + edi + 4]          
+0079a543: mov edi, dword ptr [esp + 0x10]         
+0079a547: fsin                                    
+0079a549: fmul dword ptr [esi + 0x4c8]            
+0079a54f: fstp dword ptr [ecx + edi + 8]          
+0079a553: mov edi, dword ptr [esp + 0x18]         
+0079a557: mov ebp, dword ptr [esp + 0x10]         
+0079a55b: test di, di                             
+0079a55e: je 0x79a56a                             
+0079a560: mov dword ptr [ecx + ebp + 0xc], 0xffffffff
+0079a568: jmp 0x79a572                            
+0079a56a: mov dword ptr [ecx + ebp + 0xc], 0xffffff
+0079a572: xor ebp, ebp                            
+0079a574: cmp di, 4                               
+0079a578: mov bp, word ptr [esi + 0x4c0]          
+0079a57f: mov dword ptr [esp + 0x24], ebp         
+0079a583: mov ebp, dword ptr [esp + 0x10]         
+0079a587: fild dword ptr [esp + 0x24]             
+0079a58b: fdivr st(1)                             
+0079a58d: fsubr dword ptr [0x8effa0]                ; f32 1
+0079a593: fstp dword ptr [ecx + ebp + 0x10]       
+0079a597: mov ebp, dword ptr [esp + 0x10]         
+0079a59b: fstp st(0)                              
+0079a59d: je 0x79a5bb                             
+0079a59f: fld st(0)                               
+0079a5a1: fdiv st(2)                              
+0079a5a3: fsubr dword ptr [0x8effa0]                ; f32 1
+0079a5a9: fmul dword ptr [0x8f14c8]                 ; f32 0.45
+0079a5af: fadd dword ptr [0x8f14c4]                 ; f32 0.05
+0079a5b5: fstp dword ptr [ecx + ebp + 0x14]       
+0079a5b9: jmp 0x79a5c3                            
+0079a5bb: mov dword ptr [ecx + ebp + 0x14], 0x3f000000
+0079a5c3: mov ebp, dword ptr [esp + 0x10]         
+0079a5c7: mov dword ptr [ecx + ebp + 0x18], 0     
+0079a5cf: mov ebp, dword ptr [esp + 0x10]         
+0079a5d3: mov dword ptr [ecx + ebp + 0x1c], 0     
+0079a5db: cmp bx, word ptr [esi + 0x4c0]          
+0079a5e2: je 0x79a640                             
+0079a5e4: cmp di, 4                               
+0079a5e8: je 0x79a640                             
+0079a5ea: mov edi, dword ptr [esp + 0x14]         
+0079a5ee: mov word ptr [edx + edi], ax            
+0079a5f2: mov edi, dword ptr [esp + 0x1c]         
+0079a5f6: mov ebp, dword ptr [esp + 0x14]         
+0079a5fa: add edi, eax                            
+0079a5fc: mov word ptr [edx + ebp + 2], di        
+0079a601: mov edi, dword ptr [esp + 0x1c]         
+0079a605: mov ebp, dword ptr [esp + 0x14]         
+0079a609: lea edi, [eax + edi + 1]                
+0079a60d: mov word ptr [edx + ebp + 4], di        
+0079a612: mov ebp, dword ptr [esp + 0x14]         
+0079a616: mov word ptr [edx + ebp + 6], ax        
+0079a61b: mov ebp, dword ptr [esp + 0x14]         
+0079a61f: mov word ptr [edx + ebp + 8], di        
+0079a624: mov ebp, dword ptr [esp + 0x14]         
+0079a628: lea edi, [eax + 1]                      
+0079a62b: mov word ptr [edx + ebp + 0xa], di      
+0079a630: mov ebp, dword ptr [esp + 0x20]         
+0079a634: add ebp, 2                              
+0079a637: add edx, 0xc                            
+0079a63a: mov dword ptr [esp + 0x20], ebp         
+0079a63e: jmp 0x79a644                              ; f32 -5.95452
+0079a640: mov ebp, dword ptr [esp + 0x20]         
+0079a644: mov di, word ptr [esi + 0x4c0]          
+0079a64b: inc eax                                 
+0079a64c: add ecx, 0x20                           
+0079a64f: inc ebx                                 
+0079a650: cmp bx, di                              
+0079a653: jbe 0x79a4fc                            
+0079a659: lea edx, [ebp + ebp*2]                  
+0079a65d: xor ebx, ebx                            
+0079a65f: mov ecx, eax                            
+0079a661: add edx, edx                            
+0079a663: mov dword ptr [esp + 0x20], ebx         
+0079a667: shl ecx, 5                              
+0079a66a: mov edi, ebx                            
+0079a66c: and edi, 0xffff                         
+0079a672: mov dword ptr [esp + 0x24], edi         
+0079a676: xor edi, edi                            
+0079a678: fild dword ptr [esp + 0x24]             
+0079a67c: fld dword ptr [0x8f14cc]                  ; f32 1.5708
+0079a682: mov di, word ptr [esi + 0x4c0]          
+0079a689: cmp word ptr [esp + 0x18], 0            
+0079a68f: fmul st(1)                              
+0079a691: mov dword ptr [esp + 0x24], edi         
+0079a695: mov edi, dword ptr [esp + 0x10]         
+0079a699: fidiv dword ptr [esp + 0x24]            
+0079a69d: fld st(0)                               
+0079a69f: fcos                                    
+0079a6a1: fmul dword ptr [esi + 0x4c8]            
+0079a6a7: fstp dword ptr [ecx + edi]              
+0079a6aa: mov edi, dword ptr [esp + 0x10]         
+0079a6ae: fld st(2)                               
+0079a6b0: fstp dword ptr [ecx + edi + 4]          
+0079a6b4: mov edi, dword ptr [esp + 0x10]         
+0079a6b8: fsin                                    
+0079a6ba: fmul dword ptr [esi + 0x4c8]            
+0079a6c0: fstp dword ptr [ecx + edi + 8]          
+0079a6c4: mov edi, dword ptr [esp + 0x10]         
+0079a6c8: je 0x79a6d4                             
+0079a6ca: mov dword ptr [ecx + edi + 0xc], 0xffffffff
+0079a6d2: jmp 0x79a6dc                            
+0079a6d4: mov dword ptr [ecx + edi + 0xc], 0xffffff
+0079a6dc: xor edi, edi                            
+0079a6de: cmp word ptr [esp + 0x18], 4            
+0079a6e4: mov di, word ptr [esi + 0x4c0]          
+0079a6eb: mov dword ptr [esp + 0x24], edi         
+0079a6ef: mov edi, dword ptr [esp + 0x10]         
+0079a6f3: fild dword ptr [esp + 0x24]             
+0079a6f7: fdivr st(1)                             
+0079a6f9: fsubr dword ptr [0x8effa0]                ; f32 1
+0079a6ff: fstp dword ptr [ecx + edi + 0x10]       
+0079a703: mov edi, dword ptr [esp + 0x10]         
+0079a707: fstp st(0)                              
+0079a709: je 0x79a72d                             
+0079a70b: fld st(0)                               
+0079a70d: fdiv st(2)                              
+0079a70f: fadd dword ptr [0x8effa0]                 ; f32 1
+0079a715: fmul dword ptr [0x8eff98]                 ; f32 0.5
+0079a71b: fmul dword ptr [0x8f14c0]                 ; 'fff?'
+0079a721: fadd dword ptr [0x8f14c4]                 ; f32 0.05
+0079a727: fstp dword ptr [ecx + edi + 0x14]       
+0079a72b: jmp 0x79a735                            
+0079a72d: mov dword ptr [ecx + edi + 0x14], 0x3f000000
+0079a735: mov edi, dword ptr [esp + 0x10]         
+0079a739: mov dword ptr [ecx + edi + 0x18], 0     
+0079a741: mov edi, dword ptr [esp + 0x10]         
+0079a745: mov dword ptr [ecx + edi + 0x1c], 0     
+0079a74d: cmp bx, word ptr [esi + 0x4c0]          
+0079a754: je 0x79a7ae                               ; f32 -5.95452
+0079a756: cmp word ptr [esp + 0x18], 4            
+0079a75c: je 0x79a7ae                               ; f32 -5.95452
+0079a75e: mov edi, dword ptr [esp + 0x14]         
+0079a762: add ebp, 2                              
+0079a765: mov word ptr [edx + edi], ax            
+0079a769: mov edi, dword ptr [esp + 0x1c]         
+0079a76d: mov ebx, dword ptr [esp + 0x14]         
+0079a771: add edi, eax                            
+0079a773: mov word ptr [edx + ebx + 2], di        
+0079a778: mov edi, dword ptr [esp + 0x1c]         
+0079a77c: mov ebx, dword ptr [esp + 0x14]         
+0079a780: add edx, 0xc                            
+0079a783: lea edi, [eax + edi + 1]                
+0079a787: mov word ptr [edx + ebx - 8], di        
+0079a78c: mov ebx, dword ptr [esp + 0x14]         
+0079a790: mov word ptr [edx + ebx - 6], ax        
+0079a795: mov ebx, dword ptr [esp + 0x14]         
+0079a799: mov word ptr [edx + ebx - 4], di        
+0079a79e: mov ebx, dword ptr [esp + 0x14]         
+0079a7a2: lea edi, [eax + 1]                      
+0079a7a5: mov word ptr [edx + ebx - 2], di        
+0079a7aa: mov ebx, dword ptr [esp + 0x20]         
+0079a7ae: mov di, word ptr [esi + 0x4c0]          
+0079a7b5: inc eax                                 
+0079a7b6: add ecx, 0x20                           
+0079a7b9: inc ebx                                 
+0079a7ba: cmp bx, di                              
+0079a7bd: mov dword ptr [esp + 0x20], ebx         
+0079a7c1: jbe 0x79a66a                            
+0079a7c7: mov ecx, dword ptr [esp + 0x18]         
+0079a7cb: mov dword ptr [esp + 0x20], ebp         
+0079a7cf: inc ecx                                 
+0079a7d0: cmp cx, 5                               
+0079a7d4: mov dword ptr [esp + 0x18], ecx         
+0079a7d8: fstp st(0)                              
+0079a7da: jb 0x79a4df                             
+0079a7e0: mov ecx, dword ptr [esi + 0x584]        
+0079a7e6: fstp st(0)                              
+0079a7e8: call 0x7856d0                           
+0079a7ed: mov ecx, dword ptr [esi + 0x584]        
+0079a7f3: call 0x785810                           
+0079a7f8: mov ecx, dword ptr [esp + 0x3c]         
+0079a7fc: pop edi                                 
+0079a7fd: pop ebx                                 
+0079a7fe: pop esi                                 
+0079a7ff: mov al, 1                               
+0079a801: pop ebp                                 
+0079a802: mov dword ptr fs:[0], ecx               
+0079a809: add esp, 0x38                           
+0079a80c: ret                                     
+0079a80d: nop                                     
+0079a80e: nop                                     
+0079a80f: nop                                     
+0079a810: push -1                                 
+0079a812: push 0x8cd1ab                           
+0079a817: mov eax, dword ptr fs:[0]               
+0079a81d: push eax                                
+0079a81e: mov dword ptr fs:[0], esp               
+0079a825: sub esp, 0x20                           
+0079a828: push ebx                                
+0079a829: push ebp                                
+0079a82a: push esi                                
+0079a82b: mov esi, ecx                            
+0079a82d: xor eax, eax                            
+0079a82f: push edi                                
+0079a830: mov ax, word ptr [esi + 0x4c0]          
+0079a837: push 0x48                               
+0079a839: mov ecx, eax                            
+0079a83b: imul ecx, eax                           
+0079a83e: lea edx, [ecx*4 + 1]                    
+0079a845: lea ecx, [eax + eax*2]                  
+0079a848: mov dword ptr [esi + 0x59c], edx        
+0079a84e: lea edx, [ecx*8 - 0xc]                  
+0079a855: imul edx, eax                           
+0079a858: mov dword ptr [esi + 0x5a0], edx        
+0079a85e: call 0x763250                           
+0079a863: add esp, 4                              
+0079a866: mov dword ptr [esp + 0x2c], eax         
+0079a86a: xor edi, edi                            
+0079a86c: cmp eax, edi                            
+0079a86e: mov dword ptr [esp + 0x38], edi         
+0079a872: je 0x79a87d                             
+0079a874: mov ecx, eax                            
+0079a876: call 0x784d70                             ; f32 -736281
+0079a87b: jmp 0x79a87f                              ; f32 0.00780648
+0079a87d: xor eax, eax                            
+0079a87f: or ebp, 0xffffffff                      
+0079a882: cmp eax, edi                            
+0079a884: mov dword ptr [esp + 0x38], ebp         
+0079a888: mov dword ptr [esi + 0x588], eax        
+0079a88e: jne 0x79a8b7                            
+0079a890: push 0x98c08c                             ; 'A3DSkySphere::Init(), Not enough memory!'
+0079a895: push 0x9d2f20                           
+0079a89a: call 0x7647d0                           
+0079a89f: add esp, 8                              
+0079a8a2: xor al, al                              
+0079a8a4: pop edi                                 
+0079a8a5: pop esi                                 
+0079a8a6: pop ebp                                 
+0079a8a7: pop ebx                                 
+0079a8a8: mov ecx, dword ptr [esp + 0x20]         
+0079a8ac: mov dword ptr fs:[0], ecx               
+0079a8b3: add esp, 0x2c                           
+0079a8b6: ret                                     
+0079a8b7: mov ecx, dword ptr [esi + 0x5a0]        
+0079a8bd: mov edx, dword ptr [esi + 0x59c]        
+0079a8c3: push 1                                  
+0079a8c5: push 1                                  
+0079a8c7: push ecx                                
+0079a8c8: mov ecx, dword ptr [esi + 0xc]          
+0079a8cb: push edx                                
+0079a8cc: push 0x242                              
+0079a8d1: push 0x20                               
+0079a8d3: push ecx                                
+0079a8d4: mov ecx, eax                            
+0079a8d6: call 0x784f10                           
+0079a8db: test al, al                             
+0079a8dd: jne 0x79a906                            
+0079a8df: push 0x98c0b8                             ; 'A3DSkySphere::Init(), Init the A3DStream fail!'
+0079a8e4: push 0x9d2f20                           
+0079a8e9: call 0x7647d0                           
+0079a8ee: add esp, 8                              
+0079a8f1: xor al, al                              
+0079a8f3: pop edi                                 
+0079a8f4: pop esi                                 
+0079a8f5: pop ebp                                 
+0079a8f6: pop ebx                                 
+0079a8f7: mov ecx, dword ptr [esp + 0x20]         

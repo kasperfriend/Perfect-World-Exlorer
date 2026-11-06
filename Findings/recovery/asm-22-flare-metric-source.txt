@@ -1,0 +1,161 @@
+# 22-flare-metric-source  0x4360a0-0x436220
+004360a0: mov eax, dword ptr [ecx + 4]            
+004360a3: ret                                     
+004360a4: nop                                     
+004360a5: nop                                     
+004360a6: nop                                     
+004360a7: nop                                     
+004360a8: nop                                     
+004360a9: nop                                     
+004360aa: nop                                     
+004360ab: nop                                     
+004360ac: nop                                     
+004360ad: nop                                     
+004360ae: nop                                     
+004360af: nop                                     
+004360b0: push esi                                
+004360b1: push edi                                
+004360b2: mov edi, ecx                            
+004360b4: push 0x1c                               
+004360b6: call 0x763250                           
+004360bb: mov esi, eax                            
+004360bd: xor ecx, ecx                            
+004360bf: add esp, 4                              
+004360c2: cmp esi, ecx                            
+004360c4: je 0x436152                             
+004360ca: mov dword ptr [esi], 0x8d6c3c           
+004360d0: mov eax, dword ptr [edi + 4]            
+004360d3: mov dword ptr [esi + 4], eax            
+004360d6: mov dword ptr [esi], 0x8d6c54           
+004360dc: mov edx, dword ptr [edi + 8]            
+004360df: push ebx                                
+004360e0: mov dword ptr [esi + 8], edx            
+004360e3: mov dword ptr [esi + 0x10], ecx         
+004360e6: mov dword ptr [esi + 0x14], ecx         
+004360e9: mov dword ptr [esi + 0x18], ecx         
+004360ec: mov dword ptr [esi + 0xc], 0x8d6c34     
+004360f3: mov ebx, dword ptr [edi + 0x10]         
+004360f6: mov edi, dword ptr [edi + 0x14]         
+004360f9: sub edi, ebx                            
+004360fb: je 0x436146                             
+004360fd: cmp edi, ecx                            
+004360ff: jbe 0x43612f                            
+00436101: lea eax, [edi - 1]                      
+00436104: mov dword ptr [esi + 0x18], 2           
+0043610b: shr eax, 1                              
+0043610d: je 0x43611b                             
+0043610f: mov edx, dword ptr [esi + 0x18]         
+00436112: shl edx, 1                              
+00436114: shr eax, 1                              
+00436116: mov dword ptr [esi + 0x18], edx         
+00436119: jne 0x43610f                            
+0043611b: mov eax, dword ptr [esi + 0x18]         
+0043611e: push eax                                
+0043611f: push ecx                                
+00436120: call dword ptr [0x8d5470]               
+00436126: add esp, 8                              
+00436129: mov dword ptr [esi + 0x10], eax         
+0043612c: mov dword ptr [esi + 0x14], eax         
+0043612f: mov ecx, dword ptr [esi + 0x10]         
+00436132: push edi                                
+00436133: push ebx                                
+00436134: push ecx                                
+00436135: call dword ptr [0x8d5448]               
+0043613b: mov edx, dword ptr [esi + 0x10]         
+0043613e: add esp, 0xc                            
+00436141: add edx, edi                            
+00436143: mov dword ptr [esi + 0x14], edx         
+00436146: pop ebx                                 
+00436147: mov dword ptr [esi], 0x8d6c80           
+0043614d: mov eax, esi                            
+0043614f: pop edi                                 
+00436150: pop esi                                 
+00436151: ret                                     
+00436152: pop edi                                 
+00436153: xor eax, eax                            
+00436155: pop esi                                 
+00436156: ret                                     
+00436157: nop                                     
+00436158: nop                                     
+00436159: nop                                     
+0043615a: nop                                     
+0043615b: nop                                     
+0043615c: nop                                     
+0043615d: nop                                     
+0043615e: nop                                     
+0043615f: nop                                     
+00436160: push ebp                                
+00436161: mov ebp, esp                            
+00436163: sub esp, 8                              
+00436166: mov eax, dword ptr [ecx + 8]            
+00436169: push ebx                                
+0043616a: push esi                                
+0043616b: push edi                                
+0043616c: mov dword ptr [ebp - 8], ecx            
+0043616f: mov dword ptr [ebp - 4], eax            
+00436172: mov eax, dword ptr [ebp - 4]            
+00436175: bswap eax                               
+00436177: mov dword ptr [ebp - 4], eax            
+0043617a: mov ecx, dword ptr [ebp - 4]            
+0043617d: mov esi, dword ptr [ebp + 8]            
+00436180: mov dword ptr [ebp - 4], ecx            
+00436183: mov ecx, dword ptr [esi + 8]            
+00436186: mov eax, dword ptr [esi + 4]            
+00436189: mov edi, ecx                            
+0043618b: mov ebx, ecx                            
+0043618d: sub edi, eax                            
+0043618f: sub ebx, eax                            
+00436191: mov dword ptr [ebp + 8], ecx            
+00436194: lea edx, [edi + 4]                      
+00436197: cmp edx, dword ptr [esi + 0xc]          
+0043619a: jbe 0x4361cf                            
+0043619c: lea ecx, [edx - 1]                      
+0043619f: mov dword ptr [esi + 0xc], 2            
+004361a6: shr ecx, 1                              
+004361a8: je 0x4361b6                             
+004361aa: mov edx, dword ptr [esi + 0xc]          
+004361ad: shl edx, 1                              
+004361af: shr ecx, 1                              
+004361b1: mov dword ptr [esi + 0xc], edx          
+004361b4: jne 0x4361aa                            
+004361b6: mov edx, dword ptr [esi + 0xc]          
+004361b9: push edx                                
+004361ba: push eax                                
+004361bb: call dword ptr [0x8d5470]               
+004361c1: mov ecx, dword ptr [ebp + 8]            
+004361c4: add esp, 8                              
+004361c7: mov dword ptr [esi + 4], eax            
+004361ca: add eax, edi                            
+004361cc: mov dword ptr [esi + 8], eax            
+004361cf: test ecx, ecx                           
+004361d1: je 0x436202                             
+004361d3: mov edi, dword ptr [esi + 4]            
+004361d6: mov eax, dword ptr [esi + 8]            
+004361d9: add edi, ebx                            
+004361db: mov ebx, dword ptr [0x8d5448]           
+004361e1: sub eax, edi                            
+004361e3: push eax                                
+004361e4: lea ecx, [edi + 4]                      
+004361e7: push edi                                
+004361e8: push ecx                                
+004361e9: call ebx                                
+004361eb: lea edx, [ebp - 4]                      
+004361ee: push 4                                  
+004361f0: push edx                                
+004361f1: push edi                                
+004361f2: call ebx                                
+004361f4: mov eax, dword ptr [esi + 8]            
+004361f7: add esp, 0x18                           
+004361fa: add eax, 4                              
+004361fd: mov dword ptr [esi + 8], eax            
+00436200: jmp 0x43621e                            
+00436202: mov ecx, dword ptr [esi + 4]            
+00436205: lea eax, [ebp - 4]                      
+00436208: push 4                                  
+0043620a: push eax                                
+0043620b: push ecx                                
+0043620c: call dword ptr [0x8d5448]               
+00436212: mov edx, dword ptr [esi + 4]            
+00436215: add esp, 0xc                            
+00436218: add edx, 4                              
+0043621b: mov dword ptr [esi + 8], edx            

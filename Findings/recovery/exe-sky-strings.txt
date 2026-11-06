@@ -1,0 +1,107 @@
+008e870c SwitchSceneFail: %d
+0094e948 sky_image03
+0094e960 sky_image02
+0094e978 sky_image01
+0094eb08 SunFlare
+00950ab0 .?AVCECScene@@
+00950ac8 .?AV?$APtrArray@PAUTREETYPE@CECScene@@@@
+00950b00 .?AV?$APtrArray@PAUSUBTRNDATA@CECScene@@@@
+00950b38 .?AV?$APtrArray@PAUGRASSTYPE@CECScene@@@@
+00950b70 .?AV?$APtrArray@PAVCECSceneBlock@@@@
+00950b98 CECScene::Load, Failed to load tree and grass type data.
+00950bd4 CECScene::Load, Failed to load block offsets.
+00950c04 CECScene::Load, Failed to open water file.
+00950c30 CECScene::Load, Failed to open scene file.
+00950c5c CECScene::OpenSceneFile, Wrong version. %d is wanted but %d is given.
+00950ca4 CECScene::OpenSceneFile, Wrong file format
+00950cd0 CECScene::OpenSceneFile, Failed to read file header
+00950d04 CECScene::OpenSceneFile, Failed to open file %s
+00950d34 CECScene::OpenBSDFile, Wrong version. %d is wanted but %d is given.
+00950d78 CECScene::OpenBSDFile, Wrong file format
+00950da4 CECScene::OpenBSDFile, Failed to read file header
+00950dd8 CECScene::OpenBSDFile, Failed to open file %s
+00950e08 CECScene::LoadWaterArea, failed to load water area from file %s
+00950e48 CECScene::LoadWaterArea, failed to call PrepareSubTerrainData()
+00950e88 CECScene::LoadWaterArea, failed to load water area
+00950ebc CECScene::LoadBoxArea, failed to load box area
+00950eec CECScene::LoadGrassArea, Failed to add grass bits map
+00950f24 CECScene::LoadGrassArea, failed to load grass bit map from file %s
+00950f68 CECScene::LoadGrassArea, failed to call PrepareSubTerrainData()
+00950fa8 CECScene::LoadGrassArea
+00950fc0 CECScene::LoadCritterGroup, failed to load critter group
+0095100c CECScene::LoadBezier, failed to load bezier curve
+00951040 CECScene::PrepareSubTerrainData, Wrong file version %d
+00951078 CECScene::PrepareSubTerrainData, failed to open file %s
+009510b4 CECScene::GetTreeType, Failed to create new tree type %d
+009510f0 CECScene::GetGlassType, Failed to create new grass type %d
+00951190 .?AVCECSceneBlock@@
+009511b0 .?AV?$AArray@UTREEINFO@CECSceneBlock@@AAU12@@@
+009511e0 CECSceneBlock::Load, failed to load sound objects in block
+0095121c CECSceneBlock::Load, failed to load bezier routes in block
+00951258 CECSceneBlock::Load, failed to load critter group data in block
+00951298 CECSceneBlock::Load, failed to load ECModel data in block
+009512d4 CECSceneBlock::Load, failed to load effect data in block
+00951310 CECSceneBlock::Load, failed to load grass area data in block
+00951350 CECSceneBlock::Load, failed to load box area data in block
+0095138c CECSceneBlock::Load, failed to load ornament data in block
+009513c8 CECSceneBlock::Load, failed to load water data in block
+00951400 CECSceneBlock::Load, failed to load tree data in block
+00951438 CECSceneLights::Load(), read file part 2 failed!
+0095146c CECSceneLights::Load(), read file failed!
+00951498 CECSceneLights::Load(), wrong version!
+009514c0 CECSceneLights::Load(), failed to open file %s!
+00951528 .?AV?$APtrList@PAVCECSceneThreadObj@@@@
+009517d8 \scenelights.dat
+00951918 CECWorld::LoadWorld, scene couldn't be loaded twice
+0095194c CECWorld::CreateAutoScene
+00951968 Configs\AutoFamilyConfigs\AutoScene.cfg
+009519e4 CECWorld::LoadSky, Failed to create sphere sky !
+00951a18 CECWorld::LoadSceneObjects, Failed to load scene file %s
+00951a54 CECWorld::LoadSceneObjects
+00957410 .?AVCECSceneThreadObj@@
+00957430 .?AVCECSceneObject@@
+0095aa9c CECSunMoon::Init, Falied to create flares stream
+0095aad0 CECSunMoon::Init, Falied to create flare alpha stream
+0095ab3c CECSunMoon::Init, failed to load solar shade!
+0095ab6c shaders\ps\solarflare_14.txt
+0095ab8c CECSunMoon::Init, failed to create flare alpha accumulat target!
+0095abd0 CECSunMoon::Init, Falied to load flares texture
+0095ac00 textures\nature\flares.bmp
+0095ac1c textures\nature\moonflare.bmp
+0095ac3c textures\nature\sunflare.bmp
+0095ac5c CECSunMoon::Init, failed to lock flare alpha stream!
+00967944 Chk_Sunflare
+00967a40 Sunflare
+00971130 %s\Configs\SceneCtrl.ini
+0097b3f8 .?AVCAutoScene@@
+0097b40c CAutoScene::Init, Failed to initialize home terrain !
+0097b444 CAutoScene::Init, Failed to initialize home border line !
+0097b480 CAutoScene::Init, Failed to initialize home manager !
+0097b4c0 .?AVCAutoSceneConfig@@
+0097b50c CAutoSceneConfig::Init, Failed to load sky type list.
+0097b544 CAutoSceneConfig::Init, Failed to load model type list.
+0097b57c CAutoSceneConfig::Init, Failed to load texture list.
+0097b5b4 CAutoSceneConfig::Init, Failed to load grass type list.
+0097b5ec CAutoSceneConfig::Init, Failed to load tree type list.
+0097b624 CAutoSceneConfig::Init, Failed to load scene config.
+0097b668 scene_path
+0097b674 sky_list
+0097b768 sky_id_night
+0097b77c sky_id_day
+00987bf4 A3DDevcie BeginScene Failure!
+00987c14 A3DDevcie EndScene Failure!
+009883b8 high_quality_sky
+009883dc lightmap_scene
+0098840c detail_scene
+00989618 A3DEngine::TickAnimation() tick sky fail!
+0098bf7c Textures\Sky
+0098bf8c A3DSky::Render DrawIndexPrimitive Fail!
+0098bfb4 A3DSkySphere::Render DrawIndexPrimitive Fail!
+0098bfe4 A3DSkySphere::Init(), Stream Surround Lock Indices Fail!
+0098c020 A3DSkySphere::Init(), Stream Surround Lock Verts Fail!
+0098c058 A3DSkySphere::Init(), Stream Surround Init Fail!
+0098c08c A3DSkySphere::Init(), Not enough memory!
+0098c0b8 A3DSkySphere::Init(), Init the A3DStream fail!
+0098c0e8 Textures\Sky\%s
+0098c0f8 A3DSkySphere::TransSky(), Can't load texture [%s]
+00992c38 A3DSky::Render Stream Flat Set Verts Fail!

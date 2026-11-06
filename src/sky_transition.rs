@@ -165,25 +165,90 @@ pub fn clock_for_minutes(minutes: f32) -> i32 {
     }
 }
 
-/// One authored three-image sky set. The viewer's loader holds three groups of
-/// three client images (`textures/sky/{clear,evening,night2}/{01,02,roof}.bmp`),
-/// which is the viewer's stand-in for the client's day and night triples named
-/// through `Textures\Sky\%s` (`0x98c0e8`).
+/// One authored three-image sky set. The viewer's loader holds the three
+/// `configs/autofamilyconfigs/sky.lst` rows in file order:
+/// `0 = 晴天 (clear)`, `1 = 阴天01 (overcast)`, `2 = 夕阳 (sunset)`.
+/// `autoscene.cfg` names `sky_id_day = 0` and `sky_id_night = 1` for this
+/// build, so the night swap is to the overcast set, not to a painted night
+/// panorama. The set paths are configuration data (`Textures\Sky\%s` at
+/// `0x98c0e8`), not a filename pattern.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Triple(pub u8);
 
 impl Triple {
-    /// Day set (group 0, the noon panorama) and night set (group 2).
+    /// Day set (`sky_id_day = 0`, clear).
     pub const DAY: Triple = Triple(0);
-    pub const NIGHT: Triple = Triple(2);
+    /// Night set (`sky_id_night = 1`, overcast). The client darkens it with the
+    /// regional light record; it is not a separate painted night texture.
+    pub const NIGHT: Triple = Triple(1);
     pub const ALL: [Triple; 3] = [Triple(0), Triple(1), Triple(2)];
 
     pub fn valid(self) -> bool {
         (self.0 as usize) < Self::ALL.len()
     }
-    /// Texture-set folder for the viewer's own loader.
+    /// Texture-set folder for the viewer's own loader, in `sky.lst` order.
     pub fn folder(self) -> &'static str {
-        ["clear", "evening", "night2"][self.0 as usize % Self::ALL.len()]
+        ["clear", "阴天01", "夕阳"][self.0 as usize % Self::ALL.len()]
+    }
+}
+
+/// Viewer-only sky-set override for the World tab.
+///
+/// `Auto` is the client's own ladder: `autoscene.cfg` names the day and night
+/// ids, `0x4203f4` swaps between them through `sky.lst`, and a region that
+/// names the third row gets it. The other choices pin one `sky.lst` row, which
+/// is the only way to look at a set the shipped configuration never selects —
+/// the machine is not driven while an override is active, so a resume continues
+/// from the committed set instead of replaying a fade.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SkyOverride {
+    #[default]
+    Auto,
+    Clear,
+    Overcast,
+    Sunset,
+}
+
+impl SkyOverride {
+    pub const ALL: [Self; 4] = [Self::Auto, Self::Clear, Self::Overcast, Self::Sunset];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto (day/night ladder)",
+            Self::Clear => "晴天 clear (row 0)",
+            Self::Overcast => "阴天01 overcast (row 1)",
+            Self::Sunset => "夕阳 sunset (row 2)",
+        }
+    }
+
+    /// Persisted spelling; short, so a settings file stays readable.
+    pub fn token(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Clear => "Clear",
+            Self::Overcast => "Overcast",
+            Self::Sunset => "Sunset",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|o| o.token() == text)
+    }
+
+    /// The `sky.lst` row this override pins, or `None` for `Auto`.
+    pub fn row(self) -> Option<u8> {
+        match self {
+            Self::Auto => None,
+            Self::Clear => Some(0),
+            Self::Overcast => Some(1),
+            Self::Sunset => Some(2),
+        }
+    }
+
+    /// What the sky shader is handed while this override is active: both
+    /// indices are the pinned row, so no fade is ever drawn.
+    pub fn sets(self) -> Option<(i32, i32, f32)> {
+        self.row().map(|row| (row as i32, row as i32, 0.))
     }
 }
 
@@ -233,10 +298,10 @@ pub struct Machine {
     ///
     /// The client resolves both from `Textures\Sky\%s` and the `sky_id_day` /
     /// `sky_id_night` keys of `configs.pck`, which re-author per region. The
-    /// viewer's loader currently holds one group of three panoramas and cannot
-    /// read that key (the shipped `configs.pck` is not the retail v2 container
-    /// the reader implements), so both author to the sets the loader has and
-    /// [`Machine::author`] is the single place a region mapping would land.
+    /// viewer now reads those keys through `angelica_pck` (the shipped
+    /// `configs.pck` is an Angelica package, not the retail v2 container) and
+    /// installs the `sky.lst` rows they name. [`Machine::author`] is the single
+    /// place a region mapping lands.
     day: Triple,
     night: Triple,
     current: Triple,
@@ -574,7 +639,7 @@ mod tests {
         assert_eq!(m.current(), Triple::NIGHT);
         assert!(!m.running());
         assert!(!m.waiting());
-        assert_eq!(frame_sets(&m), (2, 2, 0.));
+        assert_eq!(frame_sets(&m), (1, 1, 0.), "night is set 1");
         assert_eq!(m.commits(), 1);
         // The same-set guard (0x79ad7d) refuses a repeat and starts no fade.
         assert_eq!(
@@ -604,7 +669,7 @@ mod tests {
         assert_eq!(m.counter(), 200);
         assert_eq!(frame_sets(&m), (0, 0, 0.), "no fade until the load lands");
         m.resources_ready();
-        assert_eq!(frame_sets(&m), (0, 2, 0.));
+        assert_eq!(frame_sets(&m), (0, 1, 0.));
         assert!(!m.step());
         assert_eq!(m.counter(), 167);
         assert_eq!(m.blend(), 1. - 167. / 200.);
@@ -615,7 +680,7 @@ mod tests {
         }
         assert_eq!(m.current(), Triple::NIGHT);
         assert!(!m.running());
-        assert_eq!(frame_sets(&m), (2, 2, 0.));
+        assert_eq!(frame_sets(&m), (1, 1, 0.));
     }
 
     #[test]
@@ -667,13 +732,13 @@ mod tests {
     #[test]
     fn a_running_swap_is_never_retargeted() {
         let mut m = Machine::new(Triple::DAY);
-        assert!(m.request(Request::over(Triple(1), 100)).is_ok());
+        assert!(m.request(Request::over(Triple(2), 100)).is_ok());
         assert_eq!(
             m.request(Request::now(Triple::NIGHT)),
             Err(Refused::Busy),
             "0x79ac48 guards the load"
         );
-        assert_eq!(m.pending(), Triple(1));
+        assert_eq!(m.pending(), Triple(2));
         m.resources_ready();
         assert_eq!(
             m.request(Request::now(Triple::NIGHT)),
@@ -682,7 +747,7 @@ mod tests {
         );
         m.hurry(1000);
         assert!(m.step());
-        assert_eq!(m.current(), Triple(1));
+        assert_eq!(m.current(), Triple(2));
         assert!(m.request(Request::now(Triple::NIGHT)).is_ok());
         assert_eq!(m.current(), Triple::NIGHT);
     }
@@ -783,8 +848,9 @@ mod tests {
         assert!(drive(&mut m, 0.9, true, 1000).is_none());
         assert!(!m.running());
         assert_eq!(m.current(), Triple(1));
-        // The night branch needs 0.5 or more (0x4207aa).
-        let mut m = Machine::new(Triple(1));
+        // The night branch needs 0.5 or more (0x4207aa). Start on set 2 so the
+        // night set (1) is still a real change.
+        let mut m = Machine::new(Triple(2));
         assert!(drive(&mut m, 0.4, false, 1000).is_none());
         assert!(!m.running());
         assert!(drive(&mut m, 0.75, false, 1000).is_some());
@@ -1058,18 +1124,18 @@ mod tests {
 
     #[test]
     fn frame_sets_are_the_committed_set_without_a_running_swap() {
-        let mut m = Machine::new(Triple(1));
-        assert_eq!(frame_sets(&m), (1, 1, 0.));
+        let mut m = Machine::new(Triple(2));
+        assert_eq!(frame_sets(&m), (2, 2, 0.));
         m.request(Request::over(Triple::NIGHT, 200)).unwrap();
-        assert_eq!(frame_sets(&m), (1, 1, 0.), "loading is not a fade");
+        assert_eq!(frame_sets(&m), (2, 2, 0.), "loading is not a fade");
         m.resources_ready();
-        assert_eq!(frame_sets(&m), (1, 2, 0.));
+        assert_eq!(frame_sets(&m), (2, 1, 0.));
         for _ in 0..100 {
             if m.step() {
                 break;
             }
         }
-        assert_eq!(frame_sets(&m), (2, 2, 0.));
+        assert_eq!(frame_sets(&m), (1, 1, 0.));
     }
 
     #[test]
@@ -1099,7 +1165,8 @@ mod tests {
         m.step();
         let frame = frame_sets(&m);
         assert_eq!(frame.0, 0);
-        assert_eq!(frame.1, 2);
+        assert_eq!(frame.1, Triple::NIGHT.0 as i32, "the night set");
+
         assert!(frame.2 > 0.);
         let counter = m.counter();
         for secondary in [false, false, true, true, true, true] {
@@ -1113,5 +1180,24 @@ mod tests {
         // And the machine's own view of the frame is what got published.
         assert_eq!(frame, frame_sets(&m));
         assert_eq!(counter, m.counter(), "no view advanced the machine");
+    }
+
+    #[test]
+    fn the_sky_override_pins_one_row_and_never_fades() {
+        assert_eq!(SkyOverride::Auto.row(), None);
+        assert_eq!(SkyOverride::Auto.sets(), None);
+        for option in SkyOverride::ALL {
+            assert_eq!(SkyOverride::parse(option.token()), Some(option));
+            if let Some((current, incoming, weight)) = option.sets() {
+                let row = option.row().expect("a pinned row");
+                assert_eq!((current, incoming, weight), (row as i32, row as i32, 0.));
+                assert!(Triple(row).valid(), "{} is a sky.lst row", option.label());
+            }
+        }
+        // The three pinned rows are the shipped sky.lst order.
+        assert_eq!(SkyOverride::Clear.row(), Some(Triple::DAY.0));
+        assert_eq!(SkyOverride::Overcast.row(), Some(Triple::NIGHT.0));
+        assert_eq!(SkyOverride::Sunset.row(), Some(2));
+        assert_eq!(SkyOverride::parse("auto"), None, "tokens are exact");
     }
 }

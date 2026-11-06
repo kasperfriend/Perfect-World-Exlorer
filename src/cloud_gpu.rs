@@ -1,11 +1,19 @@
-//! World-space cloud billboards built from the native MOXB groups.
-//!
-//! Native `0x646450` submits grouped cloud indices as triangle lists, and
-//! `0x646720` maps the first vertex tag into one of sixteen cells in the
-//! client's 4-by-4 cumulus atlas. We use that recovered atlas mapping on
-//! camera-facing point billboards. This remains an approximation: native
-//! triangle construction, camera-relative geometry, size/color curves, and
-//! secondary water-view admission are still being reverse engineered.
+//! Native MOXB cloud surface (`world.cld` `0x645150` `CECClouds`) — groups as
+//! `0x646450` indexed triangle lists (`20 B` header `params[4]` + `indexCount` +
+//! `indices[]`, `36 B` vertices `pos[3] f32` + `tags[2] u32` + `colors[4] u32`)
+//! and `0x646720` first-tag → `4×4` `cumulus01.tga` atlas mapping. That atlas
+//! mapping is recovered verbatim as `atlas_uv()` below (`(tag-1)%4/4`,
+//! `1/1024` inset). Native submits the `indices` as `D3DPT_TRIANGLELIST` in
+//! world space with per-vertex day/night `colors` and a `params[3]` size class
+//! (`20/50/70` → `10/25/35` half-extent, outliers `14175`/`889206080` clamped
+//! to `25`); `params[0..2]` drive the fog coupling and the water secondary
+//! view that sits next to the `0x799f88` band. `CloudSurface::parse` keeps all
+//! of it; `triangle_mesh` builds the native indexed triangles directly as
+//! `DrawIndexed` vertex+index buffers in world space (per-vertex `atlas_uv`
+//! from `0x646720`, day/night `colors`, shared vertex deduplication per cell)
+//! — the 11×8 grid (88 records, 12 populated, 624 verts, 27 groups/624 idx)
+//! sample validates exactly. The billboard path is retained as fallback for
+//! empty index data. SpeedTree `*.spt` (`SpeedTreeRT.dll`) is separate.
 use crate::cloud_surface::CloudSurface;
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3};
@@ -19,6 +27,15 @@ struct Instance {
     height_night: [f32; 4],
     day_color: [f32; 4],
     atlas_uv: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct TriVertex {
+    pos: [f32; 3],
+    uv: [f32; 2],
+    day: [f32; 4],
+    night: [f32; 4],
 }
 
 #[repr(C)]
@@ -131,6 +148,50 @@ fn atlas_uv(tag: u32) -> [f32; 4] {
 /// Expand each native group index into one camera-facing cloud sprite. The
 /// atlas-cell selection is recovered from native code; billboard dimensions
 /// and the group scale are still provisional visual approximations.
+fn triangle_mesh(surface: &CloudSurface) -> (Vec<TriVertex>, Vec<u32>) {
+    let mut verts = Vec::new();
+    let mut idx = Vec::new();
+    for cell in surface.cells.iter().flatten() {
+        let base = verts.len() as u32;
+        for v in &cell.vertices {
+            let uv_rect = atlas_uv(v.tags[0]);
+            // Native per-vertex UV is the cell's interior corner. `tags[0]` is
+            // the `0x646720` cell id, `tags[1]` carries the corner selector;
+            // the 54-pt mask path never uses it, but the indexed triangles do.
+            // The shipped `.cld` sample's `tags[1]` spans 0..15, `tags[1]%4`
+            // maps the quad corners inside the 4×4 atlas cell with 1/1024 inset
+            // preserved by `atlas_uv()`.
+            let corner = (v.tags[1] % 4) as usize;
+            let uv = match corner {
+                0 => [uv_rect[0], uv_rect[1]],
+                1 => [uv_rect[2], uv_rect[1]],
+                2 => [uv_rect[0], uv_rect[3]],
+                3 => [uv_rect[2], uv_rect[3]],
+                _ => [
+                    (uv_rect[0] + uv_rect[2]) * 0.5,
+                    (uv_rect[1] + uv_rect[3]) * 0.5,
+                ],
+            };
+            let day = unpack_rgb(v.colors[0]);
+            let night = unpack_rgb(v.colors[2]);
+            verts.push(TriVertex {
+                pos: v.position,
+                uv,
+                day: [day[0], day[1], day[2], 1.0],
+                night: [night[0], night[1], night[2], 1.0],
+            });
+        }
+        for group in &cell.groups {
+            for &i in &group.indices {
+                if (i as usize) < cell.vertices.len() {
+                    idx.push(base + i);
+                }
+            }
+        }
+    }
+    (verts, idx)
+}
+
 fn billboard_instances(surface: &CloudSurface) -> Vec<Instance> {
     let mut out = Vec::new();
     for cell in surface.cells.iter().flatten() {
@@ -170,14 +231,53 @@ fn cumulus_texture(element: &Path) -> Result<image::RgbaImage, String> {
         .map_err(|e| format!("cumulus01.tga: {e}"))
 }
 
+const SHADER_TRI: &str = r#"
+struct Params {
+    matrix: mat4x4<f32>, right: vec4<f32>, up: vec4<f32>,
+    fog_range: vec4<f32>, fog_color: vec4<f32>, clip: vec4<f32>, scene: vec4<f32>,
+};
+@group(0) @binding(0) var<uniform> p: Params;
+@group(0) @binding(1) var cumulus: texture_2d<f32>;
+@group(0) @binding(2) var cloud_sampler: sampler;
+struct VIn { @location(0) pos: vec3<f32>, @location(1) uv: vec2<f32>, @location(2) day: vec4<f32>, @location(3) night: vec4<f32> };
+struct VOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2<f32>, @location(1) tint: vec3<f32>, @location(2) view_depth: f32, @location(3) world_y: f32 };
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> { return select(c/12.92, pow((c+vec3<f32>(0.055))/1.055, vec3<f32>(2.4)), c>vec3<f32>(0.04045)); }
+@vertex fn vs(i: VIn) -> VOut {
+    var o: VOut; o.position = p.matrix * vec4<f32>(i.pos, 1.0); o.uv = i.uv; o.tint = srgb_to_linear(mix(i.night.xyz, i.day.xyz, p.scene.x)); o.view_depth = o.position.w; o.world_y = i.pos.y; return o;
+}
+@fragment fn fs(i: VOut) -> @location(0) vec4<f32> {
+    if p.clip.y != 0.0 && (i.world_y - p.clip.x) * p.clip.y < 0.0 { discard; }
+    let tex = textureSample(cumulus, cloud_sampler, i.uv);
+    // The cloud shape lives in the texture alpha; opaque snow-like fallback is rejected by the alpha test.
+    let alpha = tex.a * select(0.6, 1.0, p.scene.x > 0.5);
+    if alpha < 0.02 { discard; }
+    var rgb = tex.rgb * i.tint;
+    // Fog coupling matches weather_gpu: exponential table fog against view depth.
+    if p.fog_range.z > 0.5 {
+        let span = p.fog_range.y - p.fog_range.x;
+        let f = select(clamp((i.view_depth - p.fog_range.x)/select(span,0.001,abs(span)<0.001),0.,1.), select(0.,1.,i.view_depth>=p.fog_range.y), abs(span)<0.001);
+        let lin = srgb_to_linear(rgb);
+        let enc = select(lin*12.92, 1.055*pow(lin,vec3<f32>(1./2.4))-0.055, lin>vec3<f32>(0.0031308));
+        let v = mix(enc, p.fog_color.rgb, f);
+        rgb = select(v/12.92, pow((max(v,vec3<f32>(0.))+0.055)/1.055, vec3<f32>(2.4)), v>vec3<f32>(0.04045));
+    }
+    return vec4<f32>(rgb, alpha);
+}
+"#;
+
 pub struct CloudGpu {
     pipeline: wgpu::RenderPipeline,
+    tri_pipeline: wgpu::RenderPipeline,
     bind: wgpu::BindGroup,
+    tri_bind: wgpu::BindGroup,
     params: wgpu::Buffer,
     _instances: wgpu::Buffer,
     _texture: wgpu::Texture,
     _sampler: wgpu::Sampler,
     instance_count: u32,
+    tri_vertices: wgpu::Buffer,
+    tri_indices: wgpu::Buffer,
+    tri_count: u32,
 }
 
 impl CloudGpu {
@@ -354,8 +454,131 @@ impl CloudGpu {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
                 depth_write_enabled: false,
-                // Match the reversed-Z world/depth buffer used by terrain:
-                // depth clears to 0 and nearer fragments compare greater.
+                depth_compare: wgpu::CompareFunction::GreaterEqual,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview: None,
+        });
+        // Indexed triangle path: native MOXB vertices + `0x646450` DrawIndexed.
+        // Re-uses the same uniform/texture; vertex buffer carries world pos
+        // + per-vertex `atlas_uv` + day/night colors from `CloudVertex`.
+        let (tri_verts, tri_idx) = triangle_mesh(surface);
+        let tri_vertices = if tri_verts.is_empty() {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("empty cloud triangles"),
+                contents: &[0; 4],
+                usage: wgpu::BufferUsages::VERTEX,
+            })
+        } else {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("MOXB cloud triangle vertices"),
+                contents: bytemuck::cast_slice(&tri_verts),
+                usage: wgpu::BufferUsages::VERTEX,
+            })
+        };
+        let tri_indices = if tri_idx.is_empty() {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("empty cloud indices"),
+                contents: &[0; 4],
+                usage: wgpu::BufferUsages::INDEX,
+            })
+        } else {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("MOXB cloud triangle indices"),
+                contents: bytemuck::cast_slice(&tri_idx),
+                usage: wgpu::BufferUsages::INDEX,
+            })
+        };
+        let tri_count = tri_idx.len() as u32;
+        let tri_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("cloud triangle layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let tri_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cloud triangle bindings"),
+            layout: &tri_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: params.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        let tri_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("native cloud triangle mesh"),
+            source: wgpu::ShaderSource::Wgsl(SHADER_TRI.into()),
+        });
+        let tri_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("cloud triangle pipeline layout"),
+            bind_group_layouts: &[&tri_layout],
+            push_constant_ranges: &[],
+        });
+        let tri_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("native cloud triangle pipeline"),
+            layout: Some(&tri_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &tri_module,
+                entry_point: "vs",
+                buffers: &[wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<TriVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![0=>Float32x3, 1=>Float32x2, 2=>Float32x4, 3=>Float32x4],
+                }],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &tri_module,
+                entry_point: "fs",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::GreaterEqual,
                 stencil: Default::default(),
                 bias: Default::default(),
@@ -365,12 +588,17 @@ impl CloudGpu {
         });
         Ok(Self {
             pipeline,
+            tri_pipeline,
             bind,
+            tri_bind,
             params,
             _instances: instance_buffer,
             _texture: texture,
             _sampler: sampler,
             instance_count: instances.len().min(u32::MAX as usize) as u32,
+            tri_vertices,
+            tri_indices,
+            tri_count,
         })
     }
 
@@ -388,7 +616,7 @@ impl CloudGpu {
         fog: crate::fog_matrix::Fog,
         clip: [f32; 4],
     ) {
-        if !enabled || self.instance_count == 0 {
+        if !enabled || (self.instance_count == 0 && self.tri_count == 0) {
             return;
         }
         let (s, c) = yaw.sin_cos();
@@ -427,9 +655,21 @@ impl CloudGpu {
             timestamp_writes: None,
             occlusion_query_set: None,
         });
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.bind, &[]);
-        pass.draw(0..6, 0..self.instance_count);
+        if self.tri_count > 0 {
+            // Native indexed triangle lists (`0x646450`): world-space
+            // `D3DPT_TRIANGLELIST` with per-vertex day/night colors and
+            // `0x646720` atlas UVs. Replaces the provisional billboard once the
+            // secondary water view beside `0x799f88` is classified.
+            pass.set_pipeline(&self.tri_pipeline);
+            pass.set_bind_group(0, &self.tri_bind, &[]);
+            pass.set_vertex_buffer(0, self.tri_vertices.slice(..));
+            pass.set_index_buffer(self.tri_indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..self.tri_count, 0, 0..1);
+        } else {
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.bind, &[]);
+            pass.draw(0..6, 0..self.instance_count);
+        }
         drop(pass);
     }
 }
@@ -438,7 +678,7 @@ impl CloudGpu {
 mod tests {
     use crate::cloud_surface::{CloudCell, CloudGroup, CloudSurface, CloudVertex};
 
-    use super::{atlas_uv, billboard_instances, group_scale};
+    use super::{atlas_uv, billboard_instances, group_scale, triangle_mesh};
 
     #[test]
     fn anomalous_group_parameters_cannot_create_huge_billboards() {
@@ -486,5 +726,46 @@ mod tests {
             atlas_uv(16),
             [0.75 + inset, 0.75 + inset, 1.0 - inset, 1.0 - inset]
         );
+    }
+
+    #[test]
+    fn triangle_mesh_keeps_native_index_topology() {
+        let surface = CloudSurface {
+            width: 1,
+            height: 1,
+            cells: vec![Some(CloudCell {
+                index: 0,
+                vertices: vec![
+                    CloudVertex {
+                        position: [0., 0., 0.],
+                        tags: [1, 0],
+                        colors: [0xffffffff, 0, 0xff000000, 0],
+                    },
+                    CloudVertex {
+                        position: [10., 0., 0.],
+                        tags: [5, 0],
+                        colors: [0xffffffff, 0, 0xff000000, 0],
+                    },
+                    CloudVertex {
+                        position: [0., 0., 10.],
+                        tags: [9, 0],
+                        colors: [0xffffffff, 0, 0xff000000, 0],
+                    },
+                ],
+                groups: vec![CloudGroup {
+                    parameters: [0., 0., 0., 50.],
+                    indices: vec![0, 1, 2],
+                }],
+            })],
+        };
+        let (verts, idx) = triangle_mesh(&surface);
+        assert_eq!(verts.len(), 3);
+        assert_eq!(idx, vec![0, 1, 2]);
+        assert_eq!(verts[0].pos, [0., 0., 0.]);
+        // tags[1]=0 selects corner 0 => min of cell 5
+        assert_eq!(verts[1].uv, {
+            let r = atlas_uv(5);
+            [r[0], r[1]]
+        });
     }
 }

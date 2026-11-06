@@ -259,6 +259,20 @@ mod tests {
     }
 
     #[test]
+    fn shipped_populator_manifest_is_discoverable() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(MODULES_DIRECTORY);
+        let registry = Registry::discover(root);
+        assert!(registry.errors.is_empty(), "{:?}", registry.errors);
+        let populator = registry
+            .packages
+            .iter()
+            .find(|package| package.id == "populator")
+            .expect("Modules/Populator must be shipped");
+        assert_eq!(populator.name, "Populator");
+        assert!(!populator.description.is_empty());
+    }
+
+    #[test]
     fn shipped_walker_manifest_is_discoverable() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(MODULES_DIRECTORY);
         let registry = Registry::discover(root);
