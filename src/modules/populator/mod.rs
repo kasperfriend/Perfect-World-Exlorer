@@ -338,7 +338,7 @@ impl Live {
 
     /// Posed meshes for this frame. `Playback` supplies the native scene clock
     /// when the template's combined action is a single base; otherwise the
-    /// ordinary `休闲` action runs on the module clock, and a rig that can
+    /// ordinary `站立` action runs on the module clock, and a rig that can
     /// evaluate neither falls back to its authored bind pose rather than
     /// disappearing.
     fn pose(&mut self) -> Result<Vec<PosedMesh>, String> {

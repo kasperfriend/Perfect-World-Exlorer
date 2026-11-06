@@ -106,7 +106,7 @@ with 120 (ornament range) and 800 as further presets.
 ## Module behaviour that follows from this
 
 * Spawn, appear, idle: the 515 client-placed NPCs at authored positions and
-  heights, rigs, overhead names and the idle `休闲` scene action straight out of
+  heights, rigs, overhead names and the idle `站立` scene action straight out of
   `models.pck`. The 1,057 server-placed records are reported, never stacked at
   the origin.
 * Standing surface: a record whose height is `0` has no Y at all — the server
