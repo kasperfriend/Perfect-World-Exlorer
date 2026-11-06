@@ -1654,7 +1654,7 @@ impl Populator {
             self.name_font = Some(NameFont::load(&element));
         }
         let font = {
-            let Some(font) = self.name_font.as_ref() else {
+            let Some(font) = self.name_font.as_mut() else {
                 return;
             };
             // egui applies new font definitions at the start of the next frame,
