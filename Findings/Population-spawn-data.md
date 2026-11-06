@@ -204,7 +204,13 @@ on the same `trace_buildings` the walker walks with), so "is this actor's box
 inside a brush right now" costs one query and needs no motion. Tree hulls are
 excluded: standing under a canopy is not standing in a wall.
 
-A placement that answers yes is swept outward over 5 rings (0.5 … 2.5 units) × 8
+A solid placement first tries the ground under itself: if the height policy lifted
+it onto a plate that turns out to be solid (a wall cap, a shelf, the lid of a
+doorway) and the terrain below is within 2 units, the actor stands on the ground
+instead. A bridge deck ten units up is never traded for the river bed, because the
+drop obeys the same guard as the sweep.
+
+Otherwise the placement is swept outward over 5 rings (0.5 … 2.5 units) × 8
 directions. Every candidate is re-resolved with the same height policy and is
 rejected when it would move the actor more than `WALL_RING_LIFT` (2 units), so
 getting out of a wall never also climbs a storey or drops an NPC off a bridge. A

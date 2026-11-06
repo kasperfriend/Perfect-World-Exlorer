@@ -495,7 +495,8 @@ struct Placement {
     position: Vec3,
     /// Standing on a building floor rather than the terrain sample.
     on_floor: bool,
-    /// Moved off its authored column because that column is inside geometry.
+    /// Moved off the placement the height policy resolved, because it was inside
+    /// geometry: sideways out of a wall, or down to the ground under a wall cap.
     nudged: bool,
     /// Inside geometry with no free spot inside [`WALL_RINGS`].
     wedged: bool,
@@ -532,6 +533,21 @@ fn resolve_placement(
     };
     if !floors.solid_at(placement.position, WALL_PROBE) {
         return placement;
+    }
+    // A placement the height policy lifted onto a plate that turns out to be
+    // solid - a wall cap, a shelf, the lid of a doorway - is better off on the
+    // ground under it than half inside the wall, but only when that ground is
+    // within reach: a bridge deck is never traded for the river bed.
+    if spawn.height.is_none() && (placement.position.y - terrain).abs() <= WALL_RING_LIFT {
+        let ground = Vec3::new(anchor[0], terrain, anchor[1]);
+        if !floors.solid_at(ground, WALL_PROBE) {
+            return Placement {
+                position: ground,
+                on_floor: false,
+                nudged: true,
+                wedged: false,
+            };
+        }
     }
     for ring in WALL_RINGS {
         for step in 0..WALL_DIRECTIONS {
@@ -1951,6 +1967,68 @@ mod tests {
         fn solid_at(&self, feet: Vec3, extents: Vec3) -> bool {
             feet.x - extents.x < self.free_from
         }
+    }
+
+    /// A floor one unit up that is solid, over free ground: a wall cap.
+    struct WallCap;
+
+    impl FloorSource for WallCap {
+        fn lowest_floor(&self, feet: Vec3, _extents: Vec3, _max_up: f32) -> Option<f32> {
+            Some(feet.y + 1.)
+        }
+
+        fn floor_stamp(&self) -> u64 {
+            1
+        }
+
+        fn sight_blocked(&self, _from: Vec3, _to: Vec3) -> bool {
+            false
+        }
+
+        fn solid_at(&self, feet: Vec3, _extents: Vec3) -> bool {
+            // Only the lifted plate is solid; the ground under it is not.
+            feet.y > 0.5
+        }
+    }
+
+    #[test]
+    fn a_placement_lifted_into_a_wall_cap_drops_to_the_ground_under_it() {
+        let map = flat_map();
+        let mut spawn = spawn(None);
+        spawn.anchor = [0.9, 0.];
+        let placement = resolve_placement(&spawn, &map, Some(&WallCap), true);
+        assert!(placement.nudged, "{placement:?}");
+        assert!(!placement.on_floor);
+        assert_eq!(placement.position, Vec3::new(0.9, 0., 0.));
+    }
+
+    #[test]
+    fn a_bridge_deck_is_never_traded_for_the_ground_below_it() {
+        // Same solid plate, but ten units up: out of reach, so the placement
+        // keeps the deck instead of dropping into the river bed.
+        struct Deck;
+        impl FloorSource for Deck {
+            fn lowest_floor(&self, feet: Vec3, _extents: Vec3, _max_up: f32) -> Option<f32> {
+                Some(feet.y + 10.)
+            }
+            fn floor_stamp(&self) -> u64 {
+                1
+            }
+            fn sight_blocked(&self, _from: Vec3, _to: Vec3) -> bool {
+                false
+            }
+            fn solid_at(&self, feet: Vec3, _extents: Vec3) -> bool {
+                feet.y > 0.5
+            }
+        }
+        let map = flat_map();
+        let mut spawn = spawn(None);
+        spawn.anchor = [0.9, 0.];
+        let placement = resolve_placement(&spawn, &map, Some(&Deck), true);
+        // Rings cannot reach a free spot at 10 units either, and the ground is
+        // out of the lift guard's range, so the deck placement is reported.
+        assert_eq!(placement.position.y, 10.);
+        assert!(placement.wedged, "{placement:?}");
     }
 
     #[test]
