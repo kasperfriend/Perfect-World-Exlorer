@@ -367,6 +367,21 @@ interface was added so the rest can follow.
   depended on the element's placement rotation twice. `oriented_basis` brings
   the direction into the world frame with the same placement the billboard path
   uses for its centre; an identity placement is bit-for-bit unchanged.
+- **The catalogue is on screen.** `src/modules/walker/gallery.rs` plays any root
+  the catalogue names, standing in the world with no character attached: it opens
+  `element/gfx.pck` through the Walker's own `Archive`, builds a
+  `gfx_player::Player` per root (nested `GfxPath` children resolved against the
+  same archive, missing children kept as warnings), advances them against the
+  frame's recovered camera basis and appends their quads to the same
+  `gfx_effect_gpu::Draw` the character effects use, so blend buckets and texture
+  resolution are unchanged. The Walker's settings panel gains an "Effect gallery"
+  section: a preset selector covering all seven curated presets, a row placement
+  150 units in front of the eye at 80-unit spacing along an axis flat and
+  perpendicular to the look direction, a clear button, and a search box over the
+  5,459 catalogue members that lists up to 40 hits as spawn buttons. Gallery roots
+  go straight to `gfx_file` + `gfx_player` and are never offered to `gfx_decal`
+  first: that split exists to keep long-verified static roots on their old path,
+  and here the full grammar is the path the corpus tests cover.
 - **Both level-of-detail rules are now written down as code**, not only as
   prose: `gfx_catalog::priority_exempts` for `0x70ba00` and
   `gfx_catalog::detail_scaled_count` for `0x715b88`..`0x715bfd`, with the

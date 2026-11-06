@@ -7,6 +7,7 @@ mod audio;
 mod character;
 mod collision;
 mod designer;
+mod gallery;
 mod gfx;
 pub(crate) mod physics;
 pub(crate) mod pose;
@@ -238,6 +239,9 @@ pub struct Walker {
     last_error: Option<String>,
     audio: audio::CharacterAudio,
     collision: collision::Collision,
+    /// Free-standing roots from the effect catalogue, placed in the world and
+    /// submitted through the same pass as the character's own effects.
+    gallery: gallery::Gallery,
 }
 
 impl Default for Walker {
@@ -273,6 +277,7 @@ impl Default for Walker {
             last_render: None,
             last_error: None,
             audio: audio::CharacterAudio::default(),
+            gallery: gallery::Gallery::default(),
             collision: collision::Collision::default(),
         }
     }
@@ -289,6 +294,7 @@ impl Walker {
         let audio = audio::CharacterAudio::new(&element);
         let collision = collision::Collision::new(element.clone(), scene, &ornaments);
         Self {
+            gallery: gallery::Gallery::new(element.clone()),
             element: Some(element),
             map: Some(map),
             water,
@@ -806,6 +812,16 @@ impl Walker {
         }
 
         ui.separator();
+        ui.heading("Effect gallery");
+        {
+            // Copied out first: the gallery only needs the eye and the look
+            // direction, and taking them keeps its borrow of `self` disjoint.
+            let at = self.camera_position.unwrap_or(Vec3::ZERO);
+            let facing = self.facing;
+            self.gallery.ui(ui, at, facing);
+        }
+
+        ui.separator();
         ui.heading("Mounts and flight");
         ui.horizontal(|ui| {
             let flight = if self.travel == TravelState::Flying {
@@ -1076,6 +1092,7 @@ impl Walker {
             let gpu = self.gpu.as_mut().ok_or("Walker GPU draws missing")?;
             let character = self.character.as_mut().ok_or("Walker character missing")?;
             let assets = self.assets.as_mut().ok_or("Walker assets missing")?;
+            let gallery = &mut self.gallery;
             let models = render_models(character, &character.posed.meshes)?;
             if models.len() != gpu.draws.len() {
                 return Err("travel draw count changed without rebuilding GPU resources".into());
@@ -1105,10 +1122,14 @@ impl Walker {
             let view = gfx_player::View::from_inverse_view_projection(
                 Mat4::from_cols_array_2d(&frame.matrix).inverse(),
             );
-            let effect_quads =
+            let mut effect_quads =
                 character
                     .gfx
                     .advance(&character.assembly, &character.posed.pose, &view, dt_ms)?;
+            // The gallery shares this pass: the same draw object, the same blend
+            // buckets and the same texture resolution, so a free-standing root is
+            // rendered exactly like a character-attached one.
+            effect_quads.extend(gallery.advance(&view, dt_ms)?);
             gpu.effects.update(
                 device,
                 queue,
