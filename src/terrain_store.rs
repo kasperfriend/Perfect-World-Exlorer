@@ -13,7 +13,14 @@ use std::{
         Arc, Mutex,
     },
 };
-const DEFAULT_BUDGET: usize = 2 * 1024 * 1024;
+/// Decoded hot-set budget in bytes when `PW_TERRAIN_RAM_MIB` is unset.
+///
+/// The largest recovered block window (`radius` 12) is 25 x 25 blocks of
+/// `(grid + 1)^2` cells, i.e. about 10 MiB of decoded pages, so 32 MiB holds a
+/// whole window plus its neighbours and the in-viewer rebuild stops decoding
+/// the same blocks again. Smaller budgets trade RAM for I/O stalls; the
+/// environment override still accepts 1..256 MiB.
+const DEFAULT_BUDGET: usize = 32 * 1024 * 1024;
 static NEXT: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone)]
 struct Record {
@@ -31,6 +38,18 @@ impl Page {
             + self.normals.capacity() * 3
             + std::mem::size_of::<Page>()
             + 2 * std::mem::size_of::<usize>()
+    }
+}
+/// The whole decoded grid, kept instead of paged. This is the resident mode the
+/// optimization work replaced: no disk object, no zlib block decode and no
+/// per-block SHA-256 at read time.
+struct Resident {
+    heights: Vec<f32>,
+    normals: Vec<[i8; 3]>,
+}
+impl Resident {
+    fn bytes(&self) -> usize {
+        self.heights.capacity() * 4 + self.normals.capacity() * 3 + std::mem::size_of::<Resident>()
     }
 }
 struct Entry {
@@ -59,7 +78,10 @@ struct Disk {
     hot: Hot,
 }
 enum Data {
+    /// Heights only; used by small fixtures and diagnostics.
     Memory(Vec<f32>),
+    /// Heights and normals fully decoded and resident.
+    Resident(Resident),
     Disk(Mutex<Disk>),
 }
 struct Store {
@@ -101,6 +123,11 @@ impl Heights {
                 resident_bytes: v.len() * 4,
                 ..Stats::default()
             },
+            Data::Resident(grid) => Stats {
+                resident_bytes: grid.bytes(),
+                budget_bytes: grid.bytes(),
+                ..Stats::default()
+            },
             Data::Disk(d) => {
                 let d = d.lock().unwrap();
                 Stats {
@@ -111,12 +138,17 @@ impl Heights {
         }
     }
     /// Release even the hot set after an exhaustive initialization/export scan.
+    /// The resident grid is the point of that mode, so it is never released.
     pub fn trim(&self) {
         if let Data::Disk(d) = &self.0.data {
             let mut d = d.lock().unwrap();
             d.hot.pages.clear();
             d.hot.stats.resident_bytes = 0;
         }
+    }
+    /// Whether this store holds the whole grid instead of paging it.
+    pub fn is_resident(&self) -> bool {
+        matches!(self.0.data, Data::Resident(_) | Data::Memory(_))
     }
 }
 impl Normals {
@@ -201,20 +233,33 @@ impl Reader {
         Ok(local)
     }
     pub fn cell(&mut self, index: usize) -> Result<(f32, [i8; 3]), String> {
-        if let Data::Memory(values) = &self.store.data {
-            return values
-                .get(index)
-                .copied()
-                .map(|h| (h, [0, 127, 0]))
-                .ok_or_else(|| format!("terrain cell {index} out of bounds"));
+        match &self.store.data {
+            Data::Memory(values) => {
+                return values
+                    .get(index)
+                    .copied()
+                    .map(|h| (h, [0, 127, 0]))
+                    .ok_or_else(|| format!("terrain cell {index} out of bounds"));
+            }
+            Data::Resident(grid) => {
+                return grid
+                    .heights
+                    .get(index)
+                    .zip(grid.normals.get(index))
+                    .map(|(h, n)| (*h, *n))
+                    .ok_or_else(|| format!("terrain cell {index} out of bounds"));
+            }
+            Data::Disk(_) => {}
         }
         let local = self.page(index)?;
         let page = &self.current.as_ref().unwrap().1;
         Ok((page.heights[local], page.normals[local]))
     }
     pub fn height(&mut self, index: usize) -> f32 {
-        if let Data::Memory(values) = &self.store.data {
-            return values[index];
+        match &self.store.data {
+            Data::Memory(values) => return values[index],
+            Data::Resident(grid) => return grid.heights[index],
+            Data::Disk(_) => {}
         }
         let local = self
             .page(index)
@@ -222,9 +267,13 @@ impl Reader {
         self.current.as_ref().unwrap().1.heights[local]
     }
     pub fn normal(&mut self, index: usize) -> [i8; 3] {
-        if let Data::Memory(_) = &self.store.data {
-            assert!(index < self.store.len);
-            return [0, 127, 0];
+        match &self.store.data {
+            Data::Memory(_) => {
+                assert!(index < self.store.len);
+                return [0, 127, 0];
+            }
+            Data::Resident(grid) => return grid.normals[index],
+            Data::Disk(_) => {}
         }
         let local = self
             .page(index)
@@ -293,9 +342,15 @@ pub struct Builder {
     side: usize,
     records: Vec<Option<Record>>,
     hash: Sha256,
+    /// `Some` in resident mode: the decoded grid replaces the disk object.
+    resident: Option<Resident>,
+    /// Which resident pages have been written, for duplicate/missing checks.
+    filled: Vec<bool>,
+    /// Source-content identity of the client files this grid came from.
+    identity: Option<String>,
 }
 impl Builder {
-    pub fn new(root: &Path, width: usize, height: usize, side: usize) -> Result<Self, String> {
+    fn validate(width: usize, height: usize, side: usize) -> Result<(), String> {
         if side == 0
             || side > 256
             || width == 0
@@ -311,6 +366,10 @@ impl Builder {
         {
             return Err("invalid paged terrain dimensions".into());
         }
+        Ok(())
+    }
+    pub fn new(root: &Path, width: usize, height: usize, side: usize) -> Result<Self, String> {
+        Self::validate(width, height, side)?;
         fs::create_dir_all(root).map_err(|e| format!("terrain cache {}: {e}", root.display()))?;
         let path = root.join(format!(
             "session-{}-{}-{}.tmp",
@@ -343,7 +402,49 @@ impl Builder {
             side,
             records: vec![None; (width / side) * (height / side)],
             hash,
+            resident: None,
+            filled: Vec::new(),
+            identity: None,
         })
+    }
+    /// Resident mode: keep the whole decoded grid in memory and never touch the
+    /// disk. This is the fast path the paged cache replaced; it exists as an
+    /// explicit option because it costs the full 7 bytes per cell
+    /// (`width * height * 7` — 154 MiB for a 4096 x 5632 world).
+    pub fn new_resident(width: usize, height: usize, side: usize) -> Result<Self, String> {
+        Self::validate(width, height, side)?;
+        let cells = width * height;
+        let pages = (width / side) * (height / side);
+        Ok(Self {
+            file: None,
+            path: PathBuf::new(),
+            root: PathBuf::new(),
+            width,
+            height,
+            side,
+            records: vec![None; pages],
+            hash: Sha256::new(),
+            resident: Some(Resident {
+                heights: vec![0.; cells],
+                normals: vec![[0; 3]; cells],
+            }),
+            filled: vec![false; pages],
+            identity: None,
+        })
+    }
+    /// Attach the source-content identity that names this grid's manifest, so a
+    /// warm start can skip the block decode and recompression entirely. Only the
+    /// paged mode writes a manifest; the resident mode has nothing to cache.
+    pub fn with_identity(mut self, identity: &str) -> Self {
+        self.identity = Some(identity.to_string());
+        self
+    }
+    /// Drop everything and remove a half-written session object.
+    fn abandon(&mut self) {
+        self.resident = None;
+        if self.file.take().is_some() && !self.path.as_os_str().is_empty() {
+            let _ = fs::remove_file(&self.path);
+        }
     }
     pub fn block(
         &mut self,
@@ -360,6 +461,23 @@ impl Builder {
             return Err("invalid terrain cache block".into());
         }
         let id = by * (self.width / self.side) + bx;
+        if self.resident.is_some() {
+            if self.filled[id] {
+                return Err("duplicate terrain cache block".into());
+            }
+            self.filled[id] = true;
+            let (side, width) = (self.side, self.width);
+            let grid = self.resident.as_mut().unwrap();
+            for y in 0..side {
+                for x in 0..side {
+                    let source = y * side + x;
+                    let target = (by * side + y) * width + bx * side + x;
+                    grid.heights[target] = heights[source];
+                    grid.normals[target] = normals[source];
+                }
+            }
+            return Ok(());
+        }
         if self.records[id].is_some() {
             return Err("duplicate terrain cache block".into());
         }
@@ -385,7 +503,28 @@ impl Builder {
         Ok(())
     }
     pub fn finish(mut self, budget: usize) -> Result<(Heights, Normals), String> {
+        if let Some(grid) = self.resident.take() {
+            if self.filled.iter().any(|written| !*written) {
+                self.abandon();
+                return Err("incomplete terrain resident grid".into());
+            }
+            let len = self.width * self.height;
+            eprintln!(
+                "Resident terrain (All to VRAM): {} cells, {}+{} MiB decoded grid held in memory; no disk cache, no block decode",
+                len,
+                self.width * self.height * 4 >> 20,
+                self.width * self.height * 3 >> 20
+            );
+            let store = Arc::new(Store {
+                len,
+                width: self.width,
+                side: self.side,
+                data: Data::Resident(grid),
+            });
+            return Ok((Heights(Arc::clone(&store)), Normals(store)));
+        }
         if self.records.iter().any(Option::is_none) {
+            self.abandon();
             return Err("incomplete terrain page cache".into());
         }
         let file = self.file.take().unwrap();
@@ -417,13 +556,41 @@ impl Builder {
         // On Windows a corrupt old file may be held open by another process.
         // In that case keep our verified new session file, never overwrite it.
         let file = File::open(&self.path).map_err(|e| e.to_string())?;
-        let records = std::mem::take(&mut self.records)
+        let records: Vec<Record> = std::mem::take(&mut self.records)
             .into_iter()
             .map(Option::unwrap)
             .collect();
         let disk_bytes = file.metadata().map_err(|e| e.to_string())?.len();
         eprintln!("Lossless terrain paging: {} cells, {:.2} MiB source grids -> {:.2} MiB disk; decoded hot-set budget {:.2} MiB (plus one block per reader)",
             self.width*self.height,(self.width*self.height*7) as f64/1048576.,disk_bytes as f64/1048576.,budget as f64/1048576.);
+        // Publish the index that lets the next start skip the block decode and
+        // the whole recompression pass. A failure here only costs that warm
+        // start; this session's verified pages file stays usable and correct.
+        if let Some(identity) = self.identity.clone() {
+            let pages_name = self
+                .path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            match write_manifest(
+                &self.root,
+                &identity,
+                self.width,
+                self.height,
+                self.side,
+                &pages_name,
+                digest.as_slice(),
+                &records,
+            ) {
+                Ok(()) => eprintln!(
+                    "Terrain cache index: {} (warm starts reuse it instead of rebuilding)",
+                    identity
+                ),
+                Err(e) => eprintln!(
+                    "Terrain cache index unavailable ({e}); the next start rebuilds the pages from the client"
+                ),
+            }
+        }
         let store = Arc::new(Store {
             len: self.width * self.height,
             width: self.width,
@@ -453,6 +620,279 @@ impl Drop for Builder {
         }
     }
 }
+/// Magic of the warm-start index that sits beside a pages object.
+const MANIFEST_MAGIC: &[u8; 8] = b"PWTIDX01";
+/// Index layout version. A bump invalidates old indexes (pages are rebuilt).
+const MANIFEST_VERSION: u64 = 1;
+
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+fn safe_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 256
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains("..")
+}
+
+/// Content identity of the client terrain sources for one world.
+///
+/// Every input that can change the decoded grid enters the digest: the whole
+/// `world.trn2` header, each subterrain name, and the full bytes of every
+/// `*.t2bk`. The resulting hex string names the warm-start index, so a client
+/// patch, a repacked archive or a different world cannot resolve to the wrong
+/// cached grid. Reading the sources is one sequential pass; it replaces the
+/// per-block zlib decode, XOR plane encode, SHA-256 and write of a cold build.
+pub fn source_identity(header: &[u8], dir: &Path, names: &[String]) -> Result<String, String> {
+    let mut hash = Sha256::new();
+    hash.update(b"PWTSRC01");
+    hash.update((header.len() as u64).to_le_bytes());
+    hash.update(header);
+    for name in names {
+        let bytes =
+            fs::read(dir.join(format!("{name}.t2bk"))).map_err(|e| format!("{name}: {e}"))?;
+        hash.update((name.len() as u64).to_le_bytes());
+        hash.update(name.as_bytes());
+        hash.update((bytes.len() as u64).to_le_bytes());
+        hash.update(&bytes);
+    }
+    Ok(hex(hash.finalize().as_slice()))
+}
+
+fn take_u64(bytes: &[u8], pos: &mut usize) -> Option<u64> {
+    let end = pos.checked_add(8)?;
+    let value = u64::from_le_bytes(bytes.get(*pos..end)?.try_into().ok()?);
+    *pos = end;
+    Some(value)
+}
+
+fn take_u32(bytes: &[u8], pos: &mut usize) -> Option<u32> {
+    let end = pos.checked_add(4)?;
+    let value = u32::from_le_bytes(bytes.get(*pos..end)?.try_into().ok()?);
+    *pos = end;
+    Some(value)
+}
+
+type Manifest = (Vec<Record>, String, Vec<u8>);
+
+fn parse_manifest(bytes: &[u8], width: usize, height: usize, side: usize) -> Option<Manifest> {
+    if bytes.len() < MANIFEST_MAGIC.len() + 32 + 8 {
+        return None;
+    }
+    // The trailing SHA-256 covers everything before it: a truncated or edited
+    // index is rejected instead of being trusted.
+    let split = bytes.len() - 32;
+    if Sha256::digest(&bytes[..split]).as_slice() != &bytes[split..] {
+        return None;
+    }
+    let body = &bytes[..split];
+    if &body[..MANIFEST_MAGIC.len()] != MANIFEST_MAGIC.as_slice() {
+        return None;
+    }
+    let mut pos = MANIFEST_MAGIC.len();
+    if take_u64(body, &mut pos)? != MANIFEST_VERSION {
+        return None;
+    }
+    if take_u64(body, &mut pos)? != width as u64
+        || take_u64(body, &mut pos)? != height as u64
+        || take_u64(body, &mut pos)? != side as u64
+    {
+        return None;
+    }
+    let pages = take_u64(body, &mut pos)?;
+    let name_len = take_u32(body, &mut pos)? as usize;
+    let name_end = pos.checked_add(name_len)?;
+    let pages_name = std::str::from_utf8(body.get(pos..name_end)?)
+        .ok()?
+        .to_string();
+    pos = name_end;
+    if !safe_name(&pages_name) || !pages_name.ends_with(".pages") {
+        return None;
+    }
+    let digest_len = take_u32(body, &mut pos)? as usize;
+    if digest_len != 32 {
+        return None;
+    }
+    let digest_end = pos.checked_add(digest_len)?;
+    let pages_digest = body.get(pos..digest_end)?.to_vec();
+    pos = digest_end;
+    let expected = (width / side).checked_mul(height / side)?;
+    if pages != expected as u64 {
+        return None;
+    }
+    let mut records = Vec::with_capacity(expected);
+    for _ in 0..expected {
+        let offset = take_u64(body, &mut pos)?;
+        let size = take_u64(body, &mut pos)?;
+        let hash_end = pos.checked_add(32)?;
+        let mut hash = [0u8; 32];
+        hash.copy_from_slice(body.get(pos..hash_end)?);
+        pos = hash_end;
+        if size == 0 || size > usize::MAX as u64 {
+            return None;
+        }
+        records.push(Record {
+            offset,
+            size: size as usize,
+            hash,
+        });
+    }
+    if pos != body.len() {
+        return None;
+    }
+    Some((records, pages_name, pages_digest))
+}
+
+fn write_manifest(
+    root: &Path,
+    identity: &str,
+    width: usize,
+    height: usize,
+    side: usize,
+    pages_name: &str,
+    pages_digest: &[u8],
+    records: &[Record],
+) -> Result<(), String> {
+    if !safe_name(identity) || !safe_name(pages_name) || !pages_name.ends_with(".pages") {
+        return Err("invalid terrain cache names".into());
+    }
+    let mut out = MANIFEST_MAGIC.to_vec();
+    out.extend_from_slice(&MANIFEST_VERSION.to_le_bytes());
+    for value in [
+        width as u64,
+        height as u64,
+        side as u64,
+        records.len() as u64,
+    ] {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+    out.extend_from_slice(&(pages_name.len() as u32).to_le_bytes());
+    out.extend_from_slice(pages_name.as_bytes());
+    out.extend_from_slice(&(pages_digest.len() as u32).to_le_bytes());
+    out.extend_from_slice(pages_digest);
+    for record in records {
+        out.extend_from_slice(&record.offset.to_le_bytes());
+        out.extend_from_slice(&(record.size as u64).to_le_bytes());
+        out.extend_from_slice(&record.hash);
+    }
+    let digest = Sha256::digest(&out);
+    out.extend_from_slice(digest.as_slice());
+    let target = root.join(format!("{identity}.index"));
+    let temp = root.join(format!("{identity}.index.tmp"));
+    fs::write(&temp, &out).map_err(|e| format!("{}: {e}", temp.display()))?;
+    if fs::rename(&temp, &target).is_err() {
+        // Windows refuses to replace an existing file; retry once behind a
+        // removal. The pages object this index names is immutable and already
+        // verified, so either outcome is safe.
+        let _ = fs::remove_file(&target);
+        if let Err(e) = fs::rename(&temp, &target) {
+            let _ = fs::remove_file(&temp);
+            return Err(format!("{}: {e}", target.display()));
+        }
+    }
+    Ok(())
+}
+
+/// Open a previously built pages object by source identity.
+///
+/// This is the warm start: when the index matches the client sources, the
+/// caller can skip reading and decoding every T2BK block, re-encoding the XOR
+/// planes, hashing the result and rewriting the pages file. Everything is
+/// re-verified first — the index digest, the dimensions, every record's extent
+/// against the file, and the pages file's own SHA-256 — and any failure returns
+/// `Ok(None)` so the caller rebuilds from the client instead of drawing damaged
+/// terrain.
+pub fn restore(
+    root: &Path,
+    identity: &str,
+    width: usize,
+    height: usize,
+    side: usize,
+    budget: usize,
+) -> Result<Option<(Heights, Normals)>, String> {
+    if !safe_name(identity) {
+        return Ok(None);
+    }
+    let index = root.join(format!("{identity}.index"));
+    let bytes = match fs::read(&index) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{}: {e}", index.display())),
+    };
+    let Some((records, pages_name, pages_digest)) = parse_manifest(&bytes, width, height, side)
+    else {
+        eprintln!(
+            "Terrain cache index {} does not match this world; rebuilding from the client",
+            index.display()
+        );
+        return Ok(None);
+    };
+    let pages_path = root.join(&pages_name);
+    let mut file = match File::open(&pages_path) {
+        Ok(file) => file,
+        Err(_) => return Ok(None),
+    };
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 65536];
+    loop {
+        match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => hasher.update(&buf[..n]),
+            Err(_) => return Ok(None),
+        }
+    }
+    if hasher.finalize().as_slice() != pages_digest.as_slice() {
+        eprintln!(
+            "Terrain cache {} failed its content check; rebuilding from the client",
+            pages_path.display()
+        );
+        return Ok(None);
+    }
+    let file_len = file.metadata().map_err(|e| e.to_string())?.len();
+    if records.iter().any(|record| {
+        record
+            .offset
+            .checked_add(record.size as u64)
+            .is_none_or(|end| end > file_len)
+    }) {
+        return Ok(None);
+    }
+    file.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+    let pages = records.len();
+    let store = Arc::new(Store {
+        len: width * height,
+        width,
+        side,
+        data: Data::Disk(Mutex::new(Disk {
+            file,
+            path: pages_path,
+            side,
+            records,
+            hot: Hot {
+                pages: HashMap::new(),
+                clock: 0,
+                stats: Stats {
+                    budget_bytes: budget,
+                    ..Stats::default()
+                },
+            },
+        })),
+    });
+    eprintln!(
+        "Terrain cache: warm start, {pages} verified blocks reused from {} (source decode and recompression skipped), decoded hot-set budget {:.2} MiB",
+        pages_name,
+        budget as f64 / 1048576.
+    );
+    Ok(Some((Heights(Arc::clone(&store)), Normals(store))))
+}
+
 pub fn budget() -> usize {
     std::env::var("PW_TERRAIN_RAM_MIB")
         .ok()
@@ -618,6 +1058,197 @@ mod tests {
         });
         assert!(h.stats().peak_bytes <= 224);
     }
+    /// Fill a paged fixture under an explicit source identity.
+    fn fixture_with_identity(root: &Path, identity: &str) -> (Heights, Normals) {
+        let mut b = Builder::new(root, 32, 24, 4)
+            .unwrap()
+            .with_identity(identity);
+        for bx in 0..8 {
+            for by in 0..6 {
+                let mut h = Vec::new();
+                let mut n = Vec::new();
+                for y in 0..4 {
+                    for x in 0..4 {
+                        h.push(height(bx * 4 + x, by * 4 + y));
+                        n.push(normal(bx * 4 + x, by * 4 + y));
+                    }
+                }
+                b.block(bx, by, &h, &n).unwrap();
+            }
+        }
+        b.finish(224).unwrap()
+    }
+
+    fn assert_grid(heights: &Heights, normals: &Normals) {
+        let mut reader = heights.reader();
+        for y in 0..24 {
+            for x in 0..32 {
+                let index = y * 32 + x;
+                assert_eq!(reader.height(index).to_bits(), height(x, y).to_bits());
+                assert_eq!(reader.normal(index), normal(x, y));
+                assert_eq!(normals.at(index), normal(x, y));
+            }
+        }
+    }
+
+    #[test]
+    fn resident_mode_keeps_every_cell_without_a_disk_object() {
+        let cells = 32 * 24;
+        let mut b = Builder::new_resident(32, 24, 4).unwrap();
+        // Source order need not be the final row-major order, exactly as the
+        // client's subterrain files are not ordered by block position.
+        for bx in (0..8).rev() {
+            for by in 0..6 {
+                let mut h = Vec::new();
+                let mut n = Vec::new();
+                for y in 0..4 {
+                    for x in 0..4 {
+                        h.push(height(bx * 4 + x, by * 4 + y));
+                        n.push(normal(bx * 4 + x, by * 4 + y));
+                    }
+                }
+                b.block(bx, by, &h, &n).unwrap();
+            }
+        }
+        let (h, n) = b.finish(0).unwrap();
+        assert!(h.is_resident());
+        assert_grid(&h, &n);
+        // No eviction, no read accounting: the grid is simply held.
+        let stats = h.stats();
+        assert_eq!(stats.reads, 0);
+        assert_eq!(stats.evictions, 0);
+        assert_eq!(
+            stats.resident_bytes,
+            cells * 7 + std::mem::size_of::<Resident>()
+        );
+        // An exhaustive scan must not release it, unlike the paged hot set.
+        h.trim();
+        assert_eq!(
+            h.stats().resident_bytes,
+            cells * 7 + std::mem::size_of::<Resident>()
+        );
+        assert_grid(&h, &n);
+    }
+
+    #[test]
+    fn resident_mode_rejects_duplicate_and_incomplete_grids() {
+        let mut b = Builder::new_resident(8, 8, 4).unwrap();
+        b.block(0, 0, &[1.; 16], &[[0; 3]; 16]).unwrap();
+        assert!(b.block(0, 0, &[1.; 16], &[[0; 3]; 16]).is_err());
+        assert!(b.block(2, 0, &[1.; 16], &[[0; 3]; 16]).is_err());
+        assert!(b.finish(0).is_err());
+        assert!(Builder::new_resident(7, 8, 4).is_err());
+        assert!(Builder::new_resident(0, 8, 4).is_err());
+    }
+
+    #[test]
+    fn warm_start_reuses_the_index_and_checks_every_input() {
+        let dir = Temp::new();
+        let (h, n) = fixture_with_identity(&dir.0, "source-one");
+        assert_grid(&h, &n);
+        drop(h);
+        drop(n);
+        assert!(
+            dir.0.join("source-one.index").is_file(),
+            "the index must be published next to the pages object"
+        );
+        // A second start resolves the same grid through the index alone.
+        let (h, n) = restore(&dir.0, "source-one", 32, 24, 4, 224)
+            .unwrap()
+            .expect("warm start");
+        assert_grid(&h, &n);
+        assert!(!h.is_resident(), "a warm start still pages");
+        // A different source identity must never resolve to this grid.
+        assert!(restore(&dir.0, "source-two", 32, 24, 4, 224)
+            .unwrap()
+            .is_none());
+        // Dimensions that disagree with the index are rejected.
+        assert!(restore(&dir.0, "source-one", 16, 24, 4, 224)
+            .unwrap()
+            .is_none());
+        // An unsafe identity never touches the disk.
+        assert!(restore(&dir.0, "../source", 32, 24, 4, 224)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn a_damaged_index_or_pages_object_is_never_silently_used() {
+        let dir = Temp::new();
+        let _ = fixture_with_identity(&dir.0, "source-damaged");
+        let index = dir.0.join("source-damaged.index");
+        let original = fs::read(&index).unwrap();
+
+        // One flipped byte in the index body fails its own SHA-256.
+        let mut edited = original.clone();
+        edited[16] ^= 0xff;
+        fs::write(&index, &edited).unwrap();
+        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+            .unwrap()
+            .is_none());
+
+        // Truncation is rejected too.
+        fs::write(&index, &original[..original.len() / 2]).unwrap();
+        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+            .unwrap()
+            .is_none());
+        fs::write(&index, &original).unwrap();
+
+        // A good index over a damaged pages object fails the stream hash.
+        let pages = fs::read_dir(&dir.0)
+            .unwrap()
+            .filter_map(|entry| {
+                let path = entry.unwrap().path();
+                (path.extension().and_then(|e| e.to_str()) == Some("pages")).then_some(path)
+            })
+            .next()
+            .expect("pages object");
+        let mut bytes = fs::read(&pages).unwrap();
+        let last = bytes.len() - 1;
+        bytes[last] ^= 0xff;
+        fs::write(&pages, &bytes).unwrap();
+        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+            .unwrap()
+            .is_none());
+        // And the intact object still restores once it is written back.
+        bytes[last] ^= 0xff;
+        fs::write(&pages, &bytes).unwrap();
+        assert!(restore(&dir.0, "source-damaged", 32, 24, 4, 224)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn source_identity_covers_the_header_names_and_bytes() {
+        let dir = Temp::new();
+        let header = b"world.trn2 header";
+        let sub = dir.0.join("sub");
+        fs::create_dir_all(&sub).unwrap();
+        let write = |bytes: &[u8]| fs::write(sub.join("a.t2bk"), bytes).unwrap();
+        let names = vec!["a".to_string()];
+        write(b"first payload");
+        let one = source_identity(header, &sub, &names).unwrap();
+        assert_eq!(one.len(), 64, "sha-256 as hex");
+        assert!(one.chars().all(|c| c.is_ascii_hexdigit()));
+        write(b"second payload");
+        let two = source_identity(header, &sub, &names).unwrap();
+        assert_ne!(one, two, "the subterrain bytes must change the identity");
+        write(b"first payload");
+        assert_eq!(source_identity(header, &sub, &names).unwrap(), one);
+        // The header and the name list are inputs as well.
+        assert_ne!(
+            source_identity(b"another header", &sub, &names).unwrap(),
+            one
+        );
+        // A different name list is a different world even with identical bytes.
+        fs::write(sub.join("b.t2bk"), b"first payload").unwrap();
+        assert_ne!(
+            source_identity(header, &sub, &["b".to_string()]).unwrap(),
+            one
+        );
+        assert!(source_identity(header, &sub, &["missing".to_string()]).is_err());
+    }
+
     #[test]
     fn incomplete_duplicate_and_out_of_bounds_builds_fail_cleanly() {
         let dir = Temp::new();

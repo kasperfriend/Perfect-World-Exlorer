@@ -12,6 +12,12 @@
 //! whole world are never all resident at once, even though the whole-world
 //! preload walks every placement. The budget defaults to 32 MiB and can be
 //! overridden with `PW_TEX_BUDGET_MIB` (tests and measurements use both).
+//!
+//! The Graphics tab's **All to VRAM** switch calls [`set_unbounded_textures`],
+//! which lifts the budget: every decoded texture stays cached, so revisiting an
+//! area (or rebuilding the whole-world preload) never decodes the same source
+//! twice. That is the residency the optimisation passes removed, restored as an
+//! explicit option because it costs the whole decoded corpus in RAM.
 use crate::{
     bmd, pck,
     scene::Ornament,
@@ -93,6 +99,14 @@ pub struct TextureCache {
     over_budget_clock: u64,
     by_name: HashMap<String, u64>,
     by_hash: HashMap<u64, CacheEntry>,
+    /// Reverse index: the reference names pointing at one content hash.
+    ///
+    /// Eviction used to find them with a `retain` over every name in the cache,
+    /// which is the whole world's name table (tens of thousands of entries) for
+    /// every single evicted texture, on every store past the budget. Keeping the
+    /// names next to the hash makes an eviction cost one lookup plus its own
+    /// aliases, and the resolved set of names is identical.
+    aliases: HashMap<u64, Vec<String>>,
     pub stats: ResidencyStats,
 }
 impl TextureCache {
@@ -103,6 +117,7 @@ impl TextureCache {
             over_budget_clock: u64::MAX,
             by_name: HashMap::new(),
             by_hash: HashMap::new(),
+            aliases: HashMap::new(),
             stats: ResidencyStats {
                 budget_bytes: budget_bytes as u64,
                 ..Default::default()
@@ -142,6 +157,7 @@ impl TextureCache {
         let bytes = tex.rgba.len() + tex.width * tex.height / 1024;
         let hash = content_hash(&tex);
         if self.by_hash.contains_key(&hash) {
+            self.aliases.entry(hash).or_default().push(name.clone());
             self.by_name.insert(name, hash);
             self.stats.alias_hits += 1;
             self.stats.alias_bytes_saved += bytes as u64;
@@ -157,6 +173,7 @@ impl TextureCache {
                 bytes,
             },
         );
+        self.aliases.entry(hash).or_default().push(name.clone());
         self.by_name.insert(name, hash);
         self.stats.resident_bytes += bytes as u64;
         self.stats.peak_resident_bytes = self
@@ -187,7 +204,17 @@ impl TextureCache {
                 return;
             };
             let entry = self.by_hash.remove(&hash).unwrap();
-            self.by_name.retain(|_, &mut h| h != hash);
+            match self.aliases.remove(&hash) {
+                Some(names) => {
+                    for name in names {
+                        self.by_name.remove(&name);
+                    }
+                }
+                // Defensive: an entry with no recorded aliases can only mean the
+                // two tables disagree, in which case the slow but exact answer
+                // still has to be right.
+                None => self.by_name.retain(|_, &mut h| h != hash),
+            }
             self.stats.evictions += 1;
             self.stats.evicted_bytes += entry.bytes as u64;
             self.stats.resident_bytes -= entry.bytes as u64;
@@ -220,7 +247,26 @@ pub struct Objects {
 /// building.pck textures is ~445 MiB compressed on disk and far larger
 /// decoded, so the full world never fits under this budget by design.
 pub const DEFAULT_TEX_BUDGET_MIB: usize = 32;
+/// Process-wide "All to VRAM" switch. `Objects` instances read it when their
+/// cache evicts and when a new one is opened, so the whole-world preload and
+/// later streamed batches follow a live toggle without a restart.
+static UNBOUNDED_TEXTURES: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Keep every decoded texture resident instead of evicting to the budget.
+pub fn set_unbounded_textures(on: bool) {
+    UNBOUNDED_TEXTURES.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+/// Whether decoded textures are kept permanently resident.
+pub fn unbounded_textures() -> bool {
+    UNBOUNDED_TEXTURES.load(std::sync::atomic::Ordering::Relaxed)
+}
 fn tex_budget_bytes() -> usize {
+    if unbounded_textures() {
+        // Not literally infinite: the LRU comparison adds bytes to this, so it
+        // stays a value the arithmetic cannot overflow.
+        return usize::MAX / 4;
+    }
     std::env::var("PW_TEX_BUDGET_MIB")
         .ok()
         .and_then(|v| v.parse::<usize>().ok())
@@ -561,6 +607,31 @@ mod tests {
         cache.store("t1_alias".into(), tex(1, 64));
         assert!(cache.stats.evictions >= 2);
         assert!(cache.get("t2").is_none());
+    }
+    #[test]
+    fn evicting_content_removes_every_alias_name_and_nothing_else() {
+        let one = 64 * 64 * 4 + 64 * 64 / 1024;
+        let mut cache = TextureCache::new(2 * one + 10);
+        // The shared content is the oldest batch, so it is the one the budget
+        // has to drop; its two names must both stop resolving, and the later
+        // entries must keep theirs.
+        cache.begin_batch();
+        cache.store("a/shared.dds".into(), tex(1, 64));
+        cache.store("b/shared_alias.dds".into(), tex(1, 64));
+        assert_eq!(cache.stats.alias_hits, 1);
+        cache.begin_batch();
+        cache.store("c/other.dds".into(), tex(2, 64));
+        cache.begin_batch();
+        cache.store("d/new.dds".into(), tex(3, 64));
+        assert_eq!(cache.stats.evictions, 1);
+        assert!(cache.stats.resident_bytes <= cache.stats.budget_bytes);
+        assert!(cache.get("a/shared.dds").is_none());
+        assert!(cache.get("b/shared_alias.dds").is_none());
+        assert!(!cache.contains("a/shared.dds"));
+        assert!(!cache.contains("b/shared_alias.dds"));
+        assert!(cache.get("c/other.dds").is_some());
+        assert!(cache.get("d/new.dds").is_some());
+        assert_ne!(cache.key("c/other.dds"), cache.key("d/new.dds"));
     }
     #[test]
     fn pinned_batch_entries_survive_over_budget() {

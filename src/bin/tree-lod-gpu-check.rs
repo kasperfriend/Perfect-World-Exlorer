@@ -6,6 +6,8 @@ mod dxt;
 mod far_trees_gpu;
 #[path = "../foliage_mips.rs"]
 mod foliage_mips;
+#[path = "../indirect_args.rs"]
+mod indirect_args;
 #[path = "../model_dds.rs"]
 mod model_dds;
 #[path = "../pck.rs"]
@@ -112,7 +114,10 @@ pub fn run(authored_mips: bool) {
     let (device, queue) = pollster::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
             label: None,
-            required_features: wgpu::Features::empty(),
+            // Exercise the single-call path; the mip checks keep their
+            // devices feature-free and cover the per-batch fallback.
+            required_features: adapter.features()
+                & (wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE),
             required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
         },
         None,
@@ -135,6 +140,19 @@ pub fn run(authored_mips: bool) {
         contents: bytemuck::cast_slice(&uni),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
+    // Surface which draw path this adapter gets; the checks above only prove
+    // the fallback if the features are missing.
+    let one_call = device
+        .features()
+        .contains(wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE);
+    println!(
+        "::notice::tree batches drawn as {}",
+        if one_call {
+            "one multi-draw"
+        } else {
+            "per-batch indirect draws"
+        }
+    );
     let mut renderer = far_trees_gpu::FarTrees::new(
         &device,
         &queue,
@@ -172,7 +190,7 @@ pub fn run(authored_mips: bool) {
     let view = target.create_view(&Default::default());
     let dv = depth.create_view(&Default::default());
     let mut frames = Vec::new();
-    for (frame_index, (dist, strength, time)) in [
+    let mut plans: Vec<(f32, f32, f32)> = vec![
         (20., 0., 0.),
         (25., 0., 0.),
         (30., 0., 0.),
@@ -190,10 +208,13 @@ pub fn run(authored_mips: bool) {
         (20., 0., 0.),
         (20., 0., 0.),
         (20., 0., 0.),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    ];
+    // Two extra views sit inside the transition windows, where the pass has to
+    // write a cross-fade fraction instead of a plain level.
+    let lod_height = renderer.group_heights()[0].max(5.);
+    plans.push((lod_height * 5. * 0.95, 0., 0.));
+    plans.push((lod_height * 16. * 1.05, 0., 0.));
+    for (frame_index, (dist, strength, time)) in plans.into_iter().enumerate() {
         if frame_index == 9 || frame_index == 10 {
             let (a, d) = if frame_index == 9 {
                 ([89., 115., 142.], [75., 88., 107.])
@@ -232,66 +253,137 @@ pub fn run(authored_mips: bool) {
         }
         renderer.update_resident_lods(&device, &queue, [dist, 0., 0.], 1., bounds);
         let (count, bytes) = renderer.residency_stats();
-        assert_eq!(bytes, (count.max(1) * 20) as u64);
-        if frame_index == 15 {
-            assert_eq!(count, 0);
+        // The instance buffer keeps every (group, level) slice: two `vec4`s per
+        // record, three levels per group.
+        assert_eq!(bytes, (count.max(1) * 32) as u64);
+        // The selection itself now happens in the compute pass. Compare the
+        // counts it produced against `tree_lod::select` for this frame's
+        // distance and cutoff — the CPU half of the equivalence.
+        let counts = renderer.lod_instance_counts(&device, &queue);
+        let height = renderer.group_heights()[0];
+        let mut expected = [0u32; 3];
+        if far_trees_gpu::lod_admits(bounds, [0., 0., 0.]) {
+            if let Some(distance) = tree_lod::client_distance([0., 0., 0.], [dist, 0., 0.]) {
+                let selection = tree_lod::select(distance, height, 1.);
+                expected[selection.primary as usize] += 1;
+                if let Some(second) = selection.secondary {
+                    expected[second as usize] += 1;
+                }
+            }
         }
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: 128 * 128 * 4,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut e = device.create_command_encoder(&Default::default());
-        {
-            let mut pass = e.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &dv,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            renderer.draw(&mut pass, false);
-        }
-        e.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
-                texture: &target,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::ImageCopyBuffer {
-                buffer: &buffer,
-                layout: wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(512),
-                    rows_per_image: Some(128),
-                },
-            },
-            size,
+        assert_eq!(
+            counts, expected,
+            "frame {frame_index}: GPU LOD selection differs from tree_lod::select at distance {dist}"
         );
-        queue.submit(Some(e.finish()));
-        let slice = buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
-        device.poll(wgpu::Maintain::Wait);
-        rx.recv().unwrap().unwrap();
-        frames.push(slice.get_mapped_range().to_vec());
-        buffer.unmap();
+        // The cross-fade has to agree as well, not just the level choice: read
+        // back the `(fraction, mode)` the pass wrote and compare it with the
+        // CPU's. f32 versus f64 distance moves the fraction by ~1e-7 at most.
+        let cpu = tree_lod::client_distance([0., 0., 0.], [dist, 0., 0.])
+            .map(|distance| tree_lod::select(distance, height, 1.));
+        for level in 0..3 {
+            if counts[level] == 0 {
+                continue;
+            }
+            let got = renderer.lod_instance_info(&device, &queue, 0, level, 0);
+            let want = cpu.expect("placement outside the cutoff was still drawn");
+            let want_mode = if want.primary as usize == level {
+                if want.secondary.is_some() {
+                    1.
+                } else {
+                    0.
+                }
+            } else {
+                2.
+            };
+            assert_eq!(got[1], want_mode, "frame {frame_index}: instance mode");
+            if want.secondary.is_some() {
+                assert!(
+                    (got[0] - want.fraction).abs() < 1e-5,
+                    "frame {frame_index}: fade fraction {} vs {}",
+                    got[0],
+                    want.fraction
+                );
+            }
+        }
+        // End to end: the CPU packer and the compute pass must paint the same
+        // picture for the same camera. Transition frames are skipped because
+        // their dither fraction sits on a knife edge between the CPU's f64
+        // distance and the GPU's f32 one; the fraction itself is compared above.
+        let cross_check = bounds.is_none() && cpu.is_some_and(|s| s.secondary.is_none());
+        let mut packed = None;
+        let passes = if cross_check { 2 } else { 1 };
+        for pass_index in 0..passes {
+            if pass_index == 1 {
+                renderer.update_lods(&queue, [dist, 0., 0.], 1.);
+            }
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: None,
+                size: 128 * 128 * 4,
+                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                mapped_at_creation: false,
+            });
+            let mut e = device.create_command_encoder(&Default::default());
+            {
+                let mut pass = e.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: None,
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &dv,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0.),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                renderer.draw(&mut pass, false);
+            }
+            e.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    texture: &target,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &buffer,
+                    layout: wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(512),
+                        rows_per_image: Some(128),
+                    },
+                },
+                size,
+            );
+            queue.submit(Some(e.finish()));
+            let slice = buffer.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+            device.poll(wgpu::Maintain::Wait);
+            rx.recv().unwrap().unwrap();
+            let pixels = slice.get_mapped_range().to_vec();
+            buffer.unmap();
+            if pass_index == 0 {
+                frames.push(pixels);
+            } else {
+                packed = Some(pixels);
+            }
+        }
+        if let Some(packed) = packed {
+            assert_eq!(
+                packed, frames[frame_index],
+                "frame {frame_index}: CPU and GPU LOD selection paint different pixels"
+            );
+        }
     }
     assert!(
         frames[15].chunks_exact(4).all(|p| p == [0, 0, 0, 255]),
@@ -373,6 +465,140 @@ pub fn run(authored_mips: bool) {
         println!("regional tree frame {index}, expected {expected:?}, matched {matched} pixels");
     }
     println!("Tree LOD GPU test: {lit} pixels, same across boundaries; sampled leaf motion changes with time and stops at wind=0");
+    // One group cannot catch a mis-based record table; three can.
+    multi_group(&device, &queue);
+}
+
+/// Multi-group regression for the LOD pass's record layout.
+///
+/// The single-tree run above only ever has group 0, whose record base is zero in
+/// the right table *and* in a table that scales it. A whole-world cache has
+/// dozens of groups, each owning three consecutive indirect records, and a
+/// scaled base sends every group after the first into a later group's records:
+/// the level that should draw keeps a zero count, and the record that was
+/// borrowed draws with a count it never earned — trees missing at distance,
+/// other trees drawn with the wrong level's geometry, and a forest that changes
+/// as the borrowed counts do. This drives the production pass over three groups
+/// whose heights put them on different levels at the same distance, and compares
+/// every record with `tree_lod::select`.
+fn multi_group(device: &wgpu::Device, queue: &wgpu::Queue) {
+    std::env::set_var("PW_SMALL_TREE_ATLAS", "1");
+    let tex = image::RgbaImage::from_pixel(128, 128, image::Rgba([240, 190, 70, 255]));
+    let composite = image::RgbaImage::from_pixel(128, 128, image::Rgba([20, 240, 30, 255]));
+    // Same tree stretched by 1x, 3x and 8x: heights 5, 15 and 40, so the three
+    // groups cross the `height * 5` and `height * 16` boundaries at different
+    // distances.
+    let stretch = |k: f32| {
+        let mut lod = lod();
+        for part in [&mut lod.branch, &mut lod.frond] {
+            for v in &mut part.vertices {
+                v.pos[2] *= k;
+            }
+        }
+        for leaf in &mut lod.leaves {
+            leaf.center[2] *= k;
+        }
+        lod
+    };
+    let mut types = Vec::new();
+    for k in [1f32, 3., 8.] {
+        types.push(Some(trees::TreeMesh {
+            lods: vec![stretch(k), stretch(k), stretch(k)],
+            bark: tex.clone(),
+            composite: composite.clone(),
+            bark_mips: Vec::new(),
+            composite_mips: Vec::new(),
+        }));
+    }
+    let placements = (0..3u32)
+        .map(|tree_type| scene::Tree {
+            tree_type,
+            position: [0., 0., 0.],
+        })
+        .collect();
+    let trees = trees::Trees { types, placements };
+    // The LOD pass never reads the camera uniform; the forest only has to bind
+    // one, so nothing here is drawn through it.
+    let camera = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("multi group camera"),
+        size: 1024,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut renderer = far_trees_gpu::FarTrees::new(
+        device,
+        queue,
+        wgpu::TextureFormat::Rgba8Unorm,
+        &trees,
+        &camera,
+        &camera,
+        false,
+    );
+    let heights = renderer.group_heights();
+    assert_eq!(heights.len(), 3, "three tree types, three groups");
+    for dist in [20f32, 40., 120., 300., 1000., 3000., 12000.] {
+        renderer.update_resident_lods(device, queue, [dist, 0., 0.], 1., None);
+        let counts = renderer.lod_instance_counts(device, queue);
+        assert_eq!(
+            counts.len(),
+            heights.len() * 3,
+            "one record per group level"
+        );
+        let cpu: Vec<_> = heights
+            .iter()
+            .map(|height| {
+                tree_lod::client_distance([0., 0., 0.], [dist, 0., 0.])
+                    .map(|distance| tree_lod::select(distance, *height, 1.))
+            })
+            .collect();
+        let mut expected = vec![0u32; heights.len() * 3];
+        for (group, selection) in cpu.iter().enumerate() {
+            let Some(selection) = selection else { continue };
+            expected[group * 3 + selection.primary] += 1;
+            if let Some(second) = selection.secondary {
+                expected[group * 3 + second] += 1;
+            }
+        }
+        assert_eq!(
+            counts, expected,
+            "distance {dist}: GPU records differ from tree_lod::select per group"
+        );
+        for (group, selection) in cpu.iter().enumerate() {
+            let Some(selection) = selection else { continue };
+            for level in 0..3 {
+                if counts[group * 3 + level] == 0 {
+                    continue;
+                }
+                let got = renderer.lod_instance_info(device, queue, group, level, 0);
+                let want_mode = if selection.primary == level {
+                    if selection.secondary.is_some() {
+                        1.
+                    } else {
+                        0.
+                    }
+                } else {
+                    2.
+                };
+                assert_eq!(
+                    got[1], want_mode,
+                    "distance {dist}: group {group} level {level} instance mode"
+                );
+                if selection.secondary.is_some() {
+                    assert!(
+                        (got[0] - selection.fraction).abs() < 1e-5,
+                        "distance {dist}: group {group} level {level} fade fraction {} vs {}",
+                        got[0],
+                        selection.fraction
+                    );
+                }
+            }
+        }
+    }
+    println!(
+        "::notice::tree LOD laid {} groups over {} indirect records; every level draws from its own record",
+        heights.len(),
+        heights.len() * 3
+    );
 }
 
 fn main() {

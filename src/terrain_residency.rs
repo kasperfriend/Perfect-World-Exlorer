@@ -228,6 +228,18 @@ pub fn in_frustum(matrix: Mat4, bounds: [f32; 6]) -> bool {
 /// frame is submitted as a handful of draw calls instead of one per block.
 pub fn visible_runs(spans: &[Span], matrix: Mat4) -> Vec<(u32, u32)> {
     let mut runs: Vec<(u32, u32)> = Vec::new();
+    visible_runs_into(spans, matrix, &mut runs);
+    runs
+}
+
+/// [`visible_runs`] into a caller-owned buffer.
+///
+/// The draw path runs this once per view (main, reflection, above-water, minimap)
+/// on every frame, so it keeps one buffer per view and clears it instead of
+/// handing out a fresh `Vec` each time. The result is identical: `runs` is
+/// emptied first and refilled in span order.
+pub fn visible_runs_into(spans: &[Span], matrix: Mat4, runs: &mut Vec<(u32, u32)>) {
+    runs.clear();
     for span in spans {
         if span.count == 0 || !in_frustum(matrix, span.bounds) {
             continue;
@@ -237,7 +249,6 @@ pub fn visible_runs(spans: &[Span], matrix: Mat4) -> Vec<(u32, u32)> {
             _ => runs.push((span.start, span.count)),
         }
     }
-    runs
 }
 
 /// Visible block count for one view (`terrain+0x324`). The draw path submits
@@ -459,5 +470,90 @@ mod tests {
             "contiguous visible blocks share one draw call"
         );
         assert_eq!(visible_blocks(&spans, Mat4::IDENTITY), 3);
+    }
+
+    #[test]
+    fn visible_runs_into_reuses_the_buffer_without_keeping_the_old_answer() {
+        let visible = Span {
+            block: (0, 0),
+            start: 0,
+            count: 6,
+            bounds: [-0.5, -0.5, 0.25, 0.5, 0.5, 0.75],
+        };
+        let behind = Span {
+            block: (1, 0),
+            start: 6,
+            count: 6,
+            bounds: [-0.5, -0.5, -2., 0.5, 0.5, -1.],
+        };
+        let spans = [visible, behind, visible];
+        let mut runs = vec![(99, 99)];
+        // A camera looking at everything keeps the first and third span.
+        visible_runs_into(&spans, Mat4::IDENTITY, &mut runs);
+        assert_eq!(runs, vec![(0, 6), (0, 6)]);
+        // Nothing visible must leave an empty buffer, not the previous frame.
+        visible_runs_into(&[behind], Mat4::IDENTITY, &mut runs);
+        assert!(runs.is_empty());
+        assert!(
+            runs.capacity() >= 2,
+            "the buffer is reused, not reallocated"
+        );
+        // The owned wrapper still returns the same answer.
+        assert_eq!(visible_runs(&spans, Mat4::IDENTITY), vec![(0, 6), (0, 6)]);
+    }
+
+    /// The water reflection draws through `matrix * flip`, so its block set is
+    /// the mirrored view's, not the main view's. A camera looking across a lake
+    /// from `y = 10` sees the high bank above the water and the deep basin only
+    /// in the mirror image, so the two runs must differ.
+    #[test]
+    fn the_reflection_view_culls_through_the_mirrored_matrix() {
+        let span = |start: u32, y0: f32, y1: f32| Span {
+            block: (start as usize, 0),
+            start,
+            count: 6,
+            bounds: [-1., y0, -30., 1., y1, -25.],
+        };
+        let spans = [
+            span(0, -12., -8.), // deep basin: only the mirror keeps it
+            span(6, 8., 12.),   // high bank: only the direct view keeps it
+            span(12, 9., 11.),  // straddles the eye line
+        ];
+        // 10 degrees of vertical field at 25 units is +-2.19 around `y = 10`.
+        let matrix = Mat4::perspective_rh(10f32.to_radians(), 1., 0.1, 200.)
+            * Mat4::from_translation(Vec3::new(0., -10., 0.));
+        // The lake surface is the `y = 0` plane, so the mirror is a plain flip.
+        let flip = Mat4::from_scale(Vec3::new(1., -1., 1.));
+        assert_eq!(
+            visible_runs(&spans, matrix),
+            vec![(6, 12)],
+            "the direct view keeps the bank and drops the basin"
+        );
+        assert_eq!(
+            visible_runs(&spans, matrix * flip),
+            vec![(0, 6)],
+            "the mirror keeps the basin and drops the bank"
+        );
+    }
+
+    /// The realistic minimap is the same `minimap_matrix` orthographic window
+    /// (a `range`-sized square around the eye, seen from `y = 10000`), so the
+    /// block under the eye survives and everything outside the square drops.
+    #[test]
+    fn the_minimap_window_keeps_only_the_blocks_under_it() {
+        let span = |start: u32, x: f32| Span {
+            block: (start as usize, 0),
+            start,
+            count: 6,
+            bounds: [x - 32., -500., -32., x + 32., 2000., 32.],
+        };
+        let spans = [span(0, 0.), span(6, 5000.)];
+        let map = Mat4::orthographic_rh(256., -256., -256., 256., 20000., 1.)
+            * Mat4::look_to_rh(Vec3::new(0., 10000., 0.), Vec3::NEG_Y, Vec3::Z);
+        assert_eq!(
+            visible_runs(&spans, map),
+            vec![(0, 6)],
+            "only the block inside the map window is submitted"
+        );
     }
 }

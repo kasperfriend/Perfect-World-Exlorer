@@ -1,0 +1,53 @@
+# callers of 0x4b5f10 (direct call rel32): 1
+# 0x429370-0x4293e0  (112 bytes)
+#   call at 0x42938e
+00429370: push esi                                
+00429371: mov esi, ecx                            
+00429373: push edi                                
+00429374: mov edi, dword ptr [esp + 0xc]          
+00429378: mov ecx, dword ptr [esi + 0x50]         
+0042937b: test ecx, ecx                           
+0042937d: je 0x429393                             
+0042937f: mov eax, dword ptr [esi + 0x90]         
+00429385: test eax, eax                           
+00429387: jne 0x42938d                            
+00429389: push 0                                  
+0042938b: jmp 0x42938e                            
+0042938d: push edi                                
+0042938e: call 0x4b5f10                           
+00429393: mov eax, dword ptr [0x9b3ed4]             ; f32 0
+00429398: add eax, edi                            
+0042939a: cmp eax, 0x21                           
+0042939d: mov dword ptr [0x9b3ed4], eax             ; f32 0
+004293a2: jbe 0x4293ce                            
+004293a4: mov ecx, dword ptr [esi + 0x54]         
+004293a7: test ecx, ecx                           
+004293a9: je 0x4293b0                             
+004293ab: mov eax, dword ptr [ecx]                
+004293ad: call dword ptr [eax + 0x48]             
+004293b0: mov ecx, dword ptr [esi + 0x58]         
+004293b3: test ecx, ecx                           
+004293b5: je 0x4293bc                             
+004293b7: mov edx, dword ptr [ecx]                
+004293b9: call dword ptr [edx + 0x48]             
+004293bc: mov eax, dword ptr [0x9b3ed4]             ; f32 0
+004293c1: sub eax, 0x21                           
+004293c4: cmp eax, 0x21                           
+004293c7: mov dword ptr [0x9b3ed4], eax             ; f32 0
+004293cc: ja 0x4293a4                             
+004293ce: pop edi                                 
+004293cf: mov al, 1                               
+004293d1: pop esi                                 
+004293d2: ret 4                                   
+004293d5: nop                                     
+004293d6: nop                                     
+004293d7: nop                                     
+004293d8: nop                                     
+004293d9: nop                                     
+004293da: nop                                     
+004293db: nop                                     
+004293dc: nop                                     
+004293dd: nop                                     
+004293de: nop                                     
+004293df: nop                                     
+

@@ -37,6 +37,67 @@ pub const DAY_PHASE_MS: f64 = 900_000.0;
 /// Timer step per frame in `A3DSky::Update` 0x79a040 (`+0x21` / `-0x21`).
 pub const TRANSITION_STEP: i32 = 0x21;
 
+/// Real seconds one full authored day takes at the client's own rate.
+///
+/// `CECSunMoon::Tick` 0x4b5f10 adds `ms * ds:0x8db108` to the day fraction, and
+/// `ds:0x8db108` is 1 / 14 400 000, so 14 400 000 real milliseconds — four real
+/// hours — advance the fraction by exactly 1.0. One authored hour is therefore
+/// 600 real seconds (ten real minutes), and one real second is four authored
+/// minutes, i.e. `1 / 600` of a day.
+pub const REAL_SECONDS_PER_DAY: f64 = CLOCK_MS_PER_DAY / 1000.0;
+/// Authored hours that pass per real second at speed 1.0 (`24 / 14 400`).
+pub const GAME_HOURS_PER_REAL_SECOND: f64 = 24.0 / REAL_SECONDS_PER_DAY;
+/// Slowest time-pass multiplier the viewer offers.
+pub const MIN_TIME_PASS_SPEED: f32 = 0.1;
+/// Fastest time-pass multiplier the viewer offers (one day per 14.4 seconds).
+pub const MAX_TIME_PASS_SPEED: f32 = 600.0;
+
+/// Advance an authored hour by `real_seconds` of wall clock at `speed`.
+///
+/// `speed` is a multiplier on the client's own rate: 1.0 is one authored day
+/// per four real hours, 2.0 is one per two hours, 600.0 is one every 14.4
+/// seconds. The result stays in `0..24`; a non-finite hour is returned
+/// unchanged so a corrupt settings value cannot start a clock that never
+/// settles, and non-finite or non-positive elapsed time does not move it.
+pub fn advance(hour: f32, real_seconds: f32, speed: f32) -> f32 {
+    if !hour.is_finite() {
+        return hour;
+    }
+    let hour = f64::from(hour.rem_euclid(24.0));
+    if !real_seconds.is_finite() || real_seconds <= 0.0 {
+        return hour as f32;
+    }
+    let speed = if speed.is_finite() {
+        f64::from(speed.clamp(MIN_TIME_PASS_SPEED, MAX_TIME_PASS_SPEED))
+    } else {
+        1.0
+    };
+    let advanced = hour + f64::from(real_seconds) * speed * GAME_HOURS_PER_REAL_SECOND;
+    advanced.rem_euclid(24.0) as f32
+}
+
+/// Real seconds one authored day takes at `speed`, for the UI label.
+pub fn day_length_seconds(speed: f32) -> f32 {
+    let speed = if speed.is_finite() {
+        speed.clamp(MIN_TIME_PASS_SPEED, MAX_TIME_PASS_SPEED)
+    } else {
+        1.0
+    };
+    (REAL_SECONDS_PER_DAY / f64::from(speed)) as f32
+}
+
+/// Human-readable length of one authored day at `speed`, e.g. `4 real hours`.
+pub fn day_length_label(speed: f32) -> String {
+    let seconds = day_length_seconds(speed);
+    if seconds >= 3600.0 {
+        format!("{:.2} real hours", seconds / 3600.0)
+    } else if seconds >= 60.0 {
+        format!("{:.1} real minutes", seconds / 60.0)
+    } else {
+        format!("{seconds:.1} real seconds")
+    }
+}
+
 /// Authored hour (`0..24`) as the client's day fraction, NaN safe.
 pub fn day_fraction(hour: f32) -> Option<f64> {
     if !hour.is_finite() {
@@ -222,6 +283,41 @@ mod tests {
         assert_eq!(day_fraction(24.0).unwrap(), 0.0);
         assert_eq!(day_fraction(-6.0).unwrap(), 0.75);
         assert!(day_fraction(f32::NAN).is_none());
+    }
+
+    #[test]
+    fn one_authored_day_is_four_real_hours_at_the_client_rate() {
+        // `ds:0x8db108` = 1 / 14 400 000 per ms, so a whole day is 4 real hours.
+        assert_eq!(REAL_SECONDS_PER_DAY, 14_400.0);
+        assert!((GAME_HOURS_PER_REAL_SECOND - 1.0 / 600.0).abs() < 1e-12);
+        assert_eq!(day_length_seconds(1.0), 14_400.0);
+        assert_eq!(day_length_seconds(2.0), 7_200.0);
+        assert_eq!(day_length_seconds(0.5), 28_800.0);
+        // One authored hour is ten real minutes at the shipped speed.
+        assert_eq!(advance(0.0, 600.0, 1.0), 1.0);
+        assert_eq!(advance(0.0, 14_400.0, 1.0), 0.0);
+        assert_eq!(advance(12.0, 3_600.0, 1.0), 18.0);
+        // 600x is one day every 14.4 seconds, the fastest offered rate.
+        assert_eq!(day_length_seconds(600.0), 24.0);
+        assert!((advance(0.0, 0.024, 600.0) - 0.024).abs() < 1e-5);
+        // The result always stays inside 0..24 and never goes backwards.
+        let mut hour = 23.9_f32;
+        for _ in 0..100 {
+            let next = advance(hour, 1.0, 1.0);
+            assert!((0.0..24.0).contains(&next));
+            hour = next;
+        }
+        // Bad inputs are inert, not a runaway clock.
+        assert_eq!(advance(f32::NAN, 1.0, 1.0).to_bits(), f32::NAN.to_bits());
+        assert_eq!(advance(5.0, f32::NAN, 1.0), 5.0);
+        assert_eq!(advance(5.0, -1.0, 1.0), 5.0);
+        assert_eq!(advance(5.0, 0.0, 1.0), 5.0);
+        assert_eq!(advance(5.0, 600.0, f32::NAN), 6.0);
+        // Out-of-range speeds are clamped, not wrapped into a fast day.
+        assert_eq!(day_length_seconds(1e9), 24.0);
+        assert_eq!(day_length_seconds(0.0), 14_400.0 * 10.0);
+        assert_eq!(day_length_label(1.0), "4.00 real hours");
+        assert_eq!(day_length_label(600.0), "24.0 real seconds");
     }
 
     #[test]

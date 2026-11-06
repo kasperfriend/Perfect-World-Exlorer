@@ -370,13 +370,16 @@ impl WindowLod {
 /// `block+0x74` availability flag. Neighbours outside the window (or invisible)
 /// produce no coarsening, exactly like the null neighbour pointers in
 /// `0x7c40e6`.
-pub fn window_lod(
+/// The level grid alone: what a caller needs to know whether the drawn mesh
+/// would differ. `window_lod` also walks every cell's neighbours to stitch the
+/// edge cases, which only matter when the mesh is actually rebuilt.
+pub fn window_levels(
     win: Window,
     cfg: &LodConfig,
     cam: [f32; 2],
     centre: impl Fn(usize, usize) -> [f32; 2],
     visible: impl Fn(usize, usize) -> bool,
-) -> WindowLod {
+) -> Vec<u8> {
     let w = win.x1.saturating_sub(win.x0);
     let h = win.y1.saturating_sub(win.y0);
     let mut levels = vec![0u8; w * h];
@@ -390,6 +393,18 @@ pub fn window_lod(
             };
         }
     }
+    levels
+}
+pub fn window_lod(
+    win: Window,
+    cfg: &LodConfig,
+    cam: [f32; 2],
+    centre: impl Fn(usize, usize) -> [f32; 2],
+    visible: impl Fn(usize, usize) -> bool,
+) -> WindowLod {
+    let w = win.x1.saturating_sub(win.x0);
+    let h = win.y1.saturating_sub(win.y0);
+    let levels = window_levels(win, cfg, cam, centre, visible);
     let get = |x: isize, y: isize| -> Option<u8> {
         if x < win.x0 as isize
             || y < win.y0 as isize
@@ -432,6 +447,25 @@ pub fn window_lod(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_level_grid_is_the_grid_the_full_window_carries() {
+        let cfg = LodConfig::default();
+        let win = Window {
+            x0: 0,
+            y0: 0,
+            x1: 3,
+            y1: 2,
+        };
+        let cam = [10., 10.];
+        let centre = |x: usize, y: usize| [x as f32, y as f32];
+        let visible = |x: usize, _y: usize| x != 1;
+        let full = window_lod(win, &cfg, cam, centre, visible);
+        assert_eq!(window_levels(win, &cfg, cam, centre, visible), full.levels);
+        // The skipped column really is skipped, so the grid is not all zeroes.
+        assert!(full.levels.iter().any(|level| *level != 0));
+        assert_eq!(full.levels[1], 0);
+    }
 
     #[test]
     fn far_boundary_matches_four_cell_grid_at_every_level() {

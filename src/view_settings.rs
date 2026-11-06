@@ -1,6 +1,7 @@
 //! Persisted viewer controls; malformed values fall back safely.
 use crate::client_weather::WeatherOverride;
 use crate::sky_transition::SkyOverride;
+
 #[path = "post_plan.rs"]
 mod post_plan;
 /// The renderer must allocate/execute the post chain for each independent
@@ -106,6 +107,19 @@ pub struct ViewSettings {
     pub sensitivity: f32,
     pub far: f32,
     pub time_of_day: f32,
+    /// Advance `time_of_day` with wall-clock time. Off by default so the slider
+    /// stays where it is put; the client's own clock always runs.
+    pub time_pass_enabled: bool,
+    /// Multiplier on the client's own rate, where 1.0 is one authored day per
+    /// four real hours (`sky_time::CLOCK_MS_PER_DAY`). 1.0 reproduces the
+    /// shipped speed; larger values fast-forward for inspection.
+    pub time_pass_speed: f32,
+    /// Keep the whole terrain grid and every decoded scenery texture resident
+    /// instead of paging them through disk and the bounded RAM caches. This is
+    /// the pre-#22 VRAM/RAM-first behaviour reintroduced as an option: it is
+    /// dramatically faster at load and while flying, and it trades memory for
+    /// that speed. Applied at startup.
+    pub all_to_vram: bool,
     pub whole_world: bool,
     pub water_reflections: bool,
     pub atmospheric_fog: bool,
@@ -186,6 +200,9 @@ impl Default for ViewSettings {
             sensitivity: 0.0025,
             far: 16000.,
             time_of_day: 12.,
+            time_pass_enabled: false,
+            time_pass_speed: 1.,
+            all_to_vram: false,
             whole_world: false,
             water_reflections: true,
             atmospheric_fog: false,
@@ -291,6 +308,9 @@ impl ViewSettings {
                 "sensitivity" => number!(s.sensitivity, 0.0005, 0.01),
                 "far" => number!(s.far, 2000., 24000.),
                 "time_of_day" => number!(s.time_of_day, 0., 24.),
+                "time_pass_enabled" => flag!(s.time_pass_enabled),
+                "time_pass_speed" => number!(s.time_pass_speed, 0.1, 600.),
+                "all_to_vram" => flag!(s.all_to_vram),
                 "grass_wind_enabled" => flag!(s.grass_wind_enabled),
                 "grass_wind_amplitude" => number!(s.grass_wind_amplitude, 0., 2.),
                 // Older files stored the removed strength slider: any value
@@ -380,11 +400,11 @@ impl ViewSettings {
     }
     fn encode(&self) -> String {
         format!(concat!("# Perfect World Explorer settings, version 1\n",
-            "radius={}\nterrain_cutoff={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
+            "radius={}\nterrain_cutoff={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\ntime_pass_enabled={}\ntime_pass_speed={}\nall_to_vram={}\n",
             "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nambience_enabled={}\nsound_volume={}\neffects_enabled={}\neffects_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
             "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncelestial_brightness={}\nignore_celestial_flags={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\nweather_override={}\nsky_override={}\n"),
-            self.detail.radius,self.detail.terrain_cutoff,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
+            self.detail.radius,self.detail.terrain_cutoff,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,self.time_pass_enabled,self.time_pass_speed,self.all_to_vram,
             self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.ambience_enabled,self.sound_volume,self.effects_enabled,self.effects_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.celestial_brightness,self.ignore_celestial_flags,self.cloud_detail,self.sharpen,self.resolution_scale,
@@ -724,6 +744,42 @@ mod tests {
         let bad = ViewSettings::decode("weather_override=Hail\nsky_override=night");
         assert_eq!(bad.weather_override, WeatherOverride::Auto);
         assert_eq!(bad.sky_override, SkyOverride::Auto);
+    }
+
+    #[test]
+    fn time_pass_and_resident_everything_are_persisted_and_bounded() {
+        let d = ViewSettings::default();
+        // The shipped behaviour: the slider stays put, and the viewer keeps the
+        // bounded caches the optimisations introduced.
+        assert!(!d.time_pass_enabled);
+        assert_eq!(d.time_pass_speed, 1.0);
+        assert!(!d.all_to_vram);
+        // A file written before these keys existed keeps the defaults.
+        let legacy = ViewSettings::decode("time_of_day=18\nwhole_world=true");
+        assert!(!legacy.time_pass_enabled);
+        assert_eq!(legacy.time_pass_speed, 1.0);
+        assert!(!legacy.all_to_vram);
+        let on =
+            ViewSettings::decode("time_pass_enabled=true\ntime_pass_speed=240\nall_to_vram=true");
+        assert!(on.time_pass_enabled);
+        assert_eq!(on.time_pass_speed, 240.0);
+        assert!(on.all_to_vram);
+        assert_eq!(ViewSettings::decode(&on.encode()), on);
+        // Non-numeric and non-finite values fall back to the safe default.
+        let bad =
+            ViewSettings::decode("time_pass_enabled=bogus\ntime_pass_speed=NaN\nall_to_vram=1");
+        assert!(!bad.time_pass_enabled);
+        assert_eq!(bad.time_pass_speed, 1.0);
+        assert!(!bad.all_to_vram);
+        // The speed slider's range matches `sky_time`'s clamps (0.1..600).
+        assert_eq!(
+            ViewSettings::decode("time_pass_speed=0.001").time_pass_speed,
+            0.1
+        );
+        assert_eq!(
+            ViewSettings::decode("time_pass_speed=99999").time_pass_speed,
+            600.0
+        );
     }
 
     #[test]

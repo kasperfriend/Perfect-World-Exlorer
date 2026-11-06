@@ -165,6 +165,38 @@ existing regional light tint (`max(ambient, diffuse) * (1 - 0.72 * night_weight)
 darkens it through dusk. The clear set is no longer used for both phases. The
 sunset set is loaded for a region that names it.
 
+## 2026-11-06 update — the sunset line, and how long a day is
+
+Two follow-ups after this checkup was written; the full report is
+`QoL-2026-11-06-residency-time-pass-and-sunset.md`.
+
+**The sun never reached the horizon.** The quad templates hang: `y` runs from
+`0` at the emitted point to `-height` (`x -10..10, y 0..-20` for the sun, `x
+-20..20, y 0..-40` for the moon, `x -60..60, y 10..-30` for the shine strip).
+The emitted point `direction * 100` is the top edge, not the centre, so drawing
+the quad centred on it lifted the drawing by `atan(10 / 100)` = 5.71 degrees and
+the `elevation > 0` gate in `CECSunMoon::Render` (`0x4b3e00`) removed the sun
+5.71 degrees above the horizon — the reported "red line above the horizon, then
+the sun stops and loses its glow". `sky_celestial::template_hang` now drops the
+centre by `half` along the quad's up axis (the swelled `1 + 2n` half for the
+dusk sun, 20 units for the moon), and `sky_gpu` samples both the disc
+(`uv = vec2(x / 2h, (y - h) / 2h) + 0.5`) and the `sunshine.bmp` strip on the
+hanging, swelled rectangle, gated on that rectangle rather than on the shifted
+sampling coordinate (the shift exists only to put `sunshine.bmp`'s own core, at
+0.75 of its height, on the disc; gating it stretched the drawn strip into a red
+tail). The elevation curve is unchanged: it is now the elevation of the setting
+line, so `el == 0` is a disc that has just fully set.
+
+**One game day is four real hours.** `CECSunMoon::Tick` (`0x4b5f10`) adds
+`elapsed_ms * ds:0x8db108` to the day fraction and `ds:0x8db108` is
+`6.944444444444444e-08` = 1 / 14 400 000; the `SetTime` caller `0x428f7d`
+converts real time-of-day seconds with `ds:0x8d6a8c` = 6.944444e-5 = 1 / 14 400,
+the same rate. So one authored hour is ten real minutes and one real second is
+four authored minutes.
+`clock-constants.txt` and `asm-29-clock-references.txt` hold the constants and
+every code reference; the viewer's "Enable time pass" checkbox runs the clock at
+that rate, with a 0.1x–600x multiplier.
+
 ## Validation and remaining gaps
 
 * `tools/check-rust-syntax.js` passes for the new/changed files (the two
