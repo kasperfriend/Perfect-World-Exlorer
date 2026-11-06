@@ -87,10 +87,11 @@
 //! vector; and the rotation the unbound emission basis takes from the
 //! quaternion at emitter+0x74, whose writer is the same unknown that blocks
 //! `ParIniDir`. A fourth is copied only for the class it is decoded for:
-//! `IsSurface` places particles on the emitter's own `AreaSize` volume, and the
-//! samplers of ids 123 (`0x727f00`, an ellipsoid) and 124 (`0x729be0`, a
-//! cylinder) are reproduced, but ids 120 and 121 have samplers of their own
-//! that are not.
+//! `IsSurface` does not mean one thing. Ids 123 (`0x727f00`, an ellipsoid) and
+//! 124 (`0x729be0`, a cylinder) sample the emitter's own `AreaSize` volume, while
+//! id 120 (`0x7272aa`) samples no volume at all: it spreads the direction over
+//! the surface of a cone and leaves the particle one unit from the emitter. All
+//! three are reproduced. Id 121's `0x727800` is not.
 
 use crate::{
     ecmodel,
@@ -1907,11 +1908,18 @@ fn spawn(
     // all, and its birth flow calls the direction slot after both samplers
     // (`0x729bc1`), so there the cone still applies.
     //
-    // Ids 120 and 121 keep the volume path: id 121's `0x727800` spends ten draws
-    // and calls none of the vector helpers, so it is a different algorithm
-    // outright, and id 120's block at `0x7272aa` runs the same chain but adds a
-    // call to `0x70a320` and uses `pi/2 - Angle`. Ids 122 and 125 never read the
-    // flag.
+    // Id 120's block at `0x7272aa` is the odd one out. It reads neither
+    // `AreaSize` nor the basis: it spends a single draw on an azimuth about the
+    // global Z, tilts by `pi/2 - Angle` about the spun X, multiplies the two into
+    // node+0x34 (`0x70a320` at `0x727448`), rotates the global Y by that into
+    // node+0x44, and sets node+0x10 to the same vector times the 0.001 at
+    // `0x8ee224` — the unit conversion the volume path applies twice as well
+    // (`0x7276bc`, `0x7276d6`). Its particles therefore sit one unit out, on the
+    // surface of a cone of half-angle `Angle` about the local Z.
+    //
+    // Id 121 keeps the volume path: its `0x727800` spends ten draws and calls
+    // none of the vector helpers, so it is a different algorithm outright. Ids
+    // 122 and 125 never read the flag.
     // The basis builder's scalar argument: the interpolated keypoint `Scale`
     // times the root `PlaySpeed`. The bound branch ignores it, so it only reaches
     // the geometry of an unbound emitter, and only for the three classes that
@@ -1931,6 +1939,13 @@ fn spawn(
                 (sample * half, Some(-sample))
             }
             124 => (cylinder_sample(rng) * half, None),
+            120 => {
+                // One draw, and the direction is the position: the client builds
+                // node+0x44 and node+0x10 from the same vector.
+                let direction =
+                    to_emitter_local(particle, context, surface_cone(rng, particle.angle));
+                (direction, Some(direction))
+            }
             _ => (volume_offset(particle, rng, basis_scale), None),
         }
     } else {
@@ -2004,17 +2019,20 @@ fn spawn(
 /// inverse spin rather than Z outright: 2,770 of the corpus's 9,142 bound
 /// particle keypoints (30.3%) author a non-identity `Direction`.
 fn emission_axis(particle: &Particle, context: &ElementContext) -> (Vec3, Vec3) {
-    let to_local = context.spin.conjugate();
-    let (forward, right) = if particle.is_bind {
-        (Vec3::Z, Vec3::X)
-    } else {
-        (
-            context.keypoint_direction * Vec3::Z,
-            context.keypoint_direction * Vec3::X,
-        )
-    };
-    (to_local * forward, to_local * right)
+    (
+        to_emitter_local(particle, context, Vec3::Z),
+        to_emitter_local(particle, context, Vec3::X),
+    )
 }
+
+/// A vector the client built in the emitter's frame, brought into this player's
+/// local frame.
+///
+/// A bound emitter works in bone-local axes, so its vector passes through; an
+/// unbound one carries the keypoint direction too, and `placement` adds `spin` on
+/// top of the parent basis, so the inverse spin undoes both. Every sampler that
+/// writes a direction goes through here — the shared direction slot's basis pair,
+/// and id 120's cone.
 
 /// Sample an emission direction inside the authored cone. The client's sampler
 /// `0x723440` returns the emission basis unchanged while `Angle` (emitter+0x10)
@@ -2099,6 +2117,29 @@ fn cylinder_sample(rng: &mut Rng) -> Vec3 {
     let tau = std::f32::consts::TAU;
     let turned = Quat::from_axis_angle(Vec3::Z, rng.unit() * tau) * Vec3::X;
     turned.with_z(rng.signed())
+}
+
+/// Id 120's surface direction, in the emitter's frame, from a single draw.
+///
+/// `0x7272aa` draws one uniform, `0x7272bd` scales it by the 2*pi/32767 at
+/// `0x8e6f14`, and `0x7b6fd0` at `0x7272d1` turns it into a quaternion about the
+/// global Z `0x9c0338`. `0x7272ec`-`0x727376` rotate the global X `0x9c0358` by
+/// that quaternion — the spun perpendicular. `0x72737b` takes `pi/2 - Angle`
+/// (`0x8ee228` minus emitter+0x10) and `0x727395` builds a second quaternion
+/// about the spun axis. `0x72739a`-`0x727445` multiply the two, tilt first and
+/// azimuth second, `0x70a320` at `0x727448` stores the product in node+0x34, and
+/// `0x727552`-`0x7275f0` rotate the global Y `0x9c0348` by it into node+0x44.
+///
+/// Composed, that is `(-sin Angle * sin theta, sin Angle * cos theta, cos
+/// Angle)`, checked numerically against the client's chain to 3e-16: every
+/// particle sits at polar angle `Angle` exactly, on the surface of the cone. The
+/// shared direction slot instead draws its polar angle uniformly inside
+/// `[0, Angle]`, which fills the cone.
+fn surface_cone(rng: &mut Rng, angle: f32) -> Vec3 {
+    let tau = std::f32::consts::TAU;
+    let azimuth = Quat::from_axis_angle(Vec3::Z, rng.unit() * tau);
+    let tilt = Quat::from_axis_angle(azimuth * Vec3::X, std::f32::consts::FRAC_PI_2 - angle);
+    (tilt * azimuth) * Vec3::Y
 }
 
 /// The volume offset every class shares when `IsSurface` does not apply.
@@ -3601,7 +3642,48 @@ mod tests {
         assert_eq!(rng.next_u32(), reference.next_u32());
     }
 
-    /// Only id 123's sampler is decoded, so only id 123 gets the surface path.
+    /// Id 120's block spends one draw, not the two the shared direction slot's
+    /// cone spends: its polar angle is `Angle` itself, not a sample.
+    #[test]
+    fn surface_cone_spends_one_draw() {
+        let mut rng = Rng::new(71);
+        let mut reference = Rng::new(71);
+        let _ = surface_cone(&mut rng, 0.6);
+        reference.next_u32();
+        assert_eq!(rng.next_u32(), reference.next_u32());
+    }
+
+    /// The sample sits at polar angle `Angle` for every azimuth, one unit from
+    /// the emitter, and `AreaSize` has no say in it — the client's block never
+    /// reads emitter+0xb4. The direction and the position are the same vector,
+    /// because node+0x44 and node+0x10 are built from it.
+    #[test]
+    fn id_120_surface_emission_is_a_cone_one_unit_out() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.id = 120;
+        let mut particle = Particle::default();
+        particle.is_surface = true;
+        particle.area_size = Some(Vec3::new(4., 3., 2.));
+        particle.angle = 0.7;
+        let mut rng = Rng::new(83);
+        for _ in 0..400 {
+            let state = spawn(&particle, None, &mut rng, &context);
+            assert!(
+                (state.position.z - 0.7f32.cos()).abs() < 1e-5,
+                "polar angle drifted: {}",
+                state.position
+            );
+            assert!(
+                (state.position.length() - 1.).abs() < 1e-5,
+                "not one unit out: {}",
+                state.position
+            );
+            assert_eq!(state.direction, state.position);
+        }
+    }
+
     /// Id 121's `0x727800` spends ten draws and calls none of the vector helpers,
     /// and ids 122 and 125 never read the flag, so an element of another class
     /// still fills the volume even with `IsSurface` set.
