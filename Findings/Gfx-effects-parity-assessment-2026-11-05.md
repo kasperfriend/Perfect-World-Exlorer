@@ -551,6 +551,49 @@ ground-matching path at `0x71f1be`,
 overlay each other, which is why the light writer's `Position: %f, %f, %f` also
 reads +0x174.
 
+**`ResetLoopEnd` empties a 256-entry per-element queue.** The shared-key loader
+reads it behind `cmp $0x4a` — version 74 — and stores `value != 0` as the byte at
+element+0x13d. The corpus obeys that gate exactly: the 3,657 non-default lines
+appear only in versions 75, 76, 78 and 79, across 820 roots.
+
+The flag is read by a virtual method at `0x714620` (no direct callers; it and the
+getter at `0x714650` are reached through a vtable), which zeroes element+0x314,
++0x318 and +0x328 when it is set and returns immediately when it is not. Those
+slots belong to a ring buffer the initialiser at `0x713814` sets up as capacity
+`0x100` at +0x31c, head `0xff` (= capacity − 1) at +0x324, tail at +0x328 and
+storage at +0x320. The fill loop at `0x713ed4` writes
+`buffer + head*12 = { index, element+0x30c, 0 }` for each of `element+0x2b8`
+entries, advancing head with a wrap at capacity − 1 and the tail without one. So
+a record is **three integers**, not three floats, and the queue is filled with a
+sequential index plus one value taken from element+0x30c — the shape of a
+pending-spawn queue rather than a trail, which fits `ResetLoopEnd` appearing on
+all 18 element ids that carry it (123 with 1,222, then 200, 100, 101, 110, 210,
+120, 125, 170, 152, 124, 140, 150, 160, 180, 190, 102 and one light).
+
+What is *not* recovered is the meaning of element+0x30c and +0x2b8, so the queue's
+payload is named but not understood. The consequence for the viewer is narrow:
+`Player::reset` keeps live particles across a loop restart, which is documented as
+matching the client, and this queue is not a list of live particles but of pending
+ones — the viewer spawns immediately and has no pending queue, so there is nothing
+for the flag to clear yet. If a pending-spawn queue is ever added, `ResetLoopEnd`
+is the flag that empties it at the loop boundary.
+
+Two further offsets fell out of the same reads: `NoDownSample` is the byte at
+element+0x134 and `TexAnimMaxTime` the integer at element+0x124, behind version
+75. Both are consistent with the clone's field list.
+
+**`IsAvgGen`, `AlphaSeg` and `BetaSeg` are a much smaller gap than the census
+suggested.** They are read by a separate loader behind `cmp $0x47` — version 71 —
+into element+0xe4 (`IsAvgGen`, reduced to a bool by `setne`), +0xe8 (`AlphaSeg`)
+and +0xec (`BetaSeg`), the latter two `sscanf`ed straight into the element as
+`%d`. The corpus obeys the gate exactly: all three keys occur only in versions
+71..79. `AlphaSeg` and `BetaSeg` are on element 123 alone (6,641 each) and are
+**10 in 6,604 and 6,607 of those** — a fixed setting, not a varied one.
+`IsAvgGen` also occurs on element 125 (373) but is **non-zero on only 84 elements
+in the whole archive**. So the behaviour these three gate is worth 84 elements,
+not the 6,641 the raw key count implies, and the segment counts are near-constant
+where they do appear.
+
 Two traps worth recording for the next dig. The parser's format strings live in
 `.data` and are reached through arrays of pointers, so a key's string has **no
 direct cross-reference** — find the array by scanning the image for words equal
@@ -574,10 +617,15 @@ Added by the field census, in the order the corpus says they matter:
   element's transform fed into the child's placement each frame. The native
   resolution site is not identified yet; `BindEle` is copied to element+0x9c by
   `0x7638a0` and read from there.
-* **`ResetLoopEnd`** (3,657 non-default lines) and **`MatchGrnd`** (1,781), both
-  flags on `Common` with no consumer. Ground matching additionally needs terrain
-  or `loddata.pck` heights, which the viewer has for the walker but has never
-  wired into an effect.
+* **`MatchGrnd`** (1,781 non-default lines) needs an owner that can answer a
+  ground query — see *Ground matching is an owner capability*. The walker has
+  terrain sampling in `walker/physics.rs` and has never wired it into an effect.
+* **`ResetLoopEnd`** (3,657 lines, 820 roots) is now decoded as far as it can go
+  without element+0x30c and +0x2b8: it empties a 256-entry queue of integer
+  triples. It becomes actionable only if the viewer grows a pending-spawn queue.
+* **`IsAvgGen`** is worth 84 elements, not the 6,641 its key count suggests, and
+  `AlphaSeg`/`BetaSeg` are 10 almost everywhere they appear. Demoted from the
+  top of this list by measurement.
 * **`YawEffect`** (30 lines) selects the rotation path at `0x71f36d` and
   `0x71f84e`, which calls `0x6fa810` and `0x7872d0`; neither is decoded.
 * The unidentified multiplier at `(element+0x10)+0x1ec` and the byte at
