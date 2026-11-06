@@ -381,6 +381,10 @@ impl Walker {
 
     pub fn update_audio(&mut self, enabled: bool, volume: f32) {
         let active = self.is_active();
+        if !active && !enabled {
+            // Nothing to do when inactive and disabled; avoid worker ping.
+            return;
+        }
         let commands = self
             .character
             .as_mut()
