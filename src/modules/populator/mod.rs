@@ -1705,7 +1705,8 @@ mod tests {
     fn a_rig_with_no_idle_action_at_all_is_reported_as_a_bind_pose() {
         let asset = rig_without_combined_actions();
         let mut report = IdleReport::default();
-        assert_eq!(idle_clock(&asset, &mut report), (None, None, None));
+        let (action, clip, playback) = idle_clock(&asset, &mut report);
+        assert!(action.is_none() && clip.is_none() && playback.is_none());
         assert_eq!(report.bind_pose, 1);
         assert_eq!(report.looped, 0);
     }
@@ -1730,7 +1731,8 @@ mod tests {
         let mut asset = rig_without_combined_actions();
         asset.model.actions.push(idle_action("待机", 5., 2.));
         let mut report = IdleReport::default();
-        assert_eq!(idle_clock(&asset, &mut report), (None, None, None));
+        let (action, clip, playback) = idle_clock(&asset, &mut report);
+        assert!(action.is_none() && clip.is_none() && playback.is_none());
         assert_eq!(report.unusable_clip, 1);
         assert_eq!(report.bind_pose, 0);
     }
