@@ -72,6 +72,7 @@ Measured expectations, not benchmarked frame times (no GPU in this sandbox):
 * (3)–(5) remove per-frame allocations from the draw path; (6)–(7) remove
   per-frame and per-input string and environment work from the UI/event path.
 
+| 10 | `far_trees_gpu` LOD selection | the CPU walked **every** placement each frame the camera moved: distance, `tree_lod::select`, write the instance slot, then re-upload the whole instance buffer (three level slices per placement — 9.6 MB at whole-world scale, every frame) | the placement table (position + group index), each group's height and slice, and the per-batch `DrawIndexedIndirectArgs` are uploaded once at load; a single 64-wide compute dispatch then writes the instances and bumps the per-batch counts, and `draw` is one `draw_indexed_indirect` per batch | the shader is `tree_lod::client_distance` and `tree_lod::select` transcribed operation for operation — the same bit-trick square root, the same 10 % windows around `height * 5 * scale` and `height * 16 * scale`, tested in the same order. `tree-lod-gpu-check` reads the per-batch counts and the `(fraction, mode)` record back and compares both against the CPU `select` for every frame, including two frames placed inside the transition windows where the cross-fade is non-trivial |
 ## 3. Candidates examined and deliberately not changed
 
 | candidate | verdict |
@@ -134,7 +135,8 @@ What is still on the CPU each frame, roughly in order of cost:
    draw per placed object to one per page run.
 3. **Visibility** — `visible_runs_into` / `visible_far_runs_into` walk the
    resident block window per view, `window_lod` per block, the water batch
-   filter/sort, the far-tree LOD selection.
+   filter/sort, the grass placement. Item (10) took the far-tree LOD selection
+   out of this list.
 4. **Frame math** — `begin_frame` (lighting, fog, sun/moon, glow parameters),
    a few hundred flops.
 5. **egui** — the settings/HUD tree, tessellation and vertex upload. On a frame
@@ -146,9 +148,15 @@ A GPU-driven successor would add, per subsystem:
 | step | what it needs | why it is not here yet |
 | --- | --- | --- |
 | scenery/terrain culling on the GPU | per-view storage buffers of draw descriptors, a compute pass, `multi_draw_indexed_indirect` (optional feature) or one indirect draw per page | the submission order is load-bearing: coplanar depth ties are won by the first draw, so the compute pass must reproduce the frozen order exactly. Item (9)'s command lists are the CPU reference such a pass would have to match |
-| LOD selection on the GPU (far trees, grass, terrain window) | compute pass writing per-level instance counts + `draw_indexed_indirect` | needs the per-frame instance buffers to live on the GPU; today they are rebuilt on the CPU per level |
+| LOD selection on the GPU (grass, terrain window) | compute pass writing per-level instance counts + `draw_indexed_indirect` | far trees are done — item (10) — and its shape is the template: a static placement table, one dispatch, indirect counts. Grass and the terrain window still rebuild their per-level lists on the CPU, and the terrain window's LOD is load-bearing for block residency, so it needs its own CPU reference first |
 | model animation/compaction on the GPU | storage-buffer palettes, compute compaction | poses already reach the GPU, but activation/attachments/owners are the client's own gameplay callbacks, not render state |
 | water batches on the GPU | the same machinery | the batch list is a handful of planes; there is nothing measurable to win |
+
+Item (10) is the first piece of that programme and shows the shape it takes:
+nothing moves until the CPU's answer can be compared with the GPU's for the
+same frame, which for LOD selection means reading the indirect counts and the
+instance records back (`tree-lod-gpu-check`) rather than diffing pixels — the
+pixels agree by construction once the selection does.
 
 The gate is validation, not code volume. The only GPU this project can run in CI
 is lavapipe, and there is no frame-time harness: a GPU-culled frame that is
