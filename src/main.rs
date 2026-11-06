@@ -392,8 +392,7 @@ fn decode_block(tile: &TileDecode, scratch: &mut BlockScratch, bi: usize) -> Res
             return Err(format!("{name} block {bi}: invalid normal header"));
         };
         for j in 0..nv {
-            let az =
-                *normal_data.get(base + 2 * j).ok_or("truncated normals")? as usize;
+            let az = *normal_data.get(base + 2 * j).ok_or("truncated normals")? as usize;
             let el = *normal_data
                 .get(base + 2 * j + 1)
                 .ok_or("truncated normals")? as usize;

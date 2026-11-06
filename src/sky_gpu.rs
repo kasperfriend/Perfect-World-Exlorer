@@ -1654,7 +1654,10 @@ mod reflection_tests {
         let projected = [0.25, 0.5];
         let anchor = super::flare_anchor(projected, half, 0.);
         assert_eq!(anchor[0], projected[0]);
-        assert!((anchor[1] - (projected[1] - half)).abs() < 1e-6, "{anchor:?}");
+        assert!(
+            (anchor[1] - (projected[1] - half)).abs() < 1e-6,
+            "{anchor:?}"
+        );
         assert!(
             anchor[1] < projected[1],
             "the disc centre is lower on screen than the projected point"
