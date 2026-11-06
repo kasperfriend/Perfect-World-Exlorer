@@ -2033,6 +2033,14 @@ fn emission_axis(particle: &Particle, context: &ElementContext) -> (Vec3, Vec3) 
 /// top of the parent basis, so the inverse spin undoes both. Every sampler that
 /// writes a direction goes through here — the shared direction slot's basis pair,
 /// and id 120's cone.
+fn to_emitter_local(particle: &Particle, context: &ElementContext, vector: Vec3) -> Vec3 {
+    let forward = if particle.is_bind {
+        vector
+    } else {
+        context.keypoint_direction * vector
+    };
+    context.spin.conjugate() * forward
+}
 
 /// Sample an emission direction inside the authored cone. The client's sampler
 /// `0x723440` returns the emission basis unchanged while `Angle` (emitter+0x10)
