@@ -705,12 +705,10 @@ mod tests {
         assert_eq!(detail_scaled_count(10, 20.0, 2.0, true), 8);
         assert_eq!(detail_scaled_count(3, 20.0, 2.0, true), 3);
         // Above the far threshold the count is always scaled, and the factor is
-        // (numerator * 8.3333333) / distance. Both of these are f32 arithmetic
-        // all the way down, and the truncation is the client's own `_ftol`:
-        // 6.0 * 8.3333333 / 100.0 is 0.499999998 rather than 0.5, so ten
-        // particles come out as four and not five. A numerator that is not on
-        // that knife edge gives the arithmetic a reader expects.
-        assert_eq!(detail_scaled_count(10, 100.0, 6.0, true), 4);
+        // (numerator * 8.3333333) / distance, truncated by `_ftol`. Both cases
+        // were recomputed in f32 rather than eyeballed: 6.0 * 8.3333333 rounds
+        // to exactly 50.0, so the factor is 0.5 and ten particles become five.
+        assert_eq!(detail_scaled_count(10, 100.0, 6.0, true), 5);
         assert_eq!(detail_scaled_count(10, 100.0, 6.5, true), 5);
         // A factor of one or more never increases the count: the client applies
         // reductions only.
@@ -740,9 +738,10 @@ mod tests {
         for preset in presets() {
             for path in preset.paths {
                 let group = group_of(path);
+                let expected = preset.group;
                 assert_eq!(
-                    group, preset.group,
-                    "{path} classifies as {group:?}, the preset says {:?}",
+                    group, expected,
+                    "{path} classifies as {group:?}, the preset says {expected:?}"
                 );
             }
         }
