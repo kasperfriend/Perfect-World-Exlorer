@@ -89,6 +89,67 @@ sample to node+0x44 itself and nothing overwrites it — while ids 121 and 124 h
 the direction slot called afterwards and their samplers write no direction at
 all. Ids 122 and 125 never read emitter`+0x84`.
 
+### The direction slot `0x723440`, shared by all seven classes
+
+Vtable slot [1] is the same routine in every emitter vtable, and it is what fills
+the emission direction at node+0x44 for the classes that call it. It is a thiscall
+with one argument — the destination pointer — and `ret $0x4` at `0x7237db`. Two
+halves: a base direction, then an optional cone.
+
+**The base direction.** `0x723447` tests `IsBind` at emitter+0x85. Bound: `eax` is
+set to `0x9c0338`, the global Z axis, at `0x723451` and copied verbatim into the
+destination at `0x723503`–`0x723517` — no rotation at all. Unbound: `0x72345b`
+through `0x7234ff` reads the quaternion's vector part at emitter+0x74/0x78/0x7c and
+its w at +0x80 and evaluates the same inline Rodrigues rotation the basis builder
+uses (`0x4093d0` at `0x72347f` and `0x7234a0`, `0x401cc0` at `0x72348c` and
+`0x7234ad`, `0x633700` with the doubled w from `0x7234b8` and with `2.0` at
+`0x7234c7`, `0x4071f0` at `0x7234e9` and `0x7234f7`):
+
+```
+bound:    node+0x44 = Z
+unbound:  node+0x44 = rotate(Z, q),   q = quat(emitter+0x74) = Q ⊗ keypoint.Direction
+```
+
+**The cone gate.** `0x72351a` loads `Angle` from emitter+0x10 and compares it with
+the 0.0 at `0x8d58a0`; `test $0x40,%ah` after `fnstsw` tests C3, the equality flag,
+and `jne 0x7237d6` exits through the epilogue with the base direction already
+stored. The gate is therefore **`Angle != 0`, not `Angle > 0`** — the corpus's 36
+negative angles do get a cone, mirrored through the emitter.
+
+**The cone.** Two `rand()` draws, through the IAT slot `0x8d5478` loaded once into
+`%ebx` at `0x72352f`:
+
+- `0x723541`–`0x723550`: `theta1 = (float)rand() * Angle * (1/32767)`, the polar
+  angle, with the constant at `0x8e6f10`. Uniform in `[0, Angle]` and never clamped.
+- `0x723626`–`0x723631`: `theta2 = (float)rand() * (2*pi/32767)`, the azimuth,
+  constant `0x8e6f14`, so a full turn.
+
+The cone's own axis is `0x9c0358` (global X) when bound (`0x723556`) and
+`rotate(X, q)` when unbound (`0x723560`–`0x723604`, the same Rodrigues spelling).
+X is perpendicular to Z and the rotation preserves that, so the axis is
+perpendicular to the base direction in both cases. The construction is then:
+
+```
+q_az   = axis_angle(node+0x44, theta2)   ; 0x7b6fd0 at 0x72363b, quaternion out at [esp+0x70]
+axis'  = rotate(axis, q_az)              ; 0x723661-0x7236e9, Rodrigues again
+q_tilt = axis_angle(axis', theta1)       ; 0x7b6fd0 at 0x723718
+node+0x44 = rotate(node+0x44, q_tilt)    ; 0x723741-0x7237c1, copied in at 0x7237d0
+```
+
+Spin the perpendicular axis about the base direction by the azimuth, then tilt the
+base direction away from itself by the polar angle about that spun axis. Both
+`0x7b6fd0` calls are cdecl and the caller cleans them together with the rotation
+chain's pushes — `add $0x18,%esp` at `0x723675` and `0x723732` — which is the same
+leftover-argument convention the basis rows use. Slot [2] beside it, `0x7237e0`, is
+two instructions, `flds 0x2c(%ecx); ret`: it returns emitter+0x2c, the TTL.
+
+**`ParIniDir` is not part of the direction.** The slot reads only `IsBind` and the
+orientation quaternion at emitter+0x74; it never touches +0xa0. `ParIniDir`'s
+Euler-to-quaternion result is composed into emitter+0xa0…+0xac (parse at
+`0x7243b8`, runtime at `0x71b450`) and the birth routines copy those four floats
+into node+0x34 — the particle's initial *orientation*, a different field from the
+direction at node+0x44.
+
 ### The emitter object
 
 The vtables are consecutive in `.rdata`, twelve slots each, so all seven can be
