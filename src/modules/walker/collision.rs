@@ -23,6 +23,7 @@ const DIST_EPSILON: f32 = 0.03125;
 const CHDATA_SKIP_COLLISION: u32 = 0x00000004;
 const MAX_CELLS_PER_QUERY: usize = 4096;
 const MAX_SLIDE_ITERATIONS: usize = 4;
+const MAX_BATCHES_PER_FRAME: usize = 3;
 /// Half-width of the box the name line-of-sight test sweeps along the view ray.
 const SIGHT_PROBE: f32 = 0.02;
 
@@ -931,7 +932,6 @@ impl Collision {
     pub fn poll(&mut self) {
         let mut finished = false;
         let mut batches_processed = 0;
-        const MAX_BATCHES_PER_FRAME: usize = 3;
         loop {
             if batches_processed >= MAX_BATCHES_PER_FRAME {
                 break;
