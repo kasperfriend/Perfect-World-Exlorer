@@ -44,7 +44,12 @@ end, and together they account for every helper the surface and basis code calls
 | `0x4093d0` | cdecl, three pointers | `cross(out, a, b)`: `out.x = a.y*b.z - a.z*b.y`, `out.y = a.z*b.x - a.x*b.z`, `out.z = a.x*b.y - a.y*b.x` |
 | `0x4071f0` | cdecl, three pointers | `add(out, a, b)` |
 | `0x407220` | cdecl, three pointers | `sub(out, a, b)` |
+| `0x401ce0` | thiscall, `ret $0x4` | `*= scalar`, the second spelling of `0x633700`; both appear in the same routine (`0x729670` uses `0x633700` for the rotation terms and `0x401ce0` for its third row) |
+| `0x634420` | thiscall | rotate a vector by a quaternion: called with the axis and the quaternion at `0x729972`, its result scaled by `0x401ce0` and copied by `0x401cc0` into a basis row |
 | `0x7b6fd0` | cdecl, `(axis, angle, out)` | axis-angle to quaternion: `out+0..0xc = axis * sin(angle/2)`, `out+0xc = cos(angle/2)`, with the halving by `0.5` at `0x8eff98` |
+| `0x7b6f10` | cdecl, three floats | Euler angles to quaternion, the `sin(a/2)cos(b/2)…` expansion of three successive rotations, each argument halved by `0x8eff98`; called at `0x724313` and `0x71b479` |
+| `0x7b7010` | cdecl, four plain pointers/values, caller cleans 16 bytes (`add $0x10,%esp` at `0x71600e`) | quaternion **slerp** `(out, a, b, t)`: `dot = a·b` at `0x7b701d`; `dot < 0` negates `b` and the sign so the short arc is taken; `|dot| > 0.75` (`0x8f0aec`) blends linearly as `(1−t)a + sign·t·b`; otherwise `θ = acos(dot)` and the coefficients are `sin((1−t)θ)/sinθ`, `sign·sin(tθ)/sinθ`. Stores at `0x7b7100`, `ret` at `0x7b7124`. Its first argument is the output, not an input |
+| `0x70a320` | thiscall, `ret $0x10` | four-argument quaternion setter |
 
 Two conventions matter when reading a caller. The x87 helpers reserve argument
 slots with `push %reg` / `fstps (%esp)`, so the frame shifts by four bytes per
@@ -53,9 +58,12 @@ push and the same textual offset names different slots at different points;
 that are all one argument. And a call's argument count follows from its `ret`,
 not from the pushes around it: `ret $0x4` means exactly one.
 
-Rotation by a quaternion is spelled out inline rather than living in the library.
-Given `q = (v, w)`, the callers compute `u + 2w(v x u) + 2(v x (v x u))` with one
-`0x4093d0` per cross, one `0x633700` per scaling and two `0x4071f0` adds.
+Rotation by a quaternion is *usually* spelled out inline, though it does exist as a
+helper (`0x634420`, which `0x729670`'s third basis row uses). Given `q = (v, w)`,
+the inline callers compute `u + 2w(v x u) + 2(v x (v x u))` with one `0x4093d0` per
+cross, one `0x633700` per scaling and two `0x4071f0` adds — which is Rodrigues'
+formula, and it is how the surface samplers and two of the three unbound basis rows
+are written.
 
 Reading those call sites needs one more convention. The second `0x4071f0` of a
 rotation is preceded by only two pushes and followed by no stack adjustment,
@@ -142,10 +150,75 @@ vector (`0x716019`, via `0x401cc0`) and **emitter`+0x74…+0x80`** as four dword
 copied from `[esp+0xb8]` (`0x716025`–`0x71603b`), followed immediately by
 `call 0x71b450` at `0x716040` to recompose `+0xa0`. So the emitter's position and
 orientation both move as the element spawns, and the unbound emission basis is
-rotated by a real orientation rather than the constructor's initial one. What is
-still not decoded is the meaning of `element+0x210…+0x21c` and of the quaternion at
-`[esp+0xb8]`, and the condition under which this loop runs at all — the entry
-guard at `0x715f00` is only `element+0x198 != 0`.
+rotated by a real orientation rather than the constructor's initial one.
+
+What that loop reads is decoded now too. `element+0x210…+0x218` and
+`element+0x21c…+0x228` are the element's own cache of the emitter's position and
+orientation, written by the element update at `0x71a537`–`0x71a54f` (position, from
+emitter`+0x68`) and `0x71a56c`–`0x71a57b` (quaternion, from emitter`+0x74`), so the
+loop interpolates from where the emitter was on the previous frame to where it is
+now. `[esp+0xb8]` is that interpolation's output, and `0x7b7010` is a quaternion
+**slerp** rather than a plain blend: `|dot| > 0.75` (`0x8f0aec`) takes the linear
+path `(1−t)a + sign·t·b`, otherwise the coefficients are `sin((1−t)θ)/sinθ` and
+`sign·sin(tθ)/sinθ` with `θ = acos(dot)`, and `b` is negated when `dot < 0` so the
+interpolation always goes the short way round (stores at `0x7b7100`). The entry
+guard at `0x715f00` is only `element+0x198 != 0`, so the loop runs whenever the
+element has a spawn queue at all.
+
+**The basis scalar is keypoint `Scale` × root `PlaySpeed`.** Slot [9]'s only two
+call sites are the two `IsBind` arms of the element update `0x71a1e0` (`0x71a351`
+reads emitter`+0x85`, `0x71a359` skips the call when it is zero), and both compute
+the same product, `[esp+0x48] × [esp+0x24]`, at `0x71a35b` (bound) and `0x71a501`
+(unbound). Slot `0x24` is filled at `0x71a225` from `[element+0x10]+0x1ec` — the
+root's `PlaySpeed`. Slot `0x48` is one float of the interpolated keypoint record the
+routine builds at `[esp+0x38]` through `0x6fe0b0`, and the surrounding code pins
+that record's layout down exactly: a `Vec3` at `+0x38`, a packed colour at `+0x44`
+whose top byte is scaled by `1/255` (`0x8eadc0`) into emitter`+0x8c` at `0x71a337`
+(the live alpha the parity assessment saw `0x7237f0` folding in), the float at
+`+0x48`, and four floats at `+0x4c…+0x58`. That is the `.gfx` keypoint's
+`Position`/`Color`/`Scale`/`Direction`, with `gfx_file::KeyPoint` as its
+byte-for-byte counterpart; `+0x48` is separately pushed three times as a uniform
+vector into `0x787de0` at `0x71a346` to fill the element's own scale at `+0x1b8`.
+Both scalar reads happen **before** the affector update `0x716240` at `0x71a37c`, so
+a controller's scale override never reaches the emission volume.
+
+**The unbound basis, end to end.** `0x729763` computes `V = scalar × AreaSize` —
+reading its single argument three times, at `0x729784`, `0x72979f` and `0x7297c8`,
+where the `push`/`fstps (%esp)` idiom has shifted the frame so that `0x74(%esp)`,
+`0x7c(%esp)` and `0x80(%esp)` are all `[entry+4]` — builds the quaternion's vector
+part from emitter`+0x74/0x78/0x7c` at `0x7297ad`, and writes row *i* as
+`rotate(axis_i, q) × (V_i × 0.5)`. Rows 0 and 1 evaluate the rotation inline as
+`G + 2w(Q × G) + 2(Q × (Q × G))` (`0x4093d0` at `0x7297d4` and `0x7297fe`,
+`0x633700` with the doubled w from `0x7297f4` and with `2.0`, `0x4071f0` twice with
+one argument deliberately left on the stack); row 2 reaches the same result through
+`0x634420` (`0x729972`) and `0x401ce0` (`0x729980`). The rows are stored at
+`0x72987c` (`+0xc0`), `0x72994d` (`+0xcc`) and `0x729988` (`+0xd8`), against
+`0x9c0358`, `0x9c0348` and `0x9c0338` with `V.x`, `V.y` and `V.z`:
+
+```
+bound   (+0x85 != 0):  row_i = G_{2-i}            × (AreaSize_i × 0.5)
+unbound (+0x85 == 0):  row_i = rotate(G_{2-i}, q) × (scalar × AreaSize_i × 0.5)
+                       q     = quat(emitter+0x74) = Q ⊗ keypoint.Direction
+```
+
+The bound branch at `0x729684` never touches the scalar argument, which is why it
+changes unbound emitters only.
+
+**Where `Q` comes from.** `0x6fa810(element)` reads `[element+0x10]` and returns
+**`&root+0x1b4`** when root`+0x1f4` and element`+0x131` are set and either
+element`+0x132` or root`+0x284` is, otherwise **`&root+0x1a4`** — the effect's own
+placement orientation. The unbound arm multiplies it by the keypoint record's
+direction at `0x71a406`–`0x71a493` (`w'` at `0x71a406`, `x'` at `0x71a42b`, `y'` at
+`0x71a450`, `z'` at `0x71a479`, staged in slots `0x28/0x2c/0x30/0x34`), stores the
+product at emitter`+0x74…+0x80` (`0x71a4dc`–`0x71a4f1`), fills the world position at
+`+0x68/0x6c/0x70` from slots `0x10/0x14/0x18` (`0x71a4b5`, the position `0x7872d0`
+returns when element`+0x1f8` is set, otherwise `0x71a3f1`), and calls `0x71b450` at
+`0x71a4f4` to recompose `+0xa0`. The product's order was checked term by term
+against both Hamilton expansions: the scalar part matches either, but the vector
+parts match only **`Q ⊗ keypoint`**, so the keypoint direction is applied first and
+the root orientation second. Reading that needed care with the x87 mnemonics — GAS
+prints `fsubrp %st,%st(1)` for `st(1) − st(0)`, and taking it with Intel's operand
+order reverses every difference term.
 
 ## Runtime player
 

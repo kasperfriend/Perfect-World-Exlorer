@@ -513,6 +513,13 @@ struct ElementContext<'a> {
     color_scale: f32,
     /// Sampled keypoint scale after the controllers.
     scale: f32,
+    /// The sampled keypoint scale times the root `PlaySpeed`, *before* the
+    /// controllers. The client multiplies exactly those two floats at `0x71a35b`
+    /// (bound) and `0x71a501` (unbound) and hands the product to the basis
+    /// builder as its one scalar argument; the affector update `0x716240` runs
+    /// only afterwards, at `0x71a37c`, so a controller's scale override never
+    /// reaches the emission volume.
+    emission_scale: f32,
     rotation: f32,
     /// Milliseconds on the element clock, for flipbooks and UV scroll.
     clock: f32,
@@ -760,6 +767,7 @@ impl Player {
                 runtime,
                 time,
                 dt_s,
+                play_speed,
                 version,
                 face_to_viewer,
                 view,
@@ -796,6 +804,7 @@ fn advance_element(
     runtime: &mut ElementRuntime,
     time: f32,
     dt_s: f32,
+    play_speed: f32,
     version: u32,
     face_to_viewer: bool,
     view: &View,
@@ -855,6 +864,7 @@ fn advance_element(
         } else {
             1.
         },
+        emission_scale: sampled.scale * play_speed,
         // `Rad_2D` is the authored 2D spin of this keypoint; ctrl 101
         // integrates its `Vel`/`Acc` into the same angle (node+0x08 is a
         // rotation, not a speed).
@@ -1890,7 +1900,18 @@ fn spawn(
     // outright, and id 120's block at `0x7272aa` runs the same chain but adds a
     // call to `0x70a320` and uses `pi/2 - Angle`. Ids 122 and 125 never read the
     // flag.
-    let half = particle.area_size.unwrap_or(Vec3::ZERO) * 0.5;
+    // The basis builder's scalar argument: the interpolated keypoint `Scale`
+    // times the root `PlaySpeed`. The bound branch ignores it, so it only reaches
+    // the geometry of an unbound emitter, and only for the three classes that
+    // hold `0x729670` in vtable slot [9] — ids 120 and 122 hold `0x56fbb0` and
+    // never build a basis, and id 125 holds `0x727220`, which writes a scalar at
+    // `+0xc0` rather than the nine-float matrix both samplers read.
+    let basis_scale = if !particle.is_bind && matches!(context.id, 121 | 123 | 124) {
+        context.emission_scale
+    } else {
+        1.
+    };
+    let half = particle.area_size.unwrap_or(Vec3::ZERO) * (0.5 * basis_scale);
     let (offset, inward) = if particle.is_surface {
         match context.id {
             123 => {
@@ -1898,10 +1919,10 @@ fn spawn(
                 (sample * half, Some(-sample))
             }
             124 => (cylinder_sample(rng) * half, None),
-            _ => (volume_offset(particle, rng), None),
+            _ => (volume_offset(particle, rng, basis_scale), None),
         }
     } else {
-        (volume_offset(particle, rng), None)
+        (volume_offset(particle, rng, basis_scale), None)
     };
     let position = match path {
         Some(points) => sample_path(points, rng.unit() * path_length(points)).0 + offset,
@@ -2050,19 +2071,39 @@ fn cylinder_sample(rng: &mut Rng) -> Vec3 {
 ///
 /// The client's shape routine `0x728270` multiplies a uniform unit-ball sample by
 /// the matrix at emitter+0xc0 and then adds the emitter position. `0x729670` fills
-/// that matrix and branches on `IsBind` at emitter+0x85. Bound emitters get
-/// `diag(AreaSize * 0.5)` laid against the three global unit axes `0x9c0358`,
-/// `0x9c0348` and `0x9c0338`, which is what this reproduces. Unbound emitters take
-/// `0x729763` instead: one scalar argument multiplied into all three `AreaSize`
-/// components, then rotated by the quaternion at emitter+0x74 — `0x7297f4` doubles
-/// its w, the first term of the quaternion-to-matrix conversion. That rotation is
-/// not reproduced, because nothing decoded so far writes emitter+0x74, which is
-/// also what blocks `ParIniDir`. 8,259 of the corpus's 13,665 particle elements
-/// are bound, so 5,406 take the unbound path.
-fn volume_offset(particle: &Particle, rng: &mut Rng) -> Vec3 {
+/// that matrix and branches on `IsBind` at emitter+0x85 (`0x72967e`).
+///
+/// Bound emitters get `diag(AreaSize * 0.5)` laid against the three global unit
+/// axes `0x9c0358`, `0x9c0348` and `0x9c0338` — `0x729684` reads `AreaSize.x`,
+/// multiplies it by the 0.5 at `0x8d5894` and never touches the scalar argument —
+/// which is what this reproduces unchanged.
+///
+/// Unbound emitters take `0x729763`, which reads its scalar argument three times
+/// (the `push`/`fstps (%esp)` idiom shifts the frame, so `0x74(%esp)`,
+/// `0x7c(%esp)` and `0x80(%esp)` are all `[entry+4]`) into `V = scalar *
+/// AreaSize`, then writes row `i` as `rotate(axis_i, q) * (V_i * 0.5)`: rows 0 and
+/// 1 spell the rotation out as `axis + 2w(v x axis) + 2(v x (v x axis))` with `v`
+/// the vector part of `q` and `2w` from `0x7297f4`, and row 2 reaches the same
+/// result through `0x634420` and `0x401ce0`. Both of its callers pass `keypoint
+/// Scale * root PlaySpeed` (`0x71a35b`, `0x71a501`), and `q` at emitter+0x74 is
+/// the Hamilton product `Q * keypoint Direction` computed at
+/// `0x71a406`–`0x71a493`, where `Q` is what `0x6fa810` returns: root+0x1b4 when
+/// root+0x1f4 and element+0x131 are set and either element+0x132 or root+0x284
+/// is, otherwise root+0x1a4.
+///
+/// The rotation half of that this already does, one stage later: `placement`
+/// turns every particle position by the interpolated keypoint direction, and the
+/// client's unbound particles are world space — its samplers add emitter+0x68,
+/// the element's world position from `0x7872d0`, which a later element transform
+/// would double count. The two compositions therefore agree wherever the parent
+/// basis carries `Q`. The scalar was the missing half, and it is a real one:
+/// 4,761 unbound elements of ids 121, 123 and 124 author an `AreaSize`, 1,605 of
+/// their 5,342 keypoint scales are not 1.0 (the largest is 10, none is negative)
+/// and 1,430 of the 5,459 roots author a `PlaySpeed` other than 1.
+fn volume_offset(particle: &Particle, rng: &mut Rng, basis_scale: f32) -> Vec3 {
     match (particle.radius, particle.area_size) {
         (Some(radius), _) => random_unit_ball(rng) * radius.max(0.),
-        (None, Some(area)) => random_unit_ball(rng) * area * 0.5,
+        (None, Some(area)) => random_unit_ball(rng) * area * (0.5 * basis_scale),
         (None, None) => Vec3::ZERO,
     }
 }
@@ -3166,6 +3207,7 @@ mod tests {
             color: u32::MAX,
             color_scale: 1.,
             scale: 1.,
+            emission_scale: 1.,
             rotation: 0.,
             clock: 0.,
         }
@@ -3196,6 +3238,226 @@ mod tests {
         }
         // The volume is filled out to its semi-axes, not held well inside them.
         assert!(reach.x > 0.9 && reach.y > 0.45 && reach.z > 0.2, "{reach}");
+    }
+
+    /// The unbound basis carries a scalar the bound one does not: `0x71a35b` and
+    /// `0x71a501` hand `0x729670` the product of the interpolated keypoint
+    /// `Scale` (`[esp+0x48]`) and the root `PlaySpeed` (`[esp+0x24]`, written at
+    /// `0x71a225` from root+0x1ec), and `0x729763` folds it into all three
+    /// `AreaSize` components before the rotation.
+    #[test]
+    fn unbound_emission_carries_the_basis_scalar() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.id = 123;
+        // Keypoint `Scale` 2 under a root `PlaySpeed` of 3.
+        context.emission_scale = 6.;
+        let mut particle = Particle::default();
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        let mut rng = Rng::new(11);
+        let mut reach = Vec3::ZERO;
+        for _ in 0..4_000 {
+            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let normalized = offset / Vec3::new(6., 3., 1.5);
+            assert!(
+                normalized.length_squared() <= 1. + 1e-4,
+                "{offset} is outside the scaled ellipsoid"
+            );
+            reach = reach.max(offset.abs());
+        }
+        assert!(reach.x > 5. && reach.y > 2.5 && reach.z > 1.2, "{reach}");
+    }
+
+    /// The bound branch never reads that argument — `0x729684` takes `AreaSize.x`
+    /// and multiplies by the 0.5 at `0x8d5894` — so a bound emitter's volume is
+    /// the authored ellipsoid whatever the keypoint scale says.
+    #[test]
+    fn bound_emission_ignores_the_basis_scalar() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.id = 123;
+        context.emission_scale = 6.;
+        let mut particle = Particle::default();
+        particle.is_bind = true;
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        let mut rng = Rng::new(11);
+        let mut reach = Vec3::ZERO;
+        for _ in 0..2_000 {
+            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let normalized = offset / Vec3::new(1., 0.5, 0.25);
+            assert!(
+                normalized.length_squared() <= 1. + 1e-4,
+                "{offset} is outside the authored ellipsoid"
+            );
+            reach = reach.max(offset.abs());
+        }
+        assert!(reach.x > 0.9 && reach.y > 0.45 && reach.z > 0.2, "{reach}");
+    }
+
+    /// Ids 120 and 122 hold `0x56fbb0` in vtable slot [9] instead of the basis
+    /// builder, so their class never fills `+0xc0…+0xe0` at all and no scalar can
+    /// reach it.
+    #[test]
+    fn classes_without_the_basis_builder_ignore_the_scalar() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.id = 120;
+        context.emission_scale = 6.;
+        let mut particle = Particle::default();
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        let mut rng = Rng::new(11);
+        for _ in 0..1_000 {
+            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let normalized = offset / Vec3::new(1., 0.5, 0.25);
+            assert!(
+                normalized.length_squared() <= 1. + 1e-4,
+                "{offset} is outside the authored ellipsoid"
+            );
+        }
+    }
+
+    /// Id 125's slot [9] is its own `0x727220`, which writes a single scalar at
+    /// `+0xc0` rather than the nine-float matrix, and its sampler reads `Radius`.
+    #[test]
+    fn the_sphere_radius_ignores_the_basis_scalar() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.id = 125;
+        context.emission_scale = 6.;
+        let mut particle = Particle::default();
+        particle.radius = Some(2.);
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        let mut rng = Rng::new(11);
+        for _ in 0..1_000 {
+            let offset = spawn(&particle, None, &mut rng, &context).position;
+            assert!(offset.length() <= 2. + 1e-4, "{offset} escaped the radius");
+        }
+    }
+
+    /// Id 124's surface sampler reads the same nine floats the volume sampler
+    /// does, so its cylinder is scaled by the same factor: the cross section
+    /// moves out to `Scale * PlaySpeed * AreaSize * 0.5`.
+    #[test]
+    fn surface_emission_carries_the_basis_scalar() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.id = 124;
+        context.emission_scale = 4.;
+        let mut particle = Particle::default();
+        particle.is_surface = true;
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        let mut rng = Rng::new(11);
+        for _ in 0..1_000 {
+            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let cross = (offset.x / 4.).powi(2) + (offset.y / 2.).powi(2);
+            assert!((cross - 1.).abs() < 1e-3, "{offset} is off the ellipse");
+            assert!(
+                offset.z.abs() <= 1. + 1e-4,
+                "{offset} is outside the height"
+            );
+        }
+    }
+
+    /// The same check over retail data: every unbound element of ids 121, 123 and
+    /// 124 that authors an `AreaSize`, played with its own first keypoint `Scale`
+    /// and its root's `PlaySpeed`, stays inside the scaled ellipsoid and reaches
+    /// it. Elements whose authored factor or extent collapses to zero are counted
+    /// and skipped rather than divided by.
+    #[test]
+    fn corpus_unbound_emission_carries_the_basis_scalar() {
+        let Some(root) = corpus_root() else {
+            return;
+        };
+        let mut files = Vec::new();
+        corpus_files(&root, &mut files);
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        let (mut parsed, mut elements, mut scaled, mut degenerate) =
+            (0usize, 0usize, 0usize, 0usize);
+        let mut reach = 0f32;
+        for file in &files {
+            let Ok(bytes) = std::fs::read(file) else {
+                continue;
+            };
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            let Ok(parsed_root) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            parsed += 1;
+            for element in &parsed_root.elements {
+                if !matches!(element.id, 121 | 123 | 124) {
+                    continue;
+                }
+                let crate::gfx_file::Spec::Particle(particle) = &element.spec else {
+                    continue;
+                };
+                if particle.is_bind {
+                    continue;
+                }
+                let Some(area) = particle.area_size else {
+                    continue;
+                };
+                elements += 1;
+                context.id = element.id;
+                context.emission_scale =
+                    element.keypoints.first().map(|key| key.scale).unwrap_or(1.)
+                        * parsed_root.play_speed;
+                let half = area * (0.5 * context.emission_scale);
+                if half.x == 0. || half.y == 0. || half.z == 0. {
+                    degenerate += 1;
+                    continue;
+                }
+                if (context.emission_scale - 1.).abs() > 1e-6 {
+                    scaled += 1;
+                }
+                let mut rng = Rng::new(elements as u32 * 7919 + 13);
+                for _ in 0..8 {
+                    let offset = spawn(particle, None, &mut rng, &context).position;
+                    assert!(offset.is_finite(), "{} spawned {offset}", file.display());
+                    if particle.is_surface && element.id == 124 {
+                        // A cylinder sample reaches sqrt(2) half-extents, so the
+                        // ellipsoid inequality does not describe it: its cross
+                        // section sits on the ellipse and its height stays inside.
+                        if half.x != 0. && half.y != 0. {
+                            let cross = (offset.x / half.x).powi(2) + (offset.y / half.y).powi(2);
+                            assert!(
+                                (cross - 1.).abs() < 1e-3,
+                                "{}: {offset} is off the ellipse {half}",
+                                file.display()
+                            );
+                        }
+                        assert!(
+                            offset.z.abs() <= half.z.abs() + 1e-6,
+                            "{}: {offset} is outside the height {half}",
+                            file.display()
+                        );
+                    } else {
+                        let normalized = (offset / half).length_squared();
+                        assert!(
+                            normalized <= 1. + 1e-3,
+                            "{}: {offset} is outside {half}",
+                            file.display()
+                        );
+                        reach = reach.max(normalized);
+                    }
+                }
+            }
+        }
+        println!(
+            "corpus basis scalar: {parsed} parsed, {elements} unbound elements with an \
+             AreaSize, {scaled} under a factor other than 1, {degenerate} degenerate, \
+             closest sample to the boundary {reach:.6}"
+        );
+        assert!(parsed > 5_000, "only {parsed} corpus files parsed");
+        assert!(elements > 4_000, "only {elements} unbound elements");
+        assert!(scaled > 1_000, "only {scaled} elements are scaled");
+        assert!(reach > 0.9, "nothing reached the boundary: {reach}");
     }
 
     /// Id 123's surface sampler `0x727f00` puts the particle *on* the ellipsoid
