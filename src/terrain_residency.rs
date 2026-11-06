@@ -494,7 +494,10 @@ mod tests {
         // Nothing visible must leave an empty buffer, not the previous frame.
         visible_runs_into(&[behind], Mat4::IDENTITY, &mut runs);
         assert!(runs.is_empty());
-        assert!(runs.capacity() >= 2, "the buffer is reused, not reallocated");
+        assert!(
+            runs.capacity() >= 2,
+            "the buffer is reused, not reallocated"
+        );
         // The owned wrapper still returns the same answer.
         assert_eq!(visible_runs(&spans, Mat4::IDENTITY), vec![(0, 6), (0, 6)]);
     }
