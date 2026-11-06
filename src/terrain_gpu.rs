@@ -816,10 +816,13 @@ impl TerrainGpu {
             far_bytes as f64 / 1048576.
         )
     }
-    pub fn visible_far_runs(&self, matrix: glam::Mat4) -> Vec<(u32, u32)> {
-        self.far.as_ref().map_or_else(Vec::new, |far| {
-            crate::terrain_residency::visible_runs(&far.spans, matrix)
-        })
+    /// The far mesh's visible runs into a caller-owned buffer: the draw path
+    /// asks for this once per view on every frame.
+    pub fn visible_far_runs_into(&self, matrix: glam::Mat4, out: &mut Vec<(u32, u32)>) {
+        match &self.far {
+            Some(far) => crate::terrain_residency::visible_runs_into(&far.spans, matrix, out),
+            None => out.clear(),
+        }
     }
     pub fn edge_mesh(&self) -> Option<(&wgpu::Buffer, &wgpu::Buffer, u32)> {
         self.far

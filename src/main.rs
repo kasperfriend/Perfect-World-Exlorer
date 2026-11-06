@@ -258,6 +258,18 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
         .map(|i| (i as f32 * std::f32::consts::TAU / 256.).cos())
         .collect();
     let subs_x = cols / per;
+    // Scratch buffers, reused across blocks: a world is thousands of blocks and
+    // every one of them used to allocate seven fresh buffers of a few KiB each
+    // (the decoded height/normal sections, their narrowed copies, the optional
+    // colour section and the grid-sized block handed to the builder). Same
+    // values, same order, no per-block garbage.
+    let mut decoded: Vec<u8> = Vec::new();
+    let mut values: Vec<f32> = Vec::new();
+    let mut normal_data: Vec<u8> = Vec::new();
+    let mut block_normals: Vec<[i8; 3]> = Vec::new();
+    let mut decoded_colour: Vec<u8> = Vec::new();
+    let mut heights: Vec<f32> = Vec::new();
+    let mut normals: Vec<[i8; 3]> = Vec::new();
     // A warm start already owns the grid, so the block loop is skipped entirely.
     if terrain_pages.is_some() {
         for (si, name) in names.iter().enumerate() {
@@ -307,7 +319,7 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
                 let raw = data
                     .get(off + hdr..off + hdr + hs)
                     .ok_or("truncated height data")?;
-                let mut decoded = Vec::new();
+                decoded.clear();
                 if flags & 4 != 0 {
                     let mut d = ZlibDecoder::new(raw);
                     d.by_ref()
@@ -318,7 +330,7 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
                     decoded.extend_from_slice(raw)
                 }
                 let nv = (grid + 1) * (grid + 1);
-                let mut values = Vec::with_capacity(nv);
+                values.clear();
                 if flags & 8 != 0 {
                     let min = f32at(&decoded, 4)?;
                     let max = f32at(&decoded, 8)?;
@@ -351,7 +363,7 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
                 let normal_raw = data
                     .get(noff..noff.checked_add(ns).ok_or("normal size overflow")?)
                     .ok_or("truncated normal data")?;
-                let mut normal_data = Vec::new();
+                normal_data.clear();
                 if flags & 0x10 != 0 {
                     ZlibDecoder::new(normal_raw)
                         .take((nv * 12 + 64) as u64)
@@ -360,7 +372,7 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
                 } else {
                     normal_data.extend_from_slice(normal_raw)
                 }
-                let mut block_normals = Vec::with_capacity(nv);
+                block_normals.clear();
                 if flags & 0x20 != 0 {
                     let base = if u32at(&normal_data, 4).ok() == Some(nv as u32) {
                         8
@@ -398,7 +410,7 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
                 // Third section: per-vertex RGBA, present when flag bit 0x1 is set.
                 if let Some((cs, ce)) = block_layout.blocks[bi].colour {
                     let raw = data.get(cs..ce).ok_or("truncated vertex colour data")?;
-                    let mut decoded_colour = Vec::new();
+                    decoded_colour.clear();
                     ZlibDecoder::new(raw)
                         .take((nv * 4 + 64) as u64)
                         .read_to_end(&mut decoded_colour)
@@ -413,8 +425,8 @@ fn terrain(root: &Path, all_to_vram: bool) -> Result<Terrain, String> {
                 }
                 let br = (si / subs_x) * per + bi / per;
                 let bc = (si % subs_x) * per + bi % per;
-                let mut heights = Vec::with_capacity(grid * grid);
-                let mut normals = Vec::with_capacity(grid * grid);
+                heights.clear();
+                normals.clear();
                 for y in 0..grid {
                     for x in 0..grid {
                         let val = values[y * (grid + 1) + x];

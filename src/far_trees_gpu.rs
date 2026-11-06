@@ -658,8 +658,16 @@ impl FarTrees {
             return;
         }
         let mut staging = Vec::new();
+        // One set of per-level staging buffers for the whole pass: this runs on
+        // every frame the camera moves, and a fresh trio per group was the only
+        // per-frame allocation left in the resident tree path. The buffers are
+        // cleared per group, so their capacity stays at one group's placements
+        // and the world-sized `staging` release rule below is untouched.
+        let mut levels: [Vec<Instance>; 3] = Default::default();
         for group in &self.groups {
-            let mut levels: [Vec<Instance>; 3] = Default::default();
+            for level in levels.iter_mut() {
+                level.clear();
+            }
             for &p in &group.positions {
                 if !cutoff_residency::contains(bounds, p) {
                     continue;
@@ -683,9 +691,9 @@ impl FarTrees {
                     });
                 }
             }
-            for (level, mut instances) in levels.into_iter().enumerate() {
+            for (level, instances) in levels.iter_mut().enumerate() {
                 let start = staging.len() as u32;
-                staging.append(&mut instances);
+                staging.append(instances);
                 self.batches[group.first_batch + level].instances = start..staging.len() as u32;
             }
         }

@@ -228,6 +228,18 @@ pub fn in_frustum(matrix: Mat4, bounds: [f32; 6]) -> bool {
 /// frame is submitted as a handful of draw calls instead of one per block.
 pub fn visible_runs(spans: &[Span], matrix: Mat4) -> Vec<(u32, u32)> {
     let mut runs: Vec<(u32, u32)> = Vec::new();
+    visible_runs_into(spans, matrix, &mut runs);
+    runs
+}
+
+/// [`visible_runs`] into a caller-owned buffer.
+///
+/// The draw path runs this once per view (main, reflection, above-water, minimap)
+/// on every frame, so it keeps one buffer per view and clears it instead of
+/// handing out a fresh `Vec` each time. The result is identical: `runs` is
+/// emptied first and refilled in span order.
+pub fn visible_runs_into(spans: &[Span], matrix: Mat4, runs: &mut Vec<(u32, u32)>) {
+    runs.clear();
     for span in spans {
         if span.count == 0 || !in_frustum(matrix, span.bounds) {
             continue;
@@ -237,7 +249,6 @@ pub fn visible_runs(spans: &[Span], matrix: Mat4) -> Vec<(u32, u32)> {
             _ => runs.push((span.start, span.count)),
         }
     }
-    runs
 }
 
 /// Visible block count for one view (`terrain+0x324`). The draw path submits
@@ -459,5 +470,32 @@ mod tests {
             "contiguous visible blocks share one draw call"
         );
         assert_eq!(visible_blocks(&spans, Mat4::IDENTITY), 3);
+    }
+
+    #[test]
+    fn visible_runs_into_reuses_the_buffer_without_keeping_the_old_answer() {
+        let visible = Span {
+            block: (0, 0),
+            start: 0,
+            count: 6,
+            bounds: [-0.5, -0.5, 0.25, 0.5, 0.5, 0.75],
+        };
+        let behind = Span {
+            block: (1, 0),
+            start: 6,
+            count: 6,
+            bounds: [-0.5, -0.5, -2., 0.5, 0.5, -1.],
+        };
+        let spans = [visible, behind, visible];
+        let mut runs = vec![(99, 99)];
+        // A camera looking at everything keeps the first and third span.
+        visible_runs_into(&spans, Mat4::IDENTITY, &mut runs);
+        assert_eq!(runs, vec![(0, 6), (0, 6)]);
+        // Nothing visible must leave an empty buffer, not the previous frame.
+        visible_runs_into(&[behind], Mat4::IDENTITY, &mut runs);
+        assert!(runs.is_empty());
+        assert!(runs.capacity() >= 2, "the buffer is reused, not reallocated");
+        // The owned wrapper still returns the same answer.
+        assert_eq!(visible_runs(&spans, Mat4::IDENTITY), vec![(0, 6), (0, 6)]);
     }
 }
