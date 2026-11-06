@@ -301,6 +301,18 @@ struct MeshData {
     water_batches: Vec<WaterBatch>,
     local_pages: Vec<crate::world_objects::Page>,
 }
+/// Which view's indirect terrain records the next submit draws. The records
+/// live in one buffer, so every pass re-queues the view it draws through: the
+/// main matrix (also used by both refraction passes), the water reflection's
+/// mirrored matrix, the minimap's orthographic window, or the whole world for
+/// the full-range map, which is meant to show everything.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ViewRuns {
+    Full,
+    Main,
+    Reflected,
+    Map,
+}
 #[derive(Clone, Debug)]
 struct WaterBatch {
     // Do not merge different authored area classes.
@@ -1264,6 +1276,14 @@ struct Renderer {
     spans: Vec<crate::terrain_residency::Span>,
     terrain_runs: Vec<(u32, u32)>,
     far_terrain_runs: Vec<(u32, u32)>,
+    /// Visible runs for the water reflection's mirrored view. The mirror plane
+    /// changes per water height, so this is rebuilt for each reflected submit.
+    reflected_terrain_runs: Vec<(u32, u32)>,
+    reflected_far_runs: Vec<(u32, u32)>,
+    /// Visible runs for the realistic minimap, which is an orthographic
+    /// window of `minimap_range` around the eye rather than the whole world.
+    map_terrain_runs: Vec<(u32, u32)>,
+    map_far_runs: Vec<(u32, u32)>,
     terrain_end: u32,
     world_width: usize,
     world_height: usize,
@@ -1901,6 +1921,10 @@ impl Renderer {
             spans: m.spans,
             terrain_runs: Vec::new(),
             far_terrain_runs: Vec::new(),
+            reflected_terrain_runs: Vec::new(),
+            reflected_far_runs: Vec::new(),
+            map_terrain_runs: Vec::new(),
+            map_far_runs: Vec::new(),
         })
     }
     /// Sample time and publish the frame's lighting/playback state exactly
@@ -2399,6 +2423,7 @@ impl Renderer {
         reflected: bool,
         sky_reflected: bool,
         pass_kind: Pass,
+        view_runs: ViewRuns,
         terrain_depth_source: Option<&wgpu::Texture>,
         clear_color: Option<wgpu::Color>,
     ) {
@@ -2431,13 +2456,22 @@ impl Renderer {
         if clear_color.is_none() {
             self.sky.draw(&mut p, sky_reflected);
         }
-        // The main view submits only the blocks its frustum keeps
-        // (`block+0x74`); the other passes reuse the full terrain because they
-        // look through different matrices and must not lose blocks.
-        let runs = if reflected || !matches!(pass_kind, Pass::Main | Pass::Fog) {
-            None
-        } else {
-            Some(self.terrain_runs.as_slice())
+        // Each pass submits only the blocks its own matrix keeps (`block+0x74`);
+        // the caller has queued the matching records for this submit.
+        let (runs, far_runs) = match view_runs {
+            ViewRuns::Full => (None, None),
+            ViewRuns::Main => (
+                Some(self.terrain_runs.as_slice()),
+                Some(self.far_terrain_runs.as_slice()),
+            ),
+            ViewRuns::Reflected => (
+                Some(self.reflected_terrain_runs.as_slice()),
+                Some(self.reflected_far_runs.as_slice()),
+            ),
+            ViewRuns::Map => (
+                Some(self.map_terrain_runs.as_slice()),
+                Some(self.map_far_runs.as_slice()),
+            ),
         };
         self.terrain_gpu.draw(
             &mut p,
@@ -2446,11 +2480,7 @@ impl Renderer {
             &self.index,
             self.terrain_end,
             runs,
-            if matches!(pass_kind, Pass::Main | Pass::Fog) {
-                Some(&self.far_terrain_runs)
-            } else {
-                None
-            },
+            far_runs,
         );
         drop(p);
         if let Some(source) = terrain_depth_source {
@@ -2629,7 +2659,7 @@ impl Renderer {
     /// Render the actual loaded terrain and scenery from a north-up orthographic camera.
     /// Water is drawn as its real client grid with a flat color in this map pass.
     fn render_minimap(
-        &self,
+        &mut self,
         target: &wgpu::TextureView,
         map_depth: &wgpu::TextureView,
         camera: &Camera,
@@ -2643,6 +2673,16 @@ impl Renderer {
                 * Mat4::look_to_rh(Vec3::new(0., 10000., 0.), Vec3::NEG_Y, Vec3::Z)
         } else {
             minimap_matrix(camera.pos.x, camera.pos.z, range)
+        };
+        // The minimap is an orthographic window of `range` around the eye, so
+        // the same conservative block test the main view uses keeps only the
+        // part of the world that can reach a map pixel. The full map shows the
+        // whole range by definition and keeps the full index list.
+        let view_runs = if full_world || range <= 0. {
+            ViewRuns::Full
+        } else {
+            self.queue_map_runs(matrix);
+            ViewRuns::Map
         };
         let frame = self.frame;
         debug_assert!(
@@ -2676,6 +2716,7 @@ impl Renderer {
             } else {
                 Pass::Minimap
             },
+            view_runs,
             None,
             None,
         );
@@ -2709,6 +2750,53 @@ impl Renderer {
         }
         self.queue.submit(Some(e.finish()));
     }
+    /// Re-queues the main view's indirect terrain records for the next submit.
+    /// Every pass drawn through the main matrix (`Main`, `Fog` and both
+    /// refraction passes) submits with these; the water reflection overwrites
+    /// the buffer with its mirrored view, so each plane puts them back first.
+    fn queue_main_runs(&mut self) {
+        self.terrain_gpu.prepare_runs(
+            &self.device,
+            &self.queue,
+            Some(&self.terrain_runs),
+            Some(&self.far_terrain_runs),
+        );
+    }
+    /// Culls both terrain meshes to the top-down map's window and queues those
+    /// records. `matrix` is the map's orthographic projection.
+    fn queue_map_runs(&mut self, matrix: Mat4) {
+        crate::terrain_residency::visible_runs_into(
+            &self.spans,
+            matrix,
+            &mut self.map_terrain_runs,
+        );
+        self.terrain_gpu
+            .visible_far_runs_into(matrix, &mut self.map_far_runs);
+        self.terrain_gpu.prepare_runs(
+            &self.device,
+            &self.queue,
+            Some(&self.map_terrain_runs),
+            Some(&self.map_far_runs),
+        );
+    }
+    /// Culls both terrain meshes for the water reflection's mirrored view
+    /// (`matrix * flip`) and queues those records. The symmetry plane is the
+    /// water height, so this runs once per reflected submit.
+    fn queue_reflected_runs(&mut self, matrix: Mat4) {
+        crate::terrain_residency::visible_runs_into(
+            &self.spans,
+            matrix,
+            &mut self.reflected_terrain_runs,
+        );
+        self.terrain_gpu
+            .visible_far_runs_into(matrix, &mut self.reflected_far_runs);
+        self.terrain_gpu.prepare_runs(
+            &self.device,
+            &self.queue,
+            Some(&self.reflected_terrain_runs),
+            Some(&self.reflected_far_runs),
+        );
+    }
     fn render(
         &mut self,
         target: &wgpu::TextureView,
@@ -2726,12 +2814,7 @@ impl Renderer {
             .visible_far_runs_into(matrix, &mut self.far_terrain_runs);
         // One indirect record per run, so the terrain itself is one call per mesh
         // instead of one call per run.
-        self.terrain_gpu.prepare_runs(
-            &self.device,
-            &self.queue,
-            Some(&self.terrain_runs),
-            Some(&self.far_terrain_runs),
-        );
+        self.queue_main_runs();
         let frame = self.begin_frame(camera, w, h);
         self.weather.advance(camera.logic_delta_ms);
         let selected_weather = camera.regional_light.map_or(
@@ -2836,6 +2919,7 @@ impl Renderer {
             false,
             false,
             main_pass,
+            ViewRuns::Main,
             Some(&self.depth),
             None,
         );
@@ -3024,6 +3108,9 @@ impl Renderer {
                 continue;
             }
             let plane = batch.height;
+            // A previous plane's reflection left its mirrored records in the
+            // buffer; the refraction passes below draw through the main matrix.
+            self.queue_main_runs();
             if camera.pos.y > plane {
                 // Client 0x7cc6ac-0x7cc8b5: render below this plane into
                 // refraction, cleared to the region's water fog color. Fog
@@ -3074,6 +3161,9 @@ impl Renderer {
                     true,
                     false,
                     Pass::Refraction,
+                    // Queued as `refracted = normal`: the main matrix, so the
+                    // main view's blocks are the right set.
+                    ViewRuns::Main,
                     None,
                     Some(wgpu::Color {
                         r: linear(fog[0]),
@@ -3129,6 +3219,8 @@ impl Renderer {
                     true,
                     false,
                     Pass::Refraction,
+                    // Queued as `above = normal`: the main matrix again.
+                    ViewRuns::Main,
                     None,
                     None,
                 );
@@ -3231,6 +3323,7 @@ impl Renderer {
             };
             self.queue
                 .write_buffer(&self.reflected_uniform, 0, bytemuck::bytes_of(&reflected));
+            self.queue_reflected_runs(matrix * flip);
             let mut e = self.device.create_command_encoder(&Default::default());
             self.draw_opaque(
                 &mut e,
@@ -3241,6 +3334,9 @@ impl Renderer {
                 true,
                 true,
                 Pass::Reflection,
+                // `matrix * flip` mirrors the view, so this submit uses the
+                // reflected block set queued just above it.
+                ViewRuns::Reflected,
                 None,
                 None,
             );

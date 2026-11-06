@@ -501,4 +501,59 @@ mod tests {
         // The owned wrapper still returns the same answer.
         assert_eq!(visible_runs(&spans, Mat4::IDENTITY), vec![(0, 6), (0, 6)]);
     }
+
+    /// The water reflection draws through `matrix * flip`, so its block set is
+    /// the mirrored view's, not the main view's. A camera looking across a lake
+    /// from `y = 10` sees the high bank above the water and the deep basin only
+    /// in the mirror image, so the two runs must differ.
+    #[test]
+    fn the_reflection_view_culls_through_the_mirrored_matrix() {
+        let span = |start: u32, y0: f32, y1: f32| Span {
+            block: (start as usize, 0),
+            start,
+            count: 6,
+            bounds: [-1., y0, -30., 1., y1, -25.],
+        };
+        let spans = [
+            span(0, -12., -8.), // deep basin: only the mirror keeps it
+            span(6, 8., 12.),   // high bank: only the direct view keeps it
+            span(12, 9., 11.),  // straddles the eye line
+        ];
+        // 10 degrees of vertical field at 25 units is +-2.19 around `y = 10`.
+        let matrix = Mat4::perspective_rh(10f32.to_radians(), 1., 0.1, 200.)
+            * Mat4::from_translation(Vec3::new(0., -10., 0.));
+        // The lake surface is the `y = 0` plane, so the mirror is a plain flip.
+        let flip = Mat4::from_scale(Vec3::new(1., -1., 1.));
+        assert_eq!(
+            visible_runs(&spans, matrix),
+            vec![(6, 12)],
+            "the direct view keeps the bank and drops the basin"
+        );
+        assert_eq!(
+            visible_runs(&spans, matrix * flip),
+            vec![(0, 6)],
+            "the mirror keeps the basin and drops the bank"
+        );
+    }
+
+    /// The realistic minimap is the same `minimap_matrix` orthographic window
+    /// (a `range`-sized square around the eye, seen from `y = 10000`), so the
+    /// block under the eye survives and everything outside the square drops.
+    #[test]
+    fn the_minimap_window_keeps_only_the_blocks_under_it() {
+        let span = |start: u32, x: f32| Span {
+            block: (start as usize, 0),
+            start,
+            count: 6,
+            bounds: [x - 32., -500., -32., x + 32., 2000., 32.],
+        };
+        let spans = [span(0, 0.), span(6, 5000.)];
+        let map = Mat4::orthographic_rh(256., -256., -256., 256., 20000., 1.)
+            * Mat4::look_to_rh(Vec3::new(0., 10000., 0.), Vec3::NEG_Y, Vec3::Z);
+        assert_eq!(
+            visible_runs(&spans, map),
+            vec![(0, 6)],
+            "only the block inside the map window is submitted"
+        );
+    }
 }
