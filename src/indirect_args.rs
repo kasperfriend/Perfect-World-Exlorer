@@ -30,7 +30,9 @@ pub(crate) const DRAW_ARGS: u64 = std::mem::size_of::<DrawIndexedArgs>() as u64;
 
 /// Can this device walk a whole record list in one call?
 pub(crate) fn multi_draw(device: &wgpu::Device) -> bool {
-    device.features().contains(wgpu::Features::MULTI_DRAW_INDIRECT)
+    device
+        .features()
+        .contains(wgpu::Features::MULTI_DRAW_INDIRECT)
 }
 
 /// Can a record carry a non-zero base instance? Needed by any list whose
