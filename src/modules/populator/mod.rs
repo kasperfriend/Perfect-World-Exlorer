@@ -5,8 +5,9 @@
 //! drawn with that template's `.ecm` rig out of `models.pck`. Mobs have no
 //! client-side placement file (the server owns `gamedata/npcgen.data`), so the
 //! module loads the 4,208 real `MONSTER_ESSENCE` templates and draws no mob
-//! until a placement source is supplied. Actors move only along real navigation
-//! paths from server data; nothing wanders.
+//! until a placement source is supplied. Native actors move only along real
+//! navigation paths from server data. An explicitly enabled Live World layer
+//! adds city-only ambient residents using local real NPC rigs and checked routes.
 //!
 //! Everything here is module-owned: archives, rig cache, texture cache, GPU
 //! draws, simulation and settings. The host supplies a camera position (which
@@ -23,7 +24,7 @@ use self::{
     data::{Population, Spawn, TemplateKind},
     draw::Renderer,
     nameplate::NameFont,
-    patrol::{Follow, Motion},
+    patrol::{Follow, Motion, Route, Waypoint},
 };
 use crate::{
     model_asset::{ModelAsset, PosedMesh, TrackCache},
@@ -32,7 +33,11 @@ use crate::{
     navigation::MapSpace,
 };
 use glam::{Mat4, Vec3};
-use std::{collections::HashMap, path::PathBuf, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 /// The client's shipped quality preset reserves a seven-block terrain window,
 /// 7 x 64 = 420 world units (`view_settings::DetailSettings`, `world+0x1bc`;
@@ -43,6 +48,23 @@ pub const MIN_SPAWN_DISTANCE: f32 = 40.;
 pub const MAX_SPAWN_DISTANCE: f32 = 1_200.;
 const DEFAULT_MAX_VISIBLE: usize = 48;
 const MAX_VISIBLE_LIMIT: usize = 96;
+/// Live World synthesizes at most two extra citizens beside each authored
+/// human NPC, but admits them in small batches so enabling it never stalls a
+/// frame while the collision hulls are queried.
+const MAX_LIVE_WORLD_PER_AUTHORED: usize = 2;
+const LIVE_WORLD_BATCH: usize = 24;
+const LIVE_WORLD_ATTEMPTS: u64 = 8;
+const LIVE_WORLD_BUILD_BUDGET: std::time::Duration = std::time::Duration::from_millis(2);
+const LIVE_WORLD_WALK_SPEED: f32 = 1.0;
+const LIVE_WORLD_MIN_SEPARATION: f32 = 2.0;
+/// Ambient spawns are only considered around the main-world city targets, not
+/// village, wilderness, dungeon or unplaced server NPC records.
+const LIVE_WORLD_CITY_RADIUS: f32 = 420.0;
+const LIVE_WORLD_SAMPLE_SPACING: f32 = 0.35;
+/// Refresh the cached nearest set only after a useful batch has accumulated;
+/// rescanning and sorting the whole world for every generated citizen would
+/// defeat the existing stream-cache optimization.
+const LIVE_WORLD_STREAM_REFRESH: usize = 64;
 /// Rigs are decompressed from an 888 MB `models.pck` on the render thread, so a
 /// teleport into a crowded town fills the population over a few frames instead
 /// of stalling one.
@@ -390,6 +412,13 @@ struct Live {
     uploaded_stamp: Option<u64>,
     /// Real navigation path, when the population supplies one.
     follow: Option<Follow>,
+    /// Generated Live World residents use short terrain-grounded loops and
+    /// receive a collision/support check before every movement step.
+    live_world: bool,
+    /// A real simple locomotion action, when this rig has one. Combined
+    /// event-driven scene actions are deliberately not fabricated for walking.
+    walk_action: Option<(usize, Clip)>,
+    walking: bool,
     draw: Option<model_draw_gpu::Draw>,
     /// Fatal per-actor error (rig, pose or draw); the actor is not submitted.
     failure: Option<String>,
@@ -407,14 +436,22 @@ impl Live {
     /// disappearing.
     fn pose(&mut self) -> Result<Vec<PosedMesh>, String> {
         let world = self.world();
-        let sample = self.playback.as_ref().and_then(Playback::sample);
-        let (action, seconds) = match sample {
-            Some((action, seconds)) => (Some(action), seconds),
-            None => (
-                self.action,
-                self.clip
-                    .map_or(self.clock, |clip| clip.seconds(self.clock)),
-            ),
+        let idle_sample = self.playback.as_ref().and_then(Playback::sample);
+        let (action, seconds) = if self.walking {
+            match self.walk_action {
+                Some((action, clip)) => (Some(action), clip.seconds(self.clock)),
+                // A rig with no clearly named walk clip keeps its authentic idle
+                // pose while translating instead of disappearing into bind pose.
+                None => match idle_sample {
+                    Some((action, seconds)) => (Some(action), seconds),
+                    None => (self.action, self.clip.map_or(self.clock, |clip| clip.seconds(self.clock))),
+                },
+            }
+        } else {
+            match idle_sample {
+                Some((action, seconds)) => (Some(action), seconds),
+                None => (self.action, self.clip.map_or(self.clock, |clip| clip.seconds(self.clock))),
+            }
         };
         if let Some(action) = action {
             match self.asset.pose_action_at_time(action, seconds, world) {
@@ -735,6 +772,377 @@ fn idle_clock(
     }
 }
 
+/// Return the NPC rig's own ordinary walking clip, when one is explicitly
+/// named as locomotion. We do not infer a walk cycle from arbitrary actions.
+fn walk_clock(asset: &ModelAsset) -> Option<(usize, Clip)> {
+    const WALK_NAMES: [&str; 5] = ["走路", "行走", "walk", "walking", "walk_fwd"];
+    WALK_NAMES.iter().find_map(|name| {
+        asset
+            .model
+            .actions
+            .iter()
+            .position(|action| action.name.eq_ignore_ascii_case(name))
+            .and_then(|index| Clip::new(asset, index).map(|clip| (index, clip)))
+    })
+}
+
+#[derive(Clone, Debug)]
+struct CityZone {
+    name: String,
+    center: [f32; 2],
+    radius: f32,
+}
+
+fn load_live_world_city_zones(element: &Path) -> Result<Vec<CityZone>, String> {
+    let path = element.join("maps/world/world_targets.txt");
+    let destinations = crate::navigation::destinations(&path)
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    let zones: Vec<CityZone> = destinations
+        .into_iter()
+        .filter(|destination| {
+            let name = destination.name.to_ascii_lowercase();
+            // The retail destination table has city names in both "City of X"
+            // and "X City" forms; districts are also explicit city zones.
+            name.contains("city") || name.contains("district")
+        })
+        .map(|destination| CityZone {
+            name: destination.name,
+            center: [destination.position[0], destination.position[2]],
+            radius: LIVE_WORLD_CITY_RADIUS,
+        })
+        .collect();
+    if zones.is_empty() {
+        return Err(format!(
+            "{} contains no main-world city or district targets",
+            path.display()
+        ));
+    }
+    Ok(zones)
+}
+
+fn city_zone_at(x: f32, z: f32, zones: &[CityZone]) -> Option<usize> {
+    zones
+        .iter()
+        .enumerate()
+        .filter_map(|(index, zone)| {
+            let dx = x - zone.center[0];
+            let dz = z - zone.center[1];
+            (dx * dx + dz * dz <= zone.radius * zone.radius)
+                .then_some((index, dx * dx + dz * dz))
+        })
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(index, _)| index)
+}
+
+fn live_world_city_population(
+    spawns: &[Spawn],
+    zones: &[CityZone],
+) -> (Vec<(usize, usize)>, Vec<Vec<usize>>) {
+    let mut sources = Vec::new();
+    let mut templates = vec![Vec::new(); zones.len()];
+    let mut seen_models: Vec<HashSet<String>> = vec![HashSet::new(); zones.len()];
+    for (index, spawn) in spawns.iter().enumerate() {
+        if spawn.kind != TemplateKind::Npc || !spawn.model.starts_with("models/npcs/npc/") {
+            continue;
+        }
+        let Some(zone_index) = city_zone_at(spawn.anchor[0], spawn.anchor[1], zones) else {
+            continue;
+        };
+        sources.push((index, zone_index));
+        let model = crate::ecmodel::normalize(&spawn.model);
+        if seen_models[zone_index].insert(model) {
+            templates[zone_index].push(index);
+        }
+    }
+    (sources, templates)
+}
+
+fn live_world_name_tokens(spawns: &[Spawn]) -> Vec<String> {
+    const TITLES: [&str; 23] = [
+        "apothecary", "blacksmith", "captain", "chef", "craftsman", "elder", "general",
+        "guard", "herbalist", "lady", "master", "merchant", "miss", "pet", "skill",
+        "sentry", "tailor", "teleport", "trainer", "woman", "young", "old", "of",
+    ];
+    let titles: HashSet<&str> = TITLES.into_iter().collect();
+    let mut seen = HashSet::new();
+    let mut tokens = Vec::new();
+    for spawn in spawns {
+        let Some(token) = spawn
+            .name
+            .split(|c: char| !c.is_ascii_alphabetic())
+            .filter(|word| word.len() >= 2)
+            .last()
+        else {
+            continue;
+        };
+        let normalized = token.to_ascii_lowercase();
+        if titles.contains(normalized.as_str()) {
+            continue;
+        }
+        if seen.insert(normalized) {
+            tokens.push(token.to_string());
+        }
+    }
+    tokens.sort_by_key(|token| token.to_ascii_lowercase());
+    tokens
+}
+
+const LIVE_WORLD_PROFESSIONS: [&str; 10] = [
+    "Tailor",
+    "Blacksmith",
+    "Apothecary",
+    "Merchant",
+    "Craftsman",
+    "Sentry",
+    "Guard",
+    "Chef",
+    "Teleport Master",
+    "Pet Skill Trainer",
+];
+
+/// Use a name token already present in a real client NPC name. Some citizens
+/// receive a familiar profession prefix; the rest retain a plain personal name.
+fn live_world_name(population: &Population, tokens: &[String], seed: u64) -> Option<String> {
+    if tokens.len() < 2 {
+        return None;
+    }
+    // A finite deterministic search provides unique names and avoids a growing
+    // random-name registry. Each token is taken from a shipped NPC name; the
+    // profession/title is from real NPC roles found in the same client data.
+    let tries = tokens.len().saturating_mul(8);
+    for attempt in 0..tries {
+        let mixed = seed
+            .wrapping_add((attempt as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15))
+            .wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        let first = (mixed as usize) % tokens.len();
+        let second = ((mixed >> 32) as usize) % tokens.len();
+        if first == second {
+            continue;
+        }
+        let personal_name = format!("{} {}", tokens[first], tokens[second]);
+        let name = if mixed % 4 == 0 {
+            personal_name
+        } else {
+            let profession = LIVE_WORLD_PROFESSIONS[(mixed as usize / 4) % LIVE_WORLD_PROFESSIONS.len()];
+            format!("{profession} {personal_name}")
+        };
+        if population
+            .spawns
+            .iter()
+            .all(|spawn| !spawn.name.eq_ignore_ascii_case(&name))
+        {
+            return Some(name);
+        }
+    }
+    None
+}
+
+/// Ground point accepted for ambient walking. This mode intentionally uses
+/// terrain-level outdoor paths; object floors and overhead platforms are
+/// excluded, and a full actor box must be clear of the current building hulls.
+fn live_world_ground_point(
+    x: f32,
+    z: f32,
+    map: &MapSpace,
+    floors: &dyn FloorSource,
+) -> Option<Vec3> {
+    let [width, height] = map.world_size();
+    if !x.is_finite()
+        || !z.is_finite()
+        || x < -width * 0.5 + 1.
+        || x > width * 0.5 - 1.
+        || z < -height * 0.5 + 1.
+        || z > height * 0.5 - 1.
+    {
+        return None;
+    }
+    let y = map.ground(x, z);
+    if !y.is_finite() {
+        return None;
+    }
+    let feet = Vec3::new(x, y, z);
+    if floors.solid_at(feet, ACTOR_EXTENTS) {
+        return None;
+    }
+    if floors
+        .lowest_floor(feet + Vec3::Y * 0.05, ACTOR_EXTENTS, MAX_FLOOR_LIFT)
+        .is_some_and(|floor| floor > y + 0.65)
+    {
+        return None;
+    }
+    Some(feet)
+}
+
+/// Check an entire proposed step, not just its endpoint. The small sample
+/// interval bounds frame spikes and prevents a fast update from tunnelling
+/// through a thin wall; terrain is sampled at every point so feet stay grounded.
+fn ambient_path_safe(
+    from: Vec3,
+    to: Vec3,
+    map: &MapSpace,
+    floors: &dyn FloorSource,
+    occupied: &[Vec3],
+    ignore_actor: Option<usize>,
+) -> bool {
+    let dx = to.x - from.x;
+    let dz = to.z - from.z;
+    let distance = dx.hypot(dz);
+    if !distance.is_finite() {
+        return false;
+    }
+    let steps = (distance / LIVE_WORLD_SAMPLE_SPACING).ceil().max(1.) as usize;
+    let mut previous_y = from.y;
+    for step in 1..=steps {
+        let t = step as f32 / steps as f32;
+        let Some(point) = live_world_ground_point(from.x + dx * t, from.z + dz * t, map, floors)
+        else {
+            return false;
+        };
+        // Reject cliffs and abrupt terrain discontinuities rather than walking
+        // through them or snapping to an unrelated level.
+        if (point.y - previous_y).abs() > 0.8 {
+            return false;
+        }
+        if occupied.iter().enumerate().any(|(index, other)| {
+            let dx = other.x - point.x;
+            let dz = other.z - point.z;
+            Some(index) != ignore_actor && dx * dx + dz * dz < 1.0
+        }) {
+            return false;
+        }
+        previous_y = point.y;
+    }
+    true
+}
+
+/// Build one extra resident and a short closed walking circuit beside a real
+/// placed NPC. A generated actor is discarded unless its spawn, every waypoint,
+/// and every segment are clear and terrain-supported.
+fn build_live_world_spawn(
+    population: &Population,
+    source_index: usize,
+    zone_index: usize,
+    template_sources: &[usize],
+    name_tokens: &[String],
+    variant: usize,
+    map: &MapSpace,
+    floors: &dyn FloorSource,
+    zone: &CityZone,
+) -> Option<(Spawn, Route)> {
+    let source = population.spawns.get(source_index)?;
+    if source.kind != TemplateKind::Npc || !source.model.starts_with("models/npcs/npc/") {
+        return None;
+    }
+    if template_sources.is_empty() {
+        return None;
+    }
+    // Prefer a different city-authored rig to the nearby source NPC. When that
+    // city has only one model, reuse it rather than importing an out-of-zone rig.
+    let alternative_count = template_sources
+        .iter()
+        .filter(|index| population.spawns[**index].model != source.model)
+        .count();
+    let use_alternatives = alternative_count > 0;
+    let choice_count = if use_alternatives {
+        alternative_count
+    } else {
+        template_sources.len()
+    };
+    let choice = (source.id as usize + variant) % choice_count;
+    let template_index = template_sources
+        .iter()
+        .copied()
+        .filter(|index| !use_alternatives || population.spawns[*index].model != source.model)
+        .nth(choice)?;
+    let template = population.spawns.get(template_index)?;
+    let seed = (source.id as u64)
+        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        .wrapping_add((variant as u64 + 1).wrapping_mul(0xbf58_476d_1ce4_e5b9))
+        ^ (zone_index as u64).wrapping_mul(0x94d0_49bb_1331_11eb);
+    let mut random = seed ^ 0x94d0_49bb_1331_11eb;
+    for attempt in 0..LIVE_WORLD_ATTEMPTS {
+        random ^= random << 13;
+        random ^= random >> 7;
+        random ^= random << 17;
+        let angle = (random as u32 as f32 / u32::MAX as f32) * std::f32::consts::TAU;
+        let radius = 4.5 + ((random >> 32) as u32 as f32 / u32::MAX as f32) * 4.0;
+        let x = source.anchor[0] + angle.cos() * radius;
+        let z = source.anchor[1] + angle.sin() * radius;
+        let Some(start) = live_world_ground_point(x, z, map, floors) else { continue };
+        if city_zone_at(start.x, start.z, std::slice::from_ref(zone)) != Some(0) {
+            continue;
+        }
+        let min_sep2 = LIVE_WORLD_MIN_SEPARATION * LIVE_WORLD_MIN_SEPARATION;
+        if population.spawns.iter().any(|other| {
+            let dx = other.anchor[0] - x;
+            let dz = other.anchor[1] - z;
+            dx * dx + dz * dz < min_sep2
+        }) {
+            continue;
+        }
+        let phase = angle + (attempt as f32 * 0.71);
+        let loop_radius = 1.8 + ((random >> 16) as u8 as f32 / u8::MAX as f32) * 0.8;
+        let mut points = vec![start];
+        let mut valid = true;
+        for offset in [1.15f32, 2.55] {
+            let px = x + (phase + offset).cos() * loop_radius;
+            let pz = z + (phase + offset).sin() * loop_radius;
+            let Some(point) = live_world_ground_point(px, pz, map, floors) else {
+                valid = false;
+                break;
+            };
+            if city_zone_at(point.x, point.z, std::slice::from_ref(zone)) != Some(0) {
+                valid = false;
+                break;
+            }
+            points.push(point);
+        }
+        if !valid {
+            continue;
+        }
+        for edge in 0..points.len() {
+            if !ambient_path_safe(
+                points[edge],
+                points[(edge + 1) % points.len()],
+                map,
+                floors,
+                &[],
+                None,
+            ) {
+                valid = false;
+                break;
+            }
+        }
+        if !valid {
+            continue;
+        }
+        let name = live_world_name(population, name_tokens, seed.wrapping_add(attempt))?;
+        let route = Route {
+            waypoints: points
+                .iter()
+                .enumerate()
+                .map(|(index, point)| Waypoint {
+                    position: point.to_array(),
+                    wait: 1.0 + ((seed >> (index * 7)) & 3) as f32,
+                })
+                .collect(),
+            speed: LIVE_WORLD_WALK_SPEED,
+            looping: true,
+        };
+        if route.validate().is_err() {
+            return None;
+        }
+        let mut spawn = template.clone();
+        spawn.name = name;
+        spawn.anchor = [start.x, start.z];
+        spawn.height = None;
+        spawn.task_count = 0;
+        spawn.route = None;
+        return Some((spawn, route));
+    }
+    None
+}
+
 /// The scene action a placed NPC asks for. `站立` ("standing") is the combined
 /// action 1,674 of the 1,871 shipped NPC rigs carry, with an infinite base loop;
 /// the client falls back to the literal `休闲` when a rig has no match.
@@ -824,7 +1232,21 @@ pub struct Populator {
     map: Option<MapSpace>,
     settings: Settings,
     active: bool,
+    live_world: bool,
     population: Option<Population>,
+    /// The immutable client-authored prefix of `population.spawns`.
+    authored_spawn_count: usize,
+    /// Next authored NPC to consider for a safe ambient companion.
+    live_world_cursor: usize,
+    live_world_generated: usize,
+    live_world_since_stream_refresh: usize,
+    city_zones: Vec<CityZone>,
+    city_zone_error: Option<String>,
+    /// (authored spawn index, city-zone index) pairs; generated crowds are city-only.
+    live_world_sources: Vec<(usize, usize)>,
+    /// One representative native template index per distinct rig per city.
+    live_world_templates: Vec<Vec<usize>>,
+    live_world_name_tokens: Vec<String>,
     load_error: Option<String>,
     library: Option<Library>,
     library_error: Option<String>,
@@ -873,7 +1295,17 @@ impl Default for Populator {
             map: None,
             settings: Settings::default(),
             active: false,
+            live_world: false,
             population: None,
+            authored_spawn_count: 0,
+            live_world_cursor: 0,
+            live_world_generated: 0,
+            live_world_since_stream_refresh: 0,
+            city_zones: Vec::new(),
+            city_zone_error: None,
+            live_world_sources: Vec::new(),
+            live_world_templates: Vec::new(),
+            live_world_name_tokens: Vec::new(),
             load_error: None,
             library: None,
             library_error: None,
@@ -901,9 +1333,15 @@ impl Default for Populator {
 
 impl Populator {
     pub fn new(element: PathBuf, map: MapSpace) -> Self {
+        let (city_zones, city_zone_error) = match load_live_world_city_zones(&element) {
+            Ok(zones) => (zones, None),
+            Err(error) => (Vec::new(), Some(error)),
+        };
         Self {
             element,
             map: Some(map),
+            city_zones,
+            city_zone_error,
             ..Self::default()
         }
     }
@@ -930,6 +1368,49 @@ impl Populator {
         self.settings
     }
 
+    pub fn live_world_enabled(&self) -> bool {
+        self.live_world
+    }
+
+    pub fn live_world_zone_status(&self) -> String {
+        if let Some(error) = &self.city_zone_error {
+            return format!("City target data unavailable: {error}");
+        }
+        let names = self
+            .city_zones
+            .iter()
+            .map(|zone| zone.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "City-only radius {:.0}: {} zone(s) ({names}); {} authored NPC placements eligible.",
+            LIVE_WORLD_CITY_RADIUS,
+            self.city_zones.len(),
+            self.live_world_sources.len()
+        )
+    }
+
+    /// Enables a conservative local ambient simulation. The original client
+    /// placements are untouched; generated residents are appended from real
+    /// NPC templates and removed again when the option is unchecked.
+    pub fn set_live_world(&mut self, enabled: bool) {
+        if self.live_world == enabled {
+            return;
+        }
+        self.live_world = enabled;
+        self.live_world_cursor = 0;
+        self.live_world_generated = 0;
+        self.live_world_since_stream_refresh = 0;
+        if !enabled {
+            if let Some(population) = self.population.as_mut() {
+                population.spawns.truncate(self.authored_spawn_count);
+                population.routes.clear();
+            }
+        }
+        self.live.clear();
+        self.stream_cache = None;
+    }
+
     /// One-shot camera move requested by the settings window. The host owns the
     /// camera, so the module only asks.
     pub fn take_camera_request(&mut self) -> Option<Vec3> {
@@ -942,9 +1423,20 @@ impl Populator {
     fn nearest_camera_target(&self) -> Option<Vec3> {
         let population = self.population.as_ref()?;
         let map = self.map.as_ref()?;
-        let nearest = population.nearest([self.eye.x, self.eye.z], f32::MAX, 1);
-        let (index, _) = nearest.first().copied()?;
-        let spawn = population.spawns.get(index)?;
+        let (index, spawn) = population
+            .spawns
+            .iter()
+            .take(self.authored_spawn_count)
+            .enumerate()
+            .min_by(|(_, a), (_, b)| {
+                let distance2 = |spawn: &Spawn| {
+                    (spawn.anchor[0] - self.eye.x).powi(2)
+                        + (spawn.anchor[1] - self.eye.z).powi(2)
+                };
+                distance2(a)
+                    .partial_cmp(&distance2(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })?;
         let ground = spawn
             .height
             .unwrap_or_else(|| map.ground(spawn.anchor[0], spawn.anchor[1]));
@@ -967,15 +1459,29 @@ impl Populator {
         }
         match &self.population {
             Some(population) => {
-                let in_range =
-                    population.count_within([self.eye.x, self.eye.z], self.settings.spawn_distance);
+                let radius2 = self.settings.spawn_distance * self.settings.spawn_distance;
+                let in_range = population
+                    .spawns
+                    .iter()
+                    .take(self.authored_spawn_count)
+                    .filter(|spawn| {
+                        let dx = spawn.anchor[0] - self.eye.x;
+                        let dz = spawn.anchor[1] - self.eye.z;
+                        dx * dx + dz * dz <= radius2
+                    })
+                    .count();
                 format!(
-                    "{} client-placed NPCs ({} records total, {} server-placed): {} in range, {} drawn",
-                    population.spawns.len(),
-                    population.spawns.len() + population.unplaced + population.skipped,
+                    "{} client-placed NPCs ({} records total, {} server-placed): {} actors in range, {} drawn{}",
+                    self.authored_spawn_count,
+                    self.authored_spawn_count + population.unplaced + population.skipped,
                     population.unplaced,
                     in_range,
-                    self.live.len()
+                    self.live.len(),
+                    if self.live_world {
+                        format!("; Live World: {} residents generated", self.live_world_generated)
+                    } else {
+                        String::new()
+                    }
                 )
             }
             None => "Loading the real population...".into(),
@@ -986,7 +1492,8 @@ impl Populator {
     pub fn wants_floors(&self) -> bool {
         // Overhead names are hidden by geometry, so the hull set is needed even
         // when placements are left on the terrain.
-        self.active && (self.settings.stand_on_objects || self.settings.show_names)
+        self.active
+            && (self.settings.stand_on_objects || self.settings.show_names || self.live_world)
     }
 
     /// Per-frame host hook: streams actors around the camera, resolves their
@@ -1001,6 +1508,13 @@ impl Populator {
         if self.reload_pending {
             self.reload_pending = false;
             self.population = None;
+            self.authored_spawn_count = 0;
+            self.live_world_cursor = 0;
+            self.live_world_generated = 0;
+            self.live_world_since_stream_refresh = 0;
+            self.live_world_sources.clear();
+            self.live_world_templates.clear();
+            self.live_world_name_tokens.clear();
             self.stream_cache = None;
             self.library = None;
             self.load_error = None;
@@ -1027,6 +1541,12 @@ impl Populator {
                         population.unplaced,
                         population.skipped
                     );
+                    self.authored_spawn_count = population.spawns.len();
+                    let (sources, templates) =
+                        live_world_city_population(&population.spawns, &self.city_zones);
+                    self.live_world_sources = sources;
+                    self.live_world_templates = templates;
+                    self.live_world_name_tokens = live_world_name_tokens(&population.spawns);
                     self.population = Some(population);
                 }
                 Err(error) => {
@@ -1050,9 +1570,68 @@ impl Populator {
         if self.library.is_none() {
             return;
         }
+        self.extend_live_world(floors);
         self.stream(floors);
         self.advance(delta, floors);
         self.report();
+    }
+
+    /// Append a bounded number of ambient companions per frame. This is
+    /// deliberately a derived, opt-in simulation: every actor reuses a real
+    /// client NPC template, while its small patrol loop is admitted only when
+    /// terrain and the currently streamed building hulls provide safe support.
+    fn extend_live_world(&mut self, floors: Option<&dyn FloorSource>) {
+        if !self.live_world || floors.is_none() || self.live_world_sources.is_empty() {
+            return;
+        }
+        let Some(map) = self.map.as_ref() else { return };
+        let Some(population) = self.population.as_mut() else { return };
+        let end = (self.live_world_cursor + LIVE_WORLD_BATCH).min(self.live_world_sources.len());
+        let before = population.spawns.len();
+        let started = std::time::Instant::now();
+        let mut source_index = self.live_world_cursor;
+        while source_index < end {
+            // Finish both variants for one source before yielding, so the cursor
+            // never skips work when the per-frame budget is reached.
+            let (spawn_index, zone_index) = self.live_world_sources[source_index];
+            let template_sources = &self.live_world_templates[zone_index];
+            let zone = &self.city_zones[zone_index];
+            for variant in 0..MAX_LIVE_WORLD_PER_AUTHORED {
+                if let Some((spawn, route)) = build_live_world_spawn(
+                    population,
+                    spawn_index,
+                    zone_index,
+                    template_sources,
+                    &self.live_world_name_tokens,
+                    variant,
+                    map,
+                    floors.expect("checked above"),
+                    zone,
+                ) {
+                    let route_index = population.routes.len();
+                    let mut spawn = spawn;
+                    spawn.route = Some(route_index);
+                    population.spawns.push(spawn);
+                    population.routes.push(route);
+                    self.live_world_generated += 1;
+                }
+            }
+            source_index += 1;
+            if started.elapsed() >= LIVE_WORLD_BUILD_BUDGET {
+                break;
+            }
+        }
+        self.live_world_cursor = source_index;
+        let added = population.spawns.len() - before;
+        self.live_world_since_stream_refresh += added;
+        if self.live_world_since_stream_refresh >= LIVE_WORLD_STREAM_REFRESH
+            || self.live_world_cursor >= self.live_world_sources.len()
+        {
+            // Batch cache refreshes, rather than sorting all world placements
+            // once for every small append during generation.
+            self.stream_cache = None;
+            self.live_world_since_stream_refresh = 0;
+        }
     }
 
     /// Console diagnostics, so a user who never opens the settings window still
@@ -1216,6 +1795,7 @@ impl Populator {
         // authored forward axis, which is what the client falls back to.
         let yaw = 0.;
         let follow = self.route_for(&spawn);
+        let live_world = index >= self.authored_spawn_count;
         let key = crate::ecmodel::normalize(&spawn.model);
         let library = self.library.as_mut()?;
         let asset = library.asset(&spawn.model).ok()?;
@@ -1225,6 +1805,7 @@ impl Populator {
         } else {
             (None, None, None)
         };
+        let walk_action = live_world.then(|| walk_clock(asset.as_ref())).flatten();
         Some(Live {
             spawn: index,
             position,
@@ -1247,6 +1828,9 @@ impl Populator {
             pose_stamp: None,
             uploaded_stamp: None,
             follow,
+            live_world,
+            walk_action,
+            walking: false,
             draw: None,
             failure: None,
         })
@@ -1286,7 +1870,8 @@ impl Populator {
         }
         self.motion_seconds += delta;
         let delta_ms = (delta * 1000.).round().clamp(0., u32::MAX as f32) as u32;
-        for live in &mut self.live {
+        let mut occupied: Vec<Vec3> = self.live.iter().map(|live| live.position).collect();
+        for (live_index, live) in self.live.iter_mut().enumerate() {
             if live.failure.is_some() {
                 continue;
             }
@@ -1309,6 +1894,32 @@ impl Populator {
             let before = live.position;
             match follow.step(&mut live.position, delta) {
                 Motion::Walking => {
+                    if live.live_world {
+                        let safe = self
+                            .map
+                            .as_ref()
+                            .zip(floors)
+                            .is_some_and(|(map, floors)| {
+                                ambient_path_safe(
+                                    before,
+                                    live.position,
+                                    map,
+                                    floors,
+                                    &occupied,
+                                    Some(live_index),
+                                )
+                            });
+                        if !safe {
+                            // Hulls can stream in after a route was authored.
+                            // Stop at the last verified point rather than ever
+                            // crossing a newly discovered wall or unsupported lip.
+                            live.position = before;
+                            live.follow = None;
+                            live.walking = false;
+                            occupied[live_index] = live.position;
+                            continue;
+                        }
+                    }
                     let moved = live.position - before;
                     if moved.length_squared() > 1e-8 {
                         live.yaw = patrol::yaw_towards(moved);
@@ -1316,12 +1927,17 @@ impl Populator {
                     if let Some(map) = self.map.as_ref() {
                         live.position.y = map.ground(live.position.x, live.position.z);
                     }
+                    live.walking = live.live_world;
                 }
                 // The route is over once its final dwell has been served; the
                 // actor then keeps the last position and facing.
-                Motion::Finished => live.follow = None,
-                Motion::Waiting => {}
+                Motion::Finished => {
+                    live.follow = None;
+                    live.walking = false;
+                }
+                Motion::Waiting => live.walking = false,
             }
+            occupied[live_index] = live.position;
         }
     }
 
@@ -1392,12 +2008,26 @@ impl Populator {
                     return None;
                 }
                 let spawn = population.spawns.get(live.spawn)?;
-                // An authored height is the game's own answer and never moves,
-                // but the column can still be inside a wall, so the sweep runs.
-                Some((
-                    live.spawn,
-                    resolve_placement(spawn, map, Some(floors), self.settings.stand_on_objects),
-                ))
+                // Native placements always re-resolve to their authored point.
+                // A wandering resident instead re-resolves under its current
+                // feet so a newly streamed hull cannot teleport it back to its
+                // initial ambient spawn.
+                let placement = if live.live_world {
+                    let mut current = spawn.clone();
+                    current.anchor = [live.position.x, live.position.z];
+                    current.height = None;
+                    resolve_placement(
+                        &current,
+                        map,
+                        Some(floors),
+                        self.settings.stand_on_objects,
+                    )
+                } else {
+                    // An authored height is the game's own answer and never
+                    // moves, but the column can still be inside a wall.
+                    resolve_placement(spawn, map, Some(floors), self.settings.stand_on_objects)
+                };
+                Some((live.spawn, placement))
             })
             .collect();
         for (live, resolved) in self.live.iter_mut().zip(placements) {
@@ -1728,11 +2358,7 @@ impl Populator {
                 ui.colored_label(egui::Color32::LIGHT_RED, error);
             }
             (Some(population), None) => {
-                let npcs = population
-                    .spawns
-                    .iter()
-                    .filter(|spawn| spawn.kind == TemplateKind::Npc)
-                    .count();
+                let npcs = self.authored_spawn_count;
                 let monsters = population
                     .spawns
                     .iter()
@@ -1743,7 +2369,7 @@ impl Populator {
                     .iter()
                     .filter(|spawn| spawn.task_count > 0)
                     .count();
-                let records = population.spawns.len() + population.unplaced + population.skipped;
+                let records = self.authored_spawn_count + population.unplaced + population.skipped;
                 ui.label(format!(
                     "{npcs} client-placed NPCs, {monsters} monster placements, {linked} with task links, {} server-placed, {} skipped",
                     population.unplaced, population.skipped
@@ -1758,6 +2384,16 @@ impl Populator {
                 );
                 for line in &population.provenance {
                     ui.label(egui::RichText::new(line).small().weak());
+                }
+                if self.live_world {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "Live World: {} generated residents; safe walking routes are being built from terrain and streamed collision hulls.",
+                            self.live_world_generated
+                        ))
+                        .small()
+                        .color(egui::Color32::LIGHT_GREEN),
+                    );
                 }
                 ui.label(
                     egui::RichText::new(format!(
@@ -1785,7 +2421,7 @@ impl Populator {
                 } else {
                     ui.label(
                         egui::RichText::new(format!(
-                            "{in_range} placements within {:.0} units of the camera",
+                            "{in_range} actors (native and Live World) within {:.0} units of the camera",
                             self.settings.spawn_distance
                         ))
                         .small()
@@ -1928,7 +2564,7 @@ impl Populator {
             );
             ui.label(
                 egui::RichText::new(format!(
-                    "{moving} actors on navigation paths. {}",
+                    "{moving} actors on movement routes (authored client placements plus any validated Live World circuits). {}",
                     population.route_source
                 ))
                 .small()
@@ -1937,7 +2573,7 @@ impl Populator {
         }
         ui.label(
             egui::RichText::new(
-                "Spawn and appear only: no combat, dialogue or interaction. Positions, names, rigs and heights are the files' own; nothing is synthesised.",
+                "Native placements keep their authored data. Live World is restricted to authored NPC anchors near city/district targets; it reuses real city NPC rigs and name tokens with generated, unique names and short terrain-grounded loops. No combat, server routes, interaction or dialogue are simulated.",
             )
             .small()
             .weak(),
@@ -1955,6 +2591,7 @@ impl Populator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     fn spawn(height: Option<f32>) -> Spawn {
         Spawn {
@@ -1967,6 +2604,117 @@ mod tests {
             task_count: 12,
             route: None,
         }
+    }
+
+    #[test]
+    fn live_world_is_restricted_to_the_native_city_target_radius() {
+        let zones = vec![
+            CityZone {
+                name: "Archosaur, North District".into(),
+                center: [1470.490, 1180.864],
+                radius: LIVE_WORLD_CITY_RADIUS,
+            },
+            CityZone {
+                name: "City of a Thousand Streams".into(),
+                center: [-2825.774, 3092.210],
+                radius: LIVE_WORLD_CITY_RADIUS,
+            },
+        ];
+        assert_eq!(city_zone_at(1470.490, 1180.864, &zones), Some(0));
+        assert_eq!(city_zone_at(-2825.774, 3092.210, &zones), Some(1));
+        assert_eq!(city_zone_at(1470.490 + 421., 1180.864, &zones), None);
+        assert_eq!(city_zone_at(0., 0., &zones), None);
+    }
+
+    #[test]
+    fn city_population_excludes_non_city_placements_and_deduplicates_rig_choices() {
+        let mut north = spawn(None);
+        north.anchor = [1470.490, 1180.864];
+        let mut north_same_rig = north.clone();
+        north_same_rig.id += 1;
+        let mut north_other_rig = north.clone();
+        north_other_rig.id += 2;
+        north_other_rig.model = "models/npcs/npc/卫兵npc1/卫兵npc1.ecm".into();
+        let mut wilderness = north.clone();
+        wilderness.id += 3;
+        wilderness.anchor = [0., 0.];
+        let zones = vec![CityZone {
+            name: "Archosaur, North District".into(),
+            center: [1470.490, 1180.864],
+            radius: LIVE_WORLD_CITY_RADIUS,
+        }];
+        let (sources, templates) = live_world_city_population(
+            &[north, north_same_rig, north_other_rig, wilderness],
+            &zones,
+        );
+        assert_eq!(sources, vec![(0, 0), (1, 0), (2, 0)]);
+        assert_eq!(templates, vec![vec![0, 2]]);
+    }
+
+    #[test]
+    fn live_world_names_mix_native_tokens_and_never_duplicate_existing_names() {
+        let mut spawns = vec![spawn(None)];
+        spawns[0].name = "Tailor Sin".into();
+        let mut zha = spawn(None);
+        zha.name = "Blacksmith Zha".into();
+        spawns.push(zha);
+        let mut jun = spawn(None);
+        jun.name = "Apothecary Jun".into();
+        spawns.push(jun);
+        let tokens = live_world_name_tokens(&spawns);
+        let mut population = Population { spawns, ..Population::default() };
+        let mut generated = HashSet::new();
+        for seed in 0..8 {
+            let name = live_world_name(&population, &tokens, seed).unwrap();
+            assert!(generated.insert(name.clone()), "duplicate generated name {name}");
+            assert!(!population.spawns.iter().any(|spawn| spawn.name == name));
+            population.spawns.push(Spawn { name, ..spawn(None) });
+        }
+    }
+
+    #[test]
+    fn live_world_only_builds_loops_when_ground_and_hulls_are_clear() {
+        let mut authored = spawn(None);
+        authored.anchor = [0., 0.];
+        let mut alternate = spawn(None);
+        alternate.id = 3_124;
+        alternate.model = "models/npcs/npc/卫兵npc1/卫兵npc1.ecm".into();
+        alternate.name = "Guard Captain Ning".into();
+        alternate.anchor = [22., 22.];
+        let population = Population {
+            spawns: vec![authored, alternate],
+            ..Population::default()
+        };
+        let map = flat_map();
+        let clear = OneFloor(None, 1, false);
+        let zone = CityZone {
+            name: "Test City".into(),
+            center: [0., 0.],
+            radius: 20.,
+        };
+        let templates = vec![0, 1];
+        let tokens = vec!["Sin".into(), "Zha".into(), "Jun".into()];
+        let (ambient, route) = build_live_world_spawn(
+            &population, 0, 0, &templates, &tokens, 0, &map, &clear, &zone,
+        ).unwrap();
+        assert_ne!(ambient.name, population.spawns[0].name);
+        assert_ne!(ambient.model, population.spawns[0].model);
+        assert!(route.looping);
+        assert_eq!(route.waypoints.len(), 3);
+        assert!(route.validate().is_ok());
+
+        struct SolidEverywhere;
+        impl FloorSource for SolidEverywhere {
+            fn lowest_floor(&self, _feet: Vec3, _extents: Vec3, _max_up: f32) -> Option<f32> {
+                None
+            }
+            fn floor_stamp(&self) -> u64 { 1 }
+            fn sight_blocked(&self, _from: Vec3, _to: Vec3) -> bool { false }
+            fn solid_at(&self, _feet: Vec3, _extents: Vec3) -> bool { true }
+        }
+        assert!(build_live_world_spawn(
+            &population, 0, 0, &templates, &tokens, 1, &map, &SolidEverywhere, &zone,
+        ).is_none());
     }
 
     #[test]

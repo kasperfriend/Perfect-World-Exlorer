@@ -308,11 +308,42 @@ impl Modules {
         );
         ui.label(
             egui::RichText::new(
-                "While enabled: every NPC from the client's own task_npc.data appears where the game places it, with its own rig, idle animation and overhead name, standing on the client's own building floors where the placement calls for one. Spawn distance, actor cap, idle animation, names and building-floor support are in the Populator settings window beneath the minimap. Mob placement is server data the client does not ship, and actors move only along real navigation paths.",
+                "While enabled: every client-placed NPC appears at its authored location with its own rig, idle animation and overhead name, standing on the client's building floors where appropriate. Spawn distance, actor cap, idle animation, names and floor support are in the Populator settings window beneath the minimap. Mob placement and native patrol routes are server data the client does not ship; Live World is an optional, locally validated ambient simulation.",
             )
             .small()
             .weak(),
         );
+        egui::CollapsingHeader::new("Live World")
+            .default_open(false)
+            .show(ui, |ui| {
+                let mut enabled = self.populator.live_world_enabled();
+                if ui.checkbox(&mut enabled, "Enable Live World").changed() {
+                    self.populator.set_live_world(enabled);
+                }
+                ui.label(
+                    egui::RichText::new(
+                        "Adds opt-in ambient citizens only within 420 units of city/district targets in the client's world_targets.txt. Names mix native name tokens into unique combinations, optionally with real client professions. Each resident uses a different real NPC rig from that city when available. Short terrain-grounded loops are checked against streamed building hulls; an obstacle stops movement safely. No server routes or dialogue are invented.",
+                    )
+                    .small()
+                    .weak(),
+                );
+                ui.label(
+                    egui::RichText::new(self.populator.live_world_zone_status())
+                        .small()
+                        .weak(),
+                );
+                if enabled {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} residents generated so far; current actor cap is {}.",
+                            self.populator.live_world_generated,
+                            self.populator.settings().max_visible
+                        ))
+                        .small()
+                        .color(egui::Color32::LIGHT_GREEN),
+                    );
+                }
+            });
     }
 
     fn walker_module_ui(&mut self, ui: &mut egui::Ui, spawn: Vec3, yaw: f32) {
