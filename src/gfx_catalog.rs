@@ -705,8 +705,13 @@ mod tests {
         assert_eq!(detail_scaled_count(10, 20.0, 2.0, true), 8);
         assert_eq!(detail_scaled_count(3, 20.0, 2.0, true), 3);
         // Above the far threshold the count is always scaled, and the factor is
-        // (numerator * 8.3333333) / distance.
-        assert_eq!(detail_scaled_count(10, 100.0, 6.0, true), 5);
+        // (numerator * 8.3333333) / distance. Both of these are f32 arithmetic
+        // all the way down, and the truncation is the client's own `_ftol`:
+        // 6.0 * 8.3333333 / 100.0 is 0.499999998 rather than 0.5, so ten
+        // particles come out as four and not five. A numerator that is not on
+        // that knife edge gives the arithmetic a reader expects.
+        assert_eq!(detail_scaled_count(10, 100.0, 6.0, true), 4);
+        assert_eq!(detail_scaled_count(10, 100.0, 6.5, true), 5);
         // A factor of one or more never increases the count: the client applies
         // reductions only.
         assert_eq!(detail_scaled_count(10, 50.0, 50.0, true), 10);
