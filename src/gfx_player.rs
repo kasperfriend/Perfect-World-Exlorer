@@ -100,7 +100,7 @@ use crate::{
     gfx_color_track::ColorTrack,
     gfx_file::{
         Child, Common, Control, ControlData, Cylinder, Element, Grid, KeyPoint, Lightning,
-        Particle, Root, Spec, Sprite,
+        Particle, Root, Spec, Sprite, Trail,
     },
 };
 use glam::{Mat4, Quat, Vec3};
@@ -317,6 +317,105 @@ struct FractalState {
     /// One noise offset per strip vertex, regenerated on the authored interval.
     offsets: Vec<Vec3>,
     rng: Rng,
+    /// Element 152 only: the vertex ring the trail keeps. Element 150 leaves it
+    /// empty and draws its whole authored strip every frame.
+    trail: TrailRing,
+}
+
+/// The trail's vertex ring, element+0x31c..+0x328. The constructor at `0x713820`
+/// allocates `$0xc00` bytes — 256 records of twelve — initialises every one to
+/// `{-1, 0, 0}` at `0x71384b`, so an unused slot is indexed -1, and starts the
+/// head at 255 (`0x713867`). Records are laid down in index order and the live
+/// window shrinks from the old end, so `records` here is oldest first.
+#[derive(Clone, Debug, Default)]
+struct TrailRing {
+    /// element+0x314: milliseconds accumulated since the last vertex was laid.
+    accumulator: f32,
+    /// element+0x318: how many vertices have been laid down in total.
+    laid: usize,
+    /// element+0x328 worth of live records, oldest first.
+    records: Vec<TrailVertex>,
+}
+
+/// The ring's capacity, element+0x31c: `movl $0x100,0x31c(%esi)` at `0x71382d`.
+/// `0x713f23` refuses to count past it, so a trail authored with more segments
+/// than that keeps only the newest 256.
+const TRAIL_RING_CAPACITY: usize = 256;
+
+/// One ring record: the twelve bytes `0x7140e8` writes are `{index, life, age}`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct TrailVertex {
+    /// The vertex's position in the authored strip, so a truncated ring still
+    /// knows which part of the strip it covers.
+    index: u32,
+    /// element+0x30c at birth: the authored `vertslife`, in milliseconds.
+    life: f32,
+    /// Milliseconds since this vertex was laid down, clamped at `life`.
+    age: f32,
+}
+
+impl TrailRing {
+    /// `0x713ed4`: fill the ring with the whole authored strip at once, every
+    /// record born this frame with age 0. The native only does this when the
+    /// count does not already match, so a full ring is left alone.
+    fn fill(&mut self, segments: usize, life: f32) {
+        if self.records.len() == segments {
+            return;
+        }
+        self.records.clear();
+        self.accumulator = 0.;
+        self.laid = segments;
+        for index in 0..segments {
+            self.push(TrailVertex {
+                index: index as u32,
+                life,
+                age: 0.,
+            });
+        }
+    }
+
+    /// `0x7140a5`: push a record at the head. The count stops growing at the
+    /// capacity (`0x713fd1`) while the head keeps advancing, so the oldest
+    /// record is the one that gives way.
+    fn push(&mut self, vertex: TrailVertex) {
+        if self.records.len() >= TRAIL_RING_CAPACITY {
+            self.records.remove(0);
+        }
+        self.records.push(vertex);
+    }
+
+    /// `0x713f60`: age every record by the frame delta. A record already at its
+    /// life is left alone (`0x713fa5`) and the sum is clamped back to the life
+    /// (`0x713fb0`), so an expired vertex stays expired instead of overflowing.
+    fn age(&mut self, dt_ms: f32) {
+        for record in &mut self.records {
+            if record.age == record.life {
+                continue;
+            }
+            record.age += dt_ms;
+            if record.age > record.life {
+                record.age = record.life;
+            }
+        }
+    }
+
+    /// `0x713fbe`, reached only when `istaildisappear` is set: scan from the
+    /// newest record backwards and, at the first one whose age has reached its
+    /// life, shrink the count by `position + 1` (`0x71400f` does
+    /// `count += -1 - position`). That drops the expired record and every older
+    /// one; the head does not move, so the live window simply gets shorter.
+    fn drop_expired(&mut self) {
+        for position in (0..self.records.len()).rev() {
+            if self.records[position].age == self.records[position].life {
+                // `position + 1` records go: the expired one and everything older
+                // than it. Ages grow towards the old end, so the scan from the
+                // newest stops at the newest expired record, and in an
+                // oldest-first list "older" is the front.
+                self.records.drain(..=position);
+                return;
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -737,6 +836,7 @@ impl Player {
                     timer: f32::INFINITY,
                     offsets: Vec::new(),
                     rng: Rng::new(rng.next_u32()),
+                    trail: TrailRing::default(),
                 }),
                 Spec::Lightning(_) => Runtime::Bolts(BoltState {
                     segments: Vec::new(),
@@ -2930,6 +3030,81 @@ fn emit_ribbon(
     }
 }
 
+/// The trail's per-frame ring update, `0x713e90`. Element 152 shares the fractal
+/// strip geometry with element 150, but which vertices are live is decided here.
+///
+/// `isappend` picks between two paths, and the corpus uses both: 138 of the 156
+/// trail elements author 1 and 18 author 0. Clear, and `0x713ed4` rebuilds the
+/// ring to exactly the authored vertex count whenever it is not already full,
+/// every record born that frame with age 0, and no aging pass ever runs — a
+/// permanent static strip. Set, and `0x713ebc` calls the append pass `0x714030`
+/// followed by the aging pass `0x713f60`, so vertices are laid down over time and
+/// then expire.
+fn update_trail(
+    fractal: &mut FractalState,
+    trail: &Trail,
+    element: &Element,
+    dt_ms: f32,
+    segments: usize,
+) {
+    let life = trail.vertices_life.max(0.);
+    let ring = &mut fractal.trail;
+    if !trail.is_append {
+        ring.fill(segments, life);
+        return;
+    }
+    // `0x714030` lays one vertex down per `interval / count` milliseconds. That
+    // interval is `*(*(trail+0x28)+0x34)`: two dereferences through a field that
+    // is only ever read in this region and never written, so the object owning it
+    // is not identified and the number cannot be quoted. The element's own
+    // authored duration is the closest recoverable equivalent — it is the window
+    // the keypoints give this element, and 140 of the 156 corpus trails author a
+    // finite one.
+    let interval = match element.duration_ms() {
+        Some(interval) if interval > 0. => interval,
+        // The other 16 run a forever keypoint, so no rate can be recovered for
+        // them, and one of those asks to append. Inventing a rate would either
+        // freeze the trail or make it expire and never return, so these fall back
+        // to the static strip the non-append path builds — which is what they
+        // drew before this pass as well.
+        _ => {
+            ring.fill(segments, life);
+            return;
+        }
+    };
+    if segments == 0 {
+        return;
+    }
+    // element+0x314 accumulates the frame delta; `0x714067` needs it strictly
+    // past one step before anything is laid down, and `0x714072` gives up once
+    // the whole strip is down. Both give up on the append only — the caller
+    // `0x713e90` ages the ring and runs the expiry pass afterwards whatever the
+    // append did, so a fully laid trail still fades away.
+    ring.accumulator += dt_ms;
+    let step = interval / segments as f32;
+    if ring.laid < segments && ring.accumulator > step {
+        // `0x714072`: as many vertices as the accumulated time covers, clamped to
+        // the authored count at `0x714088`, and the accumulator keeps the
+        // remainder (`0x71409d`), so a long frame lays several vertices instead
+        // of one.
+        let steps = (ring.accumulator / step) as usize;
+        let before = ring.laid;
+        ring.laid = (ring.laid + steps).min(segments);
+        ring.accumulator %= step;
+        for index in before..ring.laid {
+            ring.push(TrailVertex {
+                index: index as u32,
+                life,
+                age: 0.,
+            });
+        }
+    }
+    ring.age(dt_ms);
+    if trail.is_tail_disappear {
+        ring.drop_expired();
+    }
+}
+
 /// Elements 150 and 152: the authored fractal strip. `Segs` cross-sections run
 /// from `StartPos` to `EndPos`; the noise block (`BufLen`, `Amplitude`,
 /// `WaveLen`, `Persistence`, `OctaveNum`) displaces them and is regenerated every
@@ -2980,6 +3155,9 @@ fn emit_fractal(
             );
         }
     }
+    if let Some(trail) = trail {
+        update_trail(fractal, trail, element, dt * 1000., segments);
+    }
     let head_width = spec.widths.first().copied().unwrap_or(0.1);
     let tail_width = spec.widths.get(1).copied().unwrap_or(head_width);
     let head_alpha = spec.alphas.first().copied().unwrap_or(1.);
@@ -3007,7 +3185,22 @@ fn emit_fractal(
     };
     let uv = flipbook_uv(context.common, context.clock);
     let mut positions = [[0f32; 3]; 4];
-    for index in 0..segments {
+    // Element 152 draws only the ring's live records, oldest first, each still
+    // carrying its place in the authored strip; element 150 has no ring and draws
+    // the whole strip, which is what a full ring amounts to anyway.
+    let (first, drawn) = if trail.is_some() {
+        match fractal.trail.records.first() {
+            Some(oldest) => (oldest.index as usize, fractal.trail.records.len()),
+            None => return,
+        }
+    } else {
+        (0, segments)
+    };
+    for slot in 0..drawn {
+        let index = first + slot;
+        if index >= segments {
+            break;
+        }
         let t0 = index as f32 / segments as f32;
         let t1 = (index + 1) as f32 / segments as f32;
         let a = start.lerp(end, t0) + fractal.offsets[index];
@@ -5294,6 +5487,184 @@ mod tests {
         header37(elements).replace("MOXTVersion: 37", "MOXTVersion: 79")
     }
 
+    /// A trail (element 152) at version 79, where all five trail keys are read.
+    /// `RepeatCount: -1` keeps the element alive past its own clock, so these
+    /// tests can watch the ring after the whole strip has been laid down, and
+    /// `StartPos`/`EndPos` differ because a zero-length strip draws nothing at
+    /// all. The element clock lasts `duration_ms`, which is what `update_trail`
+    /// divides by `Segs` to get one append step; `Interval` is authored far out
+    /// so the noise block does not regenerate inside a window under test.
+    #[allow(clippy::fn_params_excessive_bools)]
+    fn trail(
+        segments: u32,
+        is_append: bool,
+        is_tail_disappear: bool,
+        vertices_life: f32,
+        duration_ms: f32,
+    ) -> String {
+        format!(
+            "{header}GFXELEMENTID: 152\r\nName: t\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+             RepeatCount: -1\r\nTexFile: 轨迹\\trail003.dds\r\nBufLen: 256\r\n\
+             Amplitude: 1.000000\r\nWaveLen: 1\r\nPersistence: 0.250000\r\nOctaveNum: 5\r\n\
+             StartPos: 0, 0, 0\r\nEndPos: 1, 0, 0\r\nSegs: {segments}\r\nLightNum: 1\r\n\
+             WaveLen: 1.000000\r\nInterval: 100000\r\nWidth: 0.050000\r\nWidth: 0.050000\r\n\
+             Alpha: 1.000000\r\nAlpha: 1.000000\r\nWidth: 0.050000\r\nAlpha: 1.000000\r\n\
+             Amplitude: 0.000000\r\nPos1Enable: 0\r\nPos2Enable: 0\r\nUseNormal: 0\r\n\
+             Normal: 0, 0, 0\r\nFilter: 1\r\nisappend: {is_append}\r\nrenderside: 0\r\n\
+             istaildisappear: {is_tail_disappear}\r\nvertslife: {vertices_life}\r\n\
+             tailfadeout: 0\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
+             TimeSpan: {duration_ms}\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1.000000\r\n\
+             Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n",
+            header = header79(1),
+            is_append = is_append as u8,
+            is_tail_disappear = is_tail_disappear as u8,
+        )
+    }
+
+    /// Advance by `dt_ms` and report how many quads the trail drew. One quad is
+    /// one live ring record, so this reads the ring from the outside.
+    fn trail_quads(player: &mut Player, dt_ms: f32) -> usize {
+        player
+            .advance(dt_ms, &view(), Mat4::IDENTITY, 1., 1.)
+            .unwrap_or_else(|error| panic!("{error}"));
+        player.quads().len()
+    }
+
+    /// `0x713ed4`: a trail that does not append is rebuilt whole, and the rebuild
+    /// path never ages its records, so the strip is complete on frame one and
+    /// stays complete for as long as the element runs — `vertslife` and
+    /// `istaildisappear` have nothing to act on. 18 of the 156 corpus trails
+    /// author `isappend: 0`, and this is the strip they drew before the ring
+    /// existed.
+    #[test]
+    fn a_trail_that_does_not_append_draws_its_whole_strip_forever() {
+        let mut player = build(&trail(4, false, true, 100., 100.));
+        assert_eq!(
+            trail_quads(&mut player, 16.),
+            4,
+            "the whole strip exists on frame one"
+        );
+        for frame in 1..20 {
+            assert_eq!(
+                trail_quads(&mut player, 16.),
+                4,
+                "frame {frame}: a rebuilt strip is never aged, so nothing expires"
+            );
+        }
+    }
+
+    /// `0x714030` lays one vertex down per `interval / Segs` milliseconds, and
+    /// `0x714067` needs the accumulator strictly past a whole step first. With a
+    /// 100 ms element clock and four segments that is 25 ms a vertex, so 20 ms
+    /// frames build the strip one segment at a time and the fifth frame is the
+    /// one that does not quite reach the next step.
+    #[test]
+    fn an_appending_trail_lays_one_vertex_per_step_of_its_duration() {
+        let mut player = build(&trail(4, true, false, 100_000., 100.));
+        let drawn: Vec<usize> = (0..6).map(|_| trail_quads(&mut player, 20.)).collect();
+        assert_eq!(
+            drawn,
+            vec![0, 1, 2, 3, 3, 4],
+            "one vertex per 25 ms, and the frame that only reaches 25 ms lays none"
+        );
+    }
+
+    /// `0x714072` divides the accumulated time by the step rather than laying a
+    /// single vertex, so a frame longer than one step catches the strip up
+    /// instead of falling permanently behind.
+    #[test]
+    fn a_long_frame_lays_several_trail_vertices_at_once() {
+        let mut player = build(&trail(4, true, false, 100_000., 100.));
+        assert_eq!(
+            trail_quads(&mut player, 60.),
+            2,
+            "60 ms over a 25 ms step lays two vertices in one frame"
+        );
+    }
+
+    /// `0x713f60` ages every record by the frame delta and `0x713fbe` drops the
+    /// first record that has reached its life together with every older one. The
+    /// strip therefore climbs to its full length, holds while vertices are laid
+    /// as fast as they expire, and then shortens from the old end until nothing
+    /// is left — the tail disappearing that `istaildisappear` authors.
+    #[test]
+    fn a_trail_vertex_disappears_once_it_has_lived_its_life() {
+        let mut player = build(&trail(4, true, true, 100., 100.));
+        let drawn: Vec<usize> = (0..7).map(|_| trail_quads(&mut player, 30.)).collect();
+        assert_eq!(
+            drawn,
+            vec![1, 2, 3, 3, 2, 1, 0],
+            "the strip grows, holds at three, then loses its oldest vertex a frame at a time"
+        );
+    }
+
+    /// The expiry pass at `0x713fbe` is guarded by `istaildisappear`, so with it
+    /// clear the records still age and still clamp at their life, but nothing is
+    /// ever dropped and the laid strip stays on screen. 20 of the 156 corpus
+    /// trails author `istaildisappear: 0`.
+    #[test]
+    fn istaildisappear_clear_keeps_the_expired_vertices() {
+        let mut player = build(&trail(4, true, false, 100., 100.));
+        let drawn: Vec<usize> = (0..7).map(|_| trail_quads(&mut player, 30.)).collect();
+        assert_eq!(
+            drawn,
+            vec![1, 2, 3, 4, 4, 4, 4],
+            "the strip reaches its full length and stays there"
+        );
+    }
+
+    /// The ring is 256 records: `push $0xc00` at `0x713820` is 256 times twelve
+    /// bytes, `movl $0x100,0x31c(%esi)` stores that as the capacity and `0x713fd1`
+    /// stops the count growing past it while the head keeps advancing. The parser
+    /// accepts `Segs` up to 4096, so a strip longer than the ring loses its
+    /// oldest vertices rather than overflowing it. No corpus trail goes past 100.
+    #[test]
+    fn the_trail_ring_holds_at_most_256_vertices() {
+        let mut player = build(&trail(300, false, true, 100., 100.));
+        assert_eq!(
+            trail_quads(&mut player, 16.),
+            TRAIL_RING_CAPACITY,
+            "a 300-segment strip draws the newest 256 of its vertices"
+        );
+    }
+
+    /// The two ring passes the append path calls, on the ring itself: aging
+    /// clamps at the authored life instead of running past it, a record already
+    /// at its life is left alone, and the drop keeps the newer records because
+    /// the count shrinks from the old end (`count += -1 - position`, `0x71400f`).
+    #[test]
+    fn the_ring_ages_to_its_life_and_drops_from_the_old_end() {
+        let mut ring = TrailRing::default();
+        for index in 0..3 {
+            ring.push(TrailVertex {
+                index,
+                life: 100.,
+                age: 0.,
+            });
+        }
+        ring.age(60.);
+        ring.drop_expired();
+        assert_eq!(ring.records.len(), 3, "nothing has reached its life yet");
+        ring.records[0].age = 100.;
+        ring.drop_expired();
+        let kept: Vec<u32> = ring.records.iter().map(|record| record.index).collect();
+        assert_eq!(
+            kept,
+            vec![1, 2],
+            "the expired record and nothing newer goes"
+        );
+        ring.age(1000.);
+        assert!(
+            ring.records.iter().all(|record| record.age == record.life),
+            "ages clamp at the life, they do not keep growing"
+        );
+        ring.drop_expired();
+        assert!(
+            ring.records.is_empty(),
+            "and once every record is at its life the whole ring goes"
+        );
+    }
+
     /// A ground normal tilted `degrees` away from world up, in the XY plane.
     fn tilted_normal(degrees: f32) -> Vec3 {
         let radians = degrees.to_radians();
@@ -5492,6 +5863,91 @@ mod tests {
             "an owner that cannot raycast leaves the element alone, got {centre}"
         );
         assert!(grounded.warnings().is_empty(), "{:?}", grounded.warnings());
+    }
+
+    /// All 46 roots that carry a trail (element 152) play through the vertex
+    /// ring, and the ring is doing real work on retail data rather than sitting
+    /// at `Segs`: the 138 trails that author `isappend: 1` are laid down over
+    /// their own duration and then lose their oldest vertices, so the live count
+    /// moves from frame to frame. Nothing may hold more than the ring's 256
+    /// records and no corner may go non-finite.
+    #[test]
+    fn corpus_trails_play_through_the_vertex_ring() {
+        let Some(root) = corpus_root() else {
+            return;
+        };
+        let mut files = Vec::new();
+        corpus_files(&root, &mut files);
+        let view = view();
+        let (mut roots, mut trails, mut animated, mut nonfinite) = (0usize, 0usize, 0usize, 0usize);
+        for file in &files {
+            let Ok(bytes) = std::fs::read(file) else {
+                continue;
+            };
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            let Ok(probe) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            let slots: Vec<usize> = probe
+                .elements
+                .iter()
+                .enumerate()
+                .filter(|(_, element)| matches!(element.spec, Spec::Trail(_)))
+                .map(|(slot, _)| slot)
+                .collect();
+            if slots.is_empty() {
+                continue;
+            }
+            trails += slots.len();
+            let Ok(parsed) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            let Ok(mut player) = Player::new(parsed, 7, &mut |_| Err("no children".into())) else {
+                continue;
+            };
+            roots += 1;
+            let mut lengths: Vec<Vec<usize>> = slots.iter().map(|_| Vec::new()).collect();
+            for _ in 0..60 {
+                if player.advance(33., &view, Mat4::IDENTITY, 1., 1.).is_err() {
+                    break;
+                }
+                for (which, slot) in slots.iter().enumerate() {
+                    if let Runtime::Fractal(fractal) = &player.elements[*slot].runtime {
+                        assert!(
+                            fractal.trail.records.len() <= TRAIL_RING_CAPACITY,
+                            "the ring overflowed in {}",
+                            file.display()
+                        );
+                        lengths[which].push(fractal.trail.records.len());
+                    }
+                }
+                for quad in player.quads() {
+                    for corner in &quad.positions {
+                        if corner.iter().any(|component| !component.is_finite()) {
+                            nonfinite += 1;
+                        }
+                    }
+                }
+            }
+            for length in &lengths {
+                let first = length.first().copied().unwrap_or(0);
+                if length.iter().any(|live| *live != first) {
+                    animated += 1;
+                }
+            }
+        }
+        println!(
+            "trails: {roots} roots, {trails} elements, {animated} changed length, {nonfinite} non-finite"
+        );
+        assert_eq!(nonfinite, 0, "no trail corner may go non-finite");
+        assert_eq!(roots, 46, "the corpus carries 46 roots with a trail");
+        assert_eq!(trails, 156, "and 156 trail elements between them");
+        // Exactly the 138 trails that author `isappend: 1` move; the other 18 are
+        // rebuilt whole and hold one length for their entire life.
+        assert_eq!(
+            animated, 138,
+            "the ring is live on the appending trails and static on the rest"
+        );
     }
 
     /// All 459 roots that author a ground key still play with a query supplied,

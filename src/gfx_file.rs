@@ -795,12 +795,32 @@ impl Default for Lightning {
 /// Fractal trail (element 152): the fractal payload plus the tail keys.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Trail {
+    /// The strip geometry shared with element 150. `Segs` doubles as the vertex
+    /// count the ring is filled to, element+0x2b8.
     pub fractal: Fractal,
+    /// Lay vertices down over time and let them expire, instead of rebuilding the
+    /// whole strip every frame. Byte at element+0x304, read from version 67 and
+    /// true in the constructor at `0x7137ea`. 138 of the 156 corpus trails set
+    /// it, 18 clear it.
     pub is_append: bool,
+    /// Read from version 67 into element+0x308 and clamped to 0, 1 or 2 by
+    /// `0x713ae3` — then never read again. Nothing in the effect region touches
+    /// +0x308 outside the loader and the clone, and all 156 corpus trails author
+    /// 0, so this is inert in the client itself rather than merely unimplemented
+    /// here.
     pub render_side: u32,
+    /// Drop a vertex once its age reaches its life. Byte at element+0x305, read
+    /// from version 68, true by default; `0x713fbe` is the pass that acts on it.
     pub is_tail_disappear: bool,
-    /// Milliseconds a trail vertex lives.
+    /// Milliseconds a trail vertex lives: element+0x30c, read from version 68 as
+    /// `vertslife: %d` and defaulting to 1000 (`movl $0x3e8,0x30c`). Every ring
+    /// record is born carrying it; the corpus ranges from 100 to 2000.
     pub vertices_life: f32,
+    /// Read from version 69 into the byte at element+0x306, so natively this is a
+    /// flag reduced with `setne` rather than the fraction its name suggests. 155
+    /// of the 156 corpus trails author 0 and one authors 1, and for those two
+    /// values the flag reading and `1.0 - value` agree, which is what the player
+    /// applies.
     pub tail_fade_out: f32,
 }
 
@@ -1463,11 +1483,43 @@ fn spec(id: u32, fields: &[Field], version: u32) -> Result<Spec, String> {
         }),
         152 => Spec::Trail(Trail {
             fractal: fractal(&lookup)?,
-            is_append: lookup.flag("isappend", false)?,
-            render_side: clamp_u32(lookup.integer("renderside", 0)?),
-            is_tail_disappear: lookup.flag("istaildisappear", false)?,
-            vertices_life: lookup.number("vertslife", 0.)?,
-            tail_fade_out: lookup.number("tailfadeout", 0.)?,
+            // The trail loader gates its keys in three steps: `0x713a63` needs
+            // version 67 for isappend and renderside, `0x713aff` needs 68 for
+            // istaildisappear and vertslife, `0x713b69` needs 69 for tailfadeout.
+            // Below a gate the constructor's default at `0x7137ea` stands, and
+            // those are not zeros: `movb $0x1,0x304` and `movb $0x1,0x305` make
+            // both flags true and `movl $0x3e8,0x30c` makes vertslife 1000. All
+            // 156 corpus trails author every one of these keys, so the corrected
+            // defaults change no retail file — only a hand-written one.
+            is_append: if version >= 67 {
+                lookup.flag("isappend", true)?
+            } else {
+                true
+            },
+            // `0x713ae3` writes the value back as 0 unless it is 0, 1 or 2.
+            render_side: if version >= 67 {
+                match clamp_u32(lookup.integer("renderside", 0)?) {
+                    side @ (0 | 1 | 2) => side,
+                    _ => 0,
+                }
+            } else {
+                0
+            },
+            is_tail_disappear: if version >= 68 {
+                lookup.flag("istaildisappear", true)?
+            } else {
+                true
+            },
+            vertices_life: if version >= 68 {
+                lookup.number("vertslife", 1000.)?
+            } else {
+                1000.
+            },
+            tail_fade_out: if version >= 69 {
+                lookup.number("tailfadeout", 0.)?
+            } else {
+                0.
+            },
         }),
         160 => Spec::Model(ModelRef {
             path: lookup.one("ModelPath").unwrap_or_default().to_string(),
@@ -2599,6 +2651,68 @@ mod tests {
         assert_eq!(fractal.filter, 1);
     }
 
+    /// The five trail keys arrive one version at a time — `isappend` and
+    /// `renderside` at 67, `istaildisappear` and `vertslife` at 68, `tailfadeout`
+    /// at 69 — and `0x713ae3` writes `renderside` straight back out as 0 unless
+    /// the file authored 0, 1 or 2. Every corpus trail sits at version 73, 76 or
+    /// 79, so all five are read in practice; the ladder is here because it is
+    /// what the loader does, and the clamp because a value outside it is
+    /// silently rewritten rather than rejected.
+    #[test]
+    fn trail_keys_are_gated_by_version_and_renderside_is_clamped() {
+        let element = |renderside: i32| {
+            format!(
+                "GFXELEMENTID: 152\nName: t\nSrcBlend: 5\nDestBlend: 2\n\
+                 TexFile: 轨迹\\trail003.dds\nSegs: 4\nisappend: 0\nrenderside: {renderside}\n\
+                 istaildisappear: 0\nvertslife: 250\ntailfadeout: 1\nStartTime: 0\n\
+                 KEYPOINTCOUNT: 0\n"
+            )
+        };
+        let read = |version: u32, renderside: i32| {
+            let source = header37(1).replace("MOXTVersion: 37", &format!("MOXTVersion: {version}"))
+                + &element(renderside);
+            let root = parse(&source).unwrap_or_else(|error| panic!("version {version}: {error}"));
+            let Spec::Trail(trail) = &root.elements[0].spec else {
+                panic!("element 152 is a trail");
+            };
+            (
+                trail.is_append,
+                trail.render_side,
+                trail.is_tail_disappear,
+                trail.vertices_life,
+                trail.tail_fade_out,
+            )
+        };
+        // Below 67 nothing is read, so the constructor defaults stand: append on,
+        // tail disappearing on, a thousand milliseconds of life.
+        for version in [28u32, 37, 66] {
+            assert_eq!(
+                read(version, 2),
+                (true, 0, true, 1000., 0.),
+                "version {version} reads no trail key at all"
+            );
+        }
+        // 67 brings `isappend` and the clamped `renderside`.
+        assert_eq!(read(67, 2), (false, 2, true, 1000., 0.));
+        assert_eq!(
+            read(67, 7),
+            (false, 0, true, 1000., 0.),
+            "a render side outside 0, 1 and 2 is rewritten to 0"
+        );
+        assert_eq!(read(67, -1), (false, 0, true, 1000., 0.));
+        // 68 brings `istaildisappear` and `vertslife`.
+        assert_eq!(read(68, 1), (false, 1, false, 250., 0.));
+        // 69 brings `tailfadeout`, and 79 — the newest in the corpus — reads all
+        // five.
+        for version in [69u32, 73, 76, 79] {
+            assert_eq!(
+                read(version, 0),
+                (false, 0, false, 250., 1.),
+                "version {version} reads every trail key"
+            );
+        }
+    }
+
     #[test]
     fn trail_152_cylinders_grids_children_lights_and_sounds() {
         let trail = "GFXELEMENTID: 152\nName: t\nSrcBlend: 5\nDestBlend: 2\nTexFile: 轨迹\\trail003.dds\n\
@@ -2636,9 +2750,13 @@ mod tests {
         let Spec::Trail(trail) = &root.elements[0].spec else {
             panic!("element 152 is a trail");
         };
+        // This root is version 37, below every trail gate, so the five values the
+        // file authors are ignored and the constructor defaults at `0x7137ea`
+        // stand instead — which is why `vertslife: 100` reads back as 1000.
         assert!(trail.is_append && trail.is_tail_disappear);
         assert_eq!(trail.render_side, 0);
-        assert_eq!(trail.vertices_life, 100.);
+        assert_eq!(trail.vertices_life, 1000.);
+        assert_eq!(trail.tail_fade_out, 0.);
         assert_eq!(trail.fractal.segments, 20);
         assert_eq!(trail.fractal.alphas, vec![1., 0., 1.]);
 
