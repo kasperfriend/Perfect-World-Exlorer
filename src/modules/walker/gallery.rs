@@ -21,7 +21,11 @@
 //! `gfx_player`, which is the full grammar and the one path the corpus tests
 //! cover. A root it rejects is a named error, never an approximation.
 
-use crate::{gfx_catalog, gfx_file, gfx_player, modules::walker::archive::Archive};
+use crate::{
+    gfx_catalog, gfx_file, gfx_player,
+    modules::walker::{archive::Archive, physics},
+    navigation::MapSpace,
+};
 use glam::{Mat4, Vec3};
 use std::path::PathBuf;
 
@@ -156,15 +160,23 @@ impl Gallery {
         &mut self,
         view: &gfx_player::View,
         dt_ms: f32,
+        map: Option<&MapSpace>,
     ) -> Result<Vec<gfx_player::EffectQuad>, String> {
         let mut out = Vec::new();
         if !self.enabled {
             return Ok(out);
         }
         for spawn in &mut self.spawns {
+            // One ground query per spawn per frame, at the position the row put
+            // it: the owner raycasts from its own placement (`0x6e53f0`), so a
+            // root standing on terrain gets the aligned frame and one floating
+            // above it stays where it was authored. 459 corpus roots ask for
+            // this and 393 of them change shape once a query answers.
+            let ground =
+                map.map(|map| physics::effect_ground(map, spawn.transform.w_axis.truncate()));
             spawn
                 .player
-                .advance(dt_ms, view, spawn.transform, 1., 1.)
+                .advance_with_ground(dt_ms, view, spawn.transform, 1., 1., ground)
                 .map_err(|error| format!("{}: {error}", spawn.path))?;
             out.extend(spawn.player.quads().iter().cloned());
         }

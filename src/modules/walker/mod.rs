@@ -1093,6 +1093,11 @@ impl Walker {
             let character = self.character.as_mut().ok_or("Walker character missing")?;
             let assets = self.assets.as_mut().ok_or("Walker assets missing")?;
             let gallery = &mut self.gallery;
+            // Terrain for the effects' own ground query. `MatchGrnd` and
+            // `GroundHeight` are gated on an owner byte no `.gfx` file can set,
+            // so the host has to supply the sample; a walker with no map loaded
+            // passes `None` and those keys stay inert.
+            let map = self.map.as_ref();
             let models = render_models(character, &character.posed.meshes)?;
             if models.len() != gpu.draws.len() {
                 return Err("travel draw count changed without rebuilding GPU resources".into());
@@ -1122,14 +1127,17 @@ impl Walker {
             let view = gfx_player::View::from_inverse_view_projection(
                 Mat4::from_cols_array_2d(&frame.matrix).inverse(),
             );
-            let mut effect_quads =
-                character
-                    .gfx
-                    .advance(&character.assembly, &character.posed.pose, &view, dt_ms)?;
+            let mut effect_quads = character.gfx.advance(
+                &character.assembly,
+                &character.posed.pose,
+                &view,
+                dt_ms,
+                map,
+            )?;
             // The gallery shares this pass: the same draw object, the same blend
             // buckets and the same texture resolution, so a free-standing root is
             // rendered exactly like a character-attached one.
-            effect_quads.extend(gallery.advance(&view, dt_ms)?);
+            effect_quads.extend(gallery.advance(&view, dt_ms, map)?);
             gpu.effects.update(
                 device,
                 queue,

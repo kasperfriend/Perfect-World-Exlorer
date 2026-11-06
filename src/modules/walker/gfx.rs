@@ -15,10 +15,14 @@ use crate::{
     gfx_file, gfx_player,
     model_asset::ModelAsset,
     model_attachment,
-    modules::designer::{
-        assembly::{Character, CharacterPose, TravelState},
-        assets::Assets,
+    modules::{
+        designer::{
+            assembly::{Character, CharacterPose, TravelState},
+            assets::Assets,
+        },
+        walker::physics,
     },
+    navigation::MapSpace,
 };
 use glam::Mat4;
 
@@ -182,6 +186,7 @@ impl CharacterGfx {
         pose: &CharacterPose,
         view: &gfx_player::View,
         dt_ms: f32,
+        map: Option<&MapSpace>,
     ) -> Result<Vec<gfx_player::EffectQuad>, String> {
         let mut out = Vec::new();
         for effect in &mut self.effects {
@@ -193,13 +198,20 @@ impl CharacterGfx {
             let Kind::Dynamic(player) = &mut effect.kind else {
                 continue;
             };
+            // One ground query per effect per frame, at the placement the effect
+            // is parented to, which is the owner position `0x6e53f0` raycasts
+            // from. `None` when the host has no terrain, and then `MatchGrnd` and
+            // `GroundHeight` stay inert exactly as they do for an owner whose
+            // +0x1f4 byte is clear.
+            let ground = map.map(|map| physics::effect_ground(map, parent.w_axis.truncate()));
             player
-                .advance(
+                .advance_with_ground(
                     dt_ms * effect.speed,
                     view,
                     parent,
                     effect.scale,
                     effect.alpha,
+                    ground,
                 )
                 .map_err(|error| format!("{}: {error}", effect.path))?;
             out.extend(player.quads().iter().cloned());
