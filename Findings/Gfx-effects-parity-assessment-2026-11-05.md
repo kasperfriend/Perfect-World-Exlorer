@@ -376,6 +376,35 @@ interface was added so the rest can follow.
   root+0x2a0 enable byte, so the numerator has no recovered provenance, and
   inventing one would put a guess in the emission path.
 
+## Running a module's tests without the crate's dependencies
+
+Four CI cycles went into guessing at a wrong assertion when the file did not
+build. Two properties of this workspace combine badly: `cargo` cannot run at all
+without crates.io, and `cargo check --locked --bins` does not compile
+`#[cfg(test)]` code, so an error inside a test module is invisible until the test
+step — and the test step's log sits on a storage host this workspace cannot
+reach, so the failing assertion is never named.
+
+For a module whose logic needs nothing but `std`, the tests can be run anyway.
+`gfx_catalog`'s `normalize`, `group_of`, `Catalog::from_directory`,
+`priority_exempts`, `detail_scaled_count` and `presets` are all dependency-free;
+lifting them and their tests into one file and building it with
+`rustc --edition 2021 --test` runs them in under a second, given a sysroot
+assembled from the `@rustbin/rustc-1.88.0-x86_64-unknown-linux-gnu`,
+`@rustbin/rust-std-1.88.0-x86_64-unknown-linux-gnu` and
+`@rustbin/rustfmt-1.88.0-x86_64-unknown-linux-gnu` npm packages (rustc's
+`lib/*.so` into `<sysroot>/lib`, the std rlibs into
+`<sysroot>/lib/rustlib/x86_64-unknown-linux-gnu/lib`). That run found what the
+cycles could not: converting an `assert!` to `assert_eq!` had orphaned a
+positional `{:?}` in the format string, which is a compile error, not a wrong
+value. It also corrected a hand-computed expectation in the other direction —
+`6.0 * 8.3333333` rounds to exactly `50.0` in f32, so the emission-detail factor
+at distance 100 is 0.5 and ten particles become five, not the four a by-hand
+truncation argument claimed.
+
+The two tests that need `gfx_file` and `gfx_decal`, and so `glam`, `flate2` and
+`encoding_rs`, still run only in CI.
+
 ## Still open
 
 Unchanged from the previous write-up and not addressed here: the interpolation and octave weighting inside the fractal-noise generator `0x766490` behind controllers 107, 109 and 112 (241 root controllers in the corpus, all type 112 — see *Camera shake, measured and left alone* for how far that decode now goes), element 190 curves being counted rather than drawn, models/sounds/lights belonging to other subsystems, and the 82 child references to files that do not ship. The `gfx_light` millisecond window listed here previously is fixed in *Fixed while writing this up*; the ramp time-base question that fix opened is still unsettled and needs the controller-108 update routine.
