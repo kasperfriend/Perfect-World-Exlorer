@@ -1168,15 +1168,16 @@ impl Character {
             self.sound_commands
                 .push(SoundCommand::StopChannel(WEAPON_CHANNEL));
         }
-        let world = if self.last_transform_pos == body.position && self.last_transform_facing == facing {
-            self.last_transform
-        } else {
-            let w = character_transform(body.position, facing);
-            self.last_transform_pos = body.position;
-            self.last_transform_facing = facing;
-            self.last_transform = w;
-            w
-        };
+        let world =
+            if self.last_transform_pos == body.position && self.last_transform_facing == facing {
+                self.last_transform
+            } else {
+                let w = character_transform(body.position, facing);
+                self.last_transform_pos = body.position;
+                self.last_transform_facing = facing;
+                self.last_transform = w;
+                w
+            };
         let animation = TravelAnimation {
             state: travel,
             mount: if travel == TravelState::Mounted {

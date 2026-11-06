@@ -390,7 +390,11 @@ impl Walker {
             .as_mut()
             .map(|character| character.take_sound_commands())
             .unwrap_or_default();
-        let movement = if active && enabled { self.movement_sound() } else { None };
+        let movement = if active && enabled {
+            self.movement_sound()
+        } else {
+            None
+        };
         self.audio
             .update(enabled && active, volume, commands, movement);
     }
@@ -655,7 +659,13 @@ impl Walker {
                     character.assembly.class_speeds.swim,
                 )
             })?;
-            (rushing, flight_speed, mount_speed, movement_constants, swim_speed)
+            (
+                rushing,
+                flight_speed,
+                mount_speed,
+                movement_constants,
+                swim_speed,
+            )
         };
         let vertical = if input_enabled && self.travel == TravelState::Flying {
             (if space { 1.0 } else { 0.0 })
