@@ -4838,6 +4838,27 @@ mod tests {
         assert_eq!(player.stats().children, 1);
     }
 
+    /// The version-76 boundary on the depth test. The rule came from the static
+    /// decal path and `push_quad` applies it to every quad, but nothing tested
+    /// the boundary itself: 334 of the corpus's 390 `ZEnable: 0` elements sit in
+    /// roots older than 76, so this gate decides most of them.
+    #[test]
+    fn depth_test_is_forced_below_version_76() {
+        let mut common = Common::default();
+        common.depth_test = false;
+        assert!(
+            depth_test(&common, 24),
+            "the oldest accepted root is forced"
+        );
+        assert!(depth_test(&common, 37));
+        assert!(depth_test(&common, 75), "one below the boundary is forced");
+        assert!(!depth_test(&common, 76), "at 76 the authored value decides");
+        assert!(!depth_test(&common, 79));
+        common.depth_test = true;
+        assert!(depth_test(&common, 79));
+        assert!(depth_test(&common, 37));
+    }
+
     /// A child that names its own parent must not recurse: the depth cap and the
     /// path stack turn it into a warning.
     #[test]

@@ -15,6 +15,23 @@
 //!   `DefaultAlpha` land at root+0x1e8/0x1ec/0x1f0; the AABB centre and half
 //!   extent at +0x20c..+0x220; `UseAABB` at +0x26c; `FadeByDist`/`FadeStart`/
 //!   `FadeEnd` at +0x26e/+0x270/+0x274; the three 2D flags at +0x2b4..+0x2b6.
+//! * Element loader `0x6f99f0` (shared keys) and the sprite loader at
+//!   `0x71df00`: every optional key is version gated, and the gate ladder is
+//!   `cmp` against 4/8/9/22/28/32/33/34/41/45/57/58/74/75 for the shared keys
+//!   and 42/54/55/61 for `ZOffset`/`MatchSurface`/`MaxExtent`/`YawEffect`. The
+//!   format strings are `%d` or `%f`, which fixes each native type: `BindEle`
+//!   and `DummyEle` are `%s` (element *names*, copied to element+0x9c by
+//!   `0x7638a0`), `GroundHeight` is `%d` reduced to a byte by `value != 0` at
+//!   element+0x132, `MatchGrnd` is the byte at element+0x131 and `ZEnable` the
+//!   byte at element+0x130 — a byte every version below 76 then forces to 1,
+//!   which is why `Common::depth_test` keeps the authored value and the rule
+//!   lives in `gfx_player::depth_test`. The sprite loader's tail (`0x71e0ff`)
+//!   replaces a zero `MaxExtent` with `1.5 * max(Width, Height)` (`fmuls
+//!   0x8d75cc`, which holds 1.5) and derives the four corner terms at element
+//!   +0x15c/+0x160/+0x164/+0x168 as `2W*OrgPt1`, `2W - that`, `2H*OrgPt2`,
+//!   `2H - that`; the corner builder at `0x71ea70` multiplies each by the
+//!   runtime scale unless the matching `NoScale` byte (element+0x151/+0x152) is
+//!   set, which is the split `quad_corners` reproduces.
 //! * Controller factory `0x6ea910` (`jmp [eax*4+0x6eaddc]`, `eax = type-100`)
 //!   gives the 13 controller classes, their object sizes and their field lists;
 //!   the field order here matches each class `Load` (105 `0x6ec090`,
@@ -224,8 +241,22 @@ pub struct Common {
     pub texture: String,
     /// Name of another element this one binds to, empty when unbound.
     pub bind_element: String,
+    /// The authored `ZEnable`, kept verbatim: the client reads it into the byte
+    /// at element+0x130 from version 8 on and then overwrites that byte with 1
+    /// for every version below 76 (`0x6f9e3a`: `cmp $0x4c,%eax; jae …; movb
+    /// $0x1,0x130(%edi)`). 334 of the corpus's 390 `ZEnable: 0` elements sit in
+    /// those older roots, so the version rule decides most of them — it is
+    /// applied where the quad is built (`gfx_player::depth_test`) and by
+    /// `gfx_decal`, not here, so this field stays the authored value.
     pub depth_test: bool,
+    /// Match the ground. The client reads it from version 22 on into the byte at
+    /// element+0x131; that gate is unreachable because a root below version 24
+    /// is rejected first, so the key is read unconditionally.
     pub match_ground: bool,
+    /// Read from version 57 on as `GroundHeight: %d` and reduced to the byte at
+    /// element+0x132 by `value != 0`, so natively this is a flag rather than a
+    /// height. The authored number is kept so the 28 corpus elements that set
+    /// it stay inspectable.
     pub ground_height: f32,
     /// Flipbook rows; 1 disables the flipbook.
     pub tex_row: u32,
@@ -442,9 +473,19 @@ pub struct Sprite {
     pub no_scale: [bool; 2],
     /// Anchor fractions in 0..1; 0.5 centres the quad on the element origin.
     pub origin: [f32; 2],
+    /// Read from version 42 on; element+0x16c.
     pub z_offset: f32,
+    /// Read from version 54 on; the byte at element+0x170.
     pub match_surface: bool,
+    /// Read from version 55 on into element+0x174, then replaced by
+    /// `1.5 * max(width, height)` whenever it is still zero — a tail the loader
+    /// runs after every gate, so it also covers the 3,250 corpus sprites that
+    /// carry no `MaxExtent` key and the 133 that author zero. 3,038 of the
+    /// authored values are exactly this expression, the editor writing the same
+    /// default back out.
     pub max_extent: f32,
+    /// Read from version 61 on; the byte at element+0x195. Selects the yaw
+    /// orientation path at `0x71f36d`/`0x71f84e`.
     pub yaw_effect: bool,
 }
 
@@ -1119,7 +1160,7 @@ pub fn parse(source: &str) -> Result<Root, String> {
     }
     for index in 0..count {
         let id = clamp_u32(reader.integer("GFXELEMENTID")?);
-        let element = element(&mut reader, id)
+        let element = element(&mut reader, id, version)
             .map_err(|error| format!("GFX element {index} (id {id}): {error}"))?;
         root.elements.push(element);
     }
@@ -1137,7 +1178,7 @@ fn clamp_u32(value: i64) -> u32 {
     u32::try_from(value.max(0)).unwrap_or(u32::MAX)
 }
 
-fn element(reader: &mut Reader, id: u32) -> Result<Element, String> {
+fn element(reader: &mut Reader, id: u32, version: u32) -> Result<Element, String> {
     // Everything up to the element clock, the affector list, the element-125
     // generation sequence or the next element belongs to this record. The
     // client writes its shared keys before the class payload, but 493 distinct
@@ -1153,8 +1194,8 @@ fn element(reader: &mut Reader, id: u32) -> Result<Element, String> {
     let (shared, spec_fields): (Vec<Field>, Vec<Field>) = block
         .into_iter()
         .partition(|(key, _)| SHARED_KEYS.contains(&key.as_str()));
-    let common = common(&shared, id)?;
-    let payload = spec(id, &spec_fields)?;
+    let common = common(&shared, id, version)?;
+    let payload = spec(id, &spec_fields, version)?;
     let mut affectors = Vec::new();
     let mut generation_sequence = None;
     if reader.peek() == Some("InterpolateMode") {
@@ -1198,7 +1239,7 @@ fn element(reader: &mut Reader, id: u32) -> Result<Element, String> {
 }
 
 /// The shared keys, read by name because every one of them is version gated.
-fn common(fields: &[Field], id: u32) -> Result<Common, String> {
+fn common(fields: &[Field], id: u32, version: u32) -> Result<Common, String> {
     if fields.is_empty() {
         return Err(format!("element {id} has no shared keys"));
     }
@@ -1225,7 +1266,11 @@ fn common(fields: &[Field], id: u32) -> Result<Common, String> {
         bind_element: lookup.one("BindEle").unwrap_or_default().to_string(),
         depth_test: lookup.flag("ZEnable", false)?,
         match_ground: lookup.flag("MatchGrnd", false)?,
-        ground_height: lookup.number("GroundHeight", 0.)?,
+        ground_height: if version >= 57 {
+            lookup.number("GroundHeight", 0.)?
+        } else {
+            0.
+        },
         tex_row: clamp_u32(lookup.integer("TexRow", 1)?),
         tex_col: clamp_u32(lookup.integer("TexCol", 1)?),
         tex_interval: clamp_u32(lookup.integer("TexInterval", 0)?),
@@ -1384,7 +1429,7 @@ impl<'a> Lookup<'a> {
 }
 
 /// Build the class payload from the specification block.
-fn spec(id: u32, fields: &[Field]) -> Result<Spec, String> {
+fn spec(id: u32, fields: &[Field], version: u32) -> Result<Spec, String> {
     let lookup = Lookup::new(fields);
     for key in lookup.fields.iter().map(|(key, _)| key.as_str()) {
         if !KNOWN_KEYS.contains(&key) {
@@ -1392,7 +1437,7 @@ fn spec(id: u32, fields: &[Field]) -> Result<Spec, String> {
         }
     }
     Ok(match id {
-        100..=104 => Spec::Sprite(sprite(&lookup, id)?),
+        100..=104 => Spec::Sprite(sprite(&lookup, id, version)?),
         110 => Spec::Ribbon(ribbon(&lookup)?),
         120..=125 => Spec::Particle(particle(&lookup, id)?),
         130 => Spec::Light(light(&lookup)?),
@@ -1483,7 +1528,7 @@ fn spec(id: u32, fields: &[Field]) -> Result<Spec, String> {
     })
 }
 
-fn sprite(lookup: &Lookup, id: u32) -> Result<Sprite, String> {
+fn sprite(lookup: &Lookup, id: u32, version: u32) -> Result<Sprite, String> {
     // Every retail element 100, 101 and 102 writes exactly one `Width` and one
     // `Height`; a missing one is damage, not a default. Elements 103 and 104
     // exist in the client's class switch but not in the corpus, so they keep
@@ -1502,6 +1547,30 @@ fn sprite(lookup: &Lookup, id: u32) -> Result<Sprite, String> {
     // quad about its origin, which is what those roots draw.
     let width = lookup.number("Width", 0.)?;
     let height = lookup.number("Height", 0.)?;
+    // Version gates from the sprite loader: `cmp $0x2a/$0x36/$0x37/$0x3d`
+    // before `ZOffset`, `MatchSurface`, `MaxExtent` and `YawEffect`. An older
+    // root keeps the constructed defaults even if the key is present; no corpus
+    // root violates a gate.
+    let z_offset = if version >= 42 {
+        lookup.number("ZOffset", 0.)?
+    } else {
+        0.
+    };
+    let match_surface = version >= 54 && lookup.flag("MatchSurface", false)?;
+    let yaw_effect = version >= 61 && lookup.flag("YawEffect", false)?;
+    // The loader's tail runs after every gate: a zero `MaxExtent` becomes
+    // `1.5 * max(Width, Height)`, taking the width branch when `Width > Height`
+    // (`0x71e121`) and the height branch otherwise (`0x71e141`).
+    let authored_extent = if version >= 55 {
+        lookup.number("MaxExtent", 0.)?
+    } else {
+        0.
+    };
+    let max_extent = if authored_extent == 0. {
+        1.5 * width.max(height)
+    } else {
+        authored_extent
+    };
     Ok(Sprite {
         width,
         height,
@@ -1525,10 +1594,10 @@ fn sprite(lookup: &Lookup, id: u32) -> Result<Sprite, String> {
                 .transpose()?
                 .unwrap_or(0.5),
         ],
-        z_offset: lookup.number("ZOffset", 0.)?,
-        match_surface: lookup.flag("MatchSurface", false)?,
-        max_extent: lookup.number("MaxExtent", 0.)?,
-        yaw_effect: lookup.flag("YawEffect", false)?,
+        z_offset,
+        match_surface,
+        max_extent,
+        yaw_effect,
     })
 }
 
@@ -2149,7 +2218,10 @@ mod tests {
         assert_eq!(element.common.destination_blend, 2);
         assert_eq!(element.common.texture, "粒子\\glow.dds");
         assert!(element.common.bind_element.is_empty());
+        // The authored value; the version-76 rule is applied when the quad is
+        // built, not here.
         assert!(!element.common.depth_test);
+        assert!(!element.common.match_ground);
         assert_eq!(element.common.tex_interval, 50);
         assert_eq!(element.common.priority, 2);
         assert_eq!(element.common.tex_speed, [0.; 2]);
@@ -2165,6 +2237,10 @@ mod tests {
         assert_eq!(sprite.width, 0.25);
         assert_eq!(sprite.height, 0.5);
         assert!(!sprite.rotate_from_view && !sprite.match_surface && !sprite.yaw_effect);
+        // No `MaxExtent` key, so the loader's tail computes 1.5 * max(0.25, 0.5).
+        assert_eq!(sprite.max_extent, 0.75);
+        // Version 37 is below the 42/54/55/61 gates, so these stay default.
+        assert_eq!(sprite.z_offset, 0.);
 
         let key = &element.keypoints[0];
         assert_eq!(key.time_span, -1.);
@@ -2179,6 +2255,35 @@ mod tests {
         assert_eq!(root.duration_ms(), None);
         assert_eq!(element.duration_ms(), None);
         assert!(root.has_visual_elements());
+    }
+
+    /// `MaxExtent` is computed when it is zero or absent, and kept when it is
+    /// authored in a root whose version reaches the gate.
+    #[test]
+    fn max_extent_defaults_to_one_and_a_half_times_the_larger_side() {
+        let header79 = header37(1).replace("MOXTVersion: 37", "MOXTVersion: 79");
+        // Absent key at version 79: still the computed default.
+        let absent = parse(&(header79.clone() + SPRITE)).unwrap();
+        let Spec::Sprite(sprite) = &absent.elements[0].spec else {
+            panic!("element 100 is a sprite");
+        };
+        assert_eq!(sprite.max_extent, 1.5 * 0.5);
+        // Authored key at version 79: the author's value wins.
+        let authored =
+            parse(&(header79 + &SPRITE.replace("Width: 0.25", "MaxExtent: 3.5\r\nWidth: 0.25")))
+                .unwrap();
+        let Spec::Sprite(sprite) = &authored.elements[0].spec else {
+            panic!("element 100 is a sprite");
+        };
+        assert_eq!(sprite.max_extent, 3.5);
+        // Authored zero is indistinguishable from absent, so it is recomputed.
+        let zero = parse(&(header37(1).replace("MOXTVersion: 37", "MOXTVersion: 79")
+            + &SPRITE.replace("Width: 0.25", "MaxExtent: 0.000000\r\nWidth: 0.25"),))
+        .unwrap();
+        let Spec::Sprite(sprite) = &zero.elements[0].spec else {
+            panic!("element 100 is a sprite");
+        };
+        assert_eq!(sprite.max_extent, 0.75);
     }
 
     #[test]
