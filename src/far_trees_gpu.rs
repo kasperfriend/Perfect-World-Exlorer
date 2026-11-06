@@ -20,7 +20,14 @@ impl Instance {
     fn new(position: [f32; 3], info: [f32; 2]) -> Self {
         Self {
             data: [
-                position[0], position[1], position[2], 0., info[0], info[1], 0., 0.,
+                position[0],
+                position[1],
+                position[2],
+                0.,
+                info[0],
+                info[1],
+                0.,
+                0.,
             ],
         }
     }
@@ -1136,8 +1143,13 @@ impl FarTrees {
         let start = self.batches[self.groups[group].first_batch + level]
             .instances
             .start as u64;
-        let bytes =
-            self.read_back(device, queue, &self.instances, (start + slot as u64) * size, size);
+        let bytes = self.read_back(
+            device,
+            queue,
+            &self.instances,
+            (start + slot as u64) * size,
+            size,
+        );
         let data: &[f32; 8] = bytemuck::from_bytes(&bytes);
         [data[4], data[5]]
     }
