@@ -153,10 +153,11 @@ emitter`+0xb4` or the basis at `+0xc0…+0xe0`. `0x8ee224` is 0.001, and the vol
 path multiplies by the same constant twice (`0x7276bc`, `0x7276d6`), so it is the
 engine's unit conversion on node positions rather than a radius: **id 120's surface
 particles sit one file unit from the emitter, with the spread in their direction
-rather than in their position.** The viewer therefore gets those 86 elements wrong
-in kind, not merely in shape — it puts them on the `AreaSize` ellipsoid with the
-shared direction slot, and the client puts them one file unit out along a cone of
-half-angle `Angle` around its local **Z** axis. *(Corrected the same day: the
+rather than in their position.** The viewer *got* those 86 elements wrong
+in kind, not merely in shape — it put them on the `AreaSize` ellipsoid with the
+shared direction slot, where the client puts them one file unit out along a cone of
+half-angle `Angle` around its local **Z** axis. It does not any more: `spawn` has an
+id-120 arm now, and id 121's 11 elements are the only `IsSurface` gap left. *(Corrected the same day: the
 half-angle given here first was `π/2 − Angle` around Y — that is the intermediate
 tilt the block applies to the global Y axis before composing, not the cone that comes
 out.)* The operand order and the `IsBind` split are both read now: node`+0x34` is
@@ -166,8 +167,10 @@ bound side skips it (`jne 0x727552`); and the direction written to node`+0x44` i
 `rotate(Y, node+0x34)`, which reduces to `(−sin Angle·sin θ, sin Angle·cos θ, cos
 Angle)` — checked numerically to 3e-16. Every particle sits at polar angle `Angle`
 exactly, so this is the surface of the cone rather than the filled cone the shared
-direction slot produces. These 86 are therefore reproducible draw for draw, and the
-viewer still routes them through the volume path.
+direction slot produces. These 86 are reproduced now: `surface_cone` walks the same
+chain and spends the same single draw, `to_emitter_local` factors out the frame step
+`emission_axis` already did inline, and the position is that same vector one unit
+out, exactly as node+0x10 and node+0x44 are in the client.
 
 Id 121's surface sampler `0x727800` (11 elements) is the opposite shape: a long
 rejection loop, five `rand()` draws in its first thirty instructions, squaring

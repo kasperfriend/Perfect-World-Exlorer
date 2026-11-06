@@ -152,8 +152,9 @@ the engine's unit conversion on every node position rather than a surface radius
 The consequence is the finding: id 120's surface particles sit **one file unit from
 the emitter** on a cone of half-angle `Angle` about its local Z, and the block never
 reads `AreaSize` at emitter`+0xb4` or the basis at `+0xc0…+0xe0` at all. Both
-products and both `IsBind` re-tests are read now, so the direction is reproducible
-draw for draw — the viewer still routes these 86 elements through the volume path.
+products and both `IsBind` re-tests are read now, and `spawn` reproduces the block
+for these 86 elements: `surface_cone` for the chain, `to_emitter_local` for the
+frame, and the same vector for the position and the direction.
 
 ### The direction slot `0x723440`, shared by all seven classes
 
