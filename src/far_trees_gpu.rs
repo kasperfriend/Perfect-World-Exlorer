@@ -1064,6 +1064,10 @@ impl FarTrees {
     /// `draw` is one implementation for both.
     #[allow(dead_code)]
     pub fn update_lods(&mut self, queue: &wgpu::Queue, camera: [f32; 3], scale: f32) {
+        // Counts go into a copy: the compute pass restores `lod_args_reset` on
+        // every dispatch, and a check that runs both paths must not have this
+        // one leave its counts behind.
+        let mut args = self.lod_args_reset.clone();
         for group in &self.groups {
             let mut counts = [0u32; 3];
             for &p in &group.positions {
@@ -1101,12 +1105,12 @@ impl FarTrees {
                 // compute pass uses too.
                 let at = (group.first_batch + i) * LOD_ARGS as usize;
                 for (offset, byte) in count.to_ne_bytes().iter().enumerate() {
-                    self.lod_args_reset[at + 4 + offset] = *byte;
+                    args[at + 4 + offset] = *byte;
                 }
             }
         }
         queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&self.staging));
-        queue.write_buffer(&self.lod_args, 0, &self.lod_args_reset);
+        queue.write_buffer(&self.lod_args, 0, &args);
     }
     pub fn residency_stats(&self) -> (usize, u64) {
         (self.staging.len(), self.instances.size())

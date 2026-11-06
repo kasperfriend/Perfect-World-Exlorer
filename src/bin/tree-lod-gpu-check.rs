@@ -172,6 +172,66 @@ pub fn run(authored_mips: bool) {
     let view = target.create_view(&Default::default());
     let dv = depth.create_view(&Default::default());
     let mut frames = Vec::new();
+    // One frame with the renderer's current instance buffer, read back.
+    let shoot = |renderer: &far_trees_gpu::FarTrees| -> Vec<u8> {
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: 128 * 128 * 4,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut e = device.create_command_encoder(&Default::default());
+        {
+            let mut pass = e.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: None,
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &dv,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            renderer.draw(&mut pass, false);
+        }
+        e.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &target,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(512),
+                    rows_per_image: Some(128),
+                },
+            },
+            size,
+        );
+        queue.submit(Some(e.finish()));
+        let slice = buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv().unwrap().unwrap();
+        let pixels = slice.get_mapped_range().to_vec();
+        buffer.unmap();
+        pixels
+    };
     let mut plans: Vec<(f32, f32, f32)> = vec![
         (20., 0., 0.),
         (25., 0., 0.),
@@ -257,6 +317,18 @@ pub fn run(authored_mips: bool) {
             counts, expected,
             "frame {frame_index}: GPU LOD selection differs from tree_lod::select at distance {dist}"
         );
+        // End to end: the CPU packer and the compute pass must paint the same
+        // picture for the same camera. Transition frames are skipped because
+        // their dither fraction sits on a knife edge between the CPU's f64
+        // distance and the GPU's f32 one; the fraction itself is compared above.
+        if bounds.is_none() && cpu.is_some_and(|selection| selection.secondary.is_none()) {
+            renderer.update_lods(&queue, [dist, 0., 0.], 1.);
+            let packed = shoot(&renderer);
+            assert_eq!(
+                packed, frames[frame_index],
+                "frame {frame_index}: CPU and GPU LOD selection paint different pixels"
+            );
+        }
         // The cross-fade has to agree as well, not just the level choice: read
         // back the `(fraction, mode)` the pass wrote and compare it with the
         // CPU's. f32 versus f64 distance moves the fraction by ~1e-7 at most.
@@ -287,62 +359,7 @@ pub fn run(authored_mips: bool) {
                 );
             }
         }
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: None,
-            size: 128 * 128 * 4,
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-        let mut e = device.create_command_encoder(&Default::default());
-        {
-            let mut pass = e.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: None,
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &dv,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0.),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            renderer.draw(&mut pass, false);
-        }
-        e.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
-                texture: &target,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::ImageCopyBuffer {
-                buffer: &buffer,
-                layout: wgpu::ImageDataLayout {
-                    offset: 0,
-                    bytes_per_row: Some(512),
-                    rows_per_image: Some(128),
-                },
-            },
-            size,
-        );
-        queue.submit(Some(e.finish()));
-        let slice = buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
-        device.poll(wgpu::Maintain::Wait);
-        rx.recv().unwrap().unwrap();
-        frames.push(slice.get_mapped_range().to_vec());
-        buffer.unmap();
+        frames.push(shoot(&renderer));
     }
     assert!(
         frames[15].chunks_exact(4).all(|p| p == [0, 0, 0, 255]),

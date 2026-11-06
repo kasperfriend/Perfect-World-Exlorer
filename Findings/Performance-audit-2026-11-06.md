@@ -72,7 +72,7 @@ Measured expectations, not benchmarked frame times (no GPU in this sandbox):
 * (3)–(5) remove per-frame allocations from the draw path; (6)–(7) remove
   per-frame and per-input string and environment work from the UI/event path.
 
-| 10 | `far_trees_gpu` LOD selection | the CPU walked **every** placement each frame the camera moved: distance, `tree_lod::select`, write the instance slot, then re-upload the whole instance buffer (three level slices per placement — 9.6 MB at whole-world scale, every frame) | the placement table (position + group index), each group's height and slice, and the per-batch `DrawIndexedIndirectArgs` are uploaded once at load; a single 64-wide compute dispatch then writes the instances and bumps the per-batch counts, and `draw` is one `draw_indexed_indirect` per batch | the shader is `tree_lod::client_distance` and `tree_lod::select` transcribed operation for operation — the same bit-trick square root, the same 10 % windows around `height * 5 * scale` and `height * 16 * scale`, tested in the same order. `tree-lod-gpu-check` reads the per-batch counts and the `(fraction, mode)` record back and compares both against the CPU `select` for every frame, including two frames placed inside the transition windows where the cross-fade is non-trivial |
+| 10 | `far_trees_gpu` LOD selection | the CPU walked **every** placement each frame the camera moved: distance, `tree_lod::select`, write the instance slot, then re-upload the whole instance buffer (three level slices per placement — 9.6 MB at whole-world scale, every frame) | the placement table (position + group index), each group's height and slice, and the per-batch `DrawIndexedIndirectArgs` are uploaded once at load; a single 64-wide compute dispatch then writes the instances and bumps the per-batch counts, and `draw` is one `draw_indexed_indirect` per batch | the shader is `tree_lod::client_distance` and `tree_lod::select` transcribed operation for operation — the same bit-trick square root, the same 10 % windows around `height * 5 * scale` and `height * 16 * scale`, tested in the same order. `tree-lod-gpu-check` reads the per-batch counts and the `(fraction, mode)` record back and compares both against the CPU `select` for every frame, including two frames placed inside the transition windows where the cross-fade is non-trivial, and renders every non-transition frame twice — once from the CPU packer's buffer, once from the compute pass's — asserting the pixels are identical |
 ## 3. Candidates examined and deliberately not changed
 
 | candidate | verdict |
@@ -151,6 +151,13 @@ A GPU-driven successor would add, per subsystem:
 | LOD selection on the GPU (grass, terrain window) | compute pass writing per-level instance counts + `draw_indexed_indirect` | far trees are done — item (10) — and its shape is the template: a static placement table, one dispatch, indirect counts. Grass and the terrain window still rebuild their per-level lists on the CPU, and the terrain window's LOD is load-bearing for block residency, so it needs its own CPU reference first |
 | model animation/compaction on the GPU | storage-buffer palettes, compute compaction | poses already reach the GPU, but activation/attachments/owners are the client's own gameplay callbacks, not render state |
 | water batches on the GPU | the same machinery | the batch list is a handful of planes; there is nothing measurable to win |
+
+`tree-lod-gpu-check` is that comparison for item (10): the compute pass's
+per-batch counts and its `(fraction, mode)` records are read back and compared
+against `tree_lod::select`, and every non-transition frame is rendered from both
+paths and compared pixel for pixel. The two fade fractions are compared with a
+tolerance instead, because f32 and f64 distances put the dither threshold on a
+knife edge for a handful of pixels.
 
 Item (10) is the first piece of that programme and shows the shape it takes:
 nothing moves until the CPU's answer can be compared with the GPU's for the
