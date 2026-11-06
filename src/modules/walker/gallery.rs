@@ -99,7 +99,9 @@ impl Gallery {
                 .ok_or("the Walker has no client element folder")?;
             self.catalog = Some(gfx_catalog::Catalog::open(&element.join("gfx.pck"))?);
         }
-        self.catalog.as_ref().ok_or("the GFX catalogue is not read")
+        self.catalog
+            .as_ref()
+            .ok_or_else(|| "the GFX catalogue is not read".to_string())
     }
 
     /// Load one root and place it in the world. The seed is a hash of the path,
@@ -110,40 +112,20 @@ impl Gallery {
         if !transform.is_finite() {
             return Err(format!("{path}: non-finite placement"));
         }
-        // The handle is taken out of the option because the nested-child loader
-        // below needs it mutably for the whole build, which cannot overlap the
-        // borrow of `self` that would otherwise hold it.
-        let mut archive =
-            self.archive
-                .take()
-                .map(Ok)
-                .unwrap_or_else(|| -> Result<Archive, String> {
-                    let element = self
-                        .element
-                        .clone()
-                        .ok_or("the Walker has no client element folder")?;
-                    Archive::open_archive(&element.join("gfx.pck"))
-                })()?;
-        let built = (|| -> Result<gfx_player::Player, String> {
-            let bytes = archive.read(path)?;
-            let (text, bad) = gfx_file::decode(&bytes);
-            if bad {
-                return Err(format!("{path}: invalid GBK GFX root"));
+        // The handle is taken out of the option for the build and put back
+        // afterwards, because the nested-child loader borrows it mutably for the
+        // whole parse and that cannot overlap a borrow of `self`.
+        let mut archive = match self.archive.take() {
+            Some(archive) => archive,
+            None => {
+                let element = self
+                    .element
+                    .clone()
+                    .ok_or("the Walker has no client element folder")?;
+                Archive::open_archive(&element.join("gfx.pck"))?
             }
-            if !bytes.starts_with(b"MOXT") {
-                return Err(format!("{path}: binary GFX container is not implemented"));
-            }
-            let root = gfx_file::parse(&text).map_err(|error| format!("{path}: {error}"))?;
-            gfx_player::Player::new(root, seed_for(path), &mut |child| {
-                let bytes = archive.read(child)?;
-                let (text, bad) = gfx_file::decode(&bytes);
-                if bad {
-                    return Err(format!("{child}: invalid GBK"));
-                }
-                gfx_file::parse(&text)
-            })
-            .map_err(|error| format!("{path}: {error}"))
-        })();
+        };
+        let built = load_root(&mut archive, path);
         self.archive = Some(archive);
         let player = built?;
         for warning in player.warnings() {
@@ -316,6 +298,31 @@ impl Gallery {
             self.warnings.len()
         )
     }
+}
+
+/// Read one root and build its player, resolving nested `GfxPath` children
+/// against the same archive. This is `walker::gfx`'s `Effect::load` in shape: the
+/// archive handle is a parameter, so the child loader can borrow it for the whole
+/// build with nothing else holding it.
+fn load_root(archive: &mut Archive, path: &str) -> Result<gfx_player::Player, String> {
+    let bytes = archive.read(path)?;
+    if !bytes.starts_with(b"MOXT") {
+        return Err(format!("{path}: binary GFX container is not implemented"));
+    }
+    let (text, bad) = gfx_file::decode(&bytes);
+    if bad {
+        return Err(format!("{path}: invalid GBK GFX root"));
+    }
+    let root = gfx_file::parse(&text).map_err(|error| format!("{path}: {error}"))?;
+    gfx_player::Player::new(root, seed_for(path), &mut |child| {
+        let bytes = archive.read(child)?;
+        let (text, bad) = gfx_file::decode(&bytes);
+        if bad {
+            return Err(format!("{child}: invalid GBK"));
+        }
+        gfx_file::parse(&text)
+    })
+    .map_err(|error| format!("{path}: {error}"))
 }
 
 /// The axis a preset row is spread along: perpendicular to the look direction
