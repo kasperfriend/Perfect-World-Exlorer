@@ -782,6 +782,7 @@ impl Walker {
                 self.camera_position = Some(eye);
                 return Some(eye);
             }
+            let (s, c) = yaw.sin_cos();
             let cp = pitch.cos();
             let look = Vec3::new(s * cp, pitch.sin(), -c * cp);
             let mut camera = eye - look * self.settings.camera_distance;
