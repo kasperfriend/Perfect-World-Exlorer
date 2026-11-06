@@ -387,7 +387,7 @@ impl CollisionWorld {
         // sweep reaches, so a bridge deck wins over the river bed below it and
         // an interior floor wins over the terrain poking through it.
         const STEP: f32 = 0.25;
-        const CONTACT_LIFT: f32 = 0.01;
+        const CONTACT_LIFT: f32 = 0.05;
         let delta = Vec3::NEG_Y * (STEP + CONTACT_LIFT * 2.0);
         let mut lift = 0.0;
         while lift <= max_up {
@@ -469,7 +469,7 @@ impl CollisionWorld {
         // slightly above the supplied feet position so an exact contact from
         // our fixed-step integrator is not misclassified as `start_solid`.
         // The lift is included in the trace distance, not in the result.
-        const CONTACT_LIFT: f32 = 0.01;
+        const CONTACT_LIFT: f32 = 0.05;
         let start = feet + Vec3::Y * (extents.y + CONTACT_LIFT);
         let delta = Vec3::NEG_Y * (max_down + CONTACT_LIFT);
         let hit = self.trace(start, delta, extents)?;

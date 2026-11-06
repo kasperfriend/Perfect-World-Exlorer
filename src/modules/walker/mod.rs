@@ -598,11 +598,11 @@ impl Walker {
             self.flight_was_down = flight_down;
             self.mount_was_down = mount_down;
         }
-        let (s, c) = yaw.sin_cos();
-        let forward = Vec3::new(s, 0., -c);
-        let right = Vec3::new(-c, 0., -s);
         let mut direction = Vec3::ZERO;
         if input_enabled {
+            let (s, c) = yaw.sin_cos();
+            let forward = Vec3::new(s, 0., -c);
+            let right = Vec3::new(-c, 0., -s);
             if keys.contains(&KeyCode::KeyW) {
                 direction += forward;
             }
@@ -752,14 +752,17 @@ impl Walker {
             && !(body.swimming && !body.water_jumping)
             && body.vertical_velocity <= 0.0
         {
-            if let Some(object) = self.collision.support(
-                body.position,
-                movement_constants.collision_extents(),
-                OBJECT_DOWN_TRACE,
-            ) {
-                if object.height >= support.height {
-                    body.ground_on_object(object, self.object_grounded);
-                    object_grounded = true;
+            let moved = (body.position - previous_position).length_squared() > 1e-4;
+            if !self.object_grounded || moved {
+                if let Some(object) = self.collision.support(
+                    body.position,
+                    movement_constants.collision_extents(),
+                    OBJECT_DOWN_TRACE,
+                ) {
+                    if object.height >= support.height {
+                        body.ground_on_object(object, self.object_grounded);
+                        object_grounded = true;
+                    }
                 }
             }
         }
