@@ -320,9 +320,21 @@ impl Modules {
                 if ui.checkbox(&mut enabled, "Enable Live World").changed() {
                     self.populator.set_live_world(enabled);
                 }
+                let mut radius = self.populator.live_world_radius();
+                if ui.add(egui::Slider::new(&mut radius,
+                    crate::modules::populator::LIVE_WORLD_MIN_RADIUS..=crate::modules::populator::LIVE_WORLD_MAX_RADIUS)
+                    .text("city radius").suffix(" u")).changed() {
+                    self.populator.set_live_world_radius(radius);
+                }
+                let mut residents = self.populator.live_world_residents_per_zone();
+                if ui.add(egui::Slider::new(&mut residents,
+                    0..=crate::modules::populator::LIVE_WORLD_MAX_PER_ZONE)
+                    .text("residents per target")).changed() {
+                    self.populator.set_live_world_residents_per_zone(residents);
+                }
                 ui.label(
                     egui::RichText::new(
-                        "Adds opt-in ambient citizens only within 420 units of city/district targets in the client's world_targets.txt. Names mix native name tokens into unique combinations, optionally with real client professions. Each resident uses a different real NPC rig from that city when available. Short terrain-grounded loops are checked against streamed building hulls; an obstacle stops movement safely. No server routes or dialogue are invented.",
+                        "Creates independent records around city/district targets from world_targets.txt, not copies of standing NPC identities or locations. Uses gender-matched humanoid rigs from that city's local palette and independent gender-specific generated names. The known blacksmith/anvil rigs are excluded. Native walk/run actions drive varied longer loops; unsupported rigs stay put rather than skate. Routes are locally checked against terrain and streamed hulls, not server-authored routes or schedules.",
                     )
                     .small()
                     .weak(),
@@ -335,9 +347,10 @@ impl Modules {
                 if enabled {
                     ui.label(
                         egui::RichText::new(format!(
-                            "{} residents generated so far; current actor cap is {}.",
+                            "{} residents generated; {} actor slots; {} streamed residents stay still because their rigs lack a supported locomotion clip.",
                             self.populator.live_world_generated(),
-                            self.populator.settings().max_visible
+                            self.populator.settings().max_visible,
+                            self.populator.live_world_stationary_count()
                         ))
                         .small()
                         .color(egui::Color32::LIGHT_GREEN),

@@ -348,3 +348,35 @@ run time and uses that family and size for every label:
   terrain along the camera-to-head ray and sweeps the same BMD building/tree
   hulls the Walker collides with, so no name is ever visible through a wall,
   a roof or a hill. Bodies stay visible; only the label goes away.
+
+## Live World: client-side feasibility versus server-authored population
+
+The retail client supports a local visual crowd, not reconstruction of the
+server's population instructions. Its 1,057 zero-coordinate `task_npc.data`
+records are server-placed quest NPCs, not usable locations. The client does ship
+515 placed NPC examples, `NPC_ESSENCE` model paths, real `.ecm` rigs and action
+clips, and `world_targets.txt` city/district destinations. It does not ship
+`gamedata/npcgen.data` or server-authored NPC route/waypoint, daily-schedule,
+dialogue, interaction, combat, task, or spawn-density records. A destination is
+not a spawn-zone or a guarantee of traversable ground.
+
+The opt-in Live World layer therefore creates ephemeral synthetic records in
+memory around city/district destinations. Authored placements contribute only a
+distinct, city-local eligible rig palette; no standing NPC id, name, anchor,
+height, task links or route is copied. Synthetic ids use a separate range;
+names are composed from independent model-gender-specific fragments, not native
+NPC names or identities. Candidate anchors maintain separation from standing
+and already-generated placements. The two known male/beast blacksmith rigs
+whose work animation carries an anvil are excluded.
+
+Circuits are locally generated, not recovered server routes: seven-point loops
+remain inside an adjustable city-target radius (120–420 world units, 240 by
+default), with varied dwell times, periodic longer pauses, and speeds. Each
+waypoint and edge is checked against terrain and currently streamed building
+hulls; movement is checked every frame, and an obstacle stops an actor rather
+than allowing it to skate through geometry. Direct and supported combined
+native walk/run actions are used; rigs without a recognized locomotion cycle
+stay still. Requested density is adjustable from 0–48 per target (18 by
+default), with a global cap of 512. These heuristics provide visual variety
+only—no server identity, persistent state, quest behavior, authentic schedule,
+navigation network, voice/dialogue, combat or interaction is implied.
