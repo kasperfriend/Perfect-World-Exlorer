@@ -140,6 +140,19 @@ pub fn run(authored_mips: bool) {
         contents: bytemuck::cast_slice(&uni),
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
     });
+    // Surface which draw path this adapter gets; the checks above only prove
+    // the fallback if the features are missing.
+    let one_call = device
+        .features()
+        .contains(wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE);
+    println!(
+        "::notice::tree batches drawn as {}",
+        if one_call {
+            "one multi-draw"
+        } else {
+            "per-batch indirect draws"
+        }
+    );
     let mut renderer = far_trees_gpu::FarTrees::new(
         &device,
         &queue,

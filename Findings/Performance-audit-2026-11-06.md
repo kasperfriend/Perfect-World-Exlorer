@@ -179,9 +179,27 @@ commands rather than emitting them from a compute pass.
 
 Everything above is covered by the existing CI: `cargo check --all-targets`, the
 requirement-status and GFX-light audits, the viewer unit tests (now including the
-slider-marker, cache-alias, flare-anchor and scenery-fold tests), the bounded terrain RAM
-residency check, the Phase 1 shader regressions, the terrain per-view GPU check,
-and the Windows x64 build.
+slider-marker, cache-alias, flare-anchor, scenery-fold and indirect-record tests), the
+bounded terrain RAM residency check, the Phase 1 shader regressions, the terrain
+per-view GPU check, and the Windows x64 build.
+
+The two GPU-driven subsystems are the first entries in this document whose
+correctness cannot be argued from the code alone, so both have a check that
+compares implementations rather than asserting a picture:
+
+* `tree-lod-gpu-check` compares the compute pass's counts and `(fraction, mode)`
+  records against `tree_lod::select` for every frame, and renders every
+  non-transition frame from both the CPU packer and the compute pass, asserting
+  the pixels are identical. Its adapter asks for the single-call draw path; the
+  tree mip checks keep feature-free devices, so the per-batch fallback stays
+  covered too.
+* `grass-instance-gpu-check` renders the per-batch path, the single-call path
+  and the CPU-expanded reference for every clip/fog combination and asserts all
+  three frames are identical.
+
+Both checks also post which draw path their adapter took as a `::notice::`
+annotation, so a CI run says whether the fast path was actually exercised
+rather than leaving it to the reader to assume.
 
 The flare correction is a screen-space shift of an existing overlay, so the only
 frame that changes is one with the sun on screen; the geometry itself (the 15

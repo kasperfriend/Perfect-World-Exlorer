@@ -454,6 +454,14 @@ fn main() {
     let device_multi = device
         .features()
         .contains(wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE);
+    println!(
+        "::notice::grass drawn as {}",
+        if device_multi {
+            "one multi-draw"
+        } else {
+            "per-batch draws"
+        }
+    );
     for (clip, fog) in [(false, false), (true, false), (false, true)] {
         uni[380..384].copy_from_slice(if fog { &[0., 0.5, 1., 0.] } else { &[0.; 4] });
         uni[384..388].copy_from_slice(&[0.5, 0.25, 0.75, 1.]);
