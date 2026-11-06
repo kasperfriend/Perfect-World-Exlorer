@@ -16,6 +16,17 @@ use std::{collections::HashSet, path::PathBuf};
 use walker::Walker;
 use winit::keyboard::KeyCode;
 
+// Several modules install client fonts. Preserve earlier registrations, even
+// when more than one module installs a font during the same egui frame.
+fn extend_fonts(ctx: &egui::Context, extend: impl FnOnce(&mut egui::FontDefinitions)) {
+    let id = egui::Id::new("module_shared_font_definitions");
+    let mut definitions = ctx.data_mut(|data| data.get_temp::<egui::FontDefinitions>(id))
+        .unwrap_or_else(|| ctx.fonts(|fonts| fonts.lock().fonts.definitions().clone()));
+    extend(&mut definitions);
+    ctx.data_mut(|data| data.insert_temp(id, definitions.clone()));
+    ctx.set_fonts(definitions);
+}
+
 pub struct Modules {
     walker: Walker,
     librarian: librarian::Librarian,

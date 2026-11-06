@@ -170,19 +170,12 @@ impl Librarian {
                 let path = self.root.join("data").join(name);
                 if let Ok(bytes) = std::fs::read(path) {
                     if !bytes.is_empty() && bytes.len() <= 16 * 1024 * 1024 {
-                        let mut fonts = egui::FontDefinitions::default();
-                        fonts
-                            .font_data
-                            .insert("pw-client-cjk".into(), egui::FontData::from_owned(bytes));
-                        for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace]
-                        {
-                            fonts
-                                .families
-                                .entry(family)
-                                .or_default()
-                                .push("pw-client-cjk".into());
-                        }
-                        ctx.set_fonts(fonts);
+                        super::extend_fonts(ctx, |fonts| {
+                            fonts.font_data.insert("pw-client-cjk".into(), egui::FontData::from_owned(bytes));
+                            for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+                                fonts.families.entry(family).or_default().push("pw-client-cjk".into());
+                            }
+                        });
                         state.has_cjk_font = true;
                         break;
                     }
