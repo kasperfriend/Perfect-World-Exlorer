@@ -297,6 +297,15 @@ impl Emitter {
     }
     /// Input delta has already been scaled by the GFX owner's clock. Visibility
     /// and priority gate publication, not keypoint progression (0x70ba00).
+    ///
+    /// The priority half is a viewer policy and its sense is the *opposite* of
+    /// the native gate it sits next to: `0x70ba44` jumps on `Priority > detail`
+    /// to `0x70bd0b`, which is `mov $0x1,%al; ret $0x4`, so a higher priority
+    /// exempts an element from the visibility test at `0x6fe120` instead of
+    /// suppressing it. Reproducing the native rule needs that camera-relative
+    /// test, which this emitter is not given, so the limit stays a manager-wide
+    /// budget knob. `gfx_catalog::priority_exempts` carries the dumped direction
+    /// for whoever adds the test.
     pub fn tick(
         &mut self,
         delta_ms: u32,
@@ -331,6 +340,8 @@ impl Emitter {
         }
         // DWORD wrap before StartTime leaves a previously active keypoint's
         // process data intact in 0x6edd80; it does not unpublish that live key.
+        // Viewer policy, not the native comparison: see `tick`'s doc comment and
+        // `gfx_catalog::priority_exempts` for the dumped direction.
         if !visible || self.definition.priority > manager_priority {
             return Ok(None);
         }

@@ -118,7 +118,7 @@ Six native behaviours are described below. Five are understood well enough to de
 **Emission count is detail-scaled.** Two gates reduce how many particles the client spawns, and the viewer applies neither, which means it always renders at maximum detail:
 
 - `0x715b88…0x715bfd`, inside the emit routine: when the flag at root`+0x2a0` is set, the count is multiplied by `(root+0x298 * global@0x9c1318) / root+0x29c` and truncated, but only if that factor is below 1.0 and the divisor at root`+0x29c` passes a range check against the two constants `40.0` (`0x8edaac`) and `10.0` (`0x8edaa8`) — above 40 always, between 10 and 40 only when the count exceeds 3, at or below 10 never. *(Superseded 6 November: the factor **is** recoverable. `0x9c1318` has exactly one writer in the whole binary — the three-instruction initialiser `0x715150`, which multiplies the 10.0 at `0x8edaa8` by the 0.8333333 at `0x8edab0` and stores **8.3333333**. It is a compile-time constant product, not runtime state, so the factor is `(root+0x298 × 8.3333333) / root+0x29c`, and both thresholds read out of `.rdata` as 10.0 and 40.0 exactly. What remains unknown is where root`+0x298`, `+0x29c` and the `+0x2a0` flag come from: no instruction anywhere in `0x700000`–`0x730000` writes them, so they belong to whatever owns the root object, and the paired writes at `0x484092`/`0x484098` — the nearest candidate — sit in another subsystem. The shape still reads as a distance denominator against a particle-detail setting.)*
-- `0x70ba00`, the element update: `Priority` (element`+0xdc`, constructor default 4 at `0x6f8fdb`, values 1…4 across ~30,000 corpus records) is compared against a detail threshold from the settings object (`call 0x41a3c0`, threshold at `+0x134`) and the element is skipped when it loses (`0x70bd0b`). `Priority` is a level-of-detail gate, not a sort key. *(Read in full 6 November: `0x70ba00` first calls `0x6fa670` on its argument and returns false when that says no (`0x70ba13`–`0x70ba20`); it then tests the byte at element`+0x12e` and skips the comparison entirely when it is clear (`0x70ba2b`). Only after both does it fetch the settings object, compare `Priority` against `+0x134` (`0x70ba42`, signed greater wins) and, when `Priority` loses, fall through to a second test on element`+0x50` whose negative case is the one that returns false (`0x70ba4f`). So a higher `Priority` survives a lower detail setting, and losing the comparison is not by itself a cull. The engine's detail keys are on disk: `configs.pck` ships `configs/angelica.cfg`, whose `[a3d]` section carries `detail_scene`, `detail_model` and `detail_terrain`, all 1 in the shipped file, alongside `dynamic_light`, `high_quality_sky`, `high_quality_tex`, `trilinear` and `num_t2_block_grid = 32`.)*
+- `0x70ba00`, the element update: `Priority` (element`+0xdc`, constructor default 4 at `0x6f8fdb`, values 1…4 across ~30,000 corpus records) is compared against a detail threshold from the settings object (`call 0x41a3c0`, threshold at `+0x134`) and the element is skipped when it loses (`0x70bd0b`). `Priority` is a level-of-detail gate, not a sort key. *(Read in full 6 November: `0x70ba00` first calls `0x6fa670` on its argument and returns false when that says no (`0x70ba13`–`0x70ba20`); it then tests the byte at element`+0x12e` and skips the comparison entirely when it is clear (`0x70ba2b`). Only after both does it fetch the settings object, compare `Priority` against `+0x134` (`0x70ba42`, signed greater wins) and, when `Priority` loses, fall through to a second test on element`+0x50` whose negative case is the one that returns false (`0x70ba4f`). So a higher `Priority` survives a lower detail setting, and losing the comparison is not by itself a cull. Completed the same day by dumping the jump target: `0x70bd0b` is `mov $0x1,%al; pop %esi; add $0xac,%esp; ret $0x4`, so it **returns true**, and the branch at `0x70ba44` is `jg` on `Priority > detail`. A high priority therefore skips everything after the comparison — including the only `return false` on that path, the visibility test `0x6fe120` on the node at element+0xa0, whose failure at `0x70ba91` jumps to the `xor %al,%al; ret $0x4` block at `0x70ba17` — and it also skips the distance scalar `0x6fe060` builds from element+0x58 and element+0x90 into `[esp+0x24]`, which `0x70bae7` hands to root+0x2a2's consumer. **A higher `Priority` is exempt from culling, not a candidate for it.** That makes the viewer's own light gate a divergence: `gfx_light::Emitter::tick` suppresses publication when `priority > manager_priority`, and the comment above it cites `0x70ba00`, which is the opposite sense. It is left as shipped and named here rather than flipped, because the native rule's second half is a camera-relative visibility test that emitter is not given; `gfx_catalog::priority_exempts` carries the dumped direction for whoever adds it. The same `0x6fe060` call is also the strongest lead on the emission LOD's divisor: it takes a position at element+0x58 and leaves a float that element+0x90 is added to, which is the shape of a camera-relative distance, and root+0x29c is a distance. The engine's detail keys are on disk: `configs.pck` ships `configs/angelica.cfg`, whose `[a3d]` section carries `detail_scene`, `detail_model` and `detail_terrain`, all 1 in the shipped file, alongside `dynamic_light`, `high_quality_sky`, `high_quality_tex`, `trilinear` and `num_t2_block_grid = 32`.)*
 
 The rest of the client's data set is reachable now, which changes what counts as blocked. The Drive folder `pw142` holds the full installation, including `element/` with fifteen `.pck` archives in the same v2 directory format `src/pck.rs` reads: `models` 888 MB, `litmodels` 397 MB, `building` 326 MB, `sfx` 273 MB, `loddata` 252 MB, `textures` 117 MB, `gfx` 97 MB, `surfaces` 93 MB, `facedata` 25 MB, `trees` 20 MB, `grasses` 12 MB, `fonts` 4.6 MB, `shaders` 4.4 MB, `interfaces` 3.2 MB and `configs` 588 KB, plus `elementclient.exe`, `elementskill.dll` and the `maps`, `data` and `music` folders. `configs.pck` is enumerated and read here; `loddata.pck` is the obvious source for the terrain heights `MatchGrnd` and `IsStartOnGrnd` need, and `models.pck` for anything that still wants the owner's triangles.
 
@@ -339,6 +339,42 @@ The corpus sweep was re-run afterwards. Every line is unchanged — 5,457 of 5,4
 **The generator.** `0x766490` is a gradient noise over a table the object owns: `this+0x18` is a count that abandons the whole call when it is not positive (`0x7664a6`, `0x7664af`), `this+0xdc` is a modulus, and `this+0xe0` is an array of twelve-byte records. Each step splits a coordinate into an integer index and a fraction — `_ftol` at `0x7664e6`, then `fsubr` at `0x7664fa` — wraps the index into range by adding the modulus while it is negative (`0x766504`) and taking a signed remainder (`cltd`/`idiv` at `0x766508`), copies the gradient record for that index and for `index+1` with `rep movsl` and a component count clamped to three (`0x76650b`–`0x766564`), and interpolates: a byte argument picks between two variants at `0x766574` and the blend starts from 1.0 (`0x8effa0`) at `0x76657c`.
 
 **Why it stays out.** Three inputs the viewer cannot supply: the camera's distance to the effect (root`+0x29c` is a renderer-side quantity), the camera save-and-apply pair (`0x41a480`, `0x41a4e0`), and the runtime-initialised rotation axes. Behind them the generator's fade curve and octave weighting are still undecoded — the shape is identified, the interpolation is not. Recording the gate, the window and the alternating-sign structure costs nothing and is enough to reimplement this later against a real camera; inventing an amplitude now would put a number in the viewer that no disassembly supports.
+
+## Placed in the viewer on 6 November
+
+Two recovered behaviours moved from the documents into the executable, and one
+interface was added so the rest can follow.
+
+- **Every effect is now addressable.** `src/gfx_catalog.rs` reads the archive
+  directory with the retail v2 reader the crate already ships, groups all 5,459
+  `.gfx` members by the names their authors gave them (water 233, fire 259, sun
+  rays 30, glows 59, lightning 123, smoke 219, weapon trails 986, monsters
+  1,540, characters 1,405, scene dressing 209, interface 10, other 386 — every
+  member in exactly one group), reports what a root contains before anything
+  spends a load on it (element counts, particle emitters, lights, `IsSurface`
+  and `IsUseHSVInterp` emitters, `ShakeCam`, the largest `Priority`, nested
+  children), says which of the two readers will play it, and hands back a
+  `gfx_owner::Request`. It is built where the archive is attached
+  (`world_models_gpu::attach_gfx_archive`) and exposed as `effect_catalog`,
+  `effect_census` and `spawn_catalog_effect`. Seven curated presets — sun rays
+  through trees, light pillars, moving fire and lava, waterfall spray, glows and
+  halos, lightning, weapon trails — list 28 real archive paths, each checked to
+  exist and to classify under the group it is listed in.
+- **A 3D particle's orientation is in one frame now.** `particle_basis` mixed
+  `state.direction`, which is element-local (the emission samplers produce it
+  there and the integrator moves `state.position`, which `quad_corners` sends
+  through `context.placement`), with `View`'s axes, which are world. The result
+  depended on the element's placement rotation twice. `oriented_basis` brings
+  the direction into the world frame with the same placement the billboard path
+  uses for its centre; an identity placement is bit-for-bit unchanged.
+- **Both level-of-detail rules are now written down as code**, not only as
+  prose: `gfx_catalog::priority_exempts` for `0x70ba00` and
+  `gfx_catalog::detail_scaled_count` for `0x715b88`..`0x715bfd`, with the
+  thresholds 10.0 and 40.0 and the `0x9c1318` factor 8.3333333 that
+  `0x715150` computes. The emission rule is tested but deliberately not wired:
+  nothing in `0x700000`..`0x730000` writes root+0x298, root+0x29c or the
+  root+0x2a0 enable byte, so the numerator has no recovered provenance, and
+  inventing one would put a guess in the emission path.
 
 ## Still open
 

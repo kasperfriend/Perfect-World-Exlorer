@@ -1824,7 +1824,7 @@ fn emit_particles(
         let (right, up) = if billboard {
             (context.view.right, context.view.up)
         } else {
-            particle_basis(state.direction, context.view)
+            oriented_basis(context, state.direction)
         };
         let positions = quad_corners(
             context,
@@ -1865,6 +1865,22 @@ fn particle_basis(direction: Vec3, view: &View) -> (Vec3, Vec3) {
         view.right
     };
     (right, up)
+}
+
+/// The basis of a particle that keeps its own travel direction instead of facing
+/// the camera (`Is3D`).
+///
+/// `state.direction` lives in the element's own frame: the emission samplers
+/// produce it there, and the integrator that moves a particle by it
+/// (`state.position += state.direction * step`) moves a position that
+/// `quad_corners` sends through `context.placement`. `View`'s axes are world.
+/// Mixing the two made the orientation depend on the element's placement
+/// rotation twice — once through the direction and once through the quad that
+/// direction built — so a spun element gave its 3D particles a basis no frame
+/// agreed with. Bring the direction into the world frame with the same placement
+/// the billboard path uses for its centre, then mix.
+fn oriented_basis(context: &ElementContext, direction: Vec3) -> (Vec3, Vec3) {
+    particle_basis(context.placement.transform_vector3(direction), context.view)
 }
 
 /// `IsUseParUV` stretches the texture along the particle's own travel instead of
@@ -3352,6 +3368,33 @@ mod tests {
             rotation: 0.,
             clock: 0.,
         }
+    }
+
+    /// A 3D particle's travel direction is element-local, so the basis built
+    /// from it has to be brought into the world frame the view axes live in.
+    /// With the element spun 90 degrees about Z, a particle travelling along its
+    /// own +X is travelling along world +Y, and world +Y is the axis its quad
+    /// has to span; the local +X the unfixed mix used is a different direction
+    /// in every placement that is not axis aligned.
+    #[test]
+    fn an_oriented_particle_takes_its_direction_into_the_world_frame() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.placement = Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        let (right, up) = oriented_basis(&context, Vec3::X);
+        assert!((up - Vec3::Y).length() < 1e-5, "up was {up:?}");
+        assert!(
+            (up - Vec3::X).length() > 0.5,
+            "up stayed in the local frame"
+        );
+        assert!(((right.length() - 1.).abs()) < 1e-4, "right was {right:?}");
+        assert!(right.dot(up).abs() < 1e-5, "basis is not orthogonal");
+        // An identity placement has to be untouched by the change.
+        context.placement = Mat4::IDENTITY;
+        let (right, up) = oriented_basis(&context, Vec3::X);
+        assert!((up - Vec3::X).length() < 1e-5);
+        assert!((right - Vec3::Y).length() < 1e-5 || (right + Vec3::Y).length() < 1e-5);
     }
 
     /// `AreaSize` is an ellipsoid of semi-axes `AreaSize * 0.5`: `0x729670`

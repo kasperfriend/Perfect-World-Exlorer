@@ -16,6 +16,9 @@ mod cutoff_residency;
 
 /// Identity space for ECM model-event owners, kept disjoint from scene effects.
 const MODEL_EVENT_IDENTITY: u64 = 1 << 40;
+/// On-demand catalogue spawns. Scene effects take the low identities and model
+/// events take `1 << 40`, so a gallery spawn cannot collide with either.
+const CATALOG_EFFECT_IDENTITY: u64 = 3 << 40;
 
 /// One light-producing owner installed from the scene or from a model event.
 struct Producer {
@@ -84,6 +87,11 @@ pub struct World {
     publications: LightPublications,
     owners: gfx_owner::Manager,
     producers: Vec<Producer>,
+    /// Every `.gfx` member of the attached archive, grouped by its authored name
+    /// so a module can ask for "a waterfall" instead of a path.
+    catalog: crate::gfx_catalog::Catalog,
+    /// Identities handed out to on-demand catalogue spawns.
+    catalog_spawns: u64,
     /// Explorer position and effect activation radius in world units.
     view: Option<(f32, f32, f32)>,
     resident_bounds: Option<[f32; 4]>,
@@ -170,6 +178,8 @@ impl World {
             publications: LightPublications::default(),
             owners: gfx_owner::Manager::new(),
             producers: Vec::new(),
+            catalog: crate::gfx_catalog::Catalog::default(),
+            catalog_spawns: 0,
             view: None,
             resident_bounds: None,
             alpha: Vec::new(),
@@ -181,7 +191,16 @@ impl World {
     /// encoding and refuses binary containers explicitly.
     pub fn attach_gfx_archive(&mut self, element: &Path) -> Result<(), String> {
         let mut pack = File::open(element.join("gfx.pck")).map_err(|e| format!("gfx.pck: {e}"))?;
-        let entries: HashMap<String, crate::pck::Entry> = crate::pck::directory(&mut pack)?
+        let directory = crate::pck::directory(&mut pack)?;
+        // The catalogue is the directory read once: names and sizes only, so
+        // opening it costs nothing per member until somebody asks to play one.
+        self.catalog = crate::gfx_catalog::Catalog::from_directory(
+            directory
+                .iter()
+                .map(|e| (e.name.as_str(), e.size))
+                .collect(),
+        );
+        let entries: HashMap<String, crate::pck::Entry> = directory
             .into_iter()
             .map(|e| (crate::ecmodel::normalize(&e.name), e))
             .collect();
@@ -208,6 +227,41 @@ impl World {
     ) {
         self.owners.set_reader(read);
     }
+    /// The attached archive's effect catalogue: every `.gfx` member, grouped by
+    /// the name its author gave it. Empty until `attach_gfx_archive` runs.
+    pub fn effect_catalog(&self) -> &crate::gfx_catalog::Catalog {
+        &self.catalog
+    }
+
+    /// How many members fall in each catalogue group, for a status line.
+    pub fn effect_census(&self) -> Vec<(crate::gfx_catalog::Group, usize)> {
+        self.catalog.census()
+    }
+
+    /// Play one catalogue member on demand, at a world transform, through the
+    /// same owner queue the scene and model effects use: one root loads per
+    /// frame, the priority gate and the light publications are shared, and a
+    /// root neither reader accepts is a named failure rather than an
+    /// approximation. The returned identity is the one to `set_active` or
+    /// `remove` later.
+    pub fn spawn_catalog_effect(
+        &mut self,
+        path: &str,
+        transform: [f32; 16],
+        origin: &str,
+    ) -> Result<u64, String> {
+        let request = self.catalog.request(
+            CATALOG_EFFECT_IDENTITY + self.catalog_spawns,
+            path,
+            transform,
+            origin,
+        )?;
+        let identity = request.identity;
+        self.owners.insert(request)?;
+        self.catalog_spawns += 1;
+        Ok(identity)
+    }
+
     /// Install the actual ECWLD effect placements as scene-light producers.
     /// The owners stay pending and are loaded one root per update, as 0x5b1a00.
     pub fn install_scene_effects(&mut self, scene: &crate::scene::Scene) -> Result<usize, String> {
