@@ -420,6 +420,128 @@ truncation argument claimed.
 The two tests that need `gfx_file` and `gfx_decal`, and so `glam`, `flate2` and
 `encoding_rs`, still run only in CI.
 
+## The field census: what is parsed, what is played, and what the version gates allow
+
+Measured over all 5,459 roots on 6 November, by scanning every `Key:` line in
+the corpus and then asking, for each field the parsers produce, whether anything
+outside `gfx_file.rs` reads it. This replaces guesswork about "what is left" with
+a count.
+
+**The grammar is complete.** The corpus uses 200 distinct keys. Nine never appear
+in a parser — `AttMode`, `OneHit`, `FadeOut`, `IsArea`, `Shape`, `RelScl`,
+`TarScl`, `TraceTarget`, `ValType` — and all nine live in the single file
+`gfx/sgc/刺客_致盲_技能击中.gfx`, the version-4 record that is not an effect
+container at all and already fails to parse on purpose. Every key in every effect
+file is therefore parsed. `Deviation` and the ten lightning keys (`StepMin`,
+`StrokeAmp`, `PerBolts`, …) are parsed and inert, but they occur in 7 roots.
+
+**24 parsed fields have no consumer.** Ranked by how many corpus lines actually
+carry a non-default value, because a field that is always zero is inert
+harmlessly:
+
+| field | non-default lines | roots | note |
+| --- | --- | --- | --- |
+| `MaxExtent` | 5,486 | 1,678 | now defaulted, see below |
+| `ResetLoopEnd` | 3,657 | 2,300 | `Common`, a flag |
+| `MatchGrnd` | 1,781 | — | element+0x131 |
+| `IsDummy` | 522 | — | |
+| `GrndNormOnly` | 456 | — | |
+| `ScaleNoOff` | 249 | — | |
+| `vertslife` | 156 | 46 | trail, `%d` |
+| `isappend` | 138 | 46 | trail |
+| `WriteZ` | 115 | 130 | |
+| `GroundHeight` | 28 | — | a *flag* natively |
+| `YawEffect` | 30 | — | element+0x195 |
+| `Pos1Enable`/`Pos2Enable` | 16 each | 202 | light |
+| `MatchSurface` | 16 | — | element+0x170 |
+| `EnableMat`, `EnableOrgPos1/2` | 11 each | 990 | ribbon |
+| `StrokeAmp` | 11 | 7 | lightning |
+| `IsStartOnGrnd`, `Force2D`, `Use3DCam` | **0** | — | always zero in the corpus |
+| `NoDownSample` | 1 | 3,552 | |
+
+`BindEle` and `DummyEle` are `%s` — element **names**, copied to element+0x9c by
+`0x7638a0`. 968 elements name a `BindEle`; 772 of those resolve to a sibling
+element in the same root and 196 do not (they name `Unnamed1`-style elements that
+are not in that root, presumably living in a child). The dominant pairs are
+123→110 (140), 120→101 (117), 110→101 (106) and 101→110 (106), i.e. emitters and
+sprites binding to each other. `IsDummy` is set on 522 elements but only 2 of
+those carry a `DummyEle` that resolves, so dummy binding is close to a no-op in
+retail data.
+
+**The gate ladder.** The shared-key loader is `0x6f99f0` and the sprite loader
+`0x71df00`; each optional key is behind a `cmp` on the file version. Shared keys:
+4, 8, 9, 22, 28, 32, 33, 34, 41, 45, 57, 58, 74, 75. Sprite keys: `ZOffset` 42,
+`MatchSurface` 54, `MaxExtent` 55, `YawEffect` 61. The reachable ones are now
+honoured by the parser. No corpus root authors a non-default value below its
+gate, which is what makes adding them behaviour-preserving on real data while
+still being faithful on damaged or hand-edited files.
+
+The format strings also fix each native type: `GroundHeight: %d` is reduced to a
+byte by `value != 0` at element+0x132 (a flag, not a height — the parser keeps
+the authored number and says so), `RepeatDelay: %d` and `TexAnimMaxTime: %d` are
+integers, `MinDist`/`MaxDist`/`TexSpeed` are floats.
+
+**`MaxExtent` is computed, not only authored.** After every gate the sprite
+loader runs a tail at `0x71e0ff`: if `MaxExtent` is still zero it becomes
+`1.5 * max(Width, Height)`, taking the width branch at `0x71e121` when
+`Width > Height` and the height branch at `0x71e141` otherwise. `0x8d75cc` holds
+the 1.5. Because the tail is outside the gates it also covers the 3,250 sprites
+that carry no `MaxExtent` key at all, so 3,383 corpus sprites were reporting 0
+where the client has an extent. Independent confirmation: 3,038 of the 5,486
+authored values are *exactly* `1.5 * max(Width, Height)` — the editor writing the
+same default back out — and the census's commonest value, 0.750000 on 2,834
+elements, is `1.5 * 0.5` for the standard 0.25 × 0.5 sprite.
+
+**`quad_corners` is confirmed from the native side.** The loader derives four
+terms into element+0x15c/+0x160/+0x164/+0x168 as `2W*OrgPt1`, `2W - that`,
+`2H*OrgPt2`, `2H - that`, and the corner builder at `0x71ea70` multiplies each by
+the runtime scale *unless* the matching `NoScale` byte is set — the two bytes are
+element+0x151 and +0x152, which is why `no_scale` is a `[bool; 2]`. That is the
+split the viewer already used, previously justified only from the static decal
+path; the animated sprite path now agrees with it independently. The builder also
+multiplies the result by a float at `(element+0x10)+0x1ec` and branches to a
+separate path at `0x71f1be` on the byte element+0x148; neither is identified yet.
+
+**`ZEnable` below version 76.** The byte at element+0x130 is written from the
+authored value and then forced to 1 by `0x6f9e3a` whenever the version is below
+76, so an authored `ZEnable: 0` only survives in a 76..79 root: 334 of the
+corpus's 390. `gfx_player::depth_test` and `gfx_decal` already applied that rule
+where the quad is built, and it now has a boundary test at 24/37/75/76/79. The
+parser keeps reporting the authored value, deliberately: applying the rule twice
+would hide it from anything that wants to know what the file said.
+
+Two traps worth recording for the next dig. The parser's format strings live in
+`.data` and are reached through arrays of pointers, so a key's string has **no
+direct cross-reference** — find the array by scanning the image for words equal
+to the string's address, then grep for the array slot. The writer's strings are
+in `.rdata` and are pushed directly, which is how the light-element writer at
+`0x70b7e1` turned up and why its `Position: %f, %f, %f` at element+0x174 is not
+`MaxExtent`: the spec structs overlay the same offsets. And `[esp+0x938]` next to
+`[esp+0x944]` looked like two different version values until the three words
+pushed for the `sscanf` call were counted; both are the same argument.
+
 ## Still open
 
 Unchanged from the previous write-up and not addressed here: the interpolation and octave weighting inside the fractal-noise generator `0x766490` behind controllers 107, 109 and 112 (241 root controllers in the corpus, all type 112 — see *Camera shake, measured and left alone* for how far that decode now goes), element 190 curves being counted rather than drawn, models/sounds/lights belonging to other subsystems, and the 82 child references to files that do not ship. The `gfx_light` millisecond window listed here previously is fixed in *Fixed while writing this up*; the ramp time-base question that fix opened is still unsettled and needs the controller-108 update routine.
+
+Added by the field census, in the order the corpus says they matter:
+
+* **Element binding by name.** 772 elements bind to a sibling and nothing resolves
+  it, so an emitter that should follow a sprite is spawned at its own origin
+  instead. This is the largest remaining *behavioural* gap and the one most
+  likely to be visible: it needs a name→element index per root and the bound
+  element's transform fed into the child's placement each frame. The native
+  resolution site is not identified yet; `BindEle` is copied to element+0x9c by
+  `0x7638a0` and read from there.
+* **`ResetLoopEnd`** (3,657 non-default lines) and **`MatchGrnd`** (1,781), both
+  flags on `Common` with no consumer. Ground matching additionally needs terrain
+  or `loddata.pck` heights, which the viewer has for the walker but has never
+  wired into an effect.
+* **`YawEffect`** (30 lines) selects the rotation path at `0x71f36d` and
+  `0x71f84e`, which calls `0x6fa810` and `0x7872d0`; neither is decoded.
+* The unidentified multiplier at `(element+0x10)+0x1ec` and the byte at
+  element+0x148 that switches the corner builder to `0x71f1be`.
+* The trail fields `isappend`/`vertslife` (156/138 lines in 46 roots) and the
+  ribbon fields `EnableMat`/`EnableOrgPos1/2` (11 lines in 990 roots).
+* `IsStartOnGrnd`, `Force2D` and `Use3DCam` are parsed and inert, but every
+  corpus line has them at zero, so nothing is lost until a modded file appears.
