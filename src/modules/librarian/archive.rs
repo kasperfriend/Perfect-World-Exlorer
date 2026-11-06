@@ -233,6 +233,18 @@ impl LibrarianAssets {
 mod tests {
     use super::*;
     #[test]
+    fn missing_archives_can_use_loose_model_files() {
+        let root = std::env::temp_dir().join(format!("librarian-loose-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("models/test")).unwrap();
+        std::fs::write(root.join("models/test/item.ecm"), b"model").unwrap();
+        let mut assets = LibrarianAssets::open(&root);
+        assert!(assets.model_exists("models/test/item.ecm"));
+        assert_eq!(assets.read_model_resource("models/test/item.ecm").unwrap(), b"model");
+        assert!(assets.read_model_resource("models/../../outside").is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn loose_asset_paths_cannot_escape_client_root() {
         let root = Path::new("element");
         assert!(safe_join(root, "surfaces/icon.dds").is_some());
