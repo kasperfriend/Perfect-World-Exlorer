@@ -134,6 +134,19 @@ fn apply_preview_dye(asset: &mut ModelAsset, color: [u8; 3]) {
     }
 }
 
+fn pan_offset(yaw: f32, radius: f32, zoom: f32, delta: egui::Vec2) -> Vec3 {
+    let right = Vec3::new(yaw.cos(), 0., -yaw.sin());
+    (right * delta.x + Vec3::Y * delta.y) * radius * zoom * 0.004
+}
+
+pub fn orbit_pitch(pitch: f32, vertical_drag: f32) -> f32 {
+    (pitch + vertical_drag * 0.01).clamp(-1.45, 1.45)
+}
+
+fn animation_index(allowed: bool, action: usize) -> Option<usize> {
+    allowed.then_some(action)
+}
+
 fn action_time(start: f32, end: f32, fps: i32, elapsed: f32) -> f32 {
     let fps = fps.max(1) as f32;
     let duration = (end - start) / fps;
@@ -318,6 +331,7 @@ impl Preview {
         assets: &mut LibrarianAssets,
         path: &str,
         dye: Option<[u8; 3]>,
+        allow_animation: bool,
     ) {
         if self.loaded_path != path {
             self.loaded_path = path.to_owned();
@@ -441,7 +455,7 @@ impl Preview {
         if self.turntable {
             self.yaw += 0.6 * dt;
         }
-        if self.playing {
+        if self.playing && allow_animation {
             self.elapsed += dt;
         }
         if let Some(color) = dye {
@@ -450,7 +464,7 @@ impl Preview {
             }
         }
         if let (Some(asset), Some(draw)) = (&self.asset, &self.draw) {
-            let poses = if let Some(clip) = asset.model.actions.get(self.action) {
+            let poses = if let Some(clip) = animation_index(allow_animation, self.action).and_then(|index| asset.model.actions.get(index)) {
                 let fps = clip
                     .fps
                     .filter(|fps| *fps > 0)
@@ -470,6 +484,7 @@ impl Preview {
                     }
                 }
             } else {
+                self.animation_error = None;
                 preview_pose(asset, None).map(|(poses, _)| poses)
             };
             match poses {
@@ -537,9 +552,7 @@ impl Preview {
             .unwrap_or_default()
     }
     pub fn pan_by(&mut self, delta: egui::Vec2) {
-        let right = Vec3::new(self.yaw.cos(), 0., -self.yaw.sin());
-        let up = Vec3::Y;
-        self.pan += (-right * delta.x + up * delta.y) * self.radius * self.zoom * 0.004;
+        self.pan += pan_offset(self.yaw, self.radius, self.zoom, delta);
     }
     fn frame(&self) -> Frame {
         let matrix = camera_matrix(
@@ -759,6 +772,17 @@ mod tests {
     }
 
     #[test]
+    fn drag_directions_follow_pointer_and_weapon_animation_is_disabled() {
+        let delta = pan_offset(0., 1., 1., egui::vec2(10., 0.));
+        let before = camera_matrix(Vec3::ZERO, 1., 1., 0., 0.) * Vec3::ZERO.extend(1.);
+        let after = camera_matrix(delta, 1., 1., 0., 0.) * Vec3::ZERO.extend(1.);
+        assert!(after.x / after.w > before.x / before.w);
+        assert!(orbit_pitch(0., 10.) > 0.);
+        assert_eq!(animation_index(false, 2), None);
+        assert_eq!(animation_index(true, 2), Some(2));
+    }
+
+    #[test]
     fn static_action_does_not_jitter_and_labels_are_localized() {
         for elapsed in [0.0, 0.0005, 0.01, 2.3] {
             assert_eq!(action_time(0., 0., 30, elapsed), 0.);
@@ -920,7 +944,7 @@ mod tests {
             ("pet", pet),
             ("genie", genie),
         ] {
-            preview.update(&device, &queue, format, &mut assets, path, None);
+            preview.update(&device, &queue, format, &mut assets, path, None, !matches!(label, "weapon" | "club" | "hammer"));
             assert!(preview.error.is_none(), "{path}: {:?}", preview.error);
             if path == flight_sword {
                 assert!(preview

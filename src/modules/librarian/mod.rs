@@ -14,6 +14,21 @@ use database::{Category, Database};
 use icons::IconCache;
 use std::path::PathBuf;
 
+// A reversed UV rectangle through Image's default rectangle tessellator is
+// treated as untextured. Draw a textured mesh explicitly to support flipping.
+fn preview_image(ui: &mut egui::Ui, texture: egui::TextureId, size: f32, flipped: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::drag());
+    let uv = if flipped {
+        egui::Rect::from_min_max(egui::pos2(0., 1.), egui::pos2(1., 0.))
+    } else {
+        egui::Rect::from_min_max(egui::pos2(0., 0.), egui::pos2(1., 1.))
+    };
+    let mut mesh = egui::Mesh::with_texture(texture);
+    mesh.add_rect_with_uv(rect, uv, egui::Color32::WHITE);
+    ui.painter().add(egui::Shape::mesh(mesh));
+    response
+}
+
 pub struct Librarian {
     root: PathBuf,
     state: Option<State>,
@@ -170,7 +185,7 @@ impl Librarian {
                 [255; 3]
             }
         });
-        preview.update(device, queue, format, &mut state.assets, &path, dye);
+        preview.update(device, queue, format, &mut state.assets, &path, dye, item.category != Category::Weapons);
     }
     pub fn ui(&mut self, ctx: &egui::Context) {
         let Some(state) = &mut self.state else { return };
@@ -557,16 +572,7 @@ impl State {
                                     );
                                 }
                                 let size = ui.available_width().min(300.);
-                                let uv = if preview.flip_vertical {
-                                    egui::Rect::from_min_max(egui::pos2(0., 1.), egui::pos2(1., 0.))
-                                } else {
-                                    egui::Rect::from_min_max(egui::pos2(0., 0.), egui::pos2(1., 1.))
-                                };
-                                let response = ui.add(
-                                    egui::Image::new((preview.texture_id, egui::vec2(size, size)))
-                                        .uv(uv)
-                                        .sense(egui::Sense::drag()),
-                                );
+                                let response = preview_image(ui, preview.texture_id, size, preview.flip_vertical);
                                 if response.dragged() {
                                     let (mut delta, pan) = ui.input(|i| {
                                         (
@@ -583,13 +589,8 @@ impl State {
                                     } else {
                                         preview.yaw += delta.x * 0.01;
                                         preview.pitch =
-                                            (preview.pitch - delta.y * 0.01).clamp(-1.45, 1.45);
+                                            preview3d::orbit_pitch(preview.pitch, delta.y);
                                     }
-                                }
-                                if response.hovered() {
-                                    let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-                                    preview.zoom =
-                                        (preview.zoom * (-scroll * 0.001).exp()).clamp(0.3, 5.);
                                 }
                                 let mut magnification = 1. / preview.zoom;
                                 if ui
@@ -605,10 +606,12 @@ impl State {
                                 ui.checkbox(&mut preview.flip_vertical, "Flip vertically");
                                 ui.horizontal(|ui| {
                                     ui.checkbox(&mut preview.turntable, "Turntable");
-                                    ui.checkbox(&mut preview.playing, "Animation");
+                                    if item.category != Category::Weapons {
+                                        ui.checkbox(&mut preview.playing, "Animation");
+                                    }
                                 });
                                 let actions = preview.action_names();
-                                if !actions.is_empty() {
+                                if item.category != Category::Weapons && !actions.is_empty() {
                                     let labels: Vec<String> = actions
                                         .iter()
                                         .enumerate()
@@ -633,10 +636,10 @@ impl State {
                                             }
                                         });
                                 }
-                                if preview.playing || preview.turntable {
+                                if (item.category != Category::Weapons && preview.playing) || preview.turntable {
                                     ui.ctx().request_repaint();
                                 }
-                                ui.label("Left-drag to orbit; right-drag to move; scroll to zoom.");
+                                ui.label("Left-drag to orbit; right-drag to move; use the slider to zoom.");
                             } else {
                                 ui.label("Preparing preview…");
                             }
@@ -887,6 +890,24 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flipped_preview_is_a_textured_mesh_with_reversed_uvs() {
+        let ctx = egui::Context::default();
+        let texture = egui::TextureId::User(42);
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                preview_image(ui, texture, 100., true);
+            });
+        });
+        let primitives = ctx.tessellate(output.shapes, output.pixels_per_point);
+        let mesh = primitives.iter().find_map(|p| match &p.primitive {
+            egui::epaint::Primitive::Mesh(mesh) if mesh.texture_id == texture => Some(mesh),
+            _ => None,
+        }).expect("flipped preview must remain textured");
+        assert_eq!(mesh.vertices[0].uv, egui::pos2(0., 1.));
+        assert_eq!(mesh.vertices[3].uv, egui::pos2(1., 0.));
+    }
 
     #[test]
     fn browsing_and_comparison_render_without_optional_archives() {

@@ -16,13 +16,15 @@ explicit Left, Right and Remove controls.
 
 Switch to **3D model** for an offscreen ECM/SMD preview, or a class/gender
 floating equipment mesh for armor and fashion. Select the class and gender
-variant used to load the equipment mesh; no character body is displayed. Left-drag to orbit, right-drag to move, and scroll to
-zoom, or use the Zoom slider; use Flip vertically for inverted assets; turntable and animation controls are below the
-image. Dyeable fashion has an approximate color-tint picker, not an exact dye
-mask simulation. Common action names are translated to English; unrecognized actions are
-numbered rather than guessed. Preview models and
-textures require the corresponding client archives or matching loose files. Missing resources and
-unsupported models are reported in the preview instead of being substituted.
+variant used to load the equipment mesh; no character body is displayed.
+Left-drag to orbit, right-drag to move, and use the Zoom slider. Use Flip
+vertically for inverted assets; turntable and animation controls are below the
+image. Weapons are shown in bind pose without animation controls. Dyeable fashion
+has an approximate color-tint picker, not an exact dye mask simulation. Common
+action names are translated to English; unrecognized actions are numbered rather
+than guessed. Models and textures require the corresponding client archives or
+matching loose files. Missing resources and unsupported models are reported in
+the preview instead of being substituted.
 For effect-only models with an embedded GFX skin model, the preview can show
 the first embedded model in bind pose (requires `gfx.pck`). It omits GFX
 transforms, animation, particles, decals and other effects; effect-only models
