@@ -1239,7 +1239,8 @@ struct Renderer {
     object_start: u32,
     local_pages: Vec<crate::world_objects::GpuPage>,
     world_pages: Vec<crate::world_objects::GpuPage>,
-    world_draw_order: Vec<(usize, usize)>,
+    /// Whole-world page commands, one list per view slot (`GpuPage::world_view_slot`).
+    world_draw_cmds: [Vec<crate::world_objects::DrawCmd>; crate::world_objects::WORLD_VIEWS],
     world_done: bool,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -1830,7 +1831,7 @@ impl Renderer {
             object_start: m.object_start,
             local_pages,
             world_pages: Vec::new(),
-            world_draw_order: Vec::new(),
+            world_draw_cmds: Default::default(),
             world_done: false,
             layout,
             sampler,
@@ -2460,12 +2461,15 @@ impl Renderer {
         // ornaments while preload is in progress: the coplanar duplicates
         // caused depth flicker. Switch atomically only after all pages arrive.
         if self.world_done {
-            crate::world_objects::GpuPage::draw_ordered(
+            // The view's commands were folded once when the world finished
+            // loading: its placements are frozen, so nothing here is per-frame
+            // work beyond the page binds and the draws themselves.
+            let slot = crate::world_objects::GpuPage::world_view_slot(pass_kind);
+            crate::world_objects::GpuPage::draw_world(
                 &self.world_pages,
-                &self.world_draw_order,
+                &self.world_draw_cmds[slot],
                 &mut p,
                 reflected,
-                pass_kind,
             );
         }
     }
@@ -3999,7 +4003,7 @@ pub fn run(
                     if want_world != world_enabled {
                         world_enabled=want_world;
                         if let Some(c)=world_cancel.take(){c.store(true,std::sync::atomic::Ordering::Relaxed);}
-                        world_rx=None;renderer.world_pages.clear();renderer.world_draw_order.clear();renderer.world_done=false;
+                        world_rx=None;renderer.world_pages.clear();renderer.world_draw_cmds=Default::default();renderer.world_done=false;
                         if world_enabled {
                             let (tx,rx)=std::sync::mpsc::sync_channel(1);let cancel=Arc::new(std::sync::atomic::AtomicBool::new(false));
                             let c=cancel.clone();let root=whole_element.clone();let ornaments=whole_ornaments.clone();
@@ -4014,7 +4018,7 @@ pub fn run(
                             renderer.world_pages.push(uploaded);world_status=format!("Loading: {processed}/{} objects, {} GPU chunks",whole_ornaments.len(),renderer.world_pages.len());
                             eprintln!("{world_status}");
                         },
-                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_draw_order=crate::world_objects::GpuPage::draw_order(&renderer.world_pages);renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture; {} geometry chunks, {} shared atlases ({} MiB); peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits",stats.pages,stats.atlas_pages,stats.atlas_bytes>>20,stats.residency.peak_resident_bytes>>20,stats.residency.budget_bytes>>20,stats.residency.evictions,stats.residency.alias_hits);eprintln!("{world_status}");},
+                        Ok(crate::world_objects::Message::Done{processed,skipped,stats})=>{renderer.world_draw_cmds=crate::world_objects::GpuPage::world_commands(&renderer.world_pages);renderer.world_done=true;world_status=format!("Loaded {processed} objects; {skipped} meshes use fallback texture; {} geometry chunks, {} shared atlases ({} MiB); peak decoded-texture residency {} MiB of {} MiB budget, {} evictions, {} dedup alias hits",stats.pages,stats.atlas_pages,stats.atlas_bytes>>20,stats.residency.peak_resident_bytes>>20,stats.residency.budget_bytes>>20,stats.residency.evictions,stats.residency.alias_hits);eprintln!("{world_status}");},
                         Ok(crate::world_objects::Message::Error(e))=>{world_status=format!("World load failed: {e}");eprintln!("{world_status}");},
                         Err(_)=>{}
                     }}
@@ -4457,8 +4461,8 @@ pub fn preview(
                         stats.residency.budget_bytes >> 20,
                         stats.residency.evictions
                     );
-                    renderer.world_draw_order =
-                        crate::world_objects::GpuPage::draw_order(&renderer.world_pages);
+                    renderer.world_draw_cmds =
+                        crate::world_objects::GpuPage::world_commands(&renderer.world_pages);
                     renderer.world_done = true;
                     break;
                 }
@@ -4743,10 +4747,12 @@ mod frame_snapshot_tests {
         );
         assert!(src.contains("if !allows_class_with_context(view, ModelClass::EcModel, context)"));
         assert!(
-            src.matches("page.draw_selected(&mut p, reflected, pass_kind)")
-                .count()
-                >= 2,
-            "local and whole-world pages must use the data-driven pass gate"
+            src.contains("page.draw_selected(&mut p, reflected, pass_kind)"),
+            "local pages must use the data-driven pass gate"
+        );
+        assert!(
+            src.contains("GpuPage::world_view_slot(pass_kind)"),
+            "whole-world pages must pick their command list from the pass"
         );
     }
 

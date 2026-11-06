@@ -32,6 +32,85 @@ pub struct PlacementRange {
     pub visibility: Visibility,
 }
 
+/// The part of a page the command builder reads. Kept separate from `GpuPage`
+/// so the fold below is testable without a device.
+pub struct PageSpans<'a> {
+    pub count: u32,
+    pub placements: &'a [PlacementRange],
+}
+
+/// Fold the frozen submission order into the minimum set of draws for `view`.
+///
+/// Placements inside a page are stored back to back, so two consecutive order
+/// entries that belong to the same page usually *touch*
+/// (`last.end == next.start`). Drawing them as one span draws exactly the same
+/// indices in exactly the same order — but as one draw call instead of one per
+/// placement, which is what the pass used to issue: a whole-world load is
+/// thousands of placements over a few hundred pages, per view.
+///
+/// A span is only ever extended across a placement that touches it, so a
+/// placement the view hides can never be swallowed by a neighbour: it is
+/// skipped and leaves a gap the merge rule refuses to cross.
+pub fn fold_commands(pages: &[PageSpans], order: &[(usize, usize)], view: Pass) -> Vec<DrawCmd> {
+    let mut cmds: Vec<DrawCmd> = Vec::with_capacity(order.len());
+    for &(page, range) in order {
+        let p = &pages[page];
+        let (start, end) = if range == usize::MAX {
+            (0, p.count)
+        } else {
+            let r = &p.placements[range];
+            if !allows_with_context(view, r.visibility, RenderContext::default()) {
+                continue;
+            }
+            (r.start, r.end)
+        };
+        if let Some(last) = cmds.last_mut() {
+            if last.page == page && last.end == start {
+                last.end = end;
+                continue;
+            }
+        }
+        cmds.push(DrawCmd { page, start, end });
+    }
+    cmds
+}
+
+/// Fold one page's placements into the spans a view draws, in order.
+///
+/// The builder stores placements back to back, so the visible ones usually
+/// touch and collapse into a single span: the same indices in the same order,
+/// one draw instead of one per placement. A hidden placement is skipped and its
+/// indices stay out of the spans, because a span is only extended across a
+/// neighbour that touches it.
+fn fold_page_spans(placements: &[PlacementRange], view: Pass) -> Vec<(u32, u32)> {
+    let mut spans: Vec<(u32, u32)> = Vec::with_capacity(placements.len());
+    for r in placements {
+        if !allows_with_context(view, r.visibility, RenderContext::default()) {
+            continue;
+        }
+        match spans.last_mut() {
+            Some(last) if last.1 == r.start => last.1 = r.end,
+            _ => spans.push((r.start, r.end)),
+        }
+    }
+    spans
+}
+
+/// One opaque scenery draw: a page and a contiguous span of its index buffer.
+///
+/// Several `PlacementRange`s can fold into one command (see
+/// `GpuPage::draw_commands`), which is what keeps the whole-world pass at one
+/// draw per page run instead of one per placed object.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct DrawCmd {
+    pub page: usize,
+    pub start: u32,
+    pub end: u32,
+}
+
+/// Command lists kept for the whole-world pages: main, reflection, refraction.
+pub const WORLD_VIEWS: usize = 3;
+
 pub struct Page {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
@@ -617,10 +696,8 @@ impl GpuPage {
             pass.draw_indexed(0..self.count, 0, 0..1);
             return;
         }
-        for r in &self.placements {
-            if allows_with_context(view, r.visibility, RenderContext::default()) {
-                pass.draw_indexed(r.start..r.end, 0, 0..1);
-            }
+        for (start, end) in fold_page_spans(&self.placements, view) {
+            pass.draw_indexed(start..end, 0, 0..1);
         }
     }
     /// Freeze the original submission sequence once loading is complete.
@@ -642,6 +719,57 @@ impl GpuPage {
             .map(|(_, page, range)| (page, range))
             .collect()
     }
+    /// Commands for one view, built from the live pages.
+    pub fn draw_commands(pages: &[Self], order: &[(usize, usize)], view: Pass) -> Vec<DrawCmd> {
+        let spans: Vec<PageSpans> = pages
+            .iter()
+            .map(|p| PageSpans {
+                count: p.count,
+                placements: &p.placements,
+            })
+            .collect();
+        fold_commands(&spans, order, view)
+    }
+    /// The command lists the viewer keeps for the whole-world pages: the main
+    /// (unfiltered) list, then the reflection and refraction gates.
+    pub fn world_commands(pages: &[Self]) -> [Vec<DrawCmd>; WORLD_VIEWS] {
+        let order = Self::draw_order(pages);
+        [
+            Self::draw_commands(pages, &order, Pass::Main),
+            Self::draw_commands(pages, &order, Pass::Reflection),
+            Self::draw_commands(pages, &order, Pass::Refraction),
+        ]
+    }
+    /// Which `world_commands` list a pass reads. Fog, minimap and full-map see
+    /// exactly what the main view sees, so they share its list.
+    pub fn world_view_slot(pass: Pass) -> usize {
+        match pass {
+            Pass::Reflection => 1,
+            Pass::Refraction => 2,
+            Pass::Main | Pass::Fog | Pass::Minimap | Pass::FullMap => 0,
+        }
+    }
+    /// Issue a command list: bind on a page change, one draw per command.
+    pub fn draw_world<'a>(
+        pages: &'a [Self],
+        cmds: &[DrawCmd],
+        pass: &mut wgpu::RenderPass<'a>,
+        reflected: bool,
+    ) {
+        let mut bound = None;
+        for cmd in cmds {
+            let p = &pages[cmd.page];
+            if bound != Some(cmd.page) {
+                pass.set_bind_group(0, if reflected { &p.reflected } else { &p.normal }, &[]);
+                pass.set_vertex_buffer(0, p.vertex.slice(..));
+                pass.set_index_buffer(p.index.slice(..), wgpu::IndexFormat::Uint32);
+                bound = Some(cmd.page);
+            }
+            pass.draw_indexed(cmd.start..cmd.end, 0, 0..1);
+        }
+    }
+    /// Convenience wrapper for callers that hold the raw order (the atlas
+    /// check): build the view's commands, then draw them.
     pub fn draw_ordered<'a>(
         pages: &'a [Self],
         order: &[(usize, usize)],
@@ -649,26 +777,8 @@ impl GpuPage {
         reflected: bool,
         view: Pass,
     ) {
-        let mut bound = None;
-        for &(page, range) in order {
-            let p = &pages[page];
-            let indices = if range == usize::MAX {
-                0..p.count
-            } else {
-                let r = &p.placements[range];
-                if !allows_with_context(view, r.visibility, RenderContext::default()) {
-                    continue;
-                }
-                r.start..r.end
-            };
-            if bound != Some(page) {
-                pass.set_bind_group(0, if reflected { &p.reflected } else { &p.normal }, &[]);
-                pass.set_vertex_buffer(0, p.vertex.slice(..));
-                pass.set_index_buffer(p.index.slice(..), wgpu::IndexFormat::Uint32);
-                bound = Some(page);
-            }
-            pass.draw_indexed(indices, 0, 0..1);
-        }
+        let cmds = Self::draw_commands(pages, order, view);
+        Self::draw_world(pages, &cmds, pass, reflected);
     }
     pub fn shares_atlas_with(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.normal, &other.normal) && Arc::ptr_eq(&self.reflected, &other.reflected)
@@ -799,4 +909,156 @@ mod page_tests {
         assert_eq!(page.vertices[0].color[3], 0.5);
         assert_eq!(page.mips[6].len(), (SIDE / 128) * 2 * 4);
     }
+    /// A placement span as the builder writes them: touching, in order.
+    fn span(start: u32, end: u32, order: u64, reflect: bool, refract: bool) -> PlacementRange {
+        PlacementRange {
+            start,
+            end,
+            export_id: 0,
+            order,
+            visibility: Visibility { reflect, refract },
+        }
+    }
+
+    fn cmd(page: usize, start: u32, end: u32) -> DrawCmd {
+        DrawCmd { page, start, end }
+    }
+
+    fn pages(spans: &[&[PlacementRange]], counts: &[u32]) -> Vec<PageSpans> {
+        spans
+            .iter()
+            .zip(counts)
+            .map(|(placements, count)| PageSpans {
+                count: *count,
+                placements,
+            })
+            .collect()
+    }
+
+    /// Every index a command list draws, expanded back out: the property the
+    /// fold has to preserve, whatever it does to the command count.
+    fn drawn(cmds: &[DrawCmd]) -> Vec<(usize, u32)> {
+        cmds.iter()
+            .flat_map(|c| (c.start..c.end).map(move |i| (c.page, i)))
+            .collect()
+    }
+
+    #[test]
+    fn a_page_run_folds_into_one_draw() {
+        // Four touching placements of one page, submitted back to back, are one
+        // draw. The whole-world pass used to issue four.
+        let p = [
+            span(0, 30, 10, true, true),
+            span(30, 60, 11, true, true),
+            span(60, 100, 12, true, true),
+            span(100, 140, 13, true, true),
+        ];
+        let pages = pages(&[&p], &[140]);
+        let order = [(0, 0), (0, 1), (0, 2), (0, 3)];
+        let cmds = fold_commands(&pages, &order, Pass::Main);
+        assert_eq!(cmds, vec![cmd(0, 0, 140)]);
+        assert_eq!(drawn(&cmds).len(), 140);
+    }
+
+    #[test]
+    fn a_local_page_folds_its_visible_placements_and_skips_the_hidden_ones() {
+        let p = [
+            span(0, 30, 0, true, true),
+            span(30, 60, 1, false, true),
+            span(60, 100, 2, true, true),
+            span(100, 140, 3, true, true),
+        ];
+        assert_eq!(fold_page_spans(&p, Pass::Main), vec![(0, 140)]);
+        assert_eq!(fold_page_spans(&p, Pass::Reflection), vec![(0, 30), (60, 140)]);
+        assert_eq!(fold_page_spans(&p, Pass::Refraction), vec![(0, 140)]);
+        // The hidden placement's indices stay out of the reflection spans.
+        let drawn: u32 = fold_page_spans(&p, Pass::Reflection)
+            .iter()
+            .map(|(start, end)| end - start)
+            .sum();
+        assert_eq!(drawn, 30 + 80);
+    }
+
+    #[test]
+    fn a_hidden_placement_splits_the_run_and_is_never_drawn() {
+        let p = [
+            span(0, 30, 10, true, true),
+            span(30, 60, 11, false, true),
+            span(60, 100, 12, true, true),
+            span(100, 140, 13, true, true),
+        ];
+        let pages = pages(&[&p], &[140]);
+        let order = [(0, 0), (0, 1), (0, 2), (0, 3)];
+        // Reflection hides the second placement, so no span may cross it.
+        let reflection = fold_commands(&pages, &order, Pass::Reflection);
+        assert_eq!(reflection, vec![cmd(0, 0, 30), cmd(0, 60, 140)]);
+        assert!(!drawn(&reflection).iter().any(|&(_, i)| (30..60).contains(&i)));
+        // Refraction sees all four and folds them into one draw.
+        let refraction = fold_commands(&pages, &order, Pass::Refraction);
+        assert_eq!(refraction, vec![cmd(0, 0, 140)]);
+    }
+
+    #[test]
+    fn interleaved_pages_keep_their_own_draws() {
+        // The frozen order is a global sort, so pages interleave. A fold never
+        // crosses a page boundary and the drawn sequence stays as submitted.
+        let a = [span(0, 30, 10, true, true), span(30, 60, 30, true, true)];
+        let b = [span(0, 40, 20, true, true)];
+        let pages = pages(&[&a, &b], &[60, 40]);
+        let order = [(0, 0), (1, 0), (0, 1)];
+        let cmds = fold_commands(&pages, &order, Pass::Main);
+        assert_eq!(cmds, vec![cmd(0, 0, 30), cmd(1, 0, 40), cmd(0, 30, 60)]);
+        assert_eq!(drawn(&cmds).len(), 100);
+    }
+
+    #[test]
+    fn a_page_without_placements_draws_every_index() {
+        let pages = pages(&[&[]], &[512]);
+        let cmds = fold_commands(&pages, &[(0, usize::MAX)], Pass::Reflection);
+        assert_eq!(cmds, vec![cmd(0, 0, 512)]);
+    }
+
+    #[test]
+    fn the_fold_draws_exactly_what_the_per_placement_loop_drew() {
+        // Touching spans over three pages, submitted in a global order, under
+        // every view: the folded spans must equal the per-placement spans the
+        // visibility gate allows, and the fold must never need more draws.
+        let mut spans: Vec<Vec<PlacementRange>> = Vec::new();
+        for page in 0..3u32 {
+            let mut list = Vec::new();
+            let mut start = 0u32;
+            for i in 0..6u32 {
+                let len = 3 + (page * 7 + i * 5) % 11;
+                let order = (page * 100 + i) as u64;
+                list.push(span(start, start + len, order, i % 2 == 0, i % 3 != 0));
+                start += len;
+            }
+            spans.push(list);
+        }
+        let refs: Vec<&[PlacementRange]> = spans.iter().map(|list| list.as_slice()).collect();
+        let counts: Vec<u32> = spans.iter().map(|list| list.last().unwrap().end).collect();
+        let pages = pages(&refs, &counts);
+        let mut order: Vec<(u64, usize, usize)> = Vec::new();
+        for (page, list) in spans.iter().enumerate() {
+            for (range, r) in list.iter().enumerate() {
+                order.push((r.order, page, range));
+            }
+        }
+        order.sort_unstable();
+        let order: Vec<(usize, usize)> = order.into_iter().map(|(_, p, r)| (p, r)).collect();
+        for view in [Pass::Main, Pass::Reflection, Pass::Refraction] {
+            let mut expected = Vec::new();
+            for &(page, range) in &order {
+                let r = &spans[page][range];
+                if allows_with_context(view, r.visibility, RenderContext::default()) {
+                    expected.extend((r.start..r.end).map(|i| (page, i)));
+                }
+            }
+            let cmds = fold_commands(&pages, &order, view);
+            assert_eq!(drawn(&cmds), expected, "view {view:?}");
+            assert!(cmds.iter().all(|c| c.start <= c.end));
+            assert!(cmds.len() <= order.len());
+        }
+    }
+
 }
