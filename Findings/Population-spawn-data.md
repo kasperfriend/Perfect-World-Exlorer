@@ -131,11 +131,16 @@ with 120 (ornament range) and 800 as further presets.
   at the last key, so a clock that only grew would freeze a rig mid-idle after
   one cycle — the loop wraps inside the clip's own millisecond range instead.
 * Which idle a rig gets is the rig's own data, in this order: the combined
-  action `休闲` (the client's own lookup, `EcModel::scene_action`), else the
-  ordinary clip that combined action's first base names, else the rig's own clip
-  called `待机`, `站立`, `休闲` or `idle`, else the authored bind pose. A rig with
-  no usable idle is drawn in its bind pose rather than vanishing, and the reason
-  is logged.
+  action `站立` — the standing action, with the client's own fallback to the
+  literal `休闲` (`EcModel::scene_action`) — else the ordinary clip that combined
+  action's first base names, else the rig's own clip called `待机`, `站立`,
+  `休闲` or `idle`, else the authored bind pose. A rig with no usable idle is
+  drawn in its bind pose rather than vanishing, and the reason is logged.
+  The request used to be `休闲`, which is the leisure gesture: for the 1,486
+  shipped rigs that carry one, that asked a trader to stretch and look around on
+  a loop instead of standing. `站立` is the action those rigs actually author as
+  the standing loop, and its base carries `LoopCount: -1`, so it schedules
+  through `Playback` as an infinite loop instead of a re-triggered gesture.
 * "Not stuck still" is checked against the drawn geometry, not the schedule: the
   viewer fingerprints a spread of posed vertices each frame, and an actor whose
   vertices have not changed for half a second is counted as holding a still pose
@@ -152,6 +157,39 @@ with 120 (ornament range) and 800 as further presets.
   at 96.
 * No combat, dialogue or interaction; positions, names, heights and greetings
   are the files' own, and nothing is synthesised to fill the mob/route gaps.
+
+## What the shipped files give every placed NPC
+
+Measured from the retail archives, not counted from the viewer:
+`tools/npc_idle_report.py` regenerates the table in
+[`npc-idle-evidence.md`](npc-idle-evidence.md).
+
+| evidence | value | source |
+| --- | --- | --- |
+| `models.pck` entries | 40,753 | pack directory, version `0x20002` |
+| NPC `.ecm` rigs in the pack | 1,871 | `models/npcs/**/*.ecm` |
+| `elements.data` §58 `NPC_ESSENCE` | 2,838 templates | 852-byte records, v27 (`0x3000001b`) |
+| `task_npc.data` records | 1,572 | 515 placed + 1,057 template rows with no position |
+| distinct rigs behind the 515 placements | 92 | template `.ecm` path, case-folded |
+| rigs whose idle clip spans > 1 ms | 86 | SMD action range ÷ skeleton fps |
+| of those, rigs whose rotation keys actually change across the clip | 85 | keys sampled at the clip's start, middle and end |
+| rigs with no idle action at all | 6 | scenery: chest, rocks, furnace, tree, altar, skeleton |
+| idle clip length | 1.6 – 2.3 s | 24–36 frames at the skeletons' 15 fps |
+| rotation keys in the v5 `.bon` | 107 – 478 per rig | the rig's largest rotation track |
+| combined actions per rig | 6 – 11 | ECM `ComActCount` |
+
+One rig does not move inside its own clip: `圣诞老人` (Santa Claus) authors
+`站立` as frames 107–132 while its largest rotation track holds 107 keys, so the
+clip maps past the end of the track and the sampler clamps at the last key — the
+same clamp `pose_action_at_time` applies, so the actor is drawn in the pose the
+files give it rather than being animated by guesswork. That is the only rig of
+the 86 with a non-degenerate clip and no changing keys; the six scenery rigs
+(chest, rock, furnace, tree, altar, bone pile) ship no idle action at all.
+
+The v5 `.bon` files carry their bone tracks inline (`embedded_tracks`), which is
+why a v5 rig with no `.stck` still animates: the SMD action range plus the
+skeleton's own keys are all the pose sampler needs. Where a rig ships a `.stck`
+(v6+), the SMD names it and the same code path reads it.
 
 ## Facing (investigated, not present)
 

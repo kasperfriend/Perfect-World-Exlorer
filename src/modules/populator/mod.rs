@@ -77,7 +77,7 @@ pub struct Settings {
     pub spawn_distance: f32,
     /// Hard cap on simultaneously drawn actors.
     pub max_visible: usize,
-    /// Play the template's own `休闲` scene action.
+    /// Play the template's own `站立` scene action.
     pub idle_animation: bool,
     /// Draw the template's own name above the actor, as the game does.
     pub show_names: bool,
@@ -451,6 +451,16 @@ fn project(point: Vec3, view_projection: Mat4, screen: egui::Rect) -> Option<egu
 /// The template's own scene idle. `EcModel::scene_action` is the client's
 /// 0x5b3a4f lookup, including its `休闲` fallback (0x95a750).
 ///
+/// The request is `站立`, the standing action: 1,674 of the 1,871 NPC rigs in
+/// the shipped `models.pck` ship that combined action, and it is the one whose
+/// base loop is authored infinite (`LoopCount: -1`). Asking for `休闲` instead
+/// picked the leisure gesture (伸懒腰 / 四处张望) for the 1,486 rigs that have
+/// one, so those NPCs replayed a stretch-and-look-around loop instead of
+/// standing. The client's own fallback to `休闲` still applies to a rig with no
+/// `站立`, which is why the request goes through `scene_action` rather than a
+/// literal name search. See `Findings/npc-idle-evidence.md` for the per-rig
+/// table behind this.
+///
 /// `Playback` only schedules a combined action that is a single base starting at
 /// zero with an infinite or fixed loop count; anything else is the client's
 /// event/transition scheduler, which this viewer does not implement. Those rigs
@@ -460,7 +470,7 @@ fn idle_clock(
     asset: &ModelAsset,
     report: &mut IdleReport,
 ) -> (Option<usize>, Option<Clip>, Option<Playback>) {
-    let combined = asset.descriptor.scene_action("休闲");
+    let combined = asset.descriptor.scene_action(STANDING_SCENE_ACTION);
     // `Playback::new` accepts "no scene action at all" as an inert playback that
     // samples nothing. Taking that as the answer left every rig without a `休闲`
     // combined action frozen in its bind pose for the whole session, so only a
@@ -513,6 +523,11 @@ fn idle_clock(
         }
     }
 }
+
+/// The scene action a placed NPC asks for. `站立` ("standing") is the combined
+/// action 1,674 of the 1,871 shipped NPC rigs carry, with an infinite base loop;
+/// the client falls back to the literal `休闲` when a rig has no match.
+const STANDING_SCENE_ACTION: &str = "站立";
 
 /// Frames of unchanged geometry after which an actor counts as holding a still
 /// pose. Half a second at 60 Hz: an idle that only breathes still clears it.
@@ -1450,7 +1465,7 @@ impl Populator {
         );
         ui.checkbox(&mut self.settings.idle_animation, "Idle animation")
             .on_hover_text(
-                "Play the template's own `休闲` scene action. The client's combined scene action is used where it can be scheduled; otherwise the clip that combined action names loops on the module clock, and only a rig with neither stays in its bind pose.",
+                "Play the template's own `站立` scene action, the standing loop 1,674 of the 1,871 shipped NPC rigs carry. The client's combined scene action is used where it can be scheduled; otherwise the clip it names loops on the module clock, and only scenery rigs, which ship no idle action at all, stay in their bind pose.",
             );
         ui.checkbox(&mut self.settings.stand_on_objects, "Stand on building floors")
             .on_hover_text(
@@ -1671,25 +1686,26 @@ mod tests {
         assert!((clip.seconds(0.5) - clip.seconds(0.0) - 0.5).abs() < 1e-4);
     }
 
+    fn combined(name: &str, base: &str) -> crate::ecmodel::CombinedAction {
+        crate::ecmodel::CombinedAction {
+            name: name.into(),
+            loops: Some(1),
+            speed: Some(1.),
+            bases: vec![crate::ecmodel::BaseAction {
+                name: base.into(),
+                start_ms: Some(0),
+                loop_min: Some(-1),
+                loop_max: Some(-1),
+            }],
+        }
+    }
+
     #[test]
     fn a_combined_scene_idle_goes_through_the_playback_clock() {
         let mut asset = rig_without_combined_actions();
         asset.model.actions.push(idle_action("base", 0., 30.));
         asset.skeleton.fps = 30;
-        asset
-            .descriptor
-            .actions
-            .push(crate::ecmodel::CombinedAction {
-                name: "休闲".into(),
-                loops: Some(1),
-                speed: Some(1.),
-                bases: vec![crate::ecmodel::BaseAction {
-                    name: "base".into(),
-                    start_ms: Some(0),
-                    loop_min: Some(-1),
-                    loop_max: Some(-1),
-                }],
-            });
+        asset.descriptor.actions.push(combined("站立", "base"));
         let mut report = IdleReport::default();
         let (action, clip, playback) = idle_clock(&asset, &mut report);
         let mut playback = playback.expect("the combined action is scheduled");
@@ -1699,6 +1715,38 @@ mod tests {
         playback.tick(250).expect("the clock advances");
         let (_, later) = playback.sample().expect("still sampling");
         assert!(later > first, "{first} -> {later}");
+    }
+
+    /// The request is the standing action; the leisure gesture is only the
+    /// client's fallback, so a rig that ships both must stand, not stretch.
+    #[test]
+    fn the_standing_scene_action_wins_over_the_leisure_gesture() {
+        let mut asset = rig_without_combined_actions();
+        asset.model.actions.push(idle_action("stand", 0., 30.));
+        asset.model.actions.push(idle_action("stretch", 0., 30.));
+        asset.skeleton.fps = 30;
+        asset.descriptor.actions.push(combined("休闲", "stretch"));
+        asset.descriptor.actions.push(combined("站立", "stand"));
+        let mut report = IdleReport::default();
+        let (_, _, playback) = idle_clock(&asset, &mut report);
+        let playback = playback.expect("the standing action is scheduled");
+        let (action, _) = playback.sample().expect("the standing clip samples");
+        assert_eq!(asset.model.actions[action].name, "stand");
+    }
+
+    /// No `站立` anywhere: the client's own fallback to the literal `休闲`
+    /// still finds the rig's leisure action instead of leaving it in bind pose.
+    #[test]
+    fn a_rig_without_a_standing_action_falls_back_to_the_leisure_one() {
+        let mut asset = rig_without_combined_actions();
+        asset.model.actions.push(idle_action("stretch", 0., 30.));
+        asset.skeleton.fps = 30;
+        asset.descriptor.actions.push(combined("休闲", "stretch"));
+        let mut report = IdleReport::default();
+        let (_, _, playback) = idle_clock(&asset, &mut report);
+        let playback = playback.expect("the fallback action is scheduled");
+        let (action, _) = playback.sample().expect("the fallback clip samples");
+        assert_eq!(asset.model.actions[action].name, "stretch");
     }
 
     #[test]
