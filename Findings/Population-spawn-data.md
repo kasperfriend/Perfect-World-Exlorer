@@ -366,17 +366,18 @@ distinct, city-local eligible rig palette; no standing NPC id, name, anchor,
 height, task links or route is copied. Synthetic ids use a separate range;
 names are composed from independent model-gender-specific fragments, not native
 NPC names or identities. Candidate anchors maintain separation from standing
-and already-generated placements. The two known male/beast blacksmith rigs
-whose work animation carries an anvil are excluded.
+and already-generated placements. Only numbered human `男npcN` and `女npcN` rig directories with matching `.ecm` filenames are eligible. Creature/beast, monster, prop, malformed, and non-NPC paths are excluded, as are the two known blacksmith/anvil rigs.
 
 Circuits are locally generated, not recovered server routes: seven-point loops
 remain inside an adjustable city-target radius (120–420 world units, 240 by
-default), with varied dwell times, periodic longer pauses, and speeds. Each
-waypoint and edge is checked against terrain and currently streamed building
-hulls; movement is checked every frame, and an obstacle stops an actor rather
-than allowing it to skate through geometry. Direct and supported combined
-native walk/run actions are used; rigs without a recognized locomotion cycle
-stay still. Requested density is adjustable from 0–48 per target (18 by
-default), with a global cap of 512. These heuristics provide visual variety
+default), start moving shortly after spawning, include varied short dwell times,
+and use native walk/run actions including suffixed names. Every candidate route
+projects and validates its full segments against terrain, client water masks,
+currently streamed building hulls, and occupied actors; failed candidates are
+discarded and retried. If later movement is blocked, that route is abandoned
+and replanned after a short cooldown instead of leaving the resident stranded.
+Humanoid rigs without a recognized locomotion cycle stay still rather than
+skate. Requested density is adjustable from 0–48 per target (18 by default),
+with a global cap of 512. These heuristics provide visual variety
 only—no server identity, persistent state, quest behavior, authentic schedule,
 navigation network, voice/dialogue, combat or interaction is implied.

@@ -207,6 +207,11 @@ pub trait FloorSource {
         let _ = (feet, extents);
         false
     }
+    /// Client-authored water surface at this horizontal point, if its mask
+    /// contains it. Ambient residents reject points below this surface.
+    fn water_height(&self, _x: f32, _z: f32) -> Option<f32> {
+        None
+    }
 }
 
 /// One action clip wrapped on its own clock.
@@ -419,6 +424,11 @@ struct Live {
     live_world: bool,
     /// Native locomotion clip or supported combined action, with its own clock.
     walk_animation: Option<WalkAnimation>,
+    /// City used for replanning if a streamed obstacle invalidates the route.
+    live_world_zone: Option<usize>,
+    /// Perturbation counter so a rejected route is not proposed again verbatim.
+    route_attempt: u64,
+    route_retry_seconds: f32,
     walking: bool,
     draw: Option<model_draw_gpu::Draw>,
     /// Fatal per-actor error (rig, pose or draw); the actor is not submitted.
@@ -775,65 +785,61 @@ fn idle_clock(
 
 /// Prefer the client's explicit walk/run names, including combined scene
 /// actions; never reinterpret a work or idle action as locomotion.
-fn walk_clock(asset: &ModelAsset) -> Option<WalkAnimation> {
-    const WALK_NAMES: [&str; 19] = [
-        "行走_通用",
-        "走路_通用",
-        "行走",
-        "走路",
-        "walking",
-        "walk_fwd",
-        "walk",
-        "快速移动",
-        "奔跑_通用",
-        "跑步_通用",
-        "奔跑_空手",
-        "跑步_空手",
-        "跑_空手",
-        "奔跑_法宝",
-        "奔跑",
-        "跑步",
-        "run",
-        "running",
-        "move",
+fn locomotion_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    let positive = [
+        "walk", "run", "move", "走路", "行走", "奔跑", "跑步", "移动",
     ];
-    for name in WALK_NAMES {
-        if let Some(combined) = asset
-            .descriptor
-            .actions
+    let forbidden = [
+        "attack", "fight", "skill", "idle", "work", "hurt", "dead", "jump", "swim", "攻击", "战斗",
+        "技能", "休闲", "待机", "站立", "打铁", "受击", "死亡", "跳跃", "游泳", "采集", "施法",
+    ];
+    positive.iter().any(|part| name.contains(part))
+        && !forbidden.iter().any(|part| name.contains(part))
+}
+
+/// Resolve locomotion by the action's semantic name rather than an exact list:
+/// client rigs append equipment/state suffixes to otherwise standard walk/run
+/// names, and combined-action names do not always equal their base clip names.
+fn walk_clock(asset: &ModelAsset) -> Option<WalkAnimation> {
+    for (combined, scene_action) in asset.descriptor.actions.iter().enumerate() {
+        let base_is_walk = scene_action
+            .bases
             .iter()
-            .position(|action| action.name.eq_ignore_ascii_case(name))
-        {
-            if let Ok(playback) = Playback::new(asset, Some(combined)) {
-                if let Some((action, _)) = playback.sample() {
-                    if let Some(clip) = Clip::new(asset, action) {
-                        return Some(WalkAnimation {
-                            action,
-                            clip,
-                            playback: Some(playback),
-                            elapsed: 0.,
-                        });
-                    }
+            .any(|base| locomotion_name(&base.name));
+        if !locomotion_name(&scene_action.name) && !base_is_walk {
+            continue;
+        }
+        if let Ok(playback) = Playback::new(asset, Some(combined)) {
+            if let Some((action, _)) = playback.sample() {
+                if let Some(clip) = Clip::new(asset, action) {
+                    return Some(WalkAnimation {
+                        action,
+                        clip,
+                        playback: Some(playback),
+                        elapsed: 0.,
+                    });
                 }
             }
         }
-        if let Some(action) = asset
-            .model
-            .actions
-            .iter()
-            .position(|action| action.name.eq_ignore_ascii_case(name))
-        {
-            if let Some(clip) = Clip::new(asset, action) {
-                return Some(WalkAnimation {
+    }
+    asset
+        .model
+        .actions
+        .iter()
+        .enumerate()
+        .find_map(|(action, clip)| {
+            if locomotion_name(&clip.name) {
+                Clip::new(asset, action).map(|clip| WalkAnimation {
                     action,
                     clip,
                     playback: None,
                     elapsed: 0.,
-                });
+                })
+            } else {
+                None
             }
-        }
-    }
-    None
+        })
 }
 
 #[derive(Clone, Debug)]
@@ -959,18 +965,27 @@ fn live_world_name_tokens() -> LiveWorldNameTokens {
     }
 }
 
-/// Rig family markers in the client assets correspond to their displayed gender.
-/// Beast/demon NPC families are masculine in this build; unknown props are omitted.
+/// Accept only the client's numbered human male/female NPC rig families.
+/// Creature, monster, prop, malformed, and non-NPC asset paths are rejected.
 fn live_world_gender(model: &str) -> Option<NpcGender> {
     let model = crate::ecmodel::normalize(model);
-    if model.contains("/女npc") {
-        Some(NpcGender::Feminine)
-    } else if model.contains("/男npc") || model.contains("/妖兽npc") || model.contains("/魔npc")
-    {
-        Some(NpcGender::Masculine)
+    let relative = model.strip_prefix("models/npcs/npc/")?;
+    let (family, file) = relative.split_once('/')?;
+    let (prefix, gender) = if family.starts_with("男npc") {
+        ("男npc", NpcGender::Masculine)
+    } else if family.starts_with("女npc") {
+        ("女npc", NpcGender::Feminine)
     } else {
-        None
+        return None;
+    };
+    let number = family.strip_prefix(prefix)?;
+    if number.is_empty()
+        || !number.bytes().all(|byte| byte.is_ascii_digit())
+        || file != format!("{family}.ecm")
+    {
+        return None;
     }
+    Some(gender)
 }
 
 /// These two known rigs carry a blacksmith's anvil/hammer animation.
@@ -1030,8 +1045,8 @@ fn live_world_name(population: &Population, tokens: &[String], seed: u64) -> Opt
 }
 
 /// Ground point accepted for ambient walking. This mode intentionally uses
-/// terrain-level outdoor paths; object floors and overhead platforms are
-/// excluded, and a full actor box must be clear of the current building hulls.
+/// terrain-level outdoor paths; object floors, overhead platforms, water, and
+/// actor-sized building overlaps are rejected.
 fn live_world_ground_point(
     x: f32,
     z: f32,
@@ -1052,6 +1067,15 @@ fn live_world_ground_point(
     if !y.is_finite() {
         return None;
     }
+    // Match the walker's first-containing-area lookup. Keep a narrow tolerance
+    // for shoreline interpolation but never place a body below an actual water
+    // surface simply because the terrain height field is lower.
+    if floors
+        .water_height(x, z)
+        .is_some_and(|water| water > y + 0.1)
+    {
+        return None;
+    }
     let feet = Vec3::new(x, y, z);
     if floors.solid_at(feet, ACTOR_EXTENTS) {
         return None;
@@ -1065,9 +1089,103 @@ fn live_world_ground_point(
     Some(feet)
 }
 
+/// Project a complete candidate circuit before admitting it. Every waypoint
+/// and short segment is checked against terrain, water, building hulls, and
+/// currently occupied actors. A failed candidate is discarded and retried.
+fn build_live_world_route(
+    start: Vec3,
+    seed: u64,
+    zone: &CityZone,
+    map: &MapSpace,
+    floors: &dyn FloorSource,
+    occupied: &[Vec3],
+    ignore_actor: Option<usize>,
+) -> Option<Route> {
+    let grounded = live_world_ground_point(start.x, start.z, map, floors)?;
+    if (grounded.y - start.y).abs() > 0.65
+        || city_zone_at(start.x, start.z, std::slice::from_ref(zone)) != Some(0)
+    {
+        return None;
+    }
+    let start = grounded;
+    let mut random = seed ^ 0x94d0_49bb_1331_11eb;
+    for _attempt in 0..LIVE_WORLD_ATTEMPTS {
+        random ^= random << 13;
+        random ^= random >> 7;
+        random ^= random << 17;
+        let phase = random as u32 as f32 / u32::MAX as f32 * std::f32::consts::TAU;
+        let mut points = vec![start];
+        let mut valid = true;
+        for waypoint in 1..=6 {
+            random ^= random << 13;
+            random ^= random >> 7;
+            random ^= random << 17;
+            let jitter = ((random as u16 as f32 / u16::MAX as f32) - 0.5) * 0.55;
+            let bearing = phase + std::f32::consts::TAU * waypoint as f32 / 6.0 + jitter;
+            let radius = 4.0
+                + (random >> 32) as u32 as f32 / u32::MAX as f32
+                    * (LIVE_WORLD_MAX_ROUTE_RADIUS - 4.0);
+            let px = start.x + bearing.cos() * radius;
+            let pz = start.z + bearing.sin() * radius;
+            let Some(point) = live_world_ground_point(px, pz, map, floors) else {
+                valid = false;
+                break;
+            };
+            if city_zone_at(point.x, point.z, std::slice::from_ref(zone)) != Some(0) {
+                valid = false;
+                break;
+            }
+            points.push(point);
+        }
+        if !valid {
+            continue;
+        }
+        for edge in 0..points.len() {
+            if !ambient_path_safe(
+                points[edge],
+                points[(edge + 1) % points.len()],
+                map,
+                floors,
+                occupied,
+                ignore_actor,
+            ) {
+                valid = false;
+                break;
+            }
+        }
+        if !valid {
+            continue;
+        }
+        let route = Route {
+            waypoints: points
+                .iter()
+                .enumerate()
+                .map(|(index, point)| Waypoint {
+                    position: point.to_array(),
+                    // Start quickly so movement is apparent in the first few
+                    // seconds; retain occasional short pauses at route nodes.
+                    wait: if index == 0 {
+                        0.15 + ((seed >> 8) & 3) as f32 * 0.1
+                    } else if index % 3 == 2 {
+                        1.2 + ((seed >> ((index * 7) % 56)) & 7) as f32 * 0.2
+                    } else {
+                        0.2 + ((seed >> ((index * 7) % 56)) & 5) as f32 * 0.15
+                    },
+                })
+                .collect(),
+            speed: 1.4 + ((seed >> 20) as u8 as f32 / u8::MAX as f32) * 0.8,
+            looping: true,
+        };
+        if route.validate().is_ok() {
+            return Some(route);
+        }
+    }
+    None
+}
+
 /// Check an entire proposed step, not just its endpoint. The small sample
 /// interval bounds frame spikes and prevents a fast update from tunnelling
-/// through a thin wall; terrain is sampled at every point so feet stay grounded.
+/// through a thin wall; terrain and water are sampled throughout the step.
 fn ambient_path_safe(
     from: Vec3,
     to: Vec3,
@@ -1118,6 +1236,7 @@ fn build_live_world_spawn(
     name_tokens: &LiveWorldNameTokens,
     map: &MapSpace,
     floors: &dyn FloorSource,
+    occupied: &[Vec3],
     zone: &CityZone,
 ) -> Option<(Spawn, Route)> {
     if template_sources.is_empty() {
@@ -1161,71 +1280,11 @@ fn build_live_world_spawn(
         }) {
             continue;
         }
-        let phase = angle + ((random >> 16) as u16 as f32 / u16::MAX as f32) * 0.5;
-        let mut points = vec![start];
-        let mut valid = true;
-        for waypoint in 1..=6 {
-            random ^= random << 13;
-            random ^= random >> 7;
-            random ^= random << 17;
-            let jitter = ((random as u16 as f32 / u16::MAX as f32) - 0.5) * 0.55;
-            let bearing = phase + std::f32::consts::TAU * waypoint as f32 / 6.0 + jitter;
-            let radius = 4.0
-                + (random >> 32) as u32 as f32 / u32::MAX as f32
-                    * (LIVE_WORLD_MAX_ROUTE_RADIUS - 4.0);
-            let px = x + bearing.cos() * radius;
-            let pz = z + bearing.sin() * radius;
-            let Some(point) = live_world_ground_point(px, pz, map, floors) else {
-                valid = false;
-                break;
-            };
-            if city_zone_at(point.x, point.z, std::slice::from_ref(zone)) != Some(0) {
-                valid = false;
-                break;
-            }
-            points.push(point);
-        }
-        if !valid {
+        let Some(route) =
+            build_live_world_route(start, seed ^ random, zone, map, floors, occupied, None)
+        else {
             continue;
-        }
-        for edge in 0..points.len() {
-            if !ambient_path_safe(
-                points[edge],
-                points[(edge + 1) % points.len()],
-                map,
-                floors,
-                &[],
-                None,
-            ) {
-                valid = false;
-                break;
-            }
-        }
-        if !valid {
-            continue;
-        }
-        let route = Route {
-            waypoints: points
-                .iter()
-                .enumerate()
-                .map(|(index, point)| Waypoint {
-                    position: point.to_array(),
-                    wait: {
-                        let pause = ((seed >> ((index * 7) % 56)) & 15) as f32;
-                        if index % 3 == 2 {
-                            4.0 + pause * 0.6
-                        } else {
-                            0.5 + pause * 0.3
-                        }
-                    },
-                })
-                .collect(),
-            speed: 0.8 + ((seed >> 20) as u8 as f32 / u8::MAX as f32) * 0.8,
-            looping: true,
         };
-        if route.validate().is_err() {
-            return None;
-        }
         return Some((
             Spawn {
                 kind: TemplateKind::Npc,
@@ -1489,7 +1548,9 @@ impl Populator {
     pub fn live_world_stationary_count(&self) -> usize {
         self.live
             .iter()
-            .filter(|live| live.live_world && live.walk_animation.is_none())
+            .filter(|live| {
+                live.live_world && (live.walk_animation.is_none() || live.follow.is_none())
+            })
             .count()
     }
 
@@ -1749,6 +1810,7 @@ impl Populator {
         let Some(population) = self.population.as_mut() else {
             return;
         };
+        let floor_source = floors.expect("checked above");
         let end = (self.live_world_cursor + LIVE_WORLD_BATCH).min(target_count);
         let before = population.spawns.len();
         let started = std::time::Instant::now();
@@ -1769,7 +1831,12 @@ impl Populator {
                     templates,
                     &self.live_world_name_tokens,
                     map,
-                    floors.expect("checked above"),
+                    floor_source,
+                    &population
+                        .spawns
+                        .iter()
+                        .map(|other| Vec3::new(other.anchor[0], 0., other.anchor[1]))
+                        .collect::<Vec<_>>(),
                     zone,
                 ) {
                     spawn.route = Some(population.routes.len());
@@ -1954,6 +2021,9 @@ impl Populator {
         // authored forward axis, which is what the client falls back to.
         let yaw = 0.;
         let live_world = index >= self.authored_spawn_count;
+        let live_world_zone = live_world
+            .then(|| city_zone_at(spawn.anchor[0], spawn.anchor[1], &self.city_zones))
+            .flatten();
         let key = crate::ecmodel::normalize(&spawn.model);
         let library = self.library.as_mut()?;
         let asset = library.asset(&spawn.model).ok()?;
@@ -1993,6 +2063,9 @@ impl Populator {
             follow,
             live_world,
             walk_animation,
+            live_world_zone,
+            route_attempt: 0,
+            route_retry_seconds: 0.,
             walking: false,
             draw: None,
             failure: None,
@@ -2010,6 +2083,18 @@ impl Populator {
                 wedged: false,
             };
         };
+        if spawn.id >= LIVE_WORLD_ID_BASE {
+            return Placement {
+                position: Vec3::new(
+                    spawn.anchor[0],
+                    map.ground(spawn.anchor[0], spawn.anchor[1]),
+                    spawn.anchor[1],
+                ),
+                on_floor: false,
+                nudged: false,
+                wedged: false,
+            };
+        }
         resolve_placement(spawn, map, floors, self.settings.stand_on_objects)
     }
 
@@ -2046,6 +2131,37 @@ impl Populator {
                     playback.restart();
                 }
             }
+            live.route_retry_seconds = (live.route_retry_seconds - delta).max(0.);
+            if live.live_world
+                && live.walk_animation.is_some()
+                && live.follow.is_none()
+                && live.route_retry_seconds <= 0.
+            {
+                if let (Some(map), Some(floors), Some(zone)) = (
+                    self.map.as_ref(),
+                    floors,
+                    live.live_world_zone
+                        .and_then(|index| self.city_zones.get(index)),
+                ) {
+                    live.route_attempt = live.route_attempt.wrapping_add(1);
+                    let seed = (live.spawn as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                        ^ live.route_attempt.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+                    if let Some(route) = build_live_world_route(
+                        live.position,
+                        seed,
+                        zone,
+                        map,
+                        floors,
+                        &occupied,
+                        Some(live_index),
+                    ) {
+                        live.follow = Follow::new(&route).ok();
+                    }
+                }
+                if live.follow.is_none() {
+                    live.route_retry_seconds = 0.5;
+                }
+            }
             let Some(follow) = live.follow.as_mut() else {
                 continue;
             };
@@ -2067,6 +2183,7 @@ impl Populator {
                         if !safe {
                             live.position = before;
                             live.follow = None;
+                            live.route_retry_seconds = 0.2;
                             live.walking = false;
                             if let Some(animation) = live.walk_animation.as_mut() {
                                 animation.restart();
@@ -2183,7 +2300,7 @@ impl Populator {
                     let mut current = spawn.clone();
                     current.anchor = [live.position.x, live.position.z];
                     current.height = None;
-                    resolve_placement(&current, map, Some(floors), self.settings.stand_on_objects)
+                    resolve_placement(&current, map, Some(floors), false)
                 } else {
                     // An authored height is the game's own answer and never
                     // moves, but the column can still be inside a wall.
@@ -2802,18 +2919,24 @@ mod tests {
         );
         assert_eq!(
             live_world_gender("models/npcs/npc/妖兽npc1/妖兽npc1.ecm"),
-            Some(NpcGender::Masculine)
+            None
         );
+        assert_eq!(live_world_gender("models/monsters/dragon/dragon.ecm"), None);
+        assert_eq!(live_world_gender("models/npcs/npc/男npc4/女npc4.ecm"), None);
         assert!(!live_world_rig_allowed("models/npcs/npc/男npc5/男npc5.ecm"));
         assert!(!live_world_rig_allowed(
             "models/npcs/npc/妖兽npc4/妖兽npc4.ecm"
         ));
         assert!(!live_world_rig_allowed("models/npcs/npc/宝箱/宝箱.ecm"));
+        assert!(!live_world_rig_allowed(
+            "models/npcs/npc/妖兽npc1/妖兽npc1.ecm"
+        ));
     }
 
     #[test]
     fn city_rig_palette_is_local_distinct_humanoid_only_and_excludes_anvils() {
         let mut male = spawn(None);
+        male.model = "models/npcs/npc/男npc4/男npc4.ecm".into();
         male.anchor = [1470.490, 1180.864];
         let mut duplicate = male.clone();
         duplicate.id += 1;
@@ -2829,6 +2952,9 @@ mod tests {
         let mut wilderness = male.clone();
         wilderness.id += 5;
         wilderness.anchor = [0., 0.];
+        let mut creature = male.clone();
+        creature.id += 6;
+        creature.model = "models/npcs/npc/妖兽npc1/妖兽npc1.ecm".into();
         let zones = vec![CityZone {
             name: "Archosaur".into(),
             center: [1470.490, 1180.864],
@@ -2836,7 +2962,7 @@ mod tests {
         }];
         assert_eq!(
             live_world_city_population(
-                &[male, duplicate, female, anvil, object, wilderness],
+                &[male, duplicate, female, anvil, object, wilderness, creature],
                 &zones
             ),
             vec![vec![0, 2]]
@@ -2911,6 +3037,7 @@ mod tests {
             &live_world_name_tokens(),
             &map,
             &clear,
+            &[],
             &zone,
         )
         .expect("clear city route");
@@ -2953,9 +3080,42 @@ mod tests {
             &live_world_name_tokens(),
             &map,
             &SolidEverywhere,
+            &[],
             &zone
         )
         .is_none());
+    }
+
+    #[test]
+    fn projected_route_retries_candidates_around_blocked_ground() {
+        struct EastBlocked;
+        impl FloorSource for EastBlocked {
+            fn lowest_floor(&self, _: Vec3, _: Vec3, _: f32) -> Option<f32> {
+                None
+            }
+            fn floor_stamp(&self) -> u64 {
+                1
+            }
+            fn sight_blocked(&self, _: Vec3, _: Vec3) -> bool {
+                false
+            }
+            fn solid_at(&self, feet: Vec3, _: Vec3) -> bool {
+                feet.x > 0.0
+            }
+        }
+        let map = flat_map();
+        let zone = CityZone {
+            name: "Test City".into(),
+            center: [0., 0.],
+            radius: 30.,
+        };
+        let start = Vec3::new(-10., 0., 0.);
+        let route = (0..16).find_map(|seed| {
+            build_live_world_route(start, seed, &zone, &map, &EastBlocked, &[], None)
+        });
+        let route = route.expect("a clear candidate should survive retries");
+        assert!(route.waypoints.iter().all(|point| point.position[0] <= 0.));
+        assert!(route.waypoints[0].wait < 0.5);
     }
 
     #[test]
@@ -3008,7 +3168,10 @@ mod tests {
     fn walk_animation_resolves_direct_and_combined_native_locomotion() {
         let mut direct = rig_without_combined_actions();
         direct.skeleton.fps = 30;
-        direct.model.actions.push(idle_action("行走", 0., 30.));
+        direct
+            .model
+            .actions
+            .push(idle_action("行走_空手_1", 0., 30.));
         let mut walk = walk_clock(&direct).expect("direct walk clip");
         let before = walk.sample().unwrap().1;
         walk.advance(0.5, 500);
@@ -3089,6 +3252,40 @@ mod tests {
             spacing: 2.,
             heights: vec![0.; 32 * 32].into(),
         }
+    }
+
+    struct WaterSurface(Option<f32>);
+
+    impl FloorSource for WaterSurface {
+        fn lowest_floor(&self, _: Vec3, _: Vec3, _: f32) -> Option<f32> {
+            None
+        }
+        fn floor_stamp(&self) -> u64 {
+            1
+        }
+        fn sight_blocked(&self, _: Vec3, _: Vec3) -> bool {
+            false
+        }
+        fn water_height(&self, _: f32, _: f32) -> Option<f32> {
+            self.0
+        }
+    }
+
+    #[test]
+    fn live_world_ground_and_projected_edges_reject_submerged_points() {
+        let map = flat_map();
+        let dry = WaterSurface(None);
+        let submerged = WaterSurface(Some(3.0));
+        assert!(live_world_ground_point(0., 0., &map, &dry).is_some());
+        assert!(live_world_ground_point(0., 0., &map, &submerged).is_none());
+        assert!(!ambient_path_safe(
+            Vec3::new(-2., 0., 0.),
+            Vec3::new(2., 0., 0.),
+            &map,
+            &WaterSurface(Some(3.0)),
+            &[],
+            None,
+        ));
     }
 
     /// A building whose wall stands at `free_from`: everything west of that line
