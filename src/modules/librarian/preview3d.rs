@@ -775,6 +775,8 @@ mod tests {
         let mut renderer = egui_wgpu::Renderer::new(&device, format, None, 1);
         let mut preview = Preview::new(&device, &mut renderer, format);
         let weapon = &db.items[*db.by_id.get(&6).unwrap()];
+        let club = &db.items[*db.by_id.get(&89).unwrap()].model;
+        let hammer = &db.items[*db.by_id.get(&119).unwrap()].model;
         let armor = &db.items[*db.by_id.get(&128).unwrap()];
         let worn = format!("worn:0:m:{}", armor.equipment_name().unwrap());
         let fashion = &db.items[*db.by_id.get(&4276).unwrap()];
@@ -785,6 +787,8 @@ mod tests {
         let genie = &db.items[*db.by_id.get(&22181).unwrap()].model;
         for (label, path) in [
             ("weapon", &weapon.model),
+            ("club", club),
+            ("hammer", hammer),
             ("worn", &worn),
             ("fashion", &fashion),
             ("flight", flight),
