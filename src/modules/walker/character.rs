@@ -817,7 +817,7 @@ pub struct Character {
     sound_commands: Vec<SoundCommand>,
     last_transform_pos: Vec3,
     last_transform_facing: Vec3,
-    last_transform: glam::Mat4,
+    last_transform: Mat4,
 }
 
 impl Character {
@@ -931,7 +931,7 @@ impl Character {
             sound_commands: Vec::new(),
             last_transform_pos: Vec3::ZERO,
             last_transform_facing: Vec3::X,
-            last_transform: glam::Mat4::IDENTITY,
+            last_transform: Mat4::IDENTITY,
         })
     }
 
