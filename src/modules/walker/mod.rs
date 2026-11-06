@@ -746,7 +746,7 @@ impl Walker {
         let support = physics::ground(map, body.position.x, body.position.z);
         if body.position.y < support.height {
             body.position.y = support.height;
-            if support.normal.y >= 0.5 && body.vertical_velocity <= 0.0 {
+            if support.normal.y >= 0.3 && body.vertical_velocity <= 0.0 {
                 let newly_landed = !body.grounded;
                 body.vertical_velocity = 0.0;
                 body.grounded = true;
