@@ -2277,8 +2277,10 @@ mod tests {
         };
         assert_eq!(sprite.max_extent, 3.5);
         // Authored zero is indistinguishable from absent, so it is recomputed.
-        let zero = parse(&(header37(1).replace("MOXTVersion: 37", "MOXTVersion: 79")
-            + &SPRITE.replace("Width: 0.25", "MaxExtent: 0.000000\r\nWidth: 0.25"),))
+        let zero = parse(
+            &(header37(1).replace("MOXTVersion: 37", "MOXTVersion: 79")
+                + &SPRITE.replace("Width: 0.25", "MaxExtent: 0.000000\r\nWidth: 0.25")),
+        )
         .unwrap();
         let Spec::Sprite(sprite) = &zero.elements[0].spec else {
             panic!("element 100 is a sprite");
