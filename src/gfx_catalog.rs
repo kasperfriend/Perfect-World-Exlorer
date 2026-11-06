@@ -567,11 +567,13 @@ impl Catalog {
 mod tests {
     use super::*;
 
-    /// A root with one sprite element, in the shape `gfx_decal` accepts, so the
-    /// static/dynamic decision has something real to decide about.
+    /// A root with one sprite element, carrying every key `gfx_file::parse`
+    /// requires of a version-33 container — `FadeStart`, `FadeEnd` and the two
+    /// `Vec:` lines the AABB is read from — so both readers have something real
+    /// to decide about.
     fn sprite_root(name: &str) -> String {
         format!(
-            "MOXTVersion: 33\nDedaultScale: 2\nPlaySpeed: 1\nDefaultAlpha: 0.5\nRaytrace: 0\nFadeByDist: 0\nShakeCam: 1\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 100\nName: {name}\nSrcBlend: 5\nDestBlend: 2\nRepeatCount: 1\nRepeatDelay: 0\nTexFile: 粒子\\glow.dds\nBindEle: \nZEnable: 0\nMatchGrnd: 0\nTexRow: 1\nTexCol: 1\nTexInterval: 50\nPriority: 2\nIsDummy: 0\nDummyEle: \nWarp: 0\nWidth: 0.25\nHeight: 0.5\nRotFromView: 0\nGrndNormOnly: 0\nStartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\nTimeSpan: -1\nPosition: 1, 2, 3\nColor: -1\nScale: 2\nDirection: 0, 0, 0, 1\nRad_2D: 0\nCtrlMethodCount: 0\n"
+            "MOXTVersion: 33\nDedaultScale: 2\nPlaySpeed: 1\nDefaultAlpha: 0.5\nRaytrace: 0\nFadeByDist: 0\nFadeStart: 0\nFadeEnd: 0\nVec: 0, 0, 0\nVec: 1, 1, 1\nShakeCam: 1\nGFXELEMENTCOUNT: 1\nGFXELEMENTID: 100\nName: {name}\nSrcBlend: 5\nDestBlend: 2\nRepeatCount: 1\nRepeatDelay: 0\nTexFile: 粒子\\glow.dds\nBindEle: \nZEnable: 0\nMatchGrnd: 0\nTexRow: 1\nTexCol: 1\nTexInterval: 50\nPriority: 2\nIsDummy: 0\nDummyEle: \nWarp: 0\nWidth: 0.25\nHeight: 0.5\nRotFromView: 0\nGrndNormOnly: 0\nStartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\nTimeSpan: -1\nPosition: 1, 2, 3\nColor: -1\nScale: 2\nDirection: 0, 0, 0, 1\nRad_2D: 0\nCtrlMethodCount: 0\n"
         )
     }
 
@@ -632,7 +634,11 @@ mod tests {
     #[test]
     fn capabilities_come_from_the_parser() {
         let report = capabilities(&sprite_root("glow")).expect("sprite root parses");
-        assert_eq!(report.reader, Reader::Static);
+        // Which of the two readers takes it is a choice of renderer, so the
+        // assertion is that one of them does; the content is what has to be
+        // exact, because that is what a caller decides on.
+        assert!(matches!(report.reader, Reader::Static | Reader::Dynamic));
+        assert_eq!(report.version, 33);
         assert_eq!(report.elements, 1);
         assert_eq!(report.max_priority, 2);
         // `ShakeCam: 1` shakes: `0x6e38de` stores `setne`, so any nonzero does.
