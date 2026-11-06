@@ -484,6 +484,13 @@ impl CollisionWorld {
     }
 
     fn resolve(&self, old_feet: Vec3, desired_feet: Vec3, extents: Vec3) -> ResolvedMove {
+        if old_feet == desired_feet {
+            return ResolvedMove {
+                feet: old_feet,
+                blocked: false,
+                normal: Vec3::ZERO,
+            };
+        }
         let mut center = old_feet + Vec3::Y * extents.y;
         let mut remaining = desired_feet - old_feet;
         let mut blocked = false;
