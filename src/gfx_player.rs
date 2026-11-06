@@ -496,6 +496,26 @@ struct ElementRuntime {
     seeded: isize,
     state: CtrlState,
     runtime: Runtime,
+    /// The sibling this element's `BindEle` resolved to, as a slot in
+    /// `Player::elements`. The client resolves every name once at container
+    /// level (`0x6e42f0`) through a hash map of element names held at
+    /// container+0x1c and stores the result on the element at +0xa0 with the
+    /// setter `0x74c2a0`; a name that resolves to nothing leaves the slot null
+    /// with no diagnostic. `None` therefore covers both "unbound" and "bound to
+    /// a name this root does not contain", which is what the client does too.
+    bind_target: Option<usize>,
+    /// This element's world placement at its most recent update. A dependent
+    /// reads it the way `0x710121` reads the target's matrix at +0x58: one
+    /// level, never recursively, so the mutual binds the corpus really contains
+    /// (101 to 110 and 110 to 101) cannot diverge. `None` until the target has
+    /// been placed once, so a dependent listed before its target falls back to
+    /// the root basis for that frame instead of snapping to the origin.
+    placement: Option<Mat4>,
+    /// True once this element's own clock has run out. `0x6fa69a` makes a bound
+    /// element's tick return without updating when the target's handle at +0x50
+    /// is negative, so a dependent stops with its target rather than playing on
+    /// alone.
+    ended: bool,
 }
 
 /// Everything one element needs to place and colour its geometry.
@@ -677,7 +697,24 @@ impl Player {
                 seeded: -1,
                 state,
                 runtime,
+                bind_target: None,
+                placement: None,
+                ended: false,
             });
+        }
+        // Resolve `BindEle` after every element exists, since a name may point
+        // forward. Element names are unique within a root in all 5,459 corpus
+        // files, so the first match is the only match and a linear scan
+        // reproduces the client's bucket-chain lookup without a hash map.
+        for slot in 0..elements.len() {
+            let name = &root.elements[slot].common.bind_element;
+            if name.is_empty() {
+                continue;
+            }
+            elements[slot].bind_target = root
+                .elements
+                .iter()
+                .position(|candidate| &candidate.common.name == name);
         }
         Ok(Self {
             root,
@@ -722,6 +759,12 @@ impl Player {
         for element in &mut self.elements {
             element.seeded = -1;
             element.state = CtrlState::new();
+            // A restart gives every element its clock back, so the binding
+            // dependency has to be re-armed as well: a dependent whose target
+            // ended during the previous loop would otherwise stay ended for
+            // good. The resolution itself is structural and survives.
+            element.ended = false;
+            element.placement = None;
         }
     }
 
@@ -773,8 +816,28 @@ impl Player {
         // Every element has to be over: a root with a 100 ms flash next to a
         // one second sprite is still playing while the flash is done.
         let mut finished = !self.elements.is_empty();
-        for runtime in &mut self.elements {
-            let element = &self.root.elements[runtime.index];
+        for slot in 0..self.elements.len() {
+            // A bound element takes its parent basis from its target's last
+            // placement. `0x710121` multiplies the element's own basis by the
+            // matrix `0x6fe120` copies out of the target, which is the same
+            // substitution with the target standing in for the root.
+            let (parent, target_ended) = match self.elements[slot].bind_target {
+                Some(target) => (
+                    self.elements[target].placement.unwrap_or(base),
+                    self.elements[target].ended,
+                ),
+                None => (base, false),
+            };
+            if target_ended {
+                // `0x6fa69a`: the tick returns without updating. The target's
+                // clock cannot restart, so neither can this element's, and it
+                // counts as done for the root's own finish test.
+                self.elements[slot].ended = true;
+                continue;
+            }
+            let index = self.elements[slot].index;
+            let element = &self.root.elements[index];
+            let runtime = &mut self.elements[slot];
             let done = advance_element(
                 element,
                 runtime,
@@ -784,12 +847,13 @@ impl Player {
                 version,
                 face_to_viewer,
                 view,
-                base,
+                parent,
                 color_scale,
                 &mut rng,
                 &mut stats,
                 &mut out,
             )?;
+            runtime.ended = done;
             finished = finished && done;
         }
         self.rng = rng;
@@ -864,6 +928,11 @@ fn advance_element(
     // smoothly between them, and ctrl 100's `Dir` orbit spins on top of that.
     let direction = sampled.direction * Quat::from_axis_angle(Vec3::Z, runtime.state.orbit);
     let placement = base * Mat4::from_rotation_translation(direction, sampled.position + offset);
+    // Publish the world placement before anything consumes it, so an element
+    // bound to this one follows the matrix it actually used. `0x6fe120` reads
+    // the target's stored transform at +0x58 rather than recomputing it, which
+    // is what keeps a mutual bind from recursing.
+    runtime.placement = Some(placement);
     let context = ElementContext {
         id: element.id,
         placement,
@@ -4880,6 +4949,160 @@ mod tests {
         );
         step(&mut player, 16.);
         assert!(player.quads().is_empty());
+    }
+
+    /// A sprite whose `BindEle` names a sibling takes that sibling's world
+    /// placement as its parent basis. That is `0x710121`: the element builds its
+    /// own basis from +0x58 with `0x6fe060`, then, because the bind target at
+    /// +0xa0 is non-null, multiplies it by the matrix `0x6fe120` copies out of
+    /// the target. With `DedaultScale: 2` the target's authored (5, 0, 0) lands
+    /// at (10, 0, 0), and the follower — which authors the origin — lands there
+    /// too rather than at the root origin where it would sit unbound.
+    #[test]
+    fn a_bound_element_follows_its_target_placement() {
+        let target = SPRITE
+            .replace("Name: glow", "Name: target")
+            .replace("Position: 1, 2, 3", "Position: 5, 0, 0");
+        let follower = SPRITE
+            .replace("Name: glow", "Name: follower")
+            .replace("BindEle: \r\n", "BindEle: target\r\n")
+            .replace("Position: 1, 2, 3", "Position: 0, 0, 0");
+        let mut player = build(&(header37(2) + &target + &follower));
+        assert_eq!(player.elements[1].bind_target, Some(0));
+        step(&mut player, 16.);
+        let quads = player.quads();
+        assert_eq!(quads.len(), 2, "both sprites draw");
+        let centre = quad_centre(&quads[1]);
+        assert!(
+            (centre - Vec3::new(10., 0., 0.)).length() < 1e-3,
+            "the follower sits at its target's world position, got {centre}"
+        );
+    }
+
+    /// A `BindEle` that names nothing leaves the slot null and raises no
+    /// diagnostic, which is what the resolution pass at `0x6e4370` does when the
+    /// container's name map has no entry: the element simply plays on its own
+    /// basis. The corpus has exactly one such file, whose element 110 names an
+    /// absent `Unnamed7`.
+    #[test]
+    fn a_bind_name_that_resolves_to_nothing_plays_unbound() {
+        let target = SPRITE.replace("Name: glow", "Name: target");
+        let follower = SPRITE
+            .replace("Name: glow", "Name: follower")
+            .replace("BindEle: \r\n", "BindEle: nosuch\r\n");
+        let mut player = build(&(header37(2) + &target + &follower));
+        assert_eq!(player.elements[1].bind_target, None);
+        step(&mut player, 16.);
+        let centre = quad_centre(&player.quads()[1]);
+        assert!(
+            (centre - Vec3::new(2., 4., 6.)).length() < 1e-3,
+            "unbound, the follower keeps its own (1, 2, 3) at the root scale, got {centre}"
+        );
+        assert!(player.warnings().is_empty(), "{:?}", player.warnings());
+    }
+
+    /// `0x6fa69a` makes a bound element's tick return without updating once the
+    /// target's handle at +0x50 has gone negative, so a dependent does not
+    /// outlive the element it follows. The target here plays once for 100 ms;
+    /// the follower loops forever but stops with it, and a restart re-arms the
+    /// dependency instead of leaving it latched.
+    #[test]
+    fn a_bound_element_stops_when_its_target_ends() {
+        let target = SPRITE
+            .replace("Name: glow", "Name: target")
+            .replace("TimeSpan: -1", "TimeSpan: 100");
+        let follower = SPRITE
+            .replace("Name: glow", "Name: follower")
+            .replace("BindEle: \r\n", "BindEle: target\r\n");
+        let mut player = build(&(header37(2) + &target + &follower));
+        step(&mut player, 16.);
+        assert_eq!(player.quads().len(), 2, "both draw while the target runs");
+        step(&mut player, 200.);
+        assert!(
+            player.quads().is_empty(),
+            "the follower stopped with its target, got {} quads",
+            player.quads().len()
+        );
+        assert!(player.elements[1].ended, "the dependent is marked ended");
+        player.reset();
+        step(&mut player, 16.);
+        assert_eq!(
+            player.quads().len(),
+            2,
+            "a reset gives the dependent its clock back"
+        );
+    }
+
+    /// The follow is one level deep because `0x6fe120` reads the target's stored
+    /// matrix instead of recomputing it, so no bind graph can recurse. The
+    /// corpus has no 2-cycles and its longest chain is two links (24 elements
+    /// bind to something that itself binds), but a mutual bind is legal input
+    /// and has to stay finite rather than hang or produce NaN.
+    #[test]
+    fn a_mutual_bind_resolves_without_recursing() {
+        let first = SPRITE
+            .replace("Name: glow", "Name: a")
+            .replace("BindEle: \r\n", "BindEle: b\r\n");
+        let second = SPRITE
+            .replace("Name: glow", "Name: b")
+            .replace("BindEle: \r\n", "BindEle: a\r\n");
+        let mut player = build(&(header37(2) + &first + &second));
+        assert_eq!(player.elements[0].bind_target, Some(1));
+        assert_eq!(player.elements[1].bind_target, Some(0));
+        for frame in 0..8 {
+            step(&mut player, 16.);
+            assert_eq!(player.quads().len(), 2, "frame {frame}");
+            for quad in player.quads() {
+                assert!(
+                    quad.positions.iter().flatten().all(|c| c.is_finite()),
+                    "frame {frame} produced non-finite geometry"
+                );
+            }
+        }
+    }
+
+    /// Across the archive 968 elements author a `BindEle` and 967 of them name a
+    /// sibling in the same root. Element names are unique within a root in every
+    /// file, which is what makes the first-match scan equal to the client's
+    /// bucket-chain lookup, and 950 of the 967 targets carry an editor-generated
+    /// `Unnamed*` name — they are real siblings, not placeholders.
+    #[test]
+    fn corpus_bind_names_resolve() {
+        let Some(root) = corpus_root() else {
+            return;
+        };
+        let mut files = Vec::new();
+        corpus_files(&root, &mut files);
+        let (mut authored, mut resolved, mut duplicate_names) = (0usize, 0usize, 0usize);
+        for file in &files {
+            let Ok(bytes) = std::fs::read(file) else {
+                continue;
+            };
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            let Ok(parsed) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            let mut names = std::collections::BTreeSet::new();
+            for element in &parsed.elements {
+                if !names.insert(element.common.name.clone()) {
+                    duplicate_names += 1;
+                }
+                if !element.common.bind_element.is_empty() {
+                    authored += 1;
+                }
+            }
+            let Ok(player) = Player::new(parsed, 7, &mut |_| Err("no children".into())) else {
+                continue;
+            };
+            resolved += player
+                .elements
+                .iter()
+                .filter(|element| element.bind_target.is_some())
+                .count();
+        }
+        assert_eq!(duplicate_names, 0, "element names are unique within a root");
+        assert_eq!(authored, 968, "the corpus authors 968 BindEle names");
+        assert_eq!(resolved, 967, "967 of them resolve to a sibling");
     }
 
     /// The child element from `gfx_file`'s own fixture, with the forever
