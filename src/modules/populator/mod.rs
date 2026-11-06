@@ -444,13 +444,21 @@ impl Live {
                 // pose while translating instead of disappearing into bind pose.
                 None => match idle_sample {
                     Some((action, seconds)) => (Some(action), seconds),
-                    None => (self.action, self.clip.map_or(self.clock, |clip| clip.seconds(self.clock))),
+                    None => (
+                        self.action,
+                        self.clip
+                            .map_or(self.clock, |clip| clip.seconds(self.clock)),
+                    ),
                 },
             }
         } else {
             match idle_sample {
                 Some((action, seconds)) => (Some(action), seconds),
-                None => (self.action, self.clip.map_or(self.clock, |clip| clip.seconds(self.clock))),
+                None => (
+                    self.action,
+                    self.clip
+                        .map_or(self.clock, |clip| clip.seconds(self.clock)),
+                ),
             }
         };
         if let Some(action) = action {
@@ -827,8 +835,7 @@ fn city_zone_at(x: f32, z: f32, zones: &[CityZone]) -> Option<usize> {
         .filter_map(|(index, zone)| {
             let dx = x - zone.center[0];
             let dz = z - zone.center[1];
-            (dx * dx + dz * dz <= zone.radius * zone.radius)
-                .then_some((index, dx * dx + dz * dz))
+            (dx * dx + dz * dz <= zone.radius * zone.radius).then_some((index, dx * dx + dz * dz))
         })
         .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(index, _)| index)
@@ -859,9 +866,29 @@ fn live_world_city_population(
 
 fn live_world_name_tokens(spawns: &[Spawn]) -> Vec<String> {
     const TITLES: [&str; 23] = [
-        "apothecary", "blacksmith", "captain", "chef", "craftsman", "elder", "general",
-        "guard", "herbalist", "lady", "master", "merchant", "miss", "pet", "skill",
-        "sentry", "tailor", "teleport", "trainer", "woman", "young", "old", "of",
+        "apothecary",
+        "blacksmith",
+        "captain",
+        "chef",
+        "craftsman",
+        "elder",
+        "general",
+        "guard",
+        "herbalist",
+        "lady",
+        "master",
+        "merchant",
+        "miss",
+        "pet",
+        "skill",
+        "sentry",
+        "tailor",
+        "teleport",
+        "trainer",
+        "woman",
+        "young",
+        "old",
+        "of",
     ];
     let titles: HashSet<&str> = TITLES.into_iter().collect();
     let mut seen = HashSet::new();
@@ -923,7 +950,8 @@ fn live_world_name(population: &Population, tokens: &[String], seed: u64) -> Opt
         let name = if mixed % 4 == 0 {
             personal_name
         } else {
-            let profession = LIVE_WORLD_PROFESSIONS[(mixed as usize / 4) % LIVE_WORLD_PROFESSIONS.len()];
+            let profession =
+                LIVE_WORLD_PROFESSIONS[(mixed as usize / 4) % LIVE_WORLD_PROFESSIONS.len()];
             format!("{profession} {personal_name}")
         };
         if population
@@ -1068,7 +1096,9 @@ fn build_live_world_spawn(
         let radius = 4.5 + ((random >> 32) as u32 as f32 / u32::MAX as f32) * 4.0;
         let x = source.anchor[0] + angle.cos() * radius;
         let z = source.anchor[1] + angle.sin() * radius;
-        let Some(start) = live_world_ground_point(x, z, map, floors) else { continue };
+        let Some(start) = live_world_ground_point(x, z, map, floors) else {
+            continue;
+        };
         if city_zone_at(start.x, start.z, std::slice::from_ref(zone)) != Some(0) {
             continue;
         }
@@ -1236,6 +1266,8 @@ pub struct Populator {
     population: Option<Population>,
     /// The immutable client-authored prefix of `population.spawns`.
     authored_spawn_count: usize,
+    /// Preserve any authored route table when removing generated residents.
+    authored_route_count: usize,
     /// Next authored NPC to consider for a safe ambient companion.
     live_world_cursor: usize,
     live_world_generated: usize,
@@ -1298,6 +1330,7 @@ impl Default for Populator {
             live_world: false,
             population: None,
             authored_spawn_count: 0,
+            authored_route_count: 0,
             live_world_cursor: 0,
             live_world_generated: 0,
             live_world_since_stream_refresh: 0,
@@ -1372,6 +1405,10 @@ impl Populator {
         self.live_world
     }
 
+    pub fn live_world_generated(&self) -> usize {
+        self.live_world_generated
+    }
+
     pub fn live_world_zone_status(&self) -> String {
         if let Some(error) = &self.city_zone_error {
             return format!("City target data unavailable: {error}");
@@ -1404,7 +1441,7 @@ impl Populator {
         if !enabled {
             if let Some(population) = self.population.as_mut() {
                 population.spawns.truncate(self.authored_spawn_count);
-                population.routes.clear();
+                population.routes.truncate(self.authored_route_count);
             }
         }
         self.live.clear();
@@ -1430,8 +1467,7 @@ impl Populator {
             .enumerate()
             .min_by(|(_, a), (_, b)| {
                 let distance2 = |spawn: &Spawn| {
-                    (spawn.anchor[0] - self.eye.x).powi(2)
-                        + (spawn.anchor[1] - self.eye.z).powi(2)
+                    (spawn.anchor[0] - self.eye.x).powi(2) + (spawn.anchor[1] - self.eye.z).powi(2)
                 };
                 distance2(a)
                     .partial_cmp(&distance2(b))
@@ -1509,6 +1545,7 @@ impl Populator {
             self.reload_pending = false;
             self.population = None;
             self.authored_spawn_count = 0;
+            self.authored_route_count = 0;
             self.live_world_cursor = 0;
             self.live_world_generated = 0;
             self.live_world_since_stream_refresh = 0;
@@ -1542,6 +1579,7 @@ impl Populator {
                         population.skipped
                     );
                     self.authored_spawn_count = population.spawns.len();
+                    self.authored_route_count = population.routes.len();
                     let (sources, templates) =
                         live_world_city_population(&population.spawns, &self.city_zones);
                     self.live_world_sources = sources;
@@ -1585,7 +1623,9 @@ impl Populator {
             return;
         }
         let Some(map) = self.map.as_ref() else { return };
-        let Some(population) = self.population.as_mut() else { return };
+        let Some(population) = self.population.as_mut() else {
+            return;
+        };
         let end = (self.live_world_cursor + LIVE_WORLD_BATCH).min(self.live_world_sources.len());
         let before = population.spawns.len();
         let started = std::time::Instant::now();
@@ -1895,20 +1935,16 @@ impl Populator {
             match follow.step(&mut live.position, delta) {
                 Motion::Walking => {
                     if live.live_world {
-                        let safe = self
-                            .map
-                            .as_ref()
-                            .zip(floors)
-                            .is_some_and(|(map, floors)| {
-                                ambient_path_safe(
-                                    before,
-                                    live.position,
-                                    map,
-                                    floors,
-                                    &occupied,
-                                    Some(live_index),
-                                )
-                            });
+                        let safe = self.map.as_ref().zip(floors).is_some_and(|(map, floors)| {
+                            ambient_path_safe(
+                                before,
+                                live.position,
+                                map,
+                                floors,
+                                &occupied,
+                                Some(live_index),
+                            )
+                        });
                         if !safe {
                             // Hulls can stream in after a route was authored.
                             // Stop at the last verified point rather than ever
@@ -2016,12 +2052,7 @@ impl Populator {
                     let mut current = spawn.clone();
                     current.anchor = [live.position.x, live.position.z];
                     current.height = None;
-                    resolve_placement(
-                        &current,
-                        map,
-                        Some(floors),
-                        self.settings.stand_on_objects,
-                    )
+                    resolve_placement(&current, map, Some(floors), self.settings.stand_on_objects)
                 } else {
                     // An authored height is the game's own answer and never
                     // moves, but the column can still be inside a wall.
@@ -2662,13 +2693,22 @@ mod tests {
         jun.name = "Apothecary Jun".into();
         spawns.push(jun);
         let tokens = live_world_name_tokens(&spawns);
-        let mut population = Population { spawns, ..Population::default() };
+        let mut population = Population {
+            spawns,
+            ..Population::default()
+        };
         let mut generated = HashSet::new();
         for seed in 0..8 {
             let name = live_world_name(&population, &tokens, seed).unwrap();
-            assert!(generated.insert(name.clone()), "duplicate generated name {name}");
+            assert!(
+                generated.insert(name.clone()),
+                "duplicate generated name {name}"
+            );
             assert!(!population.spawns.iter().any(|spawn| spawn.name == name));
-            population.spawns.push(Spawn { name, ..spawn(None) });
+            population.spawns.push(Spawn {
+                name,
+                ..spawn(None)
+            });
         }
     }
 
@@ -2695,8 +2735,17 @@ mod tests {
         let templates = vec![0, 1];
         let tokens = vec!["Sin".into(), "Zha".into(), "Jun".into()];
         let (ambient, route) = build_live_world_spawn(
-            &population, 0, 0, &templates, &tokens, 0, &map, &clear, &zone,
-        ).unwrap();
+            &population,
+            0,
+            0,
+            &templates,
+            &tokens,
+            0,
+            &map,
+            &clear,
+            &zone,
+        )
+        .unwrap();
         assert_ne!(ambient.name, population.spawns[0].name);
         assert_ne!(ambient.model, population.spawns[0].model);
         assert!(route.looping);
@@ -2708,13 +2757,61 @@ mod tests {
             fn lowest_floor(&self, _feet: Vec3, _extents: Vec3, _max_up: f32) -> Option<f32> {
                 None
             }
-            fn floor_stamp(&self) -> u64 { 1 }
-            fn sight_blocked(&self, _from: Vec3, _to: Vec3) -> bool { false }
-            fn solid_at(&self, _feet: Vec3, _extents: Vec3) -> bool { true }
+            fn floor_stamp(&self) -> u64 {
+                1
+            }
+            fn sight_blocked(&self, _from: Vec3, _to: Vec3) -> bool {
+                false
+            }
+            fn solid_at(&self, _feet: Vec3, _extents: Vec3) -> bool {
+                true
+            }
         }
         assert!(build_live_world_spawn(
-            &population, 0, 0, &templates, &tokens, 1, &map, &SolidEverywhere, &zone,
-        ).is_none());
+            &population,
+            0,
+            0,
+            &templates,
+            &tokens,
+            1,
+            &map,
+            &SolidEverywhere,
+            &zone,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn disabling_live_world_removes_only_generated_spawns_and_routes() {
+        let route = Route {
+            waypoints: vec![
+                Waypoint {
+                    position: [0., 0., 0.],
+                    wait: 0.,
+                },
+                Waypoint {
+                    position: [1., 0., 0.],
+                    wait: 0.,
+                },
+            ],
+            speed: 1.,
+            looping: false,
+        };
+        let mut populator = Populator::default();
+        populator.live_world = true;
+        populator.authored_spawn_count = 1;
+        populator.authored_route_count = 1;
+        populator.population = Some(Population {
+            spawns: vec![spawn(None), spawn(None)],
+            routes: vec![route.clone(), route],
+            ..Population::default()
+        });
+
+        populator.set_live_world(false);
+
+        let population = populator.population.as_ref().unwrap();
+        assert_eq!(population.spawns.len(), 1);
+        assert_eq!(population.routes.len(), 1);
     }
 
     #[test]

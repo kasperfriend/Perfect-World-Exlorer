@@ -336,7 +336,7 @@ impl Modules {
                     ui.label(
                         egui::RichText::new(format!(
                             "{} residents generated so far; current actor cap is {}.",
-                            self.populator.live_world_generated,
+                            self.populator.live_world_generated(),
                             self.populator.settings().max_visible
                         ))
                         .small()
