@@ -44,6 +44,8 @@ pub struct Database {
     pub addons: HashMap<u32, Vec<u8>>,
     pub suites: HashMap<u32, Vec<u8>>,
     pub pets: HashMap<u32, Vec<u8>>,
+    pub hair_skins: HashMap<u32, String>,
+    pub face_textures: HashMap<u32, String>,
     pub descriptions: HashMap<u32, String>,
     pub addon_types: HashMap<u32, u32>,
     pub colors: HashMap<u32, u32>,
@@ -132,6 +134,8 @@ impl Database {
                 95 => {
                     db.pets.insert(id, record.to_vec());
                 }
+                64 => { db.hair_skins.insert(id, path(record, 68)); }
+                60 => { db.face_textures.insert(id, path(record, 68)); }
                 1 | 2 | 4 | 5 | 7 | 8 | 10 | 11 | 13 | 14 | 21 | 31 | 35 | 82 | 83 | 94 | 122 => {
                     db.category_names.insert((section, id), wide(record, 4));
                     if section == 2 {
@@ -585,6 +589,16 @@ impl Item {
         } else {
             None
         }
+    }
+
+    pub fn head_hair(&self) -> Option<(u32, u32)> {
+        if number(&self.record, 364) != 9 { return None; }
+        let (hair, texture) = match self.section {
+            6 => (number(&self.record, 1100), number(&self.record, 1104)),
+            84 => (number(&self.record, 392), number(&self.record, 396)),
+            _ => return None,
+        };
+        (hair != 0).then_some((hair, texture))
     }
 
     pub fn dyeable(&self) -> bool {

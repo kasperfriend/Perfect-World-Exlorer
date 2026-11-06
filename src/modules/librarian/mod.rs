@@ -143,16 +143,16 @@ impl Librarian {
             .preview
             .get_or_insert_with(|| preview3d::Preview::new(device, renderer, format));
         let item = &state.database.items[index];
-        let path = item
-            .equipment_name()
-            .map(|name| {
-                format!(
-                    "worn:{}:{}:{name}",
-                    state.preview_class.index(),
-                    if state.preview_female { "f" } else { "m" }
-                )
+        let gender = if state.preview_female { "f" } else { "m" };
+        let hair = item.head_hair().and_then(|(hair, texture)| {
+            state.database.hair_skins.get(&hair).map(|skin| {
+                let texture = state.database.face_textures.get(&texture).map(String::as_str).unwrap_or("");
+                format!("hair:{}:{gender}:{skin}:{texture}", state.preview_class.index())
             })
-            .unwrap_or_else(|| item.model.clone());
+        });
+        let path = hair.unwrap_or_else(|| item.equipment_name()
+            .map(|name| format!("worn:{}:{gender}:{name}", state.preview_class.index()))
+            .unwrap_or_else(|| item.model.clone()));
         let dye = item.equipment_name().map(|_| {
             if item.dyeable() {
                 state.preview_dye
@@ -558,8 +558,9 @@ impl State {
                                         .sense(egui::Sense::drag()),
                                 );
                                 if response.dragged() {
-                                    let (mut delta, pan) =
-                                        ui.input(|i| (i.pointer.delta(), i.modifiers.shift));
+                                    let (mut delta, pan) = ui.input(|i| {
+                                        (i.pointer.delta(), i.pointer.button_down(egui::PointerButton::Secondary) || i.modifiers.shift)
+                                    });
                                     if preview.flip_vertical {
                                         delta.y = -delta.y;
                                     }
@@ -594,17 +595,7 @@ impl State {
                                 });
                                 let actions = preview.action_names();
                                 if !actions.is_empty() {
-                                    let labels: Vec<String> = actions
-                                        .iter()
-                                        .enumerate()
-                                        .map(|(i, name)| {
-                                            if self.has_cjk_font || name.is_ascii() {
-                                                name.clone()
-                                            } else {
-                                                format!("Action {}", i + 1)
-                                            }
-                                        })
-                                        .collect();
+                                    let labels: Vec<String> = actions.iter().enumerate().map(|(i, name)| preview3d::action_label(name, i)).collect();
                                     egui::ComboBox::from_label("Action")
                                         .selected_text(
                                             labels
@@ -625,7 +616,7 @@ impl State {
                                 if preview.playing || preview.turntable {
                                     ui.ctx().request_repaint();
                                 }
-                                ui.label("Drag to orbit; Shift-drag to pan; scroll to zoom.");
+                                ui.label("Left-drag to orbit; right-drag to move; scroll to zoom.");
                             } else {
                                 ui.label("Preparing preview…");
                             }

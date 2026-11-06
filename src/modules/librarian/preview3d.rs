@@ -134,6 +134,43 @@ fn apply_preview_dye(asset: &mut ModelAsset, color: [u8; 3]) {
     }
 }
 
+fn action_time(start: f32, end: f32, fps: i32, elapsed: f32) -> f32 {
+    let fps = fps.max(1) as f32;
+    let duration = (end - start) / fps;
+    if duration <= 0.0 { start / fps } else { start / fps + elapsed % duration }
+}
+
+// SMD action identifiers are internal Chinese names, not translated item data.
+// Keep unrecognized names identifiable without pretending to translate them.
+pub fn action_label(name: &str, index: usize) -> String {
+    let mut parts = Vec::new();
+    let mut unknown = false;
+    for word in name.split('_') {
+        let translated = match word {
+            "ok" => "Idle pose", "通用" => "General", "站立" => "Stand",
+            "战斗站立" => "Combat stance", "行走" => "Walk", "奔跑" => "Run",
+            "双手长" => "Two-handed long", "双手短" => "Two-handed short",
+            "单手短" => "One-handed short", "空拳" => "Unarmed", "绑定" => "Bound",
+            "骑乘" => "Mounted", "吟唱" => "Cast preparation", "吟唱循环" => "Casting loop",
+            "施放起" => "Cast start", "施放落" => "Cast finish", "施放" => "Cast",
+            "打坐" => "Meditate", "打坐循环" => "Meditation loop", "打坐站起" => "Stand up",
+            "被击倒" => "Knockdown", "被击退" => "Knockback", "地面死亡" => "Death",
+            "地面死亡循环" => "Death loop", "倒地循环" => "Prone loop",
+            "防御" => "Defend", "防御循环" => "Defense loop", "复活" => "Revive",
+            "起跳" => "Jump", "跳跃空中循环" => "Jump loop", "跳跃落地" => "Land",
+            "回城" => "Return to town", "回城循环" => "Return to town loop",
+            "捡东西" => "Pick up", "伸懒腰" => "Stretch", "四处张望" => "Look around",
+            "普通攻击1" => "Attack 1", "普通攻击2" => "Attack 2", "普通攻击3" => "Attack 3", "普通攻击4" => "Attack 4",
+            _ if word.is_ascii() => word,
+            _ => { unknown = true; continue; }
+        };
+        if !translated.is_empty() { parts.push(translated); }
+    }
+    if unknown { parts.insert(0, "Untranslated action"); }
+    if parts.is_empty() { return format!("Action {}", index + 1); }
+    if unknown { format!("{} ({})", parts.join(" · "), index + 1) } else { parts.join(" · ") }
+}
+
 pub struct Preview {
     color: wgpu::Texture,
     depth: wgpu::Texture,
@@ -249,12 +286,14 @@ impl Preview {
             if path.is_empty() || path == "0" {
                 self.error = Some("No model is referenced by this item.".into());
             } else {
-                let path = if path.starts_with("worn:") || path.starts_with("models/") {
+                let path = if path.starts_with("worn:") || path.starts_with("hair:") || path.starts_with("models/") {
                     path.to_owned()
                 } else {
                     format!("models/{path}")
                 };
-                let result = if let Some(worn) = path.strip_prefix("worn:") {
+                let result = if let Some(hair) = path.strip_prefix("hair:") {
+                    load_hair(assets, hair).map(|asset| (asset, Vec::new()))
+                } else if let Some(worn) = path.strip_prefix("worn:") {
                     load_worn(assets, worn).map(|asset| (asset, Vec::new()))
                 } else if path.ends_with(".ecm") {
                     ModelAsset::load_unique_with(&path, |p| assets.read_model_resource(p))
@@ -371,9 +410,8 @@ impl Preview {
                     .filter(|fps| *fps > 0)
                     .unwrap_or(asset.skeleton.fps)
                     .max(1) as f32;
-                let start = clip.start / fps;
-                let duration = ((clip.end - clip.start) / fps).max(0.001);
-                match preview_pose(asset, Some((self.action, start + self.elapsed % duration))) {
+                let time = action_time(clip.start, clip.end, fps as i32, self.elapsed);
+                match preview_pose(asset, Some((self.action, time))) {
                     Ok((poses, _)) => {
                         self.animation_error = None;
                         Ok(poses)
@@ -408,9 +446,9 @@ impl Preview {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.035,
-                            g: 0.04,
-                            b: 0.05,
+                            r: 0.18,
+                            g: 0.21,
+                            b: 0.25,
                             a: 1.,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -481,7 +519,7 @@ impl Preview {
             fog_color: [0.; 4],
             fog_range: [0.; 4],
             clip_plane: [0.; 4],
-            reverse_front: false,
+            reverse_front: true,
             alpha_compare: 5,
             alpha_reference: 84. / 255.,
         }
@@ -669,6 +707,17 @@ mod tests {
     }
 
     #[test]
+    fn static_action_does_not_jitter_and_labels_are_localized() {
+        for elapsed in [0.0, 0.0005, 0.01, 2.3] {
+            assert_eq!(action_time(0., 0., 30, elapsed), 0.);
+            assert_eq!(action_time(30., 30., 30, elapsed), 1.);
+        }
+        assert_eq!(action_label("ok", 0), "Idle pose");
+        assert_eq!(action_label("奔跑_通用", 1), "Run · General");
+        assert!(!action_label("未知_通用", 2).contains("未知"));
+    }
+
+    #[test]
     fn effect_model_paths_accept_only_safe_embedded_smds() {
         let text = "GFXELEMENTID: 123\nModelPath: wrong.smd\nGFXELEMENTID: 160\nModelPath: 飞剑\\飞剑.SMD\nModelPath: ../bad.smd\nModelPath: C:/bad.smd\nGFXELEMENTID: 100\nModelPath: wrong.smd";
         assert_eq!(
@@ -792,6 +841,9 @@ mod tests {
         let worn = format!("worn:0:m:{}", armor.equipment_name().unwrap());
         let fashion = &db.items[*db.by_id.get(&4276).unwrap()];
         let fashion = format!("worn:0:m:{}", fashion.equipment_name().unwrap());
+        let hair_item = &db.items[*db.by_id.get(&26175).unwrap()];
+        let (hair_id, texture_id) = hair_item.head_hair().expect("fashion hair reference");
+        let hair = format!("hair:0:m:{}:{}", db.hair_skins.get(&hair_id).unwrap(), db.face_textures.get(&texture_id).unwrap());
         let flight = &db.items[*db.by_id.get(&2092).unwrap()].model;
         let flight_sword = &db.items[*db.by_id.get(&2093).unwrap()].model;
         let pet = &db.items[*db.by_id.get(&9069).unwrap()].model;
@@ -802,6 +854,7 @@ mod tests {
             ("hammer", hammer),
             ("worn", &worn),
             ("fashion", &fashion),
+            ("hair", &hair),
             ("flight", flight),
             ("flight_sword", flight_sword),
             ("pet", pet),
@@ -897,6 +950,23 @@ mod tests {
         assert!(projected(Vec3::X).x < 0.);
         assert!(projected(Vec3::new(0., 0., 2.)).z > projected(Vec3::new(0., 0., -2.)).z);
     }
+}
+
+fn load_hair(assets: &mut LibrarianAssets, request: &str) -> Result<ModelAsset, String> {
+    use crate::modules::designer::catalog::{Class, Gender};
+    let mut parts = request.splitn(4, ':');
+    let class = parts.next().and_then(|x| x.parse::<usize>().ok())
+        .and_then(|x| Class::ALL.get(x)).copied().ok_or("invalid hair class")?;
+    let gender = match parts.next() { Some("f") => Gender::Female, Some("m") => Gender::Male, _ => return Err("invalid hair gender".into()) };
+    if !class.allows(gender) { return Err("class and gender are incompatible".into()); }
+    let skin = parts.next().filter(|x| !x.is_empty()).ok_or("missing hair skin")?;
+    let texture = parts.next().unwrap_or("");
+    let skeleton = class.face_asset(gender, 0, "bon");
+    let mut asset = ModelAsset::load_static_skins_with(&skeleton, &[skin.to_owned()], |path| assets.read_model_resource(path))?;
+    if !texture.is_empty() {
+        asset.texture_overrides.insert((0, 0), texture.to_owned());
+    }
+    Ok(asset)
 }
 
 fn load_worn(assets: &mut LibrarianAssets, request: &str) -> Result<ModelAsset, String> {
