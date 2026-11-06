@@ -504,6 +504,16 @@ struct ElementContext<'a> {
     id: u32,
     /// The parent basis, the root scale and the sampled keypoint orientation.
     placement: Mat4,
+    /// The rotation `placement` adds on top of the parent basis: the
+    /// interpolated keypoint `Direction` with ctrl 100's orbit spun about Z.
+    /// The client's emission direction is expressed in the emitter's own frame,
+    /// so undoing this is what turns one of its directions into a local one.
+    spin: Quat,
+    /// The interpolated keypoint `Direction` without the orbit. An unbound
+    /// emitter's orientation quaternion at +0x74 is `Q * keypoint Direction`
+    /// (`0x71a4dc`), and `Q` is what the parent basis already carries, so this is
+    /// the half of that product the local frame has not accounted for.
+    keypoint_direction: Quat,
     view: &'a View,
     common: &'a Common,
     version: u32,
@@ -854,6 +864,8 @@ fn advance_element(
     let context = ElementContext {
         id: element.id,
         placement,
+        spin: direction,
+        keypoint_direction: sampled.direction,
         view,
         common: &element.common,
         version,
@@ -1931,9 +1943,9 @@ fn spawn(
     let direction = match inward {
         Some(direction) => direction,
         None => {
-            let axis = emission_axis(particle, context);
+            let (axis, perp) = emission_axis(particle, context);
             if particle.angle != 0. {
-                cone_direction(axis, particle.angle, rng)
+                cone_direction(axis, perp, particle.angle, rng)
             } else {
                 axis
             }
@@ -1958,34 +1970,50 @@ fn spawn(
     }
 }
 
-/// The emission axis: `ParIniDir` when the author wrote one, otherwise the
-/// element's own up axis after the keypoint orientation.
+/// The emission direction and the perpendicular axis its cone is built from, in
+/// this player's local frame.
 ///
-/// The client does not read `ParIniDir` as a direction. Its parser at
-/// `0x7242e2` hands the three floats to the Euler-to-quaternion routine
-/// `0x7b6f10` — which halves each argument by the 0.5 at `0x8eff98` and takes
-/// sines and cosines of them, the `sin(a/2)cos(b/2)...` expansion of three
-/// successive rotations — then combines the result with the quaternion already
-/// at emitter+0x74 and stores four floats at +0xa0. The corpus agrees: the only
-/// non-zero `ParIniDir` values are exact degree conversions (`0.017453` = 1
-/// degree, `1.570796` = 90), which a unit direction would never be. About a
-/// hundred of the 13,665 particle elements author one, so the vector reading
-/// below is wrong for those and right for the rest; reproducing the quaternion
-/// needs the provenance of emitter+0x74, which is not in the parse path. Both
-/// halves of that are recorded in `Findings/`.
-fn emission_axis(particle: &Particle, context: &ElementContext) -> Vec3 {
-    if particle.initial_direction.length_squared() > 1e-9 {
-        let axis = context
-            .placement
-            .transform_vector3(particle.initial_direction);
-        return axis.normalize_or(Vec3::Y);
-    }
-    let axis = context.placement.transform_vector3(Vec3::Y);
-    if axis.length_squared() > 1e-9 {
-        axis.normalize()
+/// Both come from the direction slot `0x723440`, which every emitter vtable
+/// shares and which the classes call with `&node+0x44`: ids 121 and 124 from
+/// their birth flows (`0x729bc1`), id 123 from the end of its *volume* sampler
+/// `0x728270` (`mov (%esi),%edx` then `call *0x4(%edx)` at `0x72840b`–`0x728413`,
+/// with `add $0x44,%eax` at `0x72840d` naming the destination). Only id 123's
+/// surface sampler writes the direction itself, which is why the `inward` case
+/// in `spawn` bypasses this.
+///
+/// `0x723447` tests `IsBind` at emitter+0x85. A bound emitter gets the global Z
+/// axis `0x9c0338` copied verbatim (`0x723451`, `0x723503`); an unbound one gets
+/// `rotate(Z, quat(emitter+0x74))` (`0x72345b`–`0x7234ff`). The cone's own axis
+/// is the global X `0x9c0358` when bound (`0x723556`) and `rotate(X, q)` when
+/// unbound (`0x723560`), perpendicular to the direction either way.
+///
+/// `ParIniDir` is not part of it. The slot never reads emitter+0xa0, where the
+/// parser composes `Euler(ParIniDir) * quat(+0x74)` (`0x7243b8`); those four
+/// floats go to node+0x34, the particle's initial orientation — `0x7283f5`–
+/// `0x728408` copies them inside the same volume sampler — and this player models
+/// particle orientation as the 2D spin in `rotation` instead. Reading `ParIniDir`
+/// as a direction was wrong for the 100 records that author a non-zero one, and
+/// the Y fallback was wrong for the 9,326 that author zero.
+///
+/// Both of the client's vectors live in the emitter's frame, so `spin` — the
+/// rotation `placement` adds on top of the parent basis — undoes them. For an
+/// unbound emitter `q` is `Q * keypoint Direction` and the parent basis is `Q`,
+/// which leaves `orbit^-1 * Z`; the orbit is a rotation about Z, so the direction
+/// is the local Z exactly. For a bound one the client's Z is bone local while
+/// this player's local frame carries the keypoint direction too, hence the
+/// inverse spin rather than Z outright: 2,770 of the corpus's 9,142 bound
+/// particle keypoints (30.3%) author a non-identity `Direction`.
+fn emission_axis(particle: &Particle, context: &ElementContext) -> (Vec3, Vec3) {
+    let to_local = context.spin.conjugate();
+    let (forward, right) = if particle.is_bind {
+        (Vec3::Z, Vec3::X)
     } else {
-        context.view.up
-    }
+        (
+            context.keypoint_direction * Vec3::Z,
+            context.keypoint_direction * Vec3::X,
+        )
+    };
+    (to_local * forward, to_local * right)
 }
 
 /// Sample an emission direction inside the authored cone. The client's sampler
@@ -2005,29 +2033,35 @@ fn emission_axis(particle: &Particle, context: &ElementContext) -> Vec3 {
 /// sphere cases distributed by solid angle rather than by angle, and the
 /// `angle > 0` gate that went with it collapsed the mirrored ones onto a single
 /// ray along the axis.
-fn cone_direction(axis: Vec3, angle: f32, rng: &mut Rng) -> Vec3 {
+fn cone_direction(axis: Vec3, perp: Vec3, angle: f32, rng: &mut Rng) -> Vec3 {
+    // Draw order matches `0x723440`: the polar draw comes first (`0x723541`,
+    // scaled by `Angle` and the 1/32767 at `0x8e6f10`), the azimuth second
+    // (`0x723626`, scaled by the 2*pi/32767 at `0x8e6f14`).
+    let polar = rng.unit() * angle;
+    let azimuth = rng.unit() * std::f32::consts::TAU;
+    cone_sample(axis, perp, polar, azimuth)
+}
+
+/// The cone's construction, drawn out. `0x72363b` turns the azimuth into an
+/// axis-angle quaternion about the emission direction, `0x723661`–`0x7236e9`
+/// rotate the perpendicular axis by it, `0x723718` turns the polar angle into a
+/// quaternion about that spun axis, and `0x723741`–`0x7237c1` tilt the emission
+/// direction by it and copy the result into node+0x44 (`0x7237d0`). Spinning the
+/// perpendicular first is what makes the azimuth uniform around the direction,
+/// and tilting by the polar angle leaves the sample exactly `polar` away from it.
+fn cone_sample(axis: Vec3, perp: Vec3, polar: f32, azimuth: f32) -> Vec3 {
     let axis = if axis.length_squared() > 1e-9 {
         axis.normalize()
     } else {
-        Vec3::Y
+        Vec3::Z
     };
-    // Draw order matches `0x723440`: the polar draw comes first.
-    let polar = rng.unit() * angle;
-    let azimuth = rng.unit() * std::f32::consts::TAU;
-    let (sin_polar, cos_polar) = polar.sin_cos();
-    let local = Vec3::new(
-        sin_polar * azimuth.cos(),
-        sin_polar * azimuth.sin(),
-        cos_polar,
-    );
-    // `from_rotation_arc` maps the cone's +Z onto the emission axis; the azimuth
-    // draw then spins the sample uniformly around it, which is what the second
-    // native quaternion rotation does.
-    if (axis - Vec3::Z).length_squared() < 1e-9 {
-        local
+    let perp = if perp.length_squared() > 1e-9 {
+        perp.normalize()
     } else {
-        Quat::from_rotation_arc(Vec3::Z, axis) * local
-    }
+        Vec3::X
+    };
+    let spun = Quat::from_axis_angle(axis, azimuth) * perp;
+    Quat::from_axis_angle(spun, polar) * axis
 }
 
 /// The client's surface direction: two draws, uniform over the sphere.
@@ -3201,6 +3235,8 @@ mod tests {
         ElementContext {
             id: 123,
             placement: Mat4::IDENTITY,
+            spin: Quat::IDENTITY,
+            keypoint_direction: Quat::IDENTITY,
             view,
             common,
             version: 37,
@@ -3992,7 +4028,7 @@ mod tests {
         let samples = 4_000;
         let mut inside = 0usize;
         for _ in 0..samples {
-            let direction = cone_direction(axis, std::f32::consts::FRAC_PI_2, &mut rng);
+            let direction = cone_direction(axis, Vec3::X, std::f32::consts::FRAC_PI_2, &mut rng);
             assert!(
                 (direction.length() - 1.).abs() < 1e-4,
                 "{direction} is not a unit vector"
@@ -4021,7 +4057,7 @@ mod tests {
 
         let rim = (std::f32::consts::FRAC_PI_6 + 1e-4).cos();
         for _ in 0..1_000 {
-            let direction = cone_direction(axis, std::f32::consts::FRAC_PI_6, &mut rng);
+            let direction = cone_direction(axis, Vec3::X, std::f32::consts::FRAC_PI_6, &mut rng);
             assert!(
                 direction.dot(axis) > rim,
                 "{direction} escaped a 30 degree cone"
@@ -4030,7 +4066,7 @@ mod tests {
 
         let mut behind = 0usize;
         for _ in 0..1_000 {
-            let direction = cone_direction(axis, std::f32::consts::TAU, &mut rng);
+            let direction = cone_direction(axis, Vec3::X, std::f32::consts::TAU, &mut rng);
             if direction.dot(axis) < -0.9 {
                 behind += 1;
             }
@@ -4043,12 +4079,113 @@ mod tests {
         let mut forward = 0usize;
         let mut spread = 0f32;
         for _ in 0..1_000 {
-            let direction = cone_direction(axis, -std::f32::consts::FRAC_PI_2, &mut rng);
+            let direction = cone_direction(axis, Vec3::X, -std::f32::consts::FRAC_PI_2, &mut rng);
             forward += (direction.dot(axis) > 0.) as usize;
             spread = spread.max(1. - direction.dot(axis));
         }
         assert_eq!(forward, 1_000, "a mirrored cone stays in front of its axis");
         assert!(spread > 0.9, "and is not a single ray: spread {spread}");
+    }
+
+    /// The direction slot `0x723440` hands a bound emitter the global Z axis
+    /// `0x9c0338` verbatim (`0x723451`) and an unbound one `rotate(Z,
+    /// quat(emitter+0x74))` (`0x72345b`), where +0x74 is `Q * keypoint
+    /// Direction`. The player's local frame already carries that keypoint
+    /// direction through `placement`, so an unbound emitter's direction comes out
+    /// as the element's own Z — the Y fallback this replaced aimed every cone,
+    /// and every one of the corpus's 4,338 non-zero `Speed` records, at a
+    /// different axis.
+    #[test]
+    fn the_emission_axis_is_the_element_forward_axis() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        let particle = Particle::default();
+        let (axis, perp) = emission_axis(&particle, &context);
+        assert_eq!(axis, Vec3::Z);
+        assert_eq!(perp, Vec3::X);
+
+        // Turn the keypoint: the local axis stays Z, and what `placement` makes
+        // of it is the client's `rotate(Z, q)`.
+        let turn = Quat::from_axis_angle(Vec3::Y, std::f32::consts::FRAC_PI_2);
+        context.keypoint_direction = turn;
+        context.spin = turn;
+        context.placement = Mat4::from_quat(turn);
+        let (axis, perp) = emission_axis(&particle, &context);
+        assert!((axis - Vec3::Z).length() < 1e-6, "{axis}");
+        assert!(
+            (context.placement.transform_vector3(axis) - turn * Vec3::Z).length() < 1e-6,
+            "the world direction has to be the keypoint direction turned Z"
+        );
+        assert!((perp - Vec3::X).length() < 1e-6, "{perp}");
+    }
+
+    /// A bound emitter's direction is bone local — `0x723440` copies the global
+    /// Z axis without touching the orientation quaternion — while this player's
+    /// local frame carries the keypoint direction, so that direction has to be
+    /// undone rather than applied. 2,770 of the corpus's 9,142 bound particle
+    /// keypoints author a non-identity one.
+    #[test]
+    fn bound_emission_unwinds_the_keypoint_direction() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        let mut particle = Particle::default();
+        particle.is_bind = true;
+        let turn = Quat::from_axis_angle(Vec3::Y, std::f32::consts::FRAC_PI_2);
+        context.keypoint_direction = turn;
+        context.spin = turn;
+        context.placement = Mat4::from_quat(turn);
+        let (axis, perp) = emission_axis(&particle, &context);
+        assert!(
+            (context.placement.transform_vector3(axis) - Vec3::Z).length() < 1e-6,
+            "in the bone frame the direction is the bone's Z, got {axis}"
+        );
+        assert!(
+            (context.placement.transform_vector3(perp) - Vec3::X).length() < 1e-6,
+            "and the cone's axis is the bone's X, got {perp}"
+        );
+    }
+
+    /// `ParIniDir` is three Euler angles: the parser at `0x7242e2` turns them
+    /// into a quaternion through `0x7b6f10`, composes it with emitter+0x74 into
+    /// +0xa0 (`0x7243b8`), and the samplers copy those four floats into node+0x34
+    /// (`0x7283f5`), the particle's initial *orientation*. The direction slot
+    /// never reads +0xa0, so authoring one does not move the emission axis. The
+    /// values below are the corpus's own — exact degree conversions, which no
+    /// unit direction would be.
+    #[test]
+    fn par_initial_direction_is_not_an_emission_axis() {
+        let view = view();
+        let common = Common::default();
+        let context = spawn_context(&view, &common);
+        let mut particle = Particle::default();
+        particle.initial_direction = Vec3::new(0.017453, 0., 1.570796);
+        let (axis, perp) = emission_axis(&particle, &context);
+        assert_eq!(axis, Vec3::Z);
+        assert_eq!(perp, Vec3::X);
+    }
+
+    /// The cone spins its perpendicular axis about the emission direction by the
+    /// azimuth (`0x72363b`, `0x723661`–`0x7236e9`) and then tilts the direction
+    /// by the polar angle about that spun axis (`0x723718`, `0x723741`–`0x7237c1`).
+    /// With the direction at Z and the perpendicular at X, a quarter turn with no
+    /// azimuth lands on -Y, which is `rotate(Z, axis_angle(X, pi/2))` — the
+    /// draw-for-draw consequence of X being the reference axis rather than an
+    /// arbitrary perpendicular.
+    #[test]
+    fn the_cone_tilts_from_the_spun_perpendicular() {
+        let d = cone_sample(Vec3::Z, Vec3::X, std::f32::consts::FRAC_PI_2, 0.);
+        assert!((d + Vec3::Y).length() < 1e-6, "{d}");
+        let d = cone_sample(
+            Vec3::Z,
+            Vec3::X,
+            std::f32::consts::FRAC_PI_2,
+            std::f32::consts::PI,
+        );
+        assert!((d - Vec3::Y).length() < 1e-6, "{d}");
+        let d = cone_sample(Vec3::Z, Vec3::X, 0., 1.234);
+        assert!((d - Vec3::Z).length() < 1e-6, "{d}");
     }
 
     /// The colour slot `0x7237f0` lerps each channel as `min * (1 - u) + max * u`
