@@ -925,8 +925,12 @@ impl Player {
         self.time
     }
 
-    /// Restart the clock. Live particles stay, exactly as they do when the
-    /// client restarts a looping root.
+    /// Restart the clock, which is what the client does when a looping root runs
+    /// out and starts again. Everything an element has accumulated survives —
+    /// live particles, ribbon history, the noise a fractal strip is half way
+    /// through — except the state `ResetLoopEnd` clears; see `reset_at_loop_end`,
+    /// which also records what is still unresolved about the three other classes
+    /// that override the same client hook.
     pub fn reset(&mut self) {
         self.time = 0.;
         self.finished = false;
@@ -939,6 +943,9 @@ impl Player {
             // good. The resolution itself is structural and survives.
             element.ended = false;
             element.placement = None;
+            if self.root.elements[element.index].common.reset_loop_end {
+                reset_at_loop_end(&mut element.runtime);
+            }
         }
     }
 
@@ -3102,6 +3109,47 @@ fn update_trail(
     ring.age(dt_ms);
     if trail.is_tail_disappear {
         ring.drop_expired();
+    }
+}
+
+/// What the client's per-element "reset at the end of the loop" virtual throws
+/// away, for the part of it the viewer can reproduce without guessing.
+///
+/// Slot 17 of the element vtable. Ten of the fourteen element classes leave it
+/// at the base `0x6fa640`, which zeroes the texture-animation clocks at +0xac,
+/// +0xbc, +0xc0 and +0x128 when `ResetLoopEnd` (+0x13d) is set *and* the element
+/// has a multi-frame flipbook (+0x133, written by the common parser at
+/// `0x6fa161` and clear only when `TexRow` and `TexCol` are both 1). The viewer
+/// needs no code for that half: its flipbook index is derived from the element
+/// clock, which a restart already rewinds.
+///
+/// Four classes override the slot, each identifiable from the id its constructor
+/// writes next to the vtable it installs. The trail's is decoded exactly:
+/// `0x714620` calls the base and then zeroes the ring's accumulator (+0x314),
+/// laid count (+0x318) and live count (+0x328) under the same `ResetLoopEnd`
+/// test, so a looping trail starts its strip again from nothing instead of
+/// carrying the previous loop's vertices into the next one. 98 of the 156 corpus
+/// trails author that flag non-zero. That is the part implemented here.
+///
+/// The other three are attributed but not implemented, because the call site is
+/// not recovered and the gate is therefore ambiguous. The ribbon (110, vtable
+/// `0x8ec474`, installed at `0x6f9353` beside `movl $0x6e,0xc`) zeroes its
+/// vertex-ring count at +0x14c and sets a byte at +0x18c (`0x70e3c0`); the child
+/// reference (200, vtable `0x8ed690`) calls a virtual on the effect it owns at
+/// +0x144 with a zero argument, gated by a byte at +0x14d (`0x7121b0`); and the
+/// particle emitter (120 to 125, vtable `0x8edab4`) frees both of its node lists
+/// at +0x168 and +0x188, sets a byte at +0x20c and zeroes +0x1a8 (`0x715600`).
+/// None of the three tests `ResetLoopEnd` itself — only the base and the trail
+/// do — so either the caller gates the whole slot and those three are
+/// unconditional once it fires, or the caller does not gate and ribbons, children
+/// and particle emitters restart at every loop end whatever the file says. The
+/// slot is reached through a computed pointer rather than a `call *0x44`, so
+/// neither reading can be settled from the call site yet, and emptying a ribbon
+/// or a particle emitter on the wrong reading would be visible on every looping
+/// effect in the corpus. Both stay as they are until that is resolved.
+fn reset_at_loop_end(runtime: &mut Runtime) {
+    if let Runtime::Fractal(fractal) = runtime {
+        fractal.trail = TrailRing::default();
     }
 }
 
@@ -5510,7 +5558,8 @@ mod tests {
              WaveLen: 1.000000\r\nInterval: 100000\r\nWidth: 0.050000\r\nWidth: 0.050000\r\n\
              Alpha: 1.000000\r\nAlpha: 1.000000\r\nWidth: 0.050000\r\nAlpha: 1.000000\r\n\
              Amplitude: 0.000000\r\nPos1Enable: 0\r\nPos2Enable: 0\r\nUseNormal: 0\r\n\
-             Normal: 0, 0, 0\r\nFilter: 1\r\nisappend: {is_append}\r\nrenderside: 0\r\n\
+             Normal: 0, 0, 0\r\nFilter: 1\r\nResetLoopEnd: 0\r\nisappend: {is_append}\r\n\
+             renderside: 0\r\n\
              istaildisappear: {is_tail_disappear}\r\nvertslife: {vertices_life}\r\n\
              tailfadeout: 0\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
              TimeSpan: {duration_ms}\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1.000000\r\n\
@@ -5662,6 +5711,51 @@ mod tests {
         assert!(
             ring.records.is_empty(),
             "and once every record is at its life the whole ring goes"
+        );
+    }
+
+    /// `0x714620`: when the root's loop restarts, a trail that authors
+    /// `ResetLoopEnd` zeroes its accumulator (+0x314), its laid count (+0x318)
+    /// and its live count (+0x328), so the next loop lays the strip down again
+    /// from its first vertex instead of carrying the previous loop's vertices
+    /// with it.
+    #[test]
+    fn reset_loop_end_empties_the_trail_ring_on_a_restart() {
+        let source =
+            trail(4, true, false, 100_000., 100.).replace("ResetLoopEnd: 0", "ResetLoopEnd: 1");
+        let mut player = build(&source);
+        for _ in 0..4 {
+            trail_quads(&mut player, 30.);
+        }
+        assert_eq!(player.quads().len(), 4, "the whole strip is down");
+        player.reset();
+        assert_eq!(
+            trail_quads(&mut player, 16.),
+            0,
+            "a restart leaves the ring empty, so there is nothing to draw yet"
+        );
+        assert_eq!(
+            trail_quads(&mut player, 30.),
+            1,
+            "and the strip is laid down again from its first vertex"
+        );
+    }
+
+    /// The same restart without the flag: `0x714620` tests `ResetLoopEnd` at
+    /// +0x13d before it zeroes anything, so a trail that does not author it
+    /// keeps the vertices it has already laid and simply goes on aging them.
+    #[test]
+    fn a_trail_without_reset_loop_end_keeps_its_ring_across_a_restart() {
+        let mut player = build(&trail(4, true, false, 100_000., 100.));
+        for _ in 0..4 {
+            trail_quads(&mut player, 30.);
+        }
+        assert_eq!(player.quads().len(), 4, "the whole strip is down");
+        player.reset();
+        assert_eq!(
+            trail_quads(&mut player, 16.),
+            4,
+            "the ring survives the restart and the strip is still whole"
         );
     }
 
