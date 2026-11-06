@@ -57,6 +57,30 @@ Rotation by a quaternion is spelled out inline rather than living in the library
 Given `q = (v, w)`, the callers compute `u + 2w(v x u) + 2(v x (v x u))` with one
 `0x4093d0` per cross, one `0x633700` per scaling and two `0x4071f0` adds.
 
+Reading those call sites needs one more convention. The second `0x4071f0` of a
+rotation is preceded by only two pushes and followed by no stack adjustment,
+because the first call's four pushes were cleaned by an `add $0xc` that
+deliberately leaves the outermost argument in place for the next call to consume.
+Counting pushes per call therefore misreads the argument list; the balanced form
+is `G2 + A + B`, the rotation itself.
+
+### Per-class birth flow
+
+The four classes that honour `IsSurface` do not share a birth flow, and the
+difference decides whether a surface particle keeps the emission cone.
+
+| Class | Divert | Surface sampler | Volume sampler | After both |
+| --- | --- | --- | --- | --- |
+| 120 | `0x72729c` | inline at `0x7272aa` | `0x727230` | — |
+| 121 | `0x7277c1` | `0x727800` | `0x727ab0` | `vtable[1](&node+0x44)` |
+| 123 | `0x727ec2` | `0x727f00` | `0x728270` | `vtable[2]` (TTL) only, at `0x727ed8` |
+| 124 | `0x729ba1` | `0x729be0` | `0x729df0` | `vtable[1](&node+0x44)` at `0x729bc1`, then `vtable[2]` |
+
+So id 123's sampler is the last word on the direction — it writes the negated
+sample to node+0x44 itself and nothing overwrites it — while ids 121 and 124 have
+the direction slot called afterwards and their samplers write no direction at
+all. Ids 122 and 125 never read emitter`+0x84`.
+
 ## Runtime player
 
 The root clock advances in milliseconds and is scaled by `PlaySpeed`; controllers integrate in seconds of scaled time. An element's clock is its keypoint spans plus `RepeatDelay`, repeated `RepeatCount` times (1 = once, −1 = open-ended, N = N passes, and the corpus's 10,000/2147483647 values are "effectively forever"); a phase no keypoint covers draws nothing but does not end the element, and the root reports itself finished only when *every* element is over and none loops. `RotFromView` decides where a sprite's basis comes from — 598 retail sprites take it from the camera, 8,271 keep the authored keypoint direction — and the root's `FaceToViewer` forces the camera basis for all of them. Flipbook cells walk `floor(clock/TexInterval) % clamp(TexAnimMaxTime/TexInterval, 1, rows*cols)` with v growing downwards, and `TexSpeed` scrolls U and V continuously. `InterpolateMode` is 0 in every corpus keypoint, so linear blending between keypoints is implemented but never exercised by retail data.

@@ -87,9 +87,10 @@
 //! vector; and the rotation the unbound emission basis takes from the
 //! quaternion at emitter+0x74, whose writer is the same unknown that blocks
 //! `ParIniDir`. A fourth is copied only for the class it is decoded for:
-//! `IsSurface` places particles on the emitter's own `AreaSize` ellipsoid, and
-//! id 123's sampler `0x727f00` is reproduced, but ids 120, 121 and 124 have
-//! samplers of their own that are not.
+//! `IsSurface` places particles on the emitter's own `AreaSize` volume, and the
+//! samplers of ids 123 (`0x727f00`, an ellipsoid) and 124 (`0x729be0`, a
+//! cylinder) are reproduced, but ids 120 and 121 have samplers of their own
+//! that are not.
 
 use crate::{
     ecmodel,
@@ -1863,43 +1864,44 @@ fn spawn(
     rng: &mut Rng,
     context: &ElementContext,
 ) -> ParticleState {
-    // The client's shape routine `0x728270` multiplies a uniform unit-ball
-    // sample by the matrix at emitter+0xc0 and then adds the emitter position.
-    // `0x729670` fills that matrix and branches on `IsBind` at emitter+0x85.
-    // Bound emitters get `diag(AreaSize * 0.5)` laid against the three global
-    // unit axes `0x9c0358`, `0x9c0348` and `0x9c0338`, which is what this
-    // reproduces. Unbound emitters take `0x729763` instead: one scalar argument
-    // multiplied into all three `AreaSize` components, then rotated by the
-    // quaternion at emitter+0x74 -- `0x7297f4` doubles its w, the first term of
-    // the quaternion-to-matrix conversion. That rotation is not reproduced,
-    // because nothing decoded so far writes emitter+0x74, which is also what
-    // blocks `ParIniDir`. 8,259 of the corpus's 13,665 particle elements are
-    // bound, so 5,406 take the unbound path.
-    // Id 123 honours `IsSurface` through `0x727f00`, which spends two draws on a
-    // unit direction `D`, writes `D.x*basis0 + D.y*basis1 + D.z*basis2` to
-    // node+0x10 (the three `0x401ca0` constructions at `0x7280ff`, `0x728132` and
-    // `0x728165`, summed at `0x7281d5` and `0x728202`) and the negated `D` to
-    // node+0x44. The basis is the same `AreaSize * 0.5` the volume path uses, so
-    // the sample lands on the ellipsoid instead of inside it, and because the
-    // sampler never calls the direction slot the cone angle does not apply.
+    // `IsSurface` selects a per-class sampler, and the classes do not agree on
+    // what a surface is.
     //
-    // Ids 120, 121 and 124 have their own surface samplers and are not decoded:
-    // id 121's `0x727800` spends ten draws and calls none of the vector helpers,
-    // and id 120's block at `0x7272aa` adds a call to `0x70a320`. Ids 122 and 125
-    // never read the flag at all. Those keep the volume path rather than borrow a
-    // formula that has not been verified for them.
-    let surface = particle.is_surface && context.id == 123;
-    let (offset, inward) = if surface {
-        let sample = surface_direction(rng);
-        let half = particle.area_size.unwrap_or(Vec3::ZERO) * 0.5;
-        (sample * half, Some(-sample))
+    // Id 123's `0x727f00` spends two draws on a direction `D` uniform over the
+    // sphere, writes `D.x*basis0 + D.y*basis1 + D.z*basis2` to node+0x10 (the
+    // three `0x401ca0` constructions at `0x7280ff`, `0x728132` and `0x728165`,
+    // summed at `0x7281d5` and `0x728202`) and the negated `D` to node+0x44. Its
+    // birth flow calls the TTL slot next (`0x727ed8`) and never the direction
+    // slot, so the emission cone does not apply to a surface particle of that
+    // class.
+    //
+    // Id 124's `0x729be0` runs the same construction about a different axis and
+    // takes its third coefficient from somewhere else entirely. It rotates
+    // `0x9c0358` about `0x9c0338` by the first draw and uses only that result's x
+    // and y; the third is a second draw scaled by `2/32767` (`0x8e6efc`) and
+    // reduced by `1.0` (`0x8d5c28`), a uniform in `[-1, 1]`. Since the bound basis
+    // pairs `0x9c0338` with `AreaSize.z`, the sample is the lateral surface of the
+    // cylinder the extents describe, not an ellipsoid. It writes no direction at
+    // all, and its birth flow calls the direction slot after both samplers
+    // (`0x729bc1`), so there the cone still applies.
+    //
+    // Ids 120 and 121 keep the volume path: id 121's `0x727800` spends ten draws
+    // and calls none of the vector helpers, so it is a different algorithm
+    // outright, and id 120's block at `0x7272aa` runs the same chain but adds a
+    // call to `0x70a320` and uses `pi/2 - Angle`. Ids 122 and 125 never read the
+    // flag.
+    let half = particle.area_size.unwrap_or(Vec3::ZERO) * 0.5;
+    let (offset, inward) = if particle.is_surface {
+        match context.id {
+            123 => {
+                let sample = surface_direction(rng);
+                (sample * half, Some(-sample))
+            }
+            124 => (cylinder_sample(rng) * half, None),
+            _ => (volume_offset(particle, rng), None),
+        }
     } else {
-        let offset = match (particle.radius, particle.area_size) {
-            (Some(radius), _) => random_unit_ball(rng) * radius.max(0.),
-            (None, Some(area)) => random_unit_ball(rng) * area * 0.5,
-            (None, None) => Vec3::ZERO,
-        };
-        (offset, None)
+        (volume_offset(particle, rng), None)
     };
     let position = match path {
         Some(points) => sample_path(points, rng.unit() * path_length(points)).0 + offset,
@@ -2027,6 +2029,42 @@ fn surface_direction(rng: &mut Rng) -> Vec3 {
     let tau = std::f32::consts::TAU;
     let first = Quat::from_axis_angle(Vec3::Y, rng.unit() * tau) * Vec3::X;
     Quat::from_axis_angle(first, rng.unit() * tau) * Vec3::Y
+}
+
+/// Id 124's surface sample: a full turn about the basis's z axis with an
+/// independent uniform height, so the coefficients are `(cos t, sin t, u)`.
+///
+/// `0x729be0` builds the turn the way id 123 builds its direction — a quaternion
+/// from `0x7b6fd0`, then the inline rotation `u + 2w(v x u) + 2(v x (v x u))`
+/// through `0x4093d0`, `0x633700` and `0x4071f0` — but about `0x9c0338`, and it
+/// never reads the rotated vector's third component. That coefficient is a second
+/// `rand()` draw scaled by `2/32767` (`0x8e6efc`) and reduced by `1.0`
+/// (`0x8d5c28`), which is `Rng::signed`.
+fn cylinder_sample(rng: &mut Rng) -> Vec3 {
+    let tau = std::f32::consts::TAU;
+    let turned = Quat::from_axis_angle(Vec3::Z, rng.unit() * tau) * Vec3::X;
+    turned.with_z(rng.signed())
+}
+
+/// The volume offset every class shares when `IsSurface` does not apply.
+///
+/// The client's shape routine `0x728270` multiplies a uniform unit-ball sample by
+/// the matrix at emitter+0xc0 and then adds the emitter position. `0x729670` fills
+/// that matrix and branches on `IsBind` at emitter+0x85. Bound emitters get
+/// `diag(AreaSize * 0.5)` laid against the three global unit axes `0x9c0358`,
+/// `0x9c0348` and `0x9c0338`, which is what this reproduces. Unbound emitters take
+/// `0x729763` instead: one scalar argument multiplied into all three `AreaSize`
+/// components, then rotated by the quaternion at emitter+0x74 — `0x7297f4` doubles
+/// its w, the first term of the quaternion-to-matrix conversion. That rotation is
+/// not reproduced, because nothing decoded so far writes emitter+0x74, which is
+/// also what blocks `ParIniDir`. 8,259 of the corpus's 13,665 particle elements
+/// are bound, so 5,406 take the unbound path.
+fn volume_offset(particle: &Particle, rng: &mut Rng) -> Vec3 {
+    match (particle.radius, particle.area_size) {
+        (Some(radius), _) => random_unit_ball(rng) * radius.max(0.),
+        (None, Some(area)) => random_unit_ball(rng) * area * 0.5,
+        (None, None) => Vec3::ZERO,
+    }
 }
 
 /// A uniform sample of the unit ball. `0x728270` rejection-samples three
@@ -3289,6 +3327,160 @@ mod tests {
         assert!(
             closest < 0.5,
             "id 121 should still fill the volume; its closest sample was {closest}"
+        );
+    }
+
+    /// Id 124's surface sample is the lateral surface of a cylinder, not an
+    /// ellipsoid: `0x729be0` takes its first two coefficients from a full turn
+    /// about `0x9c0338` and its third from an independent uniform in `[-1, 1]`.
+    /// The cross-section therefore sits exactly on the ellipse while the height
+    /// covers the whole extent, which no sphere sample does.
+    #[test]
+    fn id_124_surface_emission_is_a_cylinder() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.id = 124;
+        let mut particle = Particle::default();
+        particle.is_surface = true;
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        let mut rng = Rng::new(61);
+        let mut height = 0f32;
+        for _ in 0..2_000 {
+            let position = spawn(&particle, None, &mut rng, &context).position;
+            let cross = (position.x / 1.).powi(2) + (position.y / 0.5).powi(2);
+            assert!(
+                (cross - 1.).abs() < 1e-4,
+                "{position} is off the cylinder's cross-section"
+            );
+            assert!(
+                position.z.abs() <= 0.25 + 1e-4,
+                "{position} is outside the cylinder's height"
+            );
+            height = height.max(position.z.abs());
+        }
+        // The height is uniform, so it reaches both ends; a sphere sample would
+        // trade height for cross-section radius and never pin the radius at 1.
+        assert!(height > 0.24, "the height only reached {height}");
+    }
+
+    /// Id 124's sampler writes no direction, and its birth flow calls the
+    /// direction slot after both samplers (`0x729bc1`), so the emission cone still
+    /// applies there — unlike id 123, whose flow goes straight to the TTL slot.
+    /// With no cone angle the direction is the emission axis and costs no draws, so
+    /// the same element with the flag cleared must produce exactly the same one.
+    #[test]
+    fn id_124_surface_emission_keeps_the_cone_direction() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.id = 124;
+        let mut particle = Particle::default();
+        particle.is_surface = true;
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+        let mut plain = Particle::default();
+        plain.area_size = particle.area_size;
+        let mut rng = Rng::new(67);
+        let surface = spawn(&particle, None, &mut rng, &context);
+        let volume = spawn(&plain, None, &mut rng, &context);
+        assert_eq!(surface.direction, volume.direction);
+        // And it is not id 123's negated sample.
+        let radial = surface.position / Vec3::new(1., 0.5, 0.25);
+        assert!(
+            (surface.direction + radial).length() > 1e-3,
+            "id 124 should not negate its sample; direction {} for position {}",
+            surface.direction,
+            surface.position
+        );
+    }
+
+    /// The cylinder sample spends the client's two draws, one for the turn and one
+    /// for the height (`0x729bed` and `0x729cba`).
+    #[test]
+    fn cylinder_sample_spends_two_draws() {
+        let mut rng = Rng::new(71);
+        cylinder_sample(&mut rng);
+        let mut reference = Rng::new(71);
+        reference.next_u32();
+        reference.next_u32();
+        assert_eq!(rng.next_u32(), reference.next_u32());
+    }
+
+    /// The archive's id-124 surface elements, measured against the cylinder their
+    /// own authored `AreaSize` describes. The cross-section check is skipped where
+    /// an extent is zero, since the sample then collapses onto an axis.
+    #[test]
+    fn corpus_cylinder_emission_holds_on_authored_area_sizes() {
+        let Some(root) = corpus_root() else {
+            return;
+        };
+        let mut files = Vec::new();
+        corpus_files(&root, &mut files);
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.id = 124;
+        let (mut parsed, mut elements, mut zeroed) = (0usize, 0usize, 0usize);
+        for file in &files {
+            let Ok(bytes) = std::fs::read(file) else {
+                continue;
+            };
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            let Ok(parsed_root) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            parsed += 1;
+            for element in &parsed_root.elements {
+                if element.id != 124 {
+                    continue;
+                }
+                let crate::gfx_file::Spec::Particle(particle) = &element.spec else {
+                    continue;
+                };
+                if !particle.is_surface {
+                    continue;
+                }
+                elements += 1;
+                let half = particle.area_size.unwrap_or(Vec3::ZERO) * 0.5;
+                if half.x == 0. || half.y == 0. || half.z == 0. {
+                    zeroed += 1;
+                }
+                let mut rng = Rng::new(elements as u32 * 7919 + 13);
+                for _ in 0..8 {
+                    let position = spawn(particle, None, &mut rng, &context).position;
+                    assert!(
+                        position.is_finite(),
+                        "{} spawned {position}",
+                        file.display()
+                    );
+                    if half.x != 0. && half.y != 0. {
+                        let cross = (position.x / half.x).powi(2) + (position.y / half.y).powi(2);
+                        assert!(
+                            (cross - 1.).abs() < 1e-3,
+                            "{} spawned {position} off its cylinder",
+                            file.display()
+                        );
+                    }
+                    let slack = 1e-3 * half.z.abs().max(1.);
+                    assert!(
+                        position.z.abs() <= half.z.abs() + slack,
+                        "{} spawned {position} outside its height",
+                        file.display()
+                    );
+                }
+            }
+        }
+        println!(
+            "corpus cylinder: {parsed} files parsed, {elements} id-124 surface elements, \
+             {zeroed} with a zero extent"
+        );
+        assert!(
+            parsed > 5_000,
+            "the census parsed 5,457 files, got {parsed}"
+        );
+        assert!(
+            elements > 800,
+            "the census found 1,036 id-124 surface elements, got {elements}"
         );
     }
 
