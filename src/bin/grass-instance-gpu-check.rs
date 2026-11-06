@@ -10,6 +10,8 @@ mod client_weather;
 mod environment;
 #[path = "../grass_instances.rs"]
 mod grass_instances;
+#[path = "../indirect_args.rs"]
+mod indirect_args;
 #[path = "../pck.rs"]
 mod pck;
 #[path = "../refraction_fog.rs"]
@@ -40,7 +42,11 @@ fn main() {
     let (device, queue) = pollster::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
             label: None,
-            required_features: wgpu::Features::empty(),
+            // Ask for the single-call draw path; the frame loop below renders
+            // both paths and compares them.
+            required_features: adapter.features()
+                & (wgpu::Features::MULTI_DRAW_INDIRECT
+                    | wgpu::Features::INDIRECT_FIRST_INSTANCE),
             required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
         },
         None,
@@ -446,14 +452,24 @@ fn main() {
     let view = target.create_view(&Default::default());
     let dv = dep.create_view(&Default::default());
     let mut clear_frame = Vec::new();
+    let device_multi = device.features().contains(
+        wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE,
+    );
     for (clip, fog) in [(false, false), (true, false), (false, true)] {
         uni[380..384].copy_from_slice(if fog { &[0., 0.5, 1., 0.] } else { &[0.; 4] });
         uni[384..388].copy_from_slice(&[0.5, 0.25, 0.75, 1.]);
         uni[20] = 0.15;
         uni[21] = if clip { 1. } else { 0. };
         queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&uni));
+        // Instanced through the per-batch path, instanced through the single
+        // multi-draw call when the adapter has it, and the CPU-expanded
+        // reference: all three have to paint the same picture.
+        let mut variants: Vec<(bool, bool)> = vec![(false, false), (true, false)];
+        if device_multi {
+            variants.insert(1, (false, true));
+        }
         let mut frames = Vec::new();
-        for expanded_path in [false, true] {
+        for (expanded_path, multi_draw) in variants {
             let buf = device.create_buffer(&wgpu::BufferDescriptor {
                 label: None,
                 size: 128 * 128 * 4,
@@ -490,6 +506,7 @@ fn main() {
                     p.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
                     p.draw_indexed(0..expanded_ix.len() as u32, 0, 0..1);
                 } else {
+                    grass.set_multi_draw(multi_draw);
                     grass.draw(&mut p, &bind, None);
                 }
             }
@@ -521,10 +538,12 @@ fn main() {
         }
         let n = frames[0].chunks_exact(4).filter(|p| p[1] > 0).count();
         assert!(n > 100, "missing grass {n}");
-        assert_eq!(
-            frames[0], frames[1],
-            "instanced vs CPU-expanded mismatch (clip={clip})"
-        );
+        for (variant, frame) in frames.iter().enumerate().skip(1) {
+            assert_eq!(
+                frame, &frames[0],
+                "grass draw paths disagree (clip={clip}, fog={fog}, variant={variant})"
+            );
+        }
         if !clip && !fog {
             clear_frame = frames[0].clone();
         }

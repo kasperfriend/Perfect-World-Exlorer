@@ -73,6 +73,7 @@ Measured expectations, not benchmarked frame times (no GPU in this sandbox):
   per-frame and per-input string and environment work from the UI/event path.
 
 | 10 | `far_trees_gpu` LOD selection | the CPU walked **every** placement each frame the camera moved: distance, `tree_lod::select`, write the instance slot, then re-upload the whole instance buffer (three level slices per placement — 9.6 MB at whole-world scale, every frame) | the placement table (position + group index), each group's height and slice, and the per-batch `DrawIndexedIndirectArgs` are uploaded once at load; a single 64-wide compute dispatch then writes the instances and bumps the per-batch counts; `draw` is then one `multi_draw_indexed_indirect` for the whole batch list when the adapter offers `MULTI_DRAW_INDIRECT` + `INDIRECT_FIRST_INSTANCE` (each record's `first_instance` selects its slice, so the vertex buffer is bound once), and one `draw_indexed_indirect` per batch otherwise — a whole-forest draw is one call per pass in either case, where it used to be one per placement | the shader is `tree_lod::client_distance` and `tree_lod::select` transcribed operation for operation — the same bit-trick square root, the same 10 % windows around `height * 5 * scale` and `height * 16 * scale`, tested in the same order. `tree-lod-gpu-check` reads the per-batch counts and the `(fraction, mode)` record back and compares both against the CPU `select` for every frame, including two frames placed inside the transition windows where the cross-fade is non-trivial, and renders every non-transition frame twice — once from the CPU packer's buffer, once from the compute pass's — asserting the pixels are identical |
+| 11 | `grass_instances::Gpu::draw` | one `draw_indexed` **per grass batch** — one per (area, material) pair — every frame, in every pass that draws grass | the ranges are fixed until the next streaming update, so they are uploaded once as indirect records; the whole field is then one `multi_draw_indexed_indirect` per pass when the adapter has `MULTI_DRAW_INDIRECT` + `INDIRECT_FIRST_INSTANCE`, and the identical per-batch loop otherwise | both paths bind the same three buffers and draw the same ranges in the same order. `grass-instance-gpu-check` renders the per-batch path, the single-call path and the CPU-expanded reference for every clip/fog combination and asserts all three frames are identical. The record type is shared with the tree batches (`indirect_args`), and a unit test pins its 20-byte layout |
 ## 3. Candidates examined and deliberately not changed
 
 | candidate | verdict |
@@ -135,8 +136,8 @@ What is still on the CPU each frame, roughly in order of cost:
    draw per placed object to one per page run.
 3. **Visibility** — `visible_runs_into` / `visible_far_runs_into` walk the
    resident block window per view, `window_lod` per block, the water batch
-   filter/sort, the grass placement. Item (10) took the far-tree LOD selection
-   out of this list.
+   filter/sort. Items (10) and (11) took the far-tree LOD selection and the
+   grass draw list off this list.
 4. **Frame math** — `begin_frame` (lighting, fog, sun/moon, glow parameters),
    a few hundred flops.
 5. **egui** — the settings/HUD tree, tessellation and vertex upload. On a frame

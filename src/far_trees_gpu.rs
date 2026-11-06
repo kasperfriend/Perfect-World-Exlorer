@@ -2,6 +2,7 @@
 use crate::{gpu::Vertex, trees::Trees};
 #[path = "terrain_cutoff.rs"]
 mod cutoff_residency;
+use crate::indirect_args::{multi_draw, record, DrawIndexedArgs, DRAW_ARGS};
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 /// One instance record: `[position.xyz, 0]`, then `[fraction, mode, 0, 0]`.
@@ -64,18 +65,6 @@ pub(crate) struct LodParams {
     /// `placements, groups, bounds_active, 0`.
     pub(crate) counts: [u32; 4],
 }
-/// `DrawIndexedIndirectArgs`, also the record the compute pass bumps.
-#[repr(C)]
-#[derive(Clone, Copy, Pod, Zeroable)]
-pub(crate) struct LodArgs {
-    pub(crate) index_count: u32,
-    pub(crate) instance_count: u32,
-    pub(crate) first_index: u32,
-    pub(crate) base_vertex: i32,
-    pub(crate) first_instance: u32,
-}
-/// Bytes of one `LodArgs` record; the stride the indirect draws use.
-pub(crate) const LOD_ARGS: u64 = std::mem::size_of::<LodArgs>() as u64;
 
 /// The LOD selection pass.
 ///
@@ -191,7 +180,7 @@ pub struct FarTrees {
     lod_bind: wgpu::BindGroup,
     lod_params: wgpu::Buffer,
     placements: u32,
-    /// Indirect args, one record per batch (`LOD_ARGS` bytes each), plus the
+    /// Indirect args, one record per batch (`DRAW_ARGS` bytes each), plus the
     /// static part of each record with `instance_count` zeroed.
     lod_args: wgpu::Buffer,
     lod_args_reset: Vec<u8>,
@@ -865,33 +854,24 @@ impl FarTrees {
         // `first_instance` inside an indirect call. Both are optional features;
         // without them the batches are drawn one at a time, with the instance
         // buffer sliced per draw instead.
-        let multi_draw = device
-            .features()
-            .contains(wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE);
+        let one_call = multi_draw(device);
         let mut args = Vec::with_capacity(batches.len().max(1));
         for batch in &batches {
-            args.push(LodArgs {
-                index_count: batch.indices.end - batch.indices.start,
-                instance_count: 0,
-                first_index: batch.indices.start,
-                base_vertex: 0,
-                first_instance: if multi_draw {
-                    batch.instances.start
-                } else {
-                    0
-                },
-            });
+            let mut args_record = record(batch.indices.clone(), batch.instances.clone());
+            // The compute pass owns the counts: every record starts empty and is
+            // bumped per frame.
+            args_record.instance_count = 0;
+            if !one_call {
+                // Without `first_instance` inside an indirect call, the slice
+                // comes from the vertex buffer instead.
+                args_record.first_instance = 0;
+            }
+            args.push(args_record);
         }
         if args.is_empty() {
-            args.push(LodArgs {
-                index_count: 0,
-                instance_count: 0,
-                first_index: 0,
-                base_vertex: 0,
-                first_instance: 0,
-            });
+            args.push(record(0..0, 0..0));
         }
-        let lod_args_reset = bytemuck::cast_slice::<LodArgs, u8>(&args).to_vec();
+        let lod_args_reset = bytemuck::cast_slice::<DrawIndexedArgs, u8>(&args).to_vec();
         let lod_args = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("tree lod indirect args"),
             contents: &lod_args_reset,
@@ -1004,7 +984,7 @@ impl FarTrees {
             packed_count,
             side,
             if small { " low-memory" } else { " source-size" },
-            if multi_draw {
+            if one_call {
                 "one multi-draw"
             } else {
                 "per-batch indirect draws"
@@ -1027,7 +1007,7 @@ impl FarTrees {
             placements: placement_count,
             lod_args,
             lod_args_reset,
-            multi_draw,
+            multi_draw: one_call,
         }
     }
     /// Select every placement's LOD on the GPU.
@@ -1124,7 +1104,7 @@ impl FarTrees {
                 // The indirect args carry the count now; each batch keeps its
                 // full-capacity slice, so the instance offsets are the ones the
                 // compute pass uses too.
-                let at = (group.first_batch + i) * LOD_ARGS as usize;
+                let at = (group.first_batch + i) * DRAW_ARGS as usize;
                 for (offset, byte) in count.to_ne_bytes().iter().enumerate() {
                     args[at + 4 + offset] = *byte;
                 }
@@ -1149,7 +1129,7 @@ impl FarTrees {
     pub fn lod_instance_counts(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Vec<u32> {
         let bytes = self.read_back(device, queue, &self.lod_args, 0, self.lod_args.size());
         bytes
-            .chunks_exact(LOD_ARGS as usize)
+            .chunks_exact(DRAW_ARGS as usize)
             .map(|record| u32::from_ne_bytes([record[4], record[5], record[6], record[7]]))
             .collect()
     }
@@ -1236,7 +1216,7 @@ impl FarTrees {
                     self.instances
                         .slice(batch.instances.start as u64 * stride..),
                 );
-                p.draw_indexed_indirect(&self.lod_args, index as u64 * LOD_ARGS);
+                p.draw_indexed_indirect(&self.lod_args, index as u64 * DRAW_ARGS);
             }
         }
     }
