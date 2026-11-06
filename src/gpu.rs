@@ -362,13 +362,19 @@ fn push_quad(v: &mut Vec<Vertex>, i: &mut Vec<u32>, points: [[f32; 3]; 4], color
 /// re-evaluates `0x77e360` for every resident block on every frame, so the viewer
 /// re-runs the same rule per frame and rebuilds geometry only when the answer
 /// changes; the window origin moves with the camera's block (`0x77ecf0`).
-fn lod_window(
+/// The window rule and its level table inputs, shared by both entry points.
+fn lod_setup(
     width: usize,
     height: usize,
     spacing: f32,
     cam: [f32; 2],
     radius: isize,
-) -> (crate::terrain_lod::Window, crate::terrain_lod::WindowLod) {
+) -> (
+    crate::terrain_lod::Window,
+    crate::terrain_lod::LodConfig,
+    usize,
+    usize,
+) {
     let cols = width / TILE;
     let rows = height / TILE;
     let block_world = TILE as f32 * spacing;
@@ -386,19 +392,53 @@ fn lod_window(
         range,
         block_world,
     );
-    // Viewer world axis: x = (cell - width/2) * spacing, z = (height/2 - cell) * spacing.
+    (win, lod, cols, rows)
+}
+/// Viewer world axis: x = (cell - width/2) * spacing, z = (height/2 - cell) * spacing.
+fn lod_centre(width: usize, height: usize, spacing: f32) -> impl Fn(usize, usize) -> [f32; 2] {
+    move |x, y| {
+        let cx = (x * TILE) as f32 + TILE as f32 * 0.5;
+        let cy = (y * TILE) as f32 + TILE as f32 * 0.5;
+        [
+            (cx - width as f32 * 0.5) * spacing,
+            (height as f32 * 0.5 - cy) * spacing,
+        ]
+    }
+}
+fn lod_window(
+    width: usize,
+    height: usize,
+    spacing: f32,
+    cam: [f32; 2],
+    radius: isize,
+) -> (crate::terrain_lod::Window, crate::terrain_lod::WindowLod) {
+    let (win, lod, cols, rows) = lod_setup(width, height, spacing, cam, radius);
     let levels = crate::terrain_lod::window_lod(
         win,
         &lod,
         cam,
-        |x, y| {
-            let cx = (x * TILE) as f32 + TILE as f32 * 0.5;
-            let cy = (y * TILE) as f32 + TILE as f32 * 0.5;
-            [
-                (cx - width as f32 * 0.5) * spacing,
-                (height as f32 * 0.5 - cy) * spacing,
-            ]
-        },
+        lod_centre(width, height, spacing),
+        |x, y| x < cols && y < rows,
+    );
+    (win, levels)
+}
+/// The level grid only.
+///
+/// The per-frame "would the drawn mesh differ?" test needs the levels and
+/// nothing else, so it skips the neighbour walk that stitches the edge cases.
+fn lod_levels(
+    width: usize,
+    height: usize,
+    spacing: f32,
+    cam: [f32; 2],
+    radius: isize,
+) -> (crate::terrain_lod::Window, Vec<u8>) {
+    let (win, lod, cols, rows) = lod_setup(width, height, spacing, cam, radius);
+    let levels = crate::terrain_lod::window_levels(
+        win,
+        &lod,
+        cam,
+        lod_centre(width, height, spacing),
         |x, y| x < cols && y < rows,
     );
     (win, levels)
@@ -3978,7 +4018,7 @@ pub fn run(
                     let aim = if streaming {
                         None
                     } else {
-                        let (win, levels) = lod_window(
+                        let (win, levels) = lod_levels(
                             width,
                             height,
                             spacing,
@@ -3987,7 +4027,7 @@ pub fn run(
                         );
                         Some(LodState {
                             window: win,
-                            levels: levels.levels,
+                            levels,
                         })
                     };
                     let stale = match &aim {
