@@ -47,10 +47,24 @@ const MAX_VISIBLE_LIMIT: usize = 96;
 /// teleport into a crowded town fills the population over a few frames instead
 /// of stalling one.
 const MAX_SPAWNS_PER_UPDATE: usize = 6;
+/// How far the camera must move before the placement table is searched again.
+/// A still camera - the normal case while walking through a town - reuses the
+/// previous nearest set instead of re-scanning and re-sorting every placement.
+const STREAM_CACHE_MOVE: f32 = 2.;
+
 /// Wall-clock budget for those spawns. A frame that already spent this long
 /// decompressing rigs finishes the rest of the frame without loading another, so
 /// heavy rigs cannot turn a teleport into a stutter.
 const SPAWN_BUDGET: std::time::Duration = std::time::Duration::from_millis(4);
+/// Distance past which an actor is re-posed every other frame, and past which
+/// every third. A 2.3 s idle sampled at 30 Hz is indistinguishable from 60 Hz at
+/// this distance, and it is what keeps a town's whole crowd from costing a full
+/// skinning pass and vertex upload every frame.
+const POSE_STRIDE_NEAR: f32 = 80.;
+const POSE_STRIDE_FAR: f32 = 200.;
+/// Overhead names are outlined within this distance; farther away the outline
+/// only adds four more text shapes per label, so those get the fill alone.
+const NAME_OUTLINE_DISTANCE: f32 = 48.;
 /// Seconds between overhead-name occlusion tests. Every test is a hull raycast
 /// per actor, and a name does not change visibility faster than this; bodies are
 /// never affected by the throttle.
@@ -583,6 +597,24 @@ fn resolve_placement(
     placement
 }
 
+/// Frames between pose evaluations for an actor `distance` units from the eye.
+fn pose_stride(distance: f32) -> u64 {
+    if distance > POSE_STRIDE_FAR {
+        3
+    } else if distance > POSE_STRIDE_NEAR {
+        2
+    } else {
+        1
+    }
+}
+
+/// Whether an actor is due a pose this frame. The phase comes from the spawn
+/// index, so a distant crowd spreads its re-skins over the stride instead of all
+/// refreshing on the same frame and hitching it.
+fn pose_due(frame_index: u64, spawn: usize, stride: u64) -> bool {
+    stride <= 1 || frame_index % stride == (spawn as u64) % stride
+}
+
 /// Whether this pass can actually show an actor standing at `position`.
 ///
 /// The host renders the add-ons once per pass - main, reflection and refraction -
@@ -778,6 +810,14 @@ struct IdleReport {
     bind_pose: usize,
 }
 
+/// One placement search: the camera and limits it was run for, and its result.
+struct StreamCache {
+    eye: [f32; 2],
+    distance: f32,
+    limit: usize,
+    nearest: Vec<(usize, f32)>,
+}
+
 pub struct Populator {
     element: PathBuf,
     /// The host world. `None` only for the registry's inert default instance.
@@ -816,6 +856,11 @@ pub struct Populator {
     /// a hull raycast per actor, and a label does not change visibility faster
     /// than a few times a second.
     name_clock: f32,
+    /// Whether the last update advanced the world clock. A paused viewer shows
+    /// the pose already on the GPU instead of skinning the same frame again.
+    time_advanced: bool,
+    /// The last placement search and the camera/settings it was run for.
+    stream_cache: Option<StreamCache>,
     /// The client's own overhead-name font, read from `configs/fonts.txt` and
     /// handed to the host's egui context on first use.
     name_font: Option<NameFont>,
@@ -847,6 +892,8 @@ impl Default for Populator {
             reported_walls: false,
             frame_index: 0,
             name_clock: NAME_VISIBILITY_INTERVAL,
+            time_advanced: true,
+            stream_cache: None,
             name_font: None,
         }
     }
@@ -954,6 +1001,7 @@ impl Populator {
         if self.reload_pending {
             self.reload_pending = false;
             self.population = None;
+            self.stream_cache = None;
             self.library = None;
             self.load_error = None;
             self.library_error = None;
@@ -1052,16 +1100,22 @@ impl Populator {
                 self.idle_report.bind_pose
             );
         }
-        let pose_errors: Vec<&String> = self
+        let pose_error_count = self
             .live
             .iter()
-            .filter_map(|live| live.pose_error.as_ref())
-            .collect();
-        if !pose_errors.is_empty() && pose_errors.len() > self.reported_pose_errors {
-            for error in pose_errors.iter().skip(self.reported_pose_errors).take(3) {
+            .filter(|live| live.pose_error.is_some())
+            .count();
+        if pose_error_count > self.reported_pose_errors {
+            for error in self
+                .live
+                .iter()
+                .filter_map(|live| live.pose_error.as_ref())
+                .skip(self.reported_pose_errors)
+                .take(3)
+            {
                 eprintln!("Populator: idle tracks unusable, drawing the bind pose: {error}");
             }
-            self.reported_pose_errors = pose_errors.len();
+            self.reported_pose_errors = pose_error_count;
         }
         // Three drawn seconds is long enough for a real idle to have moved and
         // for a frozen one to have proven it.
@@ -1087,14 +1141,37 @@ impl Populator {
     /// Actors that leave the radius are dropped, so the module never holds rigs
     /// it is not drawing.
     fn stream(&mut self, floors: Option<&dyn FloorSource>) {
-        let nearest = match self.population.as_ref() {
-            Some(population) => population.nearest(
-                [self.eye.x, self.eye.z],
-                self.settings.spawn_distance,
-                self.settings.max_visible,
-            ),
-            None => return,
+        let eye = [self.eye.x, self.eye.z];
+        let distance = self.settings.spawn_distance;
+        let limit = self.settings.max_visible;
+        let stale = match &self.stream_cache {
+            Some(cache) => {
+                let dx = cache.eye[0] - eye[0];
+                let dz = cache.eye[1] - eye[1];
+                cache.distance != distance
+                    || cache.limit != limit
+                    || dx * dx + dz * dz > STREAM_CACHE_MOVE * STREAM_CACHE_MOVE
+            }
+            None => true,
         };
+        if stale {
+            let nearest = match self.population.as_ref() {
+                Some(population) => population.nearest(eye, distance, limit),
+                None => return,
+            };
+            self.stream_cache = Some(StreamCache {
+                eye,
+                distance,
+                limit,
+                nearest,
+            });
+        }
+        let Some(cache) = self.stream_cache.as_ref() else {
+            return;
+        };
+        // The cache is borrowed from `self` while `self.live` is reconciled, so
+        // copy the indices out first: the search result is at most `limit` long.
+        let nearest: Vec<(usize, f32)> = cache.nearest.clone();
         // Reconcile by spawn index rather than by scanning the old actor list
         // for every placement: a full 96-actor set used to be a quadratic scan
         // on every frame, before any rig work was done.
@@ -1195,7 +1272,8 @@ impl Populator {
     }
 
     fn advance(&mut self, delta: f32, floors: Option<&dyn FloorSource>) {
-        if !delta.is_finite() || delta <= 0. {
+        self.time_advanced = delta.is_finite() && delta > 0.;
+        if !self.time_advanced {
             return;
         }
         self.resolve_floors(floors);
@@ -1366,6 +1444,8 @@ impl Populator {
         // instead of re-preparing and re-uploading every posed vertex.
         let view_projection = Mat4::from_cols_array_2d(&frame.matrix);
         let frame_index = self.frame_index;
+        let eye = self.eye;
+        let time_advanced = self.time_advanced;
         // Evaluate every pose before touching GPU state, so one broken rig
         // cannot stop the rest of the population from appearing.
         let mut posed: Vec<Option<Vec<PosedMesh>>> = (0..self.live.len()).map(|_| None).collect();
@@ -1378,6 +1458,16 @@ impl Populator {
             // the camera costs nothing.
             live.visible = on_screen(view_projection, live.position, live.head);
             if !live.visible || live.pose_index == Some(frame_index) {
+                continue;
+            }
+            // Nothing advanced: the pose on the GPU is still this frame's pose.
+            if !time_advanced && live.pose_index.is_some() {
+                continue;
+            }
+            // Past `POSE_STRIDE_NEAR` an actor is re-skinned every other frame and
+            // past `POSE_STRIDE_FAR` every third.
+            let stride = pose_stride((live.position - eye).length());
+            if !pose_due(frame_index, live.spawn, stride) {
                 continue;
             }
             match live.pose() {
@@ -1409,7 +1499,10 @@ impl Populator {
                     }
                 }
                 (Some(draw), Some(meshes)) => {
-                    match draw.update(queue, asset.as_ref(), &meshes, frame) {
+                    // Topology is fixed for a retained rig, so this skips
+                    // `model_draw::prepare`'s per-frame re-validation and
+                    // converts the pose straight into the vertex buffer.
+                    match draw.update_posed(queue, asset.as_ref(), &meshes, frame) {
                         Ok(()) => {
                             live.uploaded_stamp = live.pose_stamp;
                             live.draw = Some(draw);
@@ -1556,11 +1649,14 @@ impl Populator {
         if !self.names_active() || self.settings.name_distance <= 0. {
             return;
         }
-        let font = {
+        if self.name_font.is_none() {
             let element = self.element.clone();
-            let font = self
-                .name_font
-                .get_or_insert_with(|| NameFont::load(&element));
+            self.name_font = Some(NameFont::load(&element));
+        }
+        let font = {
+            let Some(font) = self.name_font.as_ref() else {
+                return;
+            };
             // egui applies new font definitions at the start of the next frame,
             // so the frame that registers the client font draws no label rather
             // than forcing the family early.
@@ -1596,15 +1692,19 @@ impl Populator {
                 continue;
             };
             // The client's `字体描边` outline: one pixel of black on each side
-            // of white glyphs, at the same size as the glyphs themselves.
-            for (dx, dy) in [(-1., 0.), (1., 0.), (0., -1.), (0., 1.)] {
-                painter.text(
-                    position + egui::vec2(dx, dy),
-                    egui::Align2::CENTER_BOTTOM,
-                    &spawn.name,
-                    font.clone(),
-                    egui::Color32::BLACK,
-                );
+            // of white glyphs, at the same size as the glyphs themselves. It is
+            // four extra text shapes per label, so a distant label - where the
+            // outline is a pixel of haze anyway - is drawn with the fill alone.
+            if (live.position - eye).length() <= NAME_OUTLINE_DISTANCE {
+                for (dx, dy) in [(-1., 0.), (1., 0.), (0., -1.), (0., 1.)] {
+                    painter.text(
+                        position + egui::vec2(dx, dy),
+                        egui::Align2::CENTER_BOTTOM,
+                        &spawn.name,
+                        font.clone(),
+                        egui::Color32::BLACK,
+                    );
+                }
             }
             painter.text(
                 position,
@@ -2115,6 +2215,30 @@ mod tests {
         matrix.z_axis.w = -1.;
         matrix.w_axis.w = 0.;
         matrix
+    }
+
+    #[test]
+    fn a_distant_actor_is_re_skinned_less_often_but_never_starved() {
+        assert_eq!(pose_stride(0.), 1);
+        assert_eq!(pose_stride(POSE_STRIDE_NEAR), 1);
+        assert_eq!(pose_stride(POSE_STRIDE_NEAR + 1.), 2);
+        assert_eq!(pose_stride(POSE_STRIDE_FAR), 2);
+        assert_eq!(pose_stride(POSE_STRIDE_FAR + 1.), 3);
+        // Every actor is posed on its own phase, and each one is posed within
+        // `stride` frames: the crowd is spread, not stalled.
+        for stride in 1..=3u64 {
+            for spawn in 0..8usize {
+                let posed: Vec<u64> = (0..12).filter(|&f| pose_due(f, spawn, stride)).collect();
+                assert!(!posed.is_empty(), "stride {stride} spawn {spawn}");
+                let worst = posed.windows(2).map(|w| w[1] - w[0]).max().unwrap_or(0);
+                assert!(worst <= stride, "stride {stride} spawn {spawn}: {posed:?}");
+            }
+        }
+        // A still camera keeps two neighbours from sharing a re-skin frame.
+        assert_ne!(
+            (0..3).position(|f| pose_due(f, 0, 3)),
+            (0..3).position(|f| pose_due(f, 1, 3))
+        );
     }
 
     #[test]

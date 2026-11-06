@@ -241,6 +241,28 @@ every posed vertex. Both are now per frame, not per pass:
   be a linear scan per placement per frame.
 * Rigs are decompressed until a frame has spent `SPAWN_BUDGET` (4 ms), so a
   teleport into a town cannot stack six heavy rigs into one frame.
+* `Draw::update_posed` replaces the per-frame `Draw::update` call for a retained
+  rig: `model_draw::prepare` re-validates every index buffer, re-checks every
+  weighted vertex and re-derives material, texture assignment and face shader on
+  every call, none of which can change for a rig that is already on the GPU. The
+  fast path keeps the retained topology (a `pose_of` map records which pose each
+  retained mesh came from, because `prepare` is allowed to drop meshes), converts
+  the posed vertices straight into the receiver's layout and refreshes the
+  per-pass constants. A pose that no longer matches is an error, not a silent
+  redraw.
+* Past `POSE_STRIDE_NEAR` (80 units) an actor is re-skinned every other frame and
+  past `POSE_STRIDE_FAR` (200 units) every third, phased by spawn index so a
+  distant crowd spreads its re-skins instead of hitching one frame. The source
+  clips are 15 fps, so sampling a 2.3 s idle at 30 Hz at that distance is not a
+  visible change.
+* A frame that did not advance the clock shows the pose already on the GPU: a
+  paused viewer no longer re-skins the same frame every render.
+* The placement table (`Population::nearest`, a scan of all 515 placements plus a
+  sort) is cached until the camera moves 2 units or the spawn distance/limit
+  change.
+* Overhead names keep the client's four-pixel outline only within
+  `NAME_OUTLINE_DISTANCE` (48 units); farther labels are a single text shape
+  instead of five, and the font's `PathBuf` is no longer cloned every frame.
 
 ## Facing (investigated, not present)
 
