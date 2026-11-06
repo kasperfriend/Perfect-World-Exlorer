@@ -112,7 +112,11 @@ pub fn run(authored_mips: bool) {
     let (device, queue) = pollster::block_on(adapter.request_device(
         &wgpu::DeviceDescriptor {
             label: None,
-            required_features: wgpu::Features::empty(),
+            // Exercise the single-call path; the mip checks keep their
+            // devices feature-free and cover the per-batch fallback.
+            required_features: adapter.features()
+                & (wgpu::Features::MULTI_DRAW_INDIRECT
+                    | wgpu::Features::INDIRECT_FIRST_INSTANCE),
             required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
         },
         None,

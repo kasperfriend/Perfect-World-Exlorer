@@ -3513,7 +3513,13 @@ async fn adapter(
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
-                required_features: a.features() & wgpu::Features::TEXTURE_COMPRESSION_BC,
+                // The tree batches are one `multi_draw_indexed_indirect` call
+                // when the adapter has these; `FarTrees` falls back to one
+                // indirect draw per batch when it does not.
+                required_features: a.features()
+                    & (wgpu::Features::TEXTURE_COMPRESSION_BC
+                        | wgpu::Features::MULTI_DRAW_INDIRECT
+                        | wgpu::Features::INDIRECT_FIRST_INSTANCE),
                 required_limits: wgpu::Limits::downlevel_defaults().using_resolution(a.limits()),
             },
             None,

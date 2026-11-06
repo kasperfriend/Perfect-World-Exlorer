@@ -195,6 +195,9 @@ pub struct FarTrees {
     /// static part of each record with `instance_count` zeroed.
     lod_args: wgpu::Buffer,
     lod_args_reset: Vec<u8>,
+    /// `multi_draw_indexed_indirect` + `first_instance` are optional device
+    /// features; when they are present the whole batch list is one call.
+    multi_draw: bool,
 }
 const SHADER: &str = r#"
 struct Camera {matrix:mat4x4<f32>,direction:vec4<f32>,clip:vec4<f32>,bounds:vec4<f32>,tree_bounds:vec4<f32>,sun:vec4<f32>,light:vec4<f32>,region_ambient:vec4<f32>,region_diffuse:vec4<f32>,region_direction:vec4<f32>,grass_eye:vec4<f32>,grass_wind:vec4<f32>,grass_history:array<vec4<f32>,80>,fog_range:vec4<f32>,fog_color:vec4<f32>};
@@ -857,6 +860,14 @@ impl FarTrees {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        // One indirect call for the whole batch list needs `multi_draw`, and
+        // pointing each record at its own slice of the instance buffer needs
+        // `first_instance` inside an indirect call. Both are optional features;
+        // without them the batches are drawn one at a time, with the instance
+        // buffer sliced per draw instead.
+        let multi_draw = device
+            .features()
+            .contains(wgpu::Features::MULTI_DRAW_INDIRECT | wgpu::Features::INDIRECT_FIRST_INSTANCE);
         let mut args = Vec::with_capacity(batches.len().max(1));
         for batch in &batches {
             args.push(LodArgs {
@@ -864,7 +875,11 @@ impl FarTrees {
                 instance_count: 0,
                 first_index: batch.indices.start,
                 base_vertex: 0,
-                first_instance: 0,
+                first_instance: if multi_draw {
+                    batch.instances.start
+                } else {
+                    0
+                },
             });
         }
         if args.is_empty() {
@@ -983,12 +998,17 @@ impl FarTrees {
             ],
         });
         eprintln!(
-            "Uploaded {} tree placements in {} GPU LOD batches ({} textures, {}px atlas{} with foliage mips)",
+            "Uploaded {} tree placements in {} GPU LOD batches ({} textures, {}px atlas{} with foliage mips, {})",
             instance_count,
             batches.len(),
             packed_count,
             side,
-            if small { " low-memory" } else { " source-size" }
+            if small { " low-memory" } else { " source-size" },
+            if multi_draw {
+                "one multi-draw"
+            } else {
+                "per-batch indirect draws"
+            }
         );
         Self {
             pipeline,
@@ -1007,6 +1027,7 @@ impl FarTrees {
             placements: placement_count,
             lod_args,
             lod_args_reset,
+            multi_draw,
         }
     }
     /// Select every placement's LOD on the GPU.
@@ -1199,17 +1220,24 @@ impl FarTrees {
         );
         p.set_vertex_buffer(0, self.vertices.slice(..));
         p.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
-        // One indirect draw per batch: the count comes from the LOD pass, so an
-        // empty level costs a draw with zero instances instead of a host-side
-        // check and no CPU knowledge of what is visible at all.
-        let stride = std::mem::size_of::<Instance>() as u64;
-        for (index, batch) in self.batches.iter().enumerate() {
-            p.set_vertex_buffer(
-                1,
-                self.instances
-                    .slice(batch.instances.start as u64 * stride..),
-            );
-            p.draw_indexed_indirect(&self.lod_args, index as u64 * LOD_ARGS);
+        // The counts come from the LOD pass, so the CPU never learns what is
+        // visible: every batch is one record in a single indirect buffer, and an
+        // empty level is a record with a zero instance count.
+        if self.multi_draw && !self.batches.is_empty() {
+            // The instance buffer is bound once; each record's `first_instance`
+            // picks that batch's slice, so the whole forest is one call.
+            p.set_vertex_buffer(1, self.instances.slice(..));
+            p.multi_draw_indexed_indirect(&self.lod_args, 0, self.batches.len() as u32);
+        } else {
+            let stride = std::mem::size_of::<Instance>() as u64;
+            for (index, batch) in self.batches.iter().enumerate() {
+                p.set_vertex_buffer(
+                    1,
+                    self.instances
+                        .slice(batch.instances.start as u64 * stride..),
+                );
+                p.draw_indexed_indirect(&self.lod_args, index as u64 * LOD_ARGS);
+            }
         }
     }
 }
