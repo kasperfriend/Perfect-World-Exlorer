@@ -47,6 +47,14 @@ const MAX_VISIBLE_LIMIT: usize = 96;
 /// teleport into a crowded town fills the population over a few frames instead
 /// of stalling one.
 const MAX_SPAWNS_PER_UPDATE: usize = 6;
+/// Wall-clock budget for those spawns. A frame that already spent this long
+/// decompressing rigs finishes the rest of the frame without loading another, so
+/// heavy rigs cannot turn a teleport into a stutter.
+const SPAWN_BUDGET: std::time::Duration = std::time::Duration::from_millis(4);
+/// Seconds between overhead-name occlusion tests. Every test is a hull raycast
+/// per actor, and a name does not change visibility faster than this; bodies are
+/// never affected by the throttle.
+const NAME_VISIBILITY_INTERVAL: f32 = 0.2;
 /// Overhead names are legible at the client's own scene window, so they default
 /// to the same radius; the slider lets a user shorten them.
 pub const NATIVE_NAME_DISTANCE: f32 = NATIVE_SPAWN_DISTANCE;
@@ -70,6 +78,25 @@ const MAX_FLOOR_LIFT: f32 = 16.;
 /// the vertical half-extent changes the support result, and a humanoid box is
 /// what the client uses for its own actors.
 const ACTOR_EXTENTS: Vec3 = Vec3::new(0.4, 0.9, 0.4);
+
+/// Box a placement is tested with when asking whether the NPC stands inside a
+/// wall. Slightly narrower than [`ACTOR_EXTENTS`] so an actor authored right
+/// against a wall is not pushed away from it, but tall enough to cover a torso.
+const WALL_PROBE: Vec3 = Vec3::new(0.3, 0.85, 0.3);
+
+/// Rings a placement is searched outward when its authored column is inside
+/// geometry, nearest first. A town NPC authored into a wall is normally a metre
+/// or two from the free space in front of it, and the list stops at 2.5 units so
+/// a nudge never turns into a teleport across a courtyard.
+const WALL_RINGS: [f32; 5] = [0.5, 1.0, 1.5, 2.0, 2.5];
+
+/// Directions tested per ring. Eight is enough to find the free side of a wall
+/// and keeps the search deterministic (same placement, same result).
+const WALL_DIRECTIONS: usize = 8;
+
+/// How far the height of a nudged spot may differ from the placement's own, so
+/// getting out of a wall never also moves the NPC up a storey or off a bridge.
+const WALL_RING_LIFT: f32 = 2.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Settings {
@@ -134,6 +161,13 @@ pub trait FloorSource {
     /// True when a building hull or a tree stands between `from` and `to`, used
     /// to keep overhead names from showing through geometry.
     fn sight_blocked(&self, from: Vec3, to: Vec3) -> bool;
+    /// True when the box a placement occupies already overlaps building
+    /// geometry, i.e. that NPC was authored inside a wall. Sources that cannot
+    /// answer keep every placement where the files put it.
+    fn solid_at(&self, feet: Vec3, extents: Vec3) -> bool {
+        let _ = (feet, extents);
+        false
+    }
 }
 
 /// One action clip wrapped on its own clock.
@@ -324,6 +358,22 @@ struct Live {
     name_visible: bool,
     /// Building-hull stamp the placement was resolved against.
     floor_stamp: u64,
+    /// Moved off its authored column to get out of building geometry.
+    nudged: bool,
+    /// Inside geometry with no free spot found; the settings window names it.
+    wedged: bool,
+    /// Whether the last pass could see this actor. Off-screen actors are neither
+    /// posed nor uploaded, which is what keeps a crowd behind the camera free.
+    visible: bool,
+    /// Frame index whose pose this actor already carries, so the host's main,
+    /// reflection and refraction passes cost one pose, not three.
+    pose_index: Option<u64>,
+    /// Signature of the pose this frame produced.
+    pose_stamp: Option<u64>,
+    /// Signature of the pose currently on the GPU, so an unchanged pose only
+    /// refreshes the per-pass uniforms instead of re-preparing and re-uploading
+    /// every posed vertex.
+    uploaded_stamp: Option<u64>,
     /// Real navigation path, when the population supplies one.
     follow: Option<Follow>,
     draw: Option<model_draw_gpu::Draw>,
@@ -405,13 +455,14 @@ fn terrain_between(map: &MapSpace, from: Vec3, to: Vec3) -> bool {
     false
 }
 
-fn stand_height(
-    spawn: &Spawn,
+fn spot_height(
+    authored: Option<f32>,
+    anchor: [f32; 2],
     terrain: f32,
     floors: Option<&dyn FloorSource>,
     enabled: bool,
 ) -> f32 {
-    if let Some(height) = spawn.height {
+    if let Some(height) = authored {
         return height;
     }
     if !enabled {
@@ -422,11 +473,123 @@ fn stand_height(
     };
     floors
         .lowest_floor(
-            Vec3::new(spawn.anchor[0], terrain, spawn.anchor[1]),
+            Vec3::new(anchor[0], terrain, anchor[1]),
             ACTOR_EXTENTS,
             MAX_FLOOR_LIFT,
         )
         .unwrap_or(terrain)
+}
+
+fn stand_height(
+    spawn: &Spawn,
+    terrain: f32,
+    floors: Option<&dyn FloorSource>,
+    enabled: bool,
+) -> f32 {
+    spot_height(spawn.height, spawn.anchor, terrain, floors, enabled)
+}
+
+/// Where one placement ends up, and what had to be done to get it there.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Placement {
+    position: Vec3,
+    /// Standing on a building floor rather than the terrain sample.
+    on_floor: bool,
+    /// Moved off its authored column because that column is inside geometry.
+    nudged: bool,
+    /// Inside geometry with no free spot inside [`WALL_RINGS`].
+    wedged: bool,
+}
+
+/// Resolves one placement against the world: its height first, then a sweep out
+/// of building geometry.
+///
+/// The height policy is the authored one (authored height, else the lowest floor
+/// above the terrain, else the terrain). The sweep exists because a placement
+/// can be *inside* a wall at the right height, which no height query can fix: the
+/// column simply lands in solid geometry. Every candidate is re-resolved with the
+/// same height policy and rejected when it would move the actor more than
+/// [`WALL_RING_LIFT`], so getting out of a wall never also climbs a storey or
+/// drops the NPC off a bridge. A source that cannot answer `solid_at` (tests, a
+/// host without hulls) leaves every placement exactly where the file has it.
+fn resolve_placement(
+    spawn: &Spawn,
+    map: &MapSpace,
+    floors: Option<&dyn FloorSource>,
+    stand_on_objects: bool,
+) -> Placement {
+    let anchor = spawn.anchor;
+    let terrain = map.ground(anchor[0], anchor[1]);
+    let height = spot_height(spawn.height, anchor, terrain, floors, stand_on_objects);
+    let mut placement = Placement {
+        position: Vec3::new(anchor[0], height, anchor[1]),
+        on_floor: spawn.height.is_none() && height > terrain + 0.5,
+        nudged: false,
+        wedged: false,
+    };
+    let Some(floors) = floors else {
+        return placement;
+    };
+    if !floors.solid_at(placement.position, WALL_PROBE) {
+        return placement;
+    }
+    for ring in WALL_RINGS {
+        for step in 0..WALL_DIRECTIONS {
+            let angle = step as f32 / WALL_DIRECTIONS as f32 * std::f32::consts::TAU;
+            let x = anchor[0] + angle.cos() * ring;
+            let z = anchor[1] + angle.sin() * ring;
+            let terrain = map.ground(x, z);
+            let height = spot_height(
+                spawn.height,
+                [x, z],
+                terrain,
+                Some(floors),
+                stand_on_objects,
+            );
+            if (height - placement.position.y).abs() > WALL_RING_LIFT {
+                continue;
+            }
+            let candidate = Vec3::new(x, height, z);
+            if floors.solid_at(candidate, WALL_PROBE) {
+                continue;
+            }
+            return Placement {
+                position: candidate,
+                on_floor: spawn.height.is_none() && height > terrain + 0.5,
+                nudged: true,
+                wedged: false,
+            };
+        }
+    }
+    // Inside geometry and nowhere to go: keep the authored column, and say so
+    // instead of leaving a silent statue in a wall.
+    placement.wedged = true;
+    placement
+}
+
+/// Whether this pass can actually show an actor standing at `position`.
+///
+/// The host renders the add-ons once per pass - main, reflection and refraction -
+/// so without this test every actor is posed, re-prepared and re-uploaded three
+/// times a frame even when the camera faces away from all of them. The test is a
+/// pair of projections (feet and head) against a padded viewport, which costs a
+/// few multiplies and never hides an actor that could reach the screen.
+fn on_screen(view_projection: Mat4, position: Vec3, head: f32) -> bool {
+    // Padding covers a body whose feet or head fall just outside the viewport.
+    const MARGIN: f32 = 0.25;
+    let limit = 1. + MARGIN;
+    for offset in [0., head.max(0.)] {
+        let clip = view_projection * (position + Vec3::Y * offset).extend(1.);
+        if clip.w <= 0.001 {
+            // That point is behind the eye; the other one may still be ahead.
+            continue;
+        }
+        let ndc = clip.truncate() / clip.w;
+        if (-limit..=limit).contains(&ndc.x) && (-limit..=limit).contains(&ndc.y) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Screen position of a world point under the frame's view-projection, or `None`
@@ -627,6 +790,16 @@ pub struct Populator {
     reported_motion: bool,
     /// How many bind-pose fallbacks have already been logged.
     reported_pose_errors: usize,
+    /// Whether the wall sweep was already logged, so it reports once.
+    reported_walls: bool,
+    /// Frames the host has asked the module to update for. The host calls
+    /// `render` once per pass (main, reflection, refraction), so a pass only
+    /// re-poses an actor whose `pose_index` is not this frame.
+    frame_index: u64,
+    /// Seconds since the labels were last tested for occlusion. Testing them is
+    /// a hull raycast per actor, and a label does not change visibility faster
+    /// than a few times a second.
+    name_clock: f32,
     /// The client's own overhead-name font, read from `configs/fonts.txt` and
     /// handed to the host's egui context on first use.
     name_font: Option<NameFont>,
@@ -655,6 +828,9 @@ impl Default for Populator {
             motion_seconds: 0.,
             reported_motion: false,
             reported_pose_errors: 0,
+            reported_walls: false,
+            frame_index: 0,
+            name_clock: NAME_VISIBILITY_INTERVAL,
             name_font: None,
         }
     }
@@ -682,6 +858,9 @@ impl Populator {
         // Disabling drops every rig, draw and actor; the archives and the
         // placement tables stay for an instant re-enable.
         self.live.clear();
+        // Test the labels on the first frame back instead of up to
+        // `NAME_VISIBILITY_INTERVAL` later.
+        self.name_clock = NAME_VISIBILITY_INTERVAL;
     }
 
     pub fn settings(&self) -> Settings {
@@ -755,6 +934,7 @@ impl Populator {
             return;
         }
         self.eye = eye;
+        self.frame_index = self.frame_index.wrapping_add(1);
         if self.reload_pending {
             self.reload_pending = false;
             self.population = None;
@@ -834,6 +1014,18 @@ impl Populator {
                 self.reported_failures = failed;
             }
         }
+        if !self.reported_walls && !self.live.is_empty() {
+            let (nudged, wedged) = (self.nudged_count(), self.wedged_count());
+            if nudged > 0 || wedged > 0 {
+                eprintln!(
+                    "Populator: {} placements moved out of building geometry, {} still inside it (no free spot within {} units)",
+                    nudged,
+                    wedged,
+                    WALL_RINGS.last().copied().unwrap_or(0.)
+                );
+            }
+            self.reported_walls = true;
+        }
         if !self.reported_idle && !self.live.is_empty() {
             self.reported_idle = true;
             eprintln!(
@@ -887,25 +1079,33 @@ impl Populator {
             ),
             None => return,
         };
-        let mut previous: Vec<Option<Live>> = std::mem::take(&mut self.live)
+        // Reconcile by spawn index rather than by scanning the old actor list
+        // for every placement: a full 96-actor set used to be a quadratic scan
+        // on every frame, before any rig work was done.
+        let mut previous: HashMap<usize, Live> = std::mem::take(&mut self.live)
             .into_iter()
-            .map(Some)
+            .map(|live| (live.spawn, live))
             .collect();
         // Keep every actor that is still in range, in distance order, before
         // spending the frame's rig budget on new ones.
         let mut next = Vec::with_capacity(nearest.len());
         let mut missing = Vec::new();
         for (index, _) in nearest {
-            let existing = previous
-                .iter_mut()
-                .find(|slot| matches!(slot, Some(live) if live.spawn == index))
-                .and_then(|slot| slot.take());
-            match existing {
+            match previous.remove(&index) {
                 Some(live) => next.push(live),
                 None => missing.push(index),
             }
         }
-        for index in missing.into_iter().take(MAX_SPAWNS_PER_UPDATE) {
+        // Spawning decompresses a rig out of the archive on the render thread,
+        // so the budget is wall-clock rather than a count: six tiny rigs are
+        // fine in one frame, six heavy ones are a hitch.
+        let started = std::time::Instant::now();
+        let mut spawned = 0;
+        for index in missing {
+            if spawned >= MAX_SPAWNS_PER_UPDATE || started.elapsed() >= SPAWN_BUDGET {
+                break;
+            }
+            spawned += 1;
             if let Some(live) = self.spawn_instance(index, floors) {
                 next.push(live);
             }
@@ -915,7 +1115,8 @@ impl Populator {
 
     fn spawn_instance(&mut self, index: usize, floors: Option<&dyn FloorSource>) -> Option<Live> {
         let spawn = self.population.as_ref()?.spawns.get(index)?.clone();
-        let (position, on_floor) = self.position_for(&spawn, floors);
+        let placement = self.position_for(&spawn, floors);
+        let position = placement.position;
         // No client file records an NPC facing: `task_npc.data` stores id, X,
         // Z, height and task count, and the `NPC_ESSENCE` record has no
         // rotation column either. Every placement therefore keeps the rig's own
@@ -941,30 +1142,35 @@ impl Populator {
             clip,
             clock: 0.,
             head,
-            on_floor,
+            on_floor: placement.on_floor,
             name_visible: true,
             pose_error: None,
             motion: MotionProbe::default(),
             floor_stamp: floors.map_or(0, |floors| floors.floor_stamp()),
+            nudged: placement.nudged,
+            wedged: placement.wedged,
+            visible: true,
+            pose_index: None,
+            pose_stamp: None,
+            uploaded_stamp: None,
             follow,
             draw: None,
             failure: None,
         })
     }
 
-    /// World position of one placement, and whether it stands on a building
-    /// floor rather than the terrain sample.
-    fn position_for(&self, spawn: &Spawn, floors: Option<&dyn FloorSource>) -> (Vec3, bool) {
-        let terrain = match self.map.as_ref() {
-            Some(map) => map.ground(spawn.anchor[0], spawn.anchor[1]),
-            None => 0.,
+    /// Where one placement ends up: its height, whether it stands on a building
+    /// floor, and whether it had to be moved out of geometry.
+    fn position_for(&self, spawn: &Spawn, floors: Option<&dyn FloorSource>) -> Placement {
+        let Some(map) = self.map.as_ref() else {
+            return Placement {
+                position: Vec3::new(spawn.anchor[0], 0., spawn.anchor[1]),
+                on_floor: false,
+                nudged: false,
+                wedged: false,
+            };
         };
-        let height = stand_height(spawn, terrain, floors, self.settings.stand_on_objects);
-        let on_floor = spawn.height.is_none() && height > terrain + 0.5;
-        (
-            Vec3::new(spawn.anchor[0], height, spawn.anchor[1]),
-            on_floor,
-        )
+        resolve_placement(spawn, map, floors, self.settings.stand_on_objects)
     }
 
     fn route_for(&self, spawn: &Spawn) -> Option<Follow> {
@@ -977,7 +1183,13 @@ impl Populator {
             return;
         }
         self.resolve_floors(floors);
-        self.update_name_visibility(floors);
+        // A label's occlusion changes when the camera or the actor moves, not
+        // every frame, and testing it is a hull raycast per actor.
+        self.name_clock += delta;
+        if self.name_clock >= NAME_VISIBILITY_INTERVAL {
+            self.name_clock = 0.;
+            self.update_name_visibility(floors);
+        }
         self.motion_seconds += delta;
         let delta_ms = (delta * 1000.).round().clamp(0., u32::MAX as f32) as u32;
         for live in &mut self.live {
@@ -1063,9 +1275,9 @@ impl Populator {
     }
 
     fn resolve_floors(&mut self, floors: Option<&dyn FloorSource>) {
-        if !self.settings.stand_on_objects {
-            return;
-        }
+        // The sweep runs wherever hulls exist, not only with floor standing on:
+        // an NPC authored inside a wall is wrong at any height policy, and the
+        // host already loads the hulls for the overhead names.
         let Some(floors) = floors else {
             return;
         };
@@ -1076,22 +1288,34 @@ impl Populator {
         let Some(population) = self.population.as_ref() else {
             return;
         };
-        for live in &mut self.live {
-            if live.floor_stamp == stamp {
-                continue;
-            }
+        // Resolve first, apply second: the sweep reads the map and the hulls,
+        // so it cannot run while `self.live` is borrowed mutably.
+        let placements: Vec<Option<(usize, Placement)>> = self
+            .live
+            .iter()
+            .map(|live| {
+                if live.floor_stamp == stamp {
+                    return None;
+                }
+                let spawn = population.spawns.get(live.spawn)?;
+                // An authored height is the game's own answer and never moves,
+                // but the column can still be inside a wall, so the sweep runs.
+                Some((
+                    live.spawn,
+                    resolve_placement(spawn, map, Some(floors), self.settings.stand_on_objects),
+                ))
+            })
+            .collect();
+        for (live, resolved) in self.live.iter_mut().zip(placements) {
             live.floor_stamp = stamp;
-            let Some(spawn) = population.spawns.get(live.spawn) else {
+            let Some((spawn_index, placement)) = resolved else {
                 continue;
             };
-            // An authored height is the game's own answer and never moves.
-            if spawn.height.is_some() {
-                continue;
-            }
-            let terrain = map.ground(spawn.anchor[0], spawn.anchor[1]);
-            let height = stand_height(spawn, terrain, Some(floors), true);
-            live.position.y = height;
-            live.on_floor = height > terrain + 0.5;
+            debug_assert_eq!(live.spawn, spawn_index);
+            live.position = placement.position;
+            live.on_floor = placement.on_floor;
+            live.nudged = placement.nudged;
+            live.wedged = placement.wedged;
         }
     }
 
@@ -1120,52 +1344,96 @@ impl Populator {
         let Some(renderer) = self.renderer.as_mut() else {
             return;
         };
+        // The host calls this for its main, reflection and refraction passes, so
+        // everything here is per *pass*: an actor is posed once per frame, and a
+        // pass that adds nothing but a different view matrix refreshes uniforms
+        // instead of re-preparing and re-uploading every posed vertex.
+        let view_projection = Mat4::from_cols_array_2d(&frame.matrix);
+        let frame_index = self.frame_index;
         // Evaluate every pose before touching GPU state, so one broken rig
         // cannot stop the rest of the population from appearing.
-        let mut posed: Vec<(usize, Vec<PosedMesh>)> = Vec::with_capacity(self.live.len());
+        let mut posed: Vec<Option<Vec<PosedMesh>>> = (0..self.live.len()).map(|_| None).collect();
         for index in 0..self.live.len() {
             let live = &mut self.live[index];
             if live.failure.is_some() {
                 continue;
             }
+            // Nothing off screen is posed, uploaded or submitted: a crowd behind
+            // the camera costs nothing.
+            live.visible = on_screen(view_projection, live.position, live.head);
+            if !live.visible || live.pose_index == Some(frame_index) {
+                continue;
+            }
             match live.pose() {
                 Ok(meshes) => {
-                    live.motion.observe(pose_signature(&meshes));
-                    posed.push((index, meshes));
+                    let signature = pose_signature(&meshes);
+                    live.motion.observe(signature);
+                    live.pose_stamp = Some(signature);
+                    live.pose_index = Some(frame_index);
+                    posed[index] = Some(meshes);
                 }
                 Err(error) => live.failure = Some(error),
             }
         }
-        for (index, meshes) in posed {
+        for index in 0..self.live.len() {
             let live = &mut self.live[index];
+            if live.failure.is_some() || !live.visible {
+                continue;
+            }
             let asset = live.asset.clone();
-            let built = match live.draw.take() {
-                Some(draw) => match draw.update(queue, asset.as_ref(), &meshes, frame) {
-                    Ok(()) => Some(draw),
-                    Err(error) => {
-                        live.failure = Some(error);
-                        None
+            // A pose identical to the one already on the GPU (scenery rigs, a
+            // held pose, another pass of this frame) needs only the constants.
+            let unchanged = live.uploaded_stamp.is_some() && live.uploaded_stamp == live.pose_stamp;
+            match (live.draw.take(), posed[index].take()) {
+                (Some(draw), Some(meshes)) if unchanged => {
+                    drop(meshes);
+                    match draw.update_constants(queue, asset.as_ref(), frame) {
+                        Ok(()) => live.draw = Some(draw),
+                        Err(error) => live.failure = Some(error),
                     }
-                },
-                None => match renderer.build(
-                    device,
-                    queue,
-                    format,
-                    asset.as_ref(),
-                    &meshes,
-                    frame,
-                    |path| library.read(path),
-                ) {
-                    Ok(draw) => Some(draw),
-                    Err(error) => {
-                        live.failure = Some(error);
-                        None
+                }
+                (Some(draw), Some(meshes)) => {
+                    match draw.update(queue, asset.as_ref(), &meshes, frame) {
+                        Ok(()) => {
+                            live.uploaded_stamp = live.pose_stamp;
+                            live.draw = Some(draw);
+                        }
+                        Err(error) => live.failure = Some(error),
                     }
-                },
-            };
-            live.draw = built;
+                }
+                (Some(draw), None) => {
+                    // Posed by an earlier pass of this frame: only this pass's
+                    // view matrix and light are new.
+                    match draw.update_constants(queue, asset.as_ref(), frame) {
+                        Ok(()) => live.draw = Some(draw),
+                        Err(error) => live.failure = Some(error),
+                    }
+                }
+                (None, Some(meshes)) => {
+                    match renderer.build(
+                        device,
+                        queue,
+                        format,
+                        asset.as_ref(),
+                        &meshes,
+                        frame,
+                        |path| library.read(path),
+                    ) {
+                        Ok(draw) => {
+                            live.uploaded_stamp = live.pose_stamp;
+                            live.draw = Some(draw);
+                        }
+                        Err(error) => live.failure = Some(error),
+                    }
+                }
+                (None, None) => {}
+            }
         }
-        if !self.live.iter().any(|live| live.draw.is_some()) {
+        if !self
+            .live
+            .iter()
+            .any(|live| live.visible && live.draw.is_some())
+        {
             return;
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1190,6 +1458,11 @@ impl Populator {
             occlusion_query_set: None,
         });
         for live in &self.live {
+            // An actor this pass culled keeps its GPU buffers but is not
+            // submitted: that is the whole point of the test.
+            if !live.visible {
+                continue;
+            }
             if let Some(draw) = &live.draw {
                 draw.draw(&mut pass);
             }
@@ -1197,7 +1470,10 @@ impl Populator {
     }
 
     fn drawn_count(&self) -> usize {
-        self.live.iter().filter(|live| live.draw.is_some()).count()
+        self.live
+            .iter()
+            .filter(|live| live.visible && live.draw.is_some())
+            .count()
     }
 
     /// Actors standing on a real building floor instead of the terrain, so the
@@ -1223,6 +1499,16 @@ impl Populator {
                 live.failure.is_none() && live.motion.observed() && !live.motion.animating()
             })
             .count()
+    }
+
+    /// Actors moved off their authored column to get out of building geometry.
+    fn nudged_count(&self) -> usize {
+        self.live.iter().filter(|live| live.nudged).count()
+    }
+
+    /// Actors still inside geometry: no free spot inside the search rings.
+    fn wedged_count(&self) -> usize {
+        self.live.iter().filter(|live| live.wedged).count()
     }
 
     fn failed_count(&self) -> usize {
@@ -1469,7 +1755,7 @@ impl Populator {
             );
         ui.checkbox(&mut self.settings.stand_on_objects, "Stand on building floors")
             .on_hover_text(
-                "Resolve each placement against the client's own BMD collision hulls, so an NPC authored onto a bridge deck, platform or interior floor stands there instead of on the terrain under the geometry. Uses the same hulls as the Walker module's collision check and loads them when this module is enabled.",
+                "Resolve each placement against the client's own BMD collision hulls, so an NPC authored onto a bridge deck, platform or interior floor stands there instead of on the terrain under the geometry. Uses the same hulls as the Walker module's collision check and loads them when this module is enabled. The same hulls are used to test whether the actor's own box is inside a wall: a placement authored into geometry is moved to the nearest free spot within 2.5 units that keeps its height, and one with nowhere to go is counted under `in walls` instead of being moved silently.",
             );
         ui.checkbox(&mut self.settings.show_names, "Names above heads")
             .on_hover_text("Draw each template's own name over the actor, as the client does.");
@@ -1495,10 +1781,12 @@ impl Populator {
         self.settings = self.settings.sanitized();
         ui.label(
             egui::RichText::new(format!(
-                "{} drawn, {} animating, {} on building floors, {} failed, {} rigs cached, {} textures cached",
+                "{} drawn, {} animating, {} on building floors, {} moved out of walls, {} in walls, {} failed, {} rigs cached, {} textures cached",
                 self.drawn_count(),
                 self.animating_count(),
                 self.on_floor_count(),
+                self.nudged_count(),
+                self.wedged_count(),
                 self.failed_count(),
                 self.library
                     .as_ref()
@@ -1611,6 +1899,157 @@ mod tests {
         fn sight_blocked(&self, _from: Vec3, _to: Vec3) -> bool {
             self.2
         }
+    }
+
+    fn flat_map() -> MapSpace {
+        MapSpace {
+            width: 32,
+            height: 32,
+            spacing: 2.,
+            heights: vec![0.; 32 * 32].into(),
+        }
+    }
+
+    /// A building whose wall stands at `free_from`: everything west of that line
+    /// is solid. `rise` lifts the floor on the free side, so a sweep that would
+    /// also climb a storey can be told apart from one that just steps sideways.
+    struct Wall {
+        free_from: f32,
+        rise: f32,
+        stamp: u64,
+    }
+
+    impl Wall {
+        fn at(free_from: f32, rise: f32) -> Self {
+            Self {
+                free_from,
+                rise,
+                stamp: 1,
+            }
+        }
+    }
+
+    impl FloorSource for Wall {
+        fn lowest_floor(&self, feet: Vec3, _extents: Vec3, max_up: f32) -> Option<f32> {
+            let height = feet.y
+                + if feet.x >= self.free_from {
+                    self.rise
+                } else {
+                    0.
+                };
+            (height - feet.y <= max_up).then_some(height)
+        }
+
+        fn floor_stamp(&self) -> u64 {
+            self.stamp
+        }
+
+        fn sight_blocked(&self, _from: Vec3, _to: Vec3) -> bool {
+            false
+        }
+
+        fn solid_at(&self, feet: Vec3, extents: Vec3) -> bool {
+            feet.x - extents.x < self.free_from
+        }
+    }
+
+    #[test]
+    fn a_placement_inside_a_wall_is_moved_to_the_free_side() {
+        let map = flat_map();
+        let mut spawn = spawn(None);
+        spawn.anchor = [0.9, 0.];
+        let wall = Wall::at(1.0, 0.);
+        let placement = resolve_placement(&spawn, &map, Some(&wall), true);
+        assert!(placement.nudged, "{placement:?}");
+        assert!(!placement.wedged);
+        // Out of the wall, not away from it: the nearest free ring is 0.5 units.
+        assert!(placement.position.x >= 1.0 + 0.3 - 1e-3, "{placement:?}");
+        assert!(placement.position.x <= 1.5, "{placement:?}");
+        assert_eq!(placement.position.y, 0.);
+        // The authored column is untouched, so the sweep is repeatable.
+        assert_eq!(spawn.anchor, [0.9, 0.]);
+    }
+
+    #[test]
+    fn a_placement_with_nowhere_to_go_is_reported_instead_of_moved() {
+        let map = flat_map();
+        let mut spawn = spawn(None);
+        spawn.anchor = [0.9, 0.];
+        let solid = Wall::at(f32::INFINITY, 0.);
+        let placement = resolve_placement(&spawn, &map, Some(&solid), true);
+        assert!(placement.wedged);
+        assert!(!placement.nudged);
+        assert_eq!(placement.position, Vec3::new(0.9, 0., 0.));
+    }
+
+    #[test]
+    fn a_nudge_that_would_climb_a_storey_is_refused() {
+        let map = flat_map();
+        let mut spawn = spawn(None);
+        spawn.anchor = [0.9, 0.];
+        // Free ground exists, five units up: the actor stays where it was
+        // reported instead of being lifted onto the wall's top.
+        let steep = Wall::at(1.0, WALL_RING_LIFT + 3.);
+        let placement = resolve_placement(&spawn, &map, Some(&steep), true);
+        assert!(placement.wedged, "{placement:?}");
+        assert_eq!(placement.position.y, 0.);
+    }
+
+    #[test]
+    fn a_nudge_keeps_the_floor_the_free_spot_stands_on() {
+        let map = flat_map();
+        let mut spawn = spawn(None);
+        spawn.anchor = [0.9, 0.];
+        let step = Wall::at(1.0, 1.);
+        let placement = resolve_placement(&spawn, &map, Some(&step), true);
+        assert!(placement.nudged, "{placement:?}");
+        assert_eq!(placement.position.y, 1.);
+        assert!(placement.on_floor);
+    }
+
+    #[test]
+    fn a_nudge_never_changes_an_authored_height() {
+        let map = flat_map();
+        let mut spawn = spawn(Some(120.));
+        spawn.anchor = [0.9, 0.];
+        let wall = Wall::at(1.0, 5.);
+        let placement = resolve_placement(&spawn, &map, Some(&wall), true);
+        assert!(placement.nudged, "{placement:?}");
+        assert_eq!(placement.position.y, 120.);
+    }
+
+    #[test]
+    fn a_source_that_cannot_answer_keeps_every_placement_where_it_was_authored() {
+        let map = flat_map();
+        let mut spawn = spawn(None);
+        spawn.anchor = [0.9, 0.];
+        // `OneFloor` uses the trait's default `solid_at`: nothing to sweep with.
+        let silent = OneFloor(None, 1, false);
+        let placement = resolve_placement(&spawn, &map, Some(&silent), true);
+        assert!(!placement.nudged && !placement.wedged);
+        assert_eq!(placement.position, Vec3::new(0.9, 0., 0.));
+    }
+
+    /// `w = -z`, so a point with a positive `z` is behind a camera that looks
+    /// down its own negative `z`.
+    fn camera() -> Mat4 {
+        let mut matrix = Mat4::IDENTITY;
+        matrix.z_axis.w = -1.;
+        matrix.w_axis.w = 0.;
+        matrix
+    }
+
+    #[test]
+    fn an_actor_ahead_of_the_camera_is_posed_and_one_behind_it_is_not() {
+        let camera = camera();
+        assert!(on_screen(camera, Vec3::new(0., 0., -20.), 1.9));
+        // Either the feet or the head on screen is enough.
+        assert!(on_screen(camera, Vec3::new(4., 0., -20.), 1.9));
+        // Behind the eye: the host would not submit it in this pass.
+        assert!(!on_screen(camera, Vec3::new(0., 0., 20.), 1.9));
+        // In front but well outside the viewport, including the margin.
+        assert!(!on_screen(camera, Vec3::new(40., 0., -20.), 1.9));
+        assert!(!on_screen(camera, Vec3::new(0., 40., -20.), 1.9));
     }
 
     #[test]

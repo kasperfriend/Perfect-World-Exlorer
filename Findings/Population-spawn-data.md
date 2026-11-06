@@ -192,6 +192,50 @@ why a v5 rig with no `.stck` still animates: the SMD action range plus the
 skeleton's own keys are all the pose sampler needs. Where a rig ships a `.stck`
 (v6+), the SMD names it and the same code path reads it.
 
+## Placements inside geometry
+
+A height is only half of a placement. `task_npc.data` gives X, Z and (mostly) no
+height, and the column can land inside a wall at exactly the right height, which
+no floor query can detect — the actor ends up half-buried in masonry.
+
+The module now asks the hull set the question the height query cannot answer:
+`FloorSource::solid_at` is a zero-length AABB sweep (`Collision::solid_at`, built
+on the same `trace_buildings` the walker walks with), so "is this actor's box
+inside a brush right now" costs one query and needs no motion. Tree hulls are
+excluded: standing under a canopy is not standing in a wall.
+
+A placement that answers yes is swept outward over 5 rings (0.5 … 2.5 units) × 8
+directions. Every candidate is re-resolved with the same height policy and is
+rejected when it would move the actor more than `WALL_RING_LIFT` (2 units), so
+getting out of a wall never also climbs a storey or drops an NPC off a bridge. A
+nudged placement keeps its own floor — a step up to a free spot 1 unit higher is
+used, a 5-unit climb is refused. An authored height is never changed by the
+sweep. A placement with nowhere free keeps its authored column and is counted as
+`in walls`; the settings window shows both counts and the first session report
+logs them once.
+
+The sweep runs once per placement per hull stamp (the hulls stream in, so it
+re-runs when a batch lands), not per frame.
+
+## Per-frame cost
+
+The host draws the add-ons in three passes a frame — main, reflection and
+refraction — and every pass used to pose every actor and re-prepare and re-upload
+every posed vertex. Both are now per frame, not per pass:
+
+* `on_screen` projects the actor's feet and head against the pass matrix; an
+  actor no pass can see is not posed, not uploaded and not submitted.
+* A pose is evaluated once per frame (`pose_index`), and a pass that only changes
+  the view matrix calls `Draw::update_constants` instead of `Draw::update`.
+* A pose whose fingerprint matches the one already on the GPU (scenery rigs, held
+  poses) also goes through `update_constants`.
+* Overhead-name occlusion — a hull raycast per actor — runs every
+  `NAME_VISIBILITY_INTERVAL` (0.2 s) instead of every frame.
+* The streamed set is reconciled through a `HashMap` by spawn index; it used to
+  be a linear scan per placement per frame.
+* Rigs are decompressed until a frame has spent `SPAWN_BUDGET` (4 ms), so a
+  teleport into a town cannot stack six heavy rigs into one frame.
+
 ## Facing (investigated, not present)
 
 The user-visible facing of every client-placed NPC is **not in the client's

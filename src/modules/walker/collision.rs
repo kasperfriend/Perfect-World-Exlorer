@@ -540,6 +540,10 @@ impl crate::modules::populator::FloorSource for Collision {
     fn sight_blocked(&self, from: Vec3, to: Vec3) -> bool {
         Collision::sight_blocked(self, from, to)
     }
+
+    fn solid_at(&self, feet: Vec3, extents: Vec3) -> bool {
+        Collision::solid_at(self, feet, extents)
+    }
 }
 
 #[derive(Default, Debug)]
@@ -983,6 +987,17 @@ impl Collision {
     /// True when something solid stands between `from` (a camera) and `to` (an
     /// overhead name): the client hides a name it cannot see, so the label must
     /// never show through a building, a tree trunk or the terrain.
+    /// True when an `extents`-sized box standing on `feet` already overlaps a
+    /// building hull: the placement is inside a wall, a counter or a bridge
+    /// arch. This is a zero-length sweep, so it answers "is this box inside the
+    /// brush right now" and needs no motion. Tree hulls are excluded on purpose:
+    /// standing under a canopy is not standing in a wall.
+    pub fn solid_at(&self, feet: Vec3, extents: Vec3) -> bool {
+        self.world
+            .trace_buildings(feet + Vec3::Y * extents.y, Vec3::ZERO, extents)
+            .is_some_and(|hit| hit.start_solid)
+    }
+
     pub fn sight_blocked(&self, from: Vec3, to: Vec3) -> bool {
         let delta = to - from;
         if delta.length_squared() <= 1e-6 {
