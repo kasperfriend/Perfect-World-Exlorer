@@ -969,7 +969,10 @@ mod page_tests {
             span(100, 140, 3, true, true),
         ];
         assert_eq!(fold_page_spans(&p, Pass::Main), vec![(0, 140)]);
-        assert_eq!(fold_page_spans(&p, Pass::Reflection), vec![(0, 30), (60, 140)]);
+        assert_eq!(
+            fold_page_spans(&p, Pass::Reflection),
+            vec![(0, 30), (60, 140)]
+        );
         assert_eq!(fold_page_spans(&p, Pass::Refraction), vec![(0, 140)]);
         // The hidden placement's indices stay out of the reflection spans.
         let drawn: u32 = fold_page_spans(&p, Pass::Reflection)
@@ -992,7 +995,9 @@ mod page_tests {
         // Reflection hides the second placement, so no span may cross it.
         let reflection = fold_commands(&pages, &order, Pass::Reflection);
         assert_eq!(reflection, vec![cmd(0, 0, 30), cmd(0, 60, 140)]);
-        assert!(!drawn(&reflection).iter().any(|&(_, i)| (30..60).contains(&i)));
+        assert!(!drawn(&reflection)
+            .iter()
+            .any(|&(_, i)| (30..60).contains(&i)));
         // Refraction sees all four and folds them into one draw.
         let refraction = fold_commands(&pages, &order, Pass::Refraction);
         assert_eq!(refraction, vec![cmd(0, 0, 140)]);
@@ -1060,5 +1065,4 @@ mod page_tests {
             assert!(cmds.len() <= order.len());
         }
     }
-
 }
