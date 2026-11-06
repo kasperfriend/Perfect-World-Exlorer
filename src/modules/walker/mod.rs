@@ -300,7 +300,9 @@ impl Walker {
     /// inactive; the load is only requested, never forced.
     pub fn prepare_object_collision(&mut self) {
         self.collision.ensure_loading();
-        self.collision.poll();
+        if !self.collision.is_done() {
+            self.collision.poll();
+        }
     }
 
     /// The building hulls, for placement support queries.
@@ -384,7 +386,7 @@ impl Walker {
             .as_mut()
             .map(|character| character.take_sound_commands())
             .unwrap_or_default();
-        let movement = if active { self.movement_sound() } else { None };
+        let movement = if active && enabled { self.movement_sound() } else { None };
         self.audio
             .update(enabled && active, volume, commands, movement);
     }
@@ -562,7 +564,9 @@ impl Walker {
             self.settings.camera_distance_target,
             delta,
         );
-        self.collision.poll();
+        if !self.collision.is_done() {
+            self.collision.poll();
+        }
         let mut captured = false;
         if let Some(action) = self.capture {
             if self.capture_wait_release {

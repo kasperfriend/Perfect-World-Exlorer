@@ -917,6 +917,10 @@ impl Collision {
         }
     }
 
+    pub fn is_done(&self) -> bool {
+        self.building_done
+    }
+
     pub fn poll(&mut self) {
         let mut finished = false;
         let mut batches_processed = 0;
