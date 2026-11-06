@@ -594,6 +594,41 @@ in the whole archive**. So the behaviour these three gate is worth 84 elements,
 not the 6,641 the raw key count implies, and the segment counts are near-constant
 where they do appear.
 
+**Binding by name: the three string slots, and the only comparison that exists.**
+The element constructor at `0x6f9184`..`0x6f91b7` builds three string objects back
+to back — `+0xa4` with mode 3, `+0x9c` with mode 2, `+0x94` with mode 1 — which
+fixes **Name at element+0x94, `BindEle` at +0x9c and `DummyEle` at +0xa4**, eight
+bytes apart, so they are string objects rather than inline buffers (the corpus has
+names like `Unnamed12` that would not fit in eight bytes).
+
+The whole binary contains exactly three calls to the string compare `0x763c30` in
+the effect region. Two of them, `0x7027db` and `0x70286c`, are generic
+name-to-index lookups — one over a caller-supplied array of 8-byte records, one
+over a static table of 0x1c-byte records at `0x8ec898` — and neither touches an
+element. The third, `0x6e456e`, is the binding pass:
+
+```
+container+0x0c = array of element pointers, container+0x18 = count
+for i in 0..count:
+    e = array[i]
+    if e == argument:            index = i          # find myself
+    elif compare(*(argument+8), e+0x9c):            # my Name vs their BindEle
+        0x74c2a0(e, 0)                              # tell them, with a null target
+```
+
+So it is the **detach** direction: given an element, every element whose `BindEle`
+names it is handed a null. The function runs inside a structured-exception block
+(handler `0x8c7fa8`) and first calls `0x6e5900` with `container+0x1c`.
+
+What is *missing* is the attach direction. No site in the effect region compares
+anything against `Name` at +0x94 to resolve a `BindEle` into a target pointer, so
+either the attach uses a different compare routine or the index is built once at
+load and only ever torn down through the pass above. That is where the next dig
+starts. Until it is settled, the 772 corpus elements that bind to a resolvable
+sibling stay unbound in the viewer: an emitter that should follow a sprite is
+spawned at its own origin instead, which is the largest remaining behavioural
+difference and the one most likely to be visible.
+
 Two traps worth recording for the next dig. The parser's format strings live in
 `.data` and are reached through arrays of pointers, so a key's string has **no
 direct cross-reference** — find the array by scanning the image for words equal
@@ -602,7 +637,15 @@ in `.rdata` and are pushed directly, which is how the light-element writer at
 `0x70b7e1` turned up and why its `Position: %f, %f, %f` at element+0x174 is not
 `MaxExtent`: the spec structs overlay the same offsets. And `[esp+0x938]` next to
 `[esp+0x944]` looked like two different version values until the three words
-pushed for the `sscanf` call were counted; both are the same argument.
+pushed for the `sscanf` call were counted; both are the same argument. And a third
+trap, earned while chasing the binding attach: **offsets collide across unrelated
+classes**, so an offset identifies a field only once the enclosing function is
+known to operate on that type. `+0xe0` is a 64-byte allocation on an element but a
+vtable store (`movl $0x8eb938,0xe0(%esi)`) on the objects at `0x6e6a7d` and
+`0x6e6fcb`; `+0x94` is the element `Name` but an integer field on several unrelated
+structs in the `0x6e1xxx` and `0x6f3xxx` blocks. Grepping an offset across the
+whole effect region therefore produces mostly noise — grep for the *call sites* of
+a helper instead, which is how the single `BindEle` comparison was found.
 
 ## Still open
 
@@ -614,9 +657,11 @@ Added by the field census, in the order the corpus says they matter:
   it, so an emitter that should follow a sprite is spawned at its own origin
   instead. This is the largest remaining *behavioural* gap and the one most
   likely to be visible: it needs a name→element index per root and the bound
-  element's transform fed into the child's placement each frame. The native
-  resolution site is not identified yet; `BindEle` is copied to element+0x9c by
-  `0x7638a0` and read from there.
+  element's transform fed into the child's placement each frame. See *Binding by
+  name*: `Name` is element+0x94 and `BindEle` is +0x9c, the detach direction is
+  fully decoded at `0x6e4564`, and the attach direction is now known **not** to be
+  a `0x763c30` name comparison anywhere in the effect region — so the next dig
+  looks for a different compare routine or an index built once at load.
 * **`MatchGrnd`** (1,781 non-default lines) needs an owner that can answer a
   ground query — see *Ground matching is an owner capability*. The walker has
   terrain sampling in `walker/physics.rs` and has never wired it into an effect.
