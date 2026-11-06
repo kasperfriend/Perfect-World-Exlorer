@@ -436,11 +436,13 @@ impl Modules {
         if floors {
             self.walker.prepare_object_collision();
         }
-        let source = floors.then(|| self.walker.floors());
-        let source = source
-            .as_ref()
-            .map(|source| source as &dyn populator::FloorSource);
-        self.populator.update(delta, eye, source);
+        {
+            let source = floors.then(|| self.walker.floors());
+            let source = source
+                .as_ref()
+                .map(|source| source as &dyn populator::FloorSource);
+            self.populator.update(delta, eye, source);
+        }
         // A module may ask the host for a one-shot camera move (the Populator's
         // "go to the nearest placement"). The Walker wins when it drives the
         // camera; otherwise the request is honoured for that frame.
