@@ -334,7 +334,7 @@ fn decode_block(tile: &TileDecode, scratch: &mut BlockScratch, bi: usize) -> Res
         let mut d = ZlibDecoder::new(raw);
         d.by_ref()
             .take(((grid + 1) * (grid + 1) * 4 + 64) as u64)
-            .read_to_end(&mut decoded)
+            .read_to_end(&mut *decoded)
             .map_err(|e| format!("{name} block {bi}: {e}"))?;
     } else {
         decoded.extend_from_slice(raw)
@@ -377,7 +377,7 @@ fn decode_block(tile: &TileDecode, scratch: &mut BlockScratch, bi: usize) -> Res
     if flags & 0x10 != 0 {
         ZlibDecoder::new(normal_raw)
             .take((nv * 12 + 64) as u64)
-            .read_to_end(&mut normal_data)
+            .read_to_end(&mut *normal_data)
             .map_err(|e| format!("{name} block {bi} normals: {e}"))?;
     } else {
         normal_data.extend_from_slice(normal_raw)
@@ -423,7 +423,7 @@ fn decode_block(tile: &TileDecode, scratch: &mut BlockScratch, bi: usize) -> Res
         decoded_colour.clear();
         ZlibDecoder::new(raw)
             .take((nv * 4 + 64) as u64)
-            .read_to_end(&mut decoded_colour)
+            .read_to_end(&mut *decoded_colour)
             .map_err(|e| format!("{name} block {bi} vertex colour: {e}"))?;
         if decoded_colour.len() != nv * 4 {
             return Err(format!(
