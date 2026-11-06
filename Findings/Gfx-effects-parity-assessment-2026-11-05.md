@@ -155,10 +155,19 @@ engine's unit conversion on node positions rather than a radius: **id 120's surf
 particles sit one file unit from the emitter, with the spread in their direction
 rather than in their position.** The viewer therefore gets those 86 elements wrong
 in kind, not merely in shape — it puts them on the `AreaSize` ellipsoid with the
-shared direction slot, and the client puts them at the emitter's origin pointing
-into a cone of half-angle `π/2 − Angle` around its Y axis. Fixing it needs the
-operand order of the two quaternion products against `+0xa0` and which side of the
-`IsBind` re-test at `0x72746a` takes which, neither of which is established yet.
+shared direction slot, and the client puts them one file unit out along a cone of
+half-angle `Angle` around its local **Z** axis. *(Corrected the same day: the
+half-angle given here first was `π/2 − Angle` around Y — that is the intermediate
+tilt the block applies to the global Y axis before composing, not the cone that comes
+out.)* The operand order and the `IsBind` split are both read now: node`+0x34` is
+`q2 ⊗ q1` with q1 = `axis_angle(Z, θ)` and q2 = `axis_angle(rotate(X, q1), π/2 −
+Angle)`; the unbound side composes `Q ⊗ cone` against emitter`+0xa0…+0xac` while the
+bound side skips it (`jne 0x727552`); and the direction written to node`+0x44` is
+`rotate(Y, node+0x34)`, which reduces to `(−sin Angle·sin θ, sin Angle·cos θ, cos
+Angle)` — checked numerically to 3e-16. Every particle sits at polar angle `Angle`
+exactly, so this is the surface of the cone rather than the filled cone the shared
+direction slot produces. These 86 are therefore reproducible draw for draw, and the
+viewer still routes them through the volume path.
 
 Id 121's surface sampler `0x727800` (11 elements) is the opposite shape: a long
 rejection loop, five `rand()` draws in its first thirty instructions, squaring
@@ -166,7 +175,7 @@ rejection loop, five `rand()` draws in its first thirty instructions, squaring
 (`0x8e6f10`) and by 2/32767 with 1.0 subtracted (`0x8e6efc`, `0x8d5c28`), and
 comparing against 0.5 (`0x8d5894`) three times with embedded `-1.0` and `+1.0`
 sign flips. So id 121 really does sample against its `AreaSize`, and its remaining
-work is reading the loop's accept condition. Id 121's `0x727800` spends ten draws and calls none of the vector helpers at all, so it is a different algorithm outright; id 120's block at `0x7272aa` runs the same chain but adds a call to `0x70a320` and uses `π/2 − Angle`. Id 120's block is read in full now (`0x7272aa`–`0x7275d6`): one uniform draw, a rotation about the vector part of the emitter's composed orientation at `+0xa0` (`0x7b6fd0` at `0x7272d1`, then the Rodrigues expansion spelled out with `0x401ca0`, `0x4093d0`, two `0x633700` and two `0x4071f0`), a second draw of `π/2 − Angle` (`0x8ee228` at `0x72737b`, the subtraction at `0x727381`, `0x7b6fd0` again at `0x727395`), and both handed to `0x70a320` at `0x727448` — which takes four floats, stores them at `this+0xc/+0/+4/+8` and returns with `ret $0x10`, so the block composes a *quaternion*, not a position. A scan of the whole block finds no read of `+0xc0…+0xe0`, which the vtable table now explains rather than leaves anomalous.
+work is reading the loop's accept condition. Id 121's `0x727800` spends ten draws and calls none of the vector helpers at all, so it is a different algorithm outright; id 120's block at `0x7272aa` runs the same chain but adds a call to `0x70a320` and uses `π/2 − Angle`. Id 120's block is read in full now (`0x7272aa`–`0x7275d6`): one uniform draw, a rotation about the global Z axis `0x9c0338` — *(corrected: this said the vector part of the emitter's composed orientation at `+0xa0`; the dump shows `push $0x9c0338` at `0x7272cc`, and `+0xa0` is composed in later and only when unbound)* — (`0x7b6fd0` at `0x7272d1`, then the Rodrigues expansion spelled out with `0x401ca0`, `0x4093d0`, two `0x633700` and two `0x4071f0`), a second angle `π/2 − Angle`, which is not a draw at all (`0x8ee228` at `0x72737b`, the subtraction at `0x727381`, `0x7b6fd0` again at `0x727395`), and both handed to `0x70a320` at `0x727448` — which takes four floats, stores them at `this+0xc/+0/+4/+8` and returns with `ret $0x10`, so the block composes a *quaternion*, not a position. A scan of the whole block finds no read of `+0xc0…+0xe0`, which the vtable table now explains rather than leaves anomalous.
 
 The per-class split is measured now too. Id 121 diverts to `0x727800` (volume `0x727ab0`), id 123 to `0x727f00` (volume `0x728270`), id 124 to `0x729be0` (volume `0x729df0`), and id 120 inlines its surface block at `0x7272aa`. Id 125 authors `IsSurface` on 12 elements but its birth routine `0x726570` never reads `+0x84`, so those 12 are inert; the 2,662 that matter are ids 120, 121, 123 and 124. *(Corrected: they do not all read the same basis. Reading the seven emitter vtables out of `.rdata` shows slot [9] is the basis builder `0x729670` for ids 121, 123 and 124, but `0x56fbb0` — an engine routine outside the gfx region — for ids 120 and 122, so id 120's class never builds an `AreaSize` basis and its samplers cannot read one.)*
 

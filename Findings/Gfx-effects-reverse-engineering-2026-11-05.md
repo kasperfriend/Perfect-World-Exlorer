@@ -49,7 +49,7 @@ end, and together they account for every helper the surface and basis code calls
 | `0x7b6fd0` | cdecl, `(axis, angle, out)` | axis-angle to quaternion: `out+0..0xc = axis * sin(angle/2)`, `out+0xc = cos(angle/2)`, with the halving by `0.5` at `0x8eff98` |
 | `0x7b6f10` | cdecl, three floats | Euler angles to quaternion, the `sin(a/2)cos(b/2)…` expansion of three successive rotations, each argument halved by `0x8eff98`; called at `0x724313` and `0x71b479` |
 | `0x7b7010` | cdecl, four plain pointers/values, caller cleans 16 bytes (`add $0x10,%esp` at `0x71600e`) | quaternion **slerp** `(out, a, b, t)`: `dot = a·b` at `0x7b701d`; `dot < 0` negates `b` and the sign so the short arc is taken; `|dot| > 0.75` (`0x8f0aec`) blends linearly as `(1−t)a + sign·t·b`; otherwise `θ = acos(dot)` and the coefficients are `sin((1−t)θ)/sinθ`, `sign·sin(tθ)/sinθ`. Stores at `0x7b7100`, `ret` at `0x7b7124`. Its first argument is the output, not an input |
-| `0x70a320` | thiscall, `ret $0x10` | four-argument quaternion setter |
+| `0x70a320` | thiscall, `ret $0x10` | quaternion setter `set(this, w, x, y, z)`: arg1 → `this+0xc`, arg2 → `+0x00`, arg3 → `+0x04`, arg4 → `+0x08` (`0x70a320`–`0x70a33d`), so the argument order is scalar-first while the memory layout stays `(x, y, z, w)` |
 
 Two conventions matter when reading a caller. The x87 helpers reserve argument
 slots with `push %reg` / `fstps (%esp)`, so the frame shifts by four bytes per
@@ -108,14 +108,35 @@ chain as everywhere else, `0x4093d0` twice, `0x633700` with the doubled w and wi
 `2.0`, `0x4071f0` twice — leaving the spun perpendicular at `[esp+0x74]`.
 `0x72737b` computes `π/2 − Angle` (`0x8ee228` minus emitter`+0x10`) and `0x727395`
 feeds it to `0x7b6fd0` with that spun axis, giving a quaternion stored at
-`[esp+0x20]`. `0x72739a`–`0x7273e1` is an inline quaternion-times-vector rotation
-in raw x87 rather than the vector library, `0x727448` stores the result through the
-four-argument setter `0x70a320`, and `0x72746a` re-tests `IsBind` to choose between
-two inline quaternion-times-quaternion products against emitter`+0xa0…+0xac`
-(`0x727478`–`0x727525`, stored through `0x70a320` at `0x727530`) — the composed
-orientation from `ParIniDir` and emitter`+0x74`. The final chain
-(`0x727561`–`0x7275f0`) rotates the global **Y** axis `0x9c0348` by the result and
+`[esp+0x20]`. `0x72739a`–`0x727445` is an inline Hamilton product in raw x87 rather
+than the vector library. Matching its four stored components term by term against
+`q2 ⊗ q1` gives an exact match for x (`0x727417`), y (`0x7273ed`) and w (`0x727445`);
+the z component (`0x7273c3`) multiplies q1.y by q1.w where the symbolic product has
+q2.z·q1.w, and both are identically zero for every input this code can reach, since
+q1's axis is the global Z so q1.y = 0, and q2's axis is the spun X, which lies in the
+XY plane, so q2.z = 0. So node`+0x34` becomes **q2 ⊗ q1** — the tilt about the spun
+axis first, the azimuth second — stored through `0x70a320` at `0x727448` and copied
+into node`+0x34…+0x40` at `0x727457`–`0x727467`.
+
+`0x72746a` then re-tests `IsBind`, and `jne 0x727552` **skips the composition
+entirely when bound**. The unbound fall-through (`0x727478`–`0x72752d`) is a single
+Hamilton product, **Q ⊗ cone**, against emitter`+0xa0…+0xac` — the composed
+orientation from `ParIniDir` and emitter`+0x74` — which matches term for term in all
+four components and is stored through `0x70a320` at `0x727530`. The final chain
+(`0x727552`–`0x7275f0`) rotates the global **Y** axis `0x9c0348` by node`+0x34` and
 writes it to **node`+0x44`**, the direction, at `0x727603`–`0x72760c`.
+
+Composed, and checked numerically to 3e-16 over `Angle` ∈ {0°, 30°, 60°, 90°, 180°}
+and θ ∈ {0°, 37°, 140°, 275°}, rotating the global Y by `q2 ⊗ q1` is exactly
+
+    (−sin Angle · sin θ,  sin Angle · cos θ,  cos Angle)
+
+— a cone about the element's local **Z** axis whose half-angle is `Angle` itself,
+with the azimuth uniform over the turn. Unlike the shared direction slot's cone,
+whose polar angle is drawn uniformly inside `[0, Angle]`, every one of these
+particles sits at polar angle `Angle` exactly: the surface of the cone, not its
+volume, which is what `IsSurface` means for id 120. The unbound case rotates that
+direction by Q as well.
 
 The position follows at `0x72760f`, branching on `IsBind` again. Bound
 (`0x727619`): `Vec3::new` of the direction's three components each multiplied by the
@@ -129,11 +150,10 @@ emitter`+0x86` is set (`0x72768b`) — the emitter position copied into node`+0x
 volume path multiplies by the same constant twice (`0x7276bc`, `0x7276d6`), so it is
 the engine's unit conversion on every node position rather than a surface radius.
 The consequence is the finding: id 120's surface particles sit **one file unit from
-the emitter** along a cone-spread direction around its Y axis, and the block never
-reads `AreaSize` at emitter`+0xb4` or the basis at `+0xc0…+0xe0` at all. What is not
-established is the operand order of the two quaternion products against `+0xa0` and
-which side of the `IsBind` re-test takes which, so the direction is not yet
-reproducible draw for draw.
+the emitter** on a cone of half-angle `Angle` about its local Z, and the block never
+reads `AreaSize` at emitter`+0xb4` or the basis at `+0xc0…+0xe0` at all. Both
+products and both `IsBind` re-tests are read now, so the direction is reproducible
+draw for draw — the viewer still routes these 86 elements through the volume path.
 
 ### The direction slot `0x723440`, shared by all seven classes
 
