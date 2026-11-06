@@ -379,14 +379,11 @@ impl Walker {
 
     pub fn update_audio(&mut self, enabled: bool, volume: f32) {
         let active = self.is_active();
-        let commands = if active {
-            self.character
-                .as_mut()
-                .map(|character| character.take_sound_commands())
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        let commands = self
+            .character
+            .as_mut()
+            .map(|character| character.take_sound_commands())
+            .unwrap_or_default();
         let movement = if active { self.movement_sound() } else { None };
         self.audio
             .update(enabled && active, volume, commands, movement);
@@ -622,15 +619,36 @@ impl Walker {
         let space = input_enabled && keys.contains(&KeyCode::Space);
         let jump = jump_requested(space, self.jump_was_down, self.travel);
         self.jump_was_down = space;
-        let rushing = input_enabled
-            && self.travel == TravelState::Flying
-            && (keys.contains(&KeyCode::ShiftLeft) || keys.contains(&KeyCode::ShiftRight))
-            && self
-                .character
-                .as_ref()
-                .and_then(|character| character.assembly.flight.as_ref())
-                .and_then(|flight| flight.rush_speed)
-                .is_some();
+        let (rushing, flight_speed, mount_speed, movement_constants, swim_speed) = {
+            let character_ref = self.character.as_ref();
+            let rushing = input_enabled
+                && self.travel == TravelState::Flying
+                && (keys.contains(&KeyCode::ShiftLeft) || keys.contains(&KeyCode::ShiftRight))
+                && character_ref
+                    .and_then(|character| character.assembly.flight.as_ref())
+                    .and_then(|flight| flight.rush_speed)
+                    .is_some();
+            let flight_speed = character_ref.and_then(|character| {
+                character.assembly.flight.as_ref().map(|flight| {
+                    let range = if rushing {
+                        flight.rush_speed.unwrap_or(flight.normal_speed)
+                    } else {
+                        flight.normal_speed
+                    };
+                    character.assembly.class_speeds.fly + range.0
+                })
+            });
+            let mount_speed = character_ref
+                .and_then(|character| character.assembly.mount.as_ref().map(|mount| mount.speed));
+            let (movement_constants, swim_speed) = character_ref.map(|character| {
+                let design = &character.assembly.design;
+                (
+                    physics::MovementConstants::new(design.class, design.gender),
+                    character.assembly.class_speeds.swim,
+                )
+            })?;
+            (rushing, flight_speed, mount_speed, movement_constants, swim_speed)
+        };
         let vertical = if input_enabled && self.travel == TravelState::Flying {
             (if space { 1.0 } else { 0.0 })
                 - if keys.contains(&KeyCode::KeyC) {
@@ -641,27 +659,6 @@ impl Walker {
         } else {
             0.0
         };
-        let flight_speed = self.character.as_ref().and_then(|character| {
-            character.assembly.flight.as_ref().map(|flight| {
-                let range = if rushing {
-                    flight.rush_speed.unwrap_or(flight.normal_speed)
-                } else {
-                    flight.normal_speed
-                };
-                character.assembly.class_speeds.fly + range.0
-            })
-        });
-        let mount_speed = self
-            .character
-            .as_ref()
-            .and_then(|character| character.assembly.mount.as_ref().map(|mount| mount.speed));
-        let (movement_constants, swim_speed) = self.character.as_ref().map(|character| {
-            let design = &character.assembly.design;
-            (
-                physics::MovementConstants::new(design.class, design.gender),
-                character.assembly.class_speeds.swim,
-            )
-        })?;
         let water_vertical = if input_enabled && self.travel == TravelState::Ground {
             let ascend = keys.contains(&KeyCode::ArrowUp);
             let descend = keys.contains(&KeyCode::ArrowDown) || keys.contains(&KeyCode::KeyZ);
