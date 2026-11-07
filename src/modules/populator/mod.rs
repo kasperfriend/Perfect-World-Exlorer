@@ -3188,7 +3188,6 @@ mod tests {
         assert_eq!(
             live_world_city_population(
                 &[male, duplicate, female, anvil, object, wilderness, creature, guard,],
-
                 &zones
             ),
             vec![vec![0, 2]]
