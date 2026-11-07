@@ -210,15 +210,14 @@ doorway) and the terrain below is within 2 units, the actor stands on the ground
 instead. A bridge deck ten units up is never traded for the river bed, because the
 drop obeys the same guard as the sweep.
 
-Otherwise the placement is swept outward over 5 rings (0.5 … 2.5 units) × 8
+Otherwise the placement is swept outward over 8 rings (0.5 … 6 units) × 16
 directions. Every candidate is re-resolved with the same height policy and is
 rejected when it would move the actor more than `WALL_RING_LIFT` (2 units), so
 getting out of a wall never also climbs a storey or drops an NPC off a bridge. A
 nudged placement keeps its own floor — a step up to a free spot 1 unit higher is
 used, a 5-unit climb is refused. An authored height is never changed by the
-sweep. A placement with nowhere free keeps its authored column and is counted as
-`in walls`; the settings window shows both counts and the first session report
-logs them once.
+sweep. If no free column exists, the actor is hidden rather than drawn inside a
+wall and counted as `in walls`; a new hull-streaming batch retries placement.
 
 The sweep runs once per placement per hull stamp (the hulls stream in, so it
 re-runs when a batch lands), not per frame.
@@ -348,3 +347,37 @@ run time and uses that family and size for every label:
   terrain along the camera-to-head ray and sweeps the same BMD building/tree
   hulls the Walker collides with, so no name is ever visible through a wall,
   a roof or a hill. Bodies stay visible; only the label goes away.
+
+## Live World: client-side feasibility versus server-authored population
+
+The retail client supports a local visual crowd, not reconstruction of the
+server's population instructions. Its 1,057 zero-coordinate `task_npc.data`
+records are server-placed quest NPCs, not usable locations. The client does ship
+515 placed NPC examples, `NPC_ESSENCE` model paths, real `.ecm` rigs and action
+clips, and `world_targets.txt` city/district destinations. It does not ship
+`gamedata/npcgen.data` or server-authored NPC route/waypoint, daily-schedule,
+dialogue, interaction, combat, task, or spawn-density records. A destination is
+not a spawn-zone or a guarantee of traversable ground.
+
+The opt-in Live World layer therefore creates ephemeral synthetic records in
+memory around city/district destinations. Authored placements contribute only a
+distinct, city-local eligible rig palette; no standing NPC id, name, anchor,
+height, task links or route is copied. Synthetic ids use a separate range;
+names are composed from independent model-gender-specific fragments, not native
+NPC names or identities. Candidate anchors maintain separation from standing
+and already-generated placements. Only numbered human `男npcN` and `女npcN` rig directories with matching `.ecm` filenames are eligible. Creature/beast, monster, prop, malformed, and non-NPC paths are excluded, as are the two known blacksmith/anvil rigs.
+
+Circuits are locally generated, not recovered server routes: seven-point loops
+remain inside an adjustable city-target radius (120–420 world units, 240 by
+default), start moving shortly after spawning, include varied short dwell times,
+and use native walk/run actions including suffixed names. Every candidate route
+projects and validates its full segments against terrain, client water masks,
+currently streamed building hulls, and occupied actors; failed candidates are
+discarded and retried. If later movement is blocked, that route is abandoned
+and replanned after a short cooldown instead of leaving the resident stranded.
+Humanoid rigs without a recognized locomotion cycle still follow their checked
+route using the rig's own idle pose; this guarantees translation without
+inventing leg motion. Requested density is adjustable from 0–48 per target (18 by
+default), with a global cap of 512. These heuristics provide visual variety
+only—no server identity, persistent state, quest behavior, authentic schedule,
+navigation network, voice/dialogue, combat or interaction is implied.

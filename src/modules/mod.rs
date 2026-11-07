@@ -308,11 +308,56 @@ impl Modules {
         );
         ui.label(
             egui::RichText::new(
-                "While enabled: every NPC from the client's own task_npc.data appears where the game places it, with its own rig, idle animation and overhead name, standing on the client's own building floors where the placement calls for one. Spawn distance, actor cap, idle animation, names and building-floor support are in the Populator settings window beneath the minimap. Mob placement is server data the client does not ship, and actors move only along real navigation paths.",
+                "While enabled: every client-placed NPC appears at its authored location with its own rig, idle animation and overhead name, standing on the client's building floors where appropriate. Spawn distance, actor cap, idle animation, names and floor support are in the Populator settings window beneath the minimap. Mob placement and native patrol routes are server data the client does not ship; Live World is an optional, locally validated ambient simulation.",
             )
             .small()
             .weak(),
         );
+        egui::CollapsingHeader::new("Live World")
+            .default_open(false)
+            .show(ui, |ui| {
+                let mut enabled = self.populator.live_world_enabled();
+                if ui.checkbox(&mut enabled, "Enable Live World").changed() {
+                    self.populator.set_live_world(enabled);
+                }
+                let mut radius = self.populator.live_world_radius();
+                if ui.add(egui::Slider::new(&mut radius,
+                    crate::modules::populator::LIVE_WORLD_MIN_RADIUS..=crate::modules::populator::LIVE_WORLD_MAX_RADIUS)
+                    .text("city radius").suffix(" u")).changed() {
+                    self.populator.set_live_world_radius(radius);
+                }
+                let mut residents = self.populator.live_world_residents_per_zone();
+                if ui.add(egui::Slider::new(&mut residents,
+                    0..=crate::modules::populator::LIVE_WORLD_MAX_PER_ZONE)
+                    .text("residents per target")).changed() {
+                    self.populator.set_live_world_residents_per_zone(residents);
+                }
+                ui.label(
+                    egui::RichText::new(
+                        "Creates independent records around city/district targets from world_targets.txt, not copies of standing NPC identities or locations. Uses only numbered human male/female NPC rig families, with matching synthetic names; creature, monster, prop and malformed rig paths are rejected. The known blacksmith/anvil rigs are excluded. Native walk/run actions (including suffixed clip names) drive varied circuits; blocked projections are discarded and replanned, unsupported rigs continue on their checked routes using their own idle pose instead of remaining statues. Terrain, client water masks and streamed building hulls are checked along the full path; these are not server-authored routes or schedules.",
+                    )
+                    .small()
+                    .weak(),
+                );
+                ui.label(
+                    egui::RichText::new(self.populator.live_world_zone_status())
+                        .small()
+                        .weak(),
+                );
+                if enabled {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "{} residents generated; {} actor slots; {} streamed residents have no active route; {} are moving with their idle pose because no walk clip was recognized.",
+                            self.populator.live_world_generated(),
+                            self.populator.settings().max_visible,
+                            self.populator.live_world_stationary_count(),
+                            self.populator.live_world_idle_fallback_count()
+                        ))
+                        .small()
+                        .color(egui::Color32::LIGHT_GREEN),
+                    );
+                }
+            });
     }
 
     fn walker_module_ui(&mut self, ui: &mut egui::Ui, spawn: Vec3, yaw: f32) {
@@ -392,8 +437,13 @@ impl Modules {
         if floors {
             self.walker.prepare_object_collision();
         }
-        let source = floors.then(|| self.walker.floors());
-        self.populator.update(delta, eye, source);
+        {
+            let source = floors.then(|| self.walker.floors());
+            let source = source
+                .as_ref()
+                .map(|source| source as &dyn populator::FloorSource);
+            self.populator.update(delta, eye, source);
+        }
         // A module may ask the host for a one-shot camera move (the Populator's
         // "go to the nearest placement"). The Walker wins when it drives the
         // camera; otherwise the request is honoured for that frame.
