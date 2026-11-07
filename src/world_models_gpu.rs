@@ -4,7 +4,7 @@
 //! they publish into.
 //! Never sends baked terrain/BMD/tree vertices through receiving-model lighting.
 use crate::{
-    gfx_owner, model_attachment,
+    gfx_effect_gpu, gfx_owner, model_attachment,
     model_draw_gpu::{Draw, Frame},
     model_queue,
     scene_lights::{DynamicLight, LightPublications, SceneLights, StaticGrid},
@@ -87,6 +87,11 @@ pub struct World {
     publications: LightPublications,
     owners: gfx_owner::Manager,
     producers: Vec<Producer>,
+    /// The animated half of the world's effects. Created on the first update that
+    /// needs it, because `with_reader` has no queue to build a draw object with.
+    effects: Option<gfx_effect_gpu::Draw>,
+    /// Quads the installed roots drew this frame, uploaded to [`Self::effects`].
+    effect_quads: Vec<crate::gfx_player::EffectQuad>,
     /// Every `.gfx` member of the attached archive, grouped by its authored name
     /// so a module can ask for "a waterfall" instead of a path.
     catalog: crate::gfx_catalog::Catalog,
@@ -178,6 +183,8 @@ impl World {
             publications: LightPublications::default(),
             owners: gfx_owner::Manager::new(),
             producers: Vec::new(),
+            effects: None,
+            effect_quads: Vec::new(),
             catalog: crate::gfx_catalog::Catalog::default(),
             catalog_spawns: 0,
             view: None,
@@ -509,6 +516,7 @@ impl World {
             self.resolve_attachments();
             self.apply_activation(night);
             self.owners.update(delta_ms, &mut self.publications);
+            self.update_effects(device, queue, frame, delta_ms);
             self.grid.update(lights, center);
             self.publications.consume_into(&mut self.grid);
         }
@@ -517,6 +525,109 @@ impl World {
             self.rebuild_alpha_order(center);
         }
     }
+    /// Advance the world's animated effects and upload this frame's quads.
+    ///
+    /// Main pass only, straight after the light producers, so the geometry and the
+    /// lights read the same owner clocks and cannot disagree about which effects
+    /// are alive. The placements are the world's own: every ECWLD effect record
+    /// and every ECM model event this world installed, which is where the retail
+    /// waterfalls, torch fire and glows already are — nothing here is positioned
+    /// by an add-on module or by the explorer's own body.
+    fn update_effects(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        frame: Frame,
+        delta_ms: u32,
+    ) {
+        if !self.owners.effects_enabled() {
+            self.effect_quads.clear();
+            return;
+        }
+        // The billboards need a camera basis and `Frame` carries only the
+        // view-projection, so the eye comes back out of its inverse.
+        let view = crate::gfx_player::View::from_inverse_view_projection(
+            glam::Mat4::from_cols_array_2d(&frame.matrix).inverse(),
+        );
+        let quads = self.owners.effect_quads(delta_ms, &view);
+        let Self {
+            effects,
+            effect_quads,
+            read,
+            format,
+            reported,
+            ..
+        } = self;
+        *effect_quads = quads;
+        if effects.is_none() {
+            // The same reverse-Z depth the world's models use, so an effect in
+            // front of a wall is occluded by nothing and one behind it is hidden.
+            match gfx_effect_gpu::Draw::new(
+                device,
+                queue,
+                *format,
+                Some((
+                    wgpu::TextureFormat::Depth32Float,
+                    wgpu::CompareFunction::Greater,
+                )),
+            ) {
+                Ok(draw) => *effects = Some(draw),
+                Err(error) => {
+                    reported.push(format!("world effects: {error}"));
+                    return;
+                }
+            }
+        }
+        let Some(draw) = effects.as_mut() else {
+            return;
+        };
+        if let Err(error) = draw.update(
+            device,
+            queue,
+            effect_quads,
+            frame.matrix,
+            frame.clip_plane,
+            [view.position.x, view.position.y, view.position.z, 0.],
+            &mut **read,
+        ) {
+            reported.push(format!("world effects: {error}"));
+        }
+    }
+
+    /// Switch the world's animated effects on or off: the sprites, particles,
+    /// ribbons, trails and fractals inside every installed root. The light
+    /// producers are untouched either way, so a torch whose flame is switched off
+    /// still lights the wall around it. Off releases every player the owners hold;
+    /// on rebuilds them one root per frame.
+    pub fn set_effects_enabled(&mut self, enabled: bool) {
+        self.owners.set_effects_enabled(enabled);
+        if !enabled {
+            self.effect_quads.clear();
+        }
+    }
+
+    pub fn effects_enabled(&self) -> bool {
+        self.owners.effects_enabled()
+    }
+
+    /// Quads the world's animated effects produced this frame.
+    pub fn effect_quad_count(&self) -> usize {
+        self.effect_quads.len()
+    }
+
+    /// Roots whose animated graph would not build, as `origin: error`. Their
+    /// lights still run, so these are kept apart from [`Self::gfx_failures`].
+    pub fn effect_failures(&self) -> Vec<String> {
+        self.owners.effect_failures().to_vec()
+    }
+
+    /// Warnings the animated roots reported, nearly all of them a nested `GfxPath`
+    /// the archive does not ship. The parent plays without the child, which is
+    /// what the client does, so these are not failures.
+    pub fn effect_warnings(&self) -> Vec<String> {
+        self.owners.effect_warnings().to_vec()
+    }
+
     /// Tick every playback clock once and evaluate each model's pose once.
     /// 0x7b2520 resolves hooks from this pose, and every pass of the frame
     /// (main, reflection, refraction) reuses it.
@@ -757,6 +868,11 @@ impl World {
             if let Some(Some(draw)) = self.slots.get(candidate.slot).map(|s| &s.draw) {
                 draw.draw_alpha_mesh(pass, candidate.mesh);
             }
+        }
+        // Blended effect quads last, after the opaque models and the alpha meshes,
+        // with their own render-layer sort inside the draw object.
+        if let Some(effects) = &self.effects {
+            effects.draw(pass);
         }
     }
     pub fn alpha_order(&self) -> Vec<(usize, usize)> {

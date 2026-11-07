@@ -108,6 +108,11 @@ pub struct ViewSettings {
     pub time_of_day: f32,
     pub whole_world: bool,
     pub water_reflections: bool,
+    /// Draw the world's own animated effects: the roots `world.ecwld` and the
+    /// model events place in the map — waterfalls, torch fire, glows. On by
+    /// default. Off releases the players behind them and keeps their lights, so a
+    /// torch whose flame is switched off still lights the wall.
+    pub world_effects: bool,
     pub atmospheric_fog: bool,
     pub bloom: bool,
     pub sharpen: bool,
@@ -188,6 +193,7 @@ impl Default for ViewSettings {
             time_of_day: 12.,
             whole_world: false,
             water_reflections: true,
+            world_effects: true,
             atmospheric_fog: false,
             bloom: false,
             sharpen: false,
@@ -350,6 +356,7 @@ impl ViewSettings {
                 "cloud_detail" => flag!(s.cloud_detail),
                 "whole_world" => flag!(s.whole_world),
                 "water_reflections" => flag!(s.water_reflections),
+                "world_effects" => flag!(s.world_effects),
                 "atmospheric_fog" => flag!(s.atmospheric_fog),
                 "bloom" => flag!(s.bloom),
                 "terrain_lightmaps" => flag!(s.terrain_lightmaps),
@@ -381,11 +388,11 @@ impl ViewSettings {
     fn encode(&self) -> String {
         format!(concat!("# Perfect World Explorer settings, version 1\n",
             "radius={}\nterrain_cutoff={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\n",
-            "whole_world={}\nwater_reflections={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
+            "whole_world={}\nwater_reflections={}\nworld_effects={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nambience_enabled={}\nsound_volume={}\neffects_enabled={}\neffects_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
             "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncelestial_brightness={}\nignore_celestial_flags={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\nweather_override={}\nsky_override={}\n"),
             self.detail.radius,self.detail.terrain_cutoff,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,
-            self.whole_world,self.water_reflections,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
+            self.whole_world,self.water_reflections,self.world_effects,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.ambience_enabled,self.sound_volume,self.effects_enabled,self.effects_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.celestial_brightness,self.ignore_celestial_flags,self.cloud_detail,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
@@ -634,6 +641,24 @@ mod tests {
         assert!(s.vegetation_authored_mips);
         assert_eq!(s, ViewSettings::decode(&s.encode()));
         assert!(!ViewSettings::decode("vegetation_authored_mips=invalid").vegetation_authored_mips);
+    }
+    /// The world's own effects draw unless the explorer switches them off, and a
+    /// settings file written before the switch existed keeps them on.
+    #[test]
+    fn world_effects_default_on_and_round_trip() {
+        assert!(ViewSettings::default().world_effects);
+        assert!(ViewSettings::decode("unknown=ignored").world_effects);
+        let off = ViewSettings::decode("world_effects=false");
+        assert!(!off.world_effects);
+        assert_eq!(off, ViewSettings::decode(&off.encode()));
+        assert!(
+            ViewSettings::decode("world_effects=invalid").world_effects,
+            "an unparseable value leaves the default, which is on"
+        );
+        assert!(
+            ViewSettings::decode(&off.encode()).encode() == off.encode(),
+            "the switch survives a second round trip"
+        );
     }
     #[test]
     fn special_glow_preview_is_explicit_persisted_and_bounded() {

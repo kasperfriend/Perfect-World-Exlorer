@@ -864,7 +864,19 @@ impl Player {
                             Runtime::Child(state)
                         }
                         Err(error) => {
-                            warnings.push(format!("element {index} ({}): {error}", child.path));
+                            // The parent plays without it. 82 of the corpus's
+                            // 1,530 `GfxPath` references point at files that were
+                            // never packed — `gfx/人物/技能/巫师/技能抑制_闪电.gfx`
+                            // asks for a `牧师` effect the archive has no directory
+                            // for — and a root is not broken because the archive
+                            // lacks a child, so this stays a warning and the
+                            // element keeps its clock. The tail says what the
+                            // viewer does next, since the raw reader error on its
+                            // own reads like a fault in this program.
+                            warnings.push(format!(
+                                "element {index} ({}): {error}; the root plays without this child",
+                                child.path
+                            ));
                             Runtime::Clock
                         }
                     }
@@ -1945,6 +1957,21 @@ fn is_safe(path: &str) -> bool {
     !path
         .split('/')
         .any(|part| part == "." || part == ".." || part.contains(':'))
+}
+
+/// FNV-1a over an archive path, forced odd. The client seeds an emitter from a
+/// runtime stream this viewer does not reproduce; what a replay needs is that one
+/// root keeps one stream and that two roots playing side by side — a row of
+/// torches, two waterfalls — do not share one, or every copy emits the same
+/// particles in lockstep. Odd because a zero seed stalls the xorshift in
+/// [`Rng`] at zero forever.
+pub fn path_seed(path: &str) -> u32 {
+    let mut seed = 2_166_136_261u32;
+    for byte in path.as_bytes() {
+        seed ^= u32::from(*byte);
+        seed = seed.wrapping_mul(16_777_619);
+    }
+    seed | 1
 }
 
 /// The flipbook cell for this clock, plus the authored UV scroll and flips.
@@ -5503,11 +5530,35 @@ mod tests {
             "{}",
             player.warnings()[0]
         );
+        assert!(
+            player.warnings()[0].ends_with("the root plays without this child"),
+            "the warning says what happens next: {}",
+            player.warnings()[0]
+        );
         assert_eq!(player.stats().children, 0);
 
         let mut player = player;
         step(&mut player, 16.);
         assert_eq!(player.quads().len(), 1, "the sprite next to it still draws");
+    }
+
+    /// Two roots playing side by side — a row of torches, two waterfalls from the
+    /// same file — must not share one random stream, or every copy emits the same
+    /// particles in lockstep, and no seed may be zero, which stalls the xorshift.
+    #[test]
+    fn path_seeds_are_odd_and_distinct_per_root() {
+        let torch = path_seed("gfx/scene/torch.gfx");
+        assert_eq!(torch, path_seed("gfx/scene/torch.gfx"), "stable per path");
+        assert_ne!(torch, path_seed("gfx/scene/torch2.gfx"));
+        assert_ne!(torch, path_seed("gfx/scene/Torch.gfx"));
+        let empty = path_seed("");
+        assert!(
+            empty != 0 && empty & 1 == 1,
+            "even the empty path is a usable seed: {empty}"
+        );
+        for path in ["gfx/a.gfx", "gfx/人物/技能/巫师/技能抑制_闪电.gfx", "x"] {
+            assert_eq!(path_seed(path) & 1, 1, "{path}");
+        }
     }
 
     /// A nested root that resolves is played as a child, with the parent's

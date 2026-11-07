@@ -428,6 +428,41 @@ in the order the corpus said they mattered:
   empties the ring at the loop boundary, and the flipbook reading the base class
   makes of it is documented beside the code rather than implemented.
 - **Camera shake.** See *Camera shake, reproduced*.
+- **The world's own effects draw where the map puts them.** An installed effect
+  owner produced lights and nothing else — `gfx_owner`'s header listed the rest of
+  the GFX graph as explicitly not implemented — so the 2,275 placements
+  `world.ecwld` authors, 163 distinct roots among them (154 day-only, 676
+  night-only, 1,445 all-day by `valid_time`), lit their surroundings and showed no
+  water, fire, mist or glow. `Manager` now builds a `gfx_player::Player` per owner
+  from the same archive text its light emitters come from: one root per frame, the
+  budget `0x5b1a00` gives the loader, and only while the owner is inside the host's
+  activation radius, so a world full of effects costs the handful near the
+  explorer. `Manager::effect_quads` advances those players at the placement, play
+  speed, authored alpha and parent attachment the owner already carried, and
+  `world_models_gpu::World` submits them through a `gfx_effect_gpu::Draw` of its
+  own — the same reverse-Z depth as its models, after the alpha meshes, in the pass
+  it already draws into. The effects therefore belong to the world and to nothing
+  else: no add-on module, no explorer body, no gallery row. `ViewSettings::world_effects`,
+  in the World tab and on by default, gates the geometry alone: off releases every
+  player and keeps every light, so a torch stops drawing its flame and still lights
+  the wall, and on rebuilds one root per frame instead of stalling on all of them.
+
+  Three places where this is the viewer's budget rather than the client's rule, all
+  recorded where the code can be checked against them: an owner advances only while
+  it is visible, where `0x70ba00` advances the clock *before* the visibility gate
+  and so keeps an off-screen effect running; an owner that leaves the radius drops
+  its player and starts again when it returns, which is what a region unload does
+  but not what a radius crossing does; and nothing at this level can answer a ground
+  query, so `MatchGrnd` and `GroundHeight` stay inert for world effects. The
+  authored attenuation curve is still not applied either — `Request::outer`'s alpha
+  scales the root, the distance fade the visual-effect record carries does not.
+
+  A nested `GfxPath` the archive does not ship is a warning with the consequence in
+  it ("the root plays without this child") rather than a bare reader error: 82 of
+  the corpus's 1,530 child references are like that,
+  `gfx/人物/技能/巫师/技能抑制_闪电.gfx` asking for a `牧师` effect the archive has no
+  directory for among them, and the client does not fail a parent over a child it
+  cannot open.
 
 ## Running a module's tests without the crate's dependencies
 

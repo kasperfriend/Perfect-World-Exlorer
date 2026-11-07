@@ -232,6 +232,8 @@ EOF
 //! dependency-free closure around gfx_player. Not part of the shipped build.
 #[path = "$REPO/src/animation.rs"]
 pub mod animation;
+#[path = "$REPO/src/client_weather.rs"]
+pub mod client_weather;
 #[path = "$REPO/src/ecmodel.rs"]
 pub mod ecmodel;
 #[path = "$REPO/src/gfx_color_track.rs"]
@@ -240,8 +242,18 @@ pub mod gfx_color_track;
 pub mod gfx_decal;
 #[path = "$REPO/src/gfx_file.rs"]
 pub mod gfx_file;
+#[path = "$REPO/src/gfx_light.rs"]
+pub mod gfx_light;
+#[path = "$REPO/src/gfx_owner.rs"]
+pub mod gfx_owner;
 #[path = "$REPO/src/gfx_player.rs"]
 pub mod gfx_player;
+#[path = "$REPO/src/scene_lights.rs"]
+pub mod scene_lights;
+#[path = "$REPO/src/sky_transition.rs"]
+pub mod sky_transition;
+#[path = "$REPO/src/view_settings.rs"]
+pub mod view_settings;
 #[path = "$OUT/pck_stub.rs"]
 pub mod pck;
 EOF
@@ -263,6 +275,9 @@ case "${1:-test}" in
     fmt)   toolchain
         rustfmt --check --edition 2021 \
             "$REPO/src/gfx_player.rs" "$REPO/src/gfx_file.rs" "$REPO/src/gfx_decal.rs" \
-            "$REPO/src/gfx_color_track.rs" "$REPO/src/gfx_catalog.rs" "$REPO/src/ecmodel.rs" ;;
+            "$REPO/src/gfx_color_track.rs" "$REPO/src/gfx_catalog.rs" "$REPO/src/ecmodel.rs" \
+            "$REPO/src/gfx_light.rs" "$REPO/src/gfx_owner.rs" "$REPO/src/scene_lights.rs" \
+            "$REPO/src/view_settings.rs" "$REPO/src/client_weather.rs" \
+            "$REPO/src/sky_transition.rs" ;;
     *) echo "usage: $0 {setup|check|test|fmt}" >&2; exit 2 ;;
 esac
