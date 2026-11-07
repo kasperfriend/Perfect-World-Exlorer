@@ -375,41 +375,35 @@ coordinates are inputs for a visual prototype, not authored resident schedules
 or safe spawn zones. The archive contains nine targets named as cities or
 districts; a target does not guarantee nearby walkable ground.
 
-The prototype samples numbered human NPC rigs and gives each generated resident a
-synthetic name and id. It tests direct and combined walk/run actions against the
-model pose pipeline and admits a rig only if skinned geometry actually changes.
-Generated circuits are sampled locally; terrain, water, building collision,
-floors and occupied actors can reject a candidate. Failed candidates are
-retried, and a route blocked later is replanned. No native NPC identity,
-placement, route or schedule is copied.
+The prototype uses only the original numbered male/female NPC rig families
+found near city targets and assigns generated residents synthetic names and ids.
+It does not copy a native NPC's identity, placement, route or schedule. The
+original city rigs have no usable walk cycle in this build, so synthetic
+residents move along locally validated routes in their authored bind pose,
+without animation. Terrain, water, building collision, floors and occupied
+actors can still reject a candidate; failed routes are retried or replanned.
 
-**Zero-generation root cause (confirmed against the correct `pw142` split
-archive):** the source filter accepted only `男npc#` and `女npc#` rig families.
-The nine city zones contain 43 distinct local male/female rigs, and none has a
-walk/run action recognized by the movement scan. The same archive contains
-Guard rigs `卫兵npc1`–`4` with direct `走`/`跑` clips whose skeleton tracks
-change. Those rigs were excluded before movement validation because the
-human-family filter did not recognize `卫兵npc#`; consequently every admitted
-city rig failed locomotion validation and the resident palette was empty. The
-filter now recognizes numbered Guard rigs as masculine human candidates while
-still rejecting creature, monster and prop families. The corrected scan sees 11
-local Guard placements using three distinct Guard rigs across five zones; it
-opens walkable candidates there without inventing Guard placements in the other
-four zones. Runtime generation and safe-route success still need confirmation
-in the client.
+**Why the palette changed:** 43 distinct local male/female rigs are available
+across the nine city zones, but none has a recognized walk/run action. The
+previous gate therefore produced no candidates. Guards `卫兵npc1`–`4` do have
+moving clips, but are deliberately excluded: using them made generated
+residents look like guards and collapsed the model variety. Live World now
+validates the original city rigs structurally and admits them without requiring
+a walk clip. The movement is intentionally static-pose translation, as requested;
+there are no generated Guard appearances.
 
 **Guard asset check:** the reassembled `pw142/models.zip.001`–`.010` archive
 passes `unzip -t` and contains 40,753 `models.pck` entries. For each Guard rig
 1–4, the ECM→SMD→BON/SKI references resolve; parsed skins have valid mesh/index,
 material and joint references, and every referenced texture is present in the
 pack. The four SMD/BON sets also expose changing walk/run tracks. The visible
-body holes were instead caused by Populator treating the `r_` reflect-mask
-alpha channel as opacity. It now applies the same reflect-alpha classification
-as Designer/Librarian. Resident movement still requires a sampled walk/run clip
-whose skinned geometry changes; rigs without such a clip are never routed.
+body holes were caused by Populator treating the `r_` reflect-mask alpha channel
+as opacity. It now applies the same reflect-alpha classification as
+Designer/Librarian. Guards remain excluded from generated residents; the
+original male/female city rigs translate in bind pose without animation.
 
 The 1.4.2 `element/models.pck` is 888,028,116 bytes; the split files were the
 user-confirmed correct source, not a different build. Live World remains marked
-Experimental because routes are synthetic and route validation can still reject
-all attempts, and the corrected candidate filter has not yet been exercised in
-a real client run.
+Experimental because names/routes are synthetic, source rigs have no walk cycles
+and therefore move in bind pose, routes can all be rejected, and the corrected
+model/material handling has not yet been exercised in a real client run.

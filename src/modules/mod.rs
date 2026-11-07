@@ -321,7 +321,7 @@ impl Modules {
                     .color(egui::Color32::RED),
             )
             .on_hover_text(
-                "Live World creates synthetic residents and routes because the client does not ship server-authored resident schedules or patrol paths. Only rigs with visibly changing walk/run animations are allowed, and terrain, water or collision checks may reject every route. The matching client archive also exposed a reflect-mask rendering issue in Guard/resident models; its fix still needs in-game confirmation.",
+                "Live World has no server-authored resident schedules or patrol routes in the client data. It moves synthetic residents in a fixed bind pose because the original city human rigs have no usable walk cycles; safe-route checks can still reject candidates. Names and routes are synthetic, so the feature remains under validation.",
             );
         });
         ui.vertical(|ui| {
@@ -351,7 +351,7 @@ impl Modules {
             }
             ui.label(
                 egui::RichText::new(
-                    "Experimental: samples human rigs from models.pck, requires a walk/run clip that visibly moves the model, then tries local outdoor routes near city targets. Terrain, water and building collisions can reject every candidate, leaving zero residents. Names and routes are synthetic; server spawn and route data are not available in the client.",
+                    "Uses varied original male/female city rigs from models.pck. Generated residents follow locally validated outdoor routes in a fixed bind pose, without a walk animation; terrain, water and building collisions can still reject all candidates. Names and routes are synthetic because server spawn and patrol-route data are not available in the client.",
                 )
                 .small()
                 .weak(),
@@ -369,9 +369,9 @@ impl Modules {
                 );
                 ui.label(
                     egui::RichText::new(format!(
-                        "{} residents generated; {} rigs have verified walking clips; {} streamed residents have no active route.",
+                        "{} residents generated from {} original model rigs; {} streamed residents have no active route.",
                         self.populator.live_world_generated(),
-                        self.populator.live_world_walkable_rig_count(),
+                        self.populator.live_world_model_count(),
                         self.populator.live_world_stationary_count()
                     ))
                     .small()

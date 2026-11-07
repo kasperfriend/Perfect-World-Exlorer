@@ -7,8 +7,8 @@
 //! module loads the 4,208 real `MONSTER_ESSENCE` templates and draws no mob
 //! until a placement source is supplied. Native actors move only along real
 //! navigation paths from server data. An explicitly enabled Live World
-//! (Experimental) prototype tries synthetic city residents using verified
-//! moving rig animations and locally collision-checked routes.
+//! (Experimental) prototype tries synthetic city residents using original
+//! human rigs in bind pose and locally collision-checked routes.
 //!
 //! Everything here is module-owned: archives, rig cache, texture cache, GPU
 //! draws, simulation and settings. The host supplies a camera position (which
@@ -271,9 +271,6 @@ struct Library {
     tracks: TrackCache,
     assets: HashMap<String, Rc<ModelAsset>>,
     failures: HashMap<String, String>,
-    /// First verified walking animation per rig. A resident receives a clone so
-    /// its clock is independent while archive probing remains one-time per rig.
-    walk_animations: HashMap<String, Option<WalkAnimation>>,
     /// Bind-pose head height per rig, for the overhead name. Computed once per
     /// template rather than once per actor.
     heads: HashMap<String, f32>,
@@ -330,7 +327,6 @@ impl Library {
             tracks: TrackCache::default(),
             assets: HashMap::new(),
             failures: HashMap::new(),
-            walk_animations: HashMap::new(),
             heads: HashMap::new(),
         })
     }
@@ -403,7 +399,6 @@ impl Library {
             tracks,
             assets,
             failures,
-            walk_animations: _,
             heads: _,
         } = self;
         let mut read = |path: &str| read_archive(models, textures.as_mut(), path);
@@ -420,16 +415,6 @@ impl Library {
                 Err(error)
             }
         }
-    }
-
-    fn walk_animation(&mut self, path: &str, asset: &ModelAsset) -> Option<WalkAnimation> {
-        let key = crate::ecmodel::normalize(path);
-        if let Some(animation) = self.walk_animations.get(&key) {
-            return animation.clone();
-        }
-        let animation = walk_clock(asset);
-        self.walk_animations.insert(key, animation.clone());
-        animation
     }
 }
 
@@ -484,14 +469,11 @@ struct Live {
     follow: Option<Follow>,
     /// Generated Live World residents use collision-checked local routes.
     live_world: bool,
-    /// Native locomotion clip or supported combined action, with its own clock.
-    walk_animation: Option<WalkAnimation>,
     /// City used for replanning if a streamed obstacle invalidates the route.
     live_world_zone: Option<usize>,
     /// Perturbation counter so a rejected route is not proposed again verbatim.
     route_attempt: u64,
     route_retry_seconds: f32,
-    walking: bool,
     draw: Option<model_draw_gpu::Draw>,
     /// Fatal per-actor error (rig, pose or draw); the actor is not submitted.
     failure: Option<String>,
@@ -509,8 +491,14 @@ impl Live {
     /// disappearing.
     fn pose(&mut self) -> Result<Vec<PosedMesh>, String> {
         let world = self.world();
+        // Generated residents deliberately translate in their original rig's
+        // bind pose; this build has no walk cycle for the ordinary city models.
+        // Do not play an idle clip while moving or let a missing gait suppress
+        // the route. Authored NPCs retain their own idle animation below.
+        if self.live_world {
+            return self.asset.pose_bind(world);
+        }
         let idle_sample = self.playback.as_ref().and_then(Playback::sample);
-        let walk_sample = self.walk_animation.as_ref().and_then(WalkAnimation::sample);
         let fallback = self.action.map(|action| {
             (
                 action,
@@ -518,15 +506,7 @@ impl Live {
                     .map_or(self.clock, |clip| clip.seconds(self.clock)),
             )
         });
-        let samples = if self.walking {
-            [
-                walk_sample.or(idle_sample),
-                (walk_sample.is_some()).then_some(idle_sample).flatten(),
-                fallback,
-            ]
-        } else {
-            [idle_sample, fallback, None]
-        };
+        let samples = [idle_sample, fallback, None];
         for (action, seconds) in samples.into_iter().flatten() {
             match self.asset.pose_action_at_time(action, seconds, world) {
                 Ok(meshes) => return Ok(meshes),
@@ -856,6 +836,7 @@ fn idle_clock(
 /// actions; never reinterpret a work or idle action as locomotion. Recognize
 /// compound and short Chinese action names as well as English names, with their
 /// optional equipment suffixes.
+#[cfg(test)]
 fn locomotion_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     let positive = ["walk", "run", "move", "走", "行走", "奔跑", "跑", "移动"];
@@ -870,6 +851,7 @@ fn locomotion_name(name: &str) -> bool {
 /// Collect every semantically named locomotion candidate, not only the first
 /// one. A rig may have an unusable combined action before its working direct
 /// walk clip (or several equipment variants); validation must try alternatives.
+#[cfg(test)]
 fn walk_clock_candidates(asset: &ModelAsset) -> Vec<WalkAnimation> {
     let mut candidates = Vec::new();
     for (combined, scene_action) in asset.descriptor.actions.iter().enumerate() {
@@ -911,6 +893,7 @@ fn walk_clock_candidates(asset: &ModelAsset) -> Vec<WalkAnimation> {
 /// Select the first clip whose real skinned geometry changes. Merely naming a
 /// clip "walk" is not enough; conversely, one broken first match must not hide
 /// a later valid walking action on the same rig.
+#[cfg(test)]
 fn select_walk_animation(
     asset: &ModelAsset,
     candidates: Vec<WalkAnimation>,
@@ -920,10 +903,12 @@ fn select_walk_animation(
         .find(|animation| walk_animation_moves_meshes(asset, animation))
 }
 
+#[cfg(test)]
 fn walk_clock(asset: &ModelAsset) -> Option<WalkAnimation> {
     select_walk_animation(asset, walk_clock_candidates(asset))
 }
 
+#[cfg(test)]
 #[derive(Clone, Debug)]
 struct WalkAnimation {
     action: usize,
@@ -932,6 +917,7 @@ struct WalkAnimation {
     elapsed: f32,
 }
 
+#[cfg(test)]
 impl WalkAnimation {
     fn sample(&self) -> Option<(usize, f32)> {
         self.playback
@@ -964,6 +950,7 @@ impl WalkAnimation {
 /// A matching action name is not enough: reject clips whose tracks cannot be
 /// evaluated or whose skinned geometry does not actually change. This prevents
 /// a resident from sliding along a route in a bind/idle pose.
+#[cfg(test)]
 fn walk_animation_moves_meshes(asset: &ModelAsset, animation: &WalkAnimation) -> bool {
     let Some((action, seconds)) = animation.sample() else {
         return false;
@@ -1077,11 +1064,9 @@ fn live_world_name_tokens() -> LiveWorldNameTokens {
     }
 }
 
-/// Accept only the client's numbered human male/female and guard NPC rig
-/// families. In this build the ordinary male/female rigs near city targets have
-/// no named gait clips; the human guard rigs do, so excluding them makes the
-/// Live World walkable palette empty. Creature, monster, prop, malformed, and
-/// non-NPC asset paths are still rejected.
+/// Accept only the client's numbered original human male/female NPC rig
+/// families. Guard, creature, monster, prop, malformed, and non-NPC paths are
+/// rejected so synthetic residents vary among the native city-local models.
 fn live_world_gender(model: &str) -> Option<NpcGender> {
     let model = crate::ecmodel::normalize(model);
     let relative = model.strip_prefix("models/npcs/npc/")?;
@@ -1090,8 +1075,6 @@ fn live_world_gender(model: &str) -> Option<NpcGender> {
         ("男npc", NpcGender::Masculine)
     } else if family.starts_with("女npc") {
         ("女npc", NpcGender::Feminine)
-    } else if family.starts_with("卫兵npc") {
-        ("卫兵npc", NpcGender::Masculine)
     } else {
         return None;
     };
@@ -1482,8 +1465,9 @@ fn pose_signature(meshes: &[PosedMesh]) -> u64 {
     hash
 }
 
-/// Candidate admission uses a denser fingerprint across every skin mesh: a
-/// short action on a head/hand must not conceal a changing torso or leg.
+/// Test-only fingerprint across every skin mesh so a short action on one small
+/// part cannot conceal a changing torso or leg in synthetic locomotion fixtures.
+#[cfg(test)]
 fn walk_pose_signature(meshes: &[PosedMesh]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     for mesh in meshes {
@@ -1538,9 +1522,9 @@ pub struct Populator {
     live_world_since_stream_refresh: usize,
     city_zones: Vec<CityZone>,
     city_zone_error: Option<String>,
-    /// City-local source rigs before their native walk clips are validated.
+    /// City-local original human source rigs found in the native placements.
     live_world_template_candidates: Vec<Vec<usize>>,
-    /// Only rigs with a sampleable, visibly changing locomotion action.
+    /// Structurally loadable original human rigs used as appearance templates.
     live_world_templates: Vec<Vec<usize>>,
     live_world_template_cursor: usize,
     live_world_templates_ready: bool,
@@ -1681,7 +1665,7 @@ impl Populator {
     pub fn live_world_generated(&self) -> usize {
         self.live_world_generated
     }
-    pub fn live_world_walkable_rig_count(&self) -> usize {
+    pub fn live_world_model_count(&self) -> usize {
         self.live_world_templates.iter().map(Vec::len).sum()
     }
     pub fn live_world_radius(&self) -> f32 {
@@ -1714,7 +1698,7 @@ impl Populator {
             .sum::<usize>();
         if !self.live_world_templates_ready {
             return format!(
-                "Checking walk clips: {} of {total} local human rigs; {} city targets.",
+                "Checking original models: {} of {total} local human rigs; {} city targets.",
                 self.live_world_template_cursor,
                 self.city_zones.len()
             );
@@ -1725,7 +1709,7 @@ impl Populator {
             .saturating_mul(self.live_world_residents_per_zone)
             .min(LIVE_WORLD_MAX_RESIDENTS);
         format!(
-            "Verified walking clips: {choices}/{total} human rigs. Residents: {}/{requested}; placement attempts: {}.",
+            "Loadable original models: {choices}/{total} city-local human rigs. Residents: {}/{requested}; placement attempts: {}.",
             self.live_world_generated,
             self.live_world_cursor
         )
@@ -1957,9 +1941,10 @@ impl Populator {
         self.report();
     }
 
-    /// Incrementally inspect each city-local rig for a sampleable walk/run
-    /// action. Asset decompression is budgeted across frames just like resident
-    /// creation; only rigs with changing skinned geometry enter the palette.
+    /// Incrementally validate the original city-local human rigs that form the
+    /// appearance palette. Generated residents intentionally use bind poses and
+    /// route motion without a walk cycle; corrupt/unloadable rigs are still
+    /// rejected. Asset decompression is budgeted across frames.
     fn prepare_live_world_templates(&mut self) {
         if !self.live_world || self.live_world_templates_ready {
             return;
@@ -1999,29 +1984,11 @@ impl Populator {
                 continue;
             };
             let model = spawn.model.clone();
-            let asset = match library.asset(&model) {
-                Ok(asset) => asset,
-                Err(error) => {
-                    eprintln!("Populator: Live World could not load rig {model}: {error}");
-                    library
-                        .walk_animations
-                        .insert(crate::ecmodel::normalize(&model), None);
-                    continue;
-                }
-            };
-            let candidates = walk_clock_candidates(&asset);
-            let named_count = candidates.len();
-            let animation = select_walk_animation(&asset, candidates);
-            if animation.is_some() {
-                self.live_world_templates[zone].push(spawn_index);
-            } else if named_count > 0 {
-                eprintln!(
-                    "Populator: Live World rig {model} has {named_count} named walk/run candidate(s), but none produces changing skinned geometry"
-                );
+            if let Err(error) = library.asset(&model) {
+                eprintln!("Populator: Live World could not load rig {model}: {error}");
+                continue;
             }
-            library
-                .walk_animations
-                .insert(crate::ecmodel::normalize(&model), animation);
+            self.live_world_templates[zone].push(spawn_index);
             if processed > 0 && started.elapsed() >= LIVE_WORLD_BUILD_BUDGET {
                 break;
             }
@@ -2033,19 +2000,19 @@ impl Populator {
                 .iter()
                 .map(Vec::len)
                 .sum::<usize>();
-            eprintln!("Populator: Live World found {eligible} rig choices with a sampleable, changing walk/run pose out of {total} city rigs");
+            eprintln!("Populator: Live World found {eligible} loadable original human rig choices out of {total} city rigs; generated residents use bind-pose movement");
         }
     }
 
     /// Generate independent city residents in bounded batches. Native placements
-    /// contribute only a local rig palette with a validated walking animation.
+    /// contribute only original local human rig models, never their identities.
     fn extend_live_world(&mut self, floors: Option<&dyn FloorSource>) {
         if !self.live_world
             || !self.live_world_templates_ready
             || floors.is_none()
             || self.city_zones.is_empty()
             || self.live_world_templates.is_empty()
-            || self.live_world_walkable_rig_count() == 0
+            || self.live_world_model_count() == 0
             || self.live_world_residents_per_zone == 0
         {
             return;
@@ -2293,21 +2260,14 @@ impl Populator {
         let key = crate::ecmodel::normalize(&spawn.model);
         let library = self.library.as_mut()?;
         let asset = library.asset(&spawn.model).ok()?;
-        let walk_animation = live_world
-            .then(|| library.walk_animation(&key, asset.as_ref()))
-            .flatten();
         let head = library.head(&key, asset.as_ref());
-        let (action, clip, playback) = if self.settings.idle_animation {
+        let (action, clip, playback) = if self.settings.idle_animation && !live_world {
             idle_clock(asset.as_ref(), &mut self.idle_report)
         } else {
             (None, None, None)
         };
-        // Live World only admits rigs that passed the archive-backed clip and
-        // geometry-motion audit. Fail closed if an asset changed or was skipped:
-        // never translate a resident in a bind/idle pose.
-        if live_world && walk_animation.is_none() {
-            return None;
-        }
+        // Generated residents may route with no walk cycle; their pose remains
+        // fixed at bind pose while their position follows the safe local route.
         let follow = self.route_for(&spawn);
         Some(Live {
             spawn: index,
@@ -2332,11 +2292,9 @@ impl Populator {
             uploaded_stamp: None,
             follow,
             live_world,
-            walk_animation,
             live_world_zone,
             route_attempt: 0,
             route_retry_seconds: 0.,
-            walking: false,
             draw: None,
             failure: None,
         })
@@ -2403,7 +2361,6 @@ impl Populator {
             }
             live.route_retry_seconds = (live.route_retry_seconds - delta).max(0.);
             if live.live_world
-                && live.walk_animation.is_some()
                 && live.follow.is_none()
                 && live.route_retry_seconds <= 0.
             {
@@ -2435,7 +2392,6 @@ impl Populator {
             let Some(follow) = live.follow.as_mut() else {
                 continue;
             };
-            let was_walking = live.walking;
             let before = live.position;
             match follow.step(&mut live.position, delta) {
                 Motion::Walking => {
@@ -2454,10 +2410,6 @@ impl Populator {
                             live.position = before;
                             live.follow = None;
                             live.route_retry_seconds = 0.2;
-                            live.walking = false;
-                            if let Some(animation) = live.walk_animation.as_mut() {
-                                animation.restart();
-                            }
                             occupied[live_index] = live.position;
                             continue;
                         }
@@ -2469,27 +2421,11 @@ impl Populator {
                     if let Some(map) = self.map.as_ref() {
                         live.position.y = map.ground(live.position.x, live.position.z);
                     }
-                    live.walking = live.live_world;
                 }
                 Motion::Finished => {
                     live.follow = None;
-                    live.walking = false;
                 }
-                Motion::Waiting => live.walking = false,
-            }
-            if live.walking {
-                if !was_walking {
-                    if let Some(animation) = live.walk_animation.as_mut() {
-                        animation.restart();
-                    }
-                }
-                if let Some(animation) = live.walk_animation.as_mut() {
-                    animation.advance(delta, delta_ms);
-                }
-            } else if was_walking {
-                if let Some(animation) = live.walk_animation.as_mut() {
-                    animation.restart();
-                }
+                Motion::Waiting => {}
             }
             occupied[live_index] = live.position;
         }
@@ -2938,7 +2874,7 @@ impl Populator {
                 if self.live_world {
                     ui.label(
                         egui::RichText::new(format!(
-                            "Live World (Experimental): {} residents generated. See its status for walking-rig and placement results.",
+                            "Live World (Experimental): {} residents generated. See its status for original-model and placement results.",
                             self.live_world_generated
                         ))
                         .small()
@@ -3203,8 +3139,8 @@ mod tests {
         );
         for guard in 1..=4 {
             let path = format!("models/npcs/npc/卫兵npc{guard}/卫兵npc{guard}.ecm");
-            assert_eq!(live_world_gender(&path), Some(NpcGender::Masculine));
-            assert!(live_world_rig_allowed(&path));
+            assert_eq!(live_world_gender(&path), None);
+            assert!(!live_world_rig_allowed(&path));
         }
         assert_eq!(
             live_world_gender("models/npcs/npc/妖兽npc1/妖兽npc1.ecm"),
@@ -3223,7 +3159,7 @@ mod tests {
     }
 
     #[test]
-    fn city_rig_palette_is_local_distinct_humanoid_only_and_excludes_anvils() {
+    fn city_rig_palette_uses_original_static_models_and_excludes_guards_and_props() {
         let mut male = spawn(None);
         male.model = "models/npcs/npc/男npc4/男npc4.ecm".into();
         male.anchor = [1470.490, 1180.864];
@@ -3244,6 +3180,9 @@ mod tests {
         let mut creature = male.clone();
         creature.id += 6;
         creature.model = "models/npcs/npc/妖兽npc1/妖兽npc1.ecm".into();
+        let mut guard = male.clone();
+        guard.id += 7;
+        guard.model = "models/npcs/npc/卫兵npc1/卫兵npc1.ecm".into();
         let zones = vec![CityZone {
             name: "Archosaur".into(),
             center: [1470.490, 1180.864],
@@ -3251,7 +3190,17 @@ mod tests {
         }];
         assert_eq!(
             live_world_city_population(
-                &[male, duplicate, female, anvil, object, wilderness, creature],
+                &[
+                    male,
+                    duplicate,
+                    female,
+                    anvil,
+                    object,
+                    wilderness,
+                    creature,
+                    guard,
+                ],
+
                 &zones
             ),
             vec![vec![0, 2]]
@@ -3541,6 +3490,79 @@ mod tests {
         let selected = walk_clock(&asset).expect("the second action visibly moves the rig");
         assert_eq!(selected.action, 1);
         assert!(walk_animation_moves_meshes(&asset, &selected));
+    }
+
+    #[test]
+    fn live_world_moves_the_actor_in_bind_pose_without_playing_a_walk_clip() {
+        use crate::skeleton::{Bone, Joint};
+
+        let mut asset = rig_without_combined_actions();
+        asset.skeleton.fps = 30;
+        asset.skeleton.bones.push(Bone {
+            name: "root".into(),
+            flags: 0,
+            parent: -1,
+            first_joint: 0,
+            relative: Mat4::IDENTITY.to_cols_array(),
+            initial: Mat4::IDENTITY.to_cols_array(),
+            children: Vec::new(),
+        });
+        asset.skeleton.joints.push(Joint {
+            class: 15,
+            name: "root joint".into(),
+            parent: -1,
+            child: 0,
+            sibling: -1,
+        });
+        asset.skins[0].data.bones.push("root".into());
+        asset.model.actions.push(idle_action("行走", 0., 30.));
+        asset.tracks = vec![Some(synthetic_walk_track([
+            [0., 0., 0.],
+            [0., 1., 0.],
+            [0., 0., 0.],
+        ]))];
+
+        let mut live = Live {
+            spawn: 0,
+            position: Vec3::new(4., 0., 7.),
+            yaw: 0.,
+            asset: std::rc::Rc::new(asset),
+            action: Some(0),
+            playback: None,
+            clip: Some(Clip {
+                start_ms: 0,
+                length_ms: 1_000,
+            }),
+            clock: 0.5,
+            head: 1.8,
+            on_floor: false,
+            pose_error: None,
+            motion: MotionProbe::default(),
+            name_visible: true,
+            floor_stamp: 0,
+            nudged: false,
+            wedged: false,
+            visible: true,
+            pose_index: None,
+            pose_stamp: None,
+            uploaded_stamp: None,
+            follow: None,
+            live_world: true,
+            live_world_zone: Some(0),
+            route_attempt: 0,
+            route_retry_seconds: 0.,
+            draw: None,
+            failure: None,
+        };
+        let world = live.world();
+        let bind = live.asset.pose_bind(world).unwrap();
+        let animated = live.asset.pose_action_at_time(0, 0.5, world).unwrap();
+        assert_ne!(walk_pose_signature(&bind), walk_pose_signature(&animated));
+        assert_eq!(
+            walk_pose_signature(&live.pose().unwrap()),
+            walk_pose_signature(&bind),
+            "a generated resident follows routes without evaluating a walk pose"
+        );
     }
 
     #[test]
