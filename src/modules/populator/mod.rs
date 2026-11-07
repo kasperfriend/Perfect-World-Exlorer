@@ -297,9 +297,7 @@ fn apply_reflect_prefix_alpha(asset: &mut ModelAsset) {
                 .and_then(|texture| skin.data.textures.get(texture))
                 .is_some_and(|texture| reflect_prefix_texture(texture));
             if is_reflect {
-                asset
-                    .diffuse_alpha_meshes
-                    .insert((skin_index, mesh_index));
+                asset.diffuse_alpha_meshes.insert((skin_index, mesh_index));
             }
         }
     }
