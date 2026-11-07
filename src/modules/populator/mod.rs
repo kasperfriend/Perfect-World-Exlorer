@@ -2360,10 +2360,7 @@ impl Populator {
                 }
             }
             live.route_retry_seconds = (live.route_retry_seconds - delta).max(0.);
-            if live.live_world
-                && live.follow.is_none()
-                && live.route_retry_seconds <= 0.
-            {
+            if live.live_world && live.follow.is_none() && live.route_retry_seconds <= 0. {
                 if let (Some(map), Some(floors), Some(zone)) = (
                     self.map.as_ref(),
                     floors,
@@ -3190,16 +3187,7 @@ mod tests {
         }];
         assert_eq!(
             live_world_city_population(
-                &[
-                    male,
-                    duplicate,
-                    female,
-                    anvil,
-                    object,
-                    wilderness,
-                    creature,
-                    guard,
-                ],
+                &[male, duplicate, female, anvil, object, wilderness, creature, guard,],
 
                 &zones
             ),
