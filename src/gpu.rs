@@ -1829,11 +1829,14 @@ impl Renderer {
             // `gfx.pck` below. A map that ships no EC model still gets its
             // effects, so a missing model archive costs the model queue and
             // never the waterfalls.
-            let world = crate::world_models_gpu::World::new(&device, format, assets, &t.element)
-                .or_else(|error| {
-                    eprintln!("World models unavailable ({error}); world effects continue");
-                    crate::world_models_gpu::World::without_models(&device, format)
-                })?;
+            let world =
+                match crate::world_models_gpu::World::new(&device, format, assets, &t.element) {
+                    Ok(world) => world,
+                    Err(error) => {
+                        eprintln!("World models unavailable ({error}); world effects continue");
+                        crate::world_models_gpu::World::without_models(&device, format)
+                    }
+                };
             // Actual world effect owners: the ECWLD placements and the hook-free
             // ECM EventType-100 roots publish into the same scene-light grid the
             // receiving models query, and the same owners now play their animated
