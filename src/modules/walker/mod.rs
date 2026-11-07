@@ -785,7 +785,7 @@ impl Walker {
             }
         }
         self.object_grounded = object_grounded;
-        // Recover grounded state if physics briefly lost it on a surface (stair/object edge)
+        // Recover grounded state if physics briefly lost it on a surface (stair/object edge).
         if (!body.grounded
             && body.vertical_velocity <= 0.5
             && body.position.y <= support.height + 0.1)
