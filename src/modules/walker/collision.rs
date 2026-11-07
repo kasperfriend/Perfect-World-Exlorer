@@ -1152,7 +1152,7 @@ impl Collision {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bmd::BrushSide;
+    use crate::{bmd::BrushSide, modules::walker::physics};
 
     fn box_brush(center: [f32; 3], extents: [f32; 3]) -> CollisionBrush {
         let sides = [
@@ -1306,7 +1306,7 @@ mod tests {
         let extents = Vec3::new(0.3, 0.9, 0.3);
         let feet = Vec3::new(0., 1.5, 0.);
         let direct = collision.support(feet, extents, 1.0).unwrap();
-        let via_floor = <Collision as super::physics::ObjectSupport>::object_support(
+        let via_floor = <Collision as physics::ObjectSupport>::object_support(
             &collision, feet, extents, 1.0,
         )
         .unwrap();
