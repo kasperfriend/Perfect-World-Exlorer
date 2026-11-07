@@ -15,12 +15,16 @@ mod gfx_catalog;
 mod gfx_color_track;
 #[path = "../gfx_decal.rs"]
 mod gfx_decal;
+#[path = "../gfx_effect_gpu.rs"]
+mod gfx_effect_gpu;
 #[path = "../gfx_file.rs"]
 mod gfx_file;
 #[path = "../gfx_light.rs"]
 mod gfx_light;
 #[path = "../gfx_owner.rs"]
 mod gfx_owner;
+#[path = "../gfx_player.rs"]
+mod gfx_player;
 #[path = "../model_asset.rs"]
 mod model_asset;
 #[path = "../model_attachment.rs"]
