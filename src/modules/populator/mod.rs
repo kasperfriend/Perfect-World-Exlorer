@@ -1052,8 +1052,11 @@ fn live_world_name_tokens() -> LiveWorldNameTokens {
     }
 }
 
-/// Accept only the client's numbered human male/female NPC rig families.
-/// Creature, monster, prop, malformed, and non-NPC asset paths are rejected.
+/// Accept only the client's numbered human male/female and guard NPC rig
+/// families. In this build the ordinary male/female rigs near city targets have
+/// no named gait clips; the human guard rigs do, so excluding them makes the
+/// Live World walkable palette empty. Creature, monster, prop, malformed, and
+/// non-NPC asset paths are still rejected.
 fn live_world_gender(model: &str) -> Option<NpcGender> {
     let model = crate::ecmodel::normalize(model);
     let relative = model.strip_prefix("models/npcs/npc/")?;
@@ -1062,6 +1065,8 @@ fn live_world_gender(model: &str) -> Option<NpcGender> {
         ("男npc", NpcGender::Masculine)
     } else if family.starts_with("女npc") {
         ("女npc", NpcGender::Feminine)
+    } else if family.starts_with("卫兵npc") {
+        ("卫兵npc", NpcGender::Masculine)
     } else {
         return None;
     };
@@ -3093,14 +3098,7 @@ impl Populator {
         }
         ui.label(
             egui::RichText::new(
-                "Native NPCs use client placements, models, idle animation and names. Live World (Experimental) tries synthetic residents near city targets using verified walking clips and safe local routes. It may generate zero if no rig or route passes; server spawn data is unavailable.",
-            )
-            .small()
-            .weak(),
-        );
-        ui.label(
-            egui::RichText::new(
-                "The supplied client population files do not contain per-NPC facing. Existing placements keep the model's authored forward direction; exact server-authored directions require the server spawn data (gamedata/npcgen.data), which was not present in pw142.",
+                "Displays original client-placed NPCs with their models, names and idle animations.",
             )
             .small()
             .weak(),
@@ -3158,6 +3156,11 @@ mod tests {
             live_world_gender("models/npcs/npc/女npc7/女npc7.ecm"),
             Some(NpcGender::Feminine)
         );
+        for guard in 1..=4 {
+            let path = format!("models/npcs/npc/卫兵npc{guard}/卫兵npc{guard}.ecm");
+            assert_eq!(live_world_gender(&path), Some(NpcGender::Masculine));
+            assert!(live_world_rig_allowed(&path));
+        }
         assert_eq!(
             live_world_gender("models/npcs/npc/妖兽npc1/妖兽npc1.ecm"),
             None

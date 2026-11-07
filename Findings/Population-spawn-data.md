@@ -292,15 +292,12 @@ instance directions.
 Population textures keep `models.pck` as the canonical source (it carries NPC
 texture sheets beside their rigs), with a same-path `textures.pck` fallback if a
 payload cannot be decoded. A per-actor draw failure logs the NPC name, ECM path
-and texture decoder error. The retail idle census verifies Guard rigs 1–4 have
-parseable model/action data and standing clips; that does not verify their
-rendered materials or prove the reported Guard Chang Zheng appears correctly.
-The canonical `pw142/element/models.pck` is 888,028,116 bytes, beyond the
-workspace's 100 MiB file-transfer limit. The split `models.zip.001`–`.010` set
-was identified as a different build by the user and is not valid evidence for
-this client, so it was not scanned. To identify the Guard rendering fault, use
-the matching build's model pack plus the runtime's exact per-actor draw error
-(or a capture); no texture-level cause is established yet.
+and texture decoder error. The correct `pw142/models.zip.001`–`.010` set has now
+been reassembled and validated. Guard rigs 1–4 resolve through ECM, SMD, BON,
+SKI and their referenced textures; their skin meshes and action tracks also
+parse. This rules out missing archive dependencies, but does not prove the
+models render correctly in the application. A reported visual defect still
+needs the runtime's exact per-actor draw error or a capture to isolate it.
 
 ## Overhead names (font and drawing, from the client's own files)
 
@@ -374,28 +371,41 @@ coordinates are inputs for a visual prototype, not authored resident schedules
 or safe spawn zones. The archive contains nine targets named as cities or
 districts; a target does not guarantee nearby walkable ground.
 
-The prototype samples distinct numbered human NPC rigs and gives each generated
-resident a synthetic name and id. It tests direct and combined walk/run actions
-against the model pose pipeline and admits a rig only if skinned geometry
-actually changes. Generated circuits are sampled locally; terrain, water,
-building collision, floors and occupied actors can reject a candidate. Failed
-candidates are retried, and a route blocked later is replanned. No native NPC
-identity, placement, route or schedule is copied.
+The prototype samples numbered human NPC rigs and gives each generated resident a
+synthetic name and id. It tests direct and combined walk/run actions against the
+model pose pipeline and admits a rig only if skinned geometry actually changes.
+Generated circuits are sampled locally; terrain, water, building collision,
+floors and occupied actors can reject a candidate. Failed candidates are
+retried, and a route blocked later is replanned. No native NPC identity,
+placement, route or schedule is copied.
 
-**Zero-generation code path found:** Live World is updated only inside the
-Populator frame hook, and that hook returns immediately while Populator is
-disabled. Previously the nested Live World checkbox could be enabled without
-activating Populator, leaving the generated count at zero and skipping both rig
-scanning and placement. The checkbox is now shown directly in the Populator
-panel and enabling it activates its parent module. If zero persists while
-Populator is active, the Live World diagnostics distinguish local rig/clip
-validation from placement attempts; the user's exact runtime branch still needs
-to be observed.
+**Zero-generation root cause (confirmed against the correct `pw142` split
+archive):** the source filter accepted only `男npc#` and `女npc#` rig families.
+The nine city zones contain 43 distinct local male/female rigs, and none has a
+walk/run action recognized by the movement scan. The same archive contains
+Guard rigs `卫兵npc1`–`4` with direct `走`/`跑` clips whose skeleton tracks
+change. Those rigs were excluded before movement validation because the
+human-family filter did not recognize `卫兵npc#`; consequently every admitted
+city rig failed locomotion validation and the resident palette was empty. The
+filter now recognizes numbered Guard rigs as masculine human candidates while
+still rejecting creature, monster and prop families. The corrected scan sees 11
+local Guard placements using three distinct Guard rigs across five zones; it
+opens walkable candidates there without inventing Guard placements in the other
+four zones. Runtime generation and safe-route success still need confirmation
+in the client.
 
-**Build-specific evidence:** the 1.4.2 `element/models.pck` is 888,028,116
-bytes, above the workspace transfer limit. The split `models.zip.001`–`.010`
-set in Drive was identified by the user as a different build and was not used
-for this diagnosis. The existing idle census only establishes idle behavior,
-not that those same rigs have usable walking clips. Keep Live World marked
-Experimental until a matching-build scan and successful resident generation
-are verified in a real client run.
+**Guard asset check:** the reassembled `pw142/models.zip.001`–`.010` archive
+passes `unzip -t` and contains 40,753 `models.pck` entries. For each Guard rig
+1–4, the ECM→SMD→BON/SKI references resolve; parsed skins have valid mesh/index,
+material and joint references, and every referenced texture is present in the
+pack. The four SMD/BON sets also expose changing walk/run tracks. This rules
+out missing or obviously malformed archive dependencies, but does not verify
+GPU rendering or explain a visual defect observed in a running client. If the
+Guard models still look broken after this check, the renderer's actor error or
+a screenshot is needed to isolate that remaining visual issue.
+
+The 1.4.2 `element/models.pck` is 888,028,116 bytes; the split files were the
+user-confirmed correct source, not a different build. Live World remains marked
+Experimental because routes are synthetic and route validation can still reject
+all attempts, and the corrected candidate filter has not yet been exercised in
+a real client run.
