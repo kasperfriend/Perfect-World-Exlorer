@@ -1,0 +1,143 @@
+# Why the world showed no effects at all
+
+**Date:** 2026-11-07
+**Fix:** `6e72f2e` — "Serve the effect textures from the archive that actually holds them"
+**Status:** verified by measurement over the shipped corpus; CI green (`42408167014`).
+
+## The report
+
+The world rendered its terrain, its buildings and its EC models, but no effect it
+authored — no waterfall, no torch or brazier fire, no mist, no glow, no sun
+shaft — appeared anywhere. The effect **gallery** did render effects, though it
+did not visibly animate them. Everything below the presentation layer had
+already been shown to be correct: the ECWLD effect records parse with the right
+layout, their positions are absolute world coordinates, the roots load, the
+keys are interpolated, the quads are built, and the UVs advance between frames.
+
+So the defect had to sit between "a correct quad list exists" and "a draw call
+reaches the screen". It did.
+
+## The cause
+
+The effect draw is handed a byte reader — the closure that turns an archive path
+into file bytes.
+
+```rust
+// src/world_models_gpu.rs, World::new
+self.read = Box::new(move |path: &str| { /* answers only from models.pck */ });
+```
+
+`World::new` opens `models.pck`, builds the entry map, and installs a reader over
+it. That reader is later passed, unchanged, into every effect update:
+
+```rust
+// src/world_models_gpu.rs, update_effects
+draw.update(device, queue, &frame, &self.owners.effect_quads(...), &mut self.read);
+```
+
+But effect textures do not live in `models.pck`. An element's `TexFile` value is
+resolved by
+
+```rust
+// src/gfx_player.rs
+pub fn texture_path(texture: &str) -> Result<String, String> {
+    Ok(format!("gfx/textures/{path}"))
+}
+```
+
+while model textures resolve under `models/.../textures/...`
+(`src/model_asset.rs`). Two different archives, two different namespaces — and
+the effect draw was reading the model one. Every effect texture lookup therefore
+returned "missing model texture".
+
+That alone would only have lost the texture. What made it total is the next
+step. `gfx_effect_gpu::Draw::update` groups quads by texture and uploads one
+bucket per group; on a failed read it did this:
+
+```rust
+Err(error) => {
+    self.note_failure(&key.texture, &error);
+    continue;          // <-- drops the whole bucket
+}
+```
+
+So each unreadable texture deleted every quad that shared it. A world with
+**2,275 correctly placed effect records over 163 roots** drew **nothing at all**.
+
+`attach_gfx_archive` was the one place that could have fixed this and did not: it
+opened `gfx.pck`, read its directory, and handed the handle to
+`owners.set_reader` so root *text* could be fetched — but it never touched
+`self.read`, the reader used for asset *bytes*.
+
+## The measurement that confirms it
+
+Taken over the actual shipped archives, not assumed:
+
+| Quantity | Value |
+| --- | --- |
+| Effect records in `world.ecwld` | 2,275 |
+| Distinct roots those records name | 163 |
+| Roots missing from `gfx.pck` | **0** |
+| Distinct `gfx/textures/...` those roots name | 211 |
+| Textures missing from `gfx.pck` | **0** |
+| Elements with an empty `TexFile` | 110 (guarded at `gfx_player.rs:885`) |
+
+Every legitimate asset was present the whole time. The viewer simply asked the
+wrong archive.
+
+The waterfall is the clearest single case: `场景/瀑布水花湍急.gfx` names
+`物体\waterfalldrops.tga`, which resolves to
+`gfx/textures/物体/waterfalldrops.tga` and **is** a member of `gfx.pck`.
+
+## Two fixes
+
+**1. The reader serves the archive the assets are in.** `attach_gfx_archive` now
+replaces `self.read` with a reader that answers from `gfx.pck` first and falls
+back to the previous model reader, so a model texture that a root happens to
+name still resolves. Root text keeps its own file handle so a root load and a
+texture load can never interleave file positions.
+
+```rust
+let gfx_entries = entries.clone();
+let mut gfx_pack = pack;
+let mut previous = std::mem::replace(&mut self.read,
+    Box::new(move |path: &str| Err(format!("unset reader: {path}"))));
+self.read = Box::new(move |path: &str| {
+    let key = crate::ecmodel::normalize(path);
+    match gfx_entries.get(&key) {
+        Some(entry) => crate::pck::read_entry(&mut gfx_pack, entry),
+        None => previous(path),
+    }
+});
+```
+
+**2. A failed texture no longer deletes geometry.** `Draw` gained a 1×1 opaque
+white stand-in texture. When an element's map will not load, the element draws
+with it instead of being skipped. This matches what the client does — the
+element keeps its authored vertex colour and only loses its detail map — and it
+means no future missing asset can silently erase a whole particle group. The
+failure is still recorded through `note_failure`, so nothing is swallowed
+quietly.
+
+## Consequence for the "no matter what" requirement
+
+The texture surface is now closed against the shipped corpus: every root the map
+names exists, every texture those roots name exists, and — because the failure
+path still draws — a texture that a *future* corpus lacks can no longer remove
+geometry.
+
+The radius gate in `apply_activation` is **not** a defect and was deliberately
+left alone. It unloads effects outside the detail radius (7 blocks × 64 units =
+448 units at the shipped preset), which is the client's own streaming rule; over
+the map's effects that keeps a mean of 10.5 live in the playable neighbourhood
+and up to 79 within 4,096 units. Removing it would not show more of the map, it
+would only tick effects nobody can see.
+
+## What remains unproven
+
+This fix explains "nothing at all". It does not by itself prove that the
+surviving effects **animate** in the running viewer; that depends on
+`PlaySpeed`, `TexSpeed` and the controllers receiving a non-zero delta, which is
+a separate surface. The next test is the one the user can run: if effects now
+appear but stand still, the remaining defect is in the time base rather than in
+residency, placement or textures.
