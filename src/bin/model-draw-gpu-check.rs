@@ -845,7 +845,7 @@ fn main() {
             ornaments: vec![],
             boxes: vec![],
             effects: vec![scene::Effect {
-                export_id: 17,
+                index: 0,
                 scale: 1.,
                 position: [0., 0., 0.5],
                 direction: [0., 0., 1.],
