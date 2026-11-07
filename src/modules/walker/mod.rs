@@ -748,7 +748,7 @@ impl Walker {
             || (body.position.y <= support.height + 0.1 && body.vertical_velocity <= 0.5)
         {
             body.position.y = support.height;
-            if body.vertical_velocity <= 0.5 {
+            if body.vertical_velocity <= 1.0 || !body.grounded {
                 let newly_landed = !body.grounded;
                 body.vertical_velocity = 0.0;
                 body.grounded = true;
