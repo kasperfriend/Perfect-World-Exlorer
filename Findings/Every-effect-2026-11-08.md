@@ -294,9 +294,19 @@ Measured on this branch, at `a25179d`:
 
 - The four unresolved texture names above. Three are simply not in the archive;
   one is an extension mismatch that the client may or may not tolerate.
-- City of Raging Tides has not been isolated as its own case. Every one of its
-  roots is in the inventory above and decodes, so if it still looks wrong the
-  remaining cause is not texture decoding.
+- City of Raging Tides is the Tideborn map, `场景/新种族地图/` — 61 roots over
+  604 placements, and all of it is in the inventory above. Its distinctive roots
+  were driven directly and all of them draw: `大坑_液体` (the pit liquid) 218
+  quads, `水片长` 79, `水门_瀑布` 78, `水片圆` 38, `吐水泡` 15, `能量喷泉` 118,
+  `水族箱玻璃` 1. The water surfaces are element 210 grids — a `wNumber` by
+  `hNumber` field of individually coloured cells, drawing the cells whose colour
+  passes the alpha cutoff — and the pit is a 16-element particle and sprite graph
+  using `纹理/流动（通道）.dds` and `纹理/流动01_通道.dds`.
+  The one root that looked dead, `新种族地图/光`, is 99 placements of a graph made
+  entirely of a `GFXELEMENTID: 1` child reference to `光粒子.gfx`. It draws nothing
+  of its own by design, and the child does resolve and play. So no Tideborn root
+  failed to build and none failed to find its textures; if this area still looks
+  wrong, the cause is not in the roots.
 - `valid_time` day/night eligibility is read at the corrected record offsets, and
   the earlier report flagged that the split still needs a re-measurement against
   a world load. The counts in the table come from the current parse.
