@@ -1079,7 +1079,7 @@ impl Walker {
                 return Err("travel draw count changed without rebuilding GPU resources".into());
             }
             for (index, model) in models.into_iter().enumerate() {
-                gpu.draws[index].update(queue, model.asset, model.poses, frame)?;
+                gpu.draws[index].update_posed(queue, model.asset, model.poses, frame)?;
             }
             let decal_quads = character
                 .gfx
