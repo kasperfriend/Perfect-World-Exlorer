@@ -447,10 +447,7 @@ impl Walker {
                 .ok_or("Walker has no client asset host in this mode")?;
             let map = self.map.as_ref().ok_or("Walker has no terrain host")?;
             if self.assets.is_none() {
-                // `models.pck` with `gfx.pck` chained behind it: the gallery's
-                // effect roots name `gfx/textures/...`, which the model archive
-                // does not carry.
-                self.assets = Some(Assets::open_with_gfx(element)?);
+                self.assets = Some(Assets::open(element)?);
             }
             let ground = physics::ground(map, spawn.x, spawn.z);
             let position = Vec3::new(spawn.x, ground.height, spawn.z);
