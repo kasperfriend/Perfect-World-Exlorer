@@ -253,6 +253,8 @@ pub mod gfx_light;
 pub mod gfx_owner;
 #[path = "$REPO/src/gfx_player.rs"]
 pub mod gfx_player;
+#[path = "$REPO/src/model_dds.rs"]
+pub mod model_dds;
 #[path = "$REPO/src/scene.rs"]
 pub mod scene;
 #[path = "$REPO/src/scene_lights.rs"]
@@ -285,6 +287,6 @@ case "${1:-test}" in
             "$REPO/src/gfx_color_track.rs" "$REPO/src/gfx_catalog.rs" "$REPO/src/ecmodel.rs" \
             "$REPO/src/gfx_light.rs" "$REPO/src/gfx_owner.rs" "$REPO/src/scene_lights.rs" \
             "$REPO/src/view_settings.rs" "$REPO/src/client_weather.rs" \
-            "$REPO/src/sky_transition.rs" "$REPO/src/scene.rs" ;;
+            "$REPO/src/sky_transition.rs" "$REPO/src/scene.rs" "$REPO/src/model_dds.rs" ;;
     *) echo "usage: $0 {setup|check|test|fmt}" >&2; exit 2 ;;
 esac
