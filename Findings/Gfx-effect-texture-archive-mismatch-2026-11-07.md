@@ -142,6 +142,39 @@ the map's effects that keeps a mean of 10.5 live in the playable neighbourhood
 and up to 79 within 4,096 units. Removing it would not show more of the map, it
 would only tick effects nobody can see.
 
+## The corpus suite had been passing without a corpus
+
+Worth recording, because it changes how much the earlier green runs proved. The
+`corpus_*` tests in `src/gfx_player.rs` are guarded by
+
+```rust
+fn corpus_root() -> Option<PathBuf> {
+    let root = PathBuf::from("google_drive/x");
+    root.is_dir().then_some(root)
+}
+```
+
+and every one of them returns early when that directory is absent — which it was,
+repeatedly, because the sandbox wipes `google_drive` between sessions. A skip and
+a pass are indistinguishable in the test output, so seven tests that assert over
+the whole archive had never actually run.
+
+With the archive extracted again (all 5,459 `.gfx` members, 51 MB) they do run,
+and the suite is **240 passed, 0 failed** — the seven included:
+
+- `corpus_bind_names_resolve` (the corpus authors 968 `BindEle` names)
+- `corpus_camera_shakes_all_author_the_noise_controller`
+- `corpus_cylinder_emission_holds_on_authored_area_sizes`
+- `corpus_plays_through_with_the_surface_path`
+- `corpus_surface_emission_holds_on_authored_area_sizes`
+- `corpus_trails_play_through_the_vertex_ring`
+- `corpus_unbound_emission_carries_the_basis_scalar`
+
+The animated waterfall test now exercises the real root as well:
+`corpus_waterfall_plays_from_its_authored_placement` reports `live=1`,
+`players=1`, growing quad counts frame over frame, and **moving UVs** — the
+spray scrolls its texture on the real archive.
+
 ## What remains unproven
 
 This fix explains "nothing at all". It does not by itself prove that the
