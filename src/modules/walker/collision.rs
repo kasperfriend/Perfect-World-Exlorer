@@ -23,6 +23,7 @@ const DIST_EPSILON: f32 = 0.03125;
 const CHDATA_SKIP_COLLISION: u32 = 0x00000004;
 const MAX_CELLS_PER_QUERY: usize = 4096;
 const MAX_SLIDE_ITERATIONS: usize = 4;
+const MAX_BATCHES_PER_FRAME: usize = 3;
 /// Half-width of the box the name line-of-sight test sweeps along the view ray.
 const SIGHT_PROBE: f32 = 0.02;
 
@@ -387,7 +388,7 @@ impl CollisionWorld {
         // sweep reaches, so a bridge deck wins over the river bed below it and
         // an interior floor wins over the terrain poking through it.
         const STEP: f32 = 0.25;
-        const CONTACT_LIFT: f32 = 0.01;
+        const CONTACT_LIFT: f32 = 0.05;
         let delta = Vec3::NEG_Y * (STEP + CONTACT_LIFT * 2.0);
         let mut lift = 0.0;
         while lift <= max_up {
@@ -469,11 +470,11 @@ impl CollisionWorld {
         // slightly above the supplied feet position so an exact contact from
         // our fixed-step integrator is not misclassified as `start_solid`.
         // The lift is included in the trace distance, not in the result.
-        const CONTACT_LIFT: f32 = 0.01;
+        const CONTACT_LIFT: f32 = 0.05;
         let start = feet + Vec3::Y * (extents.y + CONTACT_LIFT);
         let delta = Vec3::NEG_Y * (max_down + CONTACT_LIFT);
         let hit = self.trace(start, delta, extents)?;
-        if hit.start_solid || hit.normal.y < 0.5 {
+        if hit.start_solid || hit.normal.y < 0.0 {
             return None;
         }
         let center = start + delta * hit.fraction;
@@ -484,6 +485,13 @@ impl CollisionWorld {
     }
 
     fn resolve(&self, old_feet: Vec3, desired_feet: Vec3, extents: Vec3) -> ResolvedMove {
+        if old_feet == desired_feet {
+            return ResolvedMove {
+                feet: old_feet,
+                blocked: false,
+                normal: Vec3::ZERO,
+            };
+        }
         let mut center = old_feet + Vec3::Y * extents.y;
         let mut remaining = desired_feet - old_feet;
         let mut blocked = false;
@@ -917,9 +925,17 @@ impl Collision {
         }
     }
 
+    pub fn is_done(&self) -> bool {
+        self.building_done
+    }
+
     pub fn poll(&mut self) {
         let mut finished = false;
+        let mut batches_processed = 0;
         loop {
+            if batches_processed >= MAX_BATCHES_PER_FRAME {
+                break;
+            }
             let message = match self.receiver.as_ref() {
                 Some(receiver) => receiver.try_recv(),
                 None => break,
@@ -930,6 +946,7 @@ impl Collision {
                     brushes,
                     decks,
                 }) => {
+                    batches_processed += 1;
                     self.building_processed = processed;
                     self.world.add_buildings(brushes);
                     self.world.add_decks(decks);

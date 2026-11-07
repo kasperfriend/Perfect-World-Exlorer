@@ -815,6 +815,9 @@ pub struct Character {
     last_jump: u64,
     last_landing: u64,
     sound_commands: Vec<SoundCommand>,
+    last_transform_pos: Vec3,
+    last_transform_facing: Vec3,
+    last_transform: Mat4,
 }
 
 impl Character {
@@ -926,6 +929,9 @@ impl Character {
             last_jump: 0,
             last_landing: 0,
             sound_commands: Vec::new(),
+            last_transform_pos: Vec3::ZERO,
+            last_transform_facing: Vec3::X,
+            last_transform: Mat4::IDENTITY,
         })
     }
 
@@ -1162,7 +1168,16 @@ impl Character {
             self.sound_commands
                 .push(SoundCommand::StopChannel(WEAPON_CHANNEL));
         }
-        let world = character_transform(body.position, facing);
+        let world =
+            if self.last_transform_pos == body.position && self.last_transform_facing == facing {
+                self.last_transform
+            } else {
+                let w = character_transform(body.position, facing);
+                self.last_transform_pos = body.position;
+                self.last_transform_facing = facing;
+                self.last_transform = w;
+                w
+            };
         let animation = TravelAnimation {
             state: travel,
             mount: if travel == TravelState::Mounted {

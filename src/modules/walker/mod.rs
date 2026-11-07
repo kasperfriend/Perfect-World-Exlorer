@@ -300,7 +300,9 @@ impl Walker {
     /// inactive; the load is only requested, never forced.
     pub fn prepare_object_collision(&mut self) {
         self.collision.ensure_loading();
-        self.collision.poll();
+        if !self.collision.is_done() {
+            self.collision.poll();
+        }
     }
 
     /// The building hulls, for placement support queries.
@@ -379,15 +381,20 @@ impl Walker {
 
     pub fn update_audio(&mut self, enabled: bool, volume: f32) {
         let active = self.is_active();
-        let commands = if active {
-            self.character
-                .as_mut()
-                .map(|character| character.take_sound_commands())
-                .unwrap_or_default()
+        if !active && !enabled {
+            // Nothing to do when inactive and disabled; avoid worker ping.
+            return;
+        }
+        let commands = self
+            .character
+            .as_mut()
+            .map(|character| character.take_sound_commands())
+            .unwrap_or_default();
+        let movement = if active && enabled {
+            self.movement_sound()
         } else {
-            Vec::new()
+            None
         };
-        let movement = if active { self.movement_sound() } else { None };
         self.audio
             .update(enabled && active, volume, commands, movement);
     }
@@ -565,7 +572,9 @@ impl Walker {
             self.settings.camera_distance_target,
             delta,
         );
-        self.collision.poll();
+        if !self.collision.is_done() {
+            self.collision.poll();
+        }
         let mut captured = false;
         if let Some(action) = self.capture {
             if self.capture_wait_release {
@@ -597,11 +606,11 @@ impl Walker {
             self.flight_was_down = flight_down;
             self.mount_was_down = mount_down;
         }
-        let (s, c) = yaw.sin_cos();
-        let forward = Vec3::new(s, 0., -c);
-        let right = Vec3::new(-c, 0., -s);
         let mut direction = Vec3::ZERO;
         if input_enabled {
+            let (s, c) = yaw.sin_cos();
+            let forward = Vec3::new(s, 0., -c);
+            let right = Vec3::new(-c, 0., -s);
             if keys.contains(&KeyCode::KeyW) {
                 direction += forward;
             }
@@ -622,15 +631,42 @@ impl Walker {
         let space = input_enabled && keys.contains(&KeyCode::Space);
         let jump = jump_requested(space, self.jump_was_down, self.travel);
         self.jump_was_down = space;
-        let rushing = input_enabled
-            && self.travel == TravelState::Flying
-            && (keys.contains(&KeyCode::ShiftLeft) || keys.contains(&KeyCode::ShiftRight))
-            && self
-                .character
-                .as_ref()
-                .and_then(|character| character.assembly.flight.as_ref())
-                .and_then(|flight| flight.rush_speed)
-                .is_some();
+        let (rushing, flight_speed, mount_speed, movement_constants, swim_speed) = {
+            let character_ref = self.character.as_ref();
+            let rushing = input_enabled
+                && self.travel == TravelState::Flying
+                && (keys.contains(&KeyCode::ShiftLeft) || keys.contains(&KeyCode::ShiftRight))
+                && character_ref
+                    .and_then(|character| character.assembly.flight.as_ref())
+                    .and_then(|flight| flight.rush_speed)
+                    .is_some();
+            let flight_speed = character_ref.and_then(|character| {
+                character.assembly.flight.as_ref().map(|flight| {
+                    let range = if rushing {
+                        flight.rush_speed.unwrap_or(flight.normal_speed)
+                    } else {
+                        flight.normal_speed
+                    };
+                    character.assembly.class_speeds.fly + range.0
+                })
+            });
+            let mount_speed = character_ref
+                .and_then(|character| character.assembly.mount.as_ref().map(|mount| mount.speed));
+            let (movement_constants, swim_speed) = character_ref.map(|character| {
+                let design = &character.assembly.design;
+                (
+                    physics::MovementConstants::new(design.class, design.gender),
+                    character.assembly.class_speeds.swim,
+                )
+            })?;
+            (
+                rushing,
+                flight_speed,
+                mount_speed,
+                movement_constants,
+                swim_speed,
+            )
+        };
         let vertical = if input_enabled && self.travel == TravelState::Flying {
             (if space { 1.0 } else { 0.0 })
                 - if keys.contains(&KeyCode::KeyC) {
@@ -641,27 +677,6 @@ impl Walker {
         } else {
             0.0
         };
-        let flight_speed = self.character.as_ref().and_then(|character| {
-            character.assembly.flight.as_ref().map(|flight| {
-                let range = if rushing {
-                    flight.rush_speed.unwrap_or(flight.normal_speed)
-                } else {
-                    flight.normal_speed
-                };
-                character.assembly.class_speeds.fly + range.0
-            })
-        });
-        let mount_speed = self
-            .character
-            .as_ref()
-            .and_then(|character| character.assembly.mount.as_ref().map(|mount| mount.speed));
-        let (movement_constants, swim_speed) = self.character.as_ref().map(|character| {
-            let design = &character.assembly.design;
-            (
-                physics::MovementConstants::new(design.class, design.gender),
-                character.assembly.class_speeds.swim,
-            )
-        })?;
         let water_vertical = if input_enabled && self.travel == TravelState::Ground {
             let ascend = keys.contains(&KeyCode::ArrowUp);
             let descend = keys.contains(&KeyCode::ArrowDown) || keys.contains(&KeyCode::KeyZ);
@@ -677,7 +692,7 @@ impl Walker {
             0.0
         };
 
-        let map = self.map.as_ref()?.clone();
+        let map = self.map.as_ref()?;
         let body = self.body.as_mut()?;
         let previous_position = body.position;
         if input_enabled {
@@ -688,14 +703,14 @@ impl Walker {
                     Input { direction, jump },
                     water_vertical,
                     swim_speed,
-                    &map,
+                    map,
                     &self.water,
                     movement_constants,
                 ),
                 TravelState::Mounted => {
                     let mut mechanics = self.settings.mechanics;
                     mechanics.move_speed = mount_speed?;
-                    body.advance_mounted(delta, &mechanics, Input { direction, jump }, &map);
+                    body.advance_mounted(delta, &mechanics, Input { direction, jump }, map);
                 }
                 TravelState::Flying => body.advance_flight(
                     delta,
@@ -704,7 +719,7 @@ impl Walker {
                         vertical,
                         speed: flight_speed?,
                     },
-                    &map,
+                    map,
                     &self.water,
                     movement_constants,
                 ),
@@ -728,10 +743,10 @@ impl Walker {
         // Object collision is an additional layer, never a terrain toggle.
         // Reapply permanent terrain support after wall sliding as the new x/z
         // may reference a higher terrain triangle than the old position did.
-        let support = physics::ground(&map, body.position.x, body.position.z);
+        let support = physics::ground(map, body.position.x, body.position.z);
         if body.position.y < support.height {
             body.position.y = support.height;
-            if support.normal.y >= 0.5 && body.vertical_velocity <= 0.0 {
+            if body.vertical_velocity <= 0.0 {
                 let newly_landed = !body.grounded;
                 body.vertical_velocity = 0.0;
                 body.grounded = true;
@@ -751,14 +766,17 @@ impl Walker {
             && !(body.swimming && !body.water_jumping)
             && body.vertical_velocity <= 0.0
         {
-            if let Some(object) = self.collision.support(
-                body.position,
-                movement_constants.collision_extents(),
-                OBJECT_DOWN_TRACE,
-            ) {
-                if object.height >= support.height {
-                    body.ground_on_object(object, self.object_grounded);
-                    object_grounded = true;
+            let moved = (body.position - previous_position).length_squared() > 1e-4;
+            if !self.object_grounded || moved {
+                if let Some(object) = self.collision.support(
+                    body.position,
+                    movement_constants.collision_extents(),
+                    OBJECT_DOWN_TRACE,
+                ) {
+                    if object.height >= support.height {
+                        body.ground_on_object(object, self.object_grounded);
+                        object_grounded = true;
+                    }
                 }
             }
         }
@@ -774,10 +792,11 @@ impl Walker {
                 self.camera_position = Some(eye);
                 return Some(eye);
             }
+            let (s, c) = yaw.sin_cos();
             let cp = pitch.cos();
             let look = Vec3::new(s * cp, pitch.sin(), -c * cp);
             let mut camera = eye - look * self.settings.camera_distance;
-            let clearance = physics::ground(&map, camera.x, camera.z).height + 0.25;
+            let clearance = physics::ground(map, camera.x, camera.z).height + 0.25;
             camera.y = camera.y.max(clearance);
             self.camera_position = Some(camera);
             return Some(camera);
