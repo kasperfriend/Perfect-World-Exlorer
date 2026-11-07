@@ -279,10 +279,13 @@ files**, and this was checked rather than assumed:
 * The remaining orientation source is the server's `gamedata/npcgen.data`,
   which the client does not ship.
 
-The exact server-authored yaw remains unavailable. The viewer now assigns a
-stable per-record yaw variation instead of the same yaw to every placement, so
-standing crowds no longer all face east. This is presentation-only variation,
-not recovered server direction.
+The exact server-authored yaw remains unavailable: the `pw142` Drive folder has
+no `gamedata/npcgen.data` or other server spawn file. A previous viewer change
+assigned a stable but arbitrary yaw to each placement; that made existing NPCs
+face random directions and was removed. Until the server-authored spawn data is
+available, the viewer preserves the model's authored forward direction rather
+than fabricating per-NPC yaw. This is not recovery of the server's original
+instance directions.
 
 ## Texture fault diagnostics
 

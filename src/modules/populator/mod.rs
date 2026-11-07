@@ -504,19 +504,11 @@ impl Live {
     }
 }
 
-/// `task_npc.data` has no rotation, so use a stable per-record variation rather
-/// than giving every actor the same east-facing yaw. This is a viewer fallback,
-/// not a claim to recover server-authored facing.
-fn initial_yaw(spawn: &Spawn) -> f32 {
-    let mut value = spawn.id as u64
-        ^ (spawn.anchor[0].to_bits() as u64).rotate_left(17)
-        ^ (spawn.anchor[1].to_bits() as u64).rotate_left(39);
-    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
-    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-    value ^= value >> 31;
-    let unit = (value >> 11) as f64 * (1.0 / ((1u64 << 53) as f64));
-    unit as f32 * std::f32::consts::TAU
+/// The shipped client placement records have no per-instance facing. Keep the
+/// model's authored forward direction until server-authored yaw data is
+/// available; invented per-record rotations make existing NPCs face randomly.
+fn initial_yaw(_spawn: &Spawn) -> f32 {
+    0.0
 }
 
 /// Model-to-world matrix with the actor's local `+Z` as forward, matching
@@ -2208,8 +2200,8 @@ impl Populator {
         let spawn = self.population.as_ref()?.spawns.get(index)?.clone();
         let placement = self.position_for(&spawn, floors);
         let position = placement.position;
-        // The client placement files carry no facing angle; use a stable
-        // per-record variation so standing crowds do not all point east.
+        // The client placement files carry no facing angle. Preserve the
+        // model's authored forward direction rather than inventing a rotation.
         let yaw = initial_yaw(&spawn);
         let live_world = index >= self.authored_spawn_count;
         let live_world_zone = live_world
@@ -3053,7 +3045,7 @@ impl Populator {
         );
         ui.label(
             egui::RichText::new(
-                "The client population files have no NPC-facing angle. The viewer assigns a stable per-record facing variation instead of making every standing NPC point east; exact server-authored directions cannot be recovered from these files.",
+                "The supplied client population files do not contain per-NPC facing. Existing placements keep the model's authored forward direction; exact server-authored directions require the server spawn data (gamedata/npcgen.data), which was not present in pw142.",
             )
             .small()
             .weak(),
@@ -3950,7 +3942,7 @@ mod tests {
     }
 
     #[test]
-    fn spawn_facing_is_stable_but_varies_between_standing_npcs() {
+    fn missing_spawn_facing_preserves_model_forward_without_invented_variation() {
         let a = Spawn {
             id: 101,
             anchor: [12., -4.],
@@ -3961,11 +3953,8 @@ mod tests {
             anchor: [13., -4.],
             ..spawn(None)
         };
-        let yaw_a = initial_yaw(&a);
-        assert_eq!(yaw_a, initial_yaw(&a));
-        assert_ne!(yaw_a, initial_yaw(&b));
-        assert!((0.0..std::f32::consts::TAU).contains(&yaw_a));
-        assert!((0.0..std::f32::consts::TAU).contains(&initial_yaw(&b)));
+        assert_eq!(initial_yaw(&a), 0.0);
+        assert_eq!(initial_yaw(&b), 0.0);
     }
 
     #[test]
