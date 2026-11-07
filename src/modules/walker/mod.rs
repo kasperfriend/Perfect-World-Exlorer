@@ -1124,7 +1124,8 @@ impl Walker {
                         // changes, so the full-mesh validation remains intact.
                         draw.draw_filtered(&mut pass, |(skin, _)| skin != 1);
                     }
-                    ModelPart::Face | ModelPart::Flight if self.settings.first_person && self.travel != TravelState::Flying => {}
+                    ModelPart::Face | ModelPart::Flight
+                        if self.settings.first_person && self.travel != TravelState::Flying => {}
                     ModelPart::Weapon { right: true }
                         if (self.settings.first_person && self.travel != TravelState::Flying)
                             || self
