@@ -772,14 +772,17 @@ impl Walker {
         {
             let moved = (body.position - previous_position).length_squared() > 1e-4;
             if !self.object_grounded || moved {
-                if let Some(object) = self.collision.support(
-                    body.position,
-                    movement_constants.collision_extents(),
-                    OBJECT_DOWN_TRACE,
-                ) {
+                // Only query object support when near ground to avoid pinning during jumps over obstacles
+                if body.position.y <= support.height + 0.8 {
+                    if let Some(object) = self.collision.support(
+                        body.position,
+                        movement_constants.collision_extents(),
+                        OBJECT_DOWN_TRACE,
+                    ) {
                     if object.height >= support.height {
                         body.ground_on_object(object, self.object_grounded);
                         object_grounded = true;
+                    }
                     }
                 }
             }
