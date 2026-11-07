@@ -39,9 +39,12 @@ pub struct SceneModel {
 }
 #[derive(Clone, Debug)]
 pub struct Effect {
-    /// Position of this record in its block's effect list; the native record
-    /// carries no id word of its own (see [`Effect::read`]).
+    /// Position of this record in its block's effect list, for diagnostics.
     pub index: u32,
+    /// The record's own id word (`record[0]`). It is not the block list index:
+    /// the 2,275 placements of the shipped `world.ecwld` carry 2,275 distinct
+    /// values between 1 and 44,894.
+    pub export_id: u32,
     pub scale: f32,
     pub position: [f32; 3],
     pub direction: [f32; 3],
@@ -53,29 +56,33 @@ pub struct Effect {
     pub path: String,
 }
 impl Effect {
-    /// The client's effect loader reads 60 bytes, then the path, and copies
-    /// them into the owner node field by field; the offsets below are those
-    /// copies, not a guess at the exporter's order.
+    /// The effect record, re-derived against every placement the shipped map
+    /// authors.
     ///
-    /// `0x5b33f3` reads the 0x3c-byte record, and `0x5b3436..0x5b34a6` copies
-    /// it: record[0] to node+0x28, record[4..16) to node+0x04.. (the block's
-    /// x/z origin added into the first and third components on the way),
-    /// record[16..28) to node+0x10.., record[28..40) to node+0x1c.., then the
-    /// words at record[40], [44], [48] to node+0x2c, +0x30, +0x34 and the byte
-    /// at record[52] to node+0x38. The meanings come from the readers of those
-    /// node fields: `0x5b3700` takes node+0x28 as the uniform scale it hands
-    /// `0x787de0` and node+0x2c as the play speed it hands `0x6e52c0`, and
-    /// `0x5b18a1` takes node+0x30 as the valid-time word it compares against
-    /// 2, 0 and 1. So scale leads the record and the three vectors follow it
-    /// back to back, as they do in this file's model record; the alpha word
-    /// and the attenuation byte keep their names but no recovered reader, and
-    /// record[53..60) is never copied at all.
+    /// The record opens with an **id word** and the payload follows it; an
+    /// earlier reading started at the payload and so landed every field four
+    /// bytes early. A shift like that is invisible in a round-trip test and
+    /// fatal in the world: with the old offsets each day-only placement read its
+    /// day/night word out of its alpha, its play speed out of its day/night word
+    /// (a float bit pattern, so 1.06e9 — a clock that jumps and freezes), and its
+    /// position out of the middle of its own direction vector.
     ///
-    /// An earlier reading put an export id at record[0] and everything after
-    /// it four bytes late, which made every day-only placement read its
-    /// valid-time as its play speed: a speed of 0, a frozen clock, and no
-    /// geometry at all. No record word reaches a node field as an id, so the
-    /// block list index labels a placement instead.
+    /// The shipped `world.ecwld` decides between the two readings on all 2,275
+    /// records with no exceptions. Under this one `[20..32)` and `[32..44)` are
+    /// unit vectors and perpendicular to each other on 2,275 of 2,275 records,
+    /// the play speeds span 0.03..12 with no non-positive value, the uniform
+    /// scales span 0.164..380.953, and the day/night word takes only the three
+    /// authored modes with the split 1,445 all-day / 154 day-only / 676
+    /// night-only. Under the old one the same fields are a mixture of ids and
+    /// float bit patterns and 2,222 of 2,275 records have a non-unit direction.
+    /// `corpus_effect_records_agree_on_one_layout` holds the map to that.
+    ///
+    /// The copy block at `0x5b3436..0x5b34a6` carries the same field order: the
+    /// position triple first (with the caller's x/z addends), then the two
+    /// vectors, then the three dwords and the attenuation byte. The x/z addends
+    /// itself is not a block origin: the only caller that supplies it
+    /// (`0x41bb30`) pushes two zeros, so record positions are absolute world
+    /// coordinates and no origin term belongs in this reader.
     fn read(data: &[u8], p: &mut usize) -> Result<Self, String> {
         let start = *p;
         let bytes = data
@@ -84,14 +91,15 @@ impl Effect {
         *p += 60;
         Ok(Self {
             index: 0,
-            scale: f32at(bytes, 0)?,
-            position: vec3(bytes, 4)?,
-            direction: vec3(bytes, 16)?,
-            up: vec3(bytes, 28)?,
-            speed: f32at(bytes, 40)?,
-            valid_time: u32at(bytes, 44)? as i32,
-            alpha: f32at(bytes, 48)?,
-            attenuation: bytes[52] != 0,
+            export_id: u32at(bytes, 0)?,
+            scale: f32at(bytes, 4)?,
+            position: vec3(bytes, 8)?,
+            direction: vec3(bytes, 20)?,
+            up: vec3(bytes, 32)?,
+            speed: f32at(bytes, 44)?,
+            valid_time: u32at(bytes, 48)? as i32,
+            alpha: f32at(bytes, 52)?,
+            attenuation: bytes[56] != 0,
             path: string(data, p)?,
         })
     }
@@ -447,24 +455,29 @@ mod tests {
     use super::*;
     fn effect_bytes() -> Vec<u8> {
         let mut b = vec![0; 60];
+        // Corrected record layout, measured on the shipped world.ecwld: id at
+        // [0], scale at [4], position at [8..20), direction at [20..32), up at
+        // [32..44), speed at [44], valid_time at [48], alpha at [52],
+        // attenuation byte at [56], and [57..60) is padding.
         for (o, v) in [
-            (0, 2.5f32),
-            (4, 11.),
-            (8, 12.),
-            (12, 13.),
-            (16, 0.),
+            (4, 2.5f32),
+            (8, 11.),
+            (12, 12.),
+            (16, 13.),
             (20, 0.),
-            (24, -1.),
-            (28, 0.),
-            (32, 1.),
-            (36, 0.),
-            (40, 0.75),
-            (48, 0.25),
+            (24, 0.),
+            (28, -1.),
+            (32, 0.),
+            (36, 1.),
+            (40, 0.),
+            (44, 0.75),
+            (52, 0.25),
         ] {
             b[o..o + 4].copy_from_slice(&v.to_le_bytes());
         }
-        b[44..48].copy_from_slice(&2i32.to_le_bytes());
-        b[52] = 1;
+        b[0..4].copy_from_slice(&77u32.to_le_bytes());
+        b[48..52].copy_from_slice(&2i32.to_le_bytes());
+        b[56] = 1;
         // Padding is not another flag or part of the path length.
         b[57..60].fill(0xff);
         b.extend_from_slice(&5u32.to_le_bytes());
@@ -477,6 +490,7 @@ mod tests {
         let mut p = 0;
         let e = Effect::read(&b, &mut p).unwrap();
         assert_eq!(p, b.len());
+        assert_eq!(e.export_id, 77);
         assert_eq!(e.scale, 2.5);
         assert_eq!(e.position, [11., 12., 13.]);
         assert_eq!(e.direction, [0., 0., -1.]);
@@ -528,6 +542,57 @@ mod tests {
                 assert_eq!(e.valid_at(factor), expected);
             }
         }
+    }
+    #[test]
+    /// The corrected record layout, re-measured against the shipped map.
+    ///
+    /// A wrong field order is invisible in a synthetic fixture: every byte is
+    /// self-consistent whichever way the reader slices it. It is not invisible
+    /// here. With the id word counted, all 2,275 placements agree at once — the
+    /// two vectors are unit and perpendicular on every record, the play speeds
+    /// are all positive, and the day/night word lands on the three authored
+    /// values. Skip when the archive is not staged beside the checkout.
+    #[test]
+    fn corpus_effect_records_agree_on_one_layout() {
+        let path = std::path::Path::new("google_drive/world.ecwld");
+        if !path.is_file() {
+            return;
+        }
+        let scene = Scene::load(path).unwrap();
+        let mut ids = std::collections::HashSet::new();
+        let mut modes = [0usize; 3];
+        let mut total = 0;
+        let mut bad_speed = 0;
+        let mut bad_scale = 0;
+        let mut bad_basis = 0;
+        for block in &scene.blocks {
+            for e in &block.effects {
+                total += 1;
+                ids.insert(e.export_id);
+                match e.valid_time {
+                    0 | 1 | 2 => modes[e.valid_time as usize] += 1,
+                    _ => return panic!("valid_time {} is not an authored mode", e.valid_time),
+                }
+                if !e.speed.is_finite() || e.speed <= 0. {
+                    bad_speed += 1;
+                }
+                if !e.scale.is_finite() || e.scale <= 0. {
+                    bad_scale += 1;
+                }
+                let [dx, dy, dz] = e.direction;
+                let [ux, uy, uz] = e.up;
+                let dl = (dx * dx + dy * dy + dz * dz).sqrt();
+                let ul = (ux * ux + uy * uy + uz * uz).sqrt();
+                let dot = (dx * ux + dy * uy + dz * uz) / (dl * ul).max(f32::MIN_POSITIVE);
+                if (dl - 1.).abs() > 0.01 || (ul - 1.).abs() > 0.01 || dot.abs() > 0.01 {
+                    bad_basis += 1;
+                }
+            }
+        }
+        assert_eq!(total, 2_275, "shipped world.ecwld placement count");
+        assert_eq!(ids.len(), total, "every placement carries its own id");
+        assert_eq!(modes, [154, 676, 1_445], "authored day/night split");
+        assert_eq!((bad_speed, bad_scale, bad_basis), (0, 0, 0));
     }
     #[test]
     fn rejects_bad_header() {
