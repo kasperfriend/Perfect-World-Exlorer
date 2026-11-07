@@ -72,6 +72,7 @@ impl Modules {
             populator,
             packages: Registry::discover(package::default_root()),
             selected: 0,
+            effect_catalog: None,
         }
     }
 
