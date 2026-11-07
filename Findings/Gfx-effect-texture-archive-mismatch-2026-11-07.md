@@ -89,6 +89,15 @@ The waterfall is the clearest single case: `场景/瀑布水花湍急.gfx` names
 `物体\waterfalldrops.tga`, which resolves to
 `gfx/textures/物体/waterfalldrops.tga` and **is** a member of `gfx.pck`.
 
+The Rust parser agrees with that python census, and adds the residency answer.
+Parsing `world.ecwld` through `scene::Scene::parse` gives 2,275 effects over 163
+distinct roots spanning x −3,875..3,790 and z −5,462..5,232 — the whole map, not
+a cluster near the origin (the earlier "clustered near origin" census was itself
+a symptom of the bad record offsets). The six `瀑布水花湍急` records sit at
+(2300.5, 217.8, −3167.8) and (2276.4, 216.8, −3169.3), scale 3.11, play speed
+1.00 — and **157 of the map's 2,275 effects are inside the 448-unit detail
+radius of that spot**. Residency was never the reason the waterfall was absent.
+
 ## Two fixes
 
 **1. The reader serves the archive the assets are in.** `attach_gfx_archive` now
