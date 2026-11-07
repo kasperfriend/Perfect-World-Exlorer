@@ -194,11 +194,8 @@ fn upload_dds(
             Format::Dxt1 => wgpu::TextureFormat::Bc1RgbaUnorm,
             Format::Dxt3 => wgpu::TextureFormat::Bc2RgbaUnorm,
             Format::Dxt5 => wgpu::TextureFormat::Bc3RgbaUnorm,
-            // Uncompressed surfaces are already in a GPU format, so they are
-            // uploaded as they sit in the archive rather than round-tripped
-            // through a decoder.
-            // Uncompressed surfaces go through the channel swap below, so they
-            // land as RGBA like every other decoded texture.
+            // Unreachable: `native` excludes uncompressed surfaces. Spelled out
+            // so the match stays exhaustive if that gate is ever loosened.
             Format::Uncompressed(_) => wgpu::TextureFormat::Rgba8Unorm,
         }
     } else {
