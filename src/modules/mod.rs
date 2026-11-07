@@ -334,7 +334,7 @@ impl Modules {
                 }
                 ui.label(
                     egui::RichText::new(
-                        "Creates independent records around city/district targets from world_targets.txt, not copies of standing NPC identities or locations. Uses only numbered human male/female NPC rig families, with matching synthetic names; creature, monster, prop and malformed rig paths are rejected. The known blacksmith/anvil rigs are excluded. Native walk/run actions (including suffixed clip names) drive varied circuits; blocked projections are discarded and replanned, unsupported rigs continue on their checked routes using their own idle pose instead of remaining statues. Terrain, client water masks and streamed building hulls are checked along the full path; these are not server-authored routes or schedules.",
+                        "Creates independent records around city/district targets from world_targets.txt, not copies of standing NPC identities or locations. Uses only numbered human male/female NPC rig families, with matching synthetic names; creature, monster, prop and malformed rig paths are rejected. The known blacksmith/anvil rigs are excluded. Only rigs with a sampleable native walk/run action that visibly changes the skinned geometry are admitted; unsupported rigs are excluded rather than sliding in an idle pose. Blocked projections are discarded and replanned. Terrain, client water masks and streamed building hulls are checked along the full path; these are not server-authored routes or schedules.",
                     )
                     .small()
                     .weak(),
@@ -347,11 +347,11 @@ impl Modules {
                 if enabled {
                     ui.label(
                         egui::RichText::new(format!(
-                            "{} residents generated; {} actor slots; {} streamed residents have no active route; {} are moving with their idle pose because no walk clip was recognized.",
+                            "{} residents generated; {} actor slots; {} streamed residents have no active route; {} walk-animated rig choices are available. Rigs without a sampleable walking animation are excluded rather than slid along a route.",
                             self.populator.live_world_generated(),
                             self.populator.settings().max_visible,
                             self.populator.live_world_stationary_count(),
-                            self.populator.live_world_idle_fallback_count()
+                            self.populator.live_world_walkable_rig_count()
                         ))
                         .small()
                         .color(egui::Color32::LIGHT_GREEN),

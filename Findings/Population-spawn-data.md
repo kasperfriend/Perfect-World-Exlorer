@@ -279,10 +279,22 @@ files**, and this was checked rather than assumed:
 * The remaining orientation source is the server's `gamedata/npcgen.data`,
   which the client does not ship.
 
-Every placement therefore keeps the rig's own authored forward axis (yaw 0,
-local `+Z` forward, exactly `walker::character::character_transform`), which is
-why the observed facing looks right in game. The viewer's earlier optional
-"turn to face the camera" is removed.
+The exact server-authored yaw remains unavailable. The viewer now assigns a
+stable per-record yaw variation instead of the same yaw to every placement, so
+standing crowds no longer all face east. This is presentation-only variation,
+not recovered server direction.
+
+## Texture fault diagnostics
+
+Population textures keep `models.pck` as the canonical source (it carries NPC
+texture sheets beside their rigs), and retain a same-path `textures.pck` copy as
+a fallback if the first payload cannot be decoded. A per-actor draw failure logs the NPC
+name, ECM path and texture decoder error so a specific bad material no longer
+fails silently. The reported Guard Chang Zheng asset has not yet been visually
+verified against the retail archives in this checkout: the only available
+Google Drive model/texture archives exceed the connector's 100 MB download
+limit. A client run can now identify the failing path in the log; the exact
+asset still needs checking with the archive or a runtime capture.
 
 ## Overhead names (font and drawing, from the client's own files)
 
@@ -375,9 +387,9 @@ projects and validates its full segments against terrain, client water masks,
 currently streamed building hulls, and occupied actors; failed candidates are
 discarded and retried. If later movement is blocked, that route is abandoned
 and replanned after a short cooldown instead of leaving the resident stranded.
-Humanoid rigs without a recognized locomotion cycle still follow their checked
-route using the rig's own idle pose; this guarantees translation without
-inventing leg motion. Requested density is adjustable from 0–48 per target (18 by
-default), with a global cap of 512. These heuristics provide visual variety
-only—no server identity, persistent state, quest behavior, authentic schedule,
+Each city-local candidate rig is checked for a sampleable walk/run action whose
+skinned geometry changes; only these rigs enter the resident palette. This
+prevents translation in a bind/idle pose. Requested density is adjustable from
+0–48 per target (18 by default), with a global cap of 512. These heuristics
+provide visual variety only—no server identity, persistent state, quest behavior, authentic schedule,
 navigation network, voice/dialogue, combat or interaction is implied.

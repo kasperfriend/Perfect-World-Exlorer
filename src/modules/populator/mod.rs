@@ -311,6 +311,29 @@ impl Library {
         read_archive(&mut self.models, self.textures.as_mut(), path)
     }
 
+    /// Keep the model archive as the canonical source (it carries NPC texture
+    /// sheets beside their rigs), but retain a duplicate from `textures.pck` as
+    /// a decode fallback if the model-pack payload is damaged or unsupported.
+    fn texture_candidates(&mut self, path: &str) -> Result<Vec<Vec<u8>>, String> {
+        let mut candidates = Vec::new();
+        let mut failures = Vec::new();
+        match self.models.read(path) {
+            Ok(bytes) => candidates.push(bytes),
+            Err(error) => failures.push(error),
+        }
+        if let Some(textures) = self.textures.as_mut() {
+            match textures.read(path) {
+                Ok(bytes) => candidates.push(bytes),
+                Err(error) => failures.push(error),
+            }
+        }
+        if candidates.is_empty() {
+            Err(failures.join("; "))
+        } else {
+            Ok(candidates)
+        }
+    }
+
     /// Height of the rig's head above its feet in the authored bind pose. A rig
     /// whose bind pose cannot be evaluated reports the humanoid default and does
     /// not fail the actor; only the name's baseline moves.
@@ -479,6 +502,21 @@ impl Live {
         }
         self.asset.pose_bind(world)
     }
+}
+
+/// `task_npc.data` has no rotation, so use a stable per-record variation rather
+/// than giving every actor the same east-facing yaw. This is a viewer fallback,
+/// not a claim to recover server-authored facing.
+fn initial_yaw(spawn: &Spawn) -> f32 {
+    let mut value = spawn.id as u64
+        ^ (spawn.anchor[0].to_bits() as u64).rotate_left(17)
+        ^ (spawn.anchor[1].to_bits() as u64).rotate_left(39);
+    value = value.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^= value >> 31;
+    let unit = (value >> 11) as f64 * (1.0 / ((1u64 << 53) as f64));
+    unit as f32 * std::f32::consts::TAU
 }
 
 /// Model-to-world matrix with the actor's local `+Z` as forward, matching
@@ -876,6 +914,33 @@ impl WalkAnimation {
             playback.restart();
         }
     }
+}
+
+/// A matching action name is not enough: reject clips whose tracks cannot be
+/// evaluated or whose skinned geometry does not actually change. This prevents
+/// a resident from sliding along a route in a bind/idle pose.
+fn walk_animation_moves_meshes(asset: &ModelAsset, animation: &WalkAnimation) -> bool {
+    let Some((action, seconds)) = animation.sample() else {
+        return false;
+    };
+    let Ok(initial) = asset.pose_action_at_time(action, seconds, Mat4::IDENTITY) else {
+        return false;
+    };
+    let initial_signature = walk_pose_signature(&initial);
+    let mut probe = animation.clone();
+    for _ in 0..2 {
+        probe.advance(0.25, 250);
+        let Some((action, seconds)) = probe.sample() else {
+            return false;
+        };
+        let Ok(meshes) = asset.pose_action_at_time(action, seconds, Mat4::IDENTITY) else {
+            return false;
+        };
+        if walk_pose_signature(&meshes) != initial_signature {
+            return true;
+        }
+    }
+    false
 }
 
 #[derive(Clone, Debug)]
@@ -1364,6 +1429,22 @@ fn pose_signature(meshes: &[PosedMesh]) -> u64 {
     hash
 }
 
+/// Candidate admission uses a denser fingerprint across every skin mesh: a
+/// short action on a head/hand must not conceal a changing torso or leg.
+fn walk_pose_signature(meshes: &[PosedMesh]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for mesh in meshes {
+        let step = (mesh.vertices.len() / 8).max(1);
+        for vertex in mesh.vertices.iter().step_by(step).take(8) {
+            for axis in vertex.position {
+                hash ^= (axis * 100.0) as i64 as u64;
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+    }
+    hash
+}
+
 /// How the population's idle animations resolved, reported once per session so a
 /// frozen rig is diagnosable instead of a guess.
 #[derive(Clone, Copy, Debug, Default)]
@@ -1404,8 +1485,12 @@ pub struct Populator {
     live_world_since_stream_refresh: usize,
     city_zones: Vec<CityZone>,
     city_zone_error: Option<String>,
-    /// One representative authored template index per eligible rig per city.
+    /// City-local source rigs before their native walk clips are validated.
+    live_world_template_candidates: Vec<Vec<usize>>,
+    /// Only rigs with a sampleable, visibly changing locomotion action.
     live_world_templates: Vec<Vec<usize>>,
+    live_world_template_cursor: usize,
+    live_world_templates_ready: bool,
     live_world_name_tokens: LiveWorldNameTokens,
     load_error: Option<String>,
     library: Option<Library>,
@@ -1419,6 +1504,8 @@ pub struct Populator {
     /// Console diagnostics already emitted, so a stuck rig is reported once.
     reported_spawn: bool,
     reported_failures: usize,
+    /// Actor-level pose/texture/render errors are reported once per placement.
+    reported_actor_failures: HashSet<usize>,
     /// How the idle animations resolved, and whether that was logged.
     idle_report: IdleReport,
     reported_idle: bool,
@@ -1466,7 +1553,10 @@ impl Default for Populator {
             live_world_since_stream_refresh: 0,
             city_zones: Vec::new(),
             city_zone_error: None,
+            live_world_template_candidates: Vec::new(),
             live_world_templates: Vec::new(),
+            live_world_template_cursor: 0,
+            live_world_templates_ready: false,
             live_world_name_tokens: LiveWorldNameTokens::default(),
             load_error: None,
             library: None,
@@ -1478,6 +1568,7 @@ impl Default for Populator {
             camera_request: None,
             reported_spawn: false,
             reported_failures: 0,
+            reported_actor_failures: HashSet::new(),
             idle_report: IdleReport::default(),
             reported_idle: false,
             motion_seconds: 0.,
@@ -1537,6 +1628,9 @@ impl Populator {
     pub fn live_world_generated(&self) -> usize {
         self.live_world_generated
     }
+    pub fn live_world_walkable_rig_count(&self) -> usize {
+        self.live_world_templates.iter().map(Vec::len).sum()
+    }
     pub fn live_world_radius(&self) -> f32 {
         self.live_world_radius
     }
@@ -1548,18 +1642,6 @@ impl Populator {
         self.live
             .iter()
             .filter(|live| live.live_world && (live.wedged || live.follow.is_none()))
-            .count()
-    }
-
-    pub fn live_world_idle_fallback_count(&self) -> usize {
-        self.live
-            .iter()
-            .filter(|live| {
-                live.live_world
-                    && !live.wedged
-                    && live.walk_animation.is_none()
-                    && live.follow.is_some()
-            })
             .count()
     }
 
@@ -1578,7 +1660,16 @@ impl Populator {
             .iter()
             .map(Vec::len)
             .sum::<usize>();
-        format!("{} city/district targets, {:.0}-unit core radius ({names}); {choices} distinct eligible rig choices.", self.city_zones.len(), self.live_world_radius)
+        if !self.live_world_templates_ready {
+            let checked = self.live_world_template_cursor;
+            let total = self
+                .live_world_template_candidates
+                .iter()
+                .map(Vec::len)
+                .sum::<usize>();
+            return format!("{} city/district targets, {:.0}-unit core radius ({names}); checking walk clips for city rigs ({checked}/{total}).", self.city_zones.len(), self.live_world_radius);
+        }
+        format!("{} city/district targets, {:.0}-unit core radius ({names}); {choices} walk-animated rig choices.", self.city_zones.len(), self.live_world_radius)
     }
 
     pub fn set_live_world_radius(&mut self, radius: f32) {
@@ -1597,7 +1688,11 @@ impl Populator {
         if let Some(population) = self.population.as_ref() {
             let authored =
                 &population.spawns[..self.authored_spawn_count.min(population.spawns.len())];
-            self.live_world_templates = live_world_city_population(authored, &self.city_zones);
+            self.live_world_template_candidates =
+                live_world_city_population(authored, &self.city_zones);
+            self.live_world_templates = vec![Vec::new(); self.city_zones.len()];
+            self.live_world_template_cursor = 0;
+            self.live_world_templates_ready = false;
         }
         self.reset_live_world_population();
     }
@@ -1733,7 +1828,11 @@ impl Populator {
             self.live_world_cursor = 0;
             self.live_world_generated = 0;
             self.live_world_since_stream_refresh = 0;
+            self.live_world_template_candidates.clear();
             self.live_world_templates.clear();
+            self.reported_actor_failures.clear();
+            self.live_world_template_cursor = 0;
+            self.live_world_templates_ready = false;
             self.live_world_name_tokens = LiveWorldNameTokens::default();
             self.stream_cache = None;
             self.library = None;
@@ -1763,8 +1862,11 @@ impl Populator {
                     );
                     self.authored_spawn_count = population.spawns.len();
                     self.authored_route_count = population.routes.len();
-                    self.live_world_templates =
+                    self.live_world_template_candidates =
                         live_world_city_population(&population.spawns, &self.city_zones);
+                    self.live_world_templates = vec![Vec::new(); self.city_zones.len()];
+                    self.live_world_template_cursor = 0;
+                    self.live_world_templates_ready = false;
                     self.live_world_name_tokens = live_world_name_tokens();
                     self.population = Some(population);
                 }
@@ -1789,19 +1891,86 @@ impl Populator {
         if self.library.is_none() {
             return;
         }
+        self.prepare_live_world_templates();
         self.extend_live_world(floors);
         self.stream(floors);
         self.advance(delta, floors);
         self.report();
     }
 
+    /// Incrementally inspect each city-local rig for a sampleable walk/run
+    /// action. Asset decompression is budgeted across frames just like resident
+    /// creation; only rigs with changing skinned geometry enter the palette.
+    fn prepare_live_world_templates(&mut self) {
+        if !self.live_world || self.live_world_templates_ready {
+            return;
+        }
+        let total = self
+            .live_world_template_candidates
+            .iter()
+            .map(Vec::len)
+            .sum::<usize>();
+        if total == 0 {
+            self.live_world_templates_ready = true;
+            return;
+        }
+        let (Some(population), Some(library)) = (self.population.as_ref(), self.library.as_mut())
+        else {
+            return;
+        };
+        let started = std::time::Instant::now();
+        let mut processed = 0usize;
+        while self.live_world_template_cursor < total {
+            let flat = self.live_world_template_cursor;
+            self.live_world_template_cursor += 1;
+            processed += 1;
+            let mut offset = flat;
+            let mut candidate = None;
+            for (zone, items) in self.live_world_template_candidates.iter().enumerate() {
+                if offset < items.len() {
+                    candidate = Some((zone, items[offset]));
+                    break;
+                }
+                offset -= items.len();
+            }
+            let Some((zone, spawn_index)) = candidate else {
+                continue;
+            };
+            let Some(spawn) = population.spawns.get(spawn_index) else {
+                continue;
+            };
+            let model = spawn.model.clone();
+            let walkable = library.asset(&model).ok().is_some_and(|asset| {
+                walk_clock(&asset)
+                    .is_some_and(|animation| walk_animation_moves_meshes(&asset, &animation))
+            });
+            if walkable {
+                self.live_world_templates[zone].push(spawn_index);
+            }
+            if processed > 0 && started.elapsed() >= LIVE_WORLD_BUILD_BUDGET {
+                break;
+            }
+        }
+        if self.live_world_template_cursor >= total {
+            self.live_world_templates_ready = true;
+            let eligible = self
+                .live_world_templates
+                .iter()
+                .map(Vec::len)
+                .sum::<usize>();
+            eprintln!("Populator: Live World found {eligible} rig choices with a sampleable, changing walk/run pose out of {total} city rigs");
+        }
+    }
+
     /// Generate independent city residents in bounded batches. Native placements
-    /// contribute only an eligible local rig palette, never identities or anchors.
+    /// contribute only a local rig palette with a validated walking animation.
     fn extend_live_world(&mut self, floors: Option<&dyn FloorSource>) {
         if !self.live_world
+            || !self.live_world_templates_ready
             || floors.is_none()
             || self.city_zones.is_empty()
             || self.live_world_templates.is_empty()
+            || self.live_world_walkable_rig_count() == 0
             || self.live_world_residents_per_zone == 0
         {
             return;
@@ -1890,6 +2059,21 @@ impl Populator {
                     eprintln!("Populator: rig {path}: {error}");
                 }
                 self.reported_failures = failed;
+            }
+        }
+        if let Some(population) = self.population.as_ref() {
+            for live in &self.live {
+                let (Some(error), Some(spawn)) =
+                    (live.failure.as_ref(), population.spawns.get(live.spawn))
+                else {
+                    continue;
+                };
+                if self.reported_actor_failures.insert(live.spawn) {
+                    eprintln!(
+                        "Populator: actor {:?} ({}) failed to pose/draw: {error}",
+                        spawn.name, spawn.model
+                    );
+                }
             }
         }
         if !self.reported_walls && !self.live.is_empty() {
@@ -2024,11 +2208,9 @@ impl Populator {
         let spawn = self.population.as_ref()?.spawns.get(index)?.clone();
         let placement = self.position_for(&spawn, floors);
         let position = placement.position;
-        // No client file records an NPC facing: `task_npc.data` stores id, X,
-        // Z, height and task count, and the `NPC_ESSENCE` record has no
-        // rotation column either. Every placement therefore keeps the rig's own
-        // authored forward axis, which is what the client falls back to.
-        let yaw = 0.;
+        // The client placement files carry no facing angle; use a stable
+        // per-record variation so standing crowds do not all point east.
+        let yaw = initial_yaw(&spawn);
         let live_world = index >= self.authored_spawn_count;
         let live_world_zone = live_world
             .then(|| city_zone_at(spawn.anchor[0], spawn.anchor[1], &self.city_zones))
@@ -2043,9 +2225,12 @@ impl Populator {
             (None, None, None)
         };
         let walk_animation = live_world.then(|| walk_clock(asset.as_ref())).flatten();
-        // Keep the route active even when this rig has no recognized native
-        // walk clip. `pose()` then falls back to its own idle while translation
-        // continues, rather than silently making every such resident a statue.
+        // Live World only admits rigs that passed the archive-backed clip and
+        // geometry-motion audit. Fail closed if an asset changed or was skipped:
+        // never translate a resident in a bind/idle pose.
+        if live_world && walk_animation.is_none() {
+            return None;
+        }
         let follow = self.route_for(&spawn);
         Some(Live {
             spawn: index,
@@ -2444,7 +2629,7 @@ impl Populator {
                         asset.as_ref(),
                         &meshes,
                         frame,
-                        |path| library.read(path),
+                        |path| library.texture_candidates(path),
                     ) {
                         Ok(draw) => {
                             live.uploaded_stamp = live.pose_stamp;
@@ -2861,14 +3046,14 @@ impl Populator {
         }
         ui.label(
             egui::RichText::new(
-                "Native placements keep their authored data. Live World creates independent resident records at sampled points around city/district targets, reusing only a local rig asset—not a standing NPC's identity, name, or placement. Names are fresh, synthetic, and model-gender matched; known anvil blacksmith rigs are excluded. Supported walk/run clips animate varied terrain-grounded routes; rigs without locomotion remain still. No server placement, routes, schedules, combat, interaction, or dialogue are simulated.",
+                "Native placements keep their authored data. Live World creates independent resident records at sampled points around city/district targets, reusing only a local rig asset—not a standing NPC's identity, name, or placement. Names are fresh, synthetic, and model-gender matched; known anvil blacksmith rigs are excluded. Only rigs with a sampleable native walk/run action that visibly changes the skinned geometry are used, so residents never slide in an idle or bind pose. No server placement, routes, schedules, combat, interaction, or dialogue are simulated.",
             )
             .small()
             .weak(),
         );
         ui.label(
             egui::RichText::new(
-                "Facing is server data. task_npc.data stores id, X, Z, height and task count in a fixed 12-byte record, and the NPC_ESSENCE record has no rotation column, so every placement keeps the rig's own authored forward axis.",
+                "The client population files have no NPC-facing angle. The viewer assigns a stable per-record facing variation instead of making every standing NPC point east; exact server-authored directions cannot be recovered from these files.",
             )
             .small()
             .weak(),
@@ -3182,6 +3367,10 @@ mod tests {
             .actions
             .push(idle_action("行走_空手_1", 0., 30.));
         let mut walk = walk_clock(&direct).expect("direct walk clip");
+        assert!(
+            !walk_animation_moves_meshes(&direct, &walk),
+            "a named action without usable tracks is not a walking animation"
+        );
         let before = walk.sample().unwrap().1;
         walk.advance(0.5, 500);
         assert!(walk.sample().unwrap().1 > before);
@@ -3758,6 +3947,25 @@ mod tests {
             [0., 0., 0., 0.],
         ]);
         assert!(project(Vec3::new(0., 0., 1.), behind, screen).is_none());
+    }
+
+    #[test]
+    fn spawn_facing_is_stable_but_varies_between_standing_npcs() {
+        let a = Spawn {
+            id: 101,
+            anchor: [12., -4.],
+            ..spawn(None)
+        };
+        let b = Spawn {
+            id: 102,
+            anchor: [13., -4.],
+            ..spawn(None)
+        };
+        let yaw_a = initial_yaw(&a);
+        assert_eq!(yaw_a, initial_yaw(&a));
+        assert_ne!(yaw_a, initial_yaw(&b));
+        assert!((0.0..std::f32::consts::TAU).contains(&yaw_a));
+        assert!((0.0..std::f32::consts::TAU).contains(&initial_yaw(&b)));
     }
 
     #[test]
