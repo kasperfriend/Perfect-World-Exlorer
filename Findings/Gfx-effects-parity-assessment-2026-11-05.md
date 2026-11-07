@@ -473,6 +473,55 @@ in the order the corpus said they mattered:
   "Play world effect sounds" switch has always been about audio, and is renamed
   to say so now that the two sit in one settings window.
 
+### The effect record, re-read from the loader (correction, 7 November)
+
+The world effects went in with the ECWLD effect record's fields four bytes
+late from the scale onwards, and the first in-app look at a waterfall showed
+why that matters more than a misparse usually does: an emission-driven root
+whose clock never moves draws *nothing*, so the map looked like it had no
+effects at all — the static white column at a fall is the scenery texture
+underneath, and the day-only shafts and glows were absent rather than wrong.
+
+The record is 60 bytes and then the path, as before; what changed is which
+word is which. `0x5b33f3` reads the record and `0x5b3436..0x5b34a6` copies it
+into the owner node: record[0] to node+0x28, record[4..16) to node+0x04
+with the block's x/z addend folded into the first and third components,
+record[16..28) to node+0x10, record[28..40) to node+0x1c, then record[40],
+[44], [48] to node+0x2c, +0x30, +0x34 and record[52] as a byte to node+0x38.
+The node fields name the record fields, because other functions read them:
+`0x5b3700` takes node+0x28 as the uniform scale it hands `0x787de0` and
+node+0x2c as the play speed it hands `0x6e52c0`; `0x5b18a1` takes node+0x30
+as the word it compares against 2, then 0, then 1 — the day/night gate. So
+the record is scale, position, direction, up, speed, valid-time, an alpha
+word and an attenuation byte, in that order, with record[53..60) never
+copied. The three vectors sit back to back exactly as they do in this
+file's model record, which is the cross-check that made the correction
+safe to make. No record word reaches any node field as an id, so a
+placement's label is now its index in its block's effect list.
+
+The old offsets made every day-only placement read its valid-time (0) as
+its play speed — a frozen clock, zero quads, invisible — and made the
+day/night gate read the alpha word, so eligibility was arbitrary; position
+read position's y and z followed by direction's x. The synthetic record
+test now encodes the corrected layout, and `scene` joined the offline
+harness so the record is under test without CI.
+
+One addend stays unrecovered: the two `fadds` at `0x5b343a` and `0x5b3449`
+fold stack slots into the placement's x and z, presumably a block or region
+origin. Nothing in the recovered window writes those slots, and the model
+record — same convention, placed correctly in the app since long before
+effects drew — carries plain world positions, so the viewer keeps positions
+as read. If placed effects ever sit a whole block off, that addend is the
+first place to look.
+
+Modules read the world's effect catalogue now and play nothing through it
+yet: the host hands `Modules` a clone of the `Catalog` when the archive
+attaches, `Modules::effect_catalog` returns it, and the test
+`add_ons_can_read_the_world_effect_catalog` pins the lookup path (find by
+path, group by family, search by name). Spawning stays
+`World::spawn_catalog_effect`, called by the host, until a module has a
+reason to ask.
+
 ## Running a module's tests without the crate's dependencies
 
 Four CI cycles went into guessing at a wrong assertion when the file did not

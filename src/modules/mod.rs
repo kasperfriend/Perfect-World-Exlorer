@@ -34,6 +34,12 @@ pub struct Modules {
     populator: Populator,
     packages: Registry,
     selected: usize,
+    /// The world's effect catalogue, handed over by the host when the GFX
+    /// archive attaches. Modules read it to find an effect by group, name or
+    /// search; playing one in the world goes through the host's
+    /// `World::spawn_catalog_effect`, which this handle deliberately does not
+    /// reach yet — access first, wiring later.
+    effect_catalog: Option<crate::gfx_catalog::Catalog>,
 }
 
 impl Default for Modules {
@@ -44,6 +50,7 @@ impl Default for Modules {
             populator: Populator::default(),
             packages: Registry::discover(package::default_root()),
             selected: 0,
+            effect_catalog: None,
         }
     }
 }
@@ -421,6 +428,19 @@ impl Modules {
         self.populator.names_active()
     }
 
+    /// The effect catalogue of the attached world, once the host has handed
+    /// it over: every `.gfx` member grouped by what it depicts, so a module
+    /// can ask for "a waterfall" instead of a path.
+    pub fn effect_catalog(&self) -> Option<&crate::gfx_catalog::Catalog> {
+        self.effect_catalog.as_ref()
+    }
+
+    /// Hand the world's catalogue to the add-ons. Replaces any previous one,
+    /// which is what a world reload wants.
+    pub fn set_effect_catalog(&mut self, catalog: crate::gfx_catalog::Catalog) {
+        self.effect_catalog = Some(catalog);
+    }
+
     pub fn update_walker_audio(&mut self, enabled: bool, volume: f32) {
         self.walker.update_audio(enabled, volume);
     }
@@ -469,6 +489,21 @@ impl Modules {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn add_ons_can_read_the_world_effect_catalog() {
+        let mut modules = Modules::default();
+        assert!(modules.effect_catalog().is_none());
+        modules.set_effect_catalog(crate::gfx_catalog::Catalog::from_directory(vec![(
+            "gfx/场景/瀑布.gfx",
+            0,
+        )]));
+        let catalog = modules.effect_catalog().expect("handed over");
+        let entry = catalog.find("gfx/场景/瀑布.gfx").expect("listed member");
+        assert_eq!(entry.group, crate::gfx_catalog::Group::Water);
+        assert!(!catalog.group(crate::gfx_catalog::Group::Water).is_empty());
+        assert!(!catalog.search("瀑布").is_empty());
+    }
 
     #[test]
     fn modules_window_bottom_edge_resizes_without_content_feedback() {

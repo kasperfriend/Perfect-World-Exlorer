@@ -7,8 +7,9 @@
 # reachable -- npm for the Rust toolchain, GitHub for the two crates the runtime
 # actually needs -- and type-checks and runs the twelve modules whose logic needs
 # no GPU in seconds: `animation`, `client_weather`, `ecmodel`, `gfx_color_track`,
-# `gfx_decal`, `gfx_file`, `gfx_light`, `gfx_owner`, `gfx_player`, `scene_lights`,
-# `sky_transition` and `view_settings`. That is 227 tests as of 7 November. What
+# `gfx_decal`, `gfx_file`, `gfx_light`, `gfx_owner`, `gfx_player`, `scene`,
+# `scene_lights`, `sky_transition` and `view_settings`. That is the ECWLD
+# record layout under test as well as the effect runtime. What
 # stays CI-only is anything that touches wgpu, egui or winit: the renderer, the
 # world, the effect draw object and the walker.
 #
@@ -252,6 +253,8 @@ pub mod gfx_light;
 pub mod gfx_owner;
 #[path = "$REPO/src/gfx_player.rs"]
 pub mod gfx_player;
+#[path = "$REPO/src/scene.rs"]
+pub mod scene;
 #[path = "$REPO/src/scene_lights.rs"]
 pub mod scene_lights;
 #[path = "$REPO/src/sky_transition.rs"]
@@ -282,6 +285,6 @@ case "${1:-test}" in
             "$REPO/src/gfx_color_track.rs" "$REPO/src/gfx_catalog.rs" "$REPO/src/ecmodel.rs" \
             "$REPO/src/gfx_light.rs" "$REPO/src/gfx_owner.rs" "$REPO/src/scene_lights.rs" \
             "$REPO/src/view_settings.rs" "$REPO/src/client_weather.rs" \
-            "$REPO/src/sky_transition.rs" ;;
+            "$REPO/src/sky_transition.rs" "$REPO/src/scene.rs" ;;
     *) echo "usage: $0 {setup|check|test|fmt}" >&2; exit 2 ;;
 esac

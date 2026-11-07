@@ -3843,6 +3843,15 @@ pub fn run(
         &t.scene,
         whole_ornaments.clone(),
     );
+    // Add-ons get read access to the world's effect catalogue the moment the
+    // world has one: the same grouped index the World tab's census uses, so a
+    // module can look up what the map ships without opening the archive
+    // itself. Playing an effect stays the host's job for now.
+    if let Some(models) = &renderer.models {
+        renderer
+            .modules
+            .set_effect_catalog(models.catalog().clone());
+    }
     let destinations =
         crate::navigation::destinations(&whole_element.join("maps/world/world_targets.txt"));
     let mut world_rx: Option<std::sync::mpsc::Receiver<crate::world_objects::Message>> = None;

@@ -293,8 +293,8 @@ impl World {
                     attachment: None,
                     active: false,
                     origin: format!(
-                        "world.ecwld ({},{}) export {}",
-                        block.row, block.col, effect.export_id
+                        "world.ecwld ({},{}) effect {}",
+                        block.row, block.col, effect.index
                     ),
                 })?;
                 self.producers.push(Producer {

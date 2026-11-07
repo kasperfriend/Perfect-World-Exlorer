@@ -39,7 +39,9 @@ pub struct SceneModel {
 }
 #[derive(Clone, Debug)]
 pub struct Effect {
-    pub export_id: u32,
+    /// Position of this record in its block's effect list; the native record
+    /// carries no id word of its own (see [`Effect::read`]).
+    pub index: u32,
     pub scale: f32,
     pub position: [f32; 3],
     pub direction: [f32; 3],
@@ -51,8 +53,29 @@ pub struct Effect {
     pub path: String,
 }
 impl Effect {
-    /// Native 142 LoadEffect 0x5b33f3 reads 60 bytes, then the path.
-    /// Keep placement/owner inputs instead of discarding them before playback.
+    /// The client's effect loader reads 60 bytes, then the path, and copies
+    /// them into the owner node field by field; the offsets below are those
+    /// copies, not a guess at the exporter's order.
+    ///
+    /// `0x5b33f3` reads the 0x3c-byte record, and `0x5b3436..0x5b34a6` copies
+    /// it: record[0] to node+0x28, record[4..16) to node+0x04.. (the block's
+    /// x/z origin added into the first and third components on the way),
+    /// record[16..28) to node+0x10.., record[28..40) to node+0x1c.., then the
+    /// words at record[40], [44], [48] to node+0x2c, +0x30, +0x34 and the byte
+    /// at record[52] to node+0x38. The meanings come from the readers of those
+    /// node fields: `0x5b3700` takes node+0x28 as the uniform scale it hands
+    /// `0x787de0` and node+0x2c as the play speed it hands `0x6e52c0`, and
+    /// `0x5b18a1` takes node+0x30 as the valid-time word it compares against
+    /// 2, 0 and 1. So scale leads the record and the three vectors follow it
+    /// back to back, as they do in this file's model record; the alpha word
+    /// and the attenuation byte keep their names but no recovered reader, and
+    /// record[53..60) is never copied at all.
+    ///
+    /// An earlier reading put an export id at record[0] and everything after
+    /// it four bytes late, which made every day-only placement read its
+    /// valid-time as its play speed: a speed of 0, a frozen clock, and no
+    /// geometry at all. No record word reaches a node field as an id, so the
+    /// block list index labels a placement instead.
     fn read(data: &[u8], p: &mut usize) -> Result<Self, String> {
         let start = *p;
         let bytes = data
@@ -60,15 +83,15 @@ impl Effect {
             .ok_or("short scene effect record")?;
         *p += 60;
         Ok(Self {
-            export_id: u32at(bytes, 0)?,
-            scale: f32at(bytes, 4)?,
-            position: vec3(bytes, 8)?,
-            direction: vec3(bytes, 20)?,
-            up: vec3(bytes, 32)?,
-            speed: f32at(bytes, 44)?,
-            valid_time: u32at(bytes, 48)? as i32,
-            alpha: f32at(bytes, 52)?,
-            attenuation: bytes[56] != 0,
+            index: 0,
+            scale: f32at(bytes, 0)?,
+            position: vec3(bytes, 4)?,
+            direction: vec3(bytes, 16)?,
+            up: vec3(bytes, 28)?,
+            speed: f32at(bytes, 40)?,
+            valid_time: u32at(bytes, 44)? as i32,
+            alpha: f32at(bytes, 48)?,
+            attenuation: bytes[52] != 0,
             path: string(data, p)?,
         })
     }
@@ -301,8 +324,10 @@ impl Scene {
             let boxes = refs(data, &mut p, n[4])?;
             let grass = refs(data, &mut p, n[2])?;
             let mut effects = Vec::with_capacity(n[5]);
-            for _ in 0..n[5] {
-                effects.push(Effect::read(data, &mut p)?);
+            for index in 0..n[5] {
+                let mut effect = Effect::read(data, &mut p)?;
+                effect.index = index as u32;
+                effects.push(effect);
             }
             let mut models = Vec::with_capacity(n[6]);
             for _ in 0..n[6] {
@@ -422,25 +447,24 @@ mod tests {
     use super::*;
     fn effect_bytes() -> Vec<u8> {
         let mut b = vec![0; 60];
-        b[..4].copy_from_slice(&17u32.to_le_bytes());
         for (o, v) in [
-            (4, 2.5f32),
-            (8, 11.),
-            (12, 12.),
-            (16, 13.),
+            (0, 2.5f32),
+            (4, 11.),
+            (8, 12.),
+            (12, 13.),
+            (16, 0.),
             (20, 0.),
-            (24, 0.),
-            (28, -1.),
-            (32, 0.),
-            (36, 1.),
-            (40, 0.),
-            (44, 0.75),
-            (52, 0.25),
+            (24, -1.),
+            (28, 0.),
+            (32, 1.),
+            (36, 0.),
+            (40, 0.75),
+            (48, 0.25),
         ] {
             b[o..o + 4].copy_from_slice(&v.to_le_bytes());
         }
-        b[48..52].copy_from_slice(&2i32.to_le_bytes());
-        b[56] = 1;
+        b[44..48].copy_from_slice(&2i32.to_le_bytes());
+        b[52] = 1;
         // Padding is not another flag or part of the path length.
         b[57..60].fill(0xff);
         b.extend_from_slice(&5u32.to_le_bytes());
@@ -453,7 +477,6 @@ mod tests {
         let mut p = 0;
         let e = Effect::read(&b, &mut p).unwrap();
         assert_eq!(p, b.len());
-        assert_eq!(e.export_id, 17);
         assert_eq!(e.scale, 2.5);
         assert_eq!(e.position, [11., 12., 13.]);
         assert_eq!(e.direction, [0., 0., -1.]);

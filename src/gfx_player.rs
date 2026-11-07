@@ -6315,6 +6315,57 @@ mod tests {
     /// inside the 0.2 that `0x6e54ac` measures, so `MatchGrnd` alone applies and
     /// the aligned frame is what those roots get.
     #[test]
+    /// The world's placed effects are emission-driven: a root whose clock has
+    /// not run yet draws nothing at all, which is exactly why a placement
+    /// whose play speed reads as zero is invisible rather than merely
+    /// still. These four shipped roots stand in for that property: empty at
+    /// birth, drawing after half a second, and still changing afterwards.
+    #[test]
+    fn emitted_world_roots_draw_nothing_until_the_clock_runs() {
+        let Some(root) = corpus_root() else { return };
+        let view = view();
+        for name in [
+            "gfx/场景/新种族地图/瀑布.gfx",
+            "gfx/场景/瀑布水花.gfx",
+            "gfx/场景/美丽光柱.gfx",
+            "gfx/场景/树叶雨.gfx",
+        ] {
+            let Ok(bytes) = std::fs::read(root.join(name)) else {
+                continue;
+            };
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            let Ok(parsed) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            let archive = root.clone();
+            let mut player = Player::new(parsed, 7, &mut |p: &str| {
+                let b = std::fs::read(archive.join(p)).map_err(|e| format!("{p}: {e}"))?;
+                let (s, _) = crate::gfx_file::decode(&b);
+                crate::gfx_file::parse(&s)
+            })
+            .unwrap();
+            let shape = |player: &Player| {
+                player
+                    .quads()
+                    .iter()
+                    .map(|quad| (quad.uv[0], quad.positions[0]))
+                    .collect::<Vec<_>>()
+            };
+            assert!(
+                player.quads().is_empty(),
+                "{name}: drew before its clock ran"
+            );
+            player.advance(16., &view, Mat4::IDENTITY, 1., 1.).unwrap();
+            let first = shape(&player);
+            for _ in 0..29 {
+                player.advance(16., &view, Mat4::IDENTITY, 1., 1.).unwrap();
+            }
+            let later = shape(&player);
+            assert!(!later.is_empty(), "{name}: drew nothing after 480 ms");
+            assert_ne!(first, later, "{name}: frozen after its first frame");
+        }
+    }
+
     fn corpus_plays_through_with_a_ground_query() {
         let Some(root) = corpus_root() else {
             return;
