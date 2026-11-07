@@ -37,6 +37,8 @@ const THIRD_PERSON_DISTANCE: f32 = 4.5;
 struct Settings {
     mechanics: Mechanics,
     first_person: bool,
+    /// First-person-only camera attached to the animated head bone.
+    real_camera: bool,
     object_collision: bool,
     camera_distance: f32,
     camera_distance_target: f32,
@@ -47,6 +49,7 @@ impl Default for Settings {
         Self {
             mechanics: Mechanics::default(),
             first_person: false,
+            real_camera: false,
             object_collision: true,
             camera_distance: THIRD_PERSON_DISTANCE,
             camera_distance_target: THIRD_PERSON_DISTANCE,
@@ -111,6 +114,17 @@ fn zoomed_distance(current: f32, steps: f32) -> f32 {
     (current - change).clamp(0.0, 20.0)
 }
 
+/// The Real Camera is a first-person-only option: third person always uses the
+/// orbiting camera, and a rig that cannot supply an animated head keeps the
+/// stable bind-head anchor rather than jumping to the world origin.
+fn first_person_eye(real_camera: bool, animated: Option<Vec3>, stable: Vec3) -> Vec3 {
+    if real_camera {
+        animated.unwrap_or(stable)
+    } else {
+        stable
+    }
+}
+
 fn eased_camera_distance(current: f32, target: f32, delta: f32) -> f32 {
     if !delta.is_finite() || delta <= 0.0 {
         return current;
@@ -132,6 +146,36 @@ enum ModelPart {
     Weapon { right: bool },
     Flight,
     Mount,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PartVisibility {
+    All,
+    /// First person draws the body except the native head skin.
+    BodyWithoutHead,
+    Hidden,
+}
+
+/// Which part geometry each camera mode submits. In first person only the
+/// native head and face are hidden: wings/fly-swords and the right-hand sword
+/// are attached to the body and must remain in front of the head camera.
+fn part_visibility(
+    part: &ModelPart,
+    first_person: bool,
+    soulsphere_hidden: bool,
+) -> PartVisibility {
+    if soulsphere_hidden && matches!(part, ModelPart::Weapon { right: true }) {
+        return PartVisibility::Hidden;
+    }
+    if !first_person {
+        return PartVisibility::All;
+    }
+    match part {
+        ModelPart::Body => PartVisibility::BodyWithoutHead,
+        // The head/face geometry would fill the near plane from inside.
+        ModelPart::Face => PartVisibility::Hidden,
+        ModelPart::Flight | ModelPart::Weapon { .. } | ModelPart::Mount => PartVisibility::All,
+    }
 }
 
 struct RenderModel<'a> {
@@ -766,6 +810,15 @@ impl Walker {
             self.pose_generation = self.pose_generation.wrapping_add(1);
             let eye = character.eye;
             if self.settings.first_person {
+                // Real Camera samples the current animated head bone, so the
+                // view bobs and sways with the locomotion/flying/riding clips.
+                // The ordinary first-person mode keeps the stable bind anchor.
+                let animated = if self.settings.real_camera {
+                    character.real_camera_eye()
+                } else {
+                    None
+                };
+                let eye = first_person_eye(self.settings.real_camera, animated, eye);
                 self.camera_position = Some(eye);
                 return Some(eye);
             }
@@ -905,7 +958,12 @@ impl Walker {
                 physics::CONTINUOUS_JUMP_HEIGHT,
             ));
         ui.checkbox(&mut self.settings.first_person, "First Person Mode")
-            .on_hover_text("Uses a stable bind-head eye anchor without animation bob. The body and mount remain visible; native head/face, right-hand weapon, and flight meshes are hidden.");
+            .on_hover_text("Attaches the camera to the character's head. Only the native head and face are hidden; wings, fly-swords, weapons and the mount stay visible.");
+        ui.add_enabled(
+            self.settings.first_person,
+            egui::Checkbox::new(&mut self.settings.real_camera, "Real Camera"),
+        )
+        .on_hover_text("First Person only: follow the animated head bone instead of the stable bind-head anchor, so the view gets real head bob, sway, nod and travel movement. Mouse look still controls orientation.");
         if ui
             .checkbox(&mut self.settings.object_collision, "Collision check")
             .on_hover_text("Collide with native BMD building/object hulls and TBH tree hulls. Terrain collision remains enabled permanently, even when this option is off.")
@@ -1119,22 +1177,20 @@ impl Walker {
             occlusion_query_set: None,
         });
         if let Some(gpu) = &self.gpu {
+            let soulsphere_hidden = self
+                .character
+                .as_ref()
+                .is_some_and(|character| character.soulsphere_hidden());
             for (draw, part) in gpu.draws.iter().zip(&gpu.parts) {
-                match part {
-                    ModelPart::Body if self.settings.first_person => {
-                        // Skin 1 is the separate native head installed by
-                        // CECPlayer. Keep every pose uploaded; only submission
-                        // changes, so the full-mesh validation remains intact.
+                match part_visibility(part, self.settings.first_person, soulsphere_hidden) {
+                    PartVisibility::Hidden => {}
+                    // Skin 1 is the separate native head installed by
+                    // CECPlayer. Keep every pose uploaded; only submission
+                    // changes, so the full-mesh validation remains intact.
+                    PartVisibility::BodyWithoutHead => {
                         draw.draw_filtered(&mut pass, |(skin, _)| skin != 1);
                     }
-                    ModelPart::Face | ModelPart::Flight if self.settings.first_person => {}
-                    ModelPart::Weapon { right: true }
-                        if self.settings.first_person
-                            || self
-                                .character
-                                .as_ref()
-                                .is_some_and(|character| character.soulsphere_hidden()) => {}
-                    _ => draw.draw(&mut pass),
+                    PartVisibility::All => draw.draw(&mut pass),
                 }
             }
             gpu.gfx.draw_quads(&mut pass);
@@ -1199,5 +1255,57 @@ mod tests {
         assert!(!jump_requested(true, true, TravelState::Ground));
         assert!(!jump_requested(true, true, TravelState::Mounted));
         assert!(!jump_requested(false, false, TravelState::Mounted));
+    }
+
+    #[test]
+    fn first_person_keeps_wings_swords_and_mount_visible() {
+        assert_eq!(
+            part_visibility(&ModelPart::Flight, true, false),
+            PartVisibility::All,
+            "flying wings/fly-sword must be drawn in first person"
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Weapon { right: true }, true, false),
+            PartVisibility::All,
+            "the right-hand sword must be drawn in first person"
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Weapon { right: false }, true, false),
+            PartVisibility::All
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Mount, true, false),
+            PartVisibility::All
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Face, true, false),
+            PartVisibility::Hidden
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Body, true, false),
+            PartVisibility::BodyWithoutHead
+        );
+        // The authored ShowMagicWeapon rule still wins in either camera mode.
+        assert_eq!(
+            part_visibility(&ModelPart::Weapon { right: true }, true, true),
+            PartVisibility::Hidden
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Flight, false, false),
+            PartVisibility::All
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Body, false, false),
+            PartVisibility::All
+        );
+    }
+
+    #[test]
+    fn real_camera_only_replaces_the_first_person_eye() {
+        let stable = Vec3::new(0., 1.6, 0.);
+        let animated = Vec3::new(0.08, 1.63, -0.02);
+        assert_eq!(first_person_eye(false, Some(animated), stable), stable);
+        assert_eq!(first_person_eye(true, Some(animated), stable), animated);
+        assert_eq!(first_person_eye(true, None, stable), stable);
     }
 }
