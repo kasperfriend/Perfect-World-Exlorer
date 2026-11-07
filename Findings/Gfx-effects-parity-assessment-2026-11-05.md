@@ -506,6 +506,17 @@ read position's y and z followed by direction's x. The synthetic record
 test now encodes the corrected layout, and `scene` joined the offline
 harness so the record is under test without CI.
 
+The play-speed word is stored, not validated: the first world load after the
+correction refused to start over block (18,18)'s first effect, whose speed word
+is not a playable rate, and the loader never checks it -- `0x5b3700` copies the
+float into the root and the tick multiplies by whatever is there, so a negative
+or unordered rate leaves the owner's clock short of its StartTime and retail
+simply shows nothing. The viewer now agrees with that outcome instead of
+arguing: an unplayable rate freezes the owner at clock zero and lands one line
+in the effect notices, and no single placement -- scene effect or model event --
+can refuse the world load any more; each rejected record is a reported absence
+on the status line while the map and its other effects come up.
+
 One addend stays unrecovered: the two `fadds` at `0x5b343a` and `0x5b3449`
 fold stack slots into the placement's x and z, presumably a block or region
 origin. Nothing in the recovered window writes those slots, and the model

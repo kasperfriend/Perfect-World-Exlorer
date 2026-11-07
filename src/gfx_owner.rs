@@ -78,9 +78,6 @@ impl Request {
         if self.transform.iter().any(|v| !v.is_finite()) {
             return Err(format!("{}: nonfinite owner placement", self.origin));
         }
-        if !self.speed.is_finite() || self.speed < 0. {
-            return Err(format!("{}: invalid owner play speed", self.origin));
-        }
         if self.span_ms == Some(0) {
             return Err(format!("{}: zero owner lifetime", self.origin));
         }
@@ -345,8 +342,24 @@ impl Manager {
     }
 
     /// Register an owner. It stays pending until the lazy loader reaches it.
-    pub fn insert(&mut self, request: Request) -> Result<(), String> {
+    pub fn insert(&mut self, mut request: Request) -> Result<(), String> {
         request.validate()?;
+        // Authored play speeds are stored bits, not validated numbers: the
+        // client's tick multiplies its delta by whatever the record carried
+        // and an owner whose clock goes negative or unordered simply never
+        // reaches its StartTime, so retail shows nothing for it. The viewer
+        // freezes such an owner at the same place instead of refusing it --
+        // and a world load must never fail over one placement's word.
+        if !request.speed.is_finite() || request.speed < 0. {
+            let line = format!(
+                "{}: authored play speed {} is not a playable rate; the owner runs frozen, which is where the client's own tick leaves it",
+                request.origin, request.speed
+            );
+            if !self.effect_warnings.contains(&line) {
+                self.effect_warnings.push(line);
+            }
+            request.speed = 0.;
+        }
         if self
             .owners
             .iter()
@@ -592,7 +605,7 @@ impl Manager {
                 owner.player = None;
                 continue;
             }
-            let scaled = delta_ms as f32 * owner.request.speed;
+            let scaled = (delta_ms as f32 * owner.request.speed).max(0.);
             let alpha = owner.request.outer.map_or(1., |outer| outer[3]);
             let transform = match owner.request.world_transform() {
                 Ok(columns) => Mat4::from_cols_array(&columns),
@@ -781,8 +794,8 @@ fn tick_owner(
     publications: &mut LightPublications,
     priority_limit: i32,
 ) -> Result<bool, String> {
-    let scaled = delta_ms as f32 * owner.request.speed;
-    if !scaled.is_finite() || scaled < 0. || scaled >= u32::MAX as f32 {
+    let scaled = (delta_ms as f32 * owner.request.speed).max(0.);
+    if !scaled.is_finite() || scaled >= u32::MAX as f32 {
         return Err("owner clock overflow".into());
     }
     owner.elapsed = owner.elapsed.saturating_add(scaled as u32);
@@ -1094,16 +1107,33 @@ mod tests {
         let mut bad = request(3, true);
         bad.transform[0] = f32::INFINITY;
         assert!(manager.insert(bad).is_err());
-        let mut bad = request(4, true);
-        bad.speed = -1.;
-        assert!(manager.insert(bad).is_err());
+        let mut frozen = request(4, true);
+        frozen.speed = -1.;
+        manager
+            .insert(frozen)
+            .expect("a bad speed freezes, not fails");
+        assert!(manager
+            .effect_warnings()
+            .iter()
+            .any(|w| w.contains("not a playable rate")));
+        let mut publications2 = LightPublications::default();
+        manager.update(1000, &mut publications2);
+        manager.update(1000, &mut publications2);
         let mut bad = request(5, true);
         bad.span_ms = Some(0);
         assert!(manager.insert(bad).is_err());
         let mut bad = request(6, true);
         bad.outer = Some([0., 0., 0., -1.]);
         assert!(manager.insert(bad).is_err());
-        assert_eq!(manager.status().live + manager.status().pending, 1);
+        // Without a reader the two accepted owners fail their load, so what
+        // remains proves the split: four rejections, one sanitized speed that
+        // was accepted rather than refused.
+        assert_eq!(manager.status().failed_owners, 2);
+        assert_eq!(manager.status().live + manager.status().pending, 0);
+        let mut drained = LightPublications::default();
+        manager.remove(1, &mut drained);
+        manager.remove(4, &mut drained);
+        assert_eq!(manager.status().failed_owners, 0);
     }
 
     #[test]

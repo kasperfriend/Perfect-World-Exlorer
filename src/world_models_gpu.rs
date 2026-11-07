@@ -271,18 +271,31 @@ impl World {
 
     /// Install the actual ECWLD effect placements as scene-light producers.
     /// The owners stay pending and are loaded one root per update, as 0x5b1a00.
-    pub fn install_scene_effects(&mut self, scene: &crate::scene::Scene) -> Result<usize, String> {
+    pub fn install_scene_effects(&mut self, scene: &crate::scene::Scene) -> usize {
         let mut installed = 0;
         for block in &scene.blocks {
             for effect in &block.effects {
-                let transform = gfx_owner::placement_transform(
+                let origin = format!(
+                    "world.ecwld ({},{}) effect {}",
+                    block.row, block.col, effect.index
+                );
+                // One malformed placement is a reported absence, never a
+                // refused world: the client loads the map and plays what it
+                // can, and so does the viewer.
+                let transform = match gfx_owner::placement_transform(
                     effect.position,
                     effect.direction,
                     effect.up,
                     effect.scale,
-                )?;
+                ) {
+                    Ok(transform) => transform,
+                    Err(error) => {
+                        self.reported.push(format!("{origin}: {error}"));
+                        continue;
+                    }
+                };
                 let identity = self.producers.len() as u64;
-                self.owners.insert(gfx_owner::Request {
+                let request = gfx_owner::Request {
                     identity,
                     path: gfx_owner::root_path(&effect.path),
                     transform,
@@ -292,11 +305,12 @@ impl World {
                     outer: None,
                     attachment: None,
                     active: false,
-                    origin: format!(
-                        "world.ecwld ({},{}) effect {}",
-                        block.row, block.col, effect.index
-                    ),
-                })?;
+                    origin: origin.clone(),
+                };
+                if let Err(error) = self.owners.insert(request) {
+                    self.reported.push(format!("{origin}: {error}"));
+                    continue;
+                }
                 self.producers.push(Producer {
                     identity,
                     valid_time: Some(effect.valid_time),
@@ -306,7 +320,7 @@ impl World {
                 installed += 1;
             }
         }
-        Ok(installed)
+        installed
     }
     /// Install ECM EventType-100 roots, including hook-attached ones.
     ///
@@ -315,11 +329,18 @@ impl World {
     /// (`gfx_owner::Request::attachment`); a hook-free root is placed by the
     /// model transform the event inherits. An unknown hook name or a malformed
     /// hook record is an explicit failure, never the model origin.
-    pub fn install_model_events(&mut self) -> Result<usize, String> {
+    pub fn install_model_events(&mut self) -> usize {
         let mut installed = 0;
         for (index, instance) in self.assets.instances.iter().enumerate() {
             let asset = &self.assets.assets[instance.asset];
-            let transform = *self.slots[index].transform.as_ref().map_err(Clone::clone)?;
+            let transform = match self.slots[index].transform.as_ref() {
+                Ok(transform) => *transform,
+                Err(error) => {
+                    self.reported
+                        .push(format!("{}: {error}", instance.placement.path));
+                    continue;
+                }
+            };
             for (event_index, event) in asset.descriptor.events.iter().enumerate() {
                 let Some(path) = event.gfx_path() else {
                     continue;
@@ -328,19 +349,40 @@ impl World {
                     "{} export {} event {event_index}",
                     instance.placement.path, instance.placement.export_id
                 );
-                let record = model_attachment::from_fields(&event.fields)
-                    .map_err(|e| format!("{described}: {e}"))?;
+                let record = match model_attachment::from_fields(&event.fields) {
+                    Ok(record) => record,
+                    Err(error) => {
+                        self.reported.push(format!("{described}: {error}"));
+                        continue;
+                    }
+                };
                 let local = match &record {
-                    Some(record) => record.local()?,
+                    Some(record) => match record.local() {
+                        Ok(local) => local,
+                        Err(error) => {
+                            self.reported.push(format!("{described}: {error}"));
+                            continue;
+                        }
+                    },
                     None => glam::Mat4::IDENTITY,
                 };
-                let start_ms = event_milliseconds(event, "StartTime")?.max(0.);
-                let span_ms = match event_milliseconds(event, "TimeSpan")? {
-                    value if value < 0. => None,
-                    value => Some(value.trunc() as u32),
+                let start_ms = match event_milliseconds(event, "StartTime") {
+                    Ok(value) => value.max(0.),
+                    Err(error) => {
+                        self.reported.push(format!("{described}: {error}"));
+                        continue;
+                    }
+                };
+                let span_ms = match event_milliseconds(event, "TimeSpan") {
+                    Ok(value) if value < 0. => None,
+                    Ok(value) => Some(value.trunc() as u32),
+                    Err(error) => {
+                        self.reported.push(format!("{described}: {error}"));
+                        continue;
+                    }
                 };
                 let identity = MODEL_EVENT_IDENTITY + self.producers.len() as u64;
-                self.owners.insert(gfx_owner::Request {
+                let request = gfx_owner::Request {
                     identity,
                     path: gfx_owner::root_path(&path),
                     // A hooked root's local frame is the hook record and its
@@ -356,8 +398,12 @@ impl World {
                     outer: None,
                     attachment: None,
                     active: false,
-                    origin: described,
-                })?;
+                    origin: described.clone(),
+                };
+                if let Err(error) = self.owners.insert(request) {
+                    self.reported.push(format!("{described}: {error}"));
+                    continue;
+                }
                 self.producers.push(Producer {
                     identity,
                     valid_time: None,
@@ -371,7 +417,7 @@ impl World {
                 installed += 1;
             }
         }
-        Ok(installed)
+        installed
     }
     /// Release receiving-model geometry and poses outside the installed terrain
     /// window, rather than merely disabling their effect-light producers.

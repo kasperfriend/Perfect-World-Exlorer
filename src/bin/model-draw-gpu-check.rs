@@ -862,7 +862,7 @@ fn main() {
             sounds: vec![],
         }],
     };
-    assert_eq!(world.install_scene_effects(&scene_fixture).unwrap(), 1);
+    assert_eq!(world.install_scene_effects(&scene_fixture), 1);
     world.set_view_center(0., 0., 128.);
     // One root loads per update and the load frame publishes nothing.
     world.update(
