@@ -1301,7 +1301,11 @@ fn animated_eye_position(posed: &Posed, head_bone: Option<usize>) -> Result<Vec3
         return Err("non-finite animated head transform".into());
     }
     let up = matrix.y_axis.truncate().normalize_or_zero();
-    let up = if up.length_squared() > 0.5 { up } else { Vec3::Y };
+    let up = if up.length_squared() > 0.5 {
+        up
+    } else {
+        Vec3::Y
+    };
     let eye = matrix.transform_point3(Vec3::ZERO) + up * HEAD_EYE_OFFSET;
     if !eye.is_finite() {
         return Err("non-finite real camera eye".into());
