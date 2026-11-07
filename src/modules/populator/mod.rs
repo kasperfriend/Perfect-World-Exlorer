@@ -8,7 +8,7 @@
 //! until a placement source is supplied. Native actors move only along real
 //! navigation paths from server data. An explicitly enabled Live World
 //! (Experimental) prototype tries synthetic city residents using original
-//! human rigs in bind pose and locally collision-checked routes.
+//! human rigs, validated retargeted locomotion clips and safe local routes.
 //!
 //! Everything here is module-owned: archives, rig cache, texture cache, GPU
 //! draws, simulation and settings. The host supplies a camera position (which
@@ -28,6 +28,7 @@ use self::{
     patrol::{Follow, Motion, Route, Waypoint},
 };
 use crate::{
+    animation::{BoneTrack, KeyTrack},
     model_asset::{ModelAsset, PosedMesh, TrackCache},
     model_draw_gpu,
     model_playback::Playback,
@@ -64,6 +65,7 @@ const LIVE_WORLD_BUILD_BUDGET: std::time::Duration = std::time::Duration::from_m
 const LIVE_WORLD_MIN_SEPARATION: f32 = 4.5;
 const LIVE_WORLD_SAMPLE_SPACING: f32 = 0.35;
 const LIVE_WORLD_MAX_ROUTE_RADIUS: f32 = 14.0;
+const LIVE_WORLD_RUN_SPEED: f32 = 1.9;
 /// Refresh the cached nearest set only after a useful batch has accumulated;
 /// rescanning and sorting the whole world for every generated citizen would
 /// defeat the existing stream-cache optimization.
@@ -264,6 +266,24 @@ impl Clip {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum GaitKind {
+    Walk,
+    Run,
+}
+
+#[derive(Clone, Debug)]
+struct GaitClip {
+    clip: Clip,
+    tracks: std::sync::Arc<Vec<BoneTrack>>,
+}
+
+#[derive(Clone, Debug)]
+struct RetargetedGait {
+    walk: GaitClip,
+    run: GaitClip,
+}
+
 /// Module-owned `models.pck`/`textures.pck` rig and texture source.
 struct Library {
     models: Archive,
@@ -271,6 +291,9 @@ struct Library {
     tracks: TrackCache,
     assets: HashMap<String, Rc<ModelAsset>>,
     failures: HashMap<String, String>,
+    gait_sources: HashMap<String, Rc<ModelAsset>>,
+    gait_source_failures: HashMap<String, String>,
+    retargeted_gaits: HashMap<String, Option<RetargetedGait>>,
     /// Bind-pose head height per rig, for the overhead name. Computed once per
     /// template rather than once per actor.
     heads: HashMap<String, f32>,
@@ -327,6 +350,9 @@ impl Library {
             tracks: TrackCache::default(),
             assets: HashMap::new(),
             failures: HashMap::new(),
+            gait_sources: HashMap::new(),
+            gait_source_failures: HashMap::new(),
+            retargeted_gaits: HashMap::new(),
             heads: HashMap::new(),
         })
     }
@@ -385,6 +411,54 @@ impl Library {
         height
     }
 
+    /// Load a gait donor without its meshes or textures: only its authored
+    /// skeleton and animation tracks are used to retarget locomotion.
+    fn gait_source(&mut self, path: &str) -> Result<Rc<ModelAsset>, String> {
+        let key = crate::ecmodel::normalize(path);
+        if let Some(asset) = self.gait_sources.get(&key) {
+            return Ok(asset.clone());
+        }
+        if let Some(error) = self.gait_source_failures.get(&key) {
+            return Err(error.clone());
+        }
+        let loaded = {
+            let models = &mut self.models;
+            let mut read = |path: &str| models.read(path);
+            ModelAsset::load_without_skins_with(&key, &mut read)
+        };
+        match loaded {
+            Ok(asset) => {
+                let asset = Rc::new(asset);
+                self.gait_sources.insert(key, asset.clone());
+                Ok(asset)
+            }
+            Err(error) => {
+                self.gait_source_failures.insert(key, error.clone());
+                Err(error)
+            }
+        }
+    }
+
+    /// Cache only validated walk/run pairs. The donor contributes animation
+    /// data, never a visible model; mismatched rigs retain the bind-pose route.
+    fn retargeted_gait(&mut self, key: &str, target: &ModelAsset) -> Option<RetargetedGait> {
+        if let Some(gait) = self.retargeted_gaits.get(key) {
+            return gait.clone();
+        }
+        const DONORS: [&str; 4] = [
+            "models/npcs/npc/卫兵npc1/卫兵npc1.ecm",
+            "models/npcs/npc/卫兵npc2/卫兵npc2.ecm",
+            "models/npcs/npc/卫兵npc3/卫兵npc3.ecm",
+            "models/npcs/npc/卫兵npc4/卫兵npc4.ecm",
+        ];
+        let gait = DONORS.iter().find_map(|path| {
+            let source = self.gait_source(path).ok()?;
+            retargeted_gait_from(&source, target)
+        });
+        self.retargeted_gaits.insert(key.to_string(), gait.clone());
+        gait
+    }
+
     fn asset(&mut self, path: &str) -> Result<Rc<ModelAsset>, String> {
         let key = crate::ecmodel::normalize(path);
         if let Some(asset) = self.assets.get(&key) {
@@ -400,6 +474,7 @@ impl Library {
             assets,
             failures,
             heads: _,
+            ..
         } = self;
         let mut read = |path: &str| read_archive(models, textures.as_mut(), path);
         let loaded = ModelAsset::load_cached(&key, &mut read, tracks);
@@ -418,6 +493,185 @@ impl Library {
     }
 }
 
+fn gait_kind(name: &str) -> Option<GaitKind> {
+    if !locomotion_name(name) {
+        return None;
+    }
+    let name = name.to_ascii_lowercase();
+    if ["run", "奔跑", "跑"].iter().any(|part| name.contains(part)) {
+        Some(GaitKind::Run)
+    } else if ["walk", "走", "行走", "move", "移动"]
+        .iter()
+        .any(|part| name.contains(part))
+    {
+        Some(GaitKind::Walk)
+    } else {
+        None
+    }
+}
+
+fn bone_parent_name(asset: &ModelAsset, parent: i32) -> Option<&str> {
+    usize::try_from(parent)
+        .ok()
+        .and_then(|index| asset.skeleton.bones.get(index))
+        .map(|bone| bone.name.as_str())
+}
+
+fn retarget_gait_clip(
+    source: &ModelAsset,
+    target: &ModelAsset,
+    kind: GaitKind,
+) -> Option<GaitClip> {
+    let target_joints: HashMap<&str, usize> = target
+        .skeleton
+        .joints
+        .iter()
+        .enumerate()
+        .map(|(index, joint)| (joint.name.as_str(), index))
+        .collect();
+    if target_joints.len() != target.skeleton.joints.len() {
+        return None;
+    }
+    for (action_index, action) in source.model.actions.iter().enumerate() {
+        if gait_kind(&action.name) != Some(kind) {
+            continue;
+        }
+        let Some(clip) = Clip::new(source, action_index) else {
+            continue;
+        };
+        let Some(source_tracks) = source
+            .tracks
+            .get(action_index)
+            .and_then(Option::as_ref)
+            .map(|tracks| tracks.tracks.as_slice())
+            .or_else(|| {
+                (!source.skeleton.embedded_tracks.is_empty())
+                    .then_some(source.skeleton.embedded_tracks.as_slice())
+            })
+        else {
+            continue;
+        };
+        if source_tracks.is_empty() {
+            continue;
+        }
+        let mut seen = HashSet::new();
+        let mut retargeted = Vec::with_capacity(source_tracks.len());
+        let mut compatible = true;
+        for track in source_tracks {
+            let Some(source_joint) = usize::try_from(track.id)
+                .ok()
+                .and_then(|index| source.skeleton.joints.get(index))
+            else {
+                compatible = false;
+                break;
+            };
+            let Some(&target_joint_index) = target_joints.get(source_joint.name.as_str()) else {
+                // Guard rigs can carry extra attachment joints. Ignore those,
+                // but require broad track coverage before accepting the clip.
+                continue;
+            };
+            let target_joint = &target.skeleton.joints[target_joint_index];
+            if source_joint.class != target_joint.class {
+                continue;
+            }
+            let Some(source_bone) = usize::try_from(source_joint.child)
+                .ok()
+                .and_then(|index| source.skeleton.bones.get(index))
+            else {
+                compatible = false;
+                break;
+            };
+            let Some(target_bone) = usize::try_from(target_joint.child)
+                .ok()
+                .and_then(|index| target.skeleton.bones.get(index))
+            else {
+                continue;
+            };
+            if source_bone.name != target_bone.name
+                || bone_parent_name(source, source_bone.parent)
+                    != bone_parent_name(target, target_bone.parent)
+            {
+                continue;
+            }
+            if !seen.insert(target_joint_index) {
+                compatible = false;
+                break;
+            }
+            let (source_scale, source_rest_rotation, _) =
+                Mat4::from_cols_array(&source_bone.relative).to_scale_rotation_translation();
+            let (target_scale, target_rest_rotation, target_rest_position) =
+                Mat4::from_cols_array(&target_bone.relative).to_scale_rotation_translation();
+            if !source_scale.is_finite()
+                || (source_scale - Vec3::ONE).abs().max_element() > 0.02
+                || !source_rest_rotation.is_finite()
+                || !target_rest_rotation.is_finite()
+                || !target_rest_position.is_finite()
+                || !target_scale.is_finite()
+                || (target_scale - Vec3::ONE).abs().max_element() > 0.02
+            {
+                compatible = false;
+                break;
+            }
+            let rest_delta = source_rest_rotation.inverse();
+            let mut rotation = track.rotation.clone();
+            for key in &mut rotation.keys {
+                let authored = glam::Quat::from_array(*key).normalize();
+                let mapped = (target_rest_rotation * rest_delta * authored).normalize();
+                if !mapped.is_finite() {
+                    compatible = false;
+                    break;
+                }
+                *key = mapped.to_array();
+            }
+            if !compatible {
+                break;
+            }
+            retargeted.push(BoneTrack {
+                id: target_joint_index as i32,
+                position: KeyTrack {
+                    fps: track.position.fps.max(1),
+                    keys: vec![target_rest_position.to_array()],
+                    frames: vec![0.],
+                    length_ms: 0,
+                    compression: 0,
+                },
+                rotation,
+            });
+        }
+        if !compatible
+            || retargeted.len() < source_tracks.len().min(8)
+            || retargeted.len() * 100 < source_tracks.len() * 70
+        {
+            continue;
+        }
+        let Ok(start) = target.pose_tracks_at_time(&retargeted, clip.seconds(0.), Mat4::IDENTITY)
+        else {
+            continue;
+        };
+        let start_signature = walk_pose_signature(&start);
+        let visibly_moves = [0.13_f32, 0.21, 0.29, 0.37, 0.49].into_iter().any(|offset| {
+            clip.seconds(offset) != clip.seconds(0.)
+                && target
+                    .pose_tracks_at_time(&retargeted, clip.seconds(offset), Mat4::IDENTITY)
+                    .is_ok_and(|posed| walk_pose_signature(&posed) != start_signature)
+        });
+        if visibly_moves {
+            return Some(GaitClip {
+                clip,
+                tracks: std::sync::Arc::new(retargeted),
+            });
+        }
+    }
+    None
+}
+
+fn retargeted_gait_from(source: &ModelAsset, target: &ModelAsset) -> Option<RetargetedGait> {
+    Some(RetargetedGait {
+        walk: retarget_gait_clip(source, target, GaitKind::Walk)?,
+        run: retarget_gait_clip(source, target, GaitKind::Run)?,
+    })
+}
+
 /// One spawned actor.
 struct Live {
     /// Index into [`Population::spawns`].
@@ -433,6 +687,11 @@ struct Live {
     clip: Option<Clip>,
     /// Fallback clock in seconds for actors without a `Playback`.
     clock: f32,
+    /// Compatible walk/run clips retargeted onto this original resident rig.
+    gait: Option<RetargetedGait>,
+    gait_clock: f32,
+    live_world_moving: bool,
+    live_world_running: bool,
     /// Height of this rig's head above its feet, for the overhead name.
     head: f32,
     /// Whether this actor stands on a building floor rather than the terrain.
@@ -491,11 +750,34 @@ impl Live {
     /// disappearing.
     fn pose(&mut self) -> Result<Vec<PosedMesh>, String> {
         let world = self.world();
-        // Generated residents deliberately translate in their original rig's
-        // bind pose; this build has no walk cycle for the ordinary city models.
-        // Do not play an idle clip while moving or let a missing gait suppress
-        // the route. Authored NPCs retain their own idle animation below.
+        // Generated residents keep their original city rig as the visible
+        // model. Borrowed Guard locomotion is used only when its skeleton can
+        // be safely retargeted; otherwise the collision-checked route continues
+        // in bind pose. Never substitute the donor's Guard mesh.
         if self.live_world {
+            if self.live_world_moving {
+                let clip = self.gait.as_ref().map(|gait| {
+                    if self.live_world_running {
+                        &gait.run
+                    } else {
+                        &gait.walk
+                    }
+                });
+                if let Some(clip) = clip {
+                    match self.asset.pose_tracks_at_time(
+                        &clip.tracks,
+                        clip.clip.seconds(self.gait_clock),
+                        world,
+                    ) {
+                        Ok(meshes) => return Ok(meshes),
+                        Err(error) => {
+                            if self.pose_error.is_none() {
+                                self.pose_error = Some(error);
+                            }
+                        }
+                    }
+                }
+            }
             return self.asset.pose_bind(world);
         }
         let idle_sample = self.playback.as_ref().and_then(Playback::sample);
@@ -836,7 +1118,6 @@ fn idle_clock(
 /// actions; never reinterpret a work or idle action as locomotion. Recognize
 /// compound and short Chinese action names as well as English names, with their
 /// optional equipment suffixes.
-#[cfg(test)]
 fn locomotion_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     let positive = ["walk", "run", "move", "走", "行走", "奔跑", "跑", "移动"];
@@ -1465,9 +1746,8 @@ fn pose_signature(meshes: &[PosedMesh]) -> u64 {
     hash
 }
 
-/// Test-only fingerprint across every skin mesh so a short action on one small
-/// part cannot conceal a changing torso or leg in synthetic locomotion fixtures.
-#[cfg(test)]
+/// Fingerprint every skin mesh so a short clip affecting only a small body
+/// part still proves that a retargeted gait changes the resident geometry.
 fn walk_pose_signature(meshes: &[PosedMesh]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     for mesh in meshes {
@@ -1667,6 +1947,12 @@ impl Populator {
     }
     pub fn live_world_model_count(&self) -> usize {
         self.live_world_templates.iter().map(Vec::len).sum()
+    }
+    pub fn live_world_gait_count(&self) -> usize {
+        self.live
+            .iter()
+            .filter(|live| live.live_world && live.gait.is_some())
+            .count()
     }
     pub fn live_world_radius(&self) -> f32 {
         self.live_world_radius
@@ -1942,9 +2228,9 @@ impl Populator {
     }
 
     /// Incrementally validate the original city-local human rigs that form the
-    /// appearance palette. Generated residents intentionally use bind poses and
-    /// route motion without a walk cycle; corrupt/unloadable rigs are still
-    /// rejected. Asset decompression is budgeted across frames.
+    /// appearance palette. Locomotion is resolved separately from compatible
+    /// Guard track donors; corrupt/unloadable appearance rigs are rejected.
+    /// Asset decompression is budgeted across frames.
     fn prepare_live_world_templates(&mut self) {
         if !self.live_world || self.live_world_templates_ready {
             return;
@@ -2000,7 +2286,7 @@ impl Populator {
                 .iter()
                 .map(Vec::len)
                 .sum::<usize>();
-            eprintln!("Populator: Live World found {eligible} loadable original human rig choices out of {total} city rigs; generated residents use bind-pose movement");
+            eprintln!("Populator: Live World found {eligible} loadable original human rig choices out of {total} city rigs; gait tracks are retargeted only when the skeleton maps validate");
         }
     }
 
@@ -2266,8 +2552,9 @@ impl Populator {
         } else {
             (None, None, None)
         };
-        // Generated residents may route with no walk cycle; their pose remains
-        // fixed at bind pose while their position follows the safe local route.
+        let gait = live_world.then(|| library.retargeted_gait(&key, asset.as_ref())).flatten();
+        // A route remains active even when no compatible gait donor is found;
+        // in that case the original resident rig safely holds its bind pose.
         let follow = self.route_for(&spawn);
         Some(Live {
             spawn: index,
@@ -2278,6 +2565,10 @@ impl Populator {
             playback,
             clip,
             clock: 0.,
+            gait,
+            gait_clock: 0.,
+            live_world_moving: false,
+            live_world_running: false,
             head,
             on_floor: placement.on_floor,
             name_visible: true,
@@ -2352,6 +2643,9 @@ impl Populator {
                 continue;
             }
             live.clock += delta;
+            live.gait_clock += delta;
+            live.live_world_moving = false;
+            live.live_world_running = false;
             if let Some(playback) = live.playback.as_mut() {
                 if playback.tick(delta_ms).is_err() {
                     live.playback = None;
@@ -2390,8 +2684,11 @@ impl Populator {
                 continue;
             };
             let before = live.position;
+            let route_speed = follow.speed();
             match follow.step(&mut live.position, delta) {
                 Motion::Walking => {
+                    live.live_world_moving = live.live_world;
+                    live.live_world_running = live.live_world && route_speed >= LIVE_WORLD_RUN_SPEED;
                     if live.live_world {
                         let safe = self.map.as_ref().zip(floors).is_some_and(|(map, floors)| {
                             ambient_path_safe(
@@ -2871,8 +3168,9 @@ impl Populator {
                 if self.live_world {
                     ui.label(
                         egui::RichText::new(format!(
-                            "Live World (Experimental): {} residents generated. See its status for original-model and placement results.",
-                            self.live_world_generated
+                            "Live World (Experimental): {} residents generated; {} streamed rigs have validated walk/run retargets.",
+                            self.live_world_generated,
+                            self.live_world_gait_count()
                         ))
                         .small()
                         .color(egui::Color32::YELLOW),
@@ -3056,7 +3354,7 @@ impl Populator {
         }
         ui.label(
             egui::RichText::new(
-                "Native NPCs use client placements, models, idle animation and names. Live World (Experimental) tries synthetic residents near city targets using verified walking clips and safe local routes. It may generate zero if no rig or route passes; server spawn data is unavailable.",
+                "Native NPCs use client placements, models, idle animation and names. Live World (Experimental) tries synthetic residents near city targets using original male/female models, retargeted walk/run tracks when their skeletons validate, and safe local routes. Guard meshes are never used; unmatched rigs keep moving in bind pose. It may generate zero if no rig or route passes; server spawn data is unavailable.",
             )
             .small()
             .weak(),
@@ -3395,6 +3693,9 @@ mod tests {
         assert!(locomotion_name("跑步_空手_1"));
         assert!(!locomotion_name("休闲1打铁"));
         assert!(!locomotion_name("战斗移动"));
+        assert_eq!(gait_kind("行走"), Some(GaitKind::Walk));
+        assert_eq!(gait_kind("奔跑"), Some(GaitKind::Run));
+        assert_eq!(gait_kind("休闲1打铁"), None);
 
         let mut direct = rig_without_combined_actions();
         direct.skeleton.fps = 30;
@@ -3439,6 +3740,28 @@ mod tests {
     }
 
     #[test]
+    fn guard_gait_tracks_retarget_by_joint_and_bone_name_onto_original_rigs() {
+        let source = human_gait_asset();
+        let target = human_gait_asset();
+        let gait = retargeted_gait_from(&source, &target)
+            .expect("both walk and run tracks map to the original skeleton");
+        for clip in [&gait.walk, &gait.run] {
+            let bind = target
+                .pose_tracks_at_time(&clip.tracks, clip.clip.seconds(0.), Mat4::IDENTITY)
+                .unwrap();
+            let moving = target
+                .pose_tracks_at_time(&clip.tracks, clip.clip.seconds(0.25), Mat4::IDENTITY)
+                .unwrap();
+            assert_ne!(walk_pose_signature(&bind), walk_pose_signature(&moving));
+        }
+
+        let mut incompatible = human_gait_asset();
+        incompatible.skeleton.bones[0].name = "different root".into();
+        incompatible.skins[0].data.bones[0] = "different root".into();
+        assert!(retargeted_gait_from(&source, &incompatible).is_none());
+    }
+
+    #[test]
     fn walk_scan_uses_a_later_moving_clip_when_the_first_named_match_is_static() {
         use crate::skeleton::{Bone, Joint};
 
@@ -3480,7 +3803,7 @@ mod tests {
     }
 
     #[test]
-    fn live_world_moves_the_actor_in_bind_pose_without_playing_a_walk_clip() {
+    fn live_world_falls_back_to_route_motion_when_no_gait_retargets() {
         use crate::skeleton::{Bone, Joint};
 
         let mut asset = rig_without_combined_actions();
@@ -3521,6 +3844,10 @@ mod tests {
                 length_ms: 1_000,
             }),
             clock: 0.5,
+            gait: None,
+            gait_clock: 0.,
+            live_world_moving: true,
+            live_world_running: false,
             head: 1.8,
             on_floor: false,
             pose_error: None,
@@ -3926,6 +4253,69 @@ mod tests {
             track_file: String::new(),
             joints: Vec::new(),
         }
+    }
+
+    fn human_gait_asset() -> ModelAsset {
+        use crate::skeleton::{Bone, Joint};
+        let mut asset = rig_without_combined_actions();
+        asset.skeleton.fps = 30;
+        asset.skeleton.bones.push(Bone {
+            name: "root".into(),
+            flags: 0,
+            parent: -1,
+            first_joint: 0,
+            relative: Mat4::IDENTITY.to_cols_array(),
+            initial: Mat4::IDENTITY.to_cols_array(),
+            children: Vec::new(),
+        });
+        asset.skeleton.joints.push(Joint {
+            class: 15,
+            name: "root joint".into(),
+            parent: -1,
+            child: 0,
+            sibling: -1,
+        });
+        asset.skins[0].data.bones.push("root".into());
+        asset.model.actions = vec![
+            idle_action("walk", 0., 30.),
+            idle_action("run", 0., 30.),
+        ];
+        let gait = synthetic_gait_track();
+        asset.tracks = vec![Some(gait.clone()), Some(gait)];
+        asset
+    }
+
+    fn synthetic_gait_track() -> std::sync::Arc<crate::animation::TrackSet> {
+        use crate::animation::{BoneTrack, KeyTrack, TrackSet};
+        let frames = vec![0., 15., 30.];
+        let half_angle = 0.35_f32;
+        std::sync::Arc::new(TrackSet {
+            version: 2,
+            start: 0,
+            end: 30,
+            fps: 30,
+            tracks: vec![BoneTrack {
+                id: 0,
+                position: KeyTrack {
+                    fps: 30,
+                    keys: vec![[0., 0., 0.]; 3],
+                    frames: frames.clone(),
+                    length_ms: 1000,
+                    compression: 1,
+                },
+                rotation: KeyTrack {
+                    fps: 30,
+                    keys: vec![
+                        [0., 0., 0., 1.],
+                        [0., 0., half_angle.sin(), half_angle.cos()],
+                        [0., 0., 0., 1.],
+                    ],
+                    frames,
+                    length_ms: 1000,
+                    compression: 1,
+                },
+            }],
+        })
     }
 
     fn synthetic_walk_track(

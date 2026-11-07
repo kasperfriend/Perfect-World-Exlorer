@@ -321,7 +321,7 @@ impl Modules {
                     .color(egui::Color32::RED),
             )
             .on_hover_text(
-                "Live World has no server-authored resident schedules or patrol routes in the client data. It moves synthetic residents in a fixed bind pose because the original city human rigs have no usable walk cycles; safe-route checks can still reject candidates. Names and routes are synthetic, so the feature remains under validation.",
+                "Live World has no server-authored resident schedules or patrol routes in the client data. Visible residents keep the original city male/female rigs; walk/run tracks are borrowed from Guard animation data only when joint and bone names map and the resulting pose changes the resident mesh. Guard meshes are never shown. Rigs without a validated mapping still follow safe routes in bind pose. Names and routes remain synthetic, so the feature stays Experimental.",
             );
         });
         ui.vertical(|ui| {
@@ -351,7 +351,7 @@ impl Modules {
             }
             ui.label(
                 egui::RichText::new(
-                    "Uses varied original male/female city rigs from models.pck. Generated residents follow locally validated outdoor routes in a fixed bind pose, without a walk animation; terrain, water and building collisions can still reject all candidates. Names and routes are synthetic because server spawn and patrol-route data are not available in the client.",
+                    "Uses varied original male/female city rigs from models.pck. Walk/run clips are retargeted from Guard animation tracks only when the resident's bone map and sampled mesh motion validate; no Guard mesh is used. Unmatched rigs still follow locally validated outdoor routes in bind pose. Terrain, water and building collisions can reject candidates; names and routes are synthetic because server spawn and patrol-route data are not available in the client.",
                 )
                 .small()
                 .weak(),
@@ -369,9 +369,10 @@ impl Modules {
                 );
                 ui.label(
                     egui::RichText::new(format!(
-                        "{} residents generated from {} original model rigs; {} streamed residents have no active route.",
+                        "{} residents generated from {} original model rigs; {} currently streamed residents have validated walk/run clips and {} have no active route.",
                         self.populator.live_world_generated(),
                         self.populator.live_world_model_count(),
+                        self.populator.live_world_gait_count(),
                         self.populator.live_world_stationary_count()
                     ))
                     .small()

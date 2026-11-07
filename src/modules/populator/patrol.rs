@@ -87,6 +87,12 @@ impl Follow {
         })
     }
 
+    /// Route speed in world units per second, used to select a matching
+    /// walk or run cycle for a rendered actor.
+    pub fn speed(&self) -> f32 {
+        self.speed
+    }
+
     /// Moves `position` along the route. Height is left to the caller so the
     /// actor can follow the terrain it is standing on.
     pub fn step(&mut self, position: &mut Vec3, delta: f32) -> Motion {

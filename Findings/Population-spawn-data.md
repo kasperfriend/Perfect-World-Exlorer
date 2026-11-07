@@ -378,19 +378,22 @@ districts; a target does not guarantee nearby walkable ground.
 The prototype uses only the original numbered male/female NPC rig families
 found near city targets and assigns generated residents synthetic names and ids.
 It does not copy a native NPC's identity, placement, route or schedule. The
-original city rigs have no usable walk cycle in this build, so synthetic
-residents move along locally validated routes in their authored bind pose,
-without animation. Terrain, water, building collision, floors and occupied
-actors can still reject a candidate; failed routes are retried or replanned.
+original city rigs have no recognized walk/run actions, so Live World now
+retargets locomotion tracks from the four Guard animation assets onto the
+original resident skeletons when joint/bone names match and the resulting posed
+mesh demonstrably changes. Retargeting preserves target bind translations,
+rebases local rotations from donor rest pose to resident rest pose, and rejects
+incompatible skeleton maps; Guard meshes are never used. If a donor cannot
+provide validated walk and run clips for a rig, that resident keeps the previous
+bind-pose route movement. Routes remain locally validated against terrain, water,
+buildings, floors and occupied actors; failed routes are retried or replanned.
 
 **Why the palette changed:** 43 distinct local male/female rigs are available
-across the nine city zones, but none has a recognized walk/run action. The
-previous gate therefore produced no candidates. Guards `卫兵npc1`–`4` do have
-moving clips, but are deliberately excluded: using them made generated
-residents look like guards and collapsed the model variety. Live World now
-validates the original city rigs structurally and admits them without requiring
-a walk clip. The movement is intentionally static-pose translation, as requested;
-there are no generated Guard appearances.
+across the nine city zones, but none has a recognized walk/run action. Guards
+`卫兵npc1`–`4` do have moving clips, but using their models made generated
+residents look like guards and collapsed the model variety. The donor clips are
+now used only as animation data behind a strict skeleton-map and posed-geometry
+check; the original male/female models remain the only visible generated rigs.
 
 **Guard asset check:** the reassembled `pw142/models.zip.001`–`.010` archive
 passes `unzip -t` and contains 40,753 `models.pck` entries. For each Guard rig
@@ -404,6 +407,7 @@ original male/female city rigs translate in bind pose without animation.
 
 The 1.4.2 `element/models.pck` is 888,028,116 bytes; the split files were the
 user-confirmed correct source, not a different build. Live World remains marked
-Experimental because names/routes are synthetic, source rigs have no walk cycles
-and therefore move in bind pose, routes can all be rejected, and the corrected
-model/material handling has not yet been exercised in a real client run.
+Experimental because names/routes are synthetic, some resident skeletons may
+not accept a validated retarget and therefore keep bind-pose movement, routes
+can all be rejected, and the corrected model/material/animation handling still
+needs an in-game run.
