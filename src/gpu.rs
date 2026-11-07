@@ -3850,7 +3850,7 @@ pub fn run(
     if let Some(models) = &renderer.models {
         renderer
             .modules
-            .set_effect_catalog(models.catalog().clone());
+            .set_effect_catalog(models.effect_catalog().clone());
     }
     let destinations =
         crate::navigation::destinations(&whole_element.join("maps/world/world_targets.txt"));
