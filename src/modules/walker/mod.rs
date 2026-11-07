@@ -39,6 +39,7 @@ struct Settings {
     mechanics: Mechanics,
     first_person: bool,
     object_collision: bool,
+    movement_log: bool,
     camera_distance: f32,
     camera_distance_target: f32,
 }
@@ -49,6 +50,7 @@ impl Default for Settings {
             mechanics: Mechanics::default(),
             first_person: false,
             object_collision: true,
+            movement_log: false,
             camera_distance: THIRD_PERSON_DISTANCE,
             camera_distance_target: THIRD_PERSON_DISTANCE,
         }
@@ -791,6 +793,13 @@ impl Walker {
         {
             body.grounded = true;
             body.vertical_velocity = 0.0;
+        }
+        if self.settings.movement_log {
+            use std::io::Write;
+            if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/walker_movement.log") {
+                let _ = writeln!(file, "t={:.3} y={:.3} v={:.3} g={} obj_g={} travel={:?} fp={}",
+                    delta, body.position.y, body.vertical_velocity, body.grounded, self.object_grounded, self.travel, self.settings.first_person);
+            }
         }
         if let Some(character) = &mut self.character {
             if let Err(error) =
