@@ -54,7 +54,12 @@ impl Default for Settings {
             camera_distance_target: THIRD_PERSON_DISTANCE,
             movement_log: {
                 let mut val = false;
-                if let Ok(text) = std::fs::read_to_string("Modules/Walker/module.ini") {
+                let ini_path = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.join("Modules/Walker/module.ini")))
+                    .filter(|p| p.exists())
+                    .unwrap_or_else(|| std::path::PathBuf::from("Modules/Walker/module.ini"));
+                if let Ok(text) = std::fs::read_to_string(&ini_path) {
                     for line in text.lines() {
                         let line = line.split("#").next().unwrap_or("").trim();
                         if let Some(v) = line.strip_prefix("movement_log") {
@@ -816,10 +821,14 @@ impl Walker {
         }
         if self.settings.movement_log {
             use std::io::Write;
+            let log_path = std::env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(|d| d.join("Modules/Walker/walker_movement.log")))
+                .unwrap_or_else(|| std::path::PathBuf::from("Modules/Walker/walker_movement.log"));
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open("Modules/Walker/walker_movement.log")
+                .open(&log_path)
             {
                 let _ = writeln!(
                     file,
