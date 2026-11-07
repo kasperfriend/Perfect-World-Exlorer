@@ -1817,12 +1817,23 @@ impl Renderer {
             .collect();
         // The verified ordinary world queue is enabled by default. Unsupported
         // material/effect paths remain explicit instance failures, not stand-ins.
-        let models = if std::env::var_os("PW_DISABLE_WORLD_MODELS").is_none()
-            && !t.models.instances.is_empty()
-        {
+        // The world's effects must not depend on the map placing an EC model.
+        // A block may author waterfalls, fire or glows and no animated model at
+        // all, and the effect half of this object has nothing to do with the
+        // model assets. Only the opt-out and a genuinely missing archive decide
+        // whether the object is built; the model queue inside it is skipped
+        // lazily when there are no instances.
+        let models = if std::env::var_os("PW_DISABLE_WORLD_MODELS").is_none() {
             let assets = std::mem::take(&mut t.models);
-            let mut world =
-                crate::world_models_gpu::World::new(&device, format, assets, &t.element)?;
+            // `models.pck` holds the model textures; the effect roots come from
+            // `gfx.pck` below. A map that ships no EC model still gets its
+            // effects, so a missing model archive costs the model queue and
+            // never the waterfalls.
+            let world = crate::world_models_gpu::World::new(&device, format, assets, &t.element)
+                .or_else(|error| {
+                    eprintln!("World models unavailable ({error}); world effects continue");
+                    crate::world_models_gpu::World::without_models(&device, format)
+                })?;
             // Actual world effect owners: the ECWLD placements and the hook-free
             // ECM EventType-100 roots publish into the same scene-light grid the
             // receiving models query, and the same owners now play their animated

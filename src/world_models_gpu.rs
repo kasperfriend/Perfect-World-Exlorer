@@ -193,6 +193,20 @@ impl World {
             reported: Vec::new(),
         })
     }
+    /// A world with no model assets of its own.
+    ///
+    /// The animated effect half of this object does not need `models.pck` or a
+    /// single EC model instance: every root it plays comes from `gfx.pck` and
+    /// every placement from the map. This exists so a map whose model archive
+    /// the viewer cannot open still shows its waterfalls, fire and glows instead
+    /// of losing them with the models, which is what nesting both behind one
+    /// archive used to do.
+    pub fn without_models(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        Self::with_reader(device, format, Assets::default(), |path: &str| {
+            Err(format!("no model archive attached: {path}"))
+        })
+        .expect("an empty world model set cannot be invalid")
+    }
     /// Attach the real GFX archive so installed producers can load their roots.
     /// Root text is GBK-decoded here; the owner manager never guesses an
     /// encoding and refuses binary containers explicitly.

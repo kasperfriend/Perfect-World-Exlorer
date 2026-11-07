@@ -846,6 +846,9 @@ fn main() {
             boxes: vec![],
             effects: vec![scene::Effect {
                 index: 0,
+                // The record's own id word; the shipped map gives every one of
+                // its 2,275 placements a distinct value.
+                export_id: 1,
                 scale: 1.,
                 position: [0., 0., 0.5],
                 direction: [0., 0., 1.],

@@ -1509,4 +1509,93 @@ mod tests {
             manager.effect_failures()
         );
     }
+
+    /// The shipped map's own waterfall, played from its own placement.
+    ///
+    /// This is the regression for the defect that made the world look dead: the
+    /// ECWLD effect record was read four bytes off, so a day-only placement's
+    /// play speed came out of its day/night word (a float bit pattern of about
+    /// 1.06e9, a clock that jumps and freezes) and its position out of the middle
+    /// of its direction vector (x near zero, y thousands of units underground).
+    /// Here the record is the map's, the transform is built from the record the
+    /// reader now returns, and the owner has to go live, build a player, and
+    /// produce moving geometry inside the authored footprint.
+    /// Skips when the archive is not staged beside the checkout.
+    #[test]
+    fn corpus_waterfall_plays_from_its_authored_placement() {
+        let scene_path = std::path::Path::new("google_drive/world.ecwld");
+        let archive = std::path::Path::new("google_drive/x");
+        if !scene_path.is_file() || !archive.is_dir() {
+            return;
+        }
+        let scene = crate::scene::Scene::load(scene_path).unwrap();
+        let effect = scene
+            .blocks
+            .iter()
+            .flat_map(|block| &block.effects)
+            .find(|effect| effect.path.contains("瀑布水花湍急"))
+            .expect("the shipped map places a waterfall spray");
+        // The corrected layout is what puts this record on the map instead of
+        // under it: the authored origins sit in the low thousands, and the
+        // heights are hillside heights, not direction remnants.
+        assert!(effect.position[0].abs() > 100., "{:?}", effect.position);
+        assert!(effect.position[1].abs() < 1000., "{:?}", effect.position);
+        assert!(effect.speed > 0. && effect.speed < 20., "{}", effect.speed);
+        let mut manager = Manager::with_reader(|path: &str| {
+            let bytes = std::fs::read(archive.join(path)).map_err(|e| e.to_string())?;
+            let (text, _, bad) = encoding_rs::GBK.decode(&bytes);
+            if bad {
+                return Err("invalid GBK GFX text".into());
+            }
+            Ok(text.into_owned())
+        });
+        let mut r = request(1, true);
+        r.path = root_path(&effect.path);
+        r.transform =
+            placement_transform(effect.position, effect.direction, effect.up, effect.scale)
+                .unwrap();
+        r.speed = effect.speed;
+        manager.insert(r).unwrap();
+        let mut publications = LightPublications::default();
+        let view = View {
+            position: Vec3::new(
+                effect.position[0],
+                effect.position[1] + 60.,
+                effect.position[2] + 90.,
+            ),
+            ..Default::default()
+        };
+        let mut counts = Vec::new();
+        let mut moved_uv = false;
+        let mut previous: Option<Vec<[f32; 2]>> = None;
+        let mut furthest = 0f32;
+        for _ in 0..16 {
+            manager.update(16, &mut publications);
+            let quads = manager.effect_quads(16, &view);
+            counts.push(quads.len());
+            for quad in &quads {
+                let corner = quad.positions[0];
+                let d = Vec3::from(corner) - Vec3::from(effect.position);
+                furthest = furthest.max(d.length());
+            }
+            let uv: Vec<[f32; 2]> = quads.iter().flat_map(|quad| quad.uv).collect();
+            if previous.as_ref().is_some_and(|p| *p != uv) {
+                moved_uv = true;
+            }
+            previous = Some(uv);
+        }
+        assert_eq!(manager.status().live, 1, "the owner went live");
+        assert_eq!(manager.status().players, 1, "and built its animated root");
+        assert!(
+            counts.last().copied().unwrap_or(0) > counts[0],
+            "the spray grows as the clock runs: {counts:?}"
+        );
+        assert!(moved_uv, "the waterfall scrolls its texture");
+        // A spray authored at scale 3.11 stays on its own placement; the old
+        // reading put it on the far side of the map.
+        assert!(
+            furthest < 30.,
+            "geometry within the authored footprint: {furthest}"
+        );
+    }
 }
