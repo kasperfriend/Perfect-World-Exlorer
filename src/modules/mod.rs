@@ -314,11 +314,20 @@ impl Modules {
             .weak(),
         );
         ui.separator();
-        ui.heading("Live World (Experimental)");
+        ui.horizontal(|ui| {
+            ui.heading("Live World");
+            ui.label(
+                egui::RichText::new("(Experimental)")
+                    .color(egui::Color32::RED),
+            )
+            .on_hover_text(
+                "Live World creates synthetic residents and routes because the client does not ship server-authored resident schedules or patrol paths. Only rigs with visibly changing walk/run animations are allowed, and terrain, water or collision checks may reject every route. The matching client archive also exposed a reflect-mask rendering issue in Guard/resident models; its fix still needs in-game confirmation.",
+            );
+        });
         ui.vertical(|ui| {
             let mut enabled = self.populator.live_world_enabled();
             if ui
-                .checkbox(&mut enabled, "Enable Live World (Experimental)")
+                .checkbox(&mut enabled, "Enable Live World")
                 .changed()
             {
                 if enabled {

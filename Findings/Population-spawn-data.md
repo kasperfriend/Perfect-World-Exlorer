@@ -291,13 +291,17 @@ instance directions.
 
 Population textures keep `models.pck` as the canonical source (it carries NPC
 texture sheets beside their rigs), with a same-path `textures.pck` fallback if a
-payload cannot be decoded. A per-actor draw failure logs the NPC name, ECM path
-and texture decoder error. The correct `pw142/models.zip.001`–`.010` set has now
+payload cannot be decoded. The correct `pw142/models.zip.001`–`.010` set has
 been reassembled and validated. Guard rigs 1–4 resolve through ECM, SMD, BON,
-SKI and their referenced textures; their skin meshes and action tracks also
-parse. This rules out missing archive dependencies, but does not prove the
-models render correctly in the application. A reported visual defect still
-needs the runtime's exact per-actor draw error or a capture to isolate it.
+SKI and referenced textures; their meshes and action tracks parse.
+
+**Guard/resident appearance root cause:** the main Guard1 body mesh uses
+`r_男npc3.dds`. Its alpha channel is a specular mask, not opacity. Designer and
+Librarian classify `r_` textures for the native reflect-alpha path, but
+Populator did not. That made the alpha mask cut holes in the body, matching the
+attached screenshots. Populator now applies the same per-mesh classification
+before retaining/drawing any NPC rig. This fixes the source-side rendering
+policy; the updated build still needs an in-game confirmation.
 
 ## Overhead names (font and drawing, from the client's own files)
 
@@ -398,11 +402,11 @@ in the client.
 passes `unzip -t` and contains 40,753 `models.pck` entries. For each Guard rig
 1–4, the ECM→SMD→BON/SKI references resolve; parsed skins have valid mesh/index,
 material and joint references, and every referenced texture is present in the
-pack. The four SMD/BON sets also expose changing walk/run tracks. This rules
-out missing or obviously malformed archive dependencies, but does not verify
-GPU rendering or explain a visual defect observed in a running client. If the
-Guard models still look broken after this check, the renderer's actor error or
-a screenshot is needed to isolate that remaining visual issue.
+pack. The four SMD/BON sets also expose changing walk/run tracks. The visible
+body holes were instead caused by Populator treating the `r_` reflect-mask
+alpha channel as opacity. It now applies the same reflect-alpha classification
+as Designer/Librarian. Resident movement still requires a sampled walk/run clip
+whose skinned geometry changes; rigs without such a clip are never routed.
 
 The 1.4.2 `element/models.pck` is 888,028,116 bytes; the split files were the
 user-confirmed correct source, not a different build. Live World remains marked

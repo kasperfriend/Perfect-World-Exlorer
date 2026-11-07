@@ -279,6 +279,32 @@ struct Library {
     heads: HashMap<String, f32>,
 }
 
+/// `R_` NPC textures store a specular mask in alpha, not surface opacity.
+/// Without the same per-mesh policy used by the model designer and preview,
+/// the alpha channel punches holes through Guard and resident bodies.
+fn reflect_prefix_texture(path: &str) -> bool {
+    crate::ecmodel::normalize(path)
+        .rsplit('/')
+        .next()
+        .is_some_and(|name| name.starts_with("r_"))
+}
+
+fn apply_reflect_prefix_alpha(asset: &mut ModelAsset) {
+    for (skin_index, skin) in asset.skins.iter().enumerate() {
+        for (mesh_index, mesh) in skin.data.meshes.iter().enumerate() {
+            let is_reflect = usize::try_from(mesh.texture)
+                .ok()
+                .and_then(|texture| skin.data.textures.get(texture))
+                .is_some_and(|texture| reflect_prefix_texture(texture));
+            if is_reflect {
+                asset
+                    .diffuse_alpha_meshes
+                    .insert((skin_index, mesh_index));
+            }
+        }
+    }
+}
+
 fn read_archive(
     models: &mut Archive,
     textures: Option<&mut Archive>,
@@ -385,7 +411,8 @@ impl Library {
         let mut read = |path: &str| read_archive(models, textures.as_mut(), path);
         let loaded = ModelAsset::load_cached(&key, &mut read, tracks);
         match loaded {
-            Ok(asset) => {
+            Ok(mut asset) => {
+                apply_reflect_prefix_alpha(&mut asset);
                 let asset = Rc::new(asset);
                 assets.insert(key, asset.clone());
                 Ok(asset)
@@ -3098,7 +3125,14 @@ impl Populator {
         }
         ui.label(
             egui::RichText::new(
-                "Displays original client-placed NPCs with their models, names and idle animations.",
+                "Native NPCs use client placements, models, idle animation and names. Live World (Experimental) tries synthetic residents near city targets using verified walking clips and safe local routes. It may generate zero if no rig or route passes; server spawn data is unavailable.",
+            )
+            .small()
+            .weak(),
+        );
+        ui.label(
+            egui::RichText::new(
+                "The supplied client population files do not contain per-NPC facing. Existing placements keep the model's authored forward direction; exact server-authored directions require the server spawn data (gamedata/npcgen.data), which was not present in pw142.",
             )
             .small()
             .weak(),
@@ -3122,6 +3156,19 @@ mod tests {
             task_count: 12,
             route: None,
         }
+    }
+
+    #[test]
+    fn reflect_texture_alpha_is_a_specular_mask_not_body_opacity() {
+        let (mut asset, _) = crate::model_draw_fixture::fixture();
+        asset.skins[0].data.textures[0] = "R_男npc3.dds".into();
+        apply_reflect_prefix_alpha(&mut asset);
+        assert!(asset.diffuse_alpha_meshes.contains(&(0, 0)));
+
+        asset.skins[0].data.textures[0] = "头发.dds".into();
+        asset.diffuse_alpha_meshes.clear();
+        apply_reflect_prefix_alpha(&mut asset);
+        assert!(!asset.diffuse_alpha_meshes.contains(&(0, 0)));
     }
 
     #[test]
