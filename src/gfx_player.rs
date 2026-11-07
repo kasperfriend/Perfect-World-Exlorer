@@ -234,6 +234,54 @@ impl View {
         }
     }
 
+    /// [`Self::from_inverse_view_projection`], but saying why it gave up.
+    ///
+    /// The fallible version returns `Self::default()`, which puts the eye at the
+    /// world origin. That is safe for a caller that only needs a basis, and
+    /// dangerous for a caller that reports how many effects are playing: a
+    /// degenerate frame made every billboard face (0,0,0) and the caller had no
+    /// way to tell that from "the map has no effects near you". The world pass
+    /// uses this one so the reason reaches its status line.
+    pub fn try_from_inverse_view_projection(inverse: Mat4) -> Result<Self, String> {
+        if !inverse.is_finite() {
+            return Err("effect camera matrix is not finite".into());
+        }
+        let near = Self::unproject(inverse, 0., 0., 0.)
+            .ok_or("effect camera: near-plane ray has no finite w")?;
+        let far = Self::unproject(inverse, 0., 0., 1.)
+            .ok_or("effect camera: far-plane ray has no finite w")?;
+        let ray = near - far;
+        if ray.length_squared() < 1e-12 {
+            return Err("effect camera: near and far rays coincide".into());
+        }
+        let forward = ray.normalize();
+        let right = Self::unproject(inverse, 1., 0., 1.)
+            .ok_or("effect camera: right ray has no finite w")?;
+        let up =
+            Self::unproject(inverse, 0., 1., 1.).ok_or("effect camera: up ray has no finite w")?;
+        let right = (right - far).normalize_or_zero();
+        let up = (up - far).normalize_or_zero();
+        if right == Vec3::ZERO || up == Vec3::ZERO || right.dot(up).abs() > 0.01 {
+            return Err("effect camera: axes are degenerate or not perpendicular".into());
+        }
+        let a = inverse.inverse().row(3);
+        let plane = a.truncate();
+        let denominator = plane.dot(forward);
+        if !denominator.is_finite() || denominator.abs() < 1e-9 {
+            return Err("effect camera: eye ray runs parallel to the w=0 plane".into());
+        }
+        let position = near + forward * (-(plane.dot(near) + a.w) / denominator);
+        if !position.is_finite() {
+            return Err("effect camera: eye position is not finite".into());
+        }
+        Ok(Self {
+            position,
+            right,
+            up,
+            forward,
+        })
+    }
+
     /// Inverse-project one NDC point and divide through by w, which is the step
     /// `Mat4::transform_point3` leaves out.
     fn unproject(inverse: Mat4, x: f32, y: f32, z: f32) -> Option<Vec3> {

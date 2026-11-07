@@ -90,6 +90,8 @@ pub struct World {
     /// The animated half of the world's effects. Created on the first update that
     /// needs it, because `with_reader` has no queue to build a draw object with.
     effects: Option<gfx_effect_gpu::Draw>,
+    /// The one-line effect trace has been printed for this world.
+    effect_trace_printed: bool,
     /// Quads the installed roots drew this frame, uploaded to [`Self::effects`].
     effect_quads: Vec<crate::gfx_player::EffectQuad>,
     /// Every `.gfx` member of the attached archive, grouped by its authored name
@@ -184,6 +186,7 @@ impl World {
             owners: gfx_owner::Manager::new(),
             producers: Vec::new(),
             effects: None,
+            effect_trace_printed: false,
             effect_quads: Vec::new(),
             catalog: crate::gfx_catalog::Catalog::default(),
             catalog_spawns: 0,
@@ -635,11 +638,56 @@ impl World {
             return;
         }
         // The billboards need a camera basis and `Frame` carries only the
-        // view-projection, so the eye comes back out of its inverse.
-        let view = crate::gfx_player::View::from_inverse_view_projection(
+        // view-projection, so the eye comes back out of its inverse. A frame
+        // whose matrix cannot be undone is reported rather than replaced with a
+        // default view: the default puts the eye at the world origin, which
+        // turns every billboard away from a player standing in a waterfall and
+        // looks exactly like "the map has no effects".
+        let view = match crate::gfx_player::View::try_from_inverse_view_projection(
             glam::Mat4::from_cols_array_2d(&frame.matrix).inverse(),
-        );
+        ) {
+            Ok(view) => view,
+            Err(error) => {
+                if !self.reported.contains(&error) {
+                    self.reported.push(error);
+                }
+                self.effect_quads.clear();
+                return;
+            }
+        };
         let quads = self.owners.effect_quads(delta_ms, &view);
+        // Say once, on stderr, what the invisible pipeline is doing. Nothing in
+        // the world told a user *which* stage was empty when no effect appeared:
+        // the roots could be unloaded, out of radius, failed to parse, or drawing
+        // off screen, and all four look identical from the outside. This costs
+        // one line per run.
+        if !self.effect_trace_printed {
+            let status = self.owners.status();
+            eprintln!(
+                "World effects: {} installed, {} loaded, {} pending, {} playing, \
+                 {} frames ticked, {} quads this frame, eye ({:.0},{:.0},{:.0}); \
+                 {} load failures, {} graph failures, {} warnings",
+                self.producers.len(),
+                status.live,
+                status.pending,
+                status.players,
+                status.frames,
+                quads.len(),
+                view.position.x,
+                view.position.y,
+                view.position.z,
+                status.failures,
+                status.player_failures,
+                self.owners.effect_warnings().len(),
+            );
+            for line in self.owners.failures().iter().take(3) {
+                eprintln!("World effects: load failure: {line}");
+            }
+            for line in self.owners.effect_failures().iter().take(3) {
+                eprintln!("World effects: graph failure: {line}");
+            }
+            self.effect_trace_printed = true;
+        }
         let Self {
             effects,
             effect_quads,

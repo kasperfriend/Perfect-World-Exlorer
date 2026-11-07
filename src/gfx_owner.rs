@@ -703,11 +703,21 @@ impl Manager {
     }
 
     fn load_one(&mut self) {
-        let Some(index) = self
+        // Admit an owner that can actually be drawn before one that cannot.
+        // The retail loader walks its list one root per frame (0x5b1a00) and the
+        // world is small enough that the order never mattered. Here every
+        // ECWLD placement is an owner, so a map with thousands of them spent
+        // minutes parsing roots that the activation radius had already excluded,
+        // while the handful around the player waited their turn in install
+        // order. Sorting by "would this draw now" first drains the visible set
+        // in a few frames, which is what the status line's playing count means.
+        let pending = |o: &Owner| matches!(o.state, State::Pending);
+        let index = self
             .owners
             .iter()
-            .position(|o| matches!(o.state, State::Pending))
-        else {
+            .position(|o| pending(o) && o.request.active)
+            .or_else(|| self.owners.iter().position(pending));
+        let Some(index) = index else {
             return;
         };
         let path = self.owners[index].request.path.clone();
