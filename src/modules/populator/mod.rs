@@ -271,6 +271,9 @@ struct Library {
     tracks: TrackCache,
     assets: HashMap<String, Rc<ModelAsset>>,
     failures: HashMap<String, String>,
+    /// First verified walking animation per rig. A resident receives a clone so
+    /// its clock is independent while archive probing remains one-time per rig.
+    walk_animations: HashMap<String, Option<WalkAnimation>>,
     /// Bind-pose head height per rig, for the overhead name. Computed once per
     /// template rather than once per actor.
     heads: HashMap<String, f32>,
@@ -303,6 +306,7 @@ impl Library {
             tracks: TrackCache::default(),
             assets: HashMap::new(),
             failures: HashMap::new(),
+            walk_animations: HashMap::new(),
             heads: HashMap::new(),
         })
     }
@@ -375,6 +379,7 @@ impl Library {
             tracks,
             assets,
             failures,
+            walk_animations: _,
             heads: _,
         } = self;
         let mut read = |path: &str| read_archive(models, textures.as_mut(), path);
@@ -390,6 +395,16 @@ impl Library {
                 Err(error)
             }
         }
+    }
+
+    fn walk_animation(&mut self, path: &str, asset: &ModelAsset) -> Option<WalkAnimation> {
+        let key = crate::ecmodel::normalize(path);
+        if let Some(animation) = self.walk_animations.get(&key) {
+            return animation.clone();
+        }
+        let animation = walk_clock(asset);
+        self.walk_animations.insert(key, animation.clone());
+        animation
     }
 }
 
@@ -813,24 +828,28 @@ fn idle_clock(
 }
 
 /// Prefer the client's explicit walk/run names, including combined scene
-/// actions; never reinterpret a work or idle action as locomotion.
+/// actions; never reinterpret a work or idle action as locomotion. Recognize
+/// compound and short Chinese action names as well as English names, with their
+/// optional equipment suffixes.
 fn locomotion_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     let positive = [
-        "walk", "run", "move", "走路", "行走", "奔跑", "跑步", "移动",
+        "walk", "run", "move", "走", "行走", "奔跑", "跑", "移动",
     ];
     let forbidden = [
-        "attack", "fight", "skill", "idle", "work", "hurt", "dead", "jump", "swim", "攻击", "战斗",
-        "技能", "休闲", "待机", "站立", "打铁", "受击", "死亡", "跳跃", "游泳", "采集", "施法",
+        "attack", "fight", "skill", "idle", "work", "hurt", "dead", "jump", "swim",
+        "攻击", "战斗", "技能", "休闲", "待机", "站立", "打铁", "受击", "死亡", "跳跃", "游泳",
+        "采集", "施法",
     ];
     positive.iter().any(|part| name.contains(part))
         && !forbidden.iter().any(|part| name.contains(part))
 }
 
-/// Resolve locomotion by the action's semantic name rather than an exact list:
-/// client rigs append equipment/state suffixes to otherwise standard walk/run
-/// names, and combined-action names do not always equal their base clip names.
-fn walk_clock(asset: &ModelAsset) -> Option<WalkAnimation> {
+/// Collect every semantically named locomotion candidate, not only the first
+/// one. A rig may have an unusable combined action before its working direct
+/// walk clip (or several equipment variants); validation must try alternatives.
+fn walk_clock_candidates(asset: &ModelAsset) -> Vec<WalkAnimation> {
+    let mut candidates = Vec::new();
     for (combined, scene_action) in asset.descriptor.actions.iter().enumerate() {
         let base_is_walk = scene_action
             .bases
@@ -842,7 +861,7 @@ fn walk_clock(asset: &ModelAsset) -> Option<WalkAnimation> {
         if let Ok(playback) = Playback::new(asset, Some(combined)) {
             if let Some((action, _)) = playback.sample() {
                 if let Some(clip) = Clip::new(asset, action) {
-                    return Some(WalkAnimation {
+                    candidates.push(WalkAnimation {
                         action,
                         clip,
                         playback: Some(playback),
@@ -852,23 +871,35 @@ fn walk_clock(asset: &ModelAsset) -> Option<WalkAnimation> {
             }
         }
     }
-    asset
-        .model
-        .actions
-        .iter()
-        .enumerate()
-        .find_map(|(action, clip)| {
-            if locomotion_name(&clip.name) {
-                Clip::new(asset, action).map(|clip| WalkAnimation {
+    for (action, clip) in asset.model.actions.iter().enumerate() {
+        if locomotion_name(&clip.name) {
+            if let Some(clip) = Clip::new(asset, action) {
+                candidates.push(WalkAnimation {
                     action,
                     clip,
                     playback: None,
                     elapsed: 0.,
-                })
-            } else {
-                None
+                });
             }
-        })
+        }
+    }
+    candidates
+}
+
+/// Select the first clip whose real skinned geometry changes. Merely naming a
+/// clip "walk" is not enough; conversely, one broken first match must not hide
+/// a later valid walking action on the same rig.
+fn select_walk_animation(
+    asset: &ModelAsset,
+    candidates: Vec<WalkAnimation>,
+) -> Option<WalkAnimation> {
+    candidates
+        .into_iter()
+        .find(|animation| walk_animation_moves_meshes(asset, animation))
+}
+
+fn walk_clock(asset: &ModelAsset) -> Option<WalkAnimation> {
+    select_walk_animation(asset, walk_clock_candidates(asset))
 }
 
 #[derive(Clone, Debug)]
@@ -920,13 +951,16 @@ fn walk_animation_moves_meshes(asset: &ModelAsset, animation: &WalkAnimation) ->
     };
     let initial_signature = walk_pose_signature(&initial);
     let mut probe = animation.clone();
-    for _ in 0..2 {
-        probe.advance(0.25, 250);
+    // Probe several nonuniform offsets: short authored loops can land on the
+    // same pose at a single fixed 250 ms interval, and combined actions may
+    // delay their base clip before it starts.
+    for delta in [0.11_f32, 0.17, 0.23, 0.31, 0.43] {
+        probe.advance(delta, (delta * 1000.) as u32);
         let Some((action, seconds)) = probe.sample() else {
-            return false;
+            continue;
         };
         let Ok(meshes) = asset.pose_action_at_time(action, seconds, Mat4::IDENTITY) else {
-            return false;
+            continue;
         };
         if walk_pose_signature(&meshes) != initial_signature {
             return true;
@@ -1652,16 +1686,30 @@ impl Populator {
             .iter()
             .map(Vec::len)
             .sum::<usize>();
+        let total = self
+            .live_world_template_candidates
+            .iter()
+            .map(Vec::len)
+            .sum::<usize>();
         if !self.live_world_templates_ready {
             let checked = self.live_world_template_cursor;
-            let total = self
-                .live_world_template_candidates
-                .iter()
-                .map(Vec::len)
-                .sum::<usize>();
-            return format!("{} city/district targets, {:.0}-unit core radius ({names}); checking walk clips for city rigs ({checked}/{total}).", self.city_zones.len(), self.live_world_radius);
+            return format!(
+                "{} city/district targets, {:.0}-unit core radius ({names}); checking archive walk clips for distinct human rigs ({checked}/{total}).",
+                self.city_zones.len(),
+                self.live_world_radius
+            );
         }
-        format!("{} city/district targets, {:.0}-unit core radius ({names}); {choices} walk-animated rig choices.", self.city_zones.len(), self.live_world_radius)
+        let requested = self
+            .city_zones
+            .len()
+            .saturating_mul(self.live_world_residents_per_zone)
+            .min(LIVE_WORLD_MAX_RESIDENTS);
+        format!(
+            "{} city/district targets ({names}); verified walk animation on {choices}/{total} distinct local human rigs; generated {} of {requested} residents after {} placement attempts.",
+            self.city_zones.len(),
+            self.live_world_generated,
+            self.live_world_cursor
+        )
     }
 
     pub fn set_live_world_radius(&mut self, radius: f32) {
@@ -1932,13 +1980,29 @@ impl Populator {
                 continue;
             };
             let model = spawn.model.clone();
-            let walkable = library.asset(&model).ok().is_some_and(|asset| {
-                walk_clock(&asset)
-                    .is_some_and(|animation| walk_animation_moves_meshes(&asset, &animation))
-            });
-            if walkable {
+            let asset = match library.asset(&model) {
+                Ok(asset) => asset,
+                Err(error) => {
+                    eprintln!("Populator: Live World could not load rig {model}: {error}");
+                    library
+                        .walk_animations
+                        .insert(crate::ecmodel::normalize(&model), None);
+                    continue;
+                }
+            };
+            let candidates = walk_clock_candidates(&asset);
+            let named_count = candidates.len();
+            let animation = select_walk_animation(&asset, candidates);
+            if animation.is_some() {
                 self.live_world_templates[zone].push(spawn_index);
+            } else if named_count > 0 {
+                eprintln!(
+                    "Populator: Live World rig {model} has {named_count} named walk/run candidate(s), but none produces changing skinned geometry"
+                );
             }
+            library
+                .walk_animations
+                .insert(crate::ecmodel::normalize(&model), animation);
             if processed > 0 && started.elapsed() >= LIVE_WORLD_BUILD_BUDGET {
                 break;
             }
@@ -2210,13 +2274,15 @@ impl Populator {
         let key = crate::ecmodel::normalize(&spawn.model);
         let library = self.library.as_mut()?;
         let asset = library.asset(&spawn.model).ok()?;
+        let walk_animation = live_world
+            .then(|| library.walk_animation(&key, asset.as_ref()))
+            .flatten();
         let head = library.head(&key, asset.as_ref());
         let (action, clip, playback) = if self.settings.idle_animation {
             idle_clock(asset.as_ref(), &mut self.idle_report)
         } else {
             (None, None, None)
         };
-        let walk_animation = live_world.then(|| walk_clock(asset.as_ref())).flatten();
         // Live World only admits rigs that passed the archive-backed clip and
         // geometry-motion audit. Fail closed if an asset changed or was skipped:
         // never translate a resident in a bind/idle pose.
@@ -3352,13 +3418,20 @@ mod tests {
 
     #[test]
     fn walk_animation_resolves_direct_and_combined_native_locomotion() {
+        assert!(locomotion_name("走"));
+        assert!(locomotion_name("跑步_空手_1"));
+        assert!(!locomotion_name("休闲1打铁"));
+        assert!(!locomotion_name("战斗移动"));
+
         let mut direct = rig_without_combined_actions();
         direct.skeleton.fps = 30;
         direct
             .model
             .actions
             .push(idle_action("行走_空手_1", 0., 30.));
-        let mut walk = walk_clock(&direct).expect("direct walk clip");
+        let mut candidates = walk_clock_candidates(&direct);
+        assert_eq!(candidates.len(), 1);
+        let mut walk = candidates.remove(0);
         assert!(
             !walk_animation_moves_meshes(&direct, &walk),
             "a named action without usable tracks is not a walking animation"
@@ -3366,6 +3439,7 @@ mod tests {
         let before = walk.sample().unwrap().1;
         walk.advance(0.5, 500);
         assert!(walk.sample().unwrap().1 > before);
+        assert!(walk_clock(&direct).is_none());
 
         let mut combined_asset = rig_without_combined_actions();
         combined_asset.skeleton.fps = 30;
@@ -3377,14 +3451,57 @@ mod tests {
             .descriptor
             .actions
             .push(combined("快速移动", "奔跑_通用"));
-        assert!(walk_clock(&combined_asset).unwrap().playback.is_some());
+        let candidates = walk_clock_candidates(&combined_asset);
+        assert!(candidates.iter().any(|animation| animation.playback.is_some()));
+        assert!(walk_clock(&combined_asset).is_none());
 
         let mut work_only = rig_without_combined_actions();
         work_only
             .model
             .actions
             .push(idle_action("休闲1打铁", 0., 30.));
-        assert!(walk_clock(&work_only).is_none());
+        assert!(walk_clock_candidates(&work_only).is_empty());
+    }
+
+    #[test]
+    fn walk_scan_uses_a_later_moving_clip_when_the_first_named_match_is_static() {
+        use crate::skeleton::{Bone, Joint};
+
+        let mut asset = rig_without_combined_actions();
+        asset.skeleton.fps = 30;
+        asset.skeleton.bones.push(Bone {
+            name: "root".into(),
+            flags: 0,
+            parent: -1,
+            first_joint: 0,
+            relative: Mat4::IDENTITY.to_cols_array(),
+            initial: Mat4::IDENTITY.to_cols_array(),
+            children: Vec::new(),
+        });
+        asset.skeleton.joints.push(Joint {
+            class: 15,
+            name: "root joint".into(),
+            parent: -1,
+            child: 0,
+            sibling: -1,
+        });
+        asset.skins[0].data.bones.push("root".into());
+        asset.model.actions = vec![
+            idle_action("walk_static", 0., 30.),
+            idle_action("行走_空手_1", 0., 30.),
+        ];
+        asset.tracks = vec![
+            Some(synthetic_walk_track([[0., 0., 0.]; 3])),
+            Some(synthetic_walk_track([
+                [0., 0., 0.],
+                [0., 1., 0.],
+                [0., 0., 0.],
+            ])),
+        ];
+
+        let selected = walk_clock(&asset).expect("the second action visibly moves the rig");
+        assert_eq!(selected.action, 1);
+        assert!(walk_animation_moves_meshes(&asset, &selected));
     }
 
     #[test]
@@ -3761,6 +3878,36 @@ mod tests {
             track_file: String::new(),
             joints: Vec::new(),
         }
+    }
+
+    fn synthetic_walk_track(
+        positions: [[f32; 3]; 3],
+    ) -> std::sync::Arc<crate::animation::TrackSet> {
+        use crate::animation::{BoneTrack, KeyTrack, TrackSet};
+        let frames = vec![0., 15., 30.];
+        std::sync::Arc::new(TrackSet {
+            version: 2,
+            start: 0,
+            end: 30,
+            fps: 30,
+            tracks: vec![BoneTrack {
+                id: 0,
+                position: KeyTrack {
+                    fps: 30,
+                    keys: positions.to_vec(),
+                    frames: frames.clone(),
+                    length_ms: 1000,
+                    compression: 1,
+                },
+                rotation: KeyTrack {
+                    fps: 30,
+                    keys: vec![[0., 0., 0., 1.]; 3],
+                    frames,
+                    length_ms: 1000,
+                    compression: 1,
+                },
+            }],
+        })
     }
 
     #[test]

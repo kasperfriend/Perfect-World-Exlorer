@@ -390,9 +390,19 @@ projects and validates its full segments against terrain, client water masks,
 currently streamed building hulls, and occupied actors; failed candidates are
 discarded and retried. If later movement is blocked, that route is abandoned
 and replanned after a short cooldown instead of leaving the resident stranded.
-Each city-local candidate rig is checked for a sampleable walk/run action whose
-skinned geometry changes; only these rigs enter the resident palette. This
-prevents translation in a bind/idle pose. Requested density is adjustable from
-0–48 per target (18 by default), with a global cap of 512. These heuristics
-provide visual variety only—no server identity, persistent state, quest behavior, authentic schedule,
-navigation network, voice/dialogue, combat or interaction is implied.
+Each city-local candidate rig is checked against the installed `models.pck` for
+sampleable walk/run actions whose skinned geometry changes. The scan tries all
+matching direct and combined actions (including short Chinese `走`/`跑` names),
+so an unusable first match cannot hide a later animated walk clip. A rig is
+admitted only after its real pose pipeline changes skinned vertices at several
+nonuniform sample times; residents then play that selected clip while following
+their validated routes. The Live World status reports how many city-local rigs
+pass and how many resident placement attempts succeeded, separating animation
+availability from route/ground rejection. The supplied Drive `models.pck` is
+888,028,116 bytes, beyond the connector's 100 MB raw-download limit, so this
+checkout cannot independently publish an aggregate walk-clip count; the runtime
+scan measures the exact pack installed by the user. Requested density is
+adjustable from 0–48 per target (18 by default), with a global cap of 512. These
+heuristics provide visual variety only—no server identity, persistent state,
+quest behavior, authentic schedule, navigation network, voice/dialogue, combat
+or interaction is implied.
