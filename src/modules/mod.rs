@@ -334,7 +334,7 @@ impl Modules {
                 }
                 ui.label(
                     egui::RichText::new(
-                        "Creates independent records around city/district targets from world_targets.txt, not copies of standing NPC identities or locations. Uses only numbered human male/female NPC rig families, with matching synthetic names; creature, monster, prop and malformed rig paths are rejected. The known blacksmith/anvil rigs are excluded. Native walk/run actions (including suffixed clip names) drive varied circuits; blocked projections are discarded and replanned, while unsupported rigs stay put rather than skate. Terrain, client water masks and streamed building hulls are checked along the full path; these are not server-authored routes or schedules.",
+                        "Creates independent records around city/district targets from world_targets.txt, not copies of standing NPC identities or locations. Uses only numbered human male/female NPC rig families, with matching synthetic names; creature, monster, prop and malformed rig paths are rejected. The known blacksmith/anvil rigs are excluded. Native walk/run actions (including suffixed clip names) drive varied circuits; blocked projections are discarded and replanned, unsupported rigs continue on their checked routes using their own idle pose instead of remaining statues. Terrain, client water masks and streamed building hulls are checked along the full path; these are not server-authored routes or schedules.",
                     )
                     .small()
                     .weak(),
@@ -347,10 +347,11 @@ impl Modules {
                 if enabled {
                     ui.label(
                         egui::RichText::new(format!(
-                            "{} residents generated; {} actor slots; {} streamed residents currently lack a supported walk clip or clear route.",
+                            "{} residents generated; {} actor slots; {} streamed residents have no active route; {} are moving with their idle pose because no walk clip was recognized.",
                             self.populator.live_world_generated(),
                             self.populator.settings().max_visible,
-                            self.populator.live_world_stationary_count()
+                            self.populator.live_world_stationary_count(),
+                            self.populator.live_world_idle_fallback_count()
                         ))
                         .small()
                         .color(egui::Color32::LIGHT_GREEN),

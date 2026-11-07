@@ -116,22 +116,21 @@ const MAX_FLOOR_LIFT: f32 = 16.;
 /// Horizontal half-width and half-height of the AABB a placement stands in. Only
 /// the vertical half-extent changes the support result, and a humanoid box is
 /// what the client uses for its own actors.
-const ACTOR_EXTENTS: Vec3 = Vec3::new(0.4, 0.9, 0.4);
+const ACTOR_EXTENTS: Vec3 = Vec3::new(0.5, 1.0, 0.5);
 
-/// Box a placement is tested with when asking whether the NPC stands inside a
-/// wall. Slightly narrower than [`ACTOR_EXTENTS`] so an actor authored right
-/// against a wall is not pushed away from it, but tall enough to cover a torso.
-const WALL_PROBE: Vec3 = Vec3::new(0.3, 0.85, 0.3);
+/// Probe the full conservative actor box: a visibly clipped body is worse than
+/// shifting a placement a little farther out of a wall.
+const WALL_PROBE: Vec3 = ACTOR_EXTENTS;
 
 /// Rings a placement is searched outward when its authored column is inside
 /// geometry, nearest first. A town NPC authored into a wall is normally a metre
-/// or two from the free space in front of it, and the list stops at 2.5 units so
-/// a nudge never turns into a teleport across a courtyard.
-const WALL_RINGS: [f32; 5] = [0.5, 1.0, 1.5, 2.0, 2.5];
+/// or two from the free space in front of it. The search extends to six units
+/// for deep overlaps, while the UI reports placements that still have no clear spot.
+const WALL_RINGS: [f32; 8] = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0];
 
-/// Directions tested per ring. Eight is enough to find the free side of a wall
-/// and keeps the search deterministic (same placement, same result).
-const WALL_DIRECTIONS: usize = 8;
+/// Sixteen directions find openings between perpendicular walls while keeping
+/// the search deterministic (same placement, same result).
+const WALL_DIRECTIONS: usize = 16;
 
 /// How far the height of a nudged spot may differ from the placement's own, so
 /// getting out of a wall never also moves the NPC up a storey or off a bridge.
@@ -1548,8 +1547,18 @@ impl Populator {
     pub fn live_world_stationary_count(&self) -> usize {
         self.live
             .iter()
+            .filter(|live| live.live_world && (live.wedged || live.follow.is_none()))
+            .count()
+    }
+
+    pub fn live_world_idle_fallback_count(&self) -> usize {
+        self.live
+            .iter()
             .filter(|live| {
-                live.live_world && (live.walk_animation.is_none() || live.follow.is_none())
+                live.live_world
+                    && !live.wedged
+                    && live.walk_animation.is_none()
+                    && live.follow.is_some()
             })
             .count()
     }
@@ -2034,11 +2043,10 @@ impl Populator {
             (None, None, None)
         };
         let walk_animation = live_world.then(|| walk_clock(asset.as_ref())).flatten();
-        let follow = if live_world && walk_animation.is_none() {
-            None
-        } else {
-            self.route_for(&spawn)
-        };
+        // Keep the route active even when this rig has no recognized native
+        // walk clip. `pose()` then falls back to its own idle while translation
+        // continues, rather than silently making every such resident a statue.
+        let follow = self.route_for(&spawn);
         Some(Live {
             spawn: index,
             position,
@@ -2056,7 +2064,7 @@ impl Populator {
             floor_stamp: floors.map_or(0, |floors| floors.floor_stamp()),
             nudged: placement.nudged,
             wedged: placement.wedged,
-            visible: true,
+            visible: !placement.wedged,
             pose_index: None,
             pose_stamp: None,
             uploaded_stamp: None,
@@ -2120,7 +2128,7 @@ impl Populator {
         let delta_ms = (delta * 1000.).round().clamp(0., u32::MAX as f32) as u32;
         let mut occupied: Vec<Vec3> = self.live.iter().map(|live| live.position).collect();
         for (live_index, live) in self.live.iter_mut().enumerate() {
-            if live.failure.is_some() {
+            if live.failure.is_some() || live.wedged {
                 continue;
             }
             live.clock += delta;
@@ -2360,7 +2368,8 @@ impl Populator {
         let mut posed: Vec<Option<Vec<PosedMesh>>> = (0..self.live.len()).map(|_| None).collect();
         for index in 0..self.live.len() {
             let live = &mut self.live[index];
-            if live.failure.is_some() {
+            if live.failure.is_some() || live.wedged {
+                live.visible = false;
                 continue;
             }
             // Nothing off screen is posed, uploaded or submitted: a crowd behind
@@ -2584,7 +2593,7 @@ impl Populator {
         let eye = self.eye;
         let range = self.settings.name_distance;
         for live in &self.live {
-            if live.failure.is_some() || !live.name_visible {
+            if live.failure.is_some() || live.wedged || !live.name_visible {
                 continue;
             }
             let Some(spawn) = population.spawns.get(live.spawn) else {
@@ -2786,7 +2795,7 @@ impl Populator {
             );
         ui.checkbox(&mut self.settings.stand_on_objects, "Stand on building floors")
             .on_hover_text(
-                "Resolve each placement against the client's own BMD collision hulls, so an NPC authored onto a bridge deck, platform or interior floor stands there instead of on the terrain under the geometry. Uses the same hulls as the Walker module's collision check and loads them when this module is enabled. The same hulls are used to test whether the actor's own box is inside a wall: a placement authored into geometry is moved to the nearest free spot within 2.5 units that keeps its height, and one with nowhere to go is counted under `in walls` instead of being moved silently.",
+                "Resolve each placement against the client's own BMD collision hulls, so an NPC authored onto a bridge deck, platform or interior floor stands there instead of on the terrain under the geometry. Uses the same hulls as the Walker module's collision check and loads them when this module is enabled. The full conservative actor box is tested against walls; a placement authored into geometry is moved to the nearest clear spot up to six units away while preserving its height. If no clear spot exists, it is hidden instead of rendered inside the wall and counted under `in walls`; it can be retried when more hulls stream in.",
             );
         ui.checkbox(&mut self.settings.show_names, "Names above heads")
             .on_hover_text("Draw each template's own name over the actor, as the client does.");
@@ -3403,8 +3412,11 @@ mod tests {
         assert!(placement.nudged, "{placement:?}");
         assert!(!placement.wedged);
         // Out of the wall, not away from it: the nearest free ring is 0.5 units.
-        assert!(placement.position.x >= 1.0 + 0.3 - 1e-3, "{placement:?}");
-        assert!(placement.position.x <= 1.5, "{placement:?}");
+        assert!(
+            placement.position.x >= 1.0 + ACTOR_EXTENTS.x - 1e-3,
+            "{placement:?}"
+        );
+        assert!(placement.position.x <= 2.0, "{placement:?}");
         assert_eq!(placement.position.y, 0.);
         // The authored column is untouched, so the sweep is repeatable.
         assert_eq!(spawn.anchor, [0.9, 0.]);

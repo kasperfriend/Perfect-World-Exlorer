@@ -210,15 +210,14 @@ doorway) and the terrain below is within 2 units, the actor stands on the ground
 instead. A bridge deck ten units up is never traded for the river bed, because the
 drop obeys the same guard as the sweep.
 
-Otherwise the placement is swept outward over 5 rings (0.5 … 2.5 units) × 8
+Otherwise the placement is swept outward over 8 rings (0.5 … 6 units) × 16
 directions. Every candidate is re-resolved with the same height policy and is
 rejected when it would move the actor more than `WALL_RING_LIFT` (2 units), so
 getting out of a wall never also climbs a storey or drops an NPC off a bridge. A
 nudged placement keeps its own floor — a step up to a free spot 1 unit higher is
 used, a 5-unit climb is refused. An authored height is never changed by the
-sweep. A placement with nowhere free keeps its authored column and is counted as
-`in walls`; the settings window shows both counts and the first session report
-logs them once.
+sweep. If no free column exists, the actor is hidden rather than drawn inside a
+wall and counted as `in walls`; a new hull-streaming batch retries placement.
 
 The sweep runs once per placement per hull stamp (the hulls stream in, so it
 re-runs when a batch lands), not per frame.
@@ -376,8 +375,9 @@ projects and validates its full segments against terrain, client water masks,
 currently streamed building hulls, and occupied actors; failed candidates are
 discarded and retried. If later movement is blocked, that route is abandoned
 and replanned after a short cooldown instead of leaving the resident stranded.
-Humanoid rigs without a recognized locomotion cycle stay still rather than
-skate. Requested density is adjustable from 0–48 per target (18 by default),
-with a global cap of 512. These heuristics provide visual variety
+Humanoid rigs without a recognized locomotion cycle still follow their checked
+route using the rig's own idle pose; this guarantees translation without
+inventing leg motion. Requested density is adjustable from 0–48 per target (18 by
+default), with a global cap of 512. These heuristics provide visual variety
 only—no server identity, persistent state, quest behavior, authentic schedule,
 navigation network, voice/dialogue, combat or interaction is implied.
