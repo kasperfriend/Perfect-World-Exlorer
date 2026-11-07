@@ -2,7 +2,7 @@
 
 Date: 7 November 2026  
 Target: the repository's inspected Perfect World 1.4.2 client path  
-Status: **ASSET ACCESS PREPARED — the Secondary Dropbox folder is now confirmed public, view-only and download-enabled; a private GitHub Actions census workflow is in place but has not yet been run.** This report is not an implementation or a claim of visual parity.
+Status: **BLOCKED — the Secondary Dropbox folder is confirmed public, view-only and download-enabled, but the working sandbox cannot resolve Dropbox hosts to retrieve the binary files.** This report is not an implementation or a claim of visual parity.
 
 ## Existing viewer work relevant to effects
 
@@ -48,13 +48,13 @@ This corrects the earlier checkpoint: `models.pck` and `textures.pck` are presen
 
 The repository's `Findings/Models-pck-census.md` documents a `models.pck` corpus of the same byte size (888,028,116 bytes) with 40,753 members, including ECM, SMD, BON, SKI and STCK records. That is useful existing research, but the newly listed Dropbox file has not been read or hash-compared in this execution.
 
-## Binary access and recovery workflow
+## Binary access limitation
 
-The user supplied a Dropbox folder shared link. Its current settings were verified through the Secondary Dropbox connection: `audience=public`, `access_level=view`, `allow_download=true`, target folder `PW`. The previous folder link used edit access; the current link is correctly view-only.
+The user asked that the Dropbox assets be retrieved and processed in the working sandbox, without placing download links in GitHub. The current shared folder was verified through the Secondary Dropbox connection as public, view-only and download-enabled. Dropbox can list the files and issue temporary download URLs, but the model's container has no working DNS resolution for `www.dropbox.com` or `dl.dropboxusercontent.com`; direct sandbox download therefore fails before any archive bytes arrive. The one-time Dropbox URL must not be exposed or consumed by previewing it. The attempted direct-download path did not transfer any file.
 
-The execution sandbox still cannot retrieve raw bytes directly from Dropbox. To avoid exposing the public Dropbox link in Git, a manual GitHub Actions workflow has been added at `.github/workflows/effects-asset-recovery.yml`. It reads the link from the repository Actions secret `PW_SHARED_FOLDER_URL`, downloads the folder ZIP to an ephemeral runner, validates required archives, computes hashes, inventories PCK roots and ECM references, and inspects the `maps.zip` index. Only metadata/census reports are retained as a seven-day Actions artifact; proprietary source archives are not committed or uploaded as artifacts.
+No GitHub Actions workflow or GitHub secret is required or should be used for this asset recovery. The temporary workflow previously added for that alternative was removed. No user Dropbox URL or bearer download URL is present in the repository.
 
-The workflow has not yet been run. The repository's GitHub connector does not expose the Actions secrets write API, so the user must add one repository secret named `PW_SHARED_FOLDER_URL` containing the current Dropbox folder link. Then manually run **Actions → Effects asset recovery and census → Run workflow** on branch `effects/restore-native-world-effects`. Do not paste the link into source files, issues, or workflow logs.
+This is a runtime network boundary, not a missing-upload problem. No new PCK contents have been decoded in this run. Do not infer archive content from filenames, file sizes or the existing census.
 
 ## Remaining input-access requirement
 
