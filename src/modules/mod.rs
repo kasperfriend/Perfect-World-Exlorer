@@ -308,16 +308,19 @@ impl Modules {
         );
         ui.label(
             egui::RichText::new(
-                "While enabled: every client-placed NPC appears at its authored location with its own rig, idle animation and overhead name, standing on the client's building floors where appropriate. Spawn distance, actor cap, idle animation, names and floor support are in the Populator settings window beneath the minimap. Mob placement and native patrol routes are server data the client does not ship; Live World is an optional, locally validated ambient simulation.",
+                "Shows the client's placed NPCs with their model, idle animation and name; building collision helps keep them on floors and out of walls. Live World is optional and Experimental: it tries synthetic residents with verified walking clips and safe local routes, but may generate none.",
             )
             .small()
             .weak(),
         );
-        egui::CollapsingHeader::new("Live World")
+        egui::CollapsingHeader::new("Live World (Experimental)")
             .default_open(false)
             .show(ui, |ui| {
                 let mut enabled = self.populator.live_world_enabled();
-                if ui.checkbox(&mut enabled, "Enable Live World").changed() {
+                if ui
+                    .checkbox(&mut enabled, "Enable Live World (Experimental)")
+                    .changed()
+                {
                     self.populator.set_live_world(enabled);
                 }
                 let mut radius = self.populator.live_world_radius();
@@ -334,7 +337,7 @@ impl Modules {
                 }
                 ui.label(
                     egui::RichText::new(
-                        "Creates independent records around city/district targets from world_targets.txt, not copies of standing NPC identities or locations. Uses only numbered human male/female NPC rig families, with matching synthetic names; creature, monster, prop and malformed rig paths are rejected. The known blacksmith/anvil rigs are excluded. Only rigs with a sampleable native walk/run action that visibly changes the skinned geometry are admitted; unsupported rigs are excluded rather than sliding in an idle pose. Blocked projections are discarded and replanned. Terrain, client water masks and streamed building hulls are checked along the full path; these are not server-authored routes or schedules.",
+                        "Experimental: samples human rigs from models.pck, requires a walk/run clip that visibly moves the model, then tries local outdoor routes near city targets. Terrain, water and building collisions can reject every candidate, leaving zero residents. Names and routes are synthetic; server spawn and route data are not available in the client.",
                     )
                     .small()
                     .weak(),
@@ -347,14 +350,13 @@ impl Modules {
                 if enabled {
                     ui.label(
                         egui::RichText::new(format!(
-                            "{} residents generated; {} actor slots; {} streamed residents have no active route; {} walk-animated rig choices are available. Rigs without a sampleable walking animation are excluded rather than slid along a route.",
+                            "{} residents generated; {} rigs have verified walking clips; {} streamed residents have no active route.",
                             self.populator.live_world_generated(),
-                            self.populator.settings().max_visible,
-                            self.populator.live_world_stationary_count(),
-                            self.populator.live_world_walkable_rig_count()
+                            self.populator.live_world_walkable_rig_count(),
+                            self.populator.live_world_stationary_count()
                         ))
                         .small()
-                        .color(egui::Color32::LIGHT_GREEN),
+                        .color(egui::Color32::YELLOW),
                     );
                 }
             });

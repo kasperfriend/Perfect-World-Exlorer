@@ -363,46 +363,35 @@ run time and uses that family and size for every label:
   hulls the Walker collides with, so no name is ever visible through a wall,
   a roof or a hill. Bodies stay visible; only the label goes away.
 
-## Live World: client-side feasibility versus server-authored population
+## Live World (Experimental): client-side prototype
 
-The retail client supports a local visual crowd, not reconstruction of the
-server's population instructions. Its 1,057 zero-coordinate `task_npc.data`
-records are server-placed quest NPCs, not usable locations. The client does ship
-515 placed NPC examples, `NPC_ESSENCE` model paths, real `.ecm` rigs and action
-clips, and `world_targets.txt` city/district destinations. It does not ship
-`gamedata/npcgen.data` or server-authored NPC route/waypoint, daily-schedule,
-dialogue, interaction, combat, task, or spawn-density records. A destination is
-not a spawn-zone or a guarantee of traversable ground.
+The 1.4.2 client has no server population-generation or patrol-route data. Its
+515 placed NPC records, human model templates and `world_targets.txt` city
+coordinates are inputs for a visual prototype, not authored resident schedules
+or safe spawn zones. The archive contains nine targets named as cities or
+districts; a target does not guarantee nearby walkable ground.
 
-The opt-in Live World layer therefore creates ephemeral synthetic records in
-memory around city/district destinations. Authored placements contribute only a
-distinct, city-local eligible rig palette; no standing NPC id, name, anchor,
-height, task links or route is copied. Synthetic ids use a separate range;
-names are composed from independent model-gender-specific fragments, not native
-NPC names or identities. Candidate anchors maintain separation from standing
-and already-generated placements. Only numbered human `男npcN` and `女npcN` rig directories with matching `.ecm` filenames are eligible. Creature/beast, monster, prop, malformed, and non-NPC paths are excluded, as are the two known blacksmith/anvil rigs.
+The prototype samples distinct numbered human NPC rigs and gives each generated
+resident a synthetic name and id. It tests direct and combined walk/run actions
+against the model pose pipeline and admits a rig only if skinned geometry
+actually changes. Generated circuits are sampled locally; terrain, water,
+building collision, floors and occupied actors can reject a candidate. Failed
+candidates are retried, and a route blocked later is replanned. No native NPC
+identity, placement, route or schedule is copied.
 
-Circuits are locally generated, not recovered server routes: seven-point loops
-remain inside an adjustable city-target radius (120–420 world units, 240 by
-default), start moving shortly after spawning, include varied short dwell times,
-and use native walk/run actions including suffixed names. Every candidate route
-projects and validates its full segments against terrain, client water masks,
-currently streamed building hulls, and occupied actors; failed candidates are
-discarded and retried. If later movement is blocked, that route is abandoned
-and replanned after a short cooldown instead of leaving the resident stranded.
-Each city-local candidate rig is checked against the installed `models.pck` for
-sampleable walk/run actions whose skinned geometry changes. The scan tries all
-matching direct and combined actions (including short Chinese `走`/`跑` names),
-so an unusable first match cannot hide a later animated walk clip. A rig is
-admitted only after its real pose pipeline changes skinned vertices at several
-nonuniform sample times; residents then play that selected clip while following
-their validated routes. The Live World status reports how many city-local rigs
-pass and how many resident placement attempts succeeded, separating animation
-availability from route/ground rejection. The supplied Drive `models.pck` is
-888,028,116 bytes, beyond the connector's 100 MB raw-download limit, so this
-checkout cannot independently publish an aggregate walk-clip count; the runtime
-scan measures the exact pack installed by the user. Requested density is
-adjustable from 0–48 per target (18 by default), with a global cap of 512. These
-heuristics provide visual variety only—no server identity, persistent state,
-quest behavior, authentic schedule, navigation network, voice/dialogue, combat
-or interaction is implied.
+**Current result:** the user reports zero generated residents. The exact cause
+is not verified. The Live World status now reports verified walking rigs versus
+local candidates, requested/generated residents and placement attempts. The log
+names archive-load failures and rigs with named locomotion actions but no
+changing pose. Zero verified rigs points to animation discovery; verified rigs
+with repeated failed placement attempts points to the safe-ground/route gate.
+
+**Archive limit:** Drive lists `models.pck` at 888,028,116 bytes and the split
+`models.zip.001`–`.010` parts. The Drive text extractor reports the binary model
+part as unsupported; its download tool returns base64 rather than a local file
+that the archive scanner can read here. Consequently no whole-archive walk
+clip count has been measured in this checkout. The idle-clip census in
+[`npc-idle-evidence.md`](npc-idle-evidence.md) is not evidence that those rigs
+also have walking clips. The runtime scan checks the model pack installed by the
+user. Keep Live World marked Experimental until a nonzero verified rig count
+and successful resident placements are observed in a real client run.

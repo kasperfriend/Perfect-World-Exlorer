@@ -6,9 +6,9 @@
 //! client-side placement file (the server owns `gamedata/npcgen.data`), so the
 //! module loads the 4,208 real `MONSTER_ESSENCE` templates and draws no mob
 //! until a placement source is supplied. Native actors move only along real
-//! navigation paths from server data. An explicitly enabled Live World layer
-//! creates independent city residents from local rig assets, gendered synthetic
-//! names and collision-checked roaming routes.
+//! navigation paths from server data. An explicitly enabled Live World
+//! (Experimental) prototype tries synthetic city residents using verified
+//! moving rig animations and locally collision-checked routes.
 //!
 //! Everything here is module-owned: archives, rig cache, texture cache, GPU
 //! draws, simulation and settings. The host supplies a camera position (which
@@ -1672,12 +1672,6 @@ impl Populator {
         if let Some(error) = &self.city_zone_error {
             return format!("City target data unavailable: {error}");
         }
-        let names = self
-            .city_zones
-            .iter()
-            .map(|zone| zone.name.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
         let choices = self
             .live_world_templates
             .iter()
@@ -1689,11 +1683,10 @@ impl Populator {
             .map(Vec::len)
             .sum::<usize>();
         if !self.live_world_templates_ready {
-            let checked = self.live_world_template_cursor;
             return format!(
-                "{} city/district targets, {:.0}-unit core radius ({names}); checking archive walk clips for distinct human rigs ({checked}/{total}).",
-                self.city_zones.len(),
-                self.live_world_radius
+                "Checking walk clips: {} of {total} local human rigs; {} city targets.",
+                self.live_world_template_cursor,
+                self.city_zones.len()
             );
         }
         let requested = self
@@ -1702,8 +1695,7 @@ impl Populator {
             .saturating_mul(self.live_world_residents_per_zone)
             .min(LIVE_WORLD_MAX_RESIDENTS);
         format!(
-            "{} city/district targets ({names}); verified walk animation on {choices}/{total} distinct local human rigs; generated {} of {requested} residents after {} placement attempts.",
-            self.city_zones.len(),
+            "Verified walking clips: {choices}/{total} human rigs. Residents: {}/{requested}; placement attempts: {}.",
             self.live_world_generated,
             self.live_world_cursor
         )
@@ -1830,7 +1822,7 @@ impl Populator {
                     in_range,
                     self.live.len(),
                     if self.live_world {
-                        format!("; Live World: {} residents generated", self.live_world_generated)
+                        format!("; Live World (Experimental): {} generated", self.live_world_generated)
                     } else {
                         String::new()
                     }
@@ -2916,11 +2908,11 @@ impl Populator {
                 if self.live_world {
                     ui.label(
                         egui::RichText::new(format!(
-                            "Live World: {} generated residents; safe walking routes are being built from terrain and streamed collision hulls.",
+                            "Live World (Experimental): {} residents generated. See its status for walking-rig and placement results.",
                             self.live_world_generated
                         ))
                         .small()
-                        .color(egui::Color32::LIGHT_GREEN),
+                        .color(egui::Color32::YELLOW),
                     );
                 }
                 ui.label(
@@ -3101,7 +3093,7 @@ impl Populator {
         }
         ui.label(
             egui::RichText::new(
-                "Native placements keep their authored data. Live World creates independent resident records at sampled points around city/district targets, reusing only a local rig asset—not a standing NPC's identity, name, or placement. Names are fresh, synthetic, and model-gender matched; known anvil blacksmith rigs are excluded. Only rigs with a sampleable native walk/run action that visibly changes the skinned geometry are used, so residents never slide in an idle or bind pose. No server placement, routes, schedules, combat, interaction, or dialogue are simulated.",
+                "Native NPCs use client placements, models, idle animation and names. Live World (Experimental) tries synthetic residents near city targets using verified walking clips and safe local routes. It may generate zero if no rig or route passes; server spawn data is unavailable.",
             )
             .small()
             .weak(),
