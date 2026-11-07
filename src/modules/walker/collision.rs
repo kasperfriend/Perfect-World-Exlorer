@@ -471,7 +471,7 @@ impl CollisionWorld {
         // our fixed-step integrator is not misclassified as `start_solid`.
         // The lift is included in the trace distance, not in the result.
         const CONTACT_LIFT: f32 = 0.05;
-        let start = feet + Vec3::Y * CONTACT_LIFT;
+        let start = feet + Vec3::Y * (extents.y + CONTACT_LIFT);
         let delta = Vec3::NEG_Y * (max_down + CONTACT_LIFT);
         let hit = self.trace(start, delta, extents)?;
         if hit.normal.y < 0.0 {
