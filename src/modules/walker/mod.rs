@@ -793,7 +793,10 @@ impl Walker {
             body.grounded = true;
             body.vertical_velocity = 0.0;
         }
-        if !body.grounded && self.object_grounded && body.vertical_velocity <= 0.5 {
+        if !body.grounded
+            && self.object_grounded
+            && body.vertical_velocity <= 0.5
+        {
             body.grounded = true;
             body.vertical_velocity = 0.0;
         }
