@@ -3,6 +3,7 @@
 //! hooks; a disabled module has no effect on core features.
 
 mod designer;
+mod librarian;
 mod package;
 mod populator;
 mod walker;
@@ -15,8 +16,21 @@ use std::{collections::HashSet, path::PathBuf};
 use walker::Walker;
 use winit::keyboard::KeyCode;
 
+// Several modules install client fonts. Preserve earlier registrations, even
+// when more than one module installs a font during the same egui frame.
+fn extend_fonts(ctx: &egui::Context, extend: impl FnOnce(&mut egui::FontDefinitions)) {
+    let id = egui::Id::new("module_shared_font_definitions");
+    let mut definitions = ctx
+        .data_mut(|data| data.get_temp::<egui::FontDefinitions>(id))
+        .unwrap_or_else(|| ctx.fonts(|fonts| fonts.lock().fonts.definitions().clone()));
+    extend(&mut definitions);
+    ctx.data_mut(|data| data.insert_temp(id, definitions.clone()));
+    ctx.set_fonts(definitions);
+}
+
 pub struct Modules {
     walker: Walker,
+    librarian: librarian::Librarian,
     populator: Populator,
     packages: Registry,
     selected: usize,
@@ -26,6 +40,7 @@ impl Default for Modules {
     fn default() -> Self {
         Self {
             walker: Walker::default(),
+            librarian: librarian::Librarian::new(PathBuf::new()),
             populator: Populator::default(),
             packages: Registry::discover(package::default_root()),
             selected: 0,
@@ -45,11 +60,24 @@ impl Modules {
         // handles they need (client root and the loaded world space).
         let populator = Populator::new(element.clone(), map.clone());
         Self {
-            walker: Walker::with_host(element, map, water, scene, ornaments),
+            walker: Walker::with_host(element.clone(), map, water, scene, ornaments),
+            librarian: librarian::Librarian::new(element),
             populator,
             packages: Registry::discover(package::default_root()),
             selected: 0,
         }
+    }
+
+    pub fn prepare_librarian_preview(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        renderer: &mut egui_wgpu::Renderer,
+        format: wgpu::TextureFormat,
+        visible: bool,
+    ) {
+        self.librarian
+            .prepare_preview(device, queue, renderer, format, visible);
     }
 
     /// True when the executable implements this package id and the module is
@@ -58,6 +86,7 @@ impl Modules {
         match id {
             "walker" => self.walker.is_active(),
             "populator" => self.populator.is_active(),
+            "librarian" => self.librarian.active(),
             _ => false,
         }
     }
@@ -123,6 +152,7 @@ impl Modules {
                     });
                 self.selected = selected;
             });
+        self.librarian.ui(ctx);
         back
     }
 
@@ -221,6 +251,20 @@ impl Modules {
         match installed.id.as_str() {
             "walker" => self.walker_module_ui(ui, spawn, yaw),
             "populator" => self.populator_module_ui(ui, spawn),
+            "librarian" => {
+                let active = self.librarian.active();
+                if ui
+                    .button(if active {
+                        "Disable Librarian"
+                    } else {
+                        "Enable Librarian"
+                    })
+                    .clicked()
+                {
+                    self.librarian.set_active(!active);
+                }
+                ui.label(self.librarian.status());
+            }
             _ => {
                 ui.label(
                     egui::RichText::new(format!(

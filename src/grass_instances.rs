@@ -3,6 +3,7 @@
 #[path = "refraction_fog.rs"]
 mod refraction_fog;
 use crate::gpu::Vertex;
+use crate::indirect_args::{record, DrawIndexedArgs};
 use std::{collections::BTreeMap, ops::Range};
 use wgpu::util::DeviceExt;
 
@@ -161,6 +162,10 @@ pub struct Gpu {
     indices: wgpu::Buffer,
     instances: wgpu::Buffer,
     batches: Vec<Batch>,
+    /// One indirect record per batch, so the whole grass field is one call.
+    args: wgpu::Buffer,
+    /// Set when the adapter has `MULTI_DRAW_INDIRECT` + `INDIRECT_FIRST_INSTANCE`.
+    multi_draw: bool,
 }
 impl Gpu {
     pub fn new(
@@ -310,19 +315,36 @@ impl Gpu {
             multisample: Default::default(),
             multiview: None,
         });
-        let (vertices, indices, instances, batches) = Self::buffers(device, data);
+        let (vertices, indices, instances, args, batches) = Self::buffers(device, data);
         Self {
             pipeline,
             vertices,
             indices,
             instances,
             batches,
+            args,
+            multi_draw: crate::indirect_args::multi_draw(device)
+                && crate::indirect_args::base_instance(device),
         }
+    }
+    /// Choose the single-call path explicitly, so a check can render both.
+    ///
+    /// It only flips which of the two draw paths runs: the records already
+    /// carry each batch's `first_instance`, and the fallback draws the same
+    /// ranges directly, so the picture cannot depend on the choice.
+    pub fn set_multi_draw(&mut self, multi_draw: bool) {
+        self.multi_draw = multi_draw;
     }
     fn buffers(
         device: &wgpu::Device,
         mut data: Data,
-    ) -> (wgpu::Buffer, wgpu::Buffer, wgpu::Buffer, Vec<Batch>) {
+    ) -> (
+        wgpu::Buffer,
+        wgpu::Buffer,
+        wgpu::Buffer,
+        wgpu::Buffer,
+        Vec<Batch>,
+    ) {
         if data.vertices.is_empty() {
             data.vertices.push(bytemuck::Zeroable::zeroed());
         }
@@ -355,14 +377,32 @@ impl Gpu {
                 bytemuck::cast_slice(&data.instances),
                 wgpu::BufferUsages::VERTEX,
             ),
+            Self::args_buffer(device, &data.batches),
             data.batches,
         )
     }
+    /// One record per batch; the ranges never change until the next update, so
+    /// this is rebuilt with the rest of the grass buffers and never per frame.
+    fn args_buffer(device: &wgpu::Device, batches: &[Batch]) -> wgpu::Buffer {
+        let mut args: Vec<DrawIndexedArgs> = batches
+            .iter()
+            .map(|batch| record(batch.indices.clone(), batch.instances.clone()))
+            .collect();
+        if args.is_empty() {
+            args.push(record(0..0, 0..0));
+        }
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("grass draw args"),
+            contents: bytemuck::cast_slice(&args),
+            usage: wgpu::BufferUsages::INDIRECT,
+        })
+    }
     pub fn update(&mut self, device: &wgpu::Device, data: Data) {
-        let (v, i, n, b) = Self::buffers(device, data);
+        let (v, i, n, a, b) = Self::buffers(device, data);
         self.vertices = v;
         self.indices = i;
         self.instances = n;
+        self.args = a;
         self.batches = b;
     }
     pub fn draw<'a>(
@@ -379,8 +419,14 @@ impl Gpu {
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.set_vertex_buffer(1, self.instances.slice(..));
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
-        for b in &self.batches {
-            pass.draw_indexed(b.indices.clone(), 0, b.instances.clone());
+        // Every batch shares these three buffers, so the whole field is one
+        // call when the adapter can read `first_instance` from the records.
+        if self.multi_draw && !self.batches.is_empty() {
+            pass.multi_draw_indexed_indirect(&self.args, 0, self.batches.len() as u32);
+        } else {
+            for b in &self.batches {
+                pass.draw_indexed(b.indices.clone(), 0, b.instances.clone());
+            }
         }
     }
 }

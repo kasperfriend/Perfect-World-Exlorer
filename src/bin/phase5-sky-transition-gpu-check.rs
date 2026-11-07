@@ -612,8 +612,16 @@ fn main() {
                 direction
             };
             let view = Mat4::look_to_rh(Vec3::ZERO, direction, Vec3::Y);
+            // 60 degrees, not the 20 the other checks use: the sun's quad hangs
+            // from the emitted point (`template_hang`), so at night strength
+            // 0.45 its centre sits `atan(19 / 100)` = 10.76 degrees below the
+            // camera axis and the disc spans 21.5 degrees, with the shine strip
+            // hanging with it. A 20-degree frame clips both, and the half-peak
+            // centroid of a clipped disc is not the disc's core, so the two
+            // cores would disagree for a reason that has nothing to do with the
+            // shader.
             let projection = Mat4::from_scale(Vec3::new(-1., 1., 1.))
-                * Mat4::perspective_rh(20f32.to_radians(), 1., 1., 16000.);
+                * Mat4::perspective_rh(60f32.to_radians(), 1., 1., 16000.);
             let inv = (projection * view).inverse();
             let inv = if mirrored {
                 Mat4::from_scale(Vec3::new(1., -1., 1.)) * inv

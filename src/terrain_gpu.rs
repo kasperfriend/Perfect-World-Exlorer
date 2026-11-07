@@ -39,6 +39,16 @@ pub struct TerrainGpu {
     mask_bytes: usize,
     pub grass_light_layout: wgpu::BindGroupLayout,
     pub grass_light_bind: wgpu::BindGroup,
+    /// One indirect record per visible run, for the near and the far mesh. The
+    /// runs change every view, so they are rewritten in `prepare_runs` and then
+    /// drawn as a single call each.
+    near_args: wgpu::Buffer,
+    far_args: wgpu::Buffer,
+    near_capacity: u32,
+    far_capacity: u32,
+    near_records: u32,
+    far_records: u32,
+    multi_draw: bool,
 }
 /// Owned worker result; dropped immediately after upload, never retained as a CPU mirror.
 pub struct TerrainUpload {
@@ -787,6 +797,15 @@ impl TerrainGpu {
             pages * MASK_PAGE * MASK_PAGE / (1024 * 1024),
             far.as_ref().map_or(0, |mesh| mesh.count)
         );
+        // Start with room for a typical view's runs; `prepare_runs` grows them.
+        let run_args = |label| {
+            device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: 256 * crate::indirect_args::DRAW_ARGS,
+                usage: wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            })
+        };
         Ok(Self {
             pipeline,
             far_pipeline,
@@ -798,6 +817,13 @@ impl TerrainGpu {
             mask_bytes: masks.bytes,
             grass_light_layout,
             grass_light_bind,
+            near_args: run_args("terrain near run args"),
+            far_args: run_args("terrain far run args"),
+            near_capacity: 256,
+            far_capacity: 256,
+            near_records: 0,
+            far_records: 0,
+            multi_draw: crate::indirect_args::multi_draw(device),
         })
     }
     pub fn residency_label(&self) -> String {
@@ -816,10 +842,13 @@ impl TerrainGpu {
             far_bytes as f64 / 1048576.
         )
     }
-    pub fn visible_far_runs(&self, matrix: glam::Mat4) -> Vec<(u32, u32)> {
-        self.far.as_ref().map_or_else(Vec::new, |far| {
-            crate::terrain_residency::visible_runs(&far.spans, matrix)
-        })
+    /// The far mesh's visible runs into a caller-owned buffer: the draw path
+    /// asks for this once per view on every frame.
+    pub fn visible_far_runs_into(&self, matrix: glam::Mat4, out: &mut Vec<(u32, u32)>) {
+        match &self.far {
+            Some(far) => crate::terrain_residency::visible_runs_into(&far.spans, matrix, out),
+            None => out.clear(),
+        }
     }
     pub fn edge_mesh(&self) -> Option<(&wgpu::Buffer, &wgpu::Buffer, u32)> {
         self.far
@@ -847,6 +876,64 @@ impl TerrainGpu {
     }
     /// `runs` is the per-view visibility result (`block+0x74`): `None` draws the
     /// whole window mesh, `Some` submits only the ranges the view kept.
+    /// Upload one indirect record per visible run for this view.
+    ///
+    /// The run list is what the block walk produces every frame; turning it into
+    /// records costs a few hundred bytes of upload and lets the whole terrain go
+    /// out as one call per mesh instead of one call per run. Called before the
+    /// passes; `draw` falls back to the per-run loop if it was not called with
+    /// the same list.
+    pub fn prepare_runs(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        runs: Option<&[(u32, u32)]>,
+        far_runs: Option<&[(u32, u32)]>,
+    ) {
+        self.near_records = Self::upload_runs(
+            device,
+            queue,
+            &mut self.near_args,
+            &mut self.near_capacity,
+            "terrain near run args",
+            runs,
+        );
+        self.far_records = Self::upload_runs(
+            device,
+            queue,
+            &mut self.far_args,
+            &mut self.far_capacity,
+            "terrain far run args",
+            far_runs,
+        );
+    }
+    fn upload_runs(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        buffer: &mut wgpu::Buffer,
+        capacity: &mut u32,
+        label: &str,
+        runs: Option<&[(u32, u32)]>,
+    ) -> u32 {
+        let Some(runs) = runs else {
+            return 0;
+        };
+        if runs.is_empty() {
+            return 0;
+        }
+        let records = runs.len() as u32;
+        if records > *capacity {
+            *capacity = records.next_power_of_two();
+            *buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: *capacity as u64 * crate::indirect_args::DRAW_ARGS,
+                usage: wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        queue.write_buffer(buffer, 0, bytemuck::cast_slice(&run_records(runs)));
+        records
+    }
     pub fn draw<'a>(
         &'a self,
         p: &mut wgpu::RenderPass<'a>,
@@ -872,8 +959,12 @@ impl TerrainGpu {
             p.set_index_buffer(far.index.slice(..), wgpu::IndexFormat::Uint32);
             match far_runs {
                 Some(runs) => {
-                    for &(start, count) in runs {
-                        p.draw_indexed(start..start + count, 0, 0..1);
+                    if can_multi_draw(self.multi_draw, self.far_records, runs) {
+                        p.multi_draw_indexed_indirect(&self.far_args, 0, self.far_records);
+                    } else {
+                        for &(start, count) in runs {
+                            p.draw_indexed(start..start + count, 0, 0..1);
+                        }
                     }
                 }
                 None => p.draw_indexed(0..far.count, 0, 0..1),
@@ -884,13 +975,30 @@ impl TerrainGpu {
         p.set_index_buffer(near_index.slice(..), wgpu::IndexFormat::Uint32);
         match runs {
             Some(runs) => {
-                for &(start, count) in runs {
-                    p.draw_indexed(start..start + count, 0, 0..1);
+                if can_multi_draw(self.multi_draw, self.near_records, runs) {
+                    p.multi_draw_indexed_indirect(&self.near_args, 0, self.near_records);
+                } else {
+                    for &(start, count) in runs {
+                        p.draw_indexed(start..start + count, 0, 0..1);
+                    }
                 }
             }
             None => p.draw_indexed(0..near_end, 0, 0..1),
         }
     }
+}
+/// The single-call path is only taken for the exact list that was uploaded;
+/// anything else uses the per-run loop, so a caller that forgets
+/// `prepare_runs` still draws exactly what it asked for.
+fn can_multi_draw(multi_draw: bool, records: u32, runs: &[(u32, u32)]) -> bool {
+    multi_draw && records > 0 && records as usize == runs.len()
+}
+/// One record per run: the same index range and a single instance, which is
+/// what `draw_indexed(start..start + count, 0, 0..1)` asks for.
+fn run_records(runs: &[(u32, u32)]) -> Vec<crate::indirect_args::DrawIndexedArgs> {
+    runs.iter()
+        .map(|&(start, count)| crate::indirect_args::record(start..start + count, 0..1))
+        .collect()
 }
 fn upload_masks(
     device: &wgpu::Device,
@@ -1419,6 +1527,34 @@ fn grid_axis(size: usize, step: usize) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_records_draw_what_the_per_run_loop_draws() {
+        // The block walk hands over contiguous index ranges; each record has to
+        // reproduce one `draw_indexed(start..start + count, 0, 0..1)`.
+        let runs = [(0u32, 96u32), (96, 96), (384, 48)];
+        let records = run_records(&runs);
+        assert_eq!(records.len(), runs.len());
+        for (record, &(start, count)) in records.iter().zip(runs.iter()) {
+            assert_eq!(record.index_count, count);
+            assert_eq!(record.first_index, start);
+            assert_eq!(record.instance_count, 1);
+            assert_eq!(record.first_instance, 0);
+            assert_eq!(record.base_vertex, 0);
+        }
+    }
+
+    #[test]
+    fn the_single_call_path_only_runs_for_the_list_it_was_given() {
+        let runs = [(0u32, 96u32), (96, 96)];
+        assert!(can_multi_draw(true, 2, &runs));
+        // A stale list (different length) or an empty one must use the loop.
+        assert!(!can_multi_draw(true, 1, &runs));
+        assert!(!can_multi_draw(true, 3, &runs));
+        assert!(!can_multi_draw(true, 0, &[]));
+        // Adapters without `MULTI_DRAW_INDIRECT` always use the loop.
+        assert!(!can_multi_draw(false, 2, &runs));
+    }
     #[test]
     fn far_patches_preserve_every_triangle_and_bound_all_their_vertices() {
         let (cols, rows) = (70, 50);

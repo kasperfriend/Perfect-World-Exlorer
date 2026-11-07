@@ -6,6 +6,8 @@ mod dxt;
 mod far_trees_gpu;
 #[path = "../foliage_mips.rs"]
 mod foliage_mips;
+#[path = "../indirect_args.rs"]
+mod indirect_args;
 #[path = "../model_dds.rs"]
 mod model_dds;
 #[path = "../pck.rs"]
