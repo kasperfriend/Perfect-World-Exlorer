@@ -744,7 +744,9 @@ impl Walker {
         // Reapply permanent terrain support after wall sliding as the new x/z
         // may reference a higher terrain triangle than the old position did.
         let support = physics::ground(map, body.position.x, body.position.z);
-        if body.position.y < support.height || (body.position.y <= support.height + 0.1 && body.vertical_velocity <= 0.5) {
+        if body.position.y < support.height
+            || (body.position.y <= support.height + 0.1 && body.vertical_velocity <= 0.5)
+        {
             body.position.y = support.height;
             if body.vertical_velocity <= 0.5 {
                 let newly_landed = !body.grounded;
