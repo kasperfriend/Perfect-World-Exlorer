@@ -808,7 +808,7 @@ impl Walker {
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open("/tmp/walker_movement.log")
+                .open("Modules/Walker/walker_movement.log")
             {
                 let _ = writeln!(
                     file,
@@ -974,7 +974,7 @@ impl Walker {
             .on_hover_text("Uses a stable bind-head eye anchor without animation bob. The body and mount remain visible; native head/face, right-hand weapon, and flight meshes are hidden.");
         if ui
             .checkbox(&mut self.settings.movement_log, "Movement log")
-            .on_hover_text("Write position/velocity/grounded state to /tmp/walker_movement.log each frame for diagnostics.")
+            .on_hover_text("Write position/velocity/grounded state to Modules/Walker/walker_movement.log each frame for diagnostics.")
             .changed()
         {
             // log toggle applied; file writer is unconditional when enabled
