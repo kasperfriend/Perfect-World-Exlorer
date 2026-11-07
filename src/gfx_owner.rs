@@ -331,8 +331,17 @@ impl Manager {
     }
 
     /// Set the manager-wide light-priority limit. Elements with a larger
-    /// authored `Priority` stop publishing but keep progressing, exactly like
-    /// the native gate; the limit itself survives owner churn and region unload.
+    /// authored `Priority` stop publishing but keep progressing; the limit
+    /// itself survives owner churn and region unload.
+    ///
+    /// "Keeps progressing" is the native behaviour and "a larger priority stops
+    /// publishing" is not: `0x70ba00` returns true — proceed, skipping the
+    /// visibility test at `0x6fe120` — when `Priority` is *greater* than the
+    /// detail value at `+0x134`. The viewer's limit is therefore a budget knob
+    /// of its own rather than a reproduction of that gate; see
+    /// `gfx_catalog::priority_exempts` for the dumped direction and
+    /// `Findings/Gfx-effects-parity-assessment-2026-11-05.md` for why the native
+    /// rule is not wired yet.
     pub fn set_priority_limit(&mut self, limit: i32) {
         self.priority_limit = limit;
     }

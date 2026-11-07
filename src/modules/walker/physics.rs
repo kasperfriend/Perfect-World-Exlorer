@@ -7,6 +7,7 @@
 //! timestep dependent; it is not a separate retail movement field.
 
 use crate::{
+    gfx_player,
     modules::designer::catalog::{Class, Gender},
     navigation::MapSpace,
     water::WaterArea,
@@ -156,6 +157,22 @@ pub fn ground(map: &MapSpace, x: f32, z: f32) -> Ground {
     Ground {
         height,
         normal: Vec3::new(-dhdx, 1., -dhdz).normalize_or_zero(),
+    }
+}
+
+/// The ground under a world position, in the shape `gfx_player` takes for its
+/// per-frame query. The effect owner raycasts once per frame — `0x6e53f0` calls
+/// `0x41a430` with the owner's own position — and consumes only a height and a
+/// surface normal, which is exactly the pair `ground` already returns. Handing
+/// that pair over is what makes `MatchGrnd` and `GroundHeight` live: the byte the
+/// client gates every ground path on (owner+0x1f4) is owner state that no `.gfx`
+/// file can set, so an effect only matches the ground when its host can answer
+/// for one.
+pub fn effect_ground(map: &MapSpace, position: Vec3) -> gfx_player::GroundHit {
+    let sample = ground(map, position.x, position.z);
+    gfx_player::GroundHit {
+        height: sample.height,
+        normal: sample.normal,
     }
 }
 
