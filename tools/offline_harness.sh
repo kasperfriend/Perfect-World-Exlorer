@@ -5,8 +5,12 @@
 # dependency graph and the only full build normally available is CI, at roughly
 # five minutes a cycle. This script assembles a compiler from parts that *are*
 # reachable -- npm for the Rust toolchain, GitHub for the two crates the runtime
-# actually needs -- and type-checks and runs the `gfx_player` / `gfx_file` /
-# `gfx_decal` / `gfx_color_track` / `ecmodel` / `animation` closure in seconds.
+# actually needs -- and type-checks and runs the twelve modules whose logic needs
+# no GPU in seconds: `animation`, `client_weather`, `ecmodel`, `gfx_color_track`,
+# `gfx_decal`, `gfx_file`, `gfx_light`, `gfx_owner`, `gfx_player`, `scene_lights`,
+# `sky_transition` and `view_settings`. That is 227 tests as of 7 November. What
+# stays CI-only is anything that touches wgpu, egui or winit: the renderer, the
+# world, the effect draw object and the walker.
 #
 #   tools/offline_harness.sh setup    install toolchain and build dependencies
 #   tools/offline_harness.sh check    type-check the closure (no test code)

@@ -464,6 +464,15 @@ in the order the corpus said they mattered:
   directory for among them, and the client does not fail a parent over a child it
   cannot open.
 
+- Seeing it: the World tab carries "World effects (waterfalls, torch fire,
+  glows)", on by default, and its status line reports how many roots are
+  playing, how many quads they drew and how many roots would not build.
+  Unchecking it releases every animated player and keeps every light, so the
+  same scene shows the cost of the geometry alone; checking it again rebuilds one
+  root per frame rather than all of them at once. The Sound tab's separate
+  "Play world effect sounds" switch has always been about audio, and is renamed
+  to say so now that the two sit in one settings window.
+
 ## Running a module's tests without the crate's dependencies
 
 Four CI cycles went into guessing at a wrong assertion when the file did not
@@ -490,8 +499,12 @@ value. It also corrected a hand-computed expectation in the other direction —
 at distance 100 is 0.5 and ten particles become five, not the four a by-hand
 truncation argument claimed.
 
-The two tests that need `gfx_file` and `gfx_decal`, and so `glam`, `flate2` and
-`encoding_rs`, still run only in CI.
+*(Superseded on 7 November: `tools/offline_harness.sh` now builds `glam` and a
+generated GBK decoder, stubs `flate2` behind `crate::pck`, and compiles the
+twelve dependency-free modules — including `gfx_file`, `gfx_decal`, `gfx_owner`
+and `view_settings` — so those tests run locally in about twenty seconds and the
+corpus tests skip cleanly when `google_drive/x/` is absent. Only the GPU side
+still needs CI.)*
 
 ## The field census: what is parsed, what is played, and what the version gates allow
 
