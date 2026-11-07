@@ -4905,6 +4905,96 @@ mod tests {
         root.is_dir().then_some(root)
     }
 
+    /// Every texture the shipped effect roots name must resolve to a decoded
+    /// image.
+    ///
+    /// This is the regression for the white-square defect. `Dds::parse` used to
+    /// refuse every surface without a FourCC tag, which is 1,232 of the 1,610
+    /// distinct textures these roots name, and the draw answered each refusal
+    /// with a flat white placeholder. On screen that is a hard white square
+    /// animating where a soft smoke puff belongs, which is exactly how the fire
+    /// in Etherblade was reported. Checking the paths alone is not enough: a
+    /// texture that resolves but fails to decode is the same white square, so
+    /// this decodes too.
+    #[test]
+    fn corpus_effect_textures_all_resolve_and_decode() {
+        let Some(root) = corpus_root() else {
+            return;
+        };
+        let textures = std::path::Path::new("google_drive/tex");
+        if !textures.is_dir() {
+            return;
+        }
+        let mut files = Vec::new();
+        corpus_files(&root, &mut files);
+        let (mut roots, mut clean) = (0usize, 0usize);
+        let (mut references, mut missing, mut undecodable) = (0usize, Vec::new(), Vec::new());
+        for file in &files {
+            let Ok(bytes) = std::fs::read(file) else {
+                continue;
+            };
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            let Ok(parsed) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            roots += 1;
+            let mut failed = false;
+            for element in &parsed.elements {
+                if element.common.texture.is_empty() {
+                    continue;
+                }
+                references += 1;
+                let Ok(path) = texture_path(&element.common.texture) else {
+                    missing.push(element.common.texture.clone());
+                    failed = true;
+                    continue;
+                };
+                let relative = path.trim_start_matches("gfx/textures/");
+                let Ok(image) = std::fs::read(textures.join(relative)) else {
+                    missing.push(element.common.texture.clone());
+                    failed = true;
+                    continue;
+                };
+                // DDS is this reader's own format; everything else is handed to
+                // the image crate by `decode_rgba`, which the harness cannot
+                // link. Those are checked for presence only.
+                if image.starts_with(b"DDS ")
+                    && super::super::model_dds::Dds::parse(&image).is_err()
+                {
+                    undecodable.push(element.common.texture.clone());
+                    failed = true;
+                }
+            }
+            if !failed {
+                clean += 1;
+            }
+        }
+        println!("effect roots {roots}, fully decodable {clean}, references {references}");
+        // Four distinct names in the whole corpus do not resolve, across 17
+        // references: the vertical lightning strip `序列\\闪电竖.tga` (the archive
+        // carries it as `.dds`, so the reference and the member disagree on the
+        // extension), `图案\\155.dds`, `图案\\场景3紫.dds` and a second copy of the
+        // lightning strip under `地面效果3/4.gfx`. The archive genuinely does not
+        // carry the other three. Bound the count to what the corpus actually
+        // holds, so a path regression cannot hide behind a loose ceiling.
+        assert!(
+            missing.len() <= 17,
+            "{} texture names do not resolve: {:?}",
+            missing.len(),
+            &missing[..missing.len().min(6)]
+        );
+        assert!(
+            undecodable.is_empty(),
+            "{} effect textures do not decode: {:?}",
+            undecodable.len(),
+            &undecodable[..undecodable.len().min(6)]
+        );
+        assert!(
+            roots > 5000 && clean > roots - 10,
+            "roots {roots} clean {clean}"
+        );
+    }
+
     /// The effect camera has to come back out of the frame matrix exactly, or
     /// every billboard in the world faces the wrong way.
     ///
