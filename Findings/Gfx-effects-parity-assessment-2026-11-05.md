@@ -506,6 +506,20 @@ and `view_settings` — so those tests run locally in about twenty seconds and t
 corpus tests skip cleanly when `google_drive/x/` is absent. Only the GPU side
 still needs CI.)*
 
+One more CI-only trap this work ran into, recorded because the error points
+somewhere that is not wrong. `src/bin/` holds standalone check binaries that
+include the runtime modules by `#[path]`, so each has its own crate root and its
+own `mod` list. When `gfx_owner` began importing `gfx_player` and
+`world_models_gpu` began importing `gfx_effect_gpu`,
+`cargo check --locked --bins` failed with *unresolved import `crate::gfx_player`*
+at `src/bin/../gfx_owner.rs:39` — a line that is correct in the real crate and
+unresolvable only in the one binary that includes the module without declaring
+its neighbour. The fix is two `#[path]` declarations in
+`model-draw-gpu-check.rs`. The check that keeps it from costing a second cycle is
+to walk the transitive closure of `crate::` module references in the non-test
+code of every module a bin includes, and diff that against the bin's `mod` list,
+instead of adding only the two names the compiler printed first.
+
 ## The field census: what is parsed, what is played, and what the version gates allow
 
 Measured over all 5,459 roots on 6 November, by scanning every `Key:` line in
