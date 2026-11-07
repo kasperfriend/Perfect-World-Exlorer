@@ -802,22 +802,8 @@ impl Walker {
         }
         if self.settings.movement_log {
             use std::io::Write;
-            if let Ok(mut file) = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/tmp/walker_movement.log")
-            {
-                let _ = writeln!(
-                    file,
-                    "t={:.3} y={:.3} v={:.3} g={} obj_g={} travel={:?} fp={}",
-                    delta,
-                    body.position.y,
-                    body.vertical_velocity,
-                    body.grounded,
-                    self.object_grounded,
-                    self.travel,
-                    self.settings.first_person,
-                );
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/walker_movement.log") {
+                let _ = writeln!(f, "t={:.3} y={:.3} v={:.3} g={} obj_g={} travel={:?} fp={}", delta, body.position.y, body.vertical_velocity, body.grounded, self.object_grounded, self.travel, self.settings.first_person);
             }
         }
         if let Some(character) = &mut self.character {
@@ -969,13 +955,7 @@ impl Walker {
             ));
         ui.checkbox(&mut self.settings.first_person, "First Person Mode")
             .on_hover_text("Uses a stable bind-head eye anchor without animation bob. The body and mount remain visible; native head/face, right-hand weapon, and flight meshes are hidden.");
-        if ui
-            .checkbox(&mut self.settings.movement_log, "Movement log")
-            .on_hover_text("Write position/velocity/grounded state to /tmp/walker_movement.log each frame for diagnostics.")
-            .changed()
-        {
-            // log toggle applied; file writer is unconditional when enabled
-        }
+        ui.checkbox(&mut self.settings.movement_log, "Movement log").on_hover_text("Write position/velocity/grounded state to /tmp/walker_movement.log each frame for diagnostics.");
         if ui
             .checkbox(&mut self.settings.object_collision, "Collision check")
             .on_hover_text("Collide with native BMD building/object hulls and TBH tree hulls. Terrain collision remains enabled permanently, even when this option is off.")
