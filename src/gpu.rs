@@ -2588,7 +2588,17 @@ impl Renderer {
             models.set_resident_bounds(resident_bounds);
             models.set_effects_enabled(camera.world_effects);
         }
-        if let (Some(models), Some(light)) = (&mut self.models, light) {
+        // The effects the map authored are not a lighting feature and must not
+        // wait for an environment record. `environments.lighting` returns None
+        // whenever no region matches the eye — an area with no EC-BSD row, or one
+        // the selector has not resolved yet — and nesting the whole model and
+        // effect pass behind it meant such a map played no water, fire, mist or
+        // glow at all. Lighting falls back to the neutral frame below; the
+        // geometry always runs.
+        let (Some(models), light) = (&mut self.models, light) else {
+            return;
+        };
+        {
             // Reuse the root logic tick used by regions and the glow presenter.
             // A fresh wall-time sample here both bypassed the 250ms cap and
             // included all asset-loading time on the first receiving-model draw.
@@ -2661,7 +2671,8 @@ impl Renderer {
         if let Some(light) = camera.regional_light {
             self.retained_regional_light = Some(light);
         }
-        if let Some(light) = camera.regional_light.or(self.retained_regional_light) {
+        {
+            let light = camera.regional_light.or(self.retained_regional_light);
             let frame = receiving_model_frame(uniform, camera, light);
             if walker {
                 self.modules.render_walker(
@@ -3628,7 +3639,20 @@ impl Camera {
             * Mat4::look_to_rh(self.pos, self.direction(), Vec3::Y)
     }
 }
-fn receiving_model_frame(
+/// The neutral light a map gets when no environment record answers: full white
+/// ambient and diffuse from straight above, which is the every-material default
+/// the client's own shaders fall back to. Geometry — and therefore every effect
+/// the map places — draws under it instead of being skipped.
+fn neutral_regional_light() -> crate::environment::RegionalLight {
+    crate::environment::RegionalLight {
+        ambient: [1., 1., 1.],
+        diffuse: [1., 1., 1.],
+        specular: [0., 0., 0.],
+        toward_sun: [0., -1., 0.],
+        celestial_flags: 0,
+    }
+}
+fn receiving_model_frame_with(
     uniform: &Uniform,
     camera: &Camera,
     light: crate::environment::RegionalLight,
@@ -3662,6 +3686,17 @@ fn receiving_model_frame(
         alpha_compare: 5,
         alpha_reference: 84. / 255.,
     }
+}
+fn receiving_model_frame(
+    uniform: &Uniform,
+    camera: &Camera,
+    light: Option<crate::environment::RegionalLight>,
+) -> crate::model_draw_gpu::Frame {
+    receiving_model_frame_with(
+        uniform,
+        camera,
+        light.unwrap_or_else(neutral_regional_light),
+    )
 }
 async fn adapter(
     instance: &wgpu::Instance,

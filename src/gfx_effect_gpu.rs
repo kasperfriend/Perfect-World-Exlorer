@@ -83,6 +83,15 @@ pub struct Draw {
     buckets: HashMap<BucketKey, Bucket>,
     uniform: wgpu::Buffer,
     sampler: wgpu::Sampler,
+    /// Stand-in used when an element's texture will not load.
+    ///
+    /// Dropping the bucket instead — which this used to do — means a single
+    /// unreadable file hides every quad that shares it, and on the shipped
+    /// corpus there is no guarantee that every named texture is present. The
+    /// client keeps drawing such an element with its vertex colour, so a white
+    /// opaque pixel reproduces that: the geometry is still there, the colour is
+    /// still the authored one, only the detail is missing.
+    fallback: TextureEntry,
     /// This frame's groups in draw order, with their vertex counts.
     order: Vec<(BucketKey, u32)>,
     staging: Vec<Vertex>,
@@ -177,6 +186,43 @@ impl Draw {
             label: Some("native GFX effect shader"),
             source: wgpu::ShaderSource::Wgsl(WGSL.into()),
         });
+        let fallback = {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("native GFX effect placeholder texture"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &[255, 255, 255, 255],
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4),
+                    rows_per_image: Some(1),
+                },
+                wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+            );
+            let view = texture.create_view(&Default::default());
+            TextureEntry { texture, view }
+        };
         Ok(Self {
             device_format: format,
             depth,
@@ -188,6 +234,7 @@ impl Draw {
             buckets: HashMap::new(),
             uniform,
             sampler,
+            fallback,
             order: Vec::new(),
             staging: Vec::new(),
             failed: Vec::new(),
@@ -307,22 +354,16 @@ impl Draw {
                                 self.textures
                                     .insert(key.texture.clone(), TextureEntry { texture, view });
                             }
-                            Err(error) => {
-                                self.note_failure(&key.texture, &error);
-                                continue;
-                            }
+                            Err(error) => self.note_failure(&key.texture, &error),
                         }
                     }
-                    Err(error) => {
-                        self.note_failure(&key.texture, &error);
-                        continue;
-                    }
+                    // The element still draws, with a flat white stand-in: the
+                    // quads and their authored colour survive, only the map is
+                    // lost. Returning here instead would delete the bucket.
+                    Err(error) => self.note_failure(&key.texture, &error),
                 }
             }
-            let entry = match self.textures.get(&key.texture) {
-                Some(entry) => entry,
-                None => continue,
-            };
+            let entry = self.textures.get(&key.texture).unwrap_or(&self.fallback);
             if !self.pipelines.contains_key(&key.pipeline) {
                 let pipeline = self.pipeline(device, key.pipeline)?;
                 self.pipelines.insert(key.pipeline, pipeline);

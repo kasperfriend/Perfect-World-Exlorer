@@ -210,6 +210,16 @@ impl World {
     /// Attach the real GFX archive so installed producers can load their roots.
     /// Root text is GBK-decoded here; the owner manager never guesses an
     /// encoding and refuses binary containers explicitly.
+    ///
+    /// The same archive carries the effects' **textures**. A root's elements name
+    /// `TexFile` values that resolve to `gfx/textures/...`, and those members
+    /// ship in `gfx.pck` — not in the `models.pck` this object was constructed
+    /// with. Handing the effect draw the model reader therefore made every
+    /// texture lookup miss, and `gfx_effect_gpu::Draw::update` drops a whole
+    /// bucket whose texture will not load, so a world with thousands of
+    /// correctly placed roots still drew nothing at all. One handle over
+    /// `gfx.pck` now answers both questions, which is what the client's own
+    /// `Gfx\` root means by a relative path.
     pub fn attach_gfx_archive(&mut self, element: &Path) -> Result<(), String> {
         let mut pack = File::open(element.join("gfx.pck")).map_err(|e| format!("gfx.pck: {e}"))?;
         let directory = crate::pck::directory(&mut pack)?;
@@ -222,9 +232,29 @@ impl World {
                 .collect(),
         );
         let entries: HashMap<String, crate::pck::Entry> = directory
-            .into_iter()
-            .map(|e| (crate::ecmodel::normalize(&e.name), e))
+            .iter()
+            .map(|e| (crate::ecmodel::normalize(&e.name), e.clone()))
             .collect();
+        // Asset reads: everything inside `gfx.pck`, textures included. The
+        // model reader this object was built with keeps its own archive and is
+        // still tried second, so a model texture that a root happens to name
+        // still resolves.
+        let gfx_entries = entries.clone();
+        let mut gfx_pack = pack;
+        let mut previous = std::mem::replace(
+            &mut self.read,
+            Box::new(move |path: &str| Err(format!("unset reader: {path}"))),
+        );
+        self.read = Box::new(move |path: &str| {
+            let key = crate::ecmodel::normalize(path);
+            match gfx_entries.get(&key) {
+                Some(entry) => crate::pck::read_entry(&mut gfx_pack, entry),
+                None => previous(path),
+            }
+        });
+        // Root text is a separate handle so a root load and a texture load can
+        // never interleave their file positions.
+        let mut pack = File::open(element.join("gfx.pck")).map_err(|e| format!("gfx.pck: {e}"))?;
         self.owners.set_reader(move |path: &str| {
             let entry = entries
                 .get(path)
