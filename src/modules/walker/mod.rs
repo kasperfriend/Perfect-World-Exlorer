@@ -17,7 +17,7 @@ use self::{
     physics::{Body, FlightInput, Input, Mechanics},
 };
 use crate::{
-    gfx_decal_gpu,
+    gfx_decal, gfx_decal_gpu,
     model_asset::{ModelAsset, PosedMesh},
     model_draw_gpu,
     modules::designer::{
@@ -32,7 +32,6 @@ use std::{collections::HashSet, path::PathBuf};
 use winit::keyboard::KeyCode;
 
 const THIRD_PERSON_DISTANCE: f32 = 4.5;
-const OBJECT_DOWN_TRACE: f32 = 0.3;
 
 #[derive(Clone, Copy, Debug)]
 struct Settings {
@@ -145,6 +144,10 @@ struct Gpu {
     draws: Vec<model_draw_gpu::Draw>,
     parts: Vec<ModelPart>,
     gfx: gfx_decal_gpu::Draw,
+    /// Quads for the pose that is already uploaded. Reflection/refraction
+    /// passes reuse them instead of recomputing every hook matrix again.
+    quads: Vec<gfx_decal::Quad>,
+    pose_generation: u64,
     // Keep the sampler alive alongside bind groups that reference it.
     _sampler: wgpu::Sampler,
 }
@@ -215,9 +218,11 @@ pub struct Walker {
     settings: Settings,
     body: Option<Body>,
     character: Option<Character>,
-    object_grounded: bool,
     facing: Vec3,
     camera_position: Option<Vec3>,
+    /// Incremented once per simulation frame, so the second and later render
+    /// passes of that frame can refresh only their per-pass constants.
+    pose_generation: u64,
     travel: TravelState,
     flight_hotkey: Hotkey,
     mount_hotkey: Hotkey,
@@ -244,9 +249,9 @@ impl Default for Walker {
             settings: Settings::default(),
             body: None,
             character: None,
-            object_grounded: false,
             facing: Vec3::NEG_Z,
             camera_position: None,
+            pose_generation: 0,
             travel: TravelState::Ground,
             flight_hotkey: Hotkey {
                 key: KeyCode::KeyF,
@@ -300,7 +305,9 @@ impl Walker {
     /// inactive; the load is only requested, never forced.
     pub fn prepare_object_collision(&mut self) {
         self.collision.ensure_loading();
-        self.collision.poll();
+        if self.collision.is_loading() {
+            self.collision.poll();
+        }
     }
 
     /// The building hulls, for placement support queries.
@@ -379,15 +386,19 @@ impl Walker {
 
     pub fn update_audio(&mut self, enabled: bool, volume: f32) {
         let active = self.is_active();
-        let commands = if active {
-            self.character
-                .as_mut()
-                .map(|character| character.take_sound_commands())
-                .unwrap_or_default()
+        // Always drain the animation clock: leaving edges queued would replay
+        // them on the next enable. The sound selection itself is only worth
+        // computing when the channel is actually on.
+        let commands = self
+            .character
+            .as_mut()
+            .map(|character| character.take_sound_commands())
+            .unwrap_or_default();
+        let movement = if active && enabled {
+            self.movement_sound()
         } else {
-            Vec::new()
+            None
         };
-        let movement = if active { self.movement_sound() } else { None };
         self.audio
             .update(enabled && active, volume, commands, movement);
     }
@@ -408,7 +419,6 @@ impl Walker {
             }
             self.body = None;
             self.character = None;
-            self.object_grounded = false;
             self.camera_position = None;
             self.gpu = None;
             self.gpu_failed = false;
@@ -449,7 +459,6 @@ impl Walker {
                 .set_move_speed(character.assembly.class_speeds.run);
             self.body = Some(Body::new(position));
             self.character = Some(character);
-            self.object_grounded = false;
             self.facing = facing;
             self.gpu = None;
             self.gpu_failed = false;
@@ -565,7 +574,9 @@ impl Walker {
             self.settings.camera_distance_target,
             delta,
         );
-        self.collision.poll();
+        if self.collision.is_loading() {
+            self.collision.poll();
+        }
         let mut captured = false;
         if let Some(action) = self.capture {
             if self.capture_wait_release {
@@ -677,7 +688,24 @@ impl Walker {
             0.0
         };
 
-        let map = self.map.as_ref()?.clone();
+        let map = self.map.as_ref()?;
+        let extents = movement_constants.collision_extents();
+        // The fixed-step integrator must see object hull tops while it decides
+        // whether the body is grounded. Patching `grounded` after the step (the
+        // old `ground_on_object` path) made every frame on a roof transiently
+        // airborne: the terrain-only step projected movement onto the terrain
+        // normal, produced a bogus vertical velocity and restarted the landing
+        // animation, so a character jumping onto an object jittered in mid-air.
+        let objects: Option<&dyn physics::ObjectSupport> = if self.settings.object_collision {
+            Some(&self.collision)
+        } else {
+            None
+        };
+        let floor = physics::Floor {
+            map,
+            extents,
+            objects,
+        };
         let body = self.body.as_mut()?;
         let previous_position = body.position;
         if input_enabled {
@@ -688,14 +716,14 @@ impl Walker {
                     Input { direction, jump },
                     water_vertical,
                     swim_speed,
-                    &map,
+                    floor,
                     &self.water,
                     movement_constants,
                 ),
                 TravelState::Mounted => {
                     let mut mechanics = self.settings.mechanics;
                     mechanics.move_speed = mount_speed?;
-                    body.advance_mounted(delta, &mechanics, Input { direction, jump }, &map);
+                    body.advance_mounted(delta, &mechanics, Input { direction, jump }, floor);
                 }
                 TravelState::Flying => body.advance_flight(
                     delta,
@@ -704,18 +732,19 @@ impl Walker {
                         vertical,
                         speed: flight_speed?,
                     },
-                    &map,
+                    map,
                     &self.water,
                     movement_constants,
                 ),
             }
         }
         if self.settings.object_collision {
-            let resolved = self.collision.resolve(
-                previous_position,
-                body.position,
-                movement_constants.collision_extents(),
-            );
+            // Swept AABB blocking and wall sliding remain a separate layer.
+            // Support/landing is owned by the fixed step above, so this only
+            // stops horizontal penetration and ceilings.
+            let resolved = self
+                .collision
+                .resolve(previous_position, body.position, extents);
             body.position = resolved.feet;
             if resolved.blocked {
                 if resolved.normal.y >= 0.5 && body.vertical_velocity < 0.0 {
@@ -725,50 +754,16 @@ impl Walker {
                 }
             }
         }
-        // Object collision is an additional layer, never a terrain toggle.
-        // Reapply permanent terrain support after wall sliding as the new x/z
-        // may reference a higher terrain triangle than the old position did.
-        let support = physics::ground(&map, body.position.x, body.position.z);
-        if body.position.y < support.height {
-            body.position.y = support.height;
-            if support.normal.y >= 0.5 && body.vertical_velocity <= 0.0 {
-                let newly_landed = !body.grounded;
-                body.vertical_velocity = 0.0;
-                body.grounded = true;
-                body.jump_count = 0;
-                body.water_jumping = false;
-                if newly_landed {
-                    body.landed_generation = body.landed_generation.wrapping_add(1);
-                }
-            }
-        }
-        // A building/tree top is a support plane too, not merely a wall that
-        // zeroes vertical velocity. Keep this after the terrain pass and use
-        // the higher surface, so object collision can never disable terrain.
-        let mut object_grounded = false;
-        if self.settings.object_collision
-            && self.travel != TravelState::Flying
-            && !(body.swimming && !body.water_jumping)
-            && body.vertical_velocity <= 0.0
-        {
-            if let Some(object) = self.collision.support(
-                body.position,
-                movement_constants.collision_extents(),
-                OBJECT_DOWN_TRACE,
-            ) {
-                if object.height >= support.height {
-                    body.ground_on_object(object, self.object_grounded);
-                    object_grounded = true;
-                }
-            }
-        }
-        self.object_grounded = object_grounded;
+        // Wall sliding can move x/z onto a higher terrain triangle. Object
+        // collision is an additional layer, never a terrain toggle.
+        body.apply_terrain_floor(map);
         if let Some(character) = &mut self.character {
             if let Err(error) =
                 character.update(delta, body, self.facing, self.travel, rushing, vertical)
             {
                 self.last_error = Some(format!("Walker animation: {error}"));
             }
+            self.pose_generation = self.pose_generation.wrapping_add(1);
             let eye = character.eye;
             if self.settings.first_person {
                 self.camera_position = Some(eye);
@@ -777,7 +772,7 @@ impl Walker {
             let cp = pitch.cos();
             let look = Vec3::new(s * cp, pitch.sin(), -c * cp);
             let mut camera = eye - look * self.settings.camera_distance;
-            let clearance = physics::ground(&map, camera.x, camera.z).height + 0.25;
+            let clearance = physics::ground(map, camera.x, camera.z).height + 0.25;
             camera.y = camera.y.max(clearance);
             self.camera_position = Some(camera);
             return Some(camera);
@@ -1038,6 +1033,8 @@ impl Walker {
                     draws,
                     parts,
                     gfx,
+                    quads: decal_quads.clone(),
+                    pose_generation: self.pose_generation,
                     _sampler: sampler,
                 })
             })();
@@ -1050,28 +1047,55 @@ impl Walker {
                 }
             }
         }
-        let update = (|| -> Result<(), String> {
+        // The host draws the character once per pass (main, reflection,
+        // refraction). Posed vertices are shared by every pass; only the
+        // view/projection and clip constants change, so uploading the whole
+        // skeleton again for each pass is pure main-thread/PCIe churn.
+        let pose_uploaded = self
+            .gpu
+            .as_ref()
+            .is_some_and(|gpu| gpu.pose_generation == self.pose_generation);
+        let update = (|| -> Result<Option<Vec<gfx_decal::Quad>>, String> {
             let gpu = self.gpu.as_ref().ok_or("Walker GPU draws missing")?;
             let character = self.character.as_ref().ok_or("Walker character missing")?;
             let models = render_models(character, &character.posed.meshes)?;
             if models.len() != gpu.draws.len() {
                 return Err("travel draw count changed without rebuilding GPU resources".into());
             }
-            for (index, model) in models.into_iter().enumerate() {
-                gpu.draws[index].update(queue, model.asset, model.poses, frame)?;
+            let mut quads = None;
+            if pose_uploaded {
+                for (index, model) in models.iter().enumerate() {
+                    gpu.draws[index].update_constants(queue, model.asset, frame)?;
+                }
+            } else {
+                for (index, model) in models.into_iter().enumerate() {
+                    gpu.draws[index].update_posed(queue, model.asset, model.poses, frame)?;
+                }
+                quads = Some(
+                    character
+                        .gfx
+                        .quads(&character.assembly, &character.posed.pose)?,
+                );
             }
-            let decal_quads = character
-                .gfx
-                .quads(&character.assembly, &character.posed.pose)?;
+            let decal_quads = quads.as_deref().unwrap_or(gpu.quads.as_slice());
             gpu.gfx
-                .update(queue, frame.matrix, frame.clip_plane, &decal_quads)?;
-            Ok(())
+                .update(queue, frame.matrix, frame.clip_plane, decal_quads)?;
+            Ok(quads)
         })();
-        if let Err(error) = update {
-            self.last_error = Some(format!("Walker rendering: {error}"));
-            self.gpu_failed = true;
-            self.gpu = None;
-            return;
+        match update {
+            Ok(Some(quads)) => {
+                if let Some(gpu) = self.gpu.as_mut() {
+                    gpu.quads = quads;
+                    gpu.pose_generation = self.pose_generation;
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                self.last_error = Some(format!("Walker rendering: {error}"));
+                self.gpu_failed = true;
+                self.gpu = None;
+                return;
+            }
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("add-on Walker character pass"),

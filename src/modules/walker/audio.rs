@@ -12,8 +12,9 @@ use crate::{
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    time::{Duration, Instant},
 };
+#[cfg(windows)]
+use std::time::{Duration, Instant};
 
 pub const BODY_CHANNEL: u8 = 0;
 pub const MOUNT_CHANNEL: u8 = 1;
@@ -176,7 +177,6 @@ pub struct CharacterAudio {
     volume: f32,
     cues: u64,
     random: u32,
-    last_update: Instant,
     last_enabled: bool,
     last_volume: f32,
     movement: Option<MovementSound>,
@@ -200,7 +200,6 @@ impl Default for CharacterAudio {
             volume: 0.5,
             cues: 0,
             random: 0x51f15eED,
-            last_update: Instant::now() - Duration::from_secs(1),
             last_enabled: false,
             last_volume: -1.,
             movement: None,
@@ -326,15 +325,16 @@ impl CharacterAudio {
         if !enabled {
             self.worker_error = None;
         }
-        let empty = commands.is_empty() && !movement_changed;
-        if empty
+        // Send only when something actually changed. The old 250 ms heartbeat
+        // woke the worker four times a second even on a completely idle
+        // character; the worker now retires finished sinks on its own timeout.
+        if commands.is_empty()
+            && !movement_changed
             && enabled == self.last_enabled
             && (self.volume - self.last_volume).abs() < 0.001
-            && self.last_update.elapsed() < Duration::from_millis(250)
         {
             return;
         }
-        self.last_update = Instant::now();
         self.last_enabled = enabled;
         self.last_volume = self.volume;
         let mut commands = commands;
@@ -465,7 +465,12 @@ fn worker(
         let mut request = match rx.recv_timeout(Duration::from_millis(250)) {
             Ok(request) => request,
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Idle ticks own sink cleanup now that the main thread no
+                // longer sends a keep-alive request every 250 ms.
+                active.retain(|_, playing| !playing.sink.empty());
+                continue;
+            }
         };
         while let Ok(next) = rx.try_recv() {
             // Volume/enabled state is latest-wins, but animation commands are
