@@ -50,9 +50,20 @@ impl Default for Settings {
             mechanics: Mechanics::default(),
             first_person: false,
             object_collision: true,
-            movement_log: false,
             camera_distance: THIRD_PERSON_DISTANCE,
             camera_distance_target: THIRD_PERSON_DISTANCE,
+            movement_log: {
+                let mut val = false;
+                if let Ok(text) = std::fs::read_to_string("Modules/Walker/module.ini") {
+                    for line in text.lines() {
+                        let line = line.split("#").next().unwrap_or("").trim();
+                        if let Some(v) = line.strip_prefix("movement_log") {
+                            val = v.trim_start_matches("=").trim() == "true" || v.trim_start_matches("=").trim() == "1";
+                        }
+                    }
+                }
+                val
+            },
         }
     }
 }
