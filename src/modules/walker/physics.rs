@@ -564,9 +564,8 @@ impl Body {
         };
         let wish = direction + Vec3::Y * vertical;
         self.moving = wish.length_squared() > 0.5;
-        let near_surface = level.is_some_and(|water| {
-            self.position.y > water - 2.0 && self.position.y > terrain.height
-        });
+        let near_surface = level
+            .is_some_and(|water| self.position.y > water - 2.0 && self.position.y > terrain.height);
         let move_speed = if near_surface {
             mechanics.move_speed.min(swim_speed)
         } else {
@@ -805,7 +804,12 @@ mod tests {
         );
         assert_eq!(body.jump_count, 2, "third jump must be rejected");
         for _ in 0..300 {
-            body.advance(STEP_SECONDS, &mechanics, Input::default(), Floor::terrain(&map));
+            body.advance(
+                STEP_SECONDS,
+                &mechanics,
+                Input::default(),
+                Floor::terrain(&map),
+            );
         }
         assert!(body.grounded);
         assert_eq!(body.jump_count, 0);

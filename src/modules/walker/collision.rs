@@ -1274,10 +1274,7 @@ mod tests {
             let support = collision
                 .support(feet, extents, 0.3)
                 .expect("cube top should still support the feet");
-            assert!(
-                support.height <= feet_y + 1e-6,
-                "at {feet_y}: {support:?}"
-            );
+            assert!(support.height <= feet_y + 1e-6, "at {feet_y}: {support:?}");
         }
     }
 
@@ -1295,9 +1292,11 @@ mod tests {
             .support(Vec3::new(0., 5., 0.), extents, 1.0)
             .is_none());
         // The swept wall pass still sees the tree hull.
-        assert!(collision
-            .resolve(Vec3::new(-3., 3., 0.), Vec3::new(3., 3., 0.), extents)
-            .blocked);
+        assert!(
+            collision
+                .resolve(Vec3::new(-3., 3., 0.), Vec3::new(3., 3., 0.), extents)
+                .blocked
+        );
     }
 
     #[test]
@@ -1306,10 +1305,9 @@ mod tests {
         let extents = Vec3::new(0.3, 0.9, 0.3);
         let feet = Vec3::new(0., 1.5, 0.);
         let direct = collision.support(feet, extents, 1.0).unwrap();
-        let via_floor = <Collision as physics::ObjectSupport>::object_support(
-            &collision, feet, extents, 1.0,
-        )
-        .unwrap();
+        let via_floor =
+            <Collision as physics::ObjectSupport>::object_support(&collision, feet, extents, 1.0)
+                .unwrap();
         assert_eq!(direct.height, via_floor.height);
         assert_eq!(direct.normal, via_floor.normal);
     }

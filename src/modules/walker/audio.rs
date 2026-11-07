@@ -9,12 +9,12 @@ use crate::{
     modules::designer::catalog::{Class, Gender},
     music, pck,
 };
+#[cfg(windows)]
+use std::time::{Duration, Instant};
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
 };
-#[cfg(windows)]
-use std::time::{Duration, Instant};
 
 pub const BODY_CHANNEL: u8 = 0;
 pub const MOUNT_CHANNEL: u8 = 1;
