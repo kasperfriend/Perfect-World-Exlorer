@@ -474,6 +474,12 @@ impl CollisionWorld {
         let start = feet + Vec3::Y * CONTACT_LIFT;
         let delta = Vec3::NEG_Y * (max_down + CONTACT_LIFT);
         let hit = self.trace(start, delta, extents)?;
+        if hit.start_solid {
+            return Some(Ground {
+                height: feet.y,
+                normal: Vec3::new(0.0, 1.0, 0.0),
+            });
+        }
         if hit.normal.y < 0.0 {
             return None;
         }
