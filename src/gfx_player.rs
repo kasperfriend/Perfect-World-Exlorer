@@ -103,7 +103,7 @@ use crate::{
         Particle, Root, Spec, Sprite, Trail,
     },
 };
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Quat, Vec3, Vec4};
 
 /// Nesting limit for element-200 children. The client resolves child paths at
 /// load time and has no cycle guard, so a self-referencing root would recurse
@@ -162,18 +162,84 @@ impl Default for View {
 
 impl View {
     /// Recover the camera basis from an inverted combined view-projection
-    /// matrix, which is all a renderer normally has on hand. The right-handed
-    /// view matrix looks down its own negative Z axis.
+    /// matrix, which is all a renderer normally has on hand.
+    ///
+    /// This used to read the eye off the inverse's fourth column and the axes off
+    /// its first three. Measured against this viewer's own projection that is
+    /// wrong twice over, and both mistakes are invisible until an effect has to
+    /// face the camera. `Mat4::transform_point3` assumes w = 1 and drops the
+    /// perspective divide, so feeding it the NDC origin returns the **near
+    /// plane** point: 3,911 units from the eye for a camera looking across the
+    /// world, and worse the further it sits from the origin. The inverse's
+    /// columns are not the camera basis either; the clip-space mirror this
+    /// viewer applies (`from_scale(-1, 1, 1)`, the handedness flip) lives in the
+    /// projection, so the columns come back tilted. Measured, the recovered
+    /// forward was 0.91 away from the true view direction and the right and up
+    /// axes were each off by tens of degrees.
+    ///
+    /// The basis is taken from points instead, so a mirrored, orthographic or
+    /// skewed projection is handled by the same arithmetic. Two points on the
+    /// centre ray give the view direction, two more give the screen axes, and
+    /// the eye is where that ray crosses the plane `w_clip = 0` (row 3 of the
+    /// matrix), which is the one point the inverse's own w cannot represent.
+    /// Every value is checked for a finite, non-degenerate result and the
+    /// default basis is returned rather than a NaN camera.
     pub fn from_inverse_view_projection(inverse: Mat4) -> Self {
         if !inverse.is_finite() {
             return Self::default();
         }
-        Self {
-            position: inverse.transform_point3(Vec3::ZERO),
-            right: inverse.x_axis.truncate().normalize_or_zero(),
-            up: inverse.y_axis.truncate().normalize_or_zero(),
-            forward: -inverse.z_axis.truncate().normalize_or_zero(),
+        let Some(near) = Self::unproject(inverse, 0., 0., 0.) else {
+            return Self::default();
+        };
+        let Some(far) = Self::unproject(inverse, 0., 0., 1.) else {
+            return Self::default();
+        };
+        // The centre ray, from the near plane towards the far plane. In this
+        // right-handed projection that direction points back at the eye, so the
+        // view direction is the other way round.
+        let ray = near - far;
+        if ray.length_squared() < 1e-12 {
+            return Self::default();
         }
+        let forward = ray.normalize();
+        let Some(right) = Self::unproject(inverse, 1., 0., 1.) else {
+            return Self::default();
+        };
+        let Some(up) = Self::unproject(inverse, 0., 1., 1.) else {
+            return Self::default();
+        };
+        let right = (right - far).normalize_or_zero();
+        let up = (up - far).normalize_or_zero();
+        if right == Vec3::ZERO || up == Vec3::ZERO || right.dot(up).abs() > 0.01 {
+            return Self::default();
+        }
+        // The eye is on the centre ray where the homogeneous w runs out:
+        // `inverse` maps the plane w_clip = 0 to infinity, and that plane is row
+        // 3 of the matrix this one inverted.
+        let a = inverse.inverse().row(3);
+        let plane = a.truncate();
+        let denominator = plane.dot(forward);
+        if !denominator.is_finite() || denominator.abs() < 1e-9 {
+            return Self::default();
+        }
+        let position = near + forward * (-(plane.dot(near) + a.w) / denominator);
+        if !position.is_finite() {
+            return Self::default();
+        }
+        Self {
+            position,
+            right,
+            up,
+            forward,
+        }
+    }
+
+    /// Inverse-project one NDC point and divide through by w, which is the step
+    /// `Mat4::transform_point3` leaves out.
+    fn unproject(inverse: Mat4, x: f32, y: f32, z: f32) -> Option<Vec3> {
+        let homogeneous = inverse * Vec4::new(x, y, z, 1.);
+        let w = homogeneous.w;
+        (w.is_finite() && w.abs() > 1e-9).then(|| homogeneous.truncate() / w)
     }
 }
 
@@ -4789,6 +4855,86 @@ mod tests {
     fn corpus_root() -> Option<std::path::PathBuf> {
         let root = std::path::PathBuf::from("google_drive/x");
         root.is_dir().then_some(root)
+    }
+
+    /// The effect camera has to come back out of the frame matrix exactly, or
+    /// every billboard in the world faces the wrong way.
+    ///
+    /// This is the regression for the second half of the defect that froze the
+    /// world's effects: the eye was read with `transform_point3`, which drops the
+    /// perspective divide and so returned the near plane rather than the camera
+    /// (3,911 units off for a camera looking across the world), and the axes were
+    /// read off the inverse's columns, which carry the clip-space mirror the
+    /// viewer applies. Both are checked here on the viewer's own projection
+    /// (mirrored scale, 70-degree perspective) and on a plain one, so the method
+    /// has to work with and without the handedness flip.
+    #[test]
+    fn effect_camera_comes_back_out_of_the_frame_matrix() {
+        for (name, position, direction, aspect, mirrored) in [
+            (
+                "across the world",
+                Vec3::new(2291., 250., -3160.),
+                Vec3::new(0.3, -0.2, 0.9).normalize(),
+                16. / 9.,
+                true,
+            ),
+            (
+                "at the far edge",
+                Vec3::new(20000., 900., -18000.),
+                Vec3::new(-0.5, 0.1, 0.8).normalize(),
+                1.,
+                true,
+            ),
+            (
+                "looking down",
+                Vec3::new(10., 500., 10.),
+                Vec3::new(0.01, -1.0, 0.02).normalize(),
+                1.6,
+                true,
+            ),
+            (
+                "plain projection",
+                Vec3::new(1., 2., 3.),
+                Vec3::new(0., 0., -1.),
+                1.,
+                false,
+            ),
+        ] {
+            let projection = Mat4::perspective_rh(70f32.to_radians(), aspect, 16000., 1.);
+            let view = Mat4::look_to_rh(position, direction, Vec3::Y);
+            let matrix = if mirrored {
+                Mat4::from_scale(Vec3::new(-1., 1., 1.)) * projection * view
+            } else {
+                projection * view
+            };
+            let recovered = View::from_inverse_view_projection(matrix.inverse());
+            assert!(
+                (recovered.position - position).length() < 0.01,
+                "{name}: eye {:?} is not {position:?}",
+                recovered.position
+            );
+            assert!(
+                (recovered.forward - direction).length() < 0.001,
+                "{name}: forward {:?} is not {direction:?}",
+                recovered.forward
+            );
+            for axis in [recovered.right, recovered.up] {
+                assert!((axis.length() - 1.).abs() < 0.01, "{name}: unit axis");
+                assert!(
+                    axis.dot(recovered.forward).abs() < 0.01,
+                    "{name}: screen axis must be perpendicular to the view direction"
+                );
+            }
+            assert!(
+                recovered.right.dot(recovered.up).abs() < 0.01,
+                "{name}: right and up must be perpendicular"
+            );
+        }
+        // A matrix with no inverse must fall back rather than produce a NaN
+        // camera that would collapse every quad.
+        let degenerate = View::from_inverse_view_projection(Mat4::ZERO);
+        assert!(degenerate.position.is_finite());
+        assert!(degenerate.forward.is_finite());
     }
 
     /// Every file under a directory, sorted, so a sweep is reproducible. The
