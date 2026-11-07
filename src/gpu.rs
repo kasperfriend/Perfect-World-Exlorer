@@ -1829,7 +1829,7 @@ impl Renderer {
             // `gfx.pck` below. A map that ships no EC model still gets its
             // effects, so a missing model archive costs the model queue and
             // never the waterfalls.
-            let world =
+            let mut world =
                 match crate::world_models_gpu::World::new(&device, format, assets, &t.element) {
                     Ok(world) => world,
                     Err(error) => {
