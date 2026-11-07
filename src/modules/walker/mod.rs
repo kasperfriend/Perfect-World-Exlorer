@@ -821,11 +821,11 @@ impl Walker {
         }
         if self.settings.movement_log {
             use std::io::Write;
-            let log_path = std::path::PathBuf::from("/tmp/walker_movement.log");
+            let log_path = std::path::PathBuf::from("walker_movement.log");
             if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(&"/tmp/walker_movement.log")
+                .open(&"walker_movement.log")
             {
                 let _ = writeln!(
                     file,
