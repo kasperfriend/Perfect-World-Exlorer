@@ -24,7 +24,7 @@ use crate::{
     },
     navigation::MapSpace,
 };
-use glam::Mat4;
+use glam::{Mat4, Vec3};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Owner {
@@ -151,6 +151,23 @@ impl CharacterGfx {
     }
 
     /// Roots executed by the runtime player rather than the static decal subset.
+    /// The camera offset the roots' `ShakeCam` asks for, summed over the effects
+    /// that are shaking right now. The client applies each root's offset to the
+    /// camera in turn (`0x41a4e0`), which is additive, and puts the camera back
+    /// once a root leaves its window (`0x6e5150`), so the sum is zero whenever no
+    /// root is inside its shake window. The player owns no camera — see
+    /// [`gfx_player::Player::camera_shake`] — so the host adds this to the eye it
+    /// builds its view-projection from.
+    pub fn camera_shake(&self) -> Vec3 {
+        self.effects
+            .iter()
+            .filter_map(|effect| match &effect.kind {
+                Kind::Dynamic(player) => Some(player.camera_shake()),
+                Kind::Static(_) => None,
+            })
+            .fold(Vec3::ZERO, |sum, offset| sum + offset)
+    }
+
     pub fn dynamic_count(&self) -> usize {
         self.effects
             .iter()

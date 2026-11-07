@@ -318,9 +318,9 @@ The same reading opened a question this pass does **not** settle. `ColorTrack::s
 
 The corpus sweep was re-run afterwards. Every line is unchanged — 5,457 of 5,459 roots parsed and played, 484 child roots resolved against the corpus, 84 warnings over 31 distinct missing files, PARSE 2 / BUILD 0 / ADVANCE 0 / cycles 0, decal equivalence 13 roots / 19 quads / 0 mismatches — except the quad total, which moved from 19,861,347 to 19,861,420. That is the sampler's draw count rather than its colour: one draw per spawn instead of four shifts every later value those emitters pull, so a handful of particles land differently across 545,700 frames. Max per frame (4,079), max particles (4,257) and the finished count (2,658) are identical.
 
-## Camera shake, measured and left alone
+## Camera shake, reproduced
 
-`ShakeCam` is set on 241 roots and is the last root-level behaviour the viewer ignores. It is now decoded far enough to say what it does and why it stays out.
+`ShakeCam` is set on 241 roots and was the last root-level behaviour the viewer ignored. It is decoded far enough to run: `gfx_player::Player::camera_shake` returns the offset the client would hand its camera on the frame `advance` just produced.
 
 **The parse.** `0x6e38a4` gates the key on version 24, `0x6e38ce` scans it with `sscanf` against the string `ShakeCam: %d` at `0x8eb790`, `0x6e38d9` tests the value against itself and `0x6e38de` stores the `setne` result in a single byte at root`+0x1f6`. There is no bitfield: the client keeps one bool. The corpus agrees — 5,216 roots author `0`, 241 author `1`, and nothing authors any other value. `gfx_file` had been reading bit 0 as "shake the camera position" and bit 1 as "shake its scale"; both accessors are gone, replaced by `shakes_camera()`, which is the client's own nonzero test. Neither accessor had a caller anywhere in the tree, so nothing else moved and no parse or playback path changed.
 
@@ -333,12 +333,22 @@ The corpus sweep was re-run afterwards. Every line is unchanged — 5,457 of 5,4
 - On the first frame `0x6e4ffb` latches `+0x1f7`, `0x6e5002` zeroes a frame counter at `+0x1f8`, and `0x6e5008` calls `0x41a480` once: the camera is saved before it is disturbed.
 - Every frame increments `+0x1f8`. **Odd** frames take `0x6e50f3`, which negates the three floats at root`+0x1fc..+0x204` and re-applies them through `0x41a4e0`. The shake alternates sign at half the frame rate instead of drawing a fresh sample every frame.
 - **Even** frames compare root`+0x29c` against 30.0 (`0x8eb710`) at `0x6e5037`. At or beyond 30 the offset is zeroed; inside it, `0x6e5094` forms `1.0 − root+0x29c/30.0`, `0x6e50a5` calls the noise generator `0x766490` with `this = controller + 0x14`, and the result is scaled by that factor and by a fresh random unit direction before it is stored into `+0x1fc` and applied.
-- The direction comes from two `rand()` draws, each multiplied by 2π/32767 (`0x8e6f14`), turned into quaternions by `0x7b6fd0` about the globals `0x9c0348` and `0x9c0358`, and composed (`0x6e4e55`, `0x6e4f25`). Both globals live past the raw `.data` section and are initialised at runtime, so their values are not recoverable from the file.
+- The direction comes from two `rand()` draws, each multiplied by 2π/32767 (`0x8e6f14`), turned into quaternions by `0x7b6fd0` about the globals `0x9c0348` and `0x9c0358`, and composed (`0x6e4e55`, `0x6e4f25`). Both globals live past the raw image, so their bytes are not in the file — but two static-initialiser thunks write them: `0x6ea170` stores (0, 1, 0) at `0x9c0348` and `0x6ea140` stores (1, 0, 0) at `0x9c0358`, so the two rotations are about the unit Y and unit X axes. Which one the client applies first is not readable out of the quaternion helper sequence, and the two draws are made every frame inside the window whether or not the frame uses them.
 - root`+0x29c` is the same field the emission LOD divides the particle count by, so one distance input drives both the emission rate and the shake amplitude.
 
 **The generator.** `0x766490` is a gradient noise over a table the object owns: `this+0x18` is a count that abandons the whole call when it is not positive (`0x7664a6`, `0x7664af`), `this+0xdc` is a modulus, and `this+0xe0` is an array of twelve-byte records. Each step splits a coordinate into an integer index and a fraction — `_ftol` at `0x7664e6`, then `fsubr` at `0x7664fa` — wraps the index into range by adding the modulus while it is negative (`0x766504`) and taking a signed remainder (`cltd`/`idiv` at `0x766508`), copies the gradient record for that index and for `index+1` with `rep movsl` and a component count clamped to three (`0x76650b`–`0x766564`), and interpolates: a byte argument picks between two variants at `0x766574` and the blend starts from 1.0 (`0x8effa0`) at `0x76657c`.
 
-**Why it stays out.** Three inputs the viewer cannot supply: the camera's distance to the effect (root`+0x29c` is a renderer-side quantity), the camera save-and-apply pair (`0x41a480`, `0x41a4e0`), and the runtime-initialised rotation axes. Behind them the generator's fade curve and octave weighting are still undecoded — the shape is identified, the interpolation is not. Recording the gate, the window and the alternating-sign structure costs nothing and is enough to reimplement this later against a real camera; inventing an amplitude now would put a number in the viewer that no disassembly supports.
+**Reproduced.** The three inputs that had kept it out turned out to be available. The distance root`+0x29c` is the same quantity `distance_fade` already measures — camera to the root's origin — so the shake reads it from the `View` the caller passes. The rotation axes are the two initialiser thunks above. And the save-and-apply pair does not have to be reproduced at all: the player owns no camera, so `camera_shake` returns the offset at root`+0x1fc..+0x204` and leaves the applying to whoever holds the camera. `CharacterGfx::camera_shake` sums the roots an effect list is playing, since the client applies each root's offset in turn, and `Walker::camera_shake` exposes that to the host that builds the frame's view-projection.
+
+The window, the latch and the parity are literal: `StartTime` and `EndTime` in seconds against the root's millisecond tick, a negative `EndTime` skipping the end test, the counter zeroed when the latch is set rather than when it is cleared, the first frame in the window an even one, and the odd frames negating the stored offset in place. Three places where the viewer deliberately reads differently:
+
+* A nonzero `ShakeCam` whose `CtrlType` is outside 100..=112 leaves `0x6eae10` returning null, which fails the whole root load at `0x6e38f8`. The viewer reports no shake instead of rejecting a file, the way it warns about an unresolvable child reference rather than dropping the root that holds it. No corpus file hits the case: all 241 author 112.
+* The composition order of the two rotations is not readable, so `shake_direction` returns a fresh random unit direction built from the same two angles. Both readings span the sphere; they are not the same sequence.
+* The generator's fade curve and octave weighting are still undecoded — the shape is identified at `0x766490`, the interpolation is not — so the sample comes from the viewer's own `fbm`, the normalised hash-noise ladder element 150 uses. One difference matters: element 150 redraws its lattice seed at every regeneration, while the client's noise object builds its gradient table once, in its constructor `0x7662b0`, and the driver only samples it. The shake therefore keeps a per-player seed for the life of the effect, which is what makes consecutive frames correlated rather than white noise.
+
+The amplitude is authored on the controller and applied by the noise object, not by the driver, so the viewer multiplies the sample by it — the same place element 150's amplitude acts. Measured against the corpus, all 241 shaking roots leave `BufLen`, `WaveLen`, `Persistence` and `OctaveNum` at the constructor's 256, 1, 0.25 and 5, and vary only `Amplitude`: 1.0 on 89 roots, 0.5 on 35, 0.1 on 32, 0.2 on 24, 0.3 on 20, 0.05 on 9, 2.0 on 8, and one each at 5.0, 3.0 and 2.5. Seven author 0, which disables a shake the file still asks for.
+
+The census test plays all 241 and 232 of them move the camera within two seconds. The nine that do not are accounted for: five author `StartTime: 0` with `EndTime: 0`, a window one instant wide that no 16 ms frame lands inside; one authors `StartTime: 3`, past the two seconds the sweep plays; and seven author `Amplitude: 0`, four of them overlapping the first two groups. Six plus seven minus four is nine, and 241 minus nine is 232.
 
 ## Placed in the viewer on 6 November
 
@@ -390,6 +400,34 @@ interface was added so the rest can follow.
   nothing in `0x700000`..`0x730000` writes root+0x298, root+0x29c or the
   root+0x2a0 enable byte, so the numerator has no recovered provenance, and
   inventing one would put a guess in the emission path.
+
+## Placed in the viewer on 7 November
+
+Six recovered behaviours moved from these pages into `gfx_player` and the walker,
+in the order the corpus said they mattered:
+
+- **Binding by name.** A root's elements are indexed by `Name` once, after every
+  element exists so a `BindEle` may point forward, and the bound element's
+  transform feeds the child's placement each frame. 967 of the corpus's 968
+  authored names resolve to a sibling; the one that does not stays unbound and is
+  reported, which is what the client does with a name it cannot find.
+- **Ground matching.** `advance_with_ground` takes an `Option<GroundHit>` — height
+  and normal at the placement the effect is parented to — and builds the ground
+  frame `0x6fa7c0` selects and the height frame `GroundHeight` selects from it.
+  `walker/physics.rs::effect_ground` supplies the sample from the walker's own map,
+  one query per effect per frame, so 393 of the 459 roots that ask now change
+  geometry where before none did.
+- **`GrndNormOnly`.** The byte at element+0x150 makes the ground frame carry the
+  normal only, without the snapped height, which is the difference between an
+  effect lying on the slope and one lying at the slope's altitude.
+- **The trail's vertex ring.** Element 152 keeps up to 256 laid vertices, ages
+  them by `VertsLife`, drops them from the old end and — when `isappend` is clear —
+  rebuilds the whole strip instead, which is why the 18 corpus trails that author
+  `isappend: 0` draw their complete strip from frame one.
+- **`ResetLoopEnd` for trails.** See the corrected subsection above: the flag
+  empties the ring at the loop boundary, and the flipbook reading the base class
+  makes of it is documented beside the code rather than implemented.
+- **Camera shake.** See *Camera shake, reproduced*.
 
 ## Running a module's tests without the crate's dependencies
 
@@ -458,6 +496,14 @@ harmlessly:
 | `StrokeAmp` | 11 | 7 | lightning |
 | `IsStartOnGrnd`, `Force2D`, `Use3DCam` | **0** | — | always zero in the corpus |
 | `NoDownSample` | 1 | 3,552 | |
+
+*(Corrected on 7 November: seven of these 24 have a consumer now. `MatchGrnd`
+and `GroundHeight` are honoured through the per-frame `Option<GroundHit>`,
+`GrndNormOnly` selects the normal-only ground frame, `vertslife` and `isappend`
+drive the trail's vertex ring, `ResetLoopEnd` clears that ring for trails, and
+the root key `ShakeCam` — which this table never listed, being a root key —
+drives `Player::camera_shake`. `BindEle` resolved by name in the same pass. The
+counts above are still the 6 November measurement.)*
 
 `BindEle` and `DummyEle` are `%s` — element **names**, copied to element+0x9c by
 `0x7638a0`. 968 elements name a `BindEle`; 772 of those resolve to a sibling
@@ -532,8 +578,17 @@ asks for it. The object at element+0x10 carries live copies of `DedaultScale`,
 root loader writes, so `+0x1f4` and `+0x284` are either further root fields or
 runtime state set after loading; neither is identified. The practical consequence
 stands either way: `MatchGrnd` cannot be honoured from the `.gfx` alone, it needs
-an owner that can answer a ground query. The walker has terrain sampling in
-`walker/physics.rs`, so walker-hosted effects are the place to wire it.
+an owner that can answer a ground query.
+
+That owner now exists. `Player::advance_with_ground` takes an `Option<GroundHit>`
+per call — a height and a normal at the placement the effect is parented to — and
+`None` is exactly an owner whose `+0x1f4` byte is clear, so the two flags stay
+inert for a host with no terrain. `walker/physics.rs::effect_ground` samples the
+walker's own map at the owner position `0x6e53f0` raycasts from, one query per
+effect per frame, and the ground frame and the height frame the two selectors
+choose between are built from that sample. The trait-object version of this
+interface was tried and dropped: a `GroundQuery` borrowed from `&MapSpace` cannot
+outlive the call, and the per-call `Option` is both faithful and borrow-safe.
 
 **Element offsets, from the clone at `0x70a3d2`.** The copy routine enumerates
 the shared header field by field, which is the cheapest complete map available:
@@ -551,32 +606,54 @@ ground-matching path at `0x71f1be`,
 overlay each other, which is why the light writer's `Position: %f, %f, %f` also
 reads +0x174.
 
-**`ResetLoopEnd` empties a 256-entry per-element queue.** The shared-key loader
-reads it behind `cmp $0x4a` — version 74 — and stores `value != 0` as the byte at
-element+0x13d. The corpus obeys that gate exactly: the 3,657 non-default lines
-appear only in versions 75, 76, 78 and 79, across 820 roots.
+**`ResetLoopEnd` empties the trail's vertex ring, and restarts the flipbook.**
+The shared-key loader reads it behind `cmp $0x4a` — version 74 — and stores
+`value != 0` as the byte at element+0x13d. The corpus authors the key on 13,605
+lines and obeys that gate exactly: the 3,657 non-default ones appear only in
+versions 75, 76, 78 and 79, across 820 roots, and 98 of the archive's 156 trails
+are among them.
 
-The flag is read by a virtual method at `0x714620` (no direct callers; it and the
-getter at `0x714650` are reached through a vtable), which zeroes element+0x314,
-+0x318 and +0x328 when it is set and returns immediately when it is not. Those
-slots belong to a ring buffer the initialiser at `0x713814` sets up as capacity
-`0x100` at +0x31c, head `0xff` (= capacity − 1) at +0x324, tail at +0x328 and
-storage at +0x320. The fill loop at `0x713ed4` writes
+The flag is read through **vtable slot 17, `+0x44`**, which is how it has direct
+callers and none of them are in the effect region. Reading the slot out of each
+class's vtable in `.rdata` gives the whole map: base `0x6fa640`, ribbon
+`0x70e3c0` (`0x8ec474`, id 110), trail `0x714620` (`0x8ed904`, id 152), child
+`0x7121b0` (`0x8ed690`, id 200), emitter `0x715600` (`0x8edab4`, ids 120..125),
+and the classes that do not override it at all — sound `0x8ec134` (170), fractal
+`0x8ec1d4` (150), curve `0x8ec294` (190), cylinder `0x8ec334` (140), light
+`0x8ec3d4` (130), lightning `0x8ec514` (151), model `0x8ed7a0` (160), wave
+`0x8edbcc` (180).
+
+The base `0x6fa640` restarts the texture animation when `+0x13d` and `+0x133` are
+both set. `+0x133` is not an authored key: the loader derives it, and it is
+"this element's flipbook has more than one frame", i.e. `TexRow` and `TexCol` are
+not both 1. So for a sprite the flag means *rewind the flipbook at the loop
+boundary*, and for the classes that override the slot it means whatever their own
+override does.
+
+The trail's override `0x714620` zeroes element+0x314, +0x318 and +0x328 when the
+flag is set and returns immediately when it is not. Those slots are the trail's
+own vertex ring, which the initialiser at `0x713814` sets up as capacity `0x100`
+at +0x31c, head `0xff` (= capacity − 1) at +0x324, count at +0x328 and storage at
++0x320, and which the fill loop at `0x713ed4` writes as
 `buffer + head*12 = { index, element+0x30c, 0 }` for each of `element+0x2b8`
-entries, advancing head with a wrap at capacity − 1 and the tail without one. So
-a record is **three integers**, not three floats, and the queue is filled with a
-sequential index plus one value taken from element+0x30c — the shape of a
-pending-spawn queue rather than a trail, which fits `ResetLoopEnd` appearing on
-all 18 element ids that carry it (123 with 1,222, then 200, 100, 101, 110, 210,
-120, 125, 170, 152, 124, 140, 150, 160, 180, 190, 102 and one light).
+entries: +0x30c is the authored `VertsLife` and +0x2b8 the segment count. The
+record is three integers, not three floats, and the ring is a trail — the earlier
+reading of it as a pending-spawn queue was wrong, and it is what made the flag
+look unactionable. `ResetLoopEnd` appearing on 18 element ids is not evidence
+against that: 17 of them take the base or their own class's override, and only
+152 clears a ring.
 
-What is *not* recovered is the meaning of element+0x30c and +0x2b8, so the queue's
-payload is named but not understood. The consequence for the viewer is narrow:
-`Player::reset` keeps live particles across a loop restart, which is documented as
-matching the client, and this queue is not a list of live particles but of pending
-ones — the viewer spawns immediately and has no pending queue, so there is nothing
-for the flag to clear yet. If a pending-spawn queue is ever added, `ResetLoopEnd`
-is the flag that empties it at the loop boundary.
+`gfx_player::reset_at_loop_end` implements the trail reading — the ring's laid
+count, vertex count and accumulator go back to zero, so a looping trail relays
+from its start instead of continuing to wind — and documents the flipbook reading
+beside it. The base needs no code in the viewer: its flipbook index is derived
+from the element clock, which a restart already rewinds, so the half of `0x6fa640`
+that zeroes the texture-animation clocks at +0xac, +0xbc, +0xc0 and +0x128 has
+nothing to act on. The ribbon, child and emitter overrides stay unreproduced, for
+the reason recorded in `reset_at_loop_end`: none of the three tests
+`ResetLoopEnd` itself and the slot is reached through a computed pointer, so
+whether the caller gates the whole hook is not recovered. `Player::reset` still
+keeps live particles across a loop restart, which is what the client does.
 
 Two further offsets fell out of the same reads: `NoDownSample` is the byte at
 element+0x134 and `TexAnimMaxTime` the integer at element+0x124, behind version
@@ -649,33 +726,39 @@ a helper instead, which is how the single `BindEle` comparison was found.
 
 ## Still open
 
-Unchanged from the previous write-up and not addressed here: the interpolation and octave weighting inside the fractal-noise generator `0x766490` behind controllers 107, 109 and 112 (241 root controllers in the corpus, all type 112 — see *Camera shake, measured and left alone* for how far that decode now goes), element 190 curves being counted rather than drawn, models/sounds/lights belonging to other subsystems, and the 82 child references to files that do not ship. The `gfx_light` millisecond window listed here previously is fixed in *Fixed while writing this up*; the ramp time-base question that fix opened is still unsettled and needs the controller-108 update routine.
+Unchanged from the previous write-up and not addressed here: the interpolation and octave weighting inside the fractal-noise generator `0x766490` behind controllers 107, 109 and 112 — the shake now samples the viewer's own `fbm` in its place, see *Camera shake, reproduced* — element 190 curves being counted rather than drawn, models/sounds/lights belonging to other subsystems, and the 82 child references to files that do not ship. The `gfx_light` millisecond window listed here previously is fixed in *Fixed while writing this up*; the ramp time-base question that fix opened is still unsettled and needs the controller-108 update routine.
+
+Landed since the last revision of this list, and therefore no longer open: binding by name, `MatchGrnd` and `GroundHeight` through the per-frame ground sample, `GrndNormOnly`, the trail's `isappend`/`vertslife` vertex ring, `ResetLoopEnd` for trails, and `ShakeCam`. *Placed in the viewer on 7 November* is the summary.
+
+Two things the shake left open, both recorded where the code can be checked against them:
+
+* **Which rotation the client composes first.** The two `rand()` draws become axis-angle quaternions about the unit Y and unit X axes and are multiplied by `0x4071f0`, but the order is not readable out of the helper sequence, so `shake_direction` builds a fresh random unit direction from the same two angles. Both readings cover the sphere; they are not the same sequence of directions.
+* **Nobody holds the camera yet.** `Player::camera_shake` returns the offset, `CharacterGfx::camera_shake` sums the roots an effect list plays and `Walker::camera_shake` exposes that — but the walker's host builds the frame's view-projection outside the walker, in `gpu.rs`, so the offset is computed and returned and nothing adds it to the eye. That is one addition in the host's camera, and it is the only step between this and a screen that shakes.
 
 Added by the field census, in the order the corpus says they matter:
 
-* **Element binding by name.** 772 elements bind to a sibling and nothing resolves
-  it, so an emitter that should follow a sprite is spawned at its own origin
-  instead. This is the largest remaining *behavioural* gap and the one most
-  likely to be visible: it needs a name→element index per root and the bound
-  element's transform fed into the child's placement each frame. See *Binding by
-  name*: `Name` is element+0x94 and `BindEle` is +0x9c, the detach direction is
-  fully decoded at `0x6e4564`, and the attach direction is now known **not** to be
-  a `0x763c30` name comparison anywhere in the effect region — so the next dig
-  looks for a different compare routine or an index built once at load.
-* **`MatchGrnd`** (1,781 non-default lines) needs an owner that can answer a
-  ground query — see *Ground matching is an owner capability*. The walker has
-  terrain sampling in `walker/physics.rs` and has never wired it into an effect.
-* **`ResetLoopEnd`** (3,657 lines, 820 roots) is now decoded as far as it can go
-  without element+0x30c and +0x2b8: it empties a 256-entry queue of integer
-  triples. It becomes actionable only if the viewer grows a pending-spawn queue.
-* **`IsAvgGen`** is worth 84 elements, not the 6,641 its key count suggests, and
-  `AlphaSeg`/`BetaSeg` are 10 almost everywhere they appear. Demoted from the
-  top of this list by measurement.
+* **`ResetLoopEnd` for the other four classes.** The trail's override is
+  implemented; the base `0x6fa640` restarts the flipbook when element+0x133 says
+  the element has more than one frame, and the ribbon `0x70e3c0`, child
+  `0x7121b0` and emitter `0x715600` overrides are decoded as far as their slot
+  but not read. 3,657 non-default lines across 820 roots, of which the trails are
+  98 elements.
+* **`IsDummy`** (522 lines) marks an element as a placement only. Nothing in the
+  effect region skips drawing one, so the guess that it suppresses rendering is
+  unconfirmed and it stays parsed and inert.
+* **`WriteZ`** (115 lines in 130 roots, on model references) and **`MatchSurface`**
+  (16 lines, element+0x170) have no recovered reader.
 * **`YawEffect`** (30 lines) selects the rotation path at `0x71f36d` and
   `0x71f84e`, which calls `0x6fa810` and `0x7872d0`; neither is decoded.
+* **`Pos1Enable`/`Pos2Enable`** (16 lines each in 202 light roots) and the ribbon's
+  **`EnableMat`/`EnableOrgPos1/2`** (11 lines each in 990 roots) gate keypoint
+  channels that the viewer reads unconditionally.
+* **`ScaleNoOff`** (249 lines) and **`StrokeAmp`** (11 lines in 7 lightning roots).
 * The unidentified multiplier at `(element+0x10)+0x1ec` and the byte at
   element+0x148 that switches the corner builder to `0x71f1be`.
-* The trail fields `isappend`/`vertslife` (156/138 lines in 46 roots) and the
-  ribbon fields `EnableMat`/`EnableOrgPos1/2` (11 lines in 990 roots).
-* `IsStartOnGrnd`, `Force2D` and `Use3DCam` are parsed and inert, but every
-  corpus line has them at zero, so nothing is lost until a modded file appears.
+* `IsAvgGen` is worth 84 elements, not the 6,641 its key count suggests, and
+  `AlphaSeg`/`BetaSeg` are 10 almost everywhere they appear. Demoted from the top
+  of this list by measurement.
+* `IsStartOnGrnd`, `Force2D`, `Use3DCam` and `NoDownSample` are parsed and inert,
+  but every corpus line has them at their default, so nothing is lost until a
+  modded file appears.

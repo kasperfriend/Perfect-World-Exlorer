@@ -801,6 +801,18 @@ impl Walker {
         None
     }
 
+    /// The camera offset the loaded roots' `ShakeCam` asks for, for the host to
+    /// add to the eye it builds the frame's view-projection from. The client owns
+    /// its camera and applies the offset itself (`0x41a4e0`), restoring it once a
+    /// root leaves its shake window (`0x6e5150`); the walker owns none, so it
+    /// reports what the roots asked for and leaves the applying to whoever holds
+    /// the camera. `Vec3::ZERO` while nothing shakes.
+    pub fn camera_shake(&self) -> Vec3 {
+        self.character
+            .as_ref()
+            .map_or(Vec3::ZERO, |character| character.gfx.camera_shake())
+    }
+
     pub fn settings_ui(&mut self, ui: &mut egui::Ui) {
         let rebuild = if let Some(assets) = self.assets.as_mut() {
             self.designer.ui(ui, assets)

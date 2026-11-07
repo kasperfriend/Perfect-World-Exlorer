@@ -767,6 +767,15 @@ pub struct Player {
     quads: Vec<EffectQuad>,
     stats: Stats,
     rng: Rng,
+    /// The camera shake's state and the offset it produced on the last frame.
+    shake: ShakeState,
+    shake_offset: Vec3,
+    /// Seed of the shake's noise lattice. The client's noise object builds its
+    /// gradient table once, at construction (`0x7662b0` from the controller's
+    /// constructor `0x6f10f0`), and the driver only samples it, so the lattice is
+    /// fixed for the life of the effect rather than redrawn per frame the way
+    /// element 150's is.
+    shake_seed: u32,
     textures: Vec<String>,
     /// Elements that could not be resolved, most often a nested `GfxPath` the
     /// archive does not carry. 82 of the corpus's 1,530 child references (31
@@ -898,6 +907,11 @@ impl Player {
             quads: Vec::new(),
             stats: Stats::default(),
             rng,
+            shake: ShakeState::default(),
+            shake_offset: Vec3::ZERO,
+            // "SHAK": a lattice of its own, so the shake's noise is not the same
+            // sequence the elements draw from.
+            shake_seed: seed.wrapping_add(0x5348_414b),
             warnings,
             textures,
         })
@@ -914,6 +928,19 @@ impl Player {
 
     pub fn quads(&self) -> &[EffectQuad] {
         &self.quads
+    }
+
+    /// The camera offset this root's `ShakeCam` asks for on the frame `advance`
+    /// just produced, in the placement's own world units. The client keeps it at
+    /// root+0x1fc..+0x204 and hands it to the camera itself — `0x41a4e0` applies
+    /// it, `0x41a480` saves the untouched camera once on the first frame of the
+    /// window and the exit path `0x6e5150` restores it — so a viewer that owns no
+    /// camera returns the offset and leaves the applying to its caller.
+    /// `Vec3::ZERO` covers every frame the client would not shake: `ShakeCam`
+    /// clear, no controller, outside the authored window, or the camera at or
+    /// beyond 30 units from the effect.
+    pub fn camera_shake(&self) -> Vec3 {
+        self.shake_offset
     }
 
     /// True once a play-once root has run past its last keypoint.
@@ -1068,6 +1095,19 @@ impl Player {
             runtime.ended = done;
             finished = finished && done;
         }
+        // The camera shake is the root's own per-frame work, driven by the root's
+        // millisecond tick rather than any element's, which is why it sits after
+        // the element loop: `0x6e4b7d` is called once per root update and reads
+        // root+0x1cc directly.
+        let distance = (view.position - base.transform_point3(Vec3::ZERO)).length();
+        self.shake_offset = camera_shake_frame(
+            &self.root,
+            &mut self.shake,
+            &mut rng,
+            self.shake_seed,
+            self.time,
+            distance,
+        );
         self.rng = rng;
         stats.quads = out.len();
         self.stats = stats;
@@ -1703,6 +1743,179 @@ fn distance_fade(root: &Root, camera: Vec3, base: Mat4) -> f32 {
         return if distance <= root.fade_start { 1. } else { 0. };
     }
     (1. - (distance - root.fade_start) / span).clamp(0., 1.)
+}
+
+/// The camera shake's reach. `0x6e5037` compares root+0x29c — the distance the
+/// LOD pass uses too — against the 30.0 at `0x8eb710`, and at or beyond it the
+/// driver writes a zero offset instead of sampling the noise.
+const SHAKE_MAX_DISTANCE: f32 = 30.;
+
+/// `0x8e6f14`, what every `rand()` draw is multiplied by: 2π over 32767, MSVC's
+/// `rand()` returning 0..32767, so one draw spans exactly one turn.
+const SHAKE_ANGLE_PER_RAND_UNIT: f32 = std::f32::consts::TAU / 32_767.;
+
+/// The three fields the shake driver keeps on the root: the latch at +0x1f7, the
+/// frame counter at +0x1f8 and the offset at +0x1fc..+0x204.
+#[derive(Clone, Copy, Debug, Default)]
+struct ShakeState {
+    /// root+0x1f7. Set on the first frame inside the window, where the client
+    /// saves the untouched camera (`0x41a480`), and cleared by the exit path
+    /// `0x6e5150`, which restores it — so leaving the window and coming back
+    /// starts the shake over from frame zero.
+    started: bool,
+    /// root+0x1f8. Incremented every frame inside the window; `0x6e5015` reduces
+    /// it modulo two, sign included, and the parity picks the branch.
+    counter: u32,
+    /// root+0x1fc..+0x204, the offset last handed to the camera. Odd frames
+    /// negate it in place (`0x6e50f3`), which is what makes the camera oscillate
+    /// around the position that was saved for it.
+    offset: Vec3,
+}
+
+/// What the driver reads off the controller: the window in seconds
+/// (controller+0x8 and +0xc) and the five fractal-noise parameters its loader
+/// `0x6ece00` reads into controller+0xf8..+0x108, where the constructor
+/// `0x6f10f0` had already put 256, 2.0, 1, 0.25 and 5.
+#[derive(Clone, Copy, Debug)]
+struct ShakeSpec {
+    start: f32,
+    end: f32,
+    buffer_length: u32,
+    amplitude: f32,
+    wave_length: f32,
+    persistence: f32,
+    octaves: u32,
+}
+
+/// The shake a root asks for, or `None`. The driver `0x6e4dc0` needs both
+/// root+0x1f6 — the `setne` of `ShakeCam`, read from version 24 on at `0x6e38a4`
+/// — and root+0x208, the controller `0x6eae10` builds when that flag is set.
+/// `0x6eae10` reads a root-level `CtrlType: %d` and hands it to the factory
+/// `0x6ea910`, which subtracts 100 and indexes the thirteen-entry table at
+/// `0x6eaddc`, so the shake is `CtrlType: 112` and nothing else. All 241 corpus
+/// roots that shake author exactly that, with `BufLen` 256, `WaveLen` 1,
+/// `Persistence` 0.25 and `OctaveNum` 5 — the constructor defaults — and only
+/// `Amplitude` varying, from 0.05 to 2.0; the other 5,218 author no `CtrlType` at
+/// all. A nonzero `ShakeCam` with a `CtrlType` outside 100..=112 leaves
+/// `0x6eae10` returning null, which fails the whole root load at `0x6e38f8`. The
+/// viewer reports no shake instead of rejecting the file, the way it warns about
+/// an unresolvable child reference rather than dropping the root that holds it.
+fn root_shake(root: &Root) -> Option<ShakeSpec> {
+    if root.shake_cam == 0 {
+        return None;
+    }
+    root.controls.iter().find_map(|control| {
+        let ControlData::Fractal {
+            buffer_length,
+            amplitude,
+            wave_length,
+            persistence,
+            octaves,
+            ..
+        } = &control.data
+        else {
+            return None;
+        };
+        (control.kind == 112).then_some(ShakeSpec {
+            start: control.start,
+            end: control.end,
+            buffer_length: *buffer_length,
+            amplitude: *amplitude,
+            wave_length: *wave_length,
+            persistence: *persistence,
+            octaves: *octaves,
+        })
+    })
+}
+
+/// `0x6e4e2b`: the direction the offset is pushed along. Two `rand()` draws
+/// (`0x8d5478` in the import table), each scaled by 2π/32767, become axis-angle
+/// rotations through `0x7b6fd0` about the globals at `0x9c0348` and `0x9c0358`,
+/// are composed by `0x4071f0` and applied to a unit axis by `0x4093d0`. Both
+/// globals live past the raw image, so their bytes are not in the file, but two
+/// static-initialiser thunks write them: `0x6ea170` stores (0, 1, 0) and
+/// `0x6ea140` stores (1, 0, 0), which makes them the unit Y and unit X axes. Both draws happen every frame inside the window, ahead of the
+/// parity test, and only the even frames use the result. Which rotation the
+/// client applies first is not readable out of the quaternion helper sequence,
+/// so this is the viewer's reading of it — a fresh random unit direction from the
+/// same two angles — rather than a claim about the composition order.
+fn shake_direction(rng: &mut Rng) -> Vec3 {
+    let angle = |value: u32| (value & 0x7fff) as f32 * SHAKE_ANGLE_PER_RAND_UNIT;
+    let first = angle(rng.next_u32());
+    let second = angle(rng.next_u32());
+    let rotation = Quat::from_axis_angle(Vec3::Y, first) * Quat::from_axis_angle(Vec3::X, second);
+    rotation * Vec3::X
+}
+
+/// The exit path `0x6e5150`: the camera goes back to what was saved for it and
+/// the latch is cleared. The counter is left alone, because the client zeroes it
+/// when the latch is next set rather than when it is cleared.
+fn stop_camera_shake(state: &mut ShakeState) {
+    state.started = false;
+    state.offset = Vec3::ZERO;
+}
+
+/// One frame of the shake driver `0x6e4dc0`. `time_ms` is root+0x1cc, the root's
+/// millisecond tick, which the driver scales by the 0.001 at `0x8d5c70` before
+/// comparing it against the window; `distance` is root+0x29c, measured from the
+/// camera to the root's origin.
+fn camera_shake_frame(
+    root: &Root,
+    state: &mut ShakeState,
+    rng: &mut Rng,
+    seed: u32,
+    time_ms: f32,
+    distance: f32,
+) -> Vec3 {
+    let Some(shake) = root_shake(root) else {
+        stop_camera_shake(state);
+        return Vec3::ZERO;
+    };
+    let seconds = time_ms * 0.001;
+    // `0x6e4dfb` leaves when the clock has not reached `StartTime`, and
+    // `0x6e4e0c` compares `EndTime` against the 0.0 at `0x8d58a0` first: a
+    // negative end skips the end test entirely, which is the constructor's own
+    // default of -1.0 at `0x6f111f` and what a root below version 21 gets, since
+    // `0x6eaef8` writes 0 and -1.0 instead of reading the two keys.
+    if seconds < shake.start || (shake.end >= 0. && seconds > shake.end) {
+        stop_camera_shake(state);
+        return Vec3::ZERO;
+    }
+    if !state.started {
+        state.started = true;
+        state.counter = 0;
+    }
+    let odd = state.counter % 2 == 1;
+    state.counter = state.counter.wrapping_add(1);
+    let direction = shake_direction(rng);
+    if odd {
+        state.offset = -state.offset;
+        return state.offset;
+    }
+    state.offset = if distance >= SHAKE_MAX_DISTANCE {
+        // `0x6e5044`: at or beyond thirty units three zeroes are written and
+        // still applied, so the camera is put back exactly where it was.
+        Vec3::ZERO
+    } else {
+        // `0x6e5067`: below thirty units the offset is the noise times
+        // `1 - distance / 30`, times the direction. The noise object is sampled
+        // with the millisecond tick as its coordinate, so the lattice advances
+        // once per millisecond and consecutive 60 Hz frames land sixteen cells
+        // apart — a jitter rather than a wobble. The amplitude is authored on the
+        // controller and the client's noise object owns its gradient table, so it
+        // scales the sample the way element 150's amplitude scales its offsets.
+        let fade = 1. - distance / SHAKE_MAX_DISTANCE;
+        let sample = fbm(
+            seed,
+            time_ms,
+            shake.wave_length.max(1e-3),
+            shake.persistence,
+            shake.octaves.max(1) as usize,
+            shake.buffer_length,
+        );
+        direction * (fade * shake.amplitude * sample)
+    };
+    state.offset
 }
 
 /// Texture path of an element, resolved against the archive's texture root the
@@ -6140,6 +6353,219 @@ mod tests {
             changed > 0,
             "no root's geometry changed, so the ground pass is inert"
         );
+    }
+
+    /// A root that shakes the camera: `ShakeCam` set, and the `CtrlType: 112`
+    /// controller the factory table at `0x6eaddc` maps to the shake class. The
+    /// five noise keys hold the constructor's own defaults — 256, 2.0, 1, 0.25
+    /// and 5 — because that is what every corpus root that shakes authors,
+    /// `Amplitude` aside, which they vary from 0.05 to 2.0.
+    fn shake(amplitude: f32, start: f32, end: f32) -> String {
+        header37(0).replace(
+            "ShakeCam: 0\r\n",
+            &format!(
+                "ShakeCam: 1\r\nCtrlType: 112\r\nStartTime: {start}\r\nEndTime: {end}\r\n\
+                 BufLen: 256\r\nAmplitude: {amplitude}\r\nWaveLen: 1\r\nPersistence: 0.25\r\n\
+                 OctaveNum: 5\r\n"
+            ),
+        )
+    }
+
+    /// `0x6e4dc9` gates the whole driver on root+0x1f6, the `setne` of
+    /// `ShakeCam`, so a root that does not ask never writes an offset — which is
+    /// also what the 5,218 corpus roots that author no `CtrlType` at all do.
+    #[test]
+    fn a_root_without_shakecam_never_moves_the_camera() {
+        let mut player = build(&header37(0));
+        for frame in 0..8 {
+            step(&mut player, 16.);
+            assert_eq!(player.camera_shake(), Vec3::ZERO, "frame {frame}");
+        }
+    }
+
+    /// `0x6e5015` reduces the frame counter modulo two, sign included, and
+    /// `0x6e50f3` negates the stored offset in place on the odd frames, so the
+    /// camera is pushed out and pulled back along the same vector: consecutive
+    /// frames are exact negatives of one another, and the counter is incremented
+    /// before the test, which makes the first frame in the window an even one.
+    #[test]
+    fn the_shake_alternates_the_sign_of_its_offset() {
+        let mut player = build(&shake(1., 0., -1.));
+        step(&mut player, 16.);
+        let first = player.camera_shake();
+        step(&mut player, 16.);
+        let second = player.camera_shake();
+        step(&mut player, 16.);
+        let third = player.camera_shake();
+        assert!(
+            first != Vec3::ZERO,
+            "an open window shakes from its first frame"
+        );
+        assert_eq!(second, -first, "the odd frame negates the stored offset");
+        assert!(third != Vec3::ZERO);
+        assert_ne!(third, first, "an even frame draws a fresh random direction");
+    }
+
+    /// `0x6e4dfb` leaves before `StartTime` and `0x6e4e0c` leaves after
+    /// `EndTime`, and the exit path `0x6e5150` clears the latch on the way out,
+    /// so the authored window alone decides whether the camera moves. A negative
+    /// `EndTime` — the constructor's own default at `0x6f111f`, and what a root
+    /// below version 21 gets, since `0x6eaef8` writes 0 and -1.0 instead of
+    /// reading the two keys — skips the end test entirely.
+    #[test]
+    fn the_shake_runs_only_inside_its_window() {
+        // `StartTime: 0.1` is 100 ms, so the first six 16 ms frames are outside.
+        let mut late = build(&shake(1., 0.1, -1.));
+        for frame in 0..6 {
+            step(&mut late, 16.);
+            assert_eq!(late.camera_shake(), Vec3::ZERO, "frame {frame} is early");
+        }
+        step(&mut late, 16.);
+        assert_ne!(late.camera_shake(), Vec3::ZERO, "t = 112 ms is inside");
+
+        let mut closed = build(&shake(1., 0., 0.05));
+        step(&mut closed, 16.);
+        assert_ne!(closed.camera_shake(), Vec3::ZERO, "t = 16 ms is inside");
+        for _ in 0..4 {
+            step(&mut closed, 16.);
+        }
+        assert_eq!(
+            closed.camera_shake(),
+            Vec3::ZERO,
+            "t = 80 ms is past EndTime 0.05"
+        );
+    }
+
+    /// `0x6e5037` compares root+0x29c against the 30.0 at `0x8eb710`: at or
+    /// beyond it three zeroes are written, and below it the offset carries the
+    /// `1 - distance / 30` that `0x6e5067` seeds into the noise call's second
+    /// slot. Both players run from the same seed, so their directions match and
+    /// only the fade differs.
+    #[test]
+    fn the_shake_fades_out_over_thirty_units() {
+        let at = |distance: f32| View {
+            position: Vec3::new(0., 0., distance),
+            ..view()
+        };
+        let mut player = build(&shake(1., 0., -1.));
+        player
+            .advance(16., &at(30.), Mat4::IDENTITY, 1., 1.)
+            .unwrap_or_else(|error| panic!("{error}"));
+        assert_eq!(
+            player.camera_shake(),
+            Vec3::ZERO,
+            "thirty units away is already out of reach"
+        );
+
+        let mut near = build(&shake(1., 0., -1.));
+        let mut far = build(&shake(1., 0., -1.));
+        near.advance(16., &at(10.), Mat4::IDENTITY, 1., 1.)
+            .unwrap_or_else(|error| panic!("{error}"));
+        far.advance(16., &at(15.), Mat4::IDENTITY, 1., 1.)
+            .unwrap_or_else(|error| panic!("{error}"));
+        let ratio = far.camera_shake().length() / near.camera_shake().length();
+        assert!(
+            (ratio - 0.75).abs() < 1e-5,
+            "fifteen units is three quarters of ten: {ratio}"
+        );
+    }
+
+    /// The amplitude is authored on the controller and the client's noise object
+    /// applies it, so it scales the sample the way element 150's amplitude scales
+    /// its offsets — the driver itself only multiplies by the fade and pushes the
+    /// result along the direction.
+    #[test]
+    fn the_authored_amplitude_scales_the_offset() {
+        let mut loud = build(&shake(1., 0., -1.));
+        let mut quiet = build(&shake(0.5, 0., -1.));
+        step(&mut loud, 16.);
+        step(&mut quiet, 16.);
+        let (loud, quiet) = (loud.camera_shake(), quiet.camera_shake());
+        assert_ne!(loud, Vec3::ZERO);
+        assert!(
+            (quiet - loud * 0.5).length() <= 1e-6 * loud.length().max(1.),
+            "Amplitude 0.5 should halve the offset: {loud} against {quiet}"
+        );
+    }
+
+    /// The census behind the shake: 241 of the 5,459 corpus roots set `ShakeCam`,
+    /// every one of them authors the `CtrlType: 112` controller the factory table
+    /// maps to the shake class, and their noise keys are the constructor's
+    /// defaults. This also plays them, which is the check that the offsets stay
+    /// finite for real authored parameters rather than only for the fixture's.
+    #[test]
+    fn corpus_camera_shakes_all_author_the_noise_controller() {
+        let Some(root) = corpus_root() else {
+            return;
+        };
+        let mut files = Vec::new();
+        corpus_files(&root, &mut files);
+        let (mut shaking, mut without, mut defaults) = (0usize, 0usize, 0usize);
+        let (mut built, mut moved, mut nonfinite) = (0usize, 0usize, 0usize);
+        for file in &files {
+            let Ok(bytes) = std::fs::read(file) else {
+                continue;
+            };
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            let Ok(parsed) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            if !parsed.shakes_camera() {
+                continue;
+            }
+            shaking += 1;
+            let Some(shake) = root_shake(&parsed) else {
+                without += 1;
+                continue;
+            };
+            if shake.buffer_length == 256
+                && shake.wave_length == 1.
+                && shake.persistence == 0.25
+                && shake.octaves == 5
+            {
+                defaults += 1;
+            }
+            // Roots whose children this sweep cannot load are skipped the way the
+            // other sweeps skip them.
+            let Ok(reparse) = crate::gfx_file::parse(&source) else {
+                continue;
+            };
+            let Ok(mut player) = Player::new(reparse, 7, &mut |_| Err("no children".into())) else {
+                continue;
+            };
+            built += 1;
+            // Two seconds covers every authored `StartTime`, the largest of which
+            // is 1.7, at any `PlaySpeed` of 1 or faster.
+            for _ in 0..125 {
+                step(&mut player, 16.);
+                let offset = player.camera_shake();
+                if !offset.is_finite() {
+                    nonfinite += 1;
+                }
+                if offset != Vec3::ZERO {
+                    moved += 1;
+                    break;
+                }
+            }
+        }
+        println!(
+            "corpus shake: {shaking} roots ask, {built} played, {moved} moved, \
+             {defaults} on the constructor defaults"
+        );
+        assert_eq!(
+            without, 0,
+            "a root that asks for a shake needs the CtrlType 112 controller"
+        );
+        assert_eq!(nonfinite, 0, "the shake produced a non-finite offset");
+        assert!(
+            shaking >= 230,
+            "only {shaking} of the 241 roots were counted"
+        );
+        assert_eq!(
+            defaults, shaking,
+            "every shaking root leaves the noise keys at their defaults"
+        );
+        assert!(moved > 0, "no corpus root shook, so the driver is inert");
     }
 
     /// The child element from `gfx_file`'s own fixture, with the forever

@@ -120,10 +120,15 @@ pub struct Root {
     /// The authored `ShakeCam` value. The client does not keep it as a bitfield:
     /// `0x6e38d9` tests the scanned integer against itself and `0x6e38de` stores
     /// the `setne` result in a single byte at root+0x1f6, so any nonzero value
-    /// means "shake". The corpus agrees — all 5,459 roots author 0 (5,216) or 1
-    /// (241), never a bit pattern.
+    /// means "shake". The corpus agrees — of the 5,457 roots that parse, 5,216
+    /// author 0 and 241 author 1, never a bit pattern. `0x6e38e6` then builds the
+    /// root-level controller below, and only when this flag is set.
     pub shake_cam: u32,
-    /// Root-level controllers (241 retail roots carry one noise controller).
+    /// Root-level controllers, read straight after `ShakeCam` while the next key
+    /// is another `CtrlType`. All 241 of the retail ones are `CtrlType: 112`, the
+    /// fractal-noise controller the factory table at `0x6eaddc` maps to the camera
+    /// shake, and they belong to exactly the roots that set `ShakeCam`.
+    /// [`crate::gfx_player::Player::camera_shake`] is what consumes them.
     pub controls: Vec<Control>,
     /// Present from version 50 on.
     pub no_change_dir: bool,
@@ -137,7 +142,8 @@ pub struct Root {
 impl Root {
     /// `0x6e38de` stores `setne(ShakeCam)` in root+0x1f6 and `0x6e4dc9` gates the
     /// shake routine on that byte, so the client's reading is "nonzero", with no
-    /// position/scale split to read out of it.
+    /// position/scale split to read out of it. The routine it gates is
+    /// [`crate::gfx_player::Player::camera_shake`].
     pub fn shakes_camera(&self) -> bool {
         self.shake_cam != 0
     }
@@ -2408,7 +2414,11 @@ mod tests {
 
     #[test]
     fn version_79_header_gates_and_root_noise_controller() {
-        // Verbatim header of the 80 retail roots that carry a root controller.
+        // Verbatim header of the 241 retail roots that carry a root controller,
+        // with `ShakeCam` and the noise keys set to values the corpus does not
+        // use — it authors 1, and leaves `BufLen`, `WaveLen`, `Persistence` and
+        // `OctaveNum` at the constructor's 256, 1, 0.25 and 5 — so this also
+        // covers a root that is not one of them.
         let source = "MOXTVersion: 79\nDedaultScale: 1.000000\nPlaySpeed: 1.000000\n\
             DefaultAlpha: 1.000000\nRaytrace: 0\nFaceToViewer: 0\nFadeByDist: 1\n\
             FadeStart: 100.000000\nFadeEnd: 400.000000\nVec: 0.000000, 0.000000, 0.000000\n\
