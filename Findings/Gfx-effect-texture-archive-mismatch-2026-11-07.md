@@ -175,9 +175,46 @@ The animated waterfall test now exercises the real root as well:
 `players=1`, growing quad counts frame over frame, and **moving UVs** — the
 spray scrolls its texture on the real archive.
 
+## The gallery is not affected by this, and I checked
+
+The obvious next hypothesis was that the effect gallery had the same defect —
+it renders effects, and the user said it did not visibly animate them. It shares
+`gfx_effect_gpu::Draw`, so a shared texture failure was plausible.
+
+It is not the case, and the correction is worth recording because it is a near
+miss. The Walker module does *not* use `walker::archive::Archive` for its reads;
+it uses `modules::designer::assets::Assets`, which opens `gfx.pck` as its own
+field and dispatches on the path prefix:
+
+```rust
+pub fn read(&mut self, path: &str) -> Result<Vec<u8>, String> {
+    let normalized = ecmodel::normalize(path);
+    if normalized.starts_with("gfx/") {
+        return self.gfx.read(&normalized);   // the right archive, already
+    }
+    ...
+}
+```
+
+So `gfx/textures/...` already resolved for the gallery. A change chaining
+`gfx.pck` into the module archive was written, tested — the offline harness does
+not cover the Walker (it needs egui and winit), so the first real signal was CI —
+and failed to compile because `use super::Assets` in the test resolved to the
+*designer's* `Assets`, which has no such constructor. Reverted in `595dbfd`.
+
+The lesson is in the type: this codebase has two different `Assets` and they
+behave differently. Anything that touches "the archive reader" has to name which
+one it means.
+
+That leaves the gallery's animation as a **separate, still-unexplained** issue:
+its `dt_ms` is a real clamped wall-time delta and its roots advance through the
+same `advance_with_ground` path the world uses, so the remaining candidates are
+in the draw or the root set rather than in the clock.
+
 ## What remains unproven
 
-This fix explains "nothing at all". It does not by itself prove that the
+This fix explains "nothing at all" in the world. (The gallery's stationary
+sprites are a separate question — see above.) It does not by itself prove that the
 surviving effects **animate** in the running viewer; that depends on
 `PlaySpeed`, `TexSpeed` and the controllers receiving a non-zero delta, which is
 a separate surface. The next test is the one the user can run: if effects now
