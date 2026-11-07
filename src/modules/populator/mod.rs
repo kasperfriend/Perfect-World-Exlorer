@@ -649,12 +649,14 @@ fn retarget_gait_clip(
             continue;
         };
         let start_signature = walk_pose_signature(&start);
-        let visibly_moves = [0.13_f32, 0.21, 0.29, 0.37, 0.49].into_iter().any(|offset| {
-            clip.seconds(offset) != clip.seconds(0.)
-                && target
-                    .pose_tracks_at_time(&retargeted, clip.seconds(offset), Mat4::IDENTITY)
-                    .is_ok_and(|posed| walk_pose_signature(&posed) != start_signature)
-        });
+        let visibly_moves = [0.13_f32, 0.21, 0.29, 0.37, 0.49]
+            .into_iter()
+            .any(|offset| {
+                clip.seconds(offset) != clip.seconds(0.)
+                    && target
+                        .pose_tracks_at_time(&retargeted, clip.seconds(offset), Mat4::IDENTITY)
+                        .is_ok_and(|posed| walk_pose_signature(&posed) != start_signature)
+            });
         if visibly_moves {
             return Some(GaitClip {
                 clip,
@@ -2552,7 +2554,9 @@ impl Populator {
         } else {
             (None, None, None)
         };
-        let gait = live_world.then(|| library.retargeted_gait(&key, asset.as_ref())).flatten();
+        let gait = live_world
+            .then(|| library.retargeted_gait(&key, asset.as_ref()))
+            .flatten();
         // A route remains active even when no compatible gait donor is found;
         // in that case the original resident rig safely holds its bind pose.
         let follow = self.route_for(&spawn);
@@ -2688,7 +2692,8 @@ impl Populator {
             match follow.step(&mut live.position, delta) {
                 Motion::Walking => {
                     live.live_world_moving = live.live_world;
-                    live.live_world_running = live.live_world && route_speed >= LIVE_WORLD_RUN_SPEED;
+                    live.live_world_running =
+                        live.live_world && route_speed >= LIVE_WORLD_RUN_SPEED;
                     if live.live_world {
                         let safe = self.map.as_ref().zip(floors).is_some_and(|(map, floors)| {
                             ambient_path_safe(
@@ -4276,10 +4281,7 @@ mod tests {
             sibling: -1,
         });
         asset.skins[0].data.bones.push("root".into());
-        asset.model.actions = vec![
-            idle_action("walk", 0., 30.),
-            idle_action("run", 0., 30.),
-        ];
+        asset.model.actions = vec![idle_action("walk", 0., 30.), idle_action("run", 0., 30.)];
         let gait = synthetic_gait_track();
         asset.tracks = vec![Some(gait.clone()), Some(gait)];
         asset
