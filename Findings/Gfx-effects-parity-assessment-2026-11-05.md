@@ -473,57 +473,103 @@ in the order the corpus said they mattered:
   "Play world effect sounds" switch has always been about audio, and is renamed
   to say so now that the two sit in one settings window.
 
-### The effect record, re-read from the loader (correction, 7 November)
+### The effect record, re-read against the shipped map (correction, 7 November)
 
-The world effects went in with the ECWLD effect record's fields four bytes
-late from the scale onwards, and the first in-app look at a waterfall showed
-why that matters more than a misparse usually does: an emission-driven root
-whose clock never moves draws *nothing*, so the map looked like it had no
-effects at all — the static white column at a fall is the scenery texture
-underneath, and the day-only shafts and glows were absent rather than wrong.
+The world effects first went in with the ECWLD effect record's fields four
+bytes late from the scale onwards, and the first in-app look showed why that
+matters more than a misparse usually does: an emission-driven root whose clock
+never moves draws *nothing*, so the map looked like it had no effects at all —
+the static white column at a fall is the scenery texture underneath, and the
+day-only shafts and glows were absent rather than wrong. A second, partial
+correction moved the reader to start at the scale, which put the *position* on
+the record's first three floats. That is still wrong, and the same symptom
+followed it.
 
-The record is 60 bytes and then the path, as before; what changed is which
-word is which. `0x5b33f3` reads the record and `0x5b3436..0x5b34a6` copies it
-into the owner node: record[0] to node+0x28, record[4..16) to node+0x04
-with the block's x/z addend folded into the first and third components,
-record[16..28) to node+0x10, record[28..40) to node+0x1c, then record[40],
-[44], [48] to node+0x2c, +0x30, +0x34 and record[52] as a byte to node+0x38.
-The node fields name the record fields, because other functions read them:
-`0x5b3700` takes node+0x28 as the uniform scale it hands `0x787de0` and
-node+0x2c as the play speed it hands `0x6e52c0`; `0x5b18a1` takes node+0x30
-as the word it compares against 2, then 0, then 1 — the day/night gate. So
-the record is scale, position, direction, up, speed, valid-time, an alpha
-word and an attenuation byte, in that order, with record[53..60) never
-copied. The three vectors sit back to back exactly as they do in this
-file's model record, which is the cross-check that made the correction
-safe to make. No record word reaches any node field as an id, so a
-placement's label is now its index in its block's effect list.
+**The record opens with a payload, not an id, and the payload starts at 0.**
+The shipped `world.ecwld` decides this on all 2,275 placements at once, and it
+decides cleanly:
 
-The old offsets made every day-only placement read its valid-time (0) as
-its play speed — a frozen clock, zero quads, invisible — and made the
-day/night gate read the alpha word, so eligibility was arbitrary; position
-read position's y and z followed by direction's x. The synthetic record
-test now encodes the corrected layout, and `scene` joined the offline
-harness so the record is under test without CI.
+| reading | unit `direction` and `up`, perpendicular | play speeds | `valid_time` values |
+|---|---|---|---|
+| record[0] = id, payload from 4 | 2,275 / 2,275 | 0.03 .. 12, none ≤ 0 | {0: 154, 1: 676, 2: 1,445} |
+| payload from 0 | 53 / 2,275 | mixed with float bit patterns | 19 distinct values |
+
+The layout the map agrees with is: `[0..12)` position, `[12]` uniform scale,
+`[16..28)` direction, `[28..40)` up, `[40]` play speed, `[44]` valid-time word,
+`[48]` alpha, `[52]` attenuation as a byte, and `[53..60)` padding that is never
+copied. The copy block at `0x5b3436..0x5b34a6` carries the same order — the
+position triple first (with the caller's x/z addends), then the two vectors,
+then the three dwords and the byte — which is the independent confirmation that
+the corpus reading is not a coincidence of this one map.
+
+What the earlier readings cost, in the world: a day-only placement read its play
+speed out of its day/night word, which is a float bit pattern of about 1.06e9,
+and its position out of the middle of its direction vector. The waterfall spray
+a player sees at (2,301, 218, -3,168) came out at (0, -3,605, 292) with a clock
+that jumped and froze. Under the corrected reading the same placements sit in
+the low thousands on both horizontal axes, at hillside heights, with speeds
+0.03..12 and the authored day/night split.
+
+`corpus_effect_records_agree_on_one_layout` holds the shipped map to all of it,
+and `corpus_waterfall_plays_from_its_authored_placement` plays a real placement
+through the owner manager and requires the owner to go live, build its player,
+grow its quad count and scroll its texture inside the authored footprint.
+
+**The x/z addend is zero.** The two `fadds` at `0x5b343a` and `0x5b3449` fold a
+caller-supplied pair of floats into the placement's x and z, and the only routine
+that supplies them (`0x41bb30`) pushes two `0` immediates before calling the
+loader — its own only caller passes no origin either. So effect positions are
+absolute world coordinates, the addend needs no recovered block term, and a
+placement that looks a whole block off is a different bug.
 
 The play-speed word is stored, not validated: the first world load after the
-correction refused to start over block (18,18)'s first effect, whose speed word
-is not a playable rate, and the loader never checks it -- `0x5b3700` copies the
-float into the root and the tick multiplies by whatever is there, so a negative
-or unordered rate leaves the owner's clock short of its StartTime and retail
-simply shows nothing. The viewer now agrees with that outcome instead of
-arguing: an unplayable rate freezes the owner at clock zero and lands one line
-in the effect notices, and no single placement -- scene effect or model event --
-can refuse the world load any more; each rejected record is a reported absence
-on the status line while the map and its other effects come up.
+first correction refused to start over block (18,18)'s first effect, whose speed
+word is not a playable rate, and the loader never checks it — `0x5b3700` copies
+the float into the root and the tick multiplies by whatever is there, so an
+unplayable rate leaves the owner's clock short of its StartTime and retail simply
+shows nothing. The viewer now agrees with that outcome instead of arguing: an
+unplayable rate freezes the owner at clock zero and lands one line in the effect
+notices, and no single placement — scene effect or model event — can refuse the
+world load any more; each rejected record is a reported absence on the status
+line while the map and its other effects come up. With the record read correctly
+none of the 2,275 shipped placements is in that state.
 
-One addend stays unrecovered: the two `fadds` at `0x5b343a` and `0x5b3449`
-fold stack slots into the placement's x and z, presumably a block or region
-origin. Nothing in the recovered window writes those slots, and the model
-record — same convention, placed correctly in the app since long before
-effects drew — carries plain world positions, so the viewer keeps positions
-as read. If placed effects ever sit a whole block off, that addend is the
-first place to look.
+### The effect camera came back out of the frame matrix wrong (7 November)
+
+The effect pass needs a camera basis and `Frame` carries only a
+view-projection, so the basis was derived from the inverse. Both halves of that
+recovery were wrong, and neither shows up until an effect has to face the
+camera or be sized against the eye.
+
+`Mat4::transform_point3` assumes w = 1 and drops the perspective divide, so
+asking it for the NDC origin returns the near plane rather than the eye:
+measured against this viewer's own projection, 3,911 units away for a camera
+looking across the world, and worse the further the camera sits from the origin.
+The inverse's columns are not the camera basis either, because this viewer
+builds its projection with a clip-space mirror (`from_scale(-1, 1, 1)`, the
+handedness flip) and that mirror lives in the projection: the recovered forward
+was 0.91 away from the true view direction, with the right and up axes off by
+tens of degrees.
+
+The basis now comes from points, which handles a mirrored, orthographic or
+skewed projection with one arithmetic: two points on the centre ray give the
+view direction, two more give the screen axes, and the eye is where that ray
+crosses the plane the inverse sends to infinity — row 3 of the matrix. Measured
+afterwards, the eye is within 0.003 units and the direction within 1e-5 on the
+mirrored projection, on a plain one, and looking down. Both callers (the world
+and the gallery) recover the basis the same way, so this was one defect in two
+places. `effect_camera_comes_back_out_of_the_frame_matrix` pins it.
+
+### The world's effects no longer depend on the map placing a model
+
+The effects lived inside the branch that builds the animated models, behind a
+check that the map placed at least one EC model. A block that authors
+waterfalls, torch fire or a glow and no animated model lost all of it, and so
+did any map whose model archive would not open. The two halves share nothing:
+every effect root comes from `gfx.pck` and every placement from the map. The
+object is now built unless the opt-out says otherwise, and a model archive that
+will not open costs the model queue alone (`World::without_models`) instead of
+taking the world's effects down with it.
 
 Modules read the world's effect catalogue now and play nothing through it
 yet: the host hands `Modules` a clone of the `Catalog` when the archive
