@@ -207,7 +207,14 @@ pub fn root_path(reference: &str) -> String {
 
 enum State {
     Pending,
-    Live(Vec<Emitter>),
+    /// The root text loaded. `lights` is empty when only the *light* half of the
+    /// root could not be decoded, which is not a reason to withhold its
+    /// geometry: the sprites, particles, trails and beams are a separate graph
+    /// and the client plays them regardless.
+    Live {
+        lights: Vec<Emitter>,
+        light_error: Option<String>,
+    },
     Failed,
 }
 
@@ -471,7 +478,7 @@ impl Manager {
 
     fn unregister(&self, owner: &Owner, publications: &mut LightPublications) {
         let count = match &owner.state {
-            State::Live(emitters) => emitters.len(),
+            State::Live { lights, .. } => lights.len(),
             State::Pending | State::Failed => 0,
         };
         for index in 0..count {
@@ -489,7 +496,7 @@ impl Manager {
         let mut finished = Vec::new();
         let mut failed = Vec::new();
         for owner in &mut self.owners {
-            if !matches!(owner.state, State::Live(_)) {
+            if !matches!(owner.state, State::Live { .. }) {
                 continue;
             }
             match tick_owner(owner, delta_ms, publications, limit) {
@@ -598,7 +605,7 @@ impl Manager {
         }
         let mut failures = Vec::new();
         for owner in &mut self.owners {
-            if !matches!(owner.state, State::Live(_)) {
+            if !matches!(owner.state, State::Live { .. }) {
                 continue;
             }
             if !owner.request.active || owner.elapsed < owner.request.start_ms {
@@ -644,7 +651,7 @@ impl Manager {
             return;
         }
         let Some(index) = self.owners.iter().position(|owner| {
-            matches!(owner.state, State::Live(_))
+            matches!(owner.state, State::Live { .. })
                 && owner.player.is_none()
                 && !owner.player_failed
                 && owner.request.active
@@ -727,8 +734,21 @@ impl Manager {
             None => Err(format!("{path}: no GFX root reader attached")),
         };
         self.loads += 1;
-        match result.and_then(|text| Self::decode(&text)) {
-            Ok(emitters) => self.owners[index].state = State::Live(emitters),
+        // Two independent halves. The *light* half is `gfx_light`, which only
+        // produces the emitters that publish into the scene-light grid. The
+        // *geometry* half is `gfx_player`, built lazily by `build_one_player`
+        // from the same root text.
+        //
+        // They used to be one gate: a light-decode failure set the owner to
+        // `Failed`, and since only `Live` owners are handed to the player
+        // builder, a root the light parser did not understand also lost its
+        // sprites, particles and trails. On the shipped map that was most of
+        // it — the fire, glow and light-shaft roots were refused for a version
+        // number while their geometry was perfectly playable. A light-side
+        // failure now leaves the owner live with no emitters and a recorded
+        // reason.
+        let text = match result {
+            Ok(text) => text,
             Err(e) => {
                 self.owners[index].state = State::Failed;
                 if is_unsupported(&e) {
@@ -736,8 +756,32 @@ impl Manager {
                 } else {
                     self.failures.push(format!("{origin}: {e}"));
                 }
+                return;
             }
-        }
+        };
+        let (lights, light_error) = match Self::decode(&text) {
+            Ok(emitters) => (emitters, None),
+            // A container this reader cannot open is a *format gap*, not a root
+            // whose light half is missing: there is no text to hand the geometry
+            // side either, so the owner keeps the old dead-end treatment and is
+            // reported as unsupported rather than failed.
+            Err(error) if is_unsupported(&error) => {
+                self.owners[index].state = State::Failed;
+                self.unsupported.push(format!("{origin}: {error}"));
+                return;
+            }
+            Err(error) => {
+                let line = format!("{origin}: {error}");
+                if !self.effect_warnings.contains(&line) {
+                    self.effect_warnings.push(line);
+                }
+                (Vec::new(), Some(error))
+            }
+        };
+        self.owners[index].state = State::Live {
+            lights,
+            light_error,
+        };
     }
 
     fn decode(text: &str) -> Result<Vec<Emitter>, String> {
@@ -762,10 +806,10 @@ impl Manager {
             match &owner.state {
                 State::Pending => status.pending += 1,
                 State::Failed => status.failed_owners += 1,
-                State::Live(emitters) => {
+                State::Live { lights, .. } => {
                     status.live += 1;
-                    status.emitters += emitters.len();
-                    if emitters.is_empty() {
+                    status.emitters += lights.len();
+                    if lights.is_empty() {
                         status.non_light_owners += 1;
                     }
                     if owner.player.is_some() {
@@ -819,9 +863,10 @@ fn tick_owner(
     let transform = owner.request.world_transform()?;
     let outer = owner.request.outer;
     let serial = owner.serial;
-    let State::Live(emitters) = &mut owner.state else {
+    let State::Live { lights, .. } = &mut owner.state else {
         return Ok(true);
     };
+    let emitters = lights;
     for (index, emitter) in emitters.iter_mut().enumerate() {
         let light: Option<DynamicLight> =
             emitter.tick(scaled as u32, visible, priority_limit, transform, outer)?;

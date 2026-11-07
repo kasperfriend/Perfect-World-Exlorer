@@ -232,8 +232,21 @@ pub fn parse(text: &str) -> Result<Vec<Definition>, String> {
             .ok_or("expected text GFX")?
             .trim(),
     )?;
-    if !matches!(version, 37 | 39 | 41 | 45 | 52 | 58 | 64 | 73 | 75 | 79) {
-        return Err("unverified GFX light version".into());
+    // The client's root loader (0x6e3470) reads `MOXTVersion` first and rejects
+    // anything **above** 79 (`cmp 0x4f`). That is the whole rule: there is no
+    // lower bound, and every optional key is gated per version inside the
+    // element loaders rather than the file being refused outright.
+    //
+    // This used to be a ten-value whitelist, which was invented rather than
+    // measured and cost most of the map. `gfx.pck` ships 27 distinct versions;
+    // of the 163 roots `world.ecwld` names, 97 are below the old list's lowest
+    // entry and were refused here — among them every fire, glow and light
+    // shafts (`火焰1`, `篝火`, `光运`, `佛光` all ship as 33 or 35). Because a
+    // refusal here marks the owner `State::Failed`, and only `State::Live`
+    // owners ever build a player, those roots drew no geometry at all: the map
+    // showed its one allowed waterfall and nothing else.
+    if version > 79 {
+        return Err(format!("GFX version {version} is newer than 79"));
     }
     let mut expected = None;
     let mut elements = 0;
