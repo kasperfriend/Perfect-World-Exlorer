@@ -833,13 +833,10 @@ fn idle_clock(
 /// optional equipment suffixes.
 fn locomotion_name(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
-    let positive = [
-        "walk", "run", "move", "走", "行走", "奔跑", "跑", "移动",
-    ];
+    let positive = ["walk", "run", "move", "走", "行走", "奔跑", "跑", "移动"];
     let forbidden = [
-        "attack", "fight", "skill", "idle", "work", "hurt", "dead", "jump", "swim",
-        "攻击", "战斗", "技能", "休闲", "待机", "站立", "打铁", "受击", "死亡", "跳跃", "游泳",
-        "采集", "施法",
+        "attack", "fight", "skill", "idle", "work", "hurt", "dead", "jump", "swim", "攻击", "战斗",
+        "技能", "休闲", "待机", "站立", "打铁", "受击", "死亡", "跳跃", "游泳", "采集", "施法",
     ];
     positive.iter().any(|part| name.contains(part))
         && !forbidden.iter().any(|part| name.contains(part))
@@ -3452,7 +3449,9 @@ mod tests {
             .actions
             .push(combined("快速移动", "奔跑_通用"));
         let candidates = walk_clock_candidates(&combined_asset);
-        assert!(candidates.iter().any(|animation| animation.playback.is_some()));
+        assert!(candidates
+            .iter()
+            .any(|animation| animation.playback.is_some()));
         assert!(walk_clock(&combined_asset).is_none());
 
         let mut work_only = rig_without_combined_actions();
