@@ -308,58 +308,76 @@ impl Modules {
         );
         ui.label(
             egui::RichText::new(
-                "Shows the client's placed NPCs with their model, idle animation and name; building collision helps keep them on floors and out of walls. Live World is optional and Experimental: it tries synthetic residents with verified walking clips and safe local routes, but may generate none.",
+                "Displays the client's placed NPCs with their model, name and idle animation.",
             )
             .small()
             .weak(),
         );
-        egui::CollapsingHeader::new("Live World (Experimental)")
-            .default_open(false)
-            .show(ui, |ui| {
-                let mut enabled = self.populator.live_world_enabled();
-                if ui
-                    .checkbox(&mut enabled, "Enable Live World (Experimental)")
-                    .changed()
-                {
-                    self.populator.set_live_world(enabled);
+        ui.separator();
+        ui.heading("Live World (Experimental)");
+        ui.vertical(|ui| {
+            let mut enabled = self.populator.live_world_enabled();
+            if ui
+                .checkbox(&mut enabled, "Enable Live World (Experimental)")
+                .changed()
+            {
+                if enabled {
+                    // Live World updates are part of Populator's frame hook;
+                    // enabling it must not leave its parent module off.
+                    self.populator.set_active(true, spawn);
                 }
-                let mut radius = self.populator.live_world_radius();
-                if ui.add(egui::Slider::new(&mut radius,
-                    crate::modules::populator::LIVE_WORLD_MIN_RADIUS..=crate::modules::populator::LIVE_WORLD_MAX_RADIUS)
-                    .text("city radius").suffix(" u")).changed() {
-                    self.populator.set_live_world_radius(radius);
-                }
-                let mut residents = self.populator.live_world_residents_per_zone();
-                if ui.add(egui::Slider::new(&mut residents,
-                    0..=crate::modules::populator::LIVE_WORLD_MAX_PER_ZONE)
-                    .text("residents per target")).changed() {
-                    self.populator.set_live_world_residents_per_zone(residents);
-                }
-                ui.label(
-                    egui::RichText::new(
-                        "Experimental: samples human rigs from models.pck, requires a walk/run clip that visibly moves the model, then tries local outdoor routes near city targets. Terrain, water and building collisions can reject every candidate, leaving zero residents. Names and routes are synthetic; server spawn and route data are not available in the client.",
-                    )
-                    .small()
-                    .weak(),
+                self.populator.set_live_world(enabled);
+            }
+            let mut radius = self.populator.live_world_radius();
+            if ui.add(egui::Slider::new(&mut radius,
+                crate::modules::populator::LIVE_WORLD_MIN_RADIUS..=crate::modules::populator::LIVE_WORLD_MAX_RADIUS)
+                .text("city radius").suffix(" u")).changed() {
+                self.populator.set_live_world_radius(radius);
+            }
+            let mut residents = self.populator.live_world_residents_per_zone();
+            if ui.add(egui::Slider::new(&mut residents,
+                0..=crate::modules::populator::LIVE_WORLD_MAX_PER_ZONE)
+                .text("residents per target")).changed() {
+                self.populator.set_live_world_residents_per_zone(residents);
+            }
+            ui.label(
+                egui::RichText::new(
+                    "Experimental: samples human rigs from models.pck, requires a walk/run clip that visibly moves the model, then tries local outdoor routes near city targets. Terrain, water and building collisions can reject every candidate, leaving zero residents. Names and routes are synthetic; server spawn and route data are not available in the client.",
+                )
+                .small()
+                .weak(),
+            );
+            if enabled && !self.populator.is_active() {
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    "Populator is off, so Live World cannot generate residents. Use Enable Populator above.",
                 );
+            } else if enabled {
                 ui.label(
                     egui::RichText::new(self.populator.live_world_zone_status())
                         .small()
                         .weak(),
                 );
-                if enabled {
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "{} residents generated; {} rigs have verified walking clips; {} streamed residents have no active route.",
-                            self.populator.live_world_generated(),
-                            self.populator.live_world_walkable_rig_count(),
-                            self.populator.live_world_stationary_count()
-                        ))
-                        .small()
-                        .color(egui::Color32::YELLOW),
-                    );
-                }
-            });
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} residents generated; {} rigs have verified walking clips; {} streamed residents have no active route.",
+                        self.populator.live_world_generated(),
+                        self.populator.live_world_walkable_rig_count(),
+                        self.populator.live_world_stationary_count()
+                    ))
+                    .small()
+                    .color(egui::Color32::YELLOW),
+                );
+            } else {
+                ui.label(
+                    egui::RichText::new(
+                        "Off. Enable Live World to scan city rigs and attempt safe resident routes.",
+                    )
+                    .small()
+                    .weak(),
+                );
+            }
+        });
     }
 
     fn walker_module_ui(&mut self, ui: &mut egui::Ui, spawn: Vec3, yaw: f32) {

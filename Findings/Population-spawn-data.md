@@ -290,14 +290,17 @@ instance directions.
 ## Texture fault diagnostics
 
 Population textures keep `models.pck` as the canonical source (it carries NPC
-texture sheets beside their rigs), and retain a same-path `textures.pck` copy as
-a fallback if the first payload cannot be decoded. A per-actor draw failure logs the NPC
-name, ECM path and texture decoder error so a specific bad material no longer
-fails silently. The reported Guard Chang Zheng asset has not yet been visually
-verified against the retail archives in this checkout: the only available
-Google Drive model/texture archives exceed the connector's 100 MB download
-limit. A client run can now identify the failing path in the log; the exact
-asset still needs checking with the archive or a runtime capture.
+texture sheets beside their rigs), with a same-path `textures.pck` fallback if a
+payload cannot be decoded. A per-actor draw failure logs the NPC name, ECM path
+and texture decoder error. The retail idle census verifies Guard rigs 1–4 have
+parseable model/action data and standing clips; that does not verify their
+rendered materials or prove the reported Guard Chang Zheng appears correctly.
+The canonical `pw142/element/models.pck` is 888,028,116 bytes, beyond the
+workspace's 100 MiB file-transfer limit. The split `models.zip.001`–`.010` set
+was identified as a different build by the user and is not valid evidence for
+this client, so it was not scanned. To identify the Guard rendering fault, use
+the matching build's model pack plus the runtime's exact per-actor draw error
+(or a capture); no texture-level cause is established yet.
 
 ## Overhead names (font and drawing, from the client's own files)
 
@@ -379,19 +382,20 @@ building collision, floors and occupied actors can reject a candidate. Failed
 candidates are retried, and a route blocked later is replanned. No native NPC
 identity, placement, route or schedule is copied.
 
-**Current result:** the user reports zero generated residents. The exact cause
-is not verified. The Live World status now reports verified walking rigs versus
-local candidates, requested/generated residents and placement attempts. The log
-names archive-load failures and rigs with named locomotion actions but no
-changing pose. Zero verified rigs points to animation discovery; verified rigs
-with repeated failed placement attempts points to the safe-ground/route gate.
+**Zero-generation code path found:** Live World is updated only inside the
+Populator frame hook, and that hook returns immediately while Populator is
+disabled. Previously the nested Live World checkbox could be enabled without
+activating Populator, leaving the generated count at zero and skipping both rig
+scanning and placement. The checkbox is now shown directly in the Populator
+panel and enabling it activates its parent module. If zero persists while
+Populator is active, the Live World diagnostics distinguish local rig/clip
+validation from placement attempts; the user's exact runtime branch still needs
+to be observed.
 
-**Archive limit:** Drive lists `models.pck` at 888,028,116 bytes and the split
-`models.zip.001`–`.010` parts. The Drive text extractor reports the binary model
-part as unsupported; its download tool returns base64 rather than a local file
-that the archive scanner can read here. Consequently no whole-archive walk
-clip count has been measured in this checkout. The idle-clip census in
-[`npc-idle-evidence.md`](npc-idle-evidence.md) is not evidence that those rigs
-also have walking clips. The runtime scan checks the model pack installed by the
-user. Keep Live World marked Experimental until a nonzero verified rig count
-and successful resident placements are observed in a real client run.
+**Build-specific evidence:** the 1.4.2 `element/models.pck` is 888,028,116
+bytes, above the workspace transfer limit. The split `models.zip.001`–`.010`
+set in Drive was identified by the user as a different build and was not used
+for this diagnosis. The existing idle census only establishes idle behavior,
+not that those same rigs have usable walking clips. Keep Live World marked
+Experimental until a matching-build scan and successful resident generation
+are verified in a real client run.
