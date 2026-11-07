@@ -21,12 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      PW_SHARED_FOLDER_URL: ${ secrets.PW_SHARED_FOLDER_URL }
+      PW_SHARED_FOLDER_URL: ${{ secrets.PW_SHARED_FOLDER_URL }}
     steps:
       - name: Check out the effects branch
         uses: actions/checkout@v4
         with:
-          ref: ${ github.ref }
+          ref: ${{ github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
