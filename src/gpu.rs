@@ -4554,6 +4554,58 @@ pub fn run(
         .map_err(|e| e.to_string())
 }
 /// Render one frame without a window. Useful for validation on headless systems.
+/// Read a rendered target back to CPU bytes, one `RGBA` word per pixel.
+///
+/// The preview path needs the pixels themselves to answer questions that a
+/// screenshot cannot: whether a pass changed anything, and by how much.
+fn read_target_pixels(
+    renderer: &Renderer,
+    target: &wgpu::Texture,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, String> {
+    let row = width * 4;
+    let buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("readback"),
+        size: (row as u64) * (height as u64),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut e = renderer.device.create_command_encoder(&Default::default());
+    e.copy_texture_to_buffer(
+        wgpu::ImageCopyTexture {
+            texture: target,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::ImageCopyBuffer {
+            buffer: &buffer,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(row),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    renderer.queue.submit(Some(e.finish()));
+    let (tx, rx) = std::sync::mpsc::channel();
+    buffer.slice(..).map_async(wgpu::MapMode::Read, move |r| {
+        let _ = tx.send(r);
+    });
+    renderer.device.poll(wgpu::Maintain::Wait);
+    rx.recv()
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    let bytes = buffer.slice(..).get_mapped_range().to_vec();
+    Ok(bytes)
+}
+
 pub fn preview(
     mut t: Terrain,
     path: &std::path::Path,
@@ -4732,6 +4784,68 @@ pub fn preview(
             &[]
         },
     });
+    // An A/B of the world-effect pass, so "no effects" can be answered rather
+    // than argued. The same camera and the same frame are rendered twice, the
+    // only difference being the map's own effect roots, and the two images are
+    // compared. If nothing differs, the pass is not reaching this target; if it
+    // differs, the effects are on screen and any remaining "I do not see them"
+    // is about what was authored where, not about the draw.
+    if std::env::var_os("PW_PREVIEW_EFFECT_AB").is_some() {
+        // Render the same camera twice, the only difference being the map's own
+        // effect roots, and compare. If the images match, the pass is not
+        // reaching this target at all; if they differ, the effects are on screen
+        // and what remains is a question of what was authored where.
+        cam.world_effects = true;
+        let draw = |r: &mut Renderer, cam: &Camera| {
+            let view = target.create_view(&Default::default());
+            let raw = target.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(fmt.remove_srgb_suffix()),
+                ..Default::default()
+            });
+            r.render(
+                &view,
+                &raw,
+                cam.matrix(width, height, cam.far),
+                cam,
+                width,
+                height,
+            );
+        };
+        // Drain the one-root-per-frame queue first: an effect still waiting for
+        // its player must not be mistaken for one that never drew.
+        for _ in 0..60 {
+            draw(&mut renderer, &cam);
+        }
+        let report = renderer
+            .models
+            .as_ref()
+            .map(|m| {
+                let g = m.gfx_status();
+                format!(
+                    "{} roots playing, {} quads, {} loaded, {} pending, {} failed",
+                    g.players,
+                    m.effect_quad_count(),
+                    g.live,
+                    g.pending,
+                    g.failures
+                )
+            })
+            .unwrap_or_else(|| "no world".into());
+        let on = read_target_pixels(&renderer, &target, width, height).unwrap_or_default();
+        cam.world_effects = false;
+        draw(&mut renderer, &cam);
+        let off = read_target_pixels(&renderer, &target, width, height).unwrap_or_default();
+        cam.world_effects = true;
+        let differing = on
+            .chunks_exact(4)
+            .zip(off.chunks_exact(4))
+            .filter(|(a, b)| a != b)
+            .count();
+        eprintln!(
+            "Effect A/B: {differing} of {} pixels differ between effects on and off ({report})",
+            on.len() / 4
+        );
+    }
     renderer.render(
         &target.create_view(&Default::default()),
         &target.create_view(&wgpu::TextureViewDescriptor {
