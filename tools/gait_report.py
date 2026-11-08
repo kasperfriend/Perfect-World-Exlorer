@@ -585,7 +585,7 @@ def retarget_clip(source, target, kind, gate="legacy"):
             rest_gap = (
                 angle_between_rotation_mats(s_unit, t_unit)
                 if mat3_det(s_unit) > 0.0 and mat3_det(t_unit) > 0.0
-                else 999.0
+                else None
             )
             chain_gap = _chain_divergence(src_abs, tgt_abs, sbone, tbone)
             broken = mat3_det(s_unit) <= 0.0 or mat3_det(t_unit) <= 0.0
@@ -604,14 +604,17 @@ def retarget_clip(source, target, kind, gate="legacy"):
                     m = False  # unresolvable ancestor: bind-keep
             else:
                 m = False
-            track = _transport_track(track, sb, tb, m)
+            # Keep the transport lazy: only the per-bone detail section
+            # consumes the transported keys, and it runs for a handful of
+            # rigs. `m` is False for bind-kept bones (unresolvable frames).
             mapped.append(
                 {"joint": sjoint["name"], "bone": sbone["name"],
                  "src": sb, "tgt": tb,
                  "src_flags": sbone["flags"], "tgt_flags": tbone["flags"],
                  "rest_gap": rest_gap,
                  "chain_gap": chain_gap,
-                 "broken": broken,
+                 "broken": broken or m is False,
+                 "m": m,
                  "track": track}
             )
         if aborted:
@@ -619,7 +622,11 @@ def retarget_clip(source, target, kind, gate="legacy"):
             report["actions"].append(entry)
             continue
         mapped_names = {m["bone"] for m in mapped if not m.get("broken")}
-        core_gaps = [m["rest_gap"] for m in mapped if m["bone"] in CORE_SET]
+        core_gaps = [
+            m["rest_gap"]
+            for m in mapped
+            if m["bone"] in CORE_SET and m["rest_gap"] is not None
+        ]
         entry["max_core_gap"] = max(core_gaps) if core_gaps else None
         chain_gaps = [m["chain_gap"] for m in mapped if m["bone"] in CORE_SET and m["chain_gap"] is not None]
         entry["max_chain_gap"] = max(chain_gaps) if chain_gaps else None
@@ -638,8 +645,9 @@ def retarget_clip(source, target, kind, gate="legacy"):
             report["accepted"] = entry
             break
         need = min(len(source_tracks), 8)
-        if len(mapped) < need or len(mapped) * 100 < len(source_tracks) * 70:
-            entry["verdict"] = f"insufficient coverage {len(mapped)}/{len(source_tracks)}"
+        coverage = sum(1 for m in mapped if not m.get("broken"))
+        if coverage < need or coverage * 100 < len(source_tracks) * 70:
+            entry["verdict"] = f"insufficient coverage {coverage}/{len(source_tracks)}"
             entry["mapped"] = len(mapped)
             entry["skipped"] = skipped
             entry["bones"] = mapped
@@ -678,14 +686,15 @@ def clip_motion_deg(track_set, clip):
 
 
 def formula_probe(entry):
-    """Per mapped bone, the angular deviation the rebase formulas introduce.
+    """Per mapped bone, the invariant the bind-anchored transport must hold.
 
-    Shipped (local-frame):   Rm = T * S^-1 * Rs
-    Alternative (parent-frame): Rm = Rs * S^-1 * T
-
-    Rs is the authored key treated as a proper rotation; S and T are the
-    donor/target rest rotations. Residual = angle between Rs and Rm.
+    Rm = M (Rs S^-1) M^-1 T is a conjugation, so the parent-space swing
+    delta is preserved exactly: angle(Rs * S^-1) == angle(Rm * T^-1). The
+    `delta err` columns report the absolute deviation from that identity at
+    the first/middle/last key, in degrees. Anything above ~1e-4 uncovers a
+    broken change of basis. Diagnostic only; nothing is gated on it.
     """
+    eye = [[1.0 if i == j else 0.0 for j in range(3)] for i in range(3)]
     rows = []
     for bone in entry.get("bones", []):
         s_unit = bone["src"]["unit"]
@@ -693,9 +702,7 @@ def formula_probe(entry):
         s_mat = unit_cols_to_mat(s_unit)
         t_mat = unit_cols_to_mat(t_unit)
         s_inv = _t3(s_mat)  # orthonormal inverse
-        s_proper = mat3_det(s_mat) > 0.0
-        t_proper = mat3_det(t_mat) > 0.0
-        keys = bone["track"]["rotation"]["keys"]
+        t_inv = _t3(t_mat)
         row = {
             "bone": bone["bone"],
             "src_flags": bone.get("src_flags"),
@@ -706,26 +713,24 @@ def formula_probe(entry):
             "tgt_ortho": bone["tgt"]["ortho"],
             "src_scale": bone["src"]["scale"],
             "tgt_scale": bone["tgt"]["scale"],
+            "rest_gap": bone.get("rest_gap"),
+            "chain_gap": bone.get("chain_gap"),
         }
+        if bone.get("broken"):
+            rows.append(row)
+            continue
+        track = _transport_track(bone["track"], bone["src"], bone["tgt"], bone.get("m"))
+        keys = track["rotation"]["keys"]
         if keys:
             picks = [0, len(keys) // 2, len(keys) - 1]
             for tag, index in zip(("first", "mid", "last"), picks):
-                r_key = quat_to_mat3(quat_norm(keys[index]))
-                rm_b = mat3_mul(mat3_mul(t_mat, s_inv), r_key)
-                rm_a = mat3_mul(mat3_mul(r_key, s_inv), t_mat)
-                row[f"resB_{tag}"] = (
-                    angle_between_rotation_mats(r_key, rm_b)
-                    if mat3_det(rm_b) > 0.0
-                    else None
-                )
-                row[f"resA_{tag}"] = (
-                    angle_between_rotation_mats(r_key, rm_a)
-                    if mat3_det(rm_a) > 0.0
-                    else None
-                )
-        row["rest_gap"] = (
-            angle_between_rotation_mats(s_mat, t_mat) if s_proper and t_proper else None
-        )
+                authored = quat_norm(bone["track"]["rotation"]["keys"][index])
+                mapped = quat_norm(keys[index])
+                d_auth = mat3_mul(quat_to_mat3(authored), s_inv)
+                d_map = mat3_mul(quat_to_mat3(mapped), t_inv)
+                ang_auth = angle_between_rotation_mats(eye, d_auth)
+                ang_map = angle_between_rotation_mats(eye, d_map)
+                row[f"delta_err_{tag}"] = abs(ang_auth - ang_map)
         rows.append(row)
     return rows
 
@@ -942,8 +947,8 @@ def write_markdown(pack, names, out_path):
                 entry = acc
             lines.append(
                 "| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | "
-                "rest gap° | chain gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |\n"
-                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
+                "rest gap° | chain gap° | delta err first | delta err mid | delta err last |\n"
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |\n"
             )
             for row in formula_probe(entry):
                 def fnum(key):
@@ -956,8 +961,8 @@ def write_markdown(pack, names, out_path):
                     f"{row['src_ortho']:.4f} | {row['tgt_ortho']:.4f} | "
                     f"{tuple(round(s, 4) for s in row['src_scale'])} | "
                     f"{tuple(round(s, 4) for s in row['tgt_scale'])} | "
-                    f"{fnum('rest_gap')} | {fnum('chain_gap')} | {fnum('resB_first')} | {fnum('resB_mid')} | {fnum('resB_last')} | "
-                    f"{fnum('resA_first')} | {fnum('resA_mid')} | {fnum('resA_last')} |\n"
+                    f"{fnum('rest_gap')} | {fnum('chain_gap')} | "
+                    f"{fnum('delta_err_first')} | {fnum('delta_err_mid')} | {fnum('delta_err_last')} |\n"
                 )
             lines.append("\n")
 
