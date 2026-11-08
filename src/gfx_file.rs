@@ -3274,7 +3274,8 @@ mod tests {
     /// grids and left each one to be rebuilt from `fGridSize` as a flat patch.
     #[test]
     fn a_grid_keeps_its_authored_vertices() {
-        let source = header37(1) + "GFXELEMENTID: 210\nName: g\nSrcBlend: 5\nDestBlend: 2\nwNumber: 2\nhNumber: 2\n\
+        let source = header37(1)
+            + "GFXELEMENTID: 210\nName: g\nSrcBlend: 5\nDestBlend: 2\nwNumber: 2\nhNumber: 2\n\
              -58.0 35.0 9.0\ndwColor: ffffffff\n\
              -34.0 35.0 9.0\ndwColor: ffffffff\n\
              -58.0 0.0 9.0\ndwColor: ffffffff\n\

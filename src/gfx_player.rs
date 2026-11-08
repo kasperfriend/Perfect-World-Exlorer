@@ -4279,7 +4279,11 @@ mod tests {
         let mut player = build(&(header37(1) + grid));
         step(&mut player, 0.);
         let quads = player.quads().to_vec();
-        assert_eq!(quads.len(), 3, "a 2x4 lattice is one quad column, three tall");
+        assert_eq!(
+            quads.len(),
+            3,
+            "a 2x4 lattice is one quad column, three tall"
+        );
 
         // The authored extent, in element space: 23.4 wide and 35.85 tall.
         let (mut lo_y, mut hi_y, mut lo_x, mut hi_x) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
