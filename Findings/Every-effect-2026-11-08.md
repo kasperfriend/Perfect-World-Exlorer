@@ -344,3 +344,114 @@ Measured on this branch, at `a25179d`:
 - `valid_time` day/night eligibility is read at the corrected record offsets, and
   the earlier report flagged that the split still needs a re-measurement against
   a world load. The counts in the table come from the current parse.
+
+## Update: the sweep after the inventory
+
+The inventory above answered "what is in the archive". The next question was
+"and does it draw", which turned out to have three real answers that were not in
+the first pass. All three were found by driving every root in the corpus and
+counting the ones that never emit a single quad, not by inspecting code.
+
+### Roots that never drew
+
+`137` of the 5,456 parser-accepted roots never produced a quad at any point in a
+five-second window. After the three fixes below the number is `27`, and 8 of
+those 27 are light-only rigs (`灯光.gfx`, `灯光2.gfx` and friends) that publish to
+`gfx_light` and have no geometry of their own to draw — so they are correct, not
+broken. Of the remaining 19, every one names a file the shipped archive does not
+contain.
+
+### 1. A fractal with coincident endpoints is not an empty fractal
+
+`502` of the 734 corpus fractals author `StartPos == EndPos == 0.0, 0.0, 0.0`.
+The player treated that as a degenerate axis and returned. The client does not:
+its direction routine (`0x709ca1`..`0x709d1c`) computes `EndPos - StartPos`, finds
+the length inside its 1e-06 epsilons, zeroes the direction at `0x709cfc` and jumps
+straight to `0x709d48`, past the divide — and carries on building the strip. The
+tapers then hang off a zero-length axis, which is exactly what those roots
+author: `09黄色的电球.gfx` writes `Width: 0, Width: 0, Width: 1` and gets a
+tapered point.
+
+`63` of the degenerate fractals are in placements installed from `world.ecwld`.
+All 40 fractal roots now draw.
+
+### 2. The three `Width`/`Alpha` lines are `[end, midpoint, start]`
+
+The strip builder reads `+0x2c0` and `+0x2c8` — the first and third authored
+lines — as the widths at the strip's two ends, and `+0x2c4`, the second line, as
+the width at its midpoint. For `t >= 0.5` it interpolates `Width[2] -> Width[0]`
+(`0x709a95`); for `t < 0.5` it interpolates `Width[1] -> Width[0]` and passes the
+fraction through `sin` (`0x709a9d`, `0x709aeb`, `0x709ad5`). The save routine at
+`0x7081ae`..`0x708271` confirms the order, writing the six values back to the
+six keys in sequence.
+
+The emitter was reading only the first two lines, so the apex was lost: `76`
+corpus fractals carry their widest cross-section in the middle, and the missing
+midpoint costs `17.5%` of the strip's area across the 623 that author three
+lines. One authored line repeats and still collapses to a constant, so the 356
+single-width fractals are unchanged.
+
+### 3. `Segs` counts cross-sections, not quads
+
+`0x7092f9` passes `Segs - 1` as the loop bound, so a `Segs: 10` ribbon is 9
+quads each 1/10 of the axis long. The player drew `Segs` quads — one section past
+the authored end — and drew one quad for the single `Segs: 0` element where the
+client draws none.
+
+### 4. Effect model elements draw now
+
+Element 160 was counted and never drawn. The meshes are rigid — every one of the
+141 shipped `.SKI` files binds its skins with 0 or 1 bones, so the bind pose is
+the only pose the archive can express — which means a triangle list and no
+skinned pass. `EffectQuad` carries an optional triangle list beside its four
+corners and the effect pass appends it to the same vertex bucket.
+
+Paths, measured against `gfx.pck`:
+
+- `ModelPath` is relative to the archive's `gfx/models/` root, **not** to the GFX
+  file that names it. `gfx/场景/新种族地图/暗语者营地.gfx` authoring
+  `暗语者营地\水晶.SMD` resolves to `gfx/models/暗语者营地/水晶.smd`. None of the
+  124 shipped `.smd` members sit under the GFX folder's own subdirectory.
+- The `.SMD`'s `skeleton` and `skins` fields are bare names relative to the SMD's
+  own directory, one level below `gfx/models/`.
+
+Coverage over the 231 roots that carry a model element: `198` now draw,
+139,474 triangles. The 33 that do not are 22 models the archive does not ship
+(`gfx/models/鹰翼/鹰翼.smd`, `雕1/雕1`, `17品法器/17品法器`,
+`武器/17品长枪/17品长枪`, `武器/2品法宝/2品法宝` and 17 more), 8 that need a
+flag-2 or flag-3 scale/constraint controller, 2 whose `ModelPath` names a
+directory rather than a file, and one whose keypoint colour is `0x00ffffff` —
+authored invisible.
+
+`4` of the 792 shipped meshes author a negative texture index and their elements
+have an empty `TexFile` too (`白色爪痕`, `投石车状态`, `攻击`'s footstep plane,
+`血鲷封印台罩子`). The effect pass already substitutes a flat white stand-in for
+a map it cannot read, so those keep their geometry instead of being dropped.
+
+### 5. Skinning the helper joints instead of refusing them
+
+Every skeleton in the effect archive carries three nonzero bone-flag values:
+`1` on 533 bones, `2` on 25 and `3` on 175. Flag 1 was being refused together
+with the scale and constraint bits under a "bone reflection" message, which cost
+164 of the 447 model placements their geometry.
+
+The bit is not a reflection. No bone of any flag has a negative-determinant local
+matrix — `533` flag-1 bones and `5,573` flag-0 bones, all positive — and the
+flag-1 bones are the leftover 3ds Max helpers (`Box01`, `Object01`,
+`Cylinder01`, `Line01`, `fjbone`, `02_Bip02 Footsteps`), `515` of them unparented
+roots. They carry valid local transforms and pose like any other bone. Flags 2
+and 3 stay refused: they do not occur in the effect archive at all, and they are
+where the client's scale and constraint controllers live.
+
+### Still open
+
+- The four unresolved texture names, unchanged from above.
+- `match_surface` (16 sprites) and `max_extent` (8,763 sprites author a value)
+  are decoded but not wired into the sprite path.
+- `YawEffect` (`+0x195`, 30 sprites / 8 roots) — 19 of those sprites already get a
+  ground frame; the other 11 are ground decals whose yaw is decoded but unused.
+- Sound elements (491 in the archive, 3 in placed roots: two Wing portals and one
+  dungeon mouth) go to `gfx_player`'s counter and no further. `world_audio` plays
+  ECWLD sound placements, not GFX element-170 references.
+- `world.ecbsd` is absent from the corpus, so the area weather flags that drive
+  rain and snow cannot be measured.
