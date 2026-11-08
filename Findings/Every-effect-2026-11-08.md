@@ -455,3 +455,96 @@ where the client's scale and constraint controllers live.
   ECWLD sound placements, not GFX element-170 references.
 - `world.ecbsd` is absent from the corpus, so the area weather flags that drive
   rain and snow cannot be measured.
+
+## Update 2: the last of the never-draws
+
+### The census, with real model bytes
+
+The earlier sweep ran the player over 5,456 roots with a stub model reader, so
+every model root looked silent for the wrong reason. Re-running it with the
+archive's own bytes wired in — `load_models` over `gfx/models/`, which is
+what the walker does — splits that bucket honestly: **25 roots never draw**,
+down from the 27 the stub counted, because two of them (`场景鱼群_鱼群1` and
+`场景鱼群_鱼群2`) turn out to draw as soon as their models resolve.
+
+### The defect: an empty `TexFile` is not a missing element
+
+`texture_path` returns `Err` for an empty name, and all eight emitters
+(`emit_sprite`, `emit_particles`, `emit_cylinder`, `emit_curve`, `emit_grid`,
+`emit_ribbon`, `emit_fractal`, `emit_bolts`) treated that as "skip this
+element". An empty `TexFile` means *untextured*, not *absent*: the quad has real
+corners and a real authored colour, and the GPU pass already substitutes a flat
+white stand-in for a texture it cannot read — the same path the four untextured
+model meshes use, and it keeps the bucket rather than deleting it.
+
+Measured over the corpus:
+
+| class | elements | no `TexFile` | share |
+|---|---:|---:|---:|
+| particle | 13,665 | 414 | 3.0% |
+| sprite | 8,864 | 11 | 0.1% |
+| grid | 216 | 27 | 12.5% |
+| ribbon | 2,956 | 2 | 0.1% |
+| cylinder | 1,116 | 1 | 0.1% |
+| fractal | 734 | 1 | 0.1% |
+| curve | 208 | 0 | 0% |
+| lightning | 11 | 0 | 0% |
+
+407 of the 414 untextured particle emitters do emit inside a play window, so
+this was live geometry, not dead authoring.
+
+This is the whole `场景鱼群` story. The root names three sprites and three
+children; every sprite carries `TexFile:` empty, and so do the emitters under
+the children. It resolved all six children, reported **zero warnings**, and drew
+nothing. Both `闪电鳐` rings were silent the same way. Fixing the emitters took
+the census **25 → 22**.
+
+### The 22 that remain are explained, not defects
+
+- **8 light-only roots** — element 130 belongs to `gfx_light`, which the player
+  deliberately does not duplicate. These are correctly invisible.
+- **7 model roots** whose `.smd` was never packed: `鹰翼/鹰翼`, `雕1/雕1`,
+  `17品法器/17品法器`, `武器/17品长枪/17品长枪`, `武器/2品法宝/2品法宝`,
+  `破山巨剑/破山巨剑`. `鹰翼`, `雕1` and `破山巨剑` have **zero** archive
+  members of any extension; the other three have `.ski`/`.bon` but no `.smd`.
+  (The archive also carries a typo'd `gfx/modles/` mirror with 10 members, but
+  it holds no `.smd` these roots need — only a duplicate of `小鱼`.)
+- **5 roots naming children the archive lacks.** Most are authored paths, not
+  our resolution: `复仇之魂_封_小晶体法阵` asks for
+  `人物\技能\巫师\技能\巫师_复仇之魂_封_晶体子效果.gfx` — a redundant second
+  `技能\` folder *and* a `巫师_` filename prefix — while the real file sits at
+  `人物/技能/巫师/复仇之魂_封_晶体子效果.gfx`, where the sibling
+  `复仇之魂_封_晶体法阵` correctly points. The client would fail the same
+  lookup. Two others (`元素虚弱_五行出`, `闪电鳐尾巴子`) do exist under a
+  different folder, so those are genuine authoring drift rather than typos.
+- **1 particle root**, `gfx/场景/灵魂源.gfx`, authored with `ColorMin: 2941167`
+  = `0x2CE0EF`, alpha byte 0. Its `IsBind: 1` also needs an owner this sweep
+  does not supply. 62 of 13,665 emitters share the zero alpha, so this is a rare
+  deliberate choice, not a parse bug.
+- **1 root with no elements**, `gfx/策划联入/人物技能/击中/空.gfx` — "empty".
+
+### Two child roots that draw, and one duplicate
+
+`a missing child warns and its siblings still play` still holds: an
+unresolvable child is a named warning and the root keeps playing. What is gone
+is the silent case — a child that resolved, drew nothing, and warned nothing,
+because the emitters underneath it had dropped every element.
+
+Worth recording for anyone reading the warnings: a root that names the *same*
+child several times (`场景鱼群` names `_鱼群2` twice; `闪电鳐2闪电术` names one
+child five times) gets one `Player` per reference, not one shared between them.
+That matches the client, which instantiates a child node per `GfxPath` element,
+and it is why the warning list repeats.
+
+### A CI-only compile error, for the third time
+
+`attach_gfx_reader` in `world_models_gpu.rs` builds one `HashMap<String,
+pck::Entry>` and moves it into the `set_reader` closure, then reaches for the
+same map to install the model reader — `E0382`, borrow of a moved value. The
+harness has no `vendor/`, so that file compiles only on CI and the error was
+invisible locally for the whole model pass. Fixed by giving each closure its own
+clone (a few hundred kilobytes, built once per archive attach). The Linux job
+went green on the next push; the Windows job is a separate matter — it fails in
+`msys2/setup-msys2@v2` with `Unexpected HTTP response: 504`, the same
+infrastructure failure `main` itself has at `9748c05`, and it never reaches a
+compile step.
