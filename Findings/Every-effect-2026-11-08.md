@@ -29,6 +29,12 @@ flying up out of the fire* — which is exactly how Etherblade was reported. The
 texture was never wrong: `normalmap/gas.dds` is a correct 256x256 soft blob
 (corner alpha 0, centre 246), it simply never decoded.
 
+The split falls exactly along the reported symptom. `火焰1` has three elements:
+two draw `烟火/fire.dds`, a DXT1 surface that always decoded, and one draws
+`normalmap/gas.dds`, an uncompressed `DDPF_RGB` surface that did not. That is
+why the fire itself looked right while white blobs rose out of it — the flame
+texture worked, the soft glow behind it did not.
+
 The reader now accepts the layouts the corpus actually stores, recovered from
 the headers:
 

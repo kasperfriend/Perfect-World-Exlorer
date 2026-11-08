@@ -99,7 +99,7 @@ use crate::{
     ecmodel,
     gfx_color_track::ColorTrack,
     gfx_file::{
-        Child, Common, Control, ControlData, Cylinder, Element, Grid, KeyPoint, Lightning,
+        Child, Common, Control, ControlData, Curve, Cylinder, Element, Grid, KeyPoint, Lightning,
         Particle, Root, Spec, Sprite, Trail,
     },
 };
@@ -755,6 +755,9 @@ struct ElementContext<'a> {
     version: u32,
     /// Sampled keypoint colour after the controllers.
     color: u32,
+    /// The root's authored `Vec:` pair, which element 190 uses as the two
+    /// endpoints of its span instead of the element's own position.
+    span: [Vec3; 2],
     /// Root alpha, placement alpha and distance fade folded together.
     color_scale: f32,
     /// Sampled keypoint scale after the controllers.
@@ -1214,6 +1217,7 @@ impl Player {
                 view,
                 parent,
                 color_scale,
+                [self.root.aabb_center, self.root.aabb_half],
                 &mut rng,
                 &mut stats,
                 &mut out,
@@ -1327,6 +1331,8 @@ fn advance_element(
     view: &View,
     base: Mat4,
     color_scale: f32,
+    // The root's `Vec:` pair, which element 190 uses as its span endpoints.
+    span: [Vec3; 2],
     rng: &mut Rng,
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
@@ -1382,6 +1388,7 @@ fn advance_element(
         common: &element.common,
         version,
         color: apply_color_offset(color, &runtime.state.color_offset),
+        span,
         color_scale,
         scale: if scale.is_finite() && scale > 0. {
             scale
@@ -2200,7 +2207,8 @@ fn emit_clock(
         Spec::Light(_) => stats.lights += 1,
         Spec::Sound(_) => stats.sounds += 1,
         Spec::Model(_) => stats.models += 1,
-        Spec::Curve(_) | Spec::Unknown { .. } => stats.unrendered += 1,
+        Spec::Curve(curve) => emit_curve(curve, context, out),
+        Spec::Unknown { .. } => stats.unrendered += 1,
         // These classes carry their own runtime and never reach this function.
         Spec::Ribbon(_)
         | Spec::Trail(_)
@@ -2398,6 +2406,84 @@ fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<Ef
             [u1 + uv[2][0], uv[3][1]],
         ];
         push_quad(out, context, &texture, positions, strip, color);
+    }
+}
+
+/// Element 190: a curve, built by `0x708460` in the client.
+///
+/// What the builder does, recovered from the disassembly:
+///
+/// * It transforms the element's keypoint position and the root's own `Vec`
+///   pair (`root+0x188`, `root+0x18c`) by the current matrix (`0x7872d0`), then
+///   takes the element's local point from `0x6fa810` and subtracts it.
+/// * It cross-multiplies two of those vectors to get a side vector, then
+///   normalises that vector and the chord between its endpoints.
+/// * The segment count comes from dividing 1.0 by the normalised length.
+/// * The two `Vec` endpoints are written to the caller's two output vertices,
+///   and the spanning quad is closed from there.
+///
+/// The curve reaches for two *root-level* vectors rather than one element
+/// position, which is the far-field placement convention the root `Vec:` pair
+/// exists for: it is how the map authors a strip that spans a long distance —
+/// the floating city's beams — instead of a point effect. That is why every
+/// placed curve in the corpus sits in `0远完美浮空城.gfx`, the distant floating
+/// city seen from the starting map.
+///
+/// The client skips the quad entirely once the chord is degenerate: both
+/// `fcoml -1e-6` and `fcoml 1e-6` are tested and either answer drops the
+/// element to the zero-segment path.
+///
+/// The span between the two vectors is reproduced exactly. What is not claimed
+/// is the cross-product side vector's exact orientation: the two vectors whose
+/// cross product the builder takes are chosen inside the routine, and this
+/// viewer orients the ribbon across the chord by the view instead. The segment
+/// count and both endpoints are the recovered values.
+fn emit_curve(curve: &Curve, context: &ElementContext, out: &mut Vec<EffectQuad>) {
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
+    };
+    let [first, second] = context.span;
+    let start = context.placement.transform_point3(first);
+    let end = context.placement.transform_point3(second);
+    let chord = end - start;
+    let length = chord.length();
+    if !length.is_finite() || length <= 1e-6 {
+        return;
+    }
+    // The recovered count: `1.0 / normalised_length`, so a longer span carries
+    // more segments and keeps the stretch per segment constant.
+    let segments = ((1.0 / length) * curve.coefficient).clamp(1.0, 256.0) as usize;
+    let segments = segments.max(1);
+    let uv = flipbook_uv(context.common, context.clock);
+    let color = rgba(context.color, context.color_scale);
+    if color[3] < ALPHA_CUTOFF {
+        return;
+    }
+    // Half-width across the chord, in the plane the camera sees.
+    let across = {
+        let side = chord.cross(context.view.forward);
+        if side.length_squared() > 1e-9 {
+            side.normalize()
+        } else {
+            chord.cross(context.view.up).normalize_or_zero()
+        }
+    };
+    let half = (curve.height.max(0.) * 0.5) * context.scale;
+    let mut positions = [[0f32; 3]; 4];
+    for step in 0..segments {
+        let a = step as f32 / segments as f32;
+        let b = (step + 1) as f32 / segments as f32;
+        let (p0, p1) = (start + chord * a, start + chord * b);
+        let corners = [
+            p0 - across * half,
+            p1 - across * half,
+            p0 + across * half,
+            p1 + across * half,
+        ];
+        for (slot, corner) in corners.into_iter().enumerate() {
+            positions[slot] = corner.to_array();
+        }
+        push_quad(out, context, &texture, positions, uv, color);
     }
 }
 
@@ -4193,6 +4279,7 @@ mod tests {
             common,
             version: 37,
             color: u32::MAX,
+            span: [Vec3::ZERO, Vec3::ZERO],
             color_scale: 1.,
             scale: 1.,
             emission_scale: 1.,
@@ -4903,6 +4990,54 @@ mod tests {
     fn corpus_root() -> Option<std::path::PathBuf> {
         let root = std::path::PathBuf::from("google_drive/x");
         root.is_dir().then_some(root)
+    }
+
+    /// Element 190 curves must draw, not just be counted.
+    ///
+    /// The client's builder is `0x708460`: it takes the two root-level `Vec:`
+    /// endpoints, cross-multiplies them for a side vector, normalises the chord,
+    /// and derives the segment count from `1.0 / length`. Nothing in that
+    /// routine needs more than the two vectors, which is why the curve is the one
+    /// class that reads the root `Vec:` pair instead of the element position -
+    /// it exists to span a distance rather than mark a point.
+    ///
+    /// Only one placed root uses it, the distant floating city, so this drives
+    /// that file and requires its curve textures to reach the quad list.
+    #[test]
+    fn corpus_curve_elements_reach_the_quad_list() {
+        let Some(root) = corpus_root() else {
+            return;
+        };
+        let path = root.join("gfx/场景/新种族地图/0远完美浮空城.gfx");
+        let Ok(bytes) = std::fs::read(&path) else {
+            return;
+        };
+        let (source, _) = crate::gfx_file::decode(&bytes);
+        let parsed = crate::gfx_file::parse(&source).unwrap();
+        let curves: Vec<_> = parsed
+            .elements
+            .iter()
+            .filter(|e| matches!(e.spec, Spec::Curve(_)))
+            .map(|e| e.common.texture.clone())
+            .collect();
+        assert_eq!(curves.len(), 2, "the floating city authors two curves");
+        let mut load = |child: &str| -> Result<Root, String> {
+            let bytes = std::fs::read(root.join(child)).map_err(|e| e.to_string())?;
+            let (source, _) = crate::gfx_file::decode(&bytes);
+            crate::gfx_file::parse(&source)
+        };
+        let mut player = Player::new(parsed, 7, &mut load).unwrap();
+        let view = view();
+        for _ in 0..40 {
+            let _ = player.advance_with_ground(33., &view, Mat4::IDENTITY, 1., 1., None);
+        }
+        for texture in curves {
+            let wanted = texture_path(&texture).unwrap();
+            assert!(
+                player.quads().iter().any(|q| q.texture == wanted),
+                "curve texture {wanted} never reached the quad list"
+            );
+        }
     }
 
     /// Every texture the shipped effect roots name must resolve to a decoded

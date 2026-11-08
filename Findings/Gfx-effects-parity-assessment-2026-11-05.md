@@ -894,7 +894,7 @@ a helper instead, which is how the single `BindEle` comparison was found.
 
 ## Still open
 
-Unchanged from the previous write-up and not addressed here: the interpolation and octave weighting inside the fractal-noise generator `0x766490` behind controllers 107, 109 and 112 — the shake now samples the viewer's own `fbm` in its place, see *Camera shake, reproduced* — element 190 curves being counted rather than drawn, models/sounds/lights belonging to other subsystems, and the 82 child references to files that do not ship. The `gfx_light` millisecond window listed here previously is fixed in *Fixed while writing this up*; the ramp time-base question that fix opened is still unsettled and needs the controller-108 update routine.
+Unchanged from the previous write-up and not addressed here: the interpolation and octave weighting inside the fractal-noise generator `0x766490` behind controllers 107, 109 and 112 — the shake now samples the viewer's own `fbm` in its place, see *Camera shake, reproduced* — the cross-product side vector inside the element 190 curve builder (the class now draws; see `Every-effect-2026-11-08.md`), models/sounds/lights belonging to other subsystems, and the 82 child references to files that do not ship. The `gfx_light` millisecond window listed here previously is fixed in *Fixed while writing this up*; the ramp time-base question that fix opened is still unsettled and needs the controller-108 update routine.
 
 Landed since the last revision of this list, and therefore no longer open: binding by name, `MatchGrnd` and `GroundHeight` through the per-frame ground sample, `GrndNormOnly`, the trail's `isappend`/`vertslife` vertex ring, `ResetLoopEnd` for trails, and `ShakeCam`. *Placed in the viewer on 7 November* is the summary.
 
