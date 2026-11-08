@@ -130,6 +130,203 @@ Retail `models.pck` read directly. Matrices are the ones the viewer's `Mat4::fro
 - walk candidate `走` (action #10): 24466..31133 ms (length 6668), tracks=26 verdict=accepted
 - run candidate `跑` (action #5): 7933..8666 ms (length 734), tracks=26 verdict=accepted
 
+## Clip content probe (shipped gender donors)
+
+What the selected walk/run clips actually contain. `root`/`pelvis` are the authored position-key axis ranges (min..max) next to the bone's rest translation. `delta` values are the authored parent-space swing angle in degrees at the first/mid/max key. Residents play these deltas after frame transport with the root pinned to bind, so an authored root/pelvis drop or a folded thigh reads as a crouch or a sit in game.
+
+### `models/players/形象/武侠男/躯干/武侠男.ecm`
+
+- walk `行走_绑定_通用` (#94): 98733..99733 ms (len 1001 ms), tracks=35
+  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
+  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
+  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
+  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
+  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
+  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
+  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
+  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
+  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+- walk `行走_骑乘_通用` (#95): 99800..101400 ms (len 1601 ms), tracks=35
+  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
+  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
+  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
+  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
+  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
+  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
+  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
+  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
+  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+- walk `行走_双手长` (#96): 101466..102600 ms (len 1135 ms), tracks=35
+  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
+  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
+  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
+  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
+  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
+  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
+  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
+  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
+  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+- walk `行走_通用` (#97): 102666..103800 ms (len 1135 ms), tracks=35
+  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
+  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
+  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
+  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
+  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
+  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
+  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
+  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
+  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+- run `奔跑_绑定_通用` (#5): 3200..3866 ms (len 667 ms), tracks=35
+  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
+  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
+  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
+  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
+  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
+  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
+  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
+  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
+  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+- run `奔跑_骑乘_通用` (#6): 3933..4733 ms (len 801 ms), tracks=35
+  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
+  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
+  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
+  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
+  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
+  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
+  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
+  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
+  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+- run `奔跑_双手长` (#7): 4800..5466 ms (len 667 ms), tracks=35
+  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
+  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
+  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
+  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
+  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
+  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
+  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
+  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
+  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+- run `奔跑_通用` (#8): 5533..6200 ms (len 668 ms), tracks=35
+  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
+  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
+  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
+  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
+  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
+  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
+  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
+  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
+  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+
+### `models/players/形象/武侠女/躯干/武侠女.ecm`
+
+- walk `行走_绑定_通用` (#91): 97733..98866 ms (len 1134 ms), tracks=41
+  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
+  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
+  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
+  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
+  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
+  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
+  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
+  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
+  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+- walk `行走_骑乘_通用` (#92): 98933..100533 ms (len 1601 ms), tracks=41
+  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
+  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
+  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
+  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
+  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
+  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
+  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
+  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
+  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+- walk `行走_双手长` (#93): 100600..101666 ms (len 1067 ms), tracks=41
+  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
+  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
+  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
+  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
+  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
+  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
+  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
+  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
+  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+- walk `行走_通用` (#94): 101733..102800 ms (len 1068 ms), tracks=41
+  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
+  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
+  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
+  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
+  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
+  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
+  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
+  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
+  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+- walk `移动_绑定_通用` (#96): 107600..107600 ms (len 1 ms), tracks=41
+  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
+  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
+  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
+  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
+  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
+  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
+  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
+  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
+  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+- run `奔跑_绑定_通用` (#5): 4066..4800 ms (len 735 ms), tracks=41
+  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
+  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
+  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
+  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
+  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
+  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
+  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
+  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
+  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+- run `奔跑_骑乘_通用` (#6): 4866..5666 ms (len 801 ms), tracks=41
+  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
+  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
+  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
+  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
+  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
+  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
+  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
+  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
+  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+- run `奔跑_双手长` (#7): 5733..6400 ms (len 668 ms), tracks=41
+  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
+  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
+  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
+  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
+  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
+  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
+  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
+  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
+  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+- run `奔跑_通用` (#8): 6466..7133 ms (len 668 ms), tracks=41
+  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
+  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
+  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
+  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
+  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
+  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
+  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
+  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
+  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
+  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+
 ## Resident candidates: 69 rigs
 
 ### `models/npcs/npc/女npc1/女npc1.ecm`
@@ -1775,4 +1972,87 @@ accepted `跑`: mapped 26/26 tracks, max chain gap 110.52969292274886
 | `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.63 | 6.59 | 0.00 | 0.00 | 0.00 |
 | `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 34.26 | 7.42 | 0.00 | 0.00 | 0.00 |
 | `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.54 | 36.01 | 0.00 | 0.00 | 0.00 |
+
+## Runtime selection mirror (per resident, gender donor)
+
+What the game would actually play for each numbered resident rig, in `model.actions` order, with the `visibly_moves` gate evaluated on the retargeted pose exactly where the game evaluates it. `vise` is a bone-level proxy strictly more sensitive than the game's 8-vertices-per-mesh vertex hash; `max bone move` is the largest mapped-bone translation between the clip start and the sampled offsets, in millimetres. When nothing is SELECTED the resident draws its bind pose while sliding along its route - the in-game 'stopped walking'.
+
+| rig | walk selection | run selection |
+| --- | --- | --- |
+| `models/npcs/npc/女npc1/女npc1.ecm` | `行走_绑定_通用`, max 40 mm | `奔跑_绑定_通用`, max 39 mm |
+| `models/npcs/npc/女npc10/女npc10.ecm` | `行走_绑定_通用`, max 36 mm | `奔跑_绑定_通用`, max 34 mm |
+| `models/npcs/npc/女npc11/女npc11.ecm` | `行走_绑定_通用`, max 29 mm | `奔跑_绑定_通用`, max 34 mm |
+| `models/npcs/npc/女npc12/女npc12.ecm` | `行走_绑定_通用`, max 36 mm | `奔跑_绑定_通用`, max 41 mm |
+| `models/npcs/npc/女npc13/女npc13.ecm` | `行走_绑定_通用`, max 15 mm | `奔跑_绑定_通用`, max 16 mm |
+| `models/npcs/npc/女npc14/女npc14.ecm` | `行走_绑定_通用`, max 41 mm | `奔跑_绑定_通用`, max 44 mm |
+| `models/npcs/npc/女npc15/女npc15.ecm` | `行走_绑定_通用`, max 40 mm | `奔跑_绑定_通用`, max 37 mm |
+| `models/npcs/npc/女npc16/女npc16.ecm` | `行走_绑定_通用`, max 41 mm | `奔跑_绑定_通用`, max 39 mm |
+| `models/npcs/npc/女npc17/女npc17.ecm` | `行走_绑定_通用`, max 33 mm | `奔跑_绑定_通用`, max 33 mm |
+| `models/npcs/npc/女npc18/女npc18.ecm` | `行走_绑定_通用`, max 38 mm | `奔跑_绑定_通用`, max 38 mm |
+| `models/npcs/npc/女npc19/女npc19.ecm` | `行走_绑定_通用`, max 41 mm | `奔跑_绑定_通用`, max 39 mm |
+| `models/npcs/npc/女npc2/女npc2.ecm` | `行走_绑定_通用`, max 38 mm | `奔跑_绑定_通用`, max 37 mm |
+| `models/npcs/npc/女npc20/女npc20.ecm` | `行走_绑定_通用`, max 37 mm | `奔跑_绑定_通用`, max 37 mm |
+| `models/npcs/npc/女npc21/女npc21.ecm` | `行走_绑定_通用`, max 37 mm | `奔跑_绑定_通用`, max 37 mm |
+| `models/npcs/npc/女npc22/女npc22.ecm` | `行走_绑定_通用`, max 37 mm | `奔跑_绑定_通用`, max 38 mm |
+| `models/npcs/npc/女npc23/女npc23.ecm` | `行走_绑定_通用`, max 40 mm | `奔跑_绑定_通用`, max 36 mm |
+| `models/npcs/npc/女npc24/女npc24.ecm` | `行走_绑定_通用`, max 31 mm | `奔跑_绑定_通用`, max 32 mm |
+| `models/npcs/npc/女npc25/女npc25.ecm` | `行走_绑定_通用`, max 35 mm | `奔跑_绑定_通用`, max 35 mm |
+| `models/npcs/npc/女npc3/女npc3.ecm` | `行走_绑定_通用`, max 38 mm | `奔跑_绑定_通用`, max 38 mm |
+| `models/npcs/npc/女npc4/女npc4.ecm` | `行走_绑定_通用`, max 40 mm | `奔跑_绑定_通用`, max 40 mm |
+| `models/npcs/npc/女npc5/女npc5.ecm` | `行走_绑定_通用`, max 39 mm | `奔跑_绑定_通用`, max 41 mm |
+| `models/npcs/npc/女npc6/女npc6.ecm` | `行走_绑定_通用`, max 35 mm | `奔跑_绑定_通用`, max 34 mm |
+| `models/npcs/npc/女npc7/女npc7.ecm` | `行走_绑定_通用`, max 36 mm | `奔跑_绑定_通用`, max 34 mm |
+| `models/npcs/npc/女npc8/女npc8.ecm` | `行走_绑定_通用`, max 40 mm | `奔跑_绑定_通用`, max 39 mm |
+| `models/npcs/npc/女npc9/女npc9.ecm` | `行走_绑定_通用`, max 41 mm | `奔跑_绑定_通用`, max 47 mm |
+| `models/npcs/npc/男npc1/男npc1.ecm` | `行走_绑定_通用`, max 729 mm | `奔跑_绑定_通用`, max 1187 mm |
+| `models/npcs/npc/男npc10/男npc10.ecm` | `行走_绑定_通用`, max 719 mm | `奔跑_绑定_通用`, max 1131 mm |
+| `models/npcs/npc/男npc11/男npc11.ecm` | `行走_绑定_通用`, max 754 mm | `奔跑_绑定_通用`, max 1242 mm |
+| `models/npcs/npc/男npc12/男npc12.ecm` | `行走_绑定_通用`, max 798 mm | `奔跑_绑定_通用`, max 1295 mm |
+| `models/npcs/npc/男npc13/男npc13.ecm` | `行走_绑定_通用`, max 696 mm | `奔跑_绑定_通用`, max 1108 mm |
+| `models/npcs/npc/男npc14/男npc14.ecm` | `行走_绑定_通用`, max 731 mm | `奔跑_绑定_通用`, max 1112 mm |
+| `models/npcs/npc/男npc15/男npc15.ecm` | `行走_绑定_通用`, max 683 mm | `奔跑_绑定_通用`, max 1140 mm |
+| `models/npcs/npc/男npc16/男npc16.ecm` | `行走_绑定_通用`, max 691 mm | `奔跑_绑定_通用`, max 1195 mm |
+| `models/npcs/npc/男npc17/男npc17.ecm` | `行走_绑定_通用`, max 685 mm | `奔跑_绑定_通用`, max 1163 mm |
+| `models/npcs/npc/男npc18/男npc18.ecm` | `行走_绑定_通用`, max 774 mm | `奔跑_绑定_通用`, max 1291 mm |
+| `models/npcs/npc/男npc2/男npc2.ecm` | `行走_绑定_通用`, max 735 mm | `奔跑_绑定_通用`, max 1144 mm |
+| `models/npcs/npc/男npc20/男npc20.ecm` | `行走_绑定_通用`, max 736 mm | `奔跑_绑定_通用`, max 1146 mm |
+| `models/npcs/npc/男npc21/男npc21.ecm` | `行走_绑定_通用`, max 722 mm | `奔跑_绑定_通用`, max 1187 mm |
+| `models/npcs/npc/男npc22/男npc22.ecm` | `行走_绑定_通用`, max 779 mm | `奔跑_绑定_通用`, max 1315 mm |
+| `models/npcs/npc/男npc23/男npc23.ecm` | `行走_绑定_通用`, max 554 mm | `奔跑_绑定_通用`, max 964 mm |
+| `models/npcs/npc/男npc24/男npc24.ecm` | `行走_绑定_通用`, max 659 mm | `奔跑_绑定_通用`, max 1092 mm |
+| `models/npcs/npc/男npc25/男npc25.ecm` | `行走_绑定_通用`, max 604 mm | `奔跑_绑定_通用`, max 1074 mm |
+| `models/npcs/npc/男npc26/男npc26.ecm` | `行走_绑定_通用`, max 445 mm | `奔跑_绑定_通用`, max 944 mm |
+| `models/npcs/npc/男npc27/男npc27.ecm` | `行走_绑定_通用`, max 587 mm | `奔跑_绑定_通用`, max 1008 mm |
+| `models/npcs/npc/男npc28/男npc28.ecm` | `行走_绑定_通用`, max 706 mm | `奔跑_绑定_通用`, max 1177 mm |
+| `models/npcs/npc/男npc29/男npc29.ecm` | `行走_绑定_通用`, max 460 mm | `奔跑_绑定_通用`, max 907 mm |
+| `models/npcs/npc/男npc29/男npc99.ecm` | `行走_绑定_通用`, max 460 mm | `奔跑_绑定_通用`, max 907 mm |
+| `models/npcs/npc/男npc30/男npc30.ecm` | `行走_绑定_通用`, max 536 mm | `奔跑_绑定_通用`, max 1040 mm |
+| `models/npcs/npc/男npc31/男npc31.ecm` | `行走_绑定_通用`, max 233 mm | `奔跑_绑定_通用`, max 411 mm |
+| `models/npcs/npc/男npc32/男npc32.ecm` | `行走_绑定_通用`, max 684 mm | `奔跑_绑定_通用`, max 1135 mm |
+| `models/npcs/npc/男npc32/男npc321.ecm` | `行走_绑定_通用`, max 684 mm | `奔跑_绑定_通用`, max 1135 mm |
+| `models/npcs/npc/男npc33/男npc33.ecm` | `行走_绑定_通用`, max 791 mm | `奔跑_绑定_通用`, max 1314 mm |
+| `models/npcs/npc/男npc34/男npc34.ecm` | `行走_绑定_通用`, max 774 mm | `奔跑_绑定_通用`, max 1235 mm |
+| `models/npcs/npc/男npc35/男npc35.ecm` | `行走_绑定_通用`, max 792 mm | `奔跑_绑定_通用`, max 1258 mm |
+| `models/npcs/npc/男npc36/男npc36.ecm` | `行走_绑定_通用`, max 668 mm | `奔跑_绑定_通用`, max 1131 mm |
+| `models/npcs/npc/男npc37/男npc37.ecm` | `行走_绑定_通用`, max 705 mm | `奔跑_绑定_通用`, max 1135 mm |
+| `models/npcs/npc/男npc38/男npc38.ecm` | `行走_绑定_通用`, max 700 mm | `奔跑_绑定_通用`, max 1118 mm |
+| `models/npcs/npc/男npc38/男npc381.ecm` | `行走_绑定_通用`, max 700 mm | `奔跑_绑定_通用`, max 1118 mm |
+| `models/npcs/npc/男npc39/男npc39.ecm` | `行走_绑定_通用`, max 764 mm | `奔跑_绑定_通用`, max 1176 mm |
+| `models/npcs/npc/男npc4/男npc4.ecm` | `行走_绑定_通用`, max 696 mm | `奔跑_绑定_通用`, max 1052 mm |
+| `models/npcs/npc/男npc40/男npc40.ecm` | `行走_绑定_通用`, max 719 mm | `奔跑_绑定_通用`, max 1120 mm |
+| `models/npcs/npc/男npc41/男npc41.ecm` | `行走_绑定_通用`, max 707 mm | `奔跑_绑定_通用`, max 999 mm |
+| `models/npcs/npc/男npc42/男npc42.ecm` | `行走_绑定_通用`, max 714 mm | `奔跑_绑定_通用`, max 1180 mm |
+| `models/npcs/npc/男npc43/男npc43.ecm` | `行走_绑定_通用`, max 756 mm | `奔跑_绑定_通用`, max 1167 mm |
+| `models/npcs/npc/男npc44/男npc44.ecm` | `行走_绑定_通用`, max 422 mm | `奔跑_绑定_通用`, max 638 mm |
+| `models/npcs/npc/男npc6/男npc6.ecm` | `行走_绑定_通用`, max 691 mm | `奔跑_绑定_通用`, max 1057 mm |
+| `models/npcs/npc/男npc7/男npc7.ecm` | `行走_绑定_通用`, max 707 mm | `奔跑_绑定_通用`, max 1112 mm |
+| `models/npcs/npc/男npc8/男npc8.ecm` | `行走_绑定_通用`, max 764 mm | `奔跑_绑定_通用`, max 1220 mm |
+| `models/npcs/npc/男npc9/男npc9.ecm` | `行走_绑定_通用`, max 892 mm | `奔跑_绑定_通用`, max 1416 mm |
+
+break-down of the walk candidates that won at runtime:
+
+- walk -> `行走_绑定_通用` x69
+- run -> `奔跑_绑定_通用` x69
+
+summary: walk bind pose 0/69 rigs, run bind pose 0/69 rigs
 
