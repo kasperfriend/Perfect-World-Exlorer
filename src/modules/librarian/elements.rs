@@ -273,6 +273,35 @@ mod tests {
     }
 }
 
+/// A complete file whose only contents are the given `(section, records)`
+/// pairs. Every other section stays empty, so a parser reads exactly what the
+/// caller wrote and nothing else.
+#[cfg(test)]
+pub(super) fn synthetic_records(sections: &[(usize, Vec<Vec<u8>>)]) -> Vec<u8> {
+    let mut bytes = ELEMENTS_V27.to_le_bytes().to_vec();
+    bytes.extend_from_slice(&0u32.to_le_bytes());
+    for (index, size) in SECTION_SIZES.iter().copied().enumerate() {
+        match size {
+            Size::Fixed(size) => {
+                let records = sections
+                    .iter()
+                    .find(|(section, _)| *section == index)
+                    .map(|(_, records)| records.as_slice())
+                    .unwrap_or(&[]);
+                bytes.extend_from_slice(&(records.len() as u32).to_le_bytes());
+                for record in records {
+                    assert_eq!(record.len(), size, "section {index} record size");
+                    bytes.extend_from_slice(record);
+                }
+            }
+            Size::Talk => bytes.extend_from_slice(&0u32.to_le_bytes()),
+            Size::ControlTimestamp => bytes.extend_from_slice(&[0; 12]),
+            Size::ControlPlain => bytes.extend_from_slice(&[0; 8]),
+        }
+    }
+    bytes
+}
+
 #[cfg(test)]
 pub(super) fn synthetic_file(section_index: usize, record: &[u8]) -> Vec<u8> {
     let mut bytes = ELEMENTS_V27.to_le_bytes().to_vec();

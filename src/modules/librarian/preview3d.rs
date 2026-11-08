@@ -249,6 +249,10 @@ pub struct Preview {
     updated: std::time::Instant,
     elapsed: f32,
     pub action: usize,
+    /// Combined scene action to start on once a model loads. The client asks a
+    /// scene NPC for `站立` and falls back to `休闲`; leaving this empty keeps
+    /// the first clip, which is what an item preview wants.
+    pub idle_action: Option<String>,
 }
 impl Preview {
     pub fn new(
@@ -321,6 +325,7 @@ impl Preview {
             updated: std::time::Instant::now(),
             elapsed: 0.,
             action: 0,
+            idle_action: None,
         }
     }
     pub fn update(
@@ -439,11 +444,29 @@ impl Preview {
                     Ok((asset, draw, warnings))
                 }) {
                     Ok((asset, draw, warnings)) => {
+                        // A combined scene action names the base clip that
+                        // should play; without one the first clip stays.
+                        let idle = self.idle_action.as_deref().and_then(|requested| {
+                            let combined = asset.descriptor.scene_action(requested)?;
+                            let base = asset
+                                .descriptor
+                                .actions
+                                .get(combined)?
+                                .bases
+                                .first()?
+                                .name
+                                .clone();
+                            asset
+                                .model
+                                .actions
+                                .iter()
+                                .position(|action| action.name == base)
+                        });
                         self.warnings = warnings;
                         self.asset = Some(asset);
                         self.draw = Some(draw);
                         self.elapsed = 0.;
-                        self.action = 0;
+                        self.action = idle.unwrap_or(0);
                     }
                     Err(error) => self.error = Some(error),
                 }
