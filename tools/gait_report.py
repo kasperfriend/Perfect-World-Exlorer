@@ -1039,14 +1039,15 @@ def rig_row(name, asset):
 def clip_probe_lines(donors):
     lines = []
     lines.append(
-        "## Clip content probe (shipped gender donors)\n\n"
-        "What the selected walk/run clips actually contain. `root`/`pelvis` are "
-        "the authored position-key axis ranges (min..max) next to the bone's "
-        "rest translation. `delta` values are the authored parent-space swing "
-        "angle in degrees at the first/mid/max key. Residents play these "
-        "deltas after frame transport with the root pinned to bind, so an "
-        "authored root/pelvis drop or a folded thigh reads as a crouch or a "
-        "sit in game.\n\n"
+        "## Clip content probe (shipped gender donors, window-restricted)\n\n"
+        "What each locomotion slice actually contains INSIDE its authored clip "
+        "window - not over the whole master track. The combined actions are "
+        "windows into shared master recordings, so whole-track statistics "
+        "describe jumps and falls, not the walk the game plays. `root`/`pelvis` "
+        "are the authored position-key axis ranges within the window next to "
+        "the bone's rest translation; the deltas are the authored parent-space "
+        "swing angle in degrees inside the window. An authored root/pelvis "
+        "drop or folded thigh reads as a crouch or a sit in game.\n\n"
     )
     for donor in (
         "models/players/形象/武侠男/躯干/武侠男.ecm",
@@ -1096,26 +1097,48 @@ def clip_probe_lines(donors):
                     m = mat_from_cols(bone["relative"])
                     return m[0][3], m[1][3], m[2][3]
 
+                def window_indices(track):
+                    fps = track["rotation"]["fps"]
+                    if fps <= 0:
+                        return []
+                    start_f = start_ms * fps / 1000.0
+                    end_f = end_ms * fps / 1000.0
+                    return [
+                        i for i, frame in enumerate(track["rotation"]["frames"])
+                        if start_f - 0.5 <= frame <= end_f + 0.5
+                    ]
+
                 def pos_range(track):
                     if track is None:
-                        return None
+                        return None, 0
+                    fps = track["position"]["fps"]
                     keys = track["position"]["keys"]
-                    axes = list(zip(*keys)) if keys else [(), (), ()]
-                    return [(min(a), max(a)) for a in axes]
+                    frames = track["position"]["frames"]
+                    pick = [
+                        i for i, frame in enumerate(frames)
+                        if start_ms * fps / 1000.0 - 0.5 <= frame <= end_ms * fps / 1000.0 + 0.5
+                    ]
+                    if not pick:
+                        pick = [0]
+                    axes = list(zip(*(keys[i] for i in pick)))
+                    return [(min(a), max(a)) for a in axes], len(pick)
 
                 def delta_angles(track, bone):
                     if track is None:
-                        return None
+                        return None, None
                     rel = mat_from_cols(bone["relative"])
                     s_cols, _ = normalized_cols(rel)
                     s_mat = unit_cols_to_mat(s_cols)
                     keys = track["rotation"]["keys"]
-                    picks = [0, len(keys) // 2, len(keys) - 1]
-                    angles = []
-                    for i in range(len(keys)):
+                    indices = window_indices(track)
+                    if not indices:
+                        indices = list(range(len(keys)))
+                    angles = {}
+                    for i in indices:
                         rs = quat_to_mat3(quat_norm(keys[i]))
-                        angles.append(angle_between_rotation_mats(s_mat, rs) if mat3_det(rs) > 0 else 999.0)
-                    return angles, picks
+                        angles[i] = angle_between_rotation_mats(s_mat, rs) if mat3_det(rs) > 0 else 999.0
+                    ordered = [angles[i] for i in sorted(angles)]
+                    return ordered, None
 
                 root_track, root_bone = track_for("Bip01")
                 pelvis_track, pelvis_bone = track_for("Bip01 Pelvis")
@@ -1126,11 +1149,10 @@ def clip_probe_lines(donors):
                 for tag, track, bone in (("root", root_track, root_bone), ("pelvis", pelvis_track, pelvis_bone)):
                     if track is None or bone is None:
                         continue
-                    rng = pos_range(track)
+                    rng, k = pos_range(track)
                     rest = rest_translation(bone)
-                    k = len(track["position"]["keys"])
                     lines.append(
-                        f"  - {tag} pos keys={k} rest=({rest[0]:.3f}, {rest[1]:.3f}, {rest[2]:.3f}) "
+                        f"  - {tag} pos window-keys={k} rest=({rest[0]:.3f}, {rest[1]:.3f}, {rest[2]:.3f}) "
                         f"x[{rng[0][0]:.3f}..{rng[0][1]:.3f}] "
                         f"y[{rng[1][0]:.3f}..{rng[1][1]:.3f}] "
                         f"z[{rng[2][0]:.3f}..{rng[2][1]:.3f}]\n"
@@ -1142,12 +1164,13 @@ def clip_probe_lines(donors):
                     track, bone = track_for(bone_name)
                     if track is None or bone is None:
                         continue
-                    angles, picks = delta_angles(track, bone)
-                    def ang(i):
-                        return f"{angles[i]:.1f}"
+                    angles, _ = delta_angles(track, bone)
+                    if not angles:
+                        lines.append(f"  - {bone_name}: no keys in window\n")
+                        continue
                     lines.append(
-                        f"  - {bone_name}: delta first {ang(0)} mid {ang(picks[1])} last {ang(len(angles)-1)} "
-                        f"max {max(angles):.1f} deg over {len(angles)} keys\n"
+                        f"  - {bone_name}: delta max {max(angles):.1f} deg, "
+                        f"mean {sum(angles) / len(angles):.1f} deg over {len(angles)} window keys\n"
                     )
         lines.append("\n")
 
