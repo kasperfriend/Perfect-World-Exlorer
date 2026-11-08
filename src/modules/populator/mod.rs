@@ -515,10 +515,28 @@ impl Library {
 /// 35-41 tracks, because the surplus tracks are joints the resident rig never
 /// had.
 const GAIT_CORE_BONES: [&str; 23] = [
-    "Bip01", "Bip01 Pelvis", "Bip01 Spine", "Bip01 Spine1", "Bip01 Spine2", "Bip01 Neck",
-    "Bip01 Head", "Bip01 L Clavicle", "Bip01 L UpperArm", "Bip01 L Forearm", "Bip01 L Hand",
-    "Bip01 R Clavicle", "Bip01 R UpperArm", "Bip01 R Forearm", "Bip01 R Hand", "Bip01 L Thigh",
-    "Bip01 L Calf", "Bip01 L Foot", "Bip01 L Toe0", "Bip01 R Thigh", "Bip01 R Calf", "Bip01 R Foot",
+    "Bip01",
+    "Bip01 Pelvis",
+    "Bip01 Spine",
+    "Bip01 Spine1",
+    "Bip01 Spine2",
+    "Bip01 Neck",
+    "Bip01 Head",
+    "Bip01 L Clavicle",
+    "Bip01 L UpperArm",
+    "Bip01 L Forearm",
+    "Bip01 L Hand",
+    "Bip01 R Clavicle",
+    "Bip01 R UpperArm",
+    "Bip01 R Forearm",
+    "Bip01 R Hand",
+    "Bip01 L Thigh",
+    "Bip01 L Calf",
+    "Bip01 L Foot",
+    "Bip01 L Toe0",
+    "Bip01 R Thigh",
+    "Bip01 R Calf",
+    "Bip01 R Foot",
     "Bip01 R Toe0",
 ];
 
@@ -3849,7 +3867,8 @@ mod tests {
             .rotation
             .keys
             .clone();
-        let retargeted = gait.walk
+        let retargeted = gait
+            .walk
             .tracks
             .iter()
             .find(|track| track.id == finger as i32)
@@ -3861,7 +3880,10 @@ mod tests {
             let angle = glam::Quat::from_array(*authored)
                 .normalize()
                 .angle_between(glam::Quat::from_array(*retargeted).normalize());
-            assert!(angle < 1.0e-4, "rest-equal rebase drifted by {angle} radians");
+            assert!(
+                angle < 1.0e-4,
+                "rest-equal rebase drifted by {angle} radians"
+            );
         }
 
         let mut incompatible = human_gait_asset();
@@ -4406,13 +4428,31 @@ mod tests {
     /// names are the client's biped conventions, split clavicles and
     /// three-spine layout included, so the real core-coverage gate applies.
     const HUMAN_GAIT_RIG: [(&str, i32); 25] = [
-        ("Bip01", -1), ("Bip01 Pelvis", 0), ("Bip01 Spine", 1), ("Bip01 Spine1", 2),
-        ("Bip01 Spine2", 3), ("Bip01 Neck", 4), ("Bip01 Head", 5), ("Bip01 L Clavicle", 4),
-        ("Bip01 L UpperArm", 7), ("Bip01 L Forearm", 8), ("Bip01 L Hand", 9),
-        ("Bip01 R Clavicle", 4), ("Bip01 R UpperArm", 11), ("Bip01 R Forearm", 12),
-        ("Bip01 R Hand", 13), ("Bip01 L Thigh", 1), ("Bip01 L Calf", 15), ("Bip01 L Foot", 16),
-        ("Bip01 L Toe0", 17), ("Bip01 R Thigh", 1), ("Bip01 R Calf", 19), ("Bip01 R Foot", 20),
-        ("Bip01 R Toe0", 21), ("Bip01 L Finger0", 10), ("Bip01 R Finger0", 14),
+        ("Bip01", -1),
+        ("Bip01 Pelvis", 0),
+        ("Bip01 Spine", 1),
+        ("Bip01 Spine1", 2),
+        ("Bip01 Spine2", 3),
+        ("Bip01 Neck", 4),
+        ("Bip01 Head", 5),
+        ("Bip01 L Clavicle", 4),
+        ("Bip01 L UpperArm", 7),
+        ("Bip01 L Forearm", 8),
+        ("Bip01 L Hand", 9),
+        ("Bip01 R Clavicle", 4),
+        ("Bip01 R UpperArm", 11),
+        ("Bip01 R Forearm", 12),
+        ("Bip01 R Hand", 13),
+        ("Bip01 L Thigh", 1),
+        ("Bip01 L Calf", 15),
+        ("Bip01 L Foot", 16),
+        ("Bip01 L Toe0", 17),
+        ("Bip01 R Thigh", 1),
+        ("Bip01 R Calf", 19),
+        ("Bip01 R Foot", 20),
+        ("Bip01 R Toe0", 21),
+        ("Bip01 L Finger0", 10),
+        ("Bip01 R Finger0", 14),
     ];
 
     fn human_gait_asset() -> ModelAsset {
@@ -4423,18 +4463,13 @@ mod tests {
     /// the same axis, modelling the resident/player rest-frame gap of the
     /// thumb chains; `extra_helper` adds a donor-only anim-joint track that
     /// no resident rig has, like the player bodies' `BoneNN_AnimJoint` set.
-    fn human_gait_asset_with(
-        divergent: Option<(&str, f32)>,
-        extra_helper: bool,
-    ) -> ModelAsset {
+    fn human_gait_asset_with(divergent: Option<(&str, f32)>, extra_helper: bool) -> ModelAsset {
         use crate::skeleton::{Bone, Joint};
         let mut asset = rig_without_combined_actions();
         asset.skeleton.fps = 30;
         for (index, (name, parent)) in HUMAN_GAIT_RIG.iter().enumerate() {
             let divergence = match divergent {
-                Some((divergent_name, degrees)) if divergent_name == *name => {
-                    degrees.to_radians()
-                }
+                Some((divergent_name, degrees)) if divergent_name == *name => degrees.to_radians(),
                 _ => 0.0,
             };
             let relative = (Mat4::from_rotation_z(0.1 * index as f32 + divergence)

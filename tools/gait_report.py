@@ -50,6 +50,21 @@ PROP_RIGS = {
     "models/npcs/npc/妖兽npc4/妖兽npc4.ecm",
 }
 
+# Mirrors the shipped retarget fix (src/modules/populator/mod.rs):
+# acceptance is full coverage of the locomotion bones, and a bone whose rest
+# frames diverge beyond MAX_GAP_DEG keeps its bind pose instead of being
+# re-oriented onto unrelated axes.
+CORE_BONES = (
+    "Bip01", "Bip01 Pelvis", "Bip01 Spine", "Bip01 Spine1", "Bip01 Spine2",
+    "Bip01 Neck", "Bip01 Head",
+    "Bip01 L Clavicle", "Bip01 L UpperArm", "Bip01 L Forearm", "Bip01 L Hand",
+    "Bip01 R Clavicle", "Bip01 R UpperArm", "Bip01 R Forearm", "Bip01 R Hand",
+    "Bip01 L Thigh", "Bip01 L Calf", "Bip01 L Foot", "Bip01 L Toe0",
+    "Bip01 R Thigh", "Bip01 R Calf", "Bip01 R Foot", "Bip01 R Toe0",
+)
+CORE_SET = frozenset(CORE_BONES)
+MAX_GAP_DEG = 45.0
+
 
 # --------------------------------------------------------------------------
 # matrices (4x4 as row-major lists) and quaternions (x, y, z, w)
@@ -394,7 +409,7 @@ def bone_parent_name(asset, parent):
     return None
 
 
-def retarget_clip(source, target, kind):
+def retarget_clip(source, target, kind, gate="legacy"):
     t_joints = {}
     for i, j in enumerate(target["skeleton"]["joints"]):
         t_joints.setdefault(j["name"], []).append(i)
@@ -474,21 +489,52 @@ def retarget_clip(source, target, kind):
             ):
                 aborted = f"non-unit bone scale on {sbone['name']} (clip rejected)"
                 break
+            s_unit = unit_cols_to_mat(sb["unit"])
+            t_unit = unit_cols_to_mat(tb["unit"])
+            rest_gap = (
+                angle_between_rotation_mats(s_unit, t_unit)
+                if mat3_det(s_unit) > 0.0 and mat3_det(t_unit) > 0.0
+                else 999.0
+            )
+            if gate == "core" and rest_gap > MAX_GAP_DEG:
+                skipped.append(
+                    (sbone["name"], f"rest gap {rest_gap:.1f} deg > {MAX_GAP_DEG:.0f}")
+                )
+                continue
             mapped.append(
                 {"joint": sjoint["name"], "bone": sbone["name"],
                  "src": sb, "tgt": tb,
                  "src_flags": sbone["flags"], "tgt_flags": tbone["flags"],
+                 "rest_gap": rest_gap,
                  "track": track}
             )
         if aborted:
             entry["verdict"] = aborted
             report["actions"].append(entry)
             continue
+        mapped_names = {m["bone"] for m in mapped}
+        core_gaps = [m["rest_gap"] for m in mapped if m["bone"] in CORE_SET]
+        entry["max_core_gap"] = max(core_gaps) if core_gaps else None
+        if gate == "core":
+            core_missing = [c for c in CORE_BONES if c not in mapped_names]
+            entry["bones"] = mapped
+            entry["mapped"] = len(mapped)
+            entry["skipped"] = skipped
+            if core_missing:
+                entry["verdict"] = "missing locomotion bones: " + ", ".join(core_missing)
+                entry["core_missing"] = core_missing
+                report["actions"].append(entry)
+                continue
+            entry["verdict"] = "accepted"
+            report["actions"].append(entry)
+            report["accepted"] = entry
+            break
         need = min(len(source_tracks), 8)
         if len(mapped) < need or len(mapped) * 100 < len(source_tracks) * 70:
             entry["verdict"] = f"insufficient coverage {len(mapped)}/{len(source_tracks)}"
             entry["mapped"] = len(mapped)
             entry["skipped"] = skipped
+            entry["bones"] = mapped
             report["actions"].append(entry)
             continue
         entry["verdict"] = "accepted"
@@ -674,7 +720,7 @@ def write_markdown(pack, names, out_path):
         )
         lines.append(f"- improper(det≈0) bones: {row['improper'] or 'none'}\n")
         lines.append(f"- non-orthonormal bones: {row['ortho_bad'] or 'none'}\n")
-        male = ecm.split("/")[2].startswith("男")
+        male = ecm.split("/")[3].startswith("男")
         gender_donors = [
             p for p, (_, g) in zip(player_paths, PLAYER_FOLDERS) if (g == "m") == male
         ]
@@ -686,20 +732,32 @@ def write_markdown(pack, names, out_path):
                 continue
             verdicts = []
             for kind in ("walk", "run"):
-                rep = retarget_clip(d, asset, kind)
+                rep = retarget_clip(d, asset, kind, gate="core")
                 acc = rep.get("accepted")
-                verdicts.append(
-                    f"{kind}={acc['name']} ({acc['mapped']}/{acc['source_tracks']})"
-                    if acc else f"{kind}=REJECTED"
-                )
-            lines.append(f"- donor `{tag}`: {', '.join(verdicts)}\n")
+                if acc:
+                    gap = acc.get("max_core_gap")
+                    gap_s = f"{gap:.1f} deg" if gap is not None else "n/a"
+                    verdicts.append(f"{kind}=accepted {acc['mapped']}/{acc['source_tracks']} (max core gap {gap_s})")
+                else:
+                    first = next((a for a in rep["actions"]), None)
+                    verdicts.append(
+                        f"{kind}=rejected ({first['verdict'] if first else 'no candidates'})"
+                    )
+            lines.append(f"- donor `{tag}` [core gate]: {', '.join(verdicts)}\n")
         lines.append("\n")
 
-    lines.append("## Summary table\n\n")
+    lines.append(
+        "## Summary table\n\n"
+        "`player *` columns use the shipped core-coverage gate (45 deg rest-gap bind "
+        "cutoff) with the gender-correct player donor. `guard *` columns keep the "
+        "legacy 70% gate (Guard rigs, the old behaviour) for contrast. "
+        "`max core gap` is the largest rest-frame divergence over mapped locomotion "
+        "bones for the same-gender player donor.\n\n"
+    )
     lines.append(
         "| resident | bon | bones | flagged | non15 | det≈0 | nonortho | scale≠1 | "
-        "player walk | player run | guard walk | guard run |\n"
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | --- | --- |\n"
+        "player walk | player run | max core gap° | guard walk | guard run |\n"
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | --- | --- |\n"
     )
     for ecm in resident_paths:
         asset, error = load_cached(ecm)
@@ -707,25 +765,29 @@ def write_markdown(pack, names, out_path):
             lines.append(f"| `{ecm}` | load error | | | | | | | | | | |\n")
             continue
         row = rig_row(ecm, asset)
-        male = ecm.split("/")[2].startswith("男")
+        male = ecm.split("/")[3].startswith("男")
         gender_donors = [
             p for p, (_, g) in zip(player_paths, PLAYER_FOLDERS) if (g == "m") == male
         ]
 
-        def verdict(donor, kind):
+        def verdict(donor, kind, gate):
             d = donors.get(donor)
             if d is None:
-                return "unloadable"
-            return "yes" if retarget_clip(d, asset, kind)["accepted"] else "no"
+                return "unloadable", None
+            rep = retarget_clip(d, asset, kind, gate=gate)
+            acc = rep.get("accepted")
+            return ("yes" if acc else "no"), (acc.get("max_core_gap") if acc else None)
 
-        pw = next((verdict(d, "walk") for d in gender_donors), "n/a")
-        pr = next((verdict(d, "run") for d in gender_donors), "n/a")
-        gw = next((verdict(d, "walk") for d in GUARDS), "n/a")
-        gr = next((verdict(d, "run") for d in GUARDS), "n/a")
+        pw, gap_w = next((verdict(d, "walk", "core") for d in gender_donors), ("n/a", None))
+        pr, gap_r = next((verdict(d, "run", "core") for d in gender_donors), ("n/a", None))
+        gw, _ = next((verdict(d, "walk", "legacy") for d in GUARDS), ("n/a", None))
+        gr, _ = next((verdict(d, "run", "legacy") for d in GUARDS), ("n/a", None))
+        gap = gap_w if gap_w is not None else gap_r
+        gap_s = f"{gap:.1f}" if gap is not None else "—"
         lines.append(
             f"| `{ecm}` | v{row['version']} | {row['bones']} | {row['flags']} | {row['non15']} | "
             f"{len(row['improper'])} | {len(row['ortho_bad'])} | {row['scale_bad']} | "
-            f"{pw} | {pr} | {gw} | {gr} |\n"
+            f"{pw} | {pr} | {gap_s} | {gw} | {gr} |\n"
         )
 
     lines.append("\n## Per-bone detail\n\n")
@@ -742,7 +804,7 @@ def write_markdown(pack, names, out_path):
             lines.append(f"### `{resident}` <- `{donor}`: unavailable ({r_error or 'donor'})\n\n")
             continue
         for kind in ("walk", "run"):
-            rep = retarget_clip(d_asset, r_asset, kind)
+            rep = retarget_clip(d_asset, r_asset, kind, gate="core")
             lines.append(f"### `{resident}` <- `{donor}` [{kind}]\n\n")
             acc = rep.get("accepted")
             if not acc:
@@ -750,21 +812,27 @@ def write_markdown(pack, names, out_path):
                     lines.append(f"- candidate `{a['name']}`: {a.get('verdict')}\n")
                     for joint, reason in a.get("skipped") or []:
                         lines.append(f"  - skipped `{joint}`: {reason}\n")
-                lines.append("\n")
-                continue
-            lines.append(f"accepted `{acc['name']}`: mapped {acc['mapped']}/{acc['source_tracks']} tracks\n\n")
-            skipped = acc.get("skipped") or []
-            if skipped:
-                lines.append(f"skipped {len(skipped)} tracks:\n\n")
-                for joint, reason in skipped:
-                    lines.append(f"- `{joint}`: {reason}\n")
-                lines.append("\n")
+                entry = next((a for a in rep["actions"] if a.get("bones")), None)
+                if entry:
+                    lines.append("\nmapped (bind-kept bones are absent):\n\n")
+                else:
+                    lines.append("\n")
+                    continue
+            else:
+                lines.append(f"accepted `{acc['name']}`: mapped {acc['mapped']}/{acc['source_tracks']} tracks, max core gap {acc.get('max_core_gap')}\n\n")
+                skipped = acc.get("skipped") or []
+                if skipped:
+                    lines.append(f"skipped {len(skipped)} tracks:\n\n")
+                    for joint, reason in skipped:
+                        lines.append(f"- `{joint}`: {reason}\n")
+                    lines.append("\n")
+                entry = acc
             lines.append(
                 "| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | "
                 "rest gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |\n"
                 "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
             )
-            for row in formula_probe(acc):
+            for row in formula_probe(entry):
                 def fnum(key):
                     v = row.get(key)
                     return "—" if v is None or (isinstance(v, float) and math.isnan(v)) else f"{v:.2f}"
