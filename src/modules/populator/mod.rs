@@ -301,7 +301,7 @@ struct Library {
 
 /// `R_` NPC textures store a specular mask in alpha, not surface opacity.
 /// Without the same per-mesh policy used by the model designer and preview,
-/// the alpha channel punches holes through Guard and resident bodies.
+/// the alpha channel punches holes through the residents' bodies.
 fn reflect_prefix_texture(path: &str) -> bool {
     crate::ecmodel::normalize(path)
         .rsplit('/')
@@ -440,21 +440,33 @@ impl Library {
     }
 
     /// Cache only validated walk/run pairs. The donor contributes animation
-    /// data, never a visible model; mismatched rigs retain the bind-pose route.
+    /// data, never a visible model; mismatching rigs retain the bind-pose
+    /// route. The donor is the normal player's rig for the resident's gender
+    /// (the client's `形象` appearance bodies): every numbered male/female
+    /// resident skeleton shares that rig's rest conventions (locomotion rest
+    /// frames differ by at most ~30 degrees, measured across all 69 resident
+    /// families), so the re-oriented clips read as the player's own walk/run.
+    /// Guard donors were measured to differ by up to ~118 degrees on the
+    /// arm/forearm/hand/finger chains, which no rest-frame rebase can bridge;
+    /// they are not used.
     fn retargeted_gait(&mut self, key: &str, target: &ModelAsset) -> Option<RetargetedGait> {
         if let Some(gait) = self.retargeted_gaits.get(key) {
             return gait.clone();
         }
-        const DONORS: [&str; 4] = [
-            "models/npcs/npc/卫兵npc1/卫兵npc1.ecm",
-            "models/npcs/npc/卫兵npc2/卫兵npc2.ecm",
-            "models/npcs/npc/卫兵npc3/卫兵npc3.ecm",
-            "models/npcs/npc/卫兵npc4/卫兵npc4.ecm",
-        ];
-        let gait = DONORS.iter().find_map(|path| {
-            let source = self.gait_source(path).ok()?;
-            retargeted_gait_from(&source, target)
-        });
+        const MALE_DONOR: &str = "models/players/形象/武侠男/躯干/武侠男.ecm";
+        const FEMALE_DONOR: &str = "models/players/形象/武侠女/躯干/武侠女.ecm";
+        let path = match live_world_gender(key) {
+            Some(NpcGender::Masculine) => MALE_DONOR,
+            Some(NpcGender::Feminine) => FEMALE_DONOR,
+            None => {
+                self.retargeted_gaits.insert(key.to_string(), None);
+                return None;
+            }
+        };
+        let gait = self
+            .gait_source(path)
+            .ok()
+            .and_then(|source| retargeted_gait_from(&source, target));
         self.retargeted_gaits.insert(key.to_string(), gait.clone());
         gait
     }
@@ -492,6 +504,37 @@ impl Library {
         }
     }
 }
+
+/// Bones that carry locomotion. A borrowed clip is accepted only when every
+/// one of them maps onto the target rig; everything else (thumb chains,
+/// finger anim joints, ponytails, prop attachment helpers) is optional.
+///
+/// This replaces a "most donor tracks mapped" heuristic, which rejected the
+/// player rigs as donors for low-detail residents: a 26-bone resident maps
+/// all 23 of these from either player body, but only ~61-71% of the donor's
+/// 35-41 tracks, because the surplus tracks are joints the resident rig never
+/// had.
+const GAIT_CORE_BONES: [&str; 23] = [
+    "Bip01", "Bip01 Pelvis", "Bip01 Spine", "Bip01 Spine1", "Bip01 Spine2", "Bip01 Neck",
+    "Bip01 Head", "Bip01 L Clavicle", "Bip01 L UpperArm", "Bip01 L Forearm", "Bip01 L Hand",
+    "Bip01 R Clavicle", "Bip01 R UpperArm", "Bip01 R Forearm", "Bip01 R Hand", "Bip01 L Thigh",
+    "Bip01 L Calf", "Bip01 L Foot", "Bip01 L Toe0", "Bip01 R Thigh", "Bip01 R Calf", "Bip01 R Foot",
+    "Bip01 R Toe0",
+];
+
+/// A borrowed rotation is re-oriented from the donor's rest frame onto the
+/// target's bind pose. That re-orientation is only meaningful while the two
+/// rigs author the bone along roughly similar axes. Beyond this measured
+/// rest-frame gap the re-based rotation swings the bone about an anatomically
+/// wrong axis, which on a skinned arm stretches the forearm/hand silhouette.
+/// Rather than mis-pose such a bone, the retarget leaves it at its bind pose.
+///
+/// Measured on the retail rigs (see `Findings/recovery/gait-evidence.md`):
+/// player bodies vs. every numbered resident rig differ by at most ~30
+/// degrees on the locomotion bones above; only the thumb (`Finger0`) rest
+/// frames diverge (61-68 degrees), which this threshold intentionally
+/// excludes from retargeting.
+const MAX_GAIT_REST_GAP_DEG: f32 = 45.0;
 
 fn gait_kind(name: &str) -> Option<GaitKind> {
     if !locomotion_name(name) {
@@ -555,6 +598,7 @@ fn retarget_gait_clip(
             continue;
         }
         let mut seen = HashSet::new();
+        let mut mapped_bones: HashSet<&str> = HashSet::new();
         let mut retargeted = Vec::with_capacity(source_tracks.len());
         let mut compatible = true;
         for track in source_tracks {
@@ -566,8 +610,9 @@ fn retarget_gait_clip(
                 break;
             };
             let Some(&target_joint_index) = target_joints.get(source_joint.name.as_str()) else {
-                // Guard rigs can carry extra attachment joints. Ignore those,
-                // but require broad track coverage before accepting the clip.
+                // Donor rigs can carry extra attachment, finger-chain and
+                // helper joints the resident rig never had. Ignore those;
+                // acceptance is decided by locomotion coverage below.
                 continue;
             };
             let target_joint = &target.skeleton.joints[target_joint_index];
@@ -612,11 +657,37 @@ fn retarget_gait_clip(
                 compatible = false;
                 break;
             }
-            let rest_delta = source_rest_rotation.inverse();
+            // A rest frame this far apart points the two rigs' bone axes in
+            // almost unrelated directions. Re-orienting the donor's rotation
+            // onto those axes would swing the target bone about a wrong axis
+            // (the stretched, extended arm/hand artefact), so keep the bone
+            // at its bind pose instead. Non-core bones are skipped silently;
+            // a core bone staying at bind makes the whole clip fail the
+            // locomotion coverage gate below, which keeps the resident in its
+            // authored bind pose rather than posing half its body.
+            let rest_gap = source_rest_rotation
+                .normalize()
+                .angle_between(target_rest_rotation.normalize())
+                .to_degrees();
+            if rest_gap > MAX_GAIT_REST_GAP_DEG {
+                continue;
+            }
+            let rest_inverse = source_rest_rotation.inverse();
             let mut rotation = track.rotation.clone();
             for key in &mut rotation.keys {
                 let authored = glam::Quat::from_array(*key).normalize();
-                let mapped = (target_rest_rotation * rest_delta * authored).normalize();
+                // Premultiply the target's bind orientation by the donor's
+                // parent-space swing delta: `authored * rest^-1` is the
+                // rotation the source's pose differs from its bind by in the
+                // PARENT frame. The engine composes absolute = parent * local,
+                // so applying that same parent-space delta to the target's
+                // bind preserves the axis the author keyed: a leg still
+                // swings forward and a spine still twists instead of rotating
+                // about a differently-twisted local axis. Using the
+                // bone-local delta (`target_rest * rest^-1 * authored`) was
+                // what rotated the borrowed clips onto wildly offset arm
+                // frames and produced the broken limbs.
+                let mapped = (authored * rest_inverse * target_rest_rotation).normalize();
                 if !mapped.is_finite() {
                     compatible = false;
                     break;
@@ -626,6 +697,7 @@ fn retarget_gait_clip(
             if !compatible {
                 break;
             }
+            mapped_bones.insert(target_bone.name.as_str());
             retargeted.push(BoneTrack {
                 id: target_joint_index as i32,
                 position: KeyTrack {
@@ -638,10 +710,14 @@ fn retarget_gait_clip(
                 rotation,
             });
         }
-        if !compatible
-            || retargeted.len() < source_tracks.len().min(8)
-            || retargeted.len() * 100 < source_tracks.len() * 70
-        {
+        // Acceptance is defined by locomotion coverage, not by donor track
+        // count: every bone the legs and the torso swing on must map. Extra
+        // donor tracks (attachment joints, finger-chain anim joints, helper
+        // bones) are skipped above and do not count against the clip.
+        let core_complete = GAIT_CORE_BONES
+            .iter()
+            .all(|core| mapped_bones.contains(*core));
+        if !compatible || !core_complete {
             continue;
         }
         let Ok(start) = target.pose_tracks_at_time(&retargeted, clip.seconds(0.), Mat4::IDENTITY)
@@ -753,9 +829,10 @@ impl Live {
     fn pose(&mut self) -> Result<Vec<PosedMesh>, String> {
         let world = self.world();
         // Generated residents keep their original city rig as the visible
-        // model. Borrowed Guard locomotion is used only when its skeleton can
-        // be safely retargeted; otherwise the collision-checked route continues
-        // in bind pose. Never substitute the donor's Guard mesh.
+        // model. The normal player's walk/run animation is used only when its
+        // skeleton can be safely retargeted onto that rig; otherwise the
+        // collision-checked route continues in bind pose. Never substitute
+        // the donor's player mesh.
         if self.live_world {
             if self.live_world_moving {
                 let clip = self.gait.as_ref().map(|gait| {
@@ -2230,8 +2307,8 @@ impl Populator {
     }
 
     /// Incrementally validate the original city-local human rigs that form the
-    /// appearance palette. Locomotion is resolved separately from compatible
-    /// Guard track donors; corrupt/unloadable appearance rigs are rejected.
+    /// appearance palette. Locomotion is resolved separately from the normal
+    /// player's track donors; corrupt/unloadable appearance rigs are rejected.
     /// Asset decompression is budgeted across frames.
     fn prepare_live_world_templates(&mut self) {
         if !self.live_world || self.live_world_templates_ready {
@@ -3359,7 +3436,7 @@ impl Populator {
         }
         ui.label(
             egui::RichText::new(
-                "Native NPCs use client placements, models, idle animation and names. Live World (Experimental) tries synthetic residents near city targets using original male/female models, retargeted walk/run tracks when their skeletons validate, and safe local routes. Guard meshes are never used; unmatched rigs keep moving in bind pose. It may generate zero if no rig or route passes; server spawn data is unavailable.",
+                "Native NPCs use client placements, models, idle animation and names. Live World (Experimental) tries synthetic residents near city targets using original male/female models, the normal player's walk/run animation retargeted when their skeletons validate, and safe local routes. The donor's player mesh is never used; unmatched rigs keep moving in bind pose. It may generate zero if no rig or route passes; server spawn data is unavailable.",
             )
             .small()
             .weak(),
@@ -3745,7 +3822,7 @@ mod tests {
     }
 
     #[test]
-    fn guard_gait_tracks_retarget_by_joint_and_bone_name_onto_original_rigs() {
+    fn human_gait_tracks_retarget_by_joint_and_bone_name_onto_original_rigs() {
         let source = human_gait_asset();
         let target = human_gait_asset();
         let gait = retargeted_gait_from(&source, &target)
@@ -3759,11 +3836,76 @@ mod tests {
                 .unwrap();
             assert_ne!(walk_pose_signature(&bind), walk_pose_signature(&moving));
         }
+        // Identical rest frames rebase to the authored keys exactly: the
+        // parent-space delta `authored * rest^-1` is the identity conjugate.
+        let finger = human_gait_joint_index(&target, "Bip01 L Finger0");
+        let authored = source.tracks[0]
+            .as_ref()
+            .unwrap()
+            .tracks
+            .iter()
+            .find(|track| track.id == finger as i32)
+            .unwrap()
+            .rotation
+            .keys
+            .clone();
+        let retargeted = gait.walk
+            .tracks
+            .iter()
+            .find(|track| track.id == finger as i32)
+            .expect("an identical rig maps the thumb track")
+            .rotation
+            .keys
+            .clone();
+        for (authored, retargeted) in authored.iter().zip(retargeted.iter()) {
+            let angle = glam::Quat::from_array(*authored)
+                .normalize()
+                .angle_between(glam::Quat::from_array(*retargeted).normalize());
+            assert!(angle < 1.0e-4, "rest-equal rebase drifted by {angle} radians");
+        }
 
         let mut incompatible = human_gait_asset();
-        incompatible.skeleton.bones[0].name = "different root".into();
-        incompatible.skins[0].data.bones[0] = "different root".into();
+        incompatible.skeleton.bones[1].name = "different pelvis".into();
         assert!(retargeted_gait_from(&source, &incompatible).is_none());
+    }
+
+    #[test]
+    fn a_bone_whose_rest_frame_diverges_keeps_its_bind_pose() {
+        // The thumb follows the finger chain at a rest frame 80 degrees away
+        // from the donor, like the resident/player `Finger0` pair. Everything
+        // else matches, so the clip is accepted but the thumb is left at bind
+        // instead of curling about an unrelated axis.
+        let source = human_gait_asset();
+        let target = human_gait_asset_with(Some(("Bip01 L Finger0", 80.0_f32)), false);
+        let gait = retargeted_gait_from(&source, &target)
+            .expect("the locomotion bones still map completely");
+        let finger = human_gait_joint_index(&target, "Bip01 L Finger0") as i32;
+        for clip in [&gait.walk, &gait.run] {
+            assert!(
+                clip.tracks.iter().all(|track| track.id != finger),
+                "a divergent thumb must keep its bind pose"
+            );
+            assert!(
+                clip.tracks.len() >= GAIT_CORE_BONES.len(),
+                "the locomotion bones must still retarget"
+            );
+        }
+    }
+
+    #[test]
+    fn donor_helper_tracks_without_a_target_joint_do_not_block_the_clip() {
+        // Player bodies carry attachment and finger-chain anim-joint tracks
+        // that resident rigs never had; they must be ignored rather than
+        // counted as coverage failures.
+        let source = human_gait_asset_with_extra_helper();
+        let target = human_gait_asset();
+        let gait = retargeted_gait_from(&source, &target)
+            .expect("donor-only helper tracks are skipped, not fatal");
+        assert_eq!(
+            gait.walk.tracks.len(),
+            target.skeleton.joints.len(),
+            "every donor helper track is skipped; the resident rig maps fully"
+        );
     }
 
     #[test]
@@ -4260,44 +4402,137 @@ mod tests {
         }
     }
 
+    /// The full locomotion rig the synthetic donor/target tests share. Bone
+    /// names are the client's biped conventions, split clavicles and
+    /// three-spine layout included, so the real core-coverage gate applies.
+    const HUMAN_GAIT_RIG: [(&str, i32); 25] = [
+        ("Bip01", -1), ("Bip01 Pelvis", 0), ("Bip01 Spine", 1), ("Bip01 Spine1", 2),
+        ("Bip01 Spine2", 3), ("Bip01 Neck", 4), ("Bip01 Head", 5), ("Bip01 L Clavicle", 4),
+        ("Bip01 L UpperArm", 7), ("Bip01 L Forearm", 8), ("Bip01 L Hand", 9),
+        ("Bip01 R Clavicle", 4), ("Bip01 R UpperArm", 11), ("Bip01 R Forearm", 12),
+        ("Bip01 R Hand", 13), ("Bip01 L Thigh", 1), ("Bip01 L Calf", 15), ("Bip01 L Foot", 16),
+        ("Bip01 L Toe0", 17), ("Bip01 R Thigh", 1), ("Bip01 R Calf", 19), ("Bip01 R Foot", 20),
+        ("Bip01 R Toe0", 21), ("Bip01 L Finger0", 10), ("Bip01 R Finger0", 14),
+    ];
+
     fn human_gait_asset() -> ModelAsset {
+        human_gait_asset_with(None, false)
+    }
+
+    /// `divergent` rotates one bone's rest frame by the given degrees about
+    /// the same axis, modelling the resident/player rest-frame gap of the
+    /// thumb chains; `extra_helper` adds a donor-only anim-joint track that
+    /// no resident rig has, like the player bodies' `BoneNN_AnimJoint` set.
+    fn human_gait_asset_with(
+        divergent: Option<(&str, f32)>,
+        extra_helper: bool,
+    ) -> ModelAsset {
         use crate::skeleton::{Bone, Joint};
         let mut asset = rig_without_combined_actions();
         asset.skeleton.fps = 30;
-        asset.skeleton.bones.push(Bone {
-            name: "root".into(),
-            flags: 0,
-            parent: -1,
-            first_joint: 0,
-            relative: Mat4::IDENTITY.to_cols_array(),
-            initial: Mat4::IDENTITY.to_cols_array(),
-            children: Vec::new(),
-        });
-        asset.skeleton.joints.push(Joint {
-            class: 15,
-            name: "root joint".into(),
-            parent: -1,
-            child: 0,
-            sibling: -1,
-        });
-        asset.skins[0].data.bones.push("root".into());
+        for (index, (name, parent)) in HUMAN_GAIT_RIG.iter().enumerate() {
+            let divergence = match divergent {
+                Some((divergent_name, degrees)) if divergent_name == *name => {
+                    degrees.to_radians()
+                }
+                _ => 0.0,
+            };
+            let relative = (Mat4::from_rotation_z(0.1 * index as f32 + divergence)
+                * Mat4::from_translation(Vec3::new(0., -0.35, 0.)))
+            .to_cols_array();
+            asset.skeleton.bones.push(Bone {
+                name: (*name).into(),
+                flags: 0,
+                parent: *parent,
+                first_joint: index as i32,
+                relative,
+                initial: relative,
+                children: Vec::new(),
+            });
+            asset.skeleton.joints.push(Joint {
+                class: 15,
+                name: (*name).into(),
+                parent: *parent,
+                child: index as i32,
+                sibling: -1,
+            });
+            asset.skins[0].data.bones.push((*name).into());
+        }
         asset.model.actions = vec![idle_action("walk", 0., 30.), idle_action("run", 0., 30.)];
-        let gait = synthetic_gait_track();
-        asset.tracks = vec![Some(gait.clone()), Some(gait)];
+        if extra_helper {
+            // A donor-only attachment joint (like the player bodies'
+            // `BoneNN_AnimJoint` set): real in the source rig, absent from
+            // the target.
+            let helper = HUMAN_GAIT_RIG.len();
+            let relative = Mat4::IDENTITY;
+            asset.skeleton.bones.push(Bone {
+                name: "Bone01".into(),
+                flags: 0,
+                parent: -1,
+                first_joint: helper as i32,
+                relative: relative.to_cols_array(),
+                initial: relative.to_cols_array(),
+                children: Vec::new(),
+            });
+            asset.skeleton.joints.push(Joint {
+                class: 15,
+                name: "Bone01_AnimJoint".into(),
+                parent: -1,
+                child: helper as i32,
+                sibling: -1,
+            });
+            let mut track_set = synthetic_full_gait_track();
+            let mut tracks = Vec::with_capacity(track_set.tracks.len() + 1);
+            tracks.extend_from_slice(&track_set.tracks);
+            tracks.push(crate::animation::BoneTrack {
+                id: helper as i32,
+                position: crate::animation::KeyTrack {
+                    fps: 30,
+                    keys: vec![[0., 0., 0.]; 3],
+                    frames: vec![0., 15., 30.],
+                    length_ms: 1000,
+                    compression: 1,
+                },
+                rotation: crate::animation::KeyTrack {
+                    fps: 30,
+                    keys: vec![[0., 0., 0., 1.]; 3],
+                    frames: vec![0., 15., 30.],
+                    length_ms: 1000,
+                    compression: 1,
+                },
+            });
+            track_set = std::sync::Arc::new(crate::animation::TrackSet {
+                tracks,
+                ..(*track_set).clone()
+            });
+            asset.tracks = vec![Some(track_set.clone()), Some(track_set)];
+        } else {
+            let track_set = synthetic_full_gait_track();
+            asset.tracks = vec![Some(track_set.clone()), Some(track_set)];
+        }
         asset
     }
 
-    fn synthetic_gait_track() -> std::sync::Arc<crate::animation::TrackSet> {
+    fn human_gait_asset_with_extra_helper() -> ModelAsset {
+        human_gait_asset_with(None, true)
+    }
+
+    fn human_gait_joint_index(asset: &ModelAsset, name: &str) -> usize {
+        asset
+            .skeleton
+            .joints
+            .iter()
+            .position(|joint| joint.name == name)
+            .expect("fixture joint exists")
+    }
+
+    fn synthetic_full_gait_track() -> std::sync::Arc<crate::animation::TrackSet> {
         use crate::animation::{BoneTrack, KeyTrack, TrackSet};
         let frames = vec![0., 15., 30.];
-        let half_angle = 0.35_f32;
-        std::sync::Arc::new(TrackSet {
-            version: 2,
-            start: 0,
-            end: 30,
-            fps: 30,
-            tracks: vec![BoneTrack {
-                id: 0,
+        let swing = glam::Quat::from_rotation_z(0.6).to_array();
+        let tracks = (0..HUMAN_GAIT_RIG.len())
+            .map(|index| BoneTrack {
+                id: index as i32,
                 position: KeyTrack {
                     fps: 30,
                     keys: vec![[0., 0., 0.]; 3],
@@ -4307,16 +4542,19 @@ mod tests {
                 },
                 rotation: KeyTrack {
                     fps: 30,
-                    keys: vec![
-                        [0., 0., 0., 1.],
-                        [0., 0., half_angle.sin(), half_angle.cos()],
-                        [0., 0., 0., 1.],
-                    ],
-                    frames,
+                    keys: vec![[0., 0., 0., 1.], swing, [0., 0., 0., 1.]],
+                    frames: frames.clone(),
                     length_ms: 1000,
                     compression: 1,
                 },
-            }],
+            })
+            .collect();
+        std::sync::Arc::new(TrackSet {
+            version: 2,
+            start: 0,
+            end: 30,
+            fps: 30,
+            tracks,
         })
     }
 
