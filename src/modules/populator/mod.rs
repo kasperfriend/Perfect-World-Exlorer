@@ -440,15 +440,21 @@ impl Library {
     }
 
     /// Cache only validated walk/run pairs. The donor contributes animation
-    /// data, never a visible model; mismatching rigs retain the bind-pose
-    /// route. The donor is the normal player's rig for the resident's gender
-    /// (the client's `形象` appearance bodies): every numbered male/female
-    /// resident skeleton shares that rig's rest conventions (locomotion rest
-    /// frames differ by at most ~30 degrees, measured across all 69 resident
-    /// families), so the re-oriented clips read as the player's own walk/run.
-    /// Guard donors were measured to differ by up to ~118 degrees on the
-    /// arm/forearm/hand/finger chains, which no rest-frame rebase can bridge;
-    /// they are not used.
+    /// data, never a visible model; rigs that fail validation retain the
+    /// bind-pose route.
+    ///
+    /// The donor is the normal player's rig for the resident's gender
+    /// (the client's `形象` appearance bodies). Rest frames diverge much
+    /// further than "similar rigs" on some bones (female forearm/hand chains
+    /// reach ~65-81 degrees, thumbs ~85), so the clips must not be re-based
+    /// onto unrelated axes: the retarget transports the donor's parent-space
+    /// swing delta through each rig's own rest frames. Measured on the retail
+    /// client (`Findings/recovery/gait-evidence.md`): every numbered male and
+    /// female resident rig maps all 23 locomotion bones from its gender
+    /// donor, walk and run, and the mapped swing deltas are preserved to
+    /// 0.00 degrees of angular error. Guard donors were retired as the
+    /// shipped source; the gender-correct player donor is a strict
+    /// superset match and is what Live World residents play.
     fn retargeted_gait(&mut self, key: &str, target: &ModelAsset) -> Option<RetargetedGait> {
         if let Some(gait) = self.retargeted_gaits.get(key) {
             return gait.clone();
