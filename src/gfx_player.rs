@@ -872,6 +872,14 @@ struct GroundFrames {
     /// owner+0x13c: the owner's own orientation at ground height, the copy of
     /// the base matrix that `0x6e5592` re-transforms with the ground height.
     height_only: Mat4,
+    /// The frame element+0x150 `GrndNormOnly` asks for: the ground *normal*
+    /// without the snapped height, so the effect lies on the slope's plane but
+    /// stays at its own altitude rather than sliding down to the surface. It is
+    /// the aligned orientation of `aligned` carried at the owner's own position
+    /// instead of the raycast height — the third of the three combinations the
+    /// two vectors at owner+0x1b4 and owner+0x1a0 make available, and the one
+    /// neither of the other two frames expresses.
+    normal_only: Mat4,
 }
 
 /// One live root instance.
@@ -1281,6 +1289,7 @@ impl Player {
             near_ground,
             aligned: Mat4::from_rotation_translation(aligned, at_ground) * scale,
             height_only: Mat4::from_rotation_translation(own, at_ground) * scale,
+            normal_only: Mat4::from_rotation_translation(aligned, origin) * scale,
         })
     }
 
@@ -1304,6 +1313,14 @@ impl Player {
     /// quaternion at `0x6e5539`, so it already carries the aligned orientation.
     fn ground_parent(&self, frames: Option<&GroundFrames>, element: &Element, base: Mat4) -> Mat4 {
         let Some(frames) = frames else { return base };
+        // element+0x150 `GrndNormOnly` takes precedence over both selectors
+        // below: it asks for the ground normal alone, which is neither of the
+        // frames `GroundHeight`/`MatchGrnd` choose between. 456 corpus sprites
+        // set it, almost all of them weapon trails that have to lie in the
+        // struck surface without dropping to it.
+        if matches!(&element.spec, Spec::Sprite(s) if s.ground_normal_only) {
+            return frames.normal_only;
+        }
         if element.common.ground_height != 0. {
             return if element.common.match_ground {
                 frames.aligned
@@ -4990,6 +5007,70 @@ mod tests {
     fn corpus_root() -> Option<std::path::PathBuf> {
         let root = std::path::PathBuf::from("google_drive/x");
         root.is_dir().then_some(root)
+    }
+
+    /// `GrndNormOnly` must put the effect on the slope's plane without moving it
+    /// down to the surface.
+    ///
+    /// The three ground frames are distinct: `height_only` keeps the owner's own
+    /// orientation at the raycast height, `aligned` takes both the orientation
+    /// and the height from the surface, and the frame this flag asks for takes
+    /// the orientation only. 456 corpus sprites set the flag, and they are
+    /// almost all weapon trails, which is exactly the case where dropping to the
+    /// surface is wrong: the trail belongs at the height it was struck.
+    #[test]
+    fn grnd_norm_only_keeps_the_element_at_its_own_height() {
+        // The three ground frames differ only in what they take from the surface:
+        // `height_only` takes the height, `aligned` takes the height and the
+        // normal, and the frame `GrndNormOnly` asks for takes the normal alone.
+        // Tested at the frame level, because the element's own keypoint offset is
+        // applied on top of whichever frame is chosen and would mask the choice.
+        let place = Mat4::from_translation(Vec3::Y * 2.);
+        let base = Mat4::from_scale(Vec3::splat(1.));
+        let hit = GroundHit {
+            height: -40.,
+            normal: tilted_normal(2.),
+        };
+        // A minimal player, only for its ground helpers.
+        let player = build(&(header37(1) + &SPRITE));
+        let frames = player
+            .ground_frames(hit, place, base)
+            .expect("a finite hit must build the frames");
+        let parsed = gfx_file::parse(&(header37(1) + &SPRITE)).unwrap();
+        let mut element = parsed.elements[0].clone();
+        let Spec::Sprite(ref mut sprite) = element.spec else {
+            panic!("the fixture is a sprite")
+        };
+        sprite.ground_normal_only = true;
+        let flagged = player.ground_parent(Some(&frames), &element, base);
+        element.spec = match element.spec {
+            Spec::Sprite(s) => Spec::Sprite(Sprite {
+                ground_normal_only: false,
+                ..s
+            }),
+            other => other,
+        };
+        let unflagged = player.ground_parent(Some(&frames), &element, base);
+        // The owner is at y = 2 and the surface at y = -40. The flagged element
+        // must stay at the owner; the unflagged one has nothing to ask for and
+        // keeps the plain base.
+        assert!(
+            (flagged.w_axis.y - 2.).abs() < 0.01,
+            "GrndNormOnly must stay at the owner's altitude, got {}",
+            flagged.w_axis.y
+        );
+        assert!(
+            (unflagged.w_axis.y - 0.).abs() < 0.01,
+            "without the flag and without MatchGrnd/GroundHeight the base frame stands, got {}",
+            unflagged.w_axis.y
+        );
+        // And the aligned frame really does reach the surface, which is what the
+        // flag is choosing not to do.
+        assert!(
+            (frames.aligned.w_axis.y + 40.).abs() < 0.01,
+            "the aligned frame must sit on the surface, got {}",
+            frames.aligned.w_axis.y
+        );
     }
 
     /// Element 190 curves must draw, not just be counted.
