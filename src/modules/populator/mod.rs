@@ -550,7 +550,7 @@ const GAIT_CORE_BONES: [&str; 23] = [
 /// 1 = every other locomotion-named slice. Stable sorting keeps file order
 /// within a tier.
 fn gait_candidate_rank(name: &str) -> u8 {
-    const PLAIN: [&str; 10] = [
+    const PLAIN: [&str; 9] = [
         "行走_通用", "移动_通用", "行走", "移动", "走",
         "奔跑_通用", "跑_通用", "奔跑", "跑",
     ];
