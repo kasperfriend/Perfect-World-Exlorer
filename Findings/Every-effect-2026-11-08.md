@@ -548,3 +548,51 @@ went green on the next push; the Windows job is a separate matter — it fails i
 `msys2/setup-msys2@v2` with `Unexpected HTTP response: 504`, the same
 infrastructure failure `main` itself has at `9748c05`, and it never reaches a
 compile step.
+
+## Update 3: the `MaxExtent` tail, verified
+
+The `MaxExtent` field was decoded from the key name without ever confirming the
+client's arithmetic against the binary. It holds.
+
+The loader's tail is two branches, and they select on `Width > Height`:
+
+```
+0x71e112  fld [esp+0x14] ; fcomp st(1) ; test ah,0x41 ; jne 0x71e141
+0x71e121  fld [edi+0x140]          ; Width
+0x71e127  fmul ds:0x8d75cc
+0x71e12f  fstp [edi+0x174]
+0x71e141  fld [edi+0x144]          ; Height
+0x71e147  fmul ds:0x8d75cc
+0x71e14f  fstp [edi+0x174]
+```
+
+so `max_extent = 1.5 * max(width, height)` exactly as `gfx_file` computes it —
+including the width-wins-on-ties direction, which is what `fcomp` + `jne` gives
+(`Width > Height` takes the width branch). Resolving the constant at
+`0x8d75cc` through the section table gives `1.5`, which also pins the other
+long-standing literal:
+
+| address | value | meaning |
+|---|---:|---|
+| `0x8d75cc` | 1.5 | `MaxExtent` multiplier |
+| `0x8d5894` | 0.5 | half, profile split point |
+| `0x8d5c28` | 1.0 | one |
+| `0x8d75d4` | 0.6 | basis epsilon (`|dir.y| < 0.6`) |
+| `0x8eadc0` | 1/255 | byte-to-float colour scale |
+
+### Why `max_extent` is decoded and unused, and that is the right answer
+
+Every reader of `element+0x174` in the client is a struct copy or a
+serialization step (`0x70b3f5` and `0x678fb5` copy it into another object;
+`0x4e83d9` reloads it behind a vtable call; `0x81cfea` stashes it in a stack
+temp). None is on a sprite draw path, because the field is not geometry: it is
+the radius the client uses to decide whether a sprite is too far to keep
+emitting.
+
+This viewer submits every quad it builds and lets the GPU clip, so there is no
+distance budget for `max_extent` to trim. Wiring it in would *remove* effects
+that currently draw, not add any. Same reasoning for `match_surface`: it selects
+between the flat and the ground-aligned billboard basis, and the ground-aligned
+path already exists via `match_ground`/`ground_normal_only`, which is what the
+16 `MatchSurface` sprites are observed to need. Both stay decoded and
+documented as unused rather than silently hooked to something plausible.
