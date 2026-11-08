@@ -4018,9 +4018,9 @@ mod tests {
             {
                 let authored = glam::Quat::from_array(*authored_key).normalize();
                 let mapped = glam::Quat::from_array(*mapped_key).normalize();
-                let rebase = (authored * source_rest.normalize().inverse()
-                    * target_rest.normalize())
-                .normalize();
+                let rebase =
+                    (authored * source_rest.normalize().inverse() * target_rest.normalize())
+                        .normalize();
                 assert!(
                     mapped.angle_between(rebase) < 1.0e-4,
                     "parent frames match, but the mapped key diverges from Rs S^-1 T"
@@ -4036,8 +4036,17 @@ mod tests {
         let half_turn = Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
         for (name, parent, relative) in [
             ("root", -1_i32, Mat4::IDENTITY),
-            ("pelvis", 0_i32, half_turn * Mat4::from_translation(Vec3::new(0., -0.35, 0.))),
-            ("sine", 1_i32, Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2) * Mat4::from_translation(Vec3::new(0., -0.4, 0.))),
+            (
+                "pelvis",
+                0_i32,
+                half_turn * Mat4::from_translation(Vec3::new(0., -0.35, 0.)),
+            ),
+            (
+                "sine",
+                1_i32,
+                Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2)
+                    * Mat4::from_translation(Vec3::new(0., -0.4, 0.)),
+            ),
         ] {
             let index = asset.skeleton.bones.len();
             asset.skeleton.bones.push(Bone {
