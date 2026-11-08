@@ -409,6 +409,40 @@ def bone_parent_name(asset, parent):
     return None
 
 
+def _abs_rest_rotations(bones):
+    """Rotation-only absolute rest orientation per bone (row-major mat3s)."""
+    units = [unit_cols_to_mat(normalized_cols(mat_from_cols(b["relative"]))[0]) for b in bones]
+    abs_rot = [None] * len(bones)
+
+    def resolve(i):
+        if abs_rot[i] is None:
+            parent = bones[i]["parent"]
+            if 0 <= parent < len(bones):
+                abs_rot[i] = mat3_mul(resolve(parent), units[i])
+            else:
+                abs_rot[i] = [row[:] for row in units[i]]
+        return abs_rot[i]
+
+    for i in range(len(bones)):
+        resolve(i)
+    return abs_rot
+
+
+def _chain_divergence(src_abs, tgt_abs, sbone, tbone):
+    """Angle between the two skeletons' rest PARENT frames for this bone.
+
+    This is the frame the retargeted delta actually lands in once the engine
+    composes absolute = parent * local, so it is the quantity that decides
+    whether the donor's swing axis still reads as a forward swing.
+    """
+    sp, tp = sbone["parent"], tbone["parent"]
+    if not (0 <= sp < len(src_abs)) or not (0 <= tp < len(tgt_abs)):
+        return 0.0
+    if mat3_det(src_abs[sp]) <= 0.0 or mat3_det(tgt_abs[tp]) <= 0.0:
+        return 180.0
+    return angle_between_rotation_mats(src_abs[sp], tgt_abs[tp])
+
+
 def retarget_clip(source, target, kind, gate="legacy"):
     t_joints = {}
     for i, j in enumerate(target["skeleton"]["joints"]):
@@ -451,6 +485,9 @@ def retarget_clip(source, target, kind, gate="legacy"):
 
         mapped, seen, skipped = [], set(), []
         aborted = None
+        if gate == "core":
+            src_abs = _abs_rest_rotations(source["skeleton"]["bones"])
+            tgt_abs = _abs_rest_rotations(target["skeleton"]["bones"])
         for track in source_tracks:
             sid = track["id"]
             sjoint = source["skeleton"]["joints"][sid] if 0 <= sid < len(source["skeleton"]["joints"]) else None
@@ -496,16 +533,21 @@ def retarget_clip(source, target, kind, gate="legacy"):
                 if mat3_det(s_unit) > 0.0 and mat3_det(t_unit) > 0.0
                 else 999.0
             )
-            if gate == "core" and rest_gap > MAX_GAP_DEG:
-                skipped.append(
-                    (sbone["name"], f"rest gap {rest_gap:.1f} deg > {MAX_GAP_DEG:.0f}")
-                )
-                continue
+            if gate == "core":
+                chain_gap = _chain_divergence(src_abs, tgt_abs, sbone, tbone)
+                if chain_gap > MAX_GAP_DEG:
+                    skipped.append(
+                        (sbone["name"], f"parent-frame divergence {chain_gap:.1f} deg > {MAX_GAP_DEG:.0f}")
+                    )
+                    continue
+            else:
+                chain_gap = None
             mapped.append(
                 {"joint": sjoint["name"], "bone": sbone["name"],
                  "src": sb, "tgt": tb,
                  "src_flags": sbone["flags"], "tgt_flags": tbone["flags"],
                  "rest_gap": rest_gap,
+                 "chain_gap": chain_gap,
                  "track": track}
             )
         if aborted:
@@ -515,6 +557,8 @@ def retarget_clip(source, target, kind, gate="legacy"):
         mapped_names = {m["bone"] for m in mapped}
         core_gaps = [m["rest_gap"] for m in mapped if m["bone"] in CORE_SET]
         entry["max_core_gap"] = max(core_gaps) if core_gaps else None
+        chain_gaps = [m["chain_gap"] for m in mapped if m["bone"] in CORE_SET and m["chain_gap"] is not None]
+        entry["max_chain_gap"] = max(chain_gaps) if chain_gaps else None
         if gate == "core":
             core_missing = [c for c in CORE_BONES if c not in mapped_names]
             entry["bones"] = mapped
@@ -735,9 +779,9 @@ def write_markdown(pack, names, out_path):
                 rep = retarget_clip(d, asset, kind, gate="core")
                 acc = rep.get("accepted")
                 if acc:
-                    gap = acc.get("max_core_gap")
+                    gap = acc.get("max_chain_gap")
                     gap_s = f"{gap:.1f} deg" if gap is not None else "n/a"
-                    verdicts.append(f"{kind}=accepted {acc['mapped']}/{acc['source_tracks']} (max core gap {gap_s})")
+                    verdicts.append(f"{kind}=accepted {acc['mapped']}/{acc['source_tracks']} (max chain gap {gap_s})")
                 else:
                     first = next((a for a in rep["actions"]), None)
                     verdicts.append(
@@ -748,15 +792,15 @@ def write_markdown(pack, names, out_path):
 
     lines.append(
         "## Summary table\n\n"
-        "`player *` columns use the shipped core-coverage gate (45 deg rest-gap bind "
-        "cutoff) with the gender-correct player donor. `guard *` columns keep the "
-        "legacy 70% gate (Guard rigs, the old behaviour) for contrast. "
-        "`max core gap` is the largest rest-frame divergence over mapped locomotion "
+        "`player *` columns use the shipped core-coverage gate (45 deg parent-frame "
+        "divergence bind cutoff) with the gender-correct player donor. `guard *` columns "
+        "keep the legacy 70% gate (Guard rigs, the old behaviour) for contrast. "
+        "`max chain gap` is the largest parent-frame divergence over mapped locomotion "
         "bones for the same-gender player donor.\n\n"
     )
     lines.append(
         "| resident | bon | bones | flagged | non15 | det≈0 | nonortho | scale≠1 | "
-        "player walk | player run | max core gap° | guard walk | guard run |\n"
+        "player walk | player run | max chain gap° | guard walk | guard run |\n"
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | --- | --- |\n"
     )
     for ecm in resident_paths:
@@ -776,7 +820,9 @@ def write_markdown(pack, names, out_path):
                 return "unloadable", None
             rep = retarget_clip(d, asset, kind, gate=gate)
             acc = rep.get("accepted")
-            return ("yes" if acc else "no"), (acc.get("max_core_gap") if acc else None)
+            if not acc:
+                return "no", None
+            return "yes", (acc.get("max_chain_gap") if gate == "core" else None)
 
         pw, gap_w = next((verdict(d, "walk", "core") for d in gender_donors), ("n/a", None))
         pr, gap_r = next((verdict(d, "run", "core") for d in gender_donors), ("n/a", None))
@@ -819,7 +865,7 @@ def write_markdown(pack, names, out_path):
                     lines.append("\n")
                     continue
             else:
-                lines.append(f"accepted `{acc['name']}`: mapped {acc['mapped']}/{acc['source_tracks']} tracks, max core gap {acc.get('max_core_gap')}\n\n")
+                lines.append(f"accepted `{acc['name']}`: mapped {acc['mapped']}/{acc['source_tracks']} tracks, max chain gap {acc.get('max_chain_gap')}\n\n")
                 skipped = acc.get("skipped") or []
                 if skipped:
                     lines.append(f"skipped {len(skipped)} tracks:\n\n")
@@ -829,8 +875,8 @@ def write_markdown(pack, names, out_path):
                 entry = acc
             lines.append(
                 "| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | "
-                "rest gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |\n"
-                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
+                "rest gap° | chain gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |\n"
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n"
             )
             for row in formula_probe(entry):
                 def fnum(key):
@@ -843,7 +889,7 @@ def write_markdown(pack, names, out_path):
                     f"{row['src_ortho']:.4f} | {row['tgt_ortho']:.4f} | "
                     f"{tuple(round(s, 4) for s in row['src_scale'])} | "
                     f"{tuple(round(s, 4) for s in row['tgt_scale'])} | "
-                    f"{fnum('rest_gap')} | {fnum('resB_first')} | {fnum('resB_mid')} | {fnum('resB_last')} | "
+                    f"{fnum('rest_gap')} | {fnum('chain_gap')} | {fnum('resB_first')} | {fnum('resB_mid')} | {fnum('resB_last')} | "
                     f"{fnum('resA_first')} | {fnum('resA_mid')} | {fnum('resA_last')} |\n"
                 )
             lines.append("\n")
