@@ -540,19 +540,58 @@ const GAIT_CORE_BONES: [&str; 23] = [
     "Bip01 R Toe0",
 ];
 
-/// A borrowed rotation is re-oriented from the donor's rest frame onto the
-/// target's bind pose. That re-orientation is only meaningful while the two
-/// rigs author the bone along roughly similar axes. Beyond this measured
-/// rest-frame gap the re-based rotation swings the bone about an anatomically
-/// wrong axis, which on a skinned arm stretches the forearm/hand silhouette.
-/// Rather than mis-pose such a bone, the retarget leaves it at its bind pose.
-///
-/// Measured on the retail rigs (see `Findings/recovery/gait-evidence.md`):
-/// player bodies vs. every numbered resident rig differ by at most ~30
-/// degrees on the locomotion bones above; only the thumb (`Finger0`) rest
-/// frames diverge (61-68 degrees), which this threshold intentionally
-/// excludes from retargeting.
-const MAX_GAIT_REST_GAP_DEG: f32 = 45.0;
+/// Rotation-only absolute rest orientations of a skeleton's bones, indexed by
+/// bone index and composing parent * local like the engine does. Resolution is
+/// memoised and depth-limited; corrupt cyclic parent data resolves to `None`
+/// so a garbage frame can never carry an animation.
+fn rest_rotation_chain(bones: &[crate::skeleton::Bone]) -> Vec<Option<glam::Quat>> {
+    fn resolve(
+        bones: &[crate::skeleton::Bone],
+        chain: &mut [Option<glam::Quat>],
+        index: usize,
+        depth: usize,
+    ) -> Option<glam::Quat> {
+        if let Some(resolved) = chain[index] {
+            return Some(resolved);
+        }
+        if depth >= bones.len() {
+            return None;
+        }
+        let local = Mat4::from_cols_array(&bones[index].relative)
+            .to_scale_rotation_translation()
+            .1
+            .normalize();
+        if !local.is_finite() {
+            return None;
+        }
+        let world = match usize::try_from(bones[index].parent) {
+            Ok(parent) if parent < bones.len() => resolve(bones, chain, parent, depth + 1)? * local,
+            Ok(_) => return None, // out-of-range parent: garbage hierarchy
+            Err(_) => local,      // root
+        }
+        .normalize();
+        chain[index] = Some(world);
+        Some(world)
+    }
+
+    let mut chain = vec![None; bones.len()];
+    for index in 0..bones.len() {
+        let _ = resolve(bones, &mut chain, index, 0);
+    }
+    chain
+}
+
+/// Determinant of a bone's rest frame; non-positive means the "rotation" is a
+/// reflection or degenerate projection, not a rotation. Such a bone keeps its
+/// bind pose instead of transplanting its swing onto a garbage frame.
+fn rest_frame_det(bone: &crate::skeleton::Bone) -> f32 {
+    let frame = Mat4::from_cols_array(&bone.relative);
+    frame
+        .x_axis
+        .truncate()
+        .cross(frame.y_axis.truncate())
+        .dot(frame.z_axis.truncate())
+}
 
 fn gait_kind(name: &str) -> Option<GaitKind> {
     if !locomotion_name(name) {
@@ -593,6 +632,8 @@ fn retarget_gait_clip(
     if target_joints.len() != target.skeleton.joints.len() {
         return None;
     }
+    let source_chain = rest_rotation_chain(&source.skeleton.bones);
+    let target_chain = rest_rotation_chain(&target.skeleton.bones);
     for (action_index, action) in source.model.actions.iter().enumerate() {
         if gait_kind(&action.name) != Some(kind) {
             continue;
@@ -675,37 +716,55 @@ fn retarget_gait_clip(
                 compatible = false;
                 break;
             }
-            // A rest frame this far apart points the two rigs' bone axes in
-            // almost unrelated directions. Re-orienting the donor's rotation
-            // onto those axes would swing the target bone about a wrong axis
-            // (the stretched, extended arm/hand artefact), so keep the bone
-            // at its bind pose instead. Non-core bones are skipped silently;
-            // a core bone staying at bind makes the whole clip fail the
-            // locomotion coverage gate below, which keeps the resident in its
-            // authored bind pose rather than posing half its body.
-            let rest_gap = source_rest_rotation
-                .normalize()
-                .angle_between(target_rest_rotation.normalize())
-                .to_degrees();
-            if rest_gap > MAX_GAIT_REST_GAP_DEG {
+            // A rest frame that is a reflection or a projection is not a
+            // rotation; do not transplant an animation onto it. The bone
+            // stays at bind (a core bone doing so fails the locomotion
+            // coverage gate below). Positive-determinant frames need no
+            // threshold: the transport below is exact on any rotation pair.
+            if rest_frame_det(source_bone) <= 0.0 || rest_frame_det(target_bone) <= 0.0 {
                 continue;
             }
-            let rest_inverse = source_rest_rotation.inverse();
+            // Transport the donor's parent-space swing into the target's
+            // parent frame. The engine composes absolute = parent * local,
+            // so the delta must be expressed in each rig's own parent axes:
+            // change of basis M = F_target^-1 F_source conjugates the
+            // donor's delta exactly, whatever direction the two bind poses
+            // point their ancestors.
+            let parent_frame = match (
+                usize::try_from(source_bone.parent),
+                usize::try_from(target_bone.parent),
+            ) {
+                (Ok(source_parent), Ok(target_parent)) => {
+                    match (
+                        source_chain.get(source_parent).copied().flatten(),
+                        target_chain.get(target_parent).copied().flatten(),
+                    ) {
+                        (Some(source_frame), Some(target_frame)) => {
+                            target_frame.inverse() * source_frame
+                        }
+                        // Unresolvable ancestor frames: keep the bone at bind.
+                        _ => continue,
+                    }
+                }
+                // Both rigs agree the bone has no parent (roots).
+                _ => glam::Quat::IDENTITY,
+            };
+            let rest_inverse = source_rest_rotation.normalize().inverse();
             let mut rotation = track.rotation.clone();
             for key in &mut rotation.keys {
                 let authored = glam::Quat::from_array(*key).normalize();
-                // Premultiply the target's bind orientation by the donor's
-                // parent-space swing delta: `authored * rest^-1` is the
-                // rotation the source's pose differs from its bind by in the
-                // PARENT frame. The engine composes absolute = parent * local,
-                // so applying that same parent-space delta to the target's
-                // bind preserves the axis the author keyed: a leg still
-                // swings forward and a spine still twists instead of rotating
-                // about a differently-twisted local axis. Using the
-                // bone-local delta (`target_rest * rest^-1 * authored`) was
-                // what rotated the borrowed clips onto wildly offset arm
-                // frames and produced the broken limbs.
-                let mapped = (authored * rest_inverse * target_rest_rotation).normalize();
+                // Rm = M (Rs S^-1) M^-1 T: the donor's parent-space swing
+                // delta, expressed in the target's parent frame, applied on
+                // top of the target's bind. At Rs = S this collapses to T;
+                // identical rigs (M = I) reduce to a plain rebase. The bind
+                // pose therefore survives every sample and the swing follows
+                // the donor's world-space arc regardless of how far apart
+                // the two rigs point the ancestors of the bone.
+                let mapped = (parent_frame
+                    * (authored * rest_inverse)
+                    * parent_frame.inverse()
+                    * target_rest_rotation.normalize())
+                .normalize();
                 if !mapped.is_finite() {
                     compatible = false;
                     break;
@@ -3854,8 +3913,8 @@ mod tests {
                 .unwrap();
             assert_ne!(walk_pose_signature(&bind), walk_pose_signature(&moving));
         }
-        // Identical rest frames rebase to the authored keys exactly: the
-        // parent-space delta `authored * rest^-1` is the identity conjugate.
+        // Identical rest frames reduce the transport to the plain rebase:
+        // M = I, so the mapped keys are the authored keys exactly.
         let finger = human_gait_joint_index(&target, "Bip01 L Finger0");
         let authored = source.tracks[0]
             .as_ref()
@@ -3892,24 +3951,123 @@ mod tests {
     }
 
     #[test]
-    fn a_bone_whose_rest_frame_diverges_keeps_its_bind_pose() {
-        // The thumb follows the finger chain at a rest frame 80 degrees away
-        // from the donor, like the resident/player `Finger0` pair. Everything
-        // else matches, so the clip is accepted but the thumb is left at bind
-        // instead of curling about an unrelated axis.
+    fn a_divergent_rest_frame_transports_the_swing_delta() {
+        // The thumb chains of the resident/player rigs point their rest
+        // frames a long way apart (measured 61-85 degrees). The transport
+        // must keep the thumb in the clip and preserve the authored swing
+        // angle exactly (conjugation preserves rotation angle), instead of
+        // binding it or swinging it about an unrelated axis.
         let source = human_gait_asset();
         let target = human_gait_asset_with(Some(("Bip01 L Finger0", 80.0_f32)), false);
         let gait = retargeted_gait_from(&source, &target)
             .expect("the locomotion bones still map completely");
-        let finger = human_gait_joint_index(&target, "Bip01 L Finger0") as i32;
+        let thumb = human_gait_joint_index(&target, "Bip01 L Finger0");
+        let source_thumb = human_gait_joint_index(&source, "Bip01 L Finger0");
+        let bone_of = |asset: &ModelAsset, joint: usize| {
+            asset.skeleton.bones[asset.skeleton.joints[joint].child as usize].clone()
+        };
+        let source_rest = Mat4::from_cols_array(&bone_of(&source, source_thumb).relative)
+            .to_scale_rotation_translation()
+            .1;
+        let target_rest = Mat4::from_cols_array(&bone_of(&target, thumb).relative)
+            .to_scale_rotation_translation()
+            .1;
+        let source_track = source.tracks[0]
+            .as_ref()
+            .expect("fixture track set")
+            .tracks
+            .iter()
+            .find(|track| track.id == source_thumb as i32)
+            .expect("the thumb has a donor track");
         for clip in [&gait.walk, &gait.run] {
+            let mapped = clip
+                .tracks
+                .iter()
+                .find(|track| track.id == thumb as i32)
+                .expect("a divergent thumb stays in the clip");
+            for (mapped_key, authored_key) in mapped
+                .rotation
+                .keys
+                .iter()
+                .zip(source_track.rotation.keys.iter())
+            {
+                // Bind-to-bind: an authored identity key must land on the
+                // target's bind orientation exactly.
+                let mapped_delta = (glam::Quat::from_array(*mapped_key).normalize()
+                    * target_rest.normalize().inverse())
+                .normalize();
+                let authored_delta = (glam::Quat::from_array(*authored_key).normalize()
+                    * source_rest.normalize().inverse())
+                .normalize();
+                let mapped_angle = mapped_delta.angle_between(glam::Quat::IDENTITY);
+                let authored_angle = authored_delta.angle_between(glam::Quat::IDENTITY);
+                assert!(
+                    (mapped_angle - authored_angle).abs() < 1.0e-4,
+                    "transported delta drifted: authored {authored_angle} rad, transported {mapped_angle} rad"
+                );
+            }
+            // The fixture diverges only the thumb itself, so its parent
+            // frames match and the transport is the plain parent-space
+            // rebase Rs S^-1 T. Anything else means the ancestor change of
+            // basis was applied where it must not have been (or vice versa).
+            for (mapped_key, authored_key) in mapped
+                .rotation
+                .keys
+                .iter()
+                .zip(source_track.rotation.keys.iter())
+            {
+                let authored = glam::Quat::from_array(*authored_key).normalize();
+                let mapped = glam::Quat::from_array(*mapped_key).normalize();
+                let rebase = (authored * source_rest.normalize().inverse()
+                    * target_rest.normalize())
+                .normalize();
+                assert!(
+                    mapped.angle_between(rebase) < 1.0e-4,
+                    "parent frames match, but the mapped key diverges from Rs S^-1 T"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn rest_rotation_chain_composes_parent_frames() {
+        use crate::skeleton::{Bone, Joint};
+        let mut asset = rig_without_combined_actions();
+        let half_turn = Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        for (name, parent, relative) in [
+            ("root", -1_i32, Mat4::IDENTITY),
+            ("pelvis", 0_i32, half_turn * Mat4::from_translation(Vec3::new(0., -0.35, 0.))),
+            ("sine", 1_i32, Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2) * Mat4::from_translation(Vec3::new(0., -0.4, 0.))),
+        ] {
+            let index = asset.skeleton.bones.len();
+            asset.skeleton.bones.push(Bone {
+                name: name.into(),
+                flags: 0,
+                parent,
+                first_joint: index as i32,
+                relative: relative.to_cols_array(),
+                initial: relative.to_cols_array(),
+                children: Vec::new(),
+            });
+            asset.skeleton.joints.push(Joint {
+                class: 15,
+                name: name.into(),
+                parent,
+                child: index as i32,
+                sibling: -1,
+            });
+        }
+        let chain = rest_rotation_chain(&asset.skeleton.bones);
+        let expected = [
+            glam::Quat::IDENTITY,
+            glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+            glam::Quat::from_rotation_y(std::f32::consts::PI),
+        ];
+        for (index, expected) in expected.iter().enumerate() {
+            let resolved = chain[index].expect("the chain resolves");
             assert!(
-                clip.tracks.iter().all(|track| track.id != finger),
-                "a divergent thumb must keep its bind pose"
-            );
-            assert!(
-                clip.tracks.len() >= GAIT_CORE_BONES.len(),
-                "the locomotion bones must still retarget"
+                resolved.angle_between(*expected) < 1.0e-5,
+                "bone {index}: expected a composed frame"
             );
         }
     }

@@ -430,11 +430,16 @@ def _abs_rest_rotations(bones):
     units = [unit_cols_to_mat(normalized_cols(mat_from_cols(b["relative"]))[0]) for b in bones]
     abs_rot = [None] * len(bones)
 
-    def resolve(i):
+    def resolve(i, depth=0):
         if abs_rot[i] is None:
+            if depth >= len(bones):
+                return None  # corrupt cyclic parent data
             parent = bones[i]["parent"]
             if 0 <= parent < len(bones):
-                abs_rot[i] = mat3_mul(resolve(parent), units[i])
+                parent_rot = resolve(parent, depth + 1)
+                if parent_rot is None:
+                    return None
+                abs_rot[i] = mat3_mul(parent_rot, units[i])
             else:
                 abs_rot[i] = [row[:] for row in units[i]]
         return abs_rot[i]
@@ -453,7 +458,9 @@ def _chain_divergence(src_abs, tgt_abs, sbone, tbone):
     """
     sp, tp = sbone["parent"], tbone["parent"]
     if not (0 <= sp < len(src_abs)) or not (0 <= tp < len(tgt_abs)):
-        return 0.0
+        return None
+    if src_abs[sp] is None or tgt_abs[tp] is None:
+        return None
     if mat3_det(src_abs[sp]) <= 0.0 or mat3_det(tgt_abs[tp]) <= 0.0:
         return 180.0
     return angle_between_rotation_mats(src_abs[sp], tgt_abs[tp])
@@ -469,10 +476,11 @@ def _transport_track(track, sb, tb, m):
     """Rebase one donor track onto the target: D = Rs * S^-1 is transported
     from the donor's parent frame into the target's parent frame with the
     exact change of basis M = F_t^-1 * F_s (rest world rotations), giving
-    Rm = M D M^-1 T. Bind-to-bind collapses to T at Rs = S."""
+    Rm = M D M^-1 T. Bind-to-bind collapses to T at Rs = S. A falsy
+    non-None `m` signals an unresolvable parent frame: keep the bind pose."""
     s_unit = unit_cols_to_mat(sb["unit"])
     t_unit = unit_cols_to_mat(tb["unit"])
-    if mat3_det(s_unit) <= 0.0 or mat3_det(t_unit) <= 0.0:
+    if m is False or mat3_det(s_unit) <= 0.0 or mat3_det(t_unit) <= 0.0:
         bind = mat3_to_quat(t_unit)
         return {**track, "rotation": {**track["rotation"],
                                       "keys": [list(bind) for _ in track["rotation"]["keys"]]}}
@@ -583,12 +591,19 @@ def retarget_clip(source, target, kind, gate="legacy"):
             broken = mat3_det(s_unit) <= 0.0 or mat3_det(t_unit) <= 0.0
             if mat3_det(s_unit) > 0.0 and mat3_det(t_unit) > 0.0:
                 sp, tp = sbone["parent"], tbone["parent"]
-                if 0 <= sp < len(src_abs) and 0 <= tp < len(tgt_abs):
+                if (
+                    0 <= sp < len(src_abs)
+                    and 0 <= tp < len(tgt_abs)
+                    and src_abs[sp] is not None
+                    and tgt_abs[tp] is not None
+                ):
                     m = mat3_mul(_t3(tgt_abs[tp]), src_abs[sp])
+                elif sp < 0 and tp < 0:
+                    m = None  # both roots: identity change of basis
                 else:
-                    m = None
+                    m = False  # unresolvable ancestor: bind-keep
             else:
-                m = None
+                m = False
             track = _transport_track(track, sb, tb, m)
             mapped.append(
                 {"joint": sjoint["name"], "bone": sbone["name"],
