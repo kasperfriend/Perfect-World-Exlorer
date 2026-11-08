@@ -257,9 +257,10 @@ impl World {
         });
         // Root text is a separate handle so a root load and a texture load can
         // never interleave their file positions.
+        let root_entries = entries.clone();
         let mut pack = File::open(element.join("gfx.pck")).map_err(|e| format!("gfx.pck: {e}"))?;
         self.owners.set_reader(move |path: &str| {
-            let entry = entries
+            let entry = root_entries
                 .get(path)
                 .ok_or_else(|| "missing gfx.pck entry".to_string())?;
             let bytes = crate::pck::read_entry(&mut pack, entry)?;
