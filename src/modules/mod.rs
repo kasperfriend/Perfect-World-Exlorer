@@ -308,11 +308,86 @@ impl Modules {
         );
         ui.label(
             egui::RichText::new(
-                "While enabled: every NPC from the client's own task_npc.data appears where the game places it, with its own rig, idle animation and overhead name, standing on the client's own building floors where the placement calls for one. Spawn distance, actor cap, idle animation, names and building-floor support are in the Populator settings window beneath the minimap. Mob placement is server data the client does not ship, and actors move only along real navigation paths.",
+                "Displays the client's placed NPCs with their model, name and idle animation.",
             )
             .small()
             .weak(),
         );
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.heading("Live World");
+            ui.label(
+                egui::RichText::new("(Experimental)")
+                    .color(egui::Color32::RED),
+            )
+            .on_hover_text(
+                "Live World has no server-authored resident schedules or patrol routes in the client data. Visible residents keep the original city male/female rigs; walk/run tracks are borrowed from Guard animation data only when joint and bone names map and the resulting pose changes the resident mesh. Guard meshes are never shown. Rigs without a validated mapping still follow safe routes in bind pose. Names and routes remain synthetic, so the feature stays Experimental.",
+            );
+        });
+        ui.vertical(|ui| {
+            let mut enabled = self.populator.live_world_enabled();
+            if ui
+                .checkbox(&mut enabled, "Enable Live World")
+                .changed()
+            {
+                if enabled {
+                    // Live World updates are part of Populator's frame hook;
+                    // enabling it must not leave its parent module off.
+                    self.populator.set_active(true, spawn);
+                }
+                self.populator.set_live_world(enabled);
+            }
+            let mut radius = self.populator.live_world_radius();
+            if ui.add(egui::Slider::new(&mut radius,
+                crate::modules::populator::LIVE_WORLD_MIN_RADIUS..=crate::modules::populator::LIVE_WORLD_MAX_RADIUS)
+                .text("city radius").suffix(" u")).changed() {
+                self.populator.set_live_world_radius(radius);
+            }
+            let mut residents = self.populator.live_world_residents_per_zone();
+            if ui.add(egui::Slider::new(&mut residents,
+                0..=crate::modules::populator::LIVE_WORLD_MAX_PER_ZONE)
+                .text("residents per target")).changed() {
+                self.populator.set_live_world_residents_per_zone(residents);
+            }
+            ui.label(
+                egui::RichText::new(
+                    "Uses varied original male/female city rigs from models.pck. Walk/run clips are retargeted from Guard animation tracks only when the resident's bone map and sampled mesh motion validate; no Guard mesh is used. Unmatched rigs still follow locally validated outdoor routes in bind pose. Terrain, water and building collisions can reject candidates; names and routes are synthetic because server spawn and patrol-route data are not available in the client.",
+                )
+                .small()
+                .weak(),
+            );
+            if enabled && !self.populator.is_active() {
+                ui.colored_label(
+                    egui::Color32::YELLOW,
+                    "Populator is off, so Live World cannot generate residents. Use Enable Populator above.",
+                );
+            } else if enabled {
+                ui.label(
+                    egui::RichText::new(self.populator.live_world_zone_status())
+                        .small()
+                        .weak(),
+                );
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} residents generated from {} original model rigs; {} currently streamed residents have validated walk/run clips and {} have no active route.",
+                        self.populator.live_world_generated(),
+                        self.populator.live_world_model_count(),
+                        self.populator.live_world_gait_count(),
+                        self.populator.live_world_stationary_count()
+                    ))
+                    .small()
+                    .color(egui::Color32::YELLOW),
+                );
+            } else {
+                ui.label(
+                    egui::RichText::new(
+                        "Off. Enable Live World to scan city rigs and attempt safe resident routes.",
+                    )
+                    .small()
+                    .weak(),
+                );
+            }
+        });
     }
 
     fn walker_module_ui(&mut self, ui: &mut egui::Ui, spawn: Vec3, yaw: f32) {
@@ -392,8 +467,13 @@ impl Modules {
         if floors {
             self.walker.prepare_object_collision();
         }
-        let source = floors.then(|| self.walker.floors());
-        self.populator.update(delta, eye, source);
+        {
+            let source = floors.then(|| self.walker.floors());
+            let source = source
+                .as_ref()
+                .map(|source| source as &dyn populator::FloorSource);
+            self.populator.update(delta, eye, source);
+        }
         // A module may ask the host for a one-shot camera move (the Populator's
         // "go to the nearest placement"). The Walker wins when it drives the
         // camera; otherwise the request is honoured for that frame.

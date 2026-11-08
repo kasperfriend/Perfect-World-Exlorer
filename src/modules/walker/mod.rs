@@ -319,6 +319,33 @@ impl Default for Walker {
     }
 }
 
+struct PopulationFloors<'a> {
+    collision: &'a collision::Collision,
+    water: &'a [WaterArea],
+}
+
+impl crate::modules::populator::FloorSource for PopulationFloors<'_> {
+    fn lowest_floor(&self, feet: Vec3, extents: Vec3, max_up: f32) -> Option<f32> {
+        crate::modules::populator::FloorSource::lowest_floor(self.collision, feet, extents, max_up)
+    }
+
+    fn floor_stamp(&self) -> u64 {
+        crate::modules::populator::FloorSource::floor_stamp(self.collision)
+    }
+
+    fn sight_blocked(&self, from: Vec3, to: Vec3) -> bool {
+        crate::modules::populator::FloorSource::sight_blocked(self.collision, from, to)
+    }
+
+    fn solid_at(&self, feet: Vec3, extents: Vec3) -> bool {
+        crate::modules::populator::FloorSource::solid_at(self.collision, feet, extents)
+    }
+
+    fn water_height(&self, x: f32, z: f32) -> Option<f32> {
+        physics::water_height(self.water, x, z)
+    }
+}
+
 impl Walker {
     pub fn with_host(
         element: PathBuf,
@@ -354,9 +381,12 @@ impl Walker {
         }
     }
 
-    /// The building hulls, for placement support queries.
-    pub fn floors(&self) -> &dyn crate::modules::populator::FloorSource {
-        &self.collision
+    /// Building hull and client-water queries for placement and ambient routes.
+    pub fn floors(&self) -> impl crate::modules::populator::FloorSource + '_ {
+        PopulationFloors {
+            collision: &self.collision,
+            water: &self.water,
+        }
     }
 
     /// CECCamera::Action changes distance by the configured native 1 m zoom

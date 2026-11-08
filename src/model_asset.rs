@@ -556,6 +556,18 @@ impl ModelAsset {
         let pose = self.action_pose(action, seconds, world)?;
         self.meshes_from_pose(&pose)
     }
+    /// Pose this rig with a compatible clip borrowed from another skeleton.
+    /// Callers must remap track joint IDs to this skeleton and validate the
+    /// resulting pose before using it in a scene.
+    pub fn pose_tracks_at_time(
+        &self,
+        tracks: &[animation::BoneTrack],
+        seconds: f32,
+        world: Mat4,
+    ) -> Result<Vec<PosedMesh>, String> {
+        let pose = skeleton_pose::evaluate(&self.skeleton, tracks, seconds, world)?;
+        self.meshes_from_pose(&pose)
+    }
     /// The evaluated pose itself, for consumers that need bone/hook matrices
     /// (an attached effect resolves its hook from this pose, not from the
     /// deformed vertices).
