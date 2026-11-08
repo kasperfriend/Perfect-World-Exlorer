@@ -772,8 +772,14 @@ impl Fractal {
     /// * for `t >= 0.5` (disassembly `0x709a95`) the pair it interpolates is
     ///   `Width[2] -> Width[0]`, i.e. end-to-end,
     /// * for `t < 0.5` (`0x709a9d`, `0x709aeb`, `0x709ad5`) it interpolates
-    ///   `Width[1] -> Width[0]` and passes the fraction through `sin`, giving a
-    ///   cos-shaped taper out of the midpoint.
+    ///   `Width[1] -> Width[0]`, a plain linear ramp.
+    ///
+    /// The one `call` in the second branch (`0x709ad8` -> `0x633700`) is not an
+    /// easing function: that routine multiplies a three-float vector in `ecx` by
+    /// the scalar it was passed (`fld [esp+4]` / `fmul [eax..+8]` / `ret 4`) and
+    /// the caller uses it to scale a direction, not the profile fraction. No
+    /// `fsin` or `fsin`-bearing helper is reachable from either branch, so both
+    /// segments are linear and the apex is a corner rather than a curve.
     ///
     /// So the authored order is `[end, midpoint, start]`, not `[head, mid,
     /// tail]`. A file that writes a single `Width` repeats it, and the two
