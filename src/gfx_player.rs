@@ -379,6 +379,8 @@ pub struct Stats {
     pub lights: usize,
     /// Element 190 and any id the client never instantiates.
     pub unrendered: usize,
+    /// Elements that declare `DummyEle`: helpers the client never submits.
+    pub dummies: usize,
 }
 
 impl Stats {
@@ -392,6 +394,7 @@ impl Stats {
         self.sounds += other.sounds;
         self.lights += other.lights;
         self.unrendered += other.unrendered;
+        self.dummies += other.dummies;
     }
 }
 
@@ -1545,6 +1548,15 @@ fn advance_element(
         rotation: sampled.rad_2d + runtime.state.rotation,
         clock: phase,
     };
+    // `IsDummy` marks an element the client builds but never submits: `冲击波1`
+    // keeps a whole child element behind it. Note that `DummyEle` is *not* this
+    // flag — it names another element to take a basis from, and the drawable
+    // elements of `场景鱼群` and `水瀑术_手轨迹` are `IsDummy: 0` with empty
+    // `DummyEle`, so gating on it deletes real geometry.
+    if element.common.is_dummy {
+        stats.dummies += 1;
+        return Ok(done);
+    }
     match &mut runtime.runtime {
         Runtime::Clock => {
             emit_clock(element, &context, face_to_viewer, stats, out);
@@ -2209,27 +2221,6 @@ pub fn texture_path(texture: &str) -> Result<String, String> {
     Ok(format!("gfx/textures/{path}"))
 }
 
-/// Archive path for an element's own `TexFile`, or [`UNTEXTURED_MESH`] when it
-/// authors none.
-///
-/// 414 of the corpus's 13,665 particle emitters and 11 of its 8,864 sprites are
-/// authored with an empty `TexFile` — `场景鱼群_鱼群1`'s emitters and the two
-/// `闪电鳐` rings among them — and they still carry live geometry: 407 of those
-/// emitters actually emit inside a play window. The client has no texture to
-/// bind for them either, but it still submits the quad, and the GPU pass here
-/// already substitutes a flat white stand-in for any texture it cannot read
-/// (the same path the four untextured model meshes use). Dropping the element
-/// instead loses the effect outright.
-pub fn element_texture(texture: &str) -> String {
-    if texture.trim().is_empty() {
-        return UNTEXTURED_MESH.to_string();
-    }
-    match texture_path(texture) {
-        Ok(path) => path,
-        Err(_) => UNTEXTURED_MESH.to_string(),
-    }
-}
-
 /// Archive path of a child root (`GfxPath`), relative to the `gfx` root.
 pub fn child_path(path: &str) -> Result<String, String> {
     let normalized = ecmodel::normalize(path);
@@ -2400,7 +2391,9 @@ fn emit_sprite(
     if color[3] < ALPHA_CUTOFF {
         return;
     }
-    let texture = element_texture(&context.common.texture);
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
+    };
     // `RotFromView` decides where the orientation comes from: 598 retail sprites
     // take it from the camera, the other 8,271 keep the authored keypoint
     // direction, which is what the verified static path does. The root's
@@ -2680,7 +2673,9 @@ fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<Ef
     if color[3] < ALPHA_CUTOFF {
         return;
     }
-    let texture = element_texture(&context.common.texture);
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
+    };
     let sections = cylinder.sections.max(3) as usize;
     let radius = cylinder.radius
         * if cylinder.no_radius_scale {
@@ -2759,7 +2754,9 @@ fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<Ef
 /// viewer orients the ribbon across the chord by the view instead. The segment
 /// count and both endpoints are the recovered values.
 fn emit_curve(curve: &Curve, context: &ElementContext, out: &mut Vec<EffectQuad>) {
-    let texture = element_texture(&context.common.texture);
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
+    };
     let [first, second] = context.span;
     let start = context.placement.transform_point3(first);
     let end = context.placement.transform_point3(second);
@@ -2806,7 +2803,9 @@ fn emit_curve(curve: &Curve, context: &ElementContext, out: &mut Vec<EffectQuad>
 }
 
 fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
-    let texture = element_texture(&context.common.texture);
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
+    };
     let matrix = context.placement;
     let cell = grid.cell_size * context.scale;
     if !(cell.is_finite()) || cell <= 0. {
@@ -2900,7 +2899,9 @@ fn emit_particles(
     if tint[3] < ALPHA_CUTOFF {
         return;
     }
-    let texture = element_texture(&context.common.texture);
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
+    };
     let billboard = !particle.is_3d;
     let uv = flipbook_uv(context.common, context.clock);
     for state in particles.iter() {
@@ -3710,7 +3711,9 @@ fn emit_ribbon(
     if color[3] < ALPHA_CUTOFF {
         return;
     }
-    let texture = element_texture(&context.common.texture);
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
+    };
     let (life, rails) = match &element.spec {
         Spec::Ribbon(spec) => (spec.segment_life, (spec.origin_1, spec.origin_2)),
         Spec::Wave(wave) => (
@@ -3924,7 +3927,9 @@ fn emit_fractal(
     if color[3] < ALPHA_CUTOFF {
         return;
     }
-    let texture = element_texture(&context.common.texture);
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
+    };
     let (spec, trail) = match &element.spec {
         Spec::Fractal(spec) => (spec, None),
         Spec::Trail(spec) => (&spec.fractal, Some(spec)),
@@ -4101,7 +4106,9 @@ fn emit_bolts(
     if color[3] < ALPHA_CUTOFF || bolts.segments.is_empty() {
         return;
     }
-    let texture = element_texture(&context.common.texture);
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
+    };
     let right = context.view.right;
     let mut positions = [[0f32; 3]; 4];
     let uv = flipbook_uv(context.common, context.clock);
@@ -4214,41 +4221,39 @@ mod tests {
         Position: 1, 2, 3\r\nColor: -1\r\nScale: 2\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\n\
         CtrlMethodCount: 0\r\n";
 
-    /// 414 of the corpus's 13,665 particle emitters and 11 of its 8,864 sprites
-    /// author an empty `TexFile`, and 407 of those emitters still emit inside a
-    /// play window. An empty `TexFile` is not "no element": the quad has real
-    /// geometry and a real colour, only no map, and the GPU pass substitutes a
-    /// flat white stand-in for a texture it cannot read. Dropping the element
-    /// here deleted the `场景鱼群` shoal and both `闪电鳐` rings outright.
+    /// An empty `TexFile` is *not* drawable geometry. 3,459 of the corpus's
+    /// elements author no map, and the GPU pass substitutes a flat opaque white
+    /// quad for a texture it cannot read, so drawing them turns whole maps
+    /// white: `冲击波1` alone is twelve textureless plasma particles at
+    /// `ParticleWidth: 1`, and every one of them landed on screen as a white
+    /// slab. Dropping the element instead costs nothing visible.
     #[test]
-    fn an_element_with_no_texfile_still_draws_its_geometry() {
-        let textured = header37(1) + SPRITE;
-        let untextured = textured.replace("TexFile: 粒子\\glow.dds", "TexFile: ");
-
-        let mut with_map = build(&textured);
-        step(&mut with_map, 0.);
-        let mut without_map = build(&untextured);
-        step(&mut without_map, 0.);
-
-        assert_eq!(with_map.quads().len(), 1);
-        assert_eq!(
-            without_map.quads().len(),
-            1,
-            "an empty TexFile is untextured geometry, not a missing element"
+    fn an_element_with_no_texfile_draws_nothing() {
+        let untextured = (header37(1) + SPRITE).replace("TexFile: 粒子\\glow.dds", "TexFile: ");
+        let mut player = build(&untextured);
+        step(&mut player, 0.);
+        assert!(
+            player.quads().is_empty(),
+            "a textureless element must not become a flat white quad"
         );
-        // Same corners: only the texture path differs.
-        let a = &with_map.quads()[0];
-        let b = &without_map.quads()[0];
-        assert_eq!(b.texture, UNTEXTURED_MESH);
-        assert_ne!(a.texture, UNTEXTURED_MESH);
-        for slot in 0..4 {
-            for axis in 0..3 {
-                assert!(
-                    (a.positions[slot][axis] - b.positions[slot][axis]).abs() <= 1e-6,
-                    "corner {slot} axis {axis} moved"
-                );
-            }
-        }
+    }
+
+    /// `IsDummy` marks an element the client builds but never submits, and it is
+    /// the *only* such flag: `DummyEle` names another element to inherit a basis
+    /// from, so gating on it deletes real geometry — the `场景鱼群` shoal and the
+    /// `水瀑术_手轨迹` particle are both `IsDummy: 0` with empty `DummyEle`.
+    #[test]
+    fn a_dummy_element_is_built_but_never_drawn() {
+        let dummy = (header37(1) + SPRITE).replace("IsDummy: 0", "IsDummy: 1");
+        let mut player = build(&dummy);
+        step(&mut player, 0.);
+        assert!(player.quads().is_empty());
+        assert!(player.stats().dummies > 0, "the element was still built");
+
+        // Same root, flag cleared: it draws again.
+        let mut live = build(&(header37(1) + SPRITE));
+        step(&mut live, 0.);
+        assert_eq!(live.quads().len(), 1);
     }
 
     /// A camera looking down -Z from (0, 0, 10), so the billboard basis is the
