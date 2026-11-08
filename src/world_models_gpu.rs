@@ -272,6 +272,25 @@ impl World {
             }
             Ok(text.into_owned())
         });
+        // Effect-archive models are binary and live in the same package, under
+        // `gfx/models/`. Element 160 names them relative to its own folder, so
+        // the key here is the archive's own path, prefix included.
+        let model_entries = entries.clone();
+        let mut model_pack =
+            File::open(element.join("gfx.pck")).map_err(|e| format!("gfx.pck: {e}"))?;
+        self.owners.set_model_reader(move |path: &str| {
+            let key = crate::ecmodel::normalize(path);
+            let name = if key.starts_with("gfx/models/") {
+                key.clone()
+            } else {
+                format!("gfx/models/{key}")
+            };
+            let entry = model_entries
+                .get(&name)
+                .or_else(|| model_entries.get(&key))
+                .ok_or_else(|| format!("{name}: missing gfx.pck entry"))?;
+            crate::pck::read_entry(&mut model_pack, entry)
+        });
         Ok(())
     }
     /// Attach an arbitrary root reader (diagnostics and GPU regressions).

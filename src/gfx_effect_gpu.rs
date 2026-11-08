@@ -313,6 +313,18 @@ impl Draw {
             };
             let vertices = &mut groups[position].1;
             let color = quad.color;
+            if let Some(mesh) = &quad.mesh {
+                // A model element arrives as a triangle soup already in world
+                // space, so it needs no corner expansion and no winding order.
+                for vertex in &mesh.vertices {
+                    vertices.push(Vertex {
+                        position: vertex.position,
+                        uv: vertex.uv,
+                        color,
+                    });
+                }
+                continue;
+            }
             // Two triangles per quad, in the client's corner order.
             for slot in [0usize, 1, 3, 0, 3, 2] {
                 vertices.push(Vertex {
@@ -558,6 +570,7 @@ mod tests {
             positions: [[-1., -1., 0.], [1., -1., 0.], [-1., 1., 0.], [1., 1., 0.]],
             uv: [[0., 0.], [1., 0.], [0., 1.], [1., 1.]],
             color,
+            mesh: None,
         }
     }
 

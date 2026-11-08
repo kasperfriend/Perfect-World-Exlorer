@@ -305,6 +305,11 @@ pub struct Manager {
     /// mean the queue is still being drained one root per frame.
     frames: u64,
     read: Option<Box<dyn FnMut(&str) -> Result<String, String>>>,
+    /// Binary reader for effect-archive model files (`.SMD`, `.BON`, `.SKI`).
+    /// Element 160 names models from the same archive the roots come from, so a
+    /// host that can read GFX text can read these bytes too; without a reader
+    /// the model elements simply stay undrawn, as they were before.
+    read_model: Option<Box<dyn FnMut(&str) -> Result<Vec<u8>, String>>>,
     /// Whether the animated effect graph is built and drawn. On by default; a
     /// host wires it to a world setting. Lights are published either way.
     effects: bool,
@@ -330,6 +335,7 @@ impl Manager {
             loads: 0,
             frames: 0,
             read: None,
+            read_model: None,
             effects: true,
             effect_failures: Vec::new(),
             effect_warnings: Vec::new(),
@@ -346,6 +352,16 @@ impl Manager {
         let mut manager = Self::new();
         manager.set_reader(read);
         manager
+    }
+
+    /// Binary reader for the effect archive's model files. Element 160 names a
+    /// `.SMD` (and, through it, a `.BON` skeleton and `.SKI` skins) relative to
+    /// its own folder; those are bytes, not text, so they need their own reader.
+    pub fn set_model_reader(
+        &mut self,
+        read: impl FnMut(&str) -> Result<Vec<u8>, String> + 'static,
+    ) {
+        self.read_model = Some(Box::new(read));
     }
 
     /// Register an owner. It stays pending until the lazy loader reaches it.
@@ -662,7 +678,17 @@ impl Manager {
         let path = self.owners[index].request.path.clone();
         let origin = self.owners[index].request.origin.clone();
         let built = match &mut self.read {
-            Some(read) => read(&path).and_then(|text| Self::player(&text, &path, read)),
+            Some(read) => read(&path).and_then(|text| {
+                let mut player = Self::player(&text, &path, read)?;
+                // Element 160 names models from the same archive. Resolving them
+                // needs a binary reader; without one the model elements keep
+                // counting and stay undrawn, as they were before.
+                if let Some(model_read) = &mut self.read_model {
+                    // Earlier `read` borrows are released by the block above.
+                    player.load_models(&path, model_read)?;
+                }
+                Ok(player)
+            }),
             None => Err(format!("{path}: no GFX root reader attached")),
         };
         match built {

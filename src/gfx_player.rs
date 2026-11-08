@@ -112,6 +112,12 @@ pub const MAX_CHILD_DEPTH: usize = 6;
 
 /// Per-emitter particle ceiling. `Quota` is authoritative when smaller; this
 /// only bounds a malformed value.
+/// Texture name carried by a model mesh that authors no map.
+///
+/// It is not a path: the effect pass cannot read it, so it falls back to its
+/// flat white stand-in and the geometry still draws with the element's colour.
+pub const UNTEXTURED_MESH: &str = "<untextured>";
+
 pub const MAX_PARTICLES: usize = 1024;
 
 /// Per-ribbon vertex ceiling, for the same reason.
@@ -138,6 +144,31 @@ pub struct EffectQuad {
     pub uv: [[f32; 2]; 4],
     /// Linear RGB and alpha, already folded with the root and placement alpha.
     pub color: [f32; 4],
+    /// Set only for model elements: the mesh is a triangle list rather than the
+    /// four corners above, and `positions`/`uv` are left zero.
+    pub mesh: Option<EffectMesh>,
+}
+
+/// One drawable piece of a model element, posed into world space.
+///
+/// Element 160 names `.SMD`/`.SKI` models from the effect archive. Those are
+/// rigid — 0 or 1 bones per shipped skin — so the bind pose is the only pose
+/// they need, and the result is a triangle list with per-vertex UV. It does not
+/// fit `EffectQuad`'s four corners, so it travels beside them and the GPU pass
+/// draws it with a triangle-list pipeline instead of the quad one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EffectMesh {
+    /// Archive path of the diffuse texture, same normalization as a quad's.
+    pub texture: String,
+    /// World-space triangle soup: three consecutive vertices per triangle.
+    pub vertices: Vec<EffectVertex>,
+}
+
+/// A posed model vertex: position in world space and its authored UV.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EffectVertex {
+    pub position: [f32; 3],
+    pub uv: [f32; 2],
 }
 
 /// Camera basis handed to the player so billboards face the viewer.
@@ -909,6 +940,9 @@ pub struct Player {
     /// files that do not ship, so a missing child is a named warning and the rest
     /// of the root still plays rather than the whole effect being dropped.
     warnings: Vec<String>,
+    /// Effect-archive models named by element 160, already posed and turned into
+    /// triangle lists. Empty when the host supplied no model reader.
+    models: Vec<Vec<EffectMesh>>,
 }
 
 impl Player {
@@ -926,6 +960,11 @@ impl Player {
     /// Elements that could not be resolved at load time.
     pub fn warnings(&self) -> &[String] {
         &self.warnings
+    }
+
+    /// The posed meshes of this root's model elements, in element order.
+    pub fn models(&self) -> &[Vec<EffectMesh>] {
+        &self.models
     }
 
     fn with_depth(
@@ -1051,7 +1090,80 @@ impl Player {
             shake_seed: seed.wrapping_add(0x5348_414b),
             warnings,
             textures,
+            models: Vec::new(),
         })
+    }
+
+    /// Resolve every element-160 model in this root and its already-loaded
+    /// children into posed triangle lists, once, at load time.
+    ///
+    /// The effect archive keeps models in the same package as the roots, and a
+    /// model element names its `.SMD` relative to the GFX file's own folder
+    /// (`gfx/models/` prefixed, exactly as the client composes it). The `.SMD`
+    /// then names its `.BON` skeleton and `.SKI` skins relative to *its own*
+    /// directory, which is why the reader is called with those names joined to
+    /// the SMD's parent rather than the archive root.
+    ///
+    /// These models are static: measured across the 141 shipped `.SKI` files,
+    /// every skin is bound by 0 or 1 bones, so the bind pose is the only pose
+    /// the archive can express. A model whose skeleton carries a scale or
+    /// constraint controller is refused by `skeleton_pose` rather than drawn in
+    /// the wrong pose, and the refusal is reported once through `warnings`.
+    pub fn load_models(
+        &mut self,
+        root_path: &str,
+        read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+    ) -> Result<(), String> {
+        let mut models = std::mem::take(&mut self.models);
+        // Every effect model in `gfx.pck` lives under one `gfx/models/` root, so
+        // the parent is the same string for every root in the archive. The
+        // argument is kept because a host may pass an already-extracted member
+        // name, and the join below tolerates a path that already starts there.
+        let _ = root_path;
+        let parent = "gfx/models";
+        self.collect_models(&mut models, &parent, read, 0);
+        self.models = models;
+        Ok(())
+    }
+
+    fn collect_models(
+        &mut self,
+        out: &mut Vec<Vec<EffectMesh>>,
+        parent: &str,
+        read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+        depth: usize,
+    ) {
+        for (index, element) in self.root.elements.iter().enumerate() {
+            let Spec::Model(model) = &element.spec else {
+                continue;
+            };
+            let fallback = match texture_path(&element.common.texture) {
+                Ok(path) => path,
+                Err(_) => String::new(),
+            };
+            out.push(
+                match posed_model_meshes(&model.path, parent, &fallback, read) {
+                    Ok(meshes) => meshes,
+                    Err(error) => {
+                        let line = format!("element {index} model {}: {error}", model.path);
+                        if !self.warnings.contains(&line) {
+                            self.warnings.push(line);
+                        }
+                        Vec::new()
+                    }
+                },
+            );
+        }
+        // Children were resolved at construction; walk their elements too so a
+        // nested root's models are not silently dropped.
+        if depth >= MAX_CHILD_DEPTH {
+            return;
+        }
+        for element in &mut self.elements {
+            if let Runtime::Child(child) = &mut element.runtime {
+                child.player.collect_models(out, parent, read, depth + 1);
+            }
+        }
     }
 
     /// Textures this root needs, so the pass can upload them before frame one.
@@ -1213,6 +1325,16 @@ impl Player {
                 continue;
             }
             let element = &self.root.elements[index];
+            // Models are stored in element order, skipping the elements that are
+            // not models, so find this element's turn by counting earlier models.
+            let model_slot = self.root.elements[..index]
+                .iter()
+                .filter(|element| matches!(element.spec, Spec::Model(_)))
+                .count();
+            let element_meshes: Vec<EffectMesh> = match self.root.elements[index].spec {
+                Spec::Model(_) => self.models.get(model_slot).cloned().unwrap_or_default(),
+                _ => Vec::new(),
+            };
             let runtime = &mut self.elements[slot];
             let done = advance_element(
                 element,
@@ -1229,6 +1351,7 @@ impl Player {
                 &mut rng,
                 &mut stats,
                 &mut out,
+                &element_meshes,
             )?;
             runtime.ended = done;
             finished = finished && done;
@@ -1353,6 +1476,9 @@ fn advance_element(
     rng: &mut Rng,
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
+    // Models already posed at load time, in element order. Empty when the host
+    // supplied no model reader, in which case model elements keep counting.
+    meshes: &[EffectMesh],
 ) -> Result<bool, String> {
     let local = time - element.start_time;
     if local < 0. {
@@ -1420,7 +1546,12 @@ fn advance_element(
         clock: phase,
     };
     match &mut runtime.runtime {
-        Runtime::Clock => emit_clock(element, &context, face_to_viewer, stats, out),
+        Runtime::Clock => {
+            emit_clock(element, &context, face_to_viewer, stats, out);
+            if matches!(element.spec, Spec::Model(_)) {
+                emit_model(meshes, &context, out);
+            }
+        }
         Runtime::Particles(emitter) => {
             let Spec::Particle(particle) = &element.spec else {
                 return Err("particle runtime on a non-particle element".into());
@@ -2204,6 +2335,7 @@ fn push_quad(
         positions,
         uv,
         color,
+        mesh: None,
     });
 }
 
@@ -2368,6 +2500,160 @@ fn quad_corners(
             })
         }
     }
+}
+
+/// Emit a model element's meshes, transformed by the element's placement.
+///
+/// The geometry was posed at load time with the model's own world matrix left at
+/// identity, so the element's frame is the only transform: the placement carries
+/// the owner's position and orientation and the keypoint scale, which is what
+/// the client multiplies a model's vertices by. Model colour is taken from the
+/// element's keypoint like any other class, through `context.rgba()`.
+fn emit_model(meshes: &[EffectMesh], context: &ElementContext, out: &mut Vec<EffectQuad>) {
+    let color = context.rgba();
+    if color[3] < ALPHA_CUTOFF {
+        return;
+    }
+    for mesh in meshes {
+        if mesh.texture.is_empty() || mesh.vertices.len() < 3 {
+            continue;
+        }
+        let placed: Vec<EffectVertex> = mesh
+            .vertices
+            .iter()
+            .map(|vertex| {
+                let position = context
+                    .placement
+                    .transform_point3(Vec3::from_array(vertex.position));
+                EffectVertex {
+                    position: position.to_array(),
+                    uv: vertex.uv,
+                }
+            })
+            .filter(|vertex| vertex.position.iter().all(|value| value.is_finite()))
+            .collect();
+        if placed.len() < 3 {
+            continue;
+        }
+        out.push(EffectQuad {
+            texture: mesh.texture.clone(),
+            source_blend: context.common.source_blend,
+            destination_blend: context.common.destination_blend,
+            depth_test: depth_test(context.common, context.version),
+            layer: context.common.render_layer,
+            positions: [[0.; 3]; 4],
+            uv: [[0.; 2]; 4],
+            color,
+            mesh: Some(EffectMesh {
+                texture: mesh.texture.clone(),
+                vertices: placed,
+            }),
+        });
+    }
+}
+
+/// Load one element-160 model and return its posed meshes as triangle lists.
+///
+/// This is the same chain the ECM path uses (`ModelAsset::load_static_skins_with`
+/// then `pose_bind`), driven by the three relative names a `.SMD` carries. It is
+/// deliberately static: the effect archive's skins are bound to 0 or 1 bones, so
+/// there is no animation to sample, and inventing one would be a guess.
+fn posed_model_meshes(
+    path: &str,
+    parent: &str,
+    fallback_texture: &str,
+    read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+) -> Result<Vec<EffectMesh>, String> {
+    // `ModelPath` already carries the model's own folder and is relative to the
+    // archive's `gfx/models/` root, *not* to the GFX file that names it:
+    // `gfx/场景/新种族地图/暗语者营地.gfx` authoring `暗语者营地\水晶.SMD`
+    // resolves to the member `gfx/models/暗语者营地/水晶.smd`, which is shared
+    // between that root and every other root naming the same model. Measured
+    // against `gfx.pck`: none of the 124 shipped `.smd` members sit under the
+    // GFX folder's own subdirectory.
+    let smd_path = if parent.is_empty() {
+        crate::ecmodel::normalize(path)
+    } else {
+        format!("{parent}/{}", crate::ecmodel::normalize(path))
+    };
+    let smd_bytes = read(&smd_path).map_err(|error| format!("{smd_path}: {error}"))?;
+    let model = crate::ecmodel::parse_smd(&smd_bytes).map_err(|e| format!("{smd_path}: {e}"))?;
+    // `skeleton` and `skins` are bare names relative to the SMD's own folder,
+    // which is one level below `gfx/models/`: the `.bon` of
+    // `gfx/models/白色爪痕/白色爪痕.smd` is `gfx/models/白色爪痕/白色爪痕.bon`.
+    // Joining them to `gfx/models/` instead loses the model's own directory and
+    // resolved every skeleton to a missing member.
+    let parent = smd_path.rsplit_once('/').map_or("", |(dir, _)| dir);
+    let join = |name: &str| {
+        let name = crate::ecmodel::normalize(name);
+        if parent.is_empty() {
+            name
+        } else {
+            format!("{parent}/{name}")
+        }
+    };
+    let skeleton_path = join(&model.skeleton);
+    let skins: Vec<String> = model.skins.iter().map(|skin| join(skin)).collect();
+    let asset =
+        crate::model_asset::ModelAsset::load_static_skins_with(&skeleton_path, &skins, |name| {
+            read(name)
+        })?;
+    let posed = asset.pose_bind(Mat4::IDENTITY)?;
+    let mut meshes = Vec::with_capacity(posed.len());
+    for piece in posed {
+        let skin = asset
+            .skins
+            .get(piece.skin)
+            .ok_or("posed skin out of range")?;
+        let mesh = skin
+            .data
+            .meshes
+            .get(piece.mesh)
+            .ok_or("posed mesh out of range")?;
+        // A mesh with no texture index is drawn with the element's own `TexFile`
+        // when it has one. Only 4 of the 792 shipped meshes are in this state
+        // (`白色爪痕`, `投石车状态`, `攻击`'s footstep plane and
+        // `血鲷封印台罩子`), and they still carry real geometry — 33 vertices
+        // and 108 indices for the claw mark. Dropping them lost the whole model
+        // for the roots that name them.
+        let texture = if mesh.texture >= 0 {
+            match skin.texture_paths(mesh.texture as usize) {
+                Ok(paths) => paths[0].clone(),
+                Err(_) => fallback_texture.to_string(),
+            }
+        } else {
+            fallback_texture.to_string()
+        };
+        // The GPU pass falls back to a flat white stand-in for a texture it
+        // cannot read, so an untextured mesh must keep its bucket rather than be
+        // dropped here: `白色爪痕` is a pure white claw mark with no map at all,
+        // and the element that names it has an empty `TexFile` too.
+        let texture = if texture.is_empty() {
+            UNTEXTURED_MESH.to_string()
+        } else {
+            texture
+        };
+        let mut vertices = Vec::with_capacity(mesh.indices.len());
+        for index in &mesh.indices {
+            let Some(vertex) = piece.vertices.get(*index as usize) else {
+                continue;
+            };
+            let Some(source) = mesh.vertices.get(*index as usize) else {
+                continue;
+            };
+            if !vertex.position.iter().all(|value| value.is_finite()) {
+                continue;
+            }
+            vertices.push(EffectVertex {
+                position: vertex.position,
+                uv: source.uv,
+            });
+        }
+        if vertices.len() >= 3 {
+            meshes.push(EffectMesh { texture, vertices });
+        }
+    }
+    Ok(meshes)
 }
 
 fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<EffectQuad>) {
@@ -4033,6 +4319,209 @@ mod tests {
         };
         assert!(width(&quads[0]) < width(&quads[1]), "the tapers survive");
         assert!(quads.iter().all(|q| q.color[3] > 0.), "and stay visible");
+    }
+
+    /// A model element (160) draws its meshes as triangle lists, transformed by
+    /// the element's own placement, with the element's keypoint colour.
+    ///
+    /// The geometry is built at load time through the same chain the ECM path
+    /// uses (`SMD -> BON + SKI -> bind pose`); here a minimal archive is handed
+    /// in through the reader so the test needs no files on disk.
+    #[test]
+    fn a_model_element_draws_its_posed_meshes() {
+        let source = format!(
+            "{}GFXELEMENTID: 160\r\nName: crystal\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+             RepeatCount: 1\r\nRepeatDelay: 0\r\nTexFile: \r\nBindEle: \r\nZEnable: 0\r\n\
+             MatchGrnd: 0\r\nTexRow: 1\r\nTexCol: 1\r\nTexInterval: 50\r\nPriority: 0\r\n\
+             IsDummy: 0\r\nDummyEle: \r\nWarp: 0\r\nTileMode: 0\r\nTexSpeed: 0\r\n\
+             TexSpeed: 0\r\nUReverse: 0\r\nVReverse: 0\r\nUVExchg: 0\r\nRenderLayer: 0\r\n\
+             NoDownSample: 0\r\nResetLoopEnd: 0\r\nTexAnimMaxTime: 0\r\n\
+             ModelPath: 测试\\三角形.SMD\r\nModelActName: \r\nLoops: 1\r\nAlphaCmp: 0\r\n\
+             WriteZ: 1\r\nUse3DCam: 0\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\n\
+             InterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\n\
+             Scale: 1.000000\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n",
+            header79(1),
+        );
+        let mut player = build(&source);
+        // No archive attached: the element keeps counting and nothing is drawn.
+        assert_eq!(player.models().len(), 0, "no reader, no meshes");
+        step(&mut player, 16.);
+        assert!(player.quads().is_empty(), "and nothing is invented");
+
+        // An empty archive is a named warning, not a silent drop.
+        let mut player = build(&source);
+        let mut empty = |path: &str| -> Result<Vec<u8>, String> {
+            Err(format!(
+                "{} is not in the test archive",
+                crate::ecmodel::normalize(path)
+            ))
+        };
+        player.load_models("gfx/测试.gfx", &mut empty).unwrap();
+        assert!(
+            player
+                .warnings()
+                .iter()
+                .any(|warning| warning.contains("is not in the test archive")),
+            "a missing model is reported, not silently dropped"
+        );
+
+        // A one-triangle model: the mesh resolves and the element emits a
+        // triangle list rather than four corners.
+        let archive = one_triangle_model();
+        let mut player = build(&source);
+        let mut read = |path: &str| -> Result<Vec<u8>, String> {
+            let name = crate::ecmodel::normalize(path);
+            archive
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, bytes)| bytes.clone())
+                .ok_or_else(|| format!("{name} is not in the test archive"))
+        };
+        player.load_models("gfx/测试.gfx", &mut read).unwrap();
+        assert!(player.warnings().is_empty(), "{:?}", player.warnings());
+        assert_eq!(player.models().len(), 1, "one mesh for one model element");
+        step(&mut player, 16.);
+        let meshes: Vec<&EffectMesh> = player
+            .quads()
+            .iter()
+            .filter_map(|quad| quad.mesh.as_ref())
+            .collect();
+        assert_eq!(meshes.len(), 1, "the element draws one mesh");
+        assert_eq!(meshes[0].vertices.len(), 3, "a triangle list, not a quad");
+        assert!(
+            player.quads().iter().any(|quad| quad.mesh.is_some()),
+            "and the quad array carries it"
+        );
+    }
+
+    /// The smallest archive that goes through the whole model chain: an `.smd`
+    /// naming a `.bon` skeleton and a `.ski` skin, each one a single triangle
+    /// with no texture of its own.
+    ///
+    /// Built from the parsers' own layouts rather than from the shipped files so
+    /// the test does not depend on `google_drive`, and so a change in any of the
+    /// three formats fails here.
+    fn one_triangle_model() -> Vec<(String, Vec<u8>)> {
+        // `.ski`: MOXB + IKSA version 8, one rigid mesh with three vertices.
+        // Layout from `skin::Skin::parse`: version, skin/rigid/morph counts, the
+        // texture, material and bone counts, two scalars, the supple and muscle
+        // counts, 52 bytes of padding, then the texture names, the materials and
+        // the meshes. A rigid mesh stores 32 bytes per vertex and carries an
+        // explicit bone index.
+        let mut ski = Vec::new();
+        ski.extend_from_slice(b"MOXB");
+        ski.extend_from_slice(b"IKSA");
+        ski.extend_from_slice(&8u32.to_le_bytes()); // version
+        ski.extend_from_slice(&0u32.to_le_bytes()); // skinned meshes
+        ski.extend_from_slice(&1u32.to_le_bytes()); // rigid meshes
+        ski.extend_from_slice(&0u32.to_le_bytes()); // morph skinned
+        ski.extend_from_slice(&0u32.to_le_bytes()); // morph rigid
+        ski.extend_from_slice(&0u32.to_le_bytes()); // textures
+        ski.extend_from_slice(&1u32.to_le_bytes()); // materials
+        ski.extend_from_slice(&1u32.to_le_bytes()); // bones
+        ski.extend_from_slice(&0f32.to_le_bytes()); // min weight
+        ski.extend_from_slice(&1i32.to_le_bytes()); // skeleton bones
+        ski.extend_from_slice(&0u32.to_le_bytes()); // supple
+        ski.extend_from_slice(&0u32.to_le_bytes()); // muscle
+        ski.extend_from_slice(&[0u8; 52]);
+        // The one material is a C string and four RGBA vectors.
+        ski.extend_from_slice(b"MATERIAL \0");
+        for _ in 0..4 {
+            for value in [0f32, 0., 0., 1.] {
+                ski.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+        ski.extend_from_slice(&1f32.to_le_bytes()); // power
+        ski.push(0); // not two-sided
+                     // The mesh: a length-prefixed name, its bone, texture and material
+                     // indices, then its vertex and index counts.
+        ski.extend_from_slice(&3u32.to_le_bytes());
+        ski.extend_from_slice(b"tri");
+        ski.extend_from_slice(&0i32.to_le_bytes()); // rigid bone 0
+        ski.extend_from_slice(&(-1i32).to_le_bytes()); // no texture of its own
+        ski.extend_from_slice(&0i32.to_le_bytes()); // material 0
+        ski.extend_from_slice(&3u32.to_le_bytes()); // three vertices
+        ski.extend_from_slice(&3u32.to_le_bytes()); // one triangle
+        for index in 0..3u32 {
+            let angle = index as f32 * 2.094_395;
+            for value in [angle.cos(), angle.sin(), 0.] {
+                ski.extend_from_slice(&value.to_le_bytes()); // position
+            }
+            for value in [0f32, 0., 1.] {
+                ski.extend_from_slice(&value.to_le_bytes()); // normal
+            }
+            for value in [0f32, 0.] {
+                ski.extend_from_slice(&value.to_le_bytes()); // uv
+            }
+        }
+        for index in [0u16, 1, 2] {
+            ski.extend_from_slice(&index.to_le_bytes());
+        }
+
+        // `.bon`: MOXB + EKSA version 6, one bone and one joint. Version 6 is the
+        // newest the client accepts and the first that keeps its joint tracks out
+        // of the file, so the fixture needs no keyframes.
+        let mut bon = Vec::new();
+        bon.extend_from_slice(b"MOXB");
+        bon.extend_from_slice(b"EKSA");
+        bon.extend_from_slice(&6u32.to_le_bytes()); // version
+        bon.extend_from_slice(&1u32.to_le_bytes()); // one bone
+        bon.extend_from_slice(&1u32.to_le_bytes()); // one joint
+        bon.extend_from_slice(&0u32.to_le_bytes()); // no hangers
+        bon.extend_from_slice(&0i32.to_le_bytes()); // start
+        bon.extend_from_slice(&26i32.to_le_bytes()); // end
+        bon.extend_from_slice(&30i32.to_le_bytes()); // fps
+        bon.extend_from_slice(&[0u8; 64]);
+        bon.extend_from_slice(&4u32.to_le_bytes()); // name length
+        bon.extend_from_slice(b"bone");
+        // The flag byte shares a four-byte word with three pad bytes; the parser
+        // reads the whole word and keeps the first byte.
+        bon.extend_from_slice(&0u32.to_le_bytes()); // flags: an ordinary joint
+        bon.extend_from_slice(&(-1i32).to_le_bytes()); // root, no parent
+        bon.extend_from_slice(&0i32.to_le_bytes()); // first joint
+        bon.extend_from_slice(&0u32.to_le_bytes()); // no children
+        let identity = [
+            1f32, 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.,
+        ];
+        for value in identity {
+            bon.extend_from_slice(&value.to_le_bytes()); // relative
+        }
+        for value in identity {
+            bon.extend_from_slice(&value.to_le_bytes()); // initial
+        }
+        // One joint: its class, a length-prefixed name, then parent, child and
+        // sibling indices.
+        bon.extend_from_slice(&15u32.to_le_bytes()); // joint class 15
+        bon.extend_from_slice(&4u32.to_le_bytes());
+        bon.extend_from_slice(b"bone");
+        bon.extend_from_slice(&(-1i32).to_le_bytes());
+        bon.extend_from_slice(&(-1i32).to_le_bytes());
+        bon.extend_from_slice(&(-1i32).to_le_bytes());
+
+        // `.smd`: MOXB + DMSA version 8, naming the two files above.
+        let mut smd = Vec::new();
+        smd.extend_from_slice(b"MOXB");
+        smd.extend_from_slice(b"DMSA");
+        smd.extend_from_slice(&8u32.to_le_bytes());
+        smd.extend_from_slice(&1u32.to_le_bytes()); // one skin
+        smd.extend_from_slice(&0u32.to_le_bytes()); // no actions
+        smd.extend_from_slice(&0u32.to_le_bytes()); // no hangers
+        smd.extend_from_slice(&0u32.to_le_bytes()); // no props
+        smd.extend_from_slice(&[0u8; 60]);
+        // Every name is a `u32` byte length followed by GBK bytes.
+        let mut name = |text: &str, out: &mut Vec<u8>| {
+            out.extend_from_slice(&(text.len() as u32).to_le_bytes());
+            out.extend_from_slice(text.as_bytes());
+        };
+        name("bone.bon", &mut smd);
+        name("tri.ski", &mut smd);
+        name("", &mut smd); // no physique
+        name("", &mut smd); // no track directory
+        vec![
+            ("gfx/models/测试/三角形.smd".into(), smd),
+            ("gfx/models/测试/bone.bon".into(), bon),
+            ("gfx/models/测试/tri.ski".into(), ski),
+        ]
     }
 
     /// The quad centre, which for a centred origin is the element position.
