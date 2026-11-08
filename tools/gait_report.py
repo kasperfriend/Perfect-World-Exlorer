@@ -498,22 +498,16 @@ def _transport_track(track, sb, tb, m):
     return {**track, "rotation": {**rotation, "keys": keys}}
 
 
-def retarget_clip(source, target, kind, gate="legacy"):
-    t_joints = {}
-    for i, j in enumerate(target["skeleton"]["joints"]):
-        t_joints.setdefault(j["name"], []).append(i)
-
-    report = {"kind": kind, "actions": [], "accepted": None}
-    for action_index, action in enumerate(source["model"]["actions"]):
-        if gait_kind(action["name"]) != kind:
-            continue
+def _evaluate_candidate(source, target, kind, t_joints, action_index, action, gate):
+    """Evaluate one walk/run-named action. Returns (entry, stop): stop=True
+    means the caller should break the candidate loop (accepted or aborted)."""
+    if True:
         entry = {"name": action["name"], "index": action_index}
         clip = clip_ms(action, source["skeleton"]["fps"])
         entry["clip_ms"] = clip
         if clip is None:
             entry["verdict"] = "unsampleable clip"
-            report["actions"].append(entry)
-            continue
+            return entry, False
         track_set = source["tracks"][action_index]
         if track_set is None:
             embedded = source["skeleton"]["embedded"]
@@ -521,12 +515,10 @@ def retarget_clip(source, target, kind, gate="legacy"):
             track_set = {"tracks": embedded} if embedded else None
         elif "error" in track_set:
             entry["verdict"] = f"no tracks ({track_set['error']})"
-            report["actions"].append(entry)
-            continue
+            return entry, False
         if track_set is None:
             entry["verdict"] = "no tracks"
-            report["actions"].append(entry)
-            continue
+            return entry, False
         source_tracks = track_set["tracks"]
         entry["source_tracks"] = len(source_tracks)
         try:
@@ -535,8 +527,7 @@ def retarget_clip(source, target, kind, gate="legacy"):
             entry["motion_deg"] = None
         if not source_tracks:
             entry["verdict"] = "empty track set"
-            report["actions"].append(entry)
-            continue
+            return entry, False
 
         mapped, seen, skipped = [], set(), []
         aborted = None
@@ -619,8 +610,7 @@ def retarget_clip(source, target, kind, gate="legacy"):
             )
         if aborted:
             entry["verdict"] = aborted
-            report["actions"].append(entry)
-            continue
+            return entry, True
         mapped_names = {m["bone"] for m in mapped if not m.get("broken")}
         core_gaps = [
             m["rest_gap"]
@@ -638,12 +628,9 @@ def retarget_clip(source, target, kind, gate="legacy"):
             if core_missing:
                 entry["verdict"] = "missing locomotion bones: " + ", ".join(core_missing)
                 entry["core_missing"] = core_missing
-                report["actions"].append(entry)
-                continue
+                return entry, False
             entry["verdict"] = "accepted"
-            report["actions"].append(entry)
-            report["accepted"] = entry
-            break
+            return entry, True
         need = min(len(source_tracks), 8)
         coverage = sum(1 for m in mapped if not m.get("broken"))
         if coverage < need or coverage * 100 < len(source_tracks) * 70:
@@ -651,15 +638,303 @@ def retarget_clip(source, target, kind, gate="legacy"):
             entry["mapped"] = len(mapped)
             entry["skipped"] = skipped
             entry["bones"] = mapped
-            report["actions"].append(entry)
-            continue
+            return entry, False
         entry["verdict"] = "accepted"
         entry["mapped"] = len(mapped)
         entry["skipped"] = skipped
         entry["bones"] = mapped
+        return entry, True
+
+
+# --------------------------------------------------------------------------
+# Runtime selection mirror: Clip::new + ordered candidate loop + visibly_moves.
+# The game walks the SAME model.actions order, rejects what Clip::new rejects,
+# skips candidates that fail mapping or locomotion coverage, and - only then -
+# demands the retargeted clip visibly move a sampled vertex. This is the only
+# part of the acceptance path the offline table cannot see, so it gets its own
+# section. The bomben bone-level signature is strictly more sensitive than the
+# game's 8-vertices-per-mesh hash: if nothing here moves, nothing moves there.
+
+def _slerp(a, b, t):
+    dot = sum(a[i] * b[i] for i in range(4))
+    y = b
+    if dot < 0.0:
+        y = [-v for v in b]
+        dot = -dot
+    if dot > 0.9995:
+        q = [a[i] + (y[i] - a[i]) * t for i in range(4)]
+        n = math.sqrt(sum(v * v for v in q)) or 1.0
+        return [v / n for v in q]
+    theta_0 = math.acos(max(-1.0, min(1.0, dot)))
+    sin_0 = math.sin(theta_0)
+    if sin_0 == 0.0:
+        return a
+    theta = theta_0 * t
+    s0 = math.sin(theta_0 - theta) / sin_0
+    s1 = math.sin(theta) / sin_0
+    return [s0 * a[i] + s1 * y[i] for i in range(4)]
+
+
+def sample_keytrack(track, seconds):
+    """animation::KeyTrack::sample: frame = seconds * fps, lerp keys."""
+    keys = track["keys"]
+    frames = track["frames"]
+    fps = track["fps"]
+    if not keys or fps <= 0:
+        return None
+    frame = max(0.0, seconds * fps)
+    i = 0
+    while i < len(frames) and frames[i] <= frame:
+        i += 1
+    if i == 0:
+        return keys[0]
+    if i == len(frames):
+        return keys[-1]
+    a = i - 1
+    f0, f1 = frames[a], frames[i]
+    t = 0.0 if f1 == f0 else (frame - f0) / (f1 - f0)
+    if len(keys[a]) == 3:
+        return [keys[a][j] + (keys[i][j] - keys[a][j]) * t for j in range(3)]
+    return _slerp(quat_norm(keys[a]), quat_norm(keys[i]), t)
+
+
+def _pose_signature(matrices):
+    values = []
+    for m in matrices:
+        for row in m[:3]:
+            values.extend(int(math.trunc(v * 100)) for v in row)
+    return hash(tuple(values))
+
+
+from collections import deque
+
+def _fk_absolute(target, rt_by_bone, seconds):
+    bones = target["skeleton"]["bones"]
+    count = len(bones)
+    base = [mat_from_cols(b["relative"]) for b in bones]
+    children = [[] for _ in range(count)]
+    queue = deque()
+    for i, bone in enumerate(bones):
+        parent = bone["parent"]
+        if parent == -1:
+            queue.append(i)
+        else:
+            children[parent].append(i)
+    absolute = [None] * count
+    while queue:
+        i = queue.popleft()
+        local = base[i]
+        rt = rt_by_bone.get(i)
+        if rt is not None:
+            pos = sample_keytrack(rt["position"], seconds)
+            rot = sample_keytrack(rt["rotation"], seconds)
+            if pos is None or rot is None:
+                return None
+            r3 = quat_to_mat3(_slerp(rot, rot, 0.0))  # rot already normalized
+            local = [
+                [r3[0][0], r3[0][1], r3[0][2], pos[0]],
+                [r3[1][0], r3[1][1], r3[1][2], pos[1]],
+                [r3[2][0], r3[2][1], r3[2][2], pos[2]],
+                [0.0, 0.0, 0.0, 1.0],
+            ]
+        parent = bones[i]["parent"]
+        absolute[i] = local if parent == -1 else _mat4_mul(absolute[parent], local)
+        for child in children[i]:
+            queue.append(child)
+    return absolute
+
+
+def _mat4_mul(a, b):
+    return [
+        [sum(a[i][k] * b[k][j] for k in range(4)) for j in range(4)]
+        for i in range(4)
+    ]
+
+
+def visibly_moves_proxy(source, target, entry):
+    """Model of the game's visibly_moves gate on an accepted candidate.
+
+    The game hashes 8 sampled vertices of every skinned mesh; this proxy
+    hashes the mapped bones' absolute matrices (12 floats each, quantized to
+    0.01), which flips whenever the game's hash would - plus on any in-place
+    rotation of a sampled bone. Strictly more sensitive on the mapped set.
+    """
+    rt_by_bone = {}
+    tgt_index = {b["name"]: i for i, b in enumerate(target["skeleton"]["bones"])}
+    mapped_indices = []
+    for mapped in entry.get("bones", []):
+        i = tgt_index.get(mapped["bone"])
+        if i is None:
+            continue
+        track = _transport_track(mapped["track"], mapped["src"], mapped["tgt"], mapped["m"])
+        rest = mat_from_cols(target["skeleton"]["bones"][i]["relative"])
+        # The game pins the position track to the target rest translation.
+        track["position"] = {
+            "fps": 1,
+            "keys": [[rest[0][3], rest[1][3], rest[2][3]]],
+            "frames": [0.0],
+        }
+        rt_by_bone[i] = track
+        mapped_indices.append(i)
+    if not mapped_indices or "clip_ms" not in entry or entry["clip_ms"] is None:
+        return None
+    start_ms, _, length_ms = entry["clip_ms"]
+    length_ms = max(1, length_ms)
+
+    def seconds_at(clock):
+        if clock <= 0:
+            return start_ms * 0.001
+        return (start_ms + int(clock * 1000) % length_ms) * 0.001
+
+    start = _fk_absolute(target, rt_by_bone, seconds_at(0.))
+    if start is None:
+        return None
+    base_indices = sorted(rt_by_bone)
+    base_sig = _pose_signature([start[i] for i in base_indices])
+    max_move_mm = 0.0
+    moves = False
+    for offset in (0.13, 0.21, 0.29, 0.37, 0.49):
+        at = seconds_at(offset)
+        if abs(at - seconds_at(0.)) < 1e-9:
+            continue
+        pose = _fk_absolute(target, rt_by_bone, at)
+        if pose is None:
+            continue
+        sig = _pose_signature([pose[i] for i in base_indices])
+        for i in base_indices:
+            dx = pose[i][0][3] - start[i][0][3]
+            dy = pose[i][1][3] - start[i][1][3]
+            dz = pose[i][2][3] - start[i][2][3]
+            max_move_mm = max(max_move_mm, math.sqrt(dx * dx + dy * dy + dz * dz) * 1000.0)
+        if sig != base_sig:
+            moves = True
+    return {"moves": moves, "max_bone_move_mm": max_move_mm}
+
+
+def runtime_gait(source, target, kind):
+    """Mirror the game's ordered loop over walk/run candidates.
+
+    Returns {"selected": entry-or-None, "trace": [...]}. Every candidate the
+    game would consider is listed with the stage that decided its fate.
+    visibly_moves is evaluated on the retargeted pose exactly when the game
+    evaluates it: after the mapping and locomotion-coverage gates pass.
+    """
+    t_joints = {}
+    for i, j in enumerate(target["skeleton"]["joints"]):
+        t_joints.setdefault(j["name"], []).append(i)
+    trace = []
+    for action_index, action in enumerate(source["model"]["actions"]):
+        if gait_kind(action["name"]) != kind:
+            continue
+        clip = clip_ms(action, source["skeleton"]["fps"])
+        if clip is None:
+            trace.append((action["name"], "Clip::new rejects", None))
+            continue
+        entry, _ = _evaluate_candidate(source, target, kind, t_joints, action_index, action, "core")
+        if entry["verdict"] != "accepted":
+            trace.append((action["name"], entry["verdict"], None))
+            continue
+        vise = visibly_moves_proxy(source, target, entry)
+        if vise is not None and not vise["moves"]:
+            trace.append((action["name"], "visibly_moves FAIL", vise))
+            continue
+        trace.append((action["name"], "SELECTED", vise))
+        return {"selected": entry, "trace": trace, "vise": vise}
+    return {"selected": None, "trace": trace, "vise": None}
+
+
+def runtime_selection_section(donors, resident_paths, load_cached):
+    """Per numbered resident rig, mirror the game's clip selection end to end.
+
+    `resident_paths` load lazily in the caller's cache; donors come from the
+    same cache the acceptance table uses.
+    """
+    from collections import Counter
+    lines = [
+        "## Runtime selection mirror (per resident, gender donor)\n\n",
+        "What the game would actually play for each numbered resident rig, in "
+        "`model.actions` order, with the `visibly_moves` gate evaluated on the "
+        "retargeted pose exactly where the game evaluates it. `vise` is a "
+        "bone-level proxy strictly more sensitive than the game's "
+        "8-vertices-per-mesh vertex hash; `max bone move` is the largest "
+        "mapped-bone translation between the clip start and the sampled "
+        "offsets, in millimetres. When nothing is SELECTED the resident draws "
+        "its bind pose while sliding along its route - the in-game "
+        "'stopped walking'.\n\n",
+        "| rig | walk selection | run selection |\n| --- | --- | --- |\n",
+    ]
+    picks_walk = Counter()
+    picks_run = Counter()
+    none_walk = none_run = 0
+    fell = []
+    for path in resident_paths:
+        asset, error = load_cached(path)
+        if error or asset is None:
+            lines.append(f"| `{path}` | load error | |\n")
+            continue
+        gender = "m" if path.split("/")[3].startswith("男") else (
+            "f" if path.split("/")[3].startswith("女") else None)
+        donor = "models/players/形象/武侠男/躯干/武侠男.ecm" if gender == "m" else (
+            "models/players/形象/武侠女/躯干/武侠女.ecm" if gender == "f" else None)
+        donor_asset = donors.get(donor) if donor else None
+        if donor_asset is None:
+            lines.append(f"| `{path}` | donor unloadable | |\n")
+            continue
+        cells = []
+        for kind, picks, none_counter in (("walk", picks_walk, None), ("run", picks_run, None)):
+            result = runtime_gait(donor_asset, asset, kind)
+            if result["selected"] is None:
+                picks["(bind pose)"] += 1
+                if kind == "walk":
+                    none_walk += 1
+                else:
+                    none_run += 1
+                reasons = "; ".join(
+                    f"{n}: {v}" for n, v, _ in result["trace"][:4]
+                ) or "no locomotion candidates"
+                cells.append(f"**bind pose** ({reasons})")
+            else:
+                name_sel = result["selected"]["name"]
+                picks[name_sel] += 1
+                if len(result["trace"]) > 1:
+                    fell.append((path, kind, name_sel, len(result["trace"])))
+                vise = result["vise"]
+                move = f", max {vise['max_bone_move_mm']:.0f} mm" if vise else ""
+                cells.append(f"`{name_sel}`{move}")
+        lines.append(f"| `{path}` | {cells[0]} | {cells[1]} |\n")
+    lines.append("\nbreak-down of the walk candidates that won at runtime:\n\n")
+    for name_sel, count in picks_walk.most_common():
+        lines.append(f"- walk -> `{name_sel}` x{count}\n")
+    for name_sel, count in picks_run.most_common():
+        lines.append(f"- run -> `{name_sel}` x{count}\n")
+    if fell:
+        lines.append("\ncandidates that only won after an earlier clip was rejected:\n\n")
+        for path, kind, name_sel, depth in fell:
+            lines.append(f"- `{path}` {kind} -> `{name_sel}` (after {depth - 1} rejected)\n")
+    lines.append(
+        f"\nsummary: walk bind pose {none_walk}/{len(resident_paths)} rigs, "
+        f"run bind pose {none_run}/{len(resident_paths)} rigs\n\n"
+    )
+    return "".join(lines)
+
+
+
+def retarget_clip(source, target, kind, gate="legacy"):
+    t_joints = {}
+    for i, j in enumerate(target["skeleton"]["joints"]):
+        t_joints.setdefault(j["name"], []).append(i)
+
+    report = {"kind": kind, "actions": [], "accepted": None}
+    for action_index, action in enumerate(source["model"]["actions"]):
+        if gait_kind(action["name"]) != kind:
+            continue
+        entry, stop = _evaluate_candidate(source, target, kind, t_joints, action_index, action, gate)
         report["actions"].append(entry)
-        report["accepted"] = entry
-        break
+        if entry["verdict"] == "accepted":
+            report["accepted"] = entry
+            break
+        if stop:
+            break
     return report
 
 
@@ -761,6 +1036,124 @@ def rig_row(name, asset):
     }
 
 
+def clip_probe_lines(donors):
+    lines = []
+    lines.append(
+        "## Clip content probe (shipped gender donors)\n\n"
+        "What the selected walk/run clips actually contain. `root`/`pelvis` are "
+        "the authored position-key axis ranges (min..max) next to the bone's "
+        "rest translation. `delta` values are the authored parent-space swing "
+        "angle in degrees at the first/mid/max key. Residents play these "
+        "deltas after frame transport with the root pinned to bind, so an "
+        "authored root/pelvis drop or a folded thigh reads as a crouch or a "
+        "sit in game.\n\n"
+    )
+    for donor in (
+        "models/players/形象/武侠男/躯干/武侠男.ecm",
+        "models/players/形象/武侠女/躯干/武侠女.ecm",
+    ):
+        asset = donors.get(donor)
+        if asset is None:
+            continue
+        sk = asset["skeleton"]
+        bones = sk["bones"]
+        joints = sk["joints"]
+        bone_by_index = bones
+        joint_of_bone = {}
+        for joint_index, joint in enumerate(joints):
+            try:
+                joint_of_bone.setdefault(joint["child"], joint_index)
+            except Exception:
+                continue
+        lines.append(f"### `{donor}`\n\n")
+        for kind in ("walk", "run"):
+            for action_index, action in enumerate(asset["model"]["actions"]):
+                if gait_kind(action["name"]) != kind:
+                    continue
+                clip = clip_ms(action, sk["fps"])
+                if clip is None:
+                    lines.append(f"- {kind} `{action['name']}` (#{action_index}): unsampleable clip\n")
+                    continue
+                start_ms, end_ms, length_ms = clip
+                track_set = asset["tracks"][action_index]
+                if track_set is None and sk["embedded"]:
+                    track_set = {"tracks": sk["embedded"]}
+                if not track_set or "tracks" not in track_set:
+                    lines.append(f"- {kind} `{action['name']}` (#{action_index}): no tracks\n")
+                    continue
+                by_joint = {t["id"]: t for t in track_set["tracks"]}
+
+                def track_for(bone_name):
+                    for index, bone in enumerate(bone_by_index):
+                        if bone["name"] == bone_name:
+                            joint_index = joint_of_bone.get(index)
+                            if joint_index is None:
+                                return None, None
+                            return by_joint.get(joint_index), bone
+                    return None, None
+
+                def rest_translation(bone):
+                    m = mat_from_cols(bone["relative"])
+                    return m[0][3], m[1][3], m[2][3]
+
+                def pos_range(track):
+                    if track is None:
+                        return None
+                    keys = track["position"]["keys"]
+                    axes = list(zip(*keys)) if keys else [(), (), ()]
+                    return [(min(a), max(a)) for a in axes]
+
+                def delta_angles(track, bone):
+                    if track is None:
+                        return None
+                    rel = mat_from_cols(bone["relative"])
+                    s_cols, _ = normalized_cols(rel)
+                    s_mat = unit_cols_to_mat(s_cols)
+                    keys = track["rotation"]["keys"]
+                    picks = [0, len(keys) // 2, len(keys) - 1]
+                    angles = []
+                    for i in range(len(keys)):
+                        rs = quat_to_mat3(quat_norm(keys[i]))
+                        angles.append(angle_between_rotation_mats(s_mat, rs) if mat3_det(rs) > 0 else 999.0)
+                    return angles, picks
+
+                root_track, root_bone = track_for("Bip01")
+                pelvis_track, pelvis_bone = track_for("Bip01 Pelvis")
+                lines.append(
+                    f"- {kind} `{action['name']}` (#{action_index}): "
+                    f"{start_ms}..{end_ms} ms (len {length_ms} ms), tracks={len(track_set['tracks'])}\n"
+                )
+                for tag, track, bone in (("root", root_track, root_bone), ("pelvis", pelvis_track, pelvis_bone)):
+                    if track is None or bone is None:
+                        continue
+                    rng = pos_range(track)
+                    rest = rest_translation(bone)
+                    k = len(track["position"]["keys"])
+                    lines.append(
+                        f"  - {tag} pos keys={k} rest=({rest[0]:.3f}, {rest[1]:.3f}, {rest[2]:.3f}) "
+                        f"x[{rng[0][0]:.3f}..{rng[0][1]:.3f}] "
+                        f"y[{rng[1][0]:.3f}..{rng[1][1]:.3f}] "
+                        f"z[{rng[2][0]:.3f}..{rng[2][1]:.3f}]\n"
+                    )
+                for bone_name in (
+                    "Bip01 Spine", "Bip01 L Thigh", "Bip01 L Calf", "Bip01 L Foot",
+                    "Bip01 R Thigh", "Bip01 L UpperArm", "Bip01 L Forearm", "Bip01 Head",
+                ):
+                    track, bone = track_for(bone_name)
+                    if track is None or bone is None:
+                        continue
+                    angles, picks = delta_angles(track, bone)
+                    def ang(i):
+                        return f"{angles[i]:.1f}"
+                    lines.append(
+                        f"  - {bone_name}: delta first {ang(0)} mid {ang(picks[1])} last {ang(len(angles)-1)} "
+                        f"max {max(angles):.1f} deg over {len(angles)} keys\n"
+                    )
+        lines.append("\n")
+
+    return lines
+
+
 def write_markdown(pack, names, out_path):
     lines = []
     lines.append("# Live World gait-retarget evidence\n\n")
@@ -805,6 +1198,8 @@ def write_markdown(pack, names, out_path):
                     f"tracks={a.get('source_tracks', '?')}{motion_s} verdict={a.get('verdict')}\n"
                 )
         lines.append("\n")
+
+    lines.extend(clip_probe_lines(donors))
 
     resident_paths = sorted(
         name for name in names
@@ -965,6 +1360,8 @@ def write_markdown(pack, names, out_path):
                     f"{fnum('delta_err_first')} | {fnum('delta_err_mid')} | {fnum('delta_err_last')} |\n"
                 )
             lines.append("\n")
+
+    lines.extend(runtime_selection_section(donors, resident_paths, load_cached))
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("".join(lines), encoding="utf-8")
