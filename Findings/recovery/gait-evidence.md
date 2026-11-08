@@ -138,17 +138,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc10/女npc10.ecm`
 
@@ -156,17 +156,17 @@ bon v5 fps=15 bones=34 joints=34 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc11/女npc11.ecm`
 
@@ -174,17 +174,17 @@ bon v5 fps=15 bones=35 joints=35 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle, Bip01 L Thigh)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc12/女npc12.ecm`
 
@@ -192,17 +192,17 @@ bon v5 fps=15 bones=37 joints=37 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc13/女npc13.ecm`
 
@@ -210,17 +210,17 @@ bon v5 fps=15 bones=32 joints=32 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 R UpperArm)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc14/女npc14.ecm`
 
@@ -228,17 +228,17 @@ bon v5 fps=15 bones=32 joints=32 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc15/女npc15.ecm`
 
@@ -246,17 +246,17 @@ bon v5 fps=15 bones=35 joints=35 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc16/女npc16.ecm`
 
@@ -264,17 +264,17 @@ bon v5 fps=15 bones=35 joints=35 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc17/女npc17.ecm`
 
@@ -282,17 +282,17 @@ bon v5 fps=15 bones=29 joints=29 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Thigh)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Thigh)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Spine, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Spine, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm, Bip01 L Thigh)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc18/女npc18.ecm`
 
@@ -300,17 +300,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc19/女npc19.ecm`
 
@@ -318,17 +318,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc2/女npc2.ecm`
 
@@ -336,17 +336,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc20/女npc20.ecm`
 
@@ -354,17 +354,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Clavicle)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc21/女npc21.ecm`
 
@@ -372,17 +372,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc22/女npc22.ecm`
 
@@ -390,17 +390,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/41 (max core gap 43.7 deg), run=accepted 23/41 (max core gap 43.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/41 (max core gap 43.7 deg), run=accepted 23/41 (max core gap 43.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/41 (max core gap 43.7 deg), run=accepted 23/41 (max core gap 43.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/43 (max core gap 43.7 deg), run=accepted 23/43 (max core gap 43.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/41 (max core gap 43.7 deg), run=accepted 23/41 (max core gap 43.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/41 (max core gap 43.7 deg), run=accepted 23/41 (max core gap 43.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/41 (max core gap 43.7 deg), run=accepted 23/41 (max core gap 43.7 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 L UpperArm, Bip01 L Hand, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 R Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc23/女npc23.ecm`
 
@@ -408,17 +408,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc24/女npc24.ecm`
 
@@ -426,17 +426,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc25/女npc25.ecm`
 
@@ -444,17 +444,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc3/女npc3.ecm`
 
@@ -462,17 +462,17 @@ bon v5 fps=15 bones=29 joints=29 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc4/女npc4.ecm`
 
@@ -480,17 +480,17 @@ bon v5 fps=15 bones=29 joints=29 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc5/女npc5.ecm`
 
@@ -498,17 +498,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc6/女npc6.ecm`
 
@@ -516,17 +516,17 @@ bon v5 fps=15 bones=35 joints=35 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 L Thigh)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc7/女npc7.ecm`
 
@@ -534,17 +534,17 @@ bon v5 fps=15 bones=38 joints=38 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc8/女npc8.ecm`
 
@@ -552,17 +552,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 R Clavicle, Bip01 R Hand, Bip01 L Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/女npc9/女npc9.ecm`
 
@@ -570,17 +570,17 @@ bon v5 fps=15 bones=29 joints=29 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Foot), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Foot)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Foot), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Foot)
-- donor `卫兵npc3` [core gate]: walk=accepted 29/29 (max core gap 0.0 deg), run=accepted 29/29 (max core gap 0.0 deg)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot, Bip01 R Toe0), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot, Bip01 R Toe0)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot, Bip01 R Toe0), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh, Bip01 R Calf, Bip01 R Foot, Bip01 R Toe0)
+- donor `卫兵npc3` [core gate]: walk=accepted 29/29 (max chain gap 0.0 deg), run=accepted 29/29 (max chain gap 0.0 deg)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
 
 ### `models/npcs/npc/男npc1/男npc1.ecm`
 
@@ -588,17 +588,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.7 deg), run=accepted 23/35 (max core gap 36.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 34.4 deg), run=accepted 25/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
 
 ### `models/npcs/npc/男npc10/男npc10.ecm`
 
@@ -606,17 +606,17 @@ bon v5 fps=15 bones=32 joints=32 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 25.6 deg), run=accepted 29/35 (max core gap 25.6 deg)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 25.6 deg), run=accepted 29/35 (max core gap 25.6 deg)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 25.6 deg), run=accepted 29/35 (max core gap 25.6 deg)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 37.2 deg), run=accepted 29/35 (max core gap 37.2 deg)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 25.6 deg), run=accepted 29/35 (max core gap 25.6 deg)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 25.6 deg), run=accepted 29/35 (max core gap 25.6 deg)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 25.6 deg), run=accepted 29/35 (max core gap 25.6 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 27.3 deg), run=accepted 29/35 (max chain gap 27.3 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 27.3 deg), run=accepted 29/35 (max chain gap 27.3 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 27.3 deg), run=accepted 29/35 (max chain gap 27.3 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 35.4 deg), run=accepted 29/35 (max chain gap 35.4 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 27.3 deg), run=accepted 29/35 (max chain gap 27.3 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 27.3 deg), run=accepted 29/35 (max chain gap 27.3 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 27.3 deg), run=accepted 29/35 (max chain gap 27.3 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc11/男npc11.ecm`
 
@@ -624,17 +624,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 31.2 deg), run=accepted 23/35 (max core gap 31.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 31.2 deg), run=accepted 23/35 (max core gap 31.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 31.2 deg), run=accepted 23/35 (max core gap 31.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 41.2 deg), run=accepted 23/35 (max core gap 41.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 31.2 deg), run=accepted 23/35 (max core gap 31.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 31.2 deg), run=accepted 23/35 (max core gap 31.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 31.2 deg), run=accepted 23/35 (max core gap 31.2 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 34.4 deg), run=accepted 25/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
 
 ### `models/npcs/npc/男npc12/男npc12.ecm`
 
@@ -642,17 +642,17 @@ bon v5 fps=15 bones=34 joints=34 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 32.5 deg), run=accepted 31/35 (max core gap 32.5 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 32.5 deg), run=accepted 31/35 (max core gap 32.5 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 32.5 deg), run=accepted 31/35 (max core gap 32.5 deg)
-- donor `躯干` [core gate]: walk=accepted 30/35 (max core gap 39.1 deg), run=accepted 30/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 32.5 deg), run=accepted 31/35 (max core gap 32.5 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 32.5 deg), run=accepted 31/35 (max core gap 32.5 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 32.5 deg), run=accepted 31/35 (max core gap 32.5 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 26.6 deg), run=accepted 31/35 (max chain gap 26.6 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 26.6 deg), run=accepted 31/35 (max chain gap 26.6 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 26.6 deg), run=accepted 31/35 (max chain gap 26.6 deg)
+- donor `躯干` [core gate]: walk=accepted 30/35 (max chain gap 33.0 deg), run=accepted 30/35 (max chain gap 33.0 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 26.6 deg), run=accepted 31/35 (max chain gap 26.6 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 26.6 deg), run=accepted 31/35 (max chain gap 26.6 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 26.6 deg), run=accepted 31/35 (max chain gap 26.6 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
 
 ### `models/npcs/npc/男npc13/男npc13.ecm`
 
@@ -660,17 +660,17 @@ bon v5 fps=15 bones=28 joints=28 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L UpperArm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L UpperArm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/男npc14/男npc14.ecm`
 
@@ -678,17 +678,17 @@ bon v5 fps=15 bones=28 joints=28 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 27/35 (max core gap 33.9 deg), run=accepted 27/35 (max core gap 33.9 deg)
-- donor `躯干` [core gate]: walk=accepted 27/35 (max core gap 33.9 deg), run=accepted 27/35 (max core gap 33.9 deg)
-- donor `躯干` [core gate]: walk=accepted 27/35 (max core gap 33.9 deg), run=accepted 27/35 (max core gap 33.9 deg)
-- donor `躯干` [core gate]: walk=accepted 27/35 (max core gap 43.5 deg), run=accepted 27/35 (max core gap 43.5 deg)
-- donor `躯干` [core gate]: walk=accepted 27/35 (max core gap 33.9 deg), run=accepted 27/35 (max core gap 33.9 deg)
-- donor `躯干` [core gate]: walk=accepted 27/35 (max core gap 33.9 deg), run=accepted 27/35 (max core gap 33.9 deg)
-- donor `躯干` [core gate]: walk=accepted 27/35 (max core gap 33.9 deg), run=accepted 27/35 (max core gap 33.9 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 34.4 deg), run=accepted 27/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc15/男npc15.ecm`
 
@@ -696,17 +696,17 @@ bon v5 fps=15 bones=28 joints=28 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 42.1 deg), run=accepted 25/35 (max core gap 42.1 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 34.4 deg), run=accepted 27/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc16/男npc16.ecm`
 
@@ -714,17 +714,17 @@ bon v5 fps=15 bones=28 joints=28 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 24.9 deg), run=accepted 25/35 (max core gap 24.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 24.9 deg), run=accepted 25/35 (max core gap 24.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 24.9 deg), run=accepted 25/35 (max core gap 24.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.8 deg), run=accepted 25/35 (max core gap 32.8 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 24.9 deg), run=accepted 25/35 (max core gap 24.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 24.9 deg), run=accepted 25/35 (max core gap 24.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 24.9 deg), run=accepted 25/35 (max core gap 24.9 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 34.4 deg), run=accepted 27/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc17/男npc17.ecm`
 
@@ -732,17 +732,17 @@ bon v5 fps=15 bones=32 joints=32 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 29.6 deg), run=accepted 26/35 (max core gap 29.6 deg)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 29.6 deg), run=accepted 26/35 (max core gap 29.6 deg)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 29.6 deg), run=accepted 26/35 (max core gap 29.6 deg)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 36.5 deg), run=accepted 26/35 (max core gap 36.5 deg)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 29.6 deg), run=accepted 26/35 (max core gap 29.6 deg)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 29.6 deg), run=accepted 26/35 (max core gap 29.6 deg)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 29.6 deg), run=accepted 26/35 (max core gap 29.6 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 34.4 deg), run=accepted 27/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
 
 ### `models/npcs/npc/男npc18/男npc18.ecm`
 
@@ -750,17 +750,17 @@ bon v5 fps=15 bones=28 joints=28 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 26.6 deg), run=accepted 25/35 (max core gap 26.6 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 26.6 deg), run=accepted 25/35 (max core gap 26.6 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 26.6 deg), run=accepted 25/35 (max core gap 26.6 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 37.2 deg), run=accepted 25/35 (max core gap 37.2 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 26.6 deg), run=accepted 25/35 (max core gap 26.6 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 26.6 deg), run=accepted 25/35 (max core gap 26.6 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 26.6 deg), run=accepted 25/35 (max core gap 26.6 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 34.4 deg), run=accepted 27/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc2/男npc2.ecm`
 
@@ -768,17 +768,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.1 deg), run=accepted 23/35 (max core gap 36.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.1 deg), run=accepted 23/35 (max core gap 36.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.1 deg), run=accepted 23/35 (max core gap 36.1 deg)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.1 deg), run=accepted 23/35 (max core gap 36.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.1 deg), run=accepted 23/35 (max core gap 36.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.1 deg), run=accepted 23/35 (max core gap 36.1 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 43.5 deg), run=accepted 25/35 (max chain gap 43.5 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc20/男npc20.ecm`
 
@@ -786,17 +786,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 25.2 deg), run=accepted 23/35 (max core gap 25.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 25.2 deg), run=accepted 23/35 (max core gap 25.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 25.2 deg), run=accepted 23/35 (max core gap 25.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 34.1 deg), run=accepted 23/35 (max core gap 34.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 25.2 deg), run=accepted 23/35 (max core gap 25.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 25.2 deg), run=accepted 23/35 (max core gap 25.2 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 25.2 deg), run=accepted 23/35 (max core gap 25.2 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 34.4 deg), run=accepted 25/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc21/男npc21.ecm`
 
@@ -804,17 +804,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 42.6 deg), run=accepted 23/35 (max core gap 42.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 42.6 deg), run=accepted 23/35 (max core gap 42.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 42.6 deg), run=accepted 23/35 (max core gap 42.6 deg)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 42.6 deg), run=accepted 23/35 (max core gap 42.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 42.6 deg), run=accepted 23/35 (max core gap 42.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 42.6 deg), run=accepted 23/35 (max core gap 42.6 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 43.5 deg), run=accepted 25/35 (max chain gap 43.5 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc22/男npc22.ecm`
 
@@ -822,17 +822,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 37.5 deg), run=accepted 23/35 (max core gap 37.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 37.5 deg), run=accepted 23/35 (max core gap 37.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 37.5 deg), run=accepted 23/35 (max core gap 37.5 deg)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 37.5 deg), run=accepted 23/35 (max core gap 37.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 37.5 deg), run=accepted 23/35 (max core gap 37.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 37.5 deg), run=accepted 23/35 (max core gap 37.5 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 43.5 deg), run=accepted 25/35 (max chain gap 43.5 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc23/男npc23.ecm`
 
@@ -840,17 +840,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 35.5 deg), run=accepted 23/35 (max core gap 35.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 35.5 deg), run=accepted 23/35 (max core gap 35.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 35.5 deg), run=accepted 23/35 (max core gap 35.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 44.9 deg), run=accepted 23/35 (max core gap 44.9 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 35.5 deg), run=accepted 23/35 (max core gap 35.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 35.5 deg), run=accepted 23/35 (max core gap 35.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 35.5 deg), run=accepted 23/35 (max core gap 35.5 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.8 deg), run=accepted 25/35 (max chain gap 25.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.8 deg), run=accepted 25/35 (max chain gap 25.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.8 deg), run=accepted 25/35 (max chain gap 25.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 32.5 deg), run=accepted 25/35 (max chain gap 32.5 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.8 deg), run=accepted 25/35 (max chain gap 25.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.8 deg), run=accepted 25/35 (max chain gap 25.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.8 deg), run=accepted 25/35 (max chain gap 25.8 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc24/男npc24.ecm`
 
@@ -858,17 +858,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 26.7 deg), run=accepted 23/35 (max core gap 26.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 26.7 deg), run=accepted 23/35 (max core gap 26.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 26.7 deg), run=accepted 23/35 (max core gap 26.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 37.9 deg), run=accepted 23/35 (max core gap 37.9 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 26.7 deg), run=accepted 23/35 (max core gap 26.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 26.7 deg), run=accepted 23/35 (max core gap 26.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 26.7 deg), run=accepted 23/35 (max core gap 26.7 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 34.4 deg), run=accepted 25/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc25/男npc25.ecm`
 
@@ -876,17 +876,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 33.9 deg), run=accepted 23/35 (max core gap 33.9 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 33.9 deg), run=accepted 23/35 (max core gap 33.9 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 33.9 deg), run=accepted 23/35 (max core gap 33.9 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 43.6 deg), run=accepted 23/35 (max core gap 43.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 33.9 deg), run=accepted 23/35 (max core gap 33.9 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 33.9 deg), run=accepted 23/35 (max core gap 33.9 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 33.9 deg), run=accepted 23/35 (max core gap 33.9 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 34.4 deg), run=accepted 25/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc26/男npc26.ecm`
 
@@ -894,17 +894,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 29.6 deg), run=accepted 23/35 (max core gap 29.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 29.6 deg), run=accepted 23/35 (max core gap 29.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 29.6 deg), run=accepted 23/35 (max core gap 29.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 40.1 deg), run=accepted 23/35 (max core gap 40.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 29.6 deg), run=accepted 23/35 (max core gap 29.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 29.6 deg), run=accepted 23/35 (max core gap 29.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 29.6 deg), run=accepted 23/35 (max core gap 29.6 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 34.4 deg), run=accepted 25/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 26.9 deg), run=accepted 25/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc27/男npc27.ecm`
 
@@ -912,17 +912,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 24.1 deg), run=accepted 23/35 (max core gap 24.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 24.1 deg), run=accepted 23/35 (max core gap 24.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 24.1 deg), run=accepted 23/35 (max core gap 24.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 35.3 deg), run=accepted 23/35 (max core gap 35.3 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 24.1 deg), run=accepted 23/35 (max core gap 24.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 24.1 deg), run=accepted 23/35 (max core gap 24.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 24.1 deg), run=accepted 23/35 (max core gap 24.1 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 22.7 deg), run=accepted 25/35 (max chain gap 22.7 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 22.7 deg), run=accepted 25/35 (max chain gap 22.7 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 22.7 deg), run=accepted 25/35 (max chain gap 22.7 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 30.0 deg), run=accepted 25/35 (max chain gap 30.0 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 22.7 deg), run=accepted 25/35 (max chain gap 22.7 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 22.7 deg), run=accepted 25/35 (max chain gap 22.7 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 22.7 deg), run=accepted 25/35 (max chain gap 22.7 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
 
 ### `models/npcs/npc/男npc28/男npc28.ecm`
 
@@ -930,17 +930,17 @@ bon v5 fps=15 bones=31 joints=31 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: ['Bone03', 'Bone04', 'Bone05']
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 29.9 deg), run=accepted 24/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 29.9 deg), run=accepted 24/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 29.9 deg), run=accepted 24/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 31.0 deg), run=accepted 24/35 (max core gap 31.0 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 29.9 deg), run=accepted 24/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 29.9 deg), run=accepted 24/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 29.9 deg), run=accepted 24/35 (max core gap 29.9 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 29.8 deg), run=accepted 25/35 (max chain gap 29.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 29.8 deg), run=accepted 25/35 (max chain gap 29.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 29.8 deg), run=accepted 25/35 (max chain gap 29.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 38.5 deg), run=accepted 25/35 (max chain gap 38.5 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 29.8 deg), run=accepted 25/35 (max chain gap 29.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 29.8 deg), run=accepted 25/35 (max chain gap 29.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 29.8 deg), run=accepted 25/35 (max chain gap 29.8 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
 
 ### `models/npcs/npc/男npc29/男npc29.ecm`
 
@@ -948,17 +948,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 35.6 deg), run=accepted 23/35 (max core gap 35.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R Hand, Bip01 L Foot), run=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R Hand, Bip01 L Foot)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 34.8 deg), run=accepted 25/35 (max chain gap 34.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc29/男npc99.ecm`
 
@@ -966,17 +966,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 35.6 deg), run=accepted 23/35 (max core gap 35.6 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.4 deg), run=accepted 23/35 (max core gap 36.4 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R Hand, Bip01 L Foot), run=rejected (missing locomotion bones: Bip01, Bip01 L Hand, Bip01 R Hand, Bip01 L Foot)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 34.8 deg), run=accepted 25/35 (max chain gap 34.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.9 deg), run=accepted 25/35 (max chain gap 25.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc30/男npc30.ecm`
 
@@ -984,17 +984,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 R Forearm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 R Forearm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 R Forearm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 R Forearm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 R Forearm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 R Forearm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 R Forearm)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R UpperArm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/男npc31/男npc31.ecm`
 
@@ -1002,17 +1002,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Calf), run=rejected (missing locomotion bones: Bip01 L Calf)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Calf), run=rejected (missing locomotion bones: Bip01 L Calf)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Calf), run=rejected (missing locomotion bones: Bip01 L Calf)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Head, Bip01 L Calf), run=rejected (missing locomotion bones: Bip01 Head, Bip01 L Calf)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Calf), run=rejected (missing locomotion bones: Bip01 L Calf)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Calf), run=rejected (missing locomotion bones: Bip01 L Calf)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Calf), run=rejected (missing locomotion bones: Bip01 L Calf)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Calf), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Calf)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Calf), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 L Calf)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 31.6 deg), run=accepted 25/35 (max chain gap 31.6 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 31.6 deg), run=accepted 25/35 (max chain gap 31.6 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 31.6 deg), run=accepted 25/35 (max chain gap 31.6 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 39.8 deg), run=accepted 25/35 (max chain gap 39.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 31.6 deg), run=accepted 25/35 (max chain gap 31.6 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 31.6 deg), run=accepted 25/35 (max chain gap 31.6 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 31.6 deg), run=accepted 25/35 (max chain gap 31.6 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc32/男npc32.ecm`
 
@@ -1020,17 +1020,17 @@ bon v5 fps=15 bones=32 joints=32 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 31.0 deg), run=accepted 25/35 (max core gap 31.0 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 39.3 deg), run=accepted 25/35 (max chain gap 39.3 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
 
 ### `models/npcs/npc/男npc32/男npc321.ecm`
 
@@ -1038,17 +1038,17 @@ bon v5 fps=15 bones=32 joints=32 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 31.0 deg), run=accepted 25/35 (max core gap 31.0 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 29.9 deg), run=accepted 25/35 (max core gap 29.9 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 39.3 deg), run=accepted 25/35 (max chain gap 39.3 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.2 deg), run=accepted 25/35 (max chain gap 40.2 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
 
 ### `models/npcs/npc/男npc33/男npc33.ecm`
 
@@ -1056,17 +1056,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 43.5 deg), run=accepted 25/35 (max chain gap 43.5 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc34/男npc34.ecm`
 
@@ -1074,17 +1074,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.5 deg), run=accepted 23/35 (max core gap 36.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.5 deg), run=accepted 23/35 (max core gap 36.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.5 deg), run=accepted 23/35 (max core gap 36.5 deg)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.5 deg), run=accepted 23/35 (max core gap 36.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.5 deg), run=accepted 23/35 (max core gap 36.5 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.5 deg), run=accepted 23/35 (max core gap 36.5 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 43.5 deg), run=accepted 25/35 (max chain gap 43.5 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc35/男npc35.ecm`
 
@@ -1092,17 +1092,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 39.1 deg), run=accepted 23/35 (max core gap 39.1 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 43.5 deg), run=accepted 25/35 (max chain gap 43.5 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 33.8 deg), run=accepted 25/35 (max chain gap 33.8 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc36/男npc36.ecm`
 
@@ -1110,17 +1110,17 @@ bon v5 fps=15 bones=31 joints=31 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 35.0 deg), run=accepted 24/35 (max core gap 35.0 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 35.0 deg), run=accepted 24/35 (max core gap 35.0 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 35.0 deg), run=accepted 24/35 (max core gap 35.0 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 31.0 deg), run=accepted 24/35 (max core gap 31.0 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 35.0 deg), run=accepted 24/35 (max core gap 35.0 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 35.0 deg), run=accepted 24/35 (max core gap 35.0 deg)
-- donor `躯干` [core gate]: walk=accepted 24/35 (max core gap 35.0 deg), run=accepted 24/35 (max core gap 35.0 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L UpperArm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L UpperArm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 41.7 deg), run=accepted 25/35 (max chain gap 41.7 deg)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
 
 ### `models/npcs/npc/男npc37/男npc37.ecm`
 
@@ -1128,17 +1128,17 @@ bon v5 fps=15 bones=28 joints=28 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 40.4 deg), run=accepted 25/35 (max core gap 40.4 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 40.4 deg), run=accepted 25/35 (max core gap 40.4 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 40.4 deg), run=accepted 25/35 (max core gap 40.4 deg)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 40.4 deg), run=accepted 25/35 (max core gap 40.4 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 40.4 deg), run=accepted 25/35 (max core gap 40.4 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 40.4 deg), run=accepted 25/35 (max core gap 40.4 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 30.5 deg), run=accepted 27/35 (max chain gap 30.5 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 30.5 deg), run=accepted 27/35 (max chain gap 30.5 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 30.5 deg), run=accepted 27/35 (max chain gap 30.5 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 37.7 deg), run=accepted 27/35 (max chain gap 37.7 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 30.5 deg), run=accepted 27/35 (max chain gap 30.5 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 30.5 deg), run=accepted 27/35 (max chain gap 30.5 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 30.5 deg), run=accepted 27/35 (max chain gap 30.5 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc38/男npc38.ecm`
 
@@ -1146,17 +1146,17 @@ bon v5 fps=15 bones=28 joints=28 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 42.1 deg), run=accepted 25/35 (max core gap 42.1 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 34.4 deg), run=accepted 27/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc38/男npc381.ecm`
 
@@ -1164,17 +1164,17 @@ bon v5 fps=15 bones=28 joints=28 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 42.1 deg), run=accepted 25/35 (max core gap 42.1 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `躯干` [core gate]: walk=accepted 25/35 (max core gap 32.7 deg), run=accepted 25/35 (max core gap 32.7 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 34.4 deg), run=accepted 27/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 26.9 deg), run=accepted 27/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc39/男npc39.ecm`
 
@@ -1182,17 +1182,17 @@ bon v5 fps=15 bones=28 joints=28 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 41.5 deg), run=accepted 26/35 (max core gap 41.5 deg)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 41.5 deg), run=accepted 26/35 (max core gap 41.5 deg)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 41.5 deg), run=accepted 26/35 (max core gap 41.5 deg)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 41.5 deg), run=accepted 26/35 (max core gap 41.5 deg)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 41.5 deg), run=accepted 26/35 (max core gap 41.5 deg)
-- donor `躯干` [core gate]: walk=accepted 26/35 (max core gap 41.5 deg), run=accepted 26/35 (max core gap 41.5 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 27.7 deg), run=accepted 27/35 (max chain gap 27.7 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 27.7 deg), run=accepted 27/35 (max chain gap 27.7 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 27.7 deg), run=accepted 27/35 (max chain gap 27.7 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 39.2 deg), run=accepted 27/35 (max chain gap 39.2 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 27.7 deg), run=accepted 27/35 (max chain gap 27.7 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 27.7 deg), run=accepted 27/35 (max chain gap 27.7 deg)
+- donor `躯干` [core gate]: walk=accepted 27/35 (max chain gap 27.7 deg), run=accepted 27/35 (max chain gap 27.7 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
 
 ### `models/npcs/npc/男npc4/男npc4.ecm`
 
@@ -1200,17 +1200,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 36.7 deg), run=accepted 23/35 (max core gap 36.7 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 28.4 deg), run=accepted 23/35 (max core gap 28.4 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 34.4 deg), run=accepted 25/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 25.2 deg), run=accepted 25/35 (max chain gap 25.2 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
 
 ### `models/npcs/npc/男npc40/男npc40.ecm`
 
@@ -1218,17 +1218,17 @@ bon v5 fps=15 bones=28 joints=28 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand, Bip01 R Forearm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L UpperArm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L UpperArm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/男npc41/男npc41.ecm`
 
@@ -1236,17 +1236,17 @@ bon v5 fps=15 bones=48 joints=48 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 39.8 deg), run=accepted 29/35 (max core gap 39.8 deg)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 39.8 deg), run=accepted 29/35 (max core gap 39.8 deg)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 39.8 deg), run=accepted 29/35 (max core gap 39.8 deg)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 R Forearm)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 39.8 deg), run=accepted 29/35 (max core gap 39.8 deg)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 39.8 deg), run=accepted 29/35 (max core gap 39.8 deg)
-- donor `躯干` [core gate]: walk=accepted 29/35 (max core gap 39.8 deg), run=accepted 29/35 (max core gap 39.8 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand, Bip01 R Thigh)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 37.8 deg), run=accepted 29/35 (max chain gap 37.8 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 37.8 deg), run=accepted 29/35 (max chain gap 37.8 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 37.8 deg), run=accepted 29/35 (max chain gap 37.8 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 40.5 deg), run=accepted 29/35 (max chain gap 40.5 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 37.8 deg), run=accepted 29/35 (max chain gap 37.8 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 37.8 deg), run=accepted 29/35 (max chain gap 37.8 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 37.8 deg), run=accepted 29/35 (max chain gap 37.8 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 Spine2, Bip01 L Hand, Bip01 R Toe0), run=rejected (missing locomotion bones: Bip01 Spine2, Bip01 L Hand, Bip01 R Toe0)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 Spine2, Bip01 L Forearm, Bip01 L Hand, Bip01 R Toe0), run=rejected (missing locomotion bones: Bip01 Spine2, Bip01 L Forearm, Bip01 L Hand, Bip01 R Toe0)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
 
 ### `models/npcs/npc/男npc42/男npc42.ecm`
 
@@ -1254,17 +1254,17 @@ bon v5 fps=15 bones=32 joints=32 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 30/35 (max core gap 41.1 deg), run=accepted 30/35 (max core gap 41.1 deg)
-- donor `躯干` [core gate]: walk=accepted 30/35 (max core gap 41.1 deg), run=accepted 30/35 (max core gap 41.1 deg)
-- donor `躯干` [core gate]: walk=accepted 30/35 (max core gap 41.1 deg), run=accepted 30/35 (max core gap 41.1 deg)
-- donor `躯干` [core gate]: walk=accepted 30/35 (max core gap 40.8 deg), run=accepted 30/35 (max core gap 40.8 deg)
-- donor `躯干` [core gate]: walk=accepted 30/35 (max core gap 41.1 deg), run=accepted 30/35 (max core gap 41.1 deg)
-- donor `躯干` [core gate]: walk=accepted 30/35 (max core gap 41.1 deg), run=accepted 30/35 (max core gap 41.1 deg)
-- donor `躯干` [core gate]: walk=accepted 30/35 (max core gap 41.1 deg), run=accepted 30/35 (max core gap 41.1 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 30/35 (max chain gap 30.9 deg), run=accepted 30/35 (max chain gap 30.9 deg)
+- donor `躯干` [core gate]: walk=accepted 30/35 (max chain gap 30.9 deg), run=accepted 30/35 (max chain gap 30.9 deg)
+- donor `躯干` [core gate]: walk=accepted 30/35 (max chain gap 30.9 deg), run=accepted 30/35 (max chain gap 30.9 deg)
+- donor `躯干` [core gate]: walk=accepted 30/35 (max chain gap 31.5 deg), run=accepted 30/35 (max chain gap 31.5 deg)
+- donor `躯干` [core gate]: walk=accepted 30/35 (max chain gap 30.9 deg), run=accepted 30/35 (max chain gap 30.9 deg)
+- donor `躯干` [core gate]: walk=accepted 30/35 (max chain gap 30.9 deg), run=accepted 30/35 (max chain gap 30.9 deg)
+- donor `躯干` [core gate]: walk=accepted 30/35 (max chain gap 30.9 deg), run=accepted 30/35 (max chain gap 30.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
 
 ### `models/npcs/npc/男npc43/男npc43.ecm`
 
@@ -1272,17 +1272,17 @@ bon v5 fps=15 bones=26 joints=26 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 32.8 deg), run=accepted 23/35 (max core gap 32.8 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 32.8 deg), run=accepted 23/35 (max core gap 32.8 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 32.8 deg), run=accepted 23/35 (max core gap 32.8 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 43.4 deg), run=accepted 23/35 (max core gap 43.4 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 32.8 deg), run=accepted 23/35 (max core gap 32.8 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 32.8 deg), run=accepted 23/35 (max core gap 32.8 deg)
-- donor `躯干` [core gate]: walk=accepted 23/35 (max core gap 32.8 deg), run=accepted 23/35 (max core gap 32.8 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 30.3 deg), run=accepted 25/35 (max chain gap 30.3 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 30.3 deg), run=accepted 25/35 (max chain gap 30.3 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 30.3 deg), run=accepted 25/35 (max chain gap 30.3 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 40.5 deg), run=accepted 25/35 (max chain gap 40.5 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 30.3 deg), run=accepted 25/35 (max chain gap 30.3 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 30.3 deg), run=accepted 25/35 (max chain gap 30.3 deg)
+- donor `躯干` [core gate]: walk=accepted 25/35 (max chain gap 30.3 deg), run=accepted 25/35 (max chain gap 30.3 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc44/男npc44.ecm`
 
@@ -1290,17 +1290,17 @@ bon v5 fps=15 bones=38 joints=38 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Forearm, Bip01 R Clavicle)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Neck, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle), run=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle, Bip01 R Toe0), run=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Hand, Bip01 R Clavicle, Bip01 R Toe0)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R Toe0), run=rejected (missing locomotion bones: Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R Toe0)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc6/男npc6.ecm`
 
@@ -1308,17 +1308,17 @@ bon v5 fps=15 bones=32 joints=32 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 26.7 deg), run=accepted 31/35 (max core gap 26.7 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 26.7 deg), run=accepted 31/35 (max core gap 26.7 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 26.7 deg), run=accepted 31/35 (max core gap 26.7 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 37.9 deg), run=accepted 31/35 (max core gap 37.9 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 26.7 deg), run=accepted 31/35 (max core gap 26.7 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 26.7 deg), run=accepted 31/35 (max core gap 26.7 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 26.7 deg), run=accepted 31/35 (max core gap 26.7 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 26.9 deg), run=accepted 29/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 26.9 deg), run=accepted 29/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 26.9 deg), run=accepted 29/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 30/35 (max chain gap 34.4 deg), run=accepted 30/35 (max chain gap 34.4 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 26.9 deg), run=accepted 29/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 26.9 deg), run=accepted 29/35 (max chain gap 26.9 deg)
+- donor `躯干` [core gate]: walk=accepted 29/35 (max chain gap 26.9 deg), run=accepted 29/35 (max chain gap 26.9 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc7/男npc7.ecm`
 
@@ -1326,17 +1326,17 @@ bon v5 fps=15 bones=41 joints=41 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R UpperArm)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 L UpperArm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 L UpperArm, Bip01 L Hand, Bip01 R UpperArm, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Clavicle, Bip01 L UpperArm, Bip01 R UpperArm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `躯干` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 R Forearm, Bip01 R Hand)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm, Bip01 R Hand)
 
 ### `models/npcs/npc/男npc8/男npc8.ecm`
 
@@ -1344,17 +1344,17 @@ bon v5 fps=15 bones=32 joints=32 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 29.0 deg), run=accepted 31/35 (max core gap 29.0 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 29.0 deg), run=accepted 31/35 (max core gap 29.0 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 29.0 deg), run=accepted 31/35 (max core gap 29.0 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 43.0 deg), run=accepted 31/35 (max core gap 43.0 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 29.0 deg), run=accepted 31/35 (max core gap 29.0 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 29.0 deg), run=accepted 31/35 (max core gap 29.0 deg)
-- donor `躯干` [core gate]: walk=accepted 31/35 (max core gap 29.0 deg), run=accepted 31/35 (max core gap 29.0 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 30.0 deg), run=accepted 31/35 (max chain gap 30.0 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 30.0 deg), run=accepted 31/35 (max chain gap 30.0 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 30.0 deg), run=accepted 31/35 (max chain gap 30.0 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 41.1 deg), run=accepted 31/35 (max chain gap 41.1 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 30.0 deg), run=accepted 31/35 (max chain gap 30.0 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 30.0 deg), run=accepted 31/35 (max chain gap 30.0 deg)
+- donor `躯干` [core gate]: walk=accepted 31/35 (max chain gap 30.0 deg), run=accepted 31/35 (max chain gap 30.0 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ### `models/npcs/npc/男npc9/男npc9.ecm`
 
@@ -1362,23 +1362,23 @@ bon v5 fps=15 bones=36 joints=36 flagged=0 non-class-15=0 scale≠1=0
 
 - improper(det≈0) bones: none
 - non-orthonormal bones: none
-- donor `躯干` [core gate]: walk=accepted 33/35 (max core gap 34.9 deg), run=accepted 33/35 (max core gap 34.9 deg)
-- donor `躯干` [core gate]: walk=accepted 33/35 (max core gap 34.9 deg), run=accepted 33/35 (max core gap 34.9 deg)
-- donor `躯干` [core gate]: walk=accepted 33/35 (max core gap 34.9 deg), run=accepted 33/35 (max core gap 34.9 deg)
-- donor `躯干` [core gate]: walk=accepted 32/35 (max core gap 44.5 deg), run=accepted 32/35 (max core gap 44.5 deg)
-- donor `躯干` [core gate]: walk=accepted 33/35 (max core gap 34.9 deg), run=accepted 33/35 (max core gap 34.9 deg)
-- donor `躯干` [core gate]: walk=accepted 33/35 (max core gap 34.9 deg), run=accepted 33/35 (max core gap 34.9 deg)
-- donor `躯干` [core gate]: walk=accepted 33/35 (max core gap 34.9 deg), run=accepted 33/35 (max core gap 34.9 deg)
-- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm)
-- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand), run=rejected (missing locomotion bones: Bip01, Bip01 Head, Bip01 L Hand, Bip01 R Hand)
-- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm), run=rejected (missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 R Forearm)
+- donor `躯干` [core gate]: walk=accepted 33/35 (max chain gap 27.3 deg), run=accepted 33/35 (max chain gap 27.3 deg)
+- donor `躯干` [core gate]: walk=accepted 33/35 (max chain gap 27.3 deg), run=accepted 33/35 (max chain gap 27.3 deg)
+- donor `躯干` [core gate]: walk=accepted 33/35 (max chain gap 27.3 deg), run=accepted 33/35 (max chain gap 27.3 deg)
+- donor `躯干` [core gate]: walk=accepted 32/35 (max chain gap 35.4 deg), run=accepted 32/35 (max chain gap 35.4 deg)
+- donor `躯干` [core gate]: walk=accepted 33/35 (max chain gap 27.3 deg), run=accepted 33/35 (max chain gap 27.3 deg)
+- donor `躯干` [core gate]: walk=accepted 33/35 (max chain gap 27.3 deg), run=accepted 33/35 (max chain gap 27.3 deg)
+- donor `躯干` [core gate]: walk=accepted 33/35 (max chain gap 27.3 deg), run=accepted 33/35 (max chain gap 27.3 deg)
+- donor `卫兵npc1` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Hand)
+- donor `卫兵npc2` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
+- donor `卫兵npc3` [core gate]: walk=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh), run=rejected (missing locomotion bones: Bip01 Pelvis, Bip01 Spine, Bip01 Spine1, Bip01 Spine2, Bip01 Neck, Bip01 Head, Bip01 L Clavicle, Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R Clavicle, Bip01 R UpperArm, Bip01 L Thigh, Bip01 R Thigh)
+- donor `卫兵npc4` [core gate]: walk=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand), run=rejected (missing locomotion bones: Bip01 L Forearm, Bip01 L Hand)
 
 ## Summary table
 
-`player *` columns use the shipped core-coverage gate (45 deg rest-gap bind cutoff) with the gender-correct player donor. `guard *` columns keep the legacy 70% gate (Guard rigs, the old behaviour) for contrast. `max core gap` is the largest rest-frame divergence over mapped locomotion bones for the same-gender player donor.
+`player *` columns use the shipped core-coverage gate (45 deg parent-frame divergence bind cutoff) with the gender-correct player donor. `guard *` columns keep the legacy 70% gate (Guard rigs, the old behaviour) for contrast. `max chain gap` is the largest parent-frame divergence over mapped locomotion bones for the same-gender player donor.
 
-| resident | bon | bones | flagged | non15 | det≈0 | nonortho | scale≠1 | player walk | player run | max core gap° | guard walk | guard run |
+| resident | bon | bones | flagged | non15 | det≈0 | nonortho | scale≠1 | player walk | player run | max chain gap° | guard walk | guard run |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | --- | --- |
 | `models/npcs/npc/女npc1/女npc1.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
 | `models/npcs/npc/女npc10/女npc10.ecm` | v5 | 34 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
@@ -1394,7 +1394,7 @@ bon v5 fps=15 bones=36 joints=36 flagged=0 non-class-15=0 scale≠1=0
 | `models/npcs/npc/女npc2/女npc2.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
 | `models/npcs/npc/女npc20/女npc20.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
 | `models/npcs/npc/女npc21/女npc21.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
-| `models/npcs/npc/女npc22/女npc22.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 43.7 | yes | yes |
+| `models/npcs/npc/女npc22/女npc22.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
 | `models/npcs/npc/女npc23/女npc23.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
 | `models/npcs/npc/女npc24/女npc24.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
 | `models/npcs/npc/女npc25/女npc25.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
@@ -1405,64 +1405,62 @@ bon v5 fps=15 bones=36 joints=36 flagged=0 non-class-15=0 scale≠1=0
 | `models/npcs/npc/女npc7/女npc7.ecm` | v5 | 38 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
 | `models/npcs/npc/女npc8/女npc8.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
 | `models/npcs/npc/女npc9/女npc9.ecm` | v5 | 29 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
-| `models/npcs/npc/男npc1/男npc1.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 28.4 | yes | yes |
-| `models/npcs/npc/男npc10/男npc10.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 25.6 | yes | yes |
-| `models/npcs/npc/男npc11/男npc11.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 31.2 | yes | yes |
-| `models/npcs/npc/男npc12/男npc12.ecm` | v5 | 34 | 0 | 0 | 0 | 0 | 0 | yes | yes | 32.5 | yes | yes |
+| `models/npcs/npc/男npc1/男npc1.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 25.2 | yes | yes |
+| `models/npcs/npc/男npc10/男npc10.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 27.3 | yes | yes |
+| `models/npcs/npc/男npc11/男npc11.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 25.2 | yes | yes |
+| `models/npcs/npc/男npc12/男npc12.ecm` | v5 | 34 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.6 | yes | yes |
 | `models/npcs/npc/男npc13/男npc13.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
-| `models/npcs/npc/男npc14/男npc14.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 33.9 | yes | yes |
-| `models/npcs/npc/男npc15/男npc15.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 32.7 | yes | yes |
-| `models/npcs/npc/男npc16/男npc16.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 24.9 | yes | yes |
-| `models/npcs/npc/男npc17/男npc17.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 29.6 | yes | yes |
-| `models/npcs/npc/男npc18/男npc18.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.6 | yes | yes |
-| `models/npcs/npc/男npc2/男npc2.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 36.1 | yes | yes |
-| `models/npcs/npc/男npc20/男npc20.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 25.2 | yes | yes |
-| `models/npcs/npc/男npc21/男npc21.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 42.6 | yes | yes |
-| `models/npcs/npc/男npc22/男npc22.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 37.5 | yes | yes |
-| `models/npcs/npc/男npc23/男npc23.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 35.5 | yes | yes |
-| `models/npcs/npc/男npc24/男npc24.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.7 | yes | yes |
-| `models/npcs/npc/男npc25/男npc25.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 33.9 | yes | yes |
-| `models/npcs/npc/男npc26/男npc26.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 29.6 | yes | yes |
-| `models/npcs/npc/男npc27/男npc27.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 24.1 | yes | yes |
-| `models/npcs/npc/男npc28/男npc28.ecm` | v5 | 31 | 0 | 0 | 0 | 3 | 0 | yes | yes | 29.9 | yes | yes |
-| `models/npcs/npc/男npc29/男npc29.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 36.4 | yes | yes |
-| `models/npcs/npc/男npc29/男npc99.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 36.4 | yes | yes |
+| `models/npcs/npc/男npc14/男npc14.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc15/男npc15.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc16/男npc16.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc17/男npc17.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc18/男npc18.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc2/男npc2.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 33.8 | yes | yes |
+| `models/npcs/npc/男npc20/男npc20.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc21/男npc21.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 33.8 | yes | yes |
+| `models/npcs/npc/男npc22/男npc22.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 33.8 | yes | yes |
+| `models/npcs/npc/男npc23/男npc23.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 25.8 | yes | yes |
+| `models/npcs/npc/男npc24/男npc24.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc25/男npc25.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc26/男npc26.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc27/男npc27.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 22.7 | yes | yes |
+| `models/npcs/npc/男npc28/男npc28.ecm` | v5 | 31 | 0 | 0 | 0 | 3 | 0 | yes | yes | 29.8 | yes | yes |
+| `models/npcs/npc/男npc29/男npc29.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 25.9 | yes | yes |
+| `models/npcs/npc/男npc29/男npc99.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 25.9 | yes | yes |
 | `models/npcs/npc/男npc30/男npc30.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
-| `models/npcs/npc/男npc31/男npc31.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
-| `models/npcs/npc/男npc32/男npc32.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 29.9 | yes | yes |
-| `models/npcs/npc/男npc32/男npc321.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 29.9 | yes | yes |
-| `models/npcs/npc/男npc33/男npc33.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 39.1 | yes | yes |
-| `models/npcs/npc/男npc34/男npc34.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 36.5 | yes | yes |
-| `models/npcs/npc/男npc35/男npc35.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 39.1 | yes | yes |
-| `models/npcs/npc/男npc36/男npc36.ecm` | v5 | 31 | 0 | 0 | 0 | 0 | 0 | yes | yes | 35.0 | yes | yes |
-| `models/npcs/npc/男npc37/男npc37.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 40.4 | yes | yes |
-| `models/npcs/npc/男npc38/男npc38.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 32.7 | yes | yes |
-| `models/npcs/npc/男npc38/男npc381.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 32.7 | yes | yes |
-| `models/npcs/npc/男npc39/男npc39.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 41.5 | yes | yes |
-| `models/npcs/npc/男npc4/男npc4.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 28.4 | yes | yes |
+| `models/npcs/npc/男npc31/男npc31.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 31.6 | yes | yes |
+| `models/npcs/npc/男npc32/男npc32.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 40.2 | yes | yes |
+| `models/npcs/npc/男npc32/男npc321.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 40.2 | yes | yes |
+| `models/npcs/npc/男npc33/男npc33.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 33.8 | yes | yes |
+| `models/npcs/npc/男npc34/男npc34.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 33.8 | yes | yes |
+| `models/npcs/npc/男npc35/男npc35.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 33.8 | yes | yes |
+| `models/npcs/npc/男npc36/男npc36.ecm` | v5 | 31 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
+| `models/npcs/npc/男npc37/男npc37.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 30.5 | yes | yes |
+| `models/npcs/npc/男npc38/男npc38.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc38/男npc381.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
+| `models/npcs/npc/男npc39/男npc39.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | yes | yes | 27.7 | yes | yes |
+| `models/npcs/npc/男npc4/男npc4.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 25.2 | yes | yes |
 | `models/npcs/npc/男npc40/男npc40.ecm` | v5 | 28 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
-| `models/npcs/npc/男npc41/男npc41.ecm` | v5 | 48 | 0 | 0 | 0 | 0 | 0 | yes | yes | 39.8 | yes | yes |
-| `models/npcs/npc/男npc42/男npc42.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 41.1 | yes | yes |
-| `models/npcs/npc/男npc43/男npc43.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 32.8 | yes | yes |
+| `models/npcs/npc/男npc41/男npc41.ecm` | v5 | 48 | 0 | 0 | 0 | 0 | 0 | yes | yes | 37.8 | yes | yes |
+| `models/npcs/npc/男npc42/男npc42.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 30.9 | yes | yes |
+| `models/npcs/npc/男npc43/男npc43.ecm` | v5 | 26 | 0 | 0 | 0 | 0 | 0 | yes | yes | 30.3 | yes | yes |
 | `models/npcs/npc/男npc44/男npc44.ecm` | v5 | 38 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
-| `models/npcs/npc/男npc6/男npc6.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.7 | yes | yes |
+| `models/npcs/npc/男npc6/男npc6.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 26.9 | yes | yes |
 | `models/npcs/npc/男npc7/男npc7.ecm` | v5 | 41 | 0 | 0 | 0 | 0 | 0 | no | no | — | yes | yes |
-| `models/npcs/npc/男npc8/男npc8.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 29.0 | yes | yes |
-| `models/npcs/npc/男npc9/男npc9.ecm` | v5 | 36 | 0 | 0 | 0 | 0 | 0 | yes | yes | 34.9 | yes | yes |
+| `models/npcs/npc/男npc8/男npc8.ecm` | v5 | 32 | 0 | 0 | 0 | 0 | 0 | yes | yes | 30.0 | yes | yes |
+| `models/npcs/npc/男npc9/男npc9.ecm` | v5 | 36 | 0 | 0 | 0 | 0 | 0 | yes | yes | 27.3 | yes | yes |
 
 ## Per-bone detail
 
 ### `models/npcs/npc/男npc1/男npc1.ecm` <- `models/players/形象/武侠男/躯干/武侠男.ecm` [walk]
 
-accepted `行走_绑定_通用`: mapped 23/35 tracks, max core gap 28.36201897371114
+accepted `行走_绑定_通用`: mapped 25/35 tracks, max chain gap 25.248060661848484
 
-skipped 12 tracks:
+skipped 10 tracks:
 
-- `Bip01 L Finger0`: rest gap 61.5 deg > 45
 - `Bip01 L Finger01_AnimJoint`: no target joint by name
 - `Bip01 L Finger1_AnimJoint`: no target joint by name
 - `Bip01 L Finger11_AnimJoint`: no target joint by name
-- `Bip01 R Finger0`: rest gap 68.3 deg > 45
 - `Bip01 R Finger01_AnimJoint`: no target joint by name
 - `Bip01 R Finger1_AnimJoint`: no target joint by name
 - `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1471,43 +1469,43 @@ skipped 12 tracks:
 - `Bone03_AnimJoint`: no target joint by name
 - `Bone04_AnimJoint`: no target joint by name
 
-| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.01 | 12.01 | 12.01 | 12.01 | 12.01 | 12.01 | 12.01 |
-| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 4.00 | 4.00 | 4.00 | 4.00 | 4.00 | 4.00 | 4.00 |
-| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.26 | 5.26 | 5.26 | 5.26 | 5.26 | 5.26 | 5.26 |
-| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.47 | 16.47 | 16.47 | 16.47 | 16.47 | 16.47 | 16.47 |
-| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.65 | 19.65 | 19.65 | 19.65 | 19.65 | 19.65 | 19.65 |
-| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 18.69 | 18.69 | 18.69 | 18.69 | 18.69 | 18.69 | 18.69 |
-| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.80 | 16.80 | 16.80 | 16.80 | 16.80 | 16.80 | 16.80 |
-| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.36 | 20.36 | 20.36 | 20.36 | 20.36 | 20.36 | 20.36 |
-| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 28.36 | 28.36 | 28.36 | 28.36 | 28.36 | 28.36 | 28.36 |
-| `Bip01 L Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 4.04 | 4.04 | 4.04 | 4.04 | 4.04 | 4.04 | 4.04 |
-| `Bip01 L Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.23 | 26.23 | 26.23 | 26.23 | 26.23 | 26.23 | 26.23 |
-| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 18.74 | 18.74 | 18.74 | 18.74 | 18.74 | 18.74 | 18.74 |
-| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 24.51 | 24.51 | 24.51 | 24.51 | 24.51 | 24.51 | 24.51 |
-| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.73 | 2.73 | 2.73 | 2.73 | 2.73 | 2.73 | 2.73 |
-| `Bip01 R Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.90 | 16.90 | 16.90 | 16.90 | 16.90 | 16.90 | 16.90 |
-| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.34 | 23.34 | 23.34 | 23.34 | 23.34 | 23.34 | 23.34 |
-| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 25.66 | 25.66 | 25.66 | 25.66 | 25.66 | 25.66 | 25.66 |
-| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.82 | 21.82 | 21.82 | 21.82 | 21.82 | 21.82 | 21.82 |
-| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 |
-| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.28 | 14.28 | 14.28 | 14.28 | 14.28 | 14.28 | 14.28 |
-| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.10 | 14.10 | 14.10 | 14.10 | 14.10 | 14.10 | 14.10 |
-| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.44 | 12.44 | 12.44 | 12.44 | 12.44 | 12.44 | 12.44 |
-| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 |
+| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | chain gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.01 | — | 12.01 | 12.01 | 12.01 | 12.01 | 12.01 | 12.01 |
+| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 4.00 | — | 4.00 | 4.00 | 4.00 | 4.00 | 4.00 | 4.00 |
+| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.26 | — | 5.26 | 5.26 | 5.26 | 5.26 | 5.26 | 5.26 |
+| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.47 | — | 16.47 | 16.47 | 16.47 | 16.47 | 16.47 | 16.47 |
+| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.65 | — | 19.65 | 19.65 | 19.65 | 19.65 | 19.65 | 19.65 |
+| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 18.69 | — | 18.69 | 18.69 | 18.69 | 18.69 | 18.69 | 18.69 |
+| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.80 | — | 16.80 | 16.80 | 16.80 | 16.80 | 16.80 | 16.80 |
+| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.36 | — | 20.36 | 20.36 | 20.36 | 20.36 | 20.36 | 20.36 |
+| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 28.36 | — | 28.36 | 28.36 | 28.36 | 28.36 | 28.36 | 28.36 |
+| `Bip01 L Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 4.04 | — | 4.04 | 4.04 | 4.04 | 4.04 | 4.04 | 4.04 |
+| `Bip01 L Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.23 | — | 26.23 | 26.23 | 26.23 | 26.23 | 26.23 | 26.23 |
+| `Bip01 L Finger0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 61.46 | — | 61.46 | 61.46 | 61.46 | 61.46 | 61.46 | 61.46 |
+| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 18.74 | — | 18.74 | 18.74 | 18.74 | 18.74 | 18.74 | 18.74 |
+| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 24.51 | — | 24.51 | 24.51 | 24.51 | 24.51 | 24.51 | 24.51 |
+| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.73 | — | 2.73 | 2.73 | 2.73 | 2.73 | 2.73 | 2.73 |
+| `Bip01 R Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.90 | — | 16.90 | 16.90 | 16.90 | 16.90 | 16.90 | 16.90 |
+| `Bip01 R Finger0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 68.32 | — | 68.32 | 68.32 | 68.32 | 68.32 | 68.32 | 68.32 |
+| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.34 | — | 23.34 | 23.34 | 23.34 | 23.34 | 23.34 | 23.34 |
+| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 25.66 | — | 25.66 | 25.66 | 25.66 | 25.66 | 25.66 | 25.66 |
+| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.82 | — | 21.82 | 21.82 | 21.82 | 21.82 | 21.82 | 21.82 |
+| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.80 | — | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 |
+| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.28 | — | 14.28 | 14.28 | 14.28 | 14.28 | 14.28 | 14.28 |
+| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.10 | — | 14.10 | 14.10 | 14.10 | 14.10 | 14.10 | 14.10 |
+| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.44 | — | 12.44 | 12.44 | 12.44 | 12.44 | 12.44 | 12.44 |
+| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.80 | — | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 |
 
 ### `models/npcs/npc/男npc1/男npc1.ecm` <- `models/players/形象/武侠男/躯干/武侠男.ecm` [run]
 
-accepted `奔跑_绑定_通用`: mapped 23/35 tracks, max core gap 28.36201897371114
+accepted `奔跑_绑定_通用`: mapped 25/35 tracks, max chain gap 25.248060661848484
 
-skipped 12 tracks:
+skipped 10 tracks:
 
-- `Bip01 L Finger0`: rest gap 61.5 deg > 45
 - `Bip01 L Finger01_AnimJoint`: no target joint by name
 - `Bip01 L Finger1_AnimJoint`: no target joint by name
 - `Bip01 L Finger11_AnimJoint`: no target joint by name
-- `Bip01 R Finger0`: rest gap 68.3 deg > 45
 - `Bip01 R Finger01_AnimJoint`: no target joint by name
 - `Bip01 R Finger1_AnimJoint`: no target joint by name
 - `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1516,115 +1514,117 @@ skipped 12 tracks:
 - `Bone03_AnimJoint`: no target joint by name
 - `Bone04_AnimJoint`: no target joint by name
 
-| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.01 | 12.01 | 12.01 | 12.01 | 12.01 | 12.01 | 12.01 |
-| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 4.00 | 4.00 | 4.00 | 4.00 | 4.00 | 4.00 | 4.00 |
-| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.26 | 5.26 | 5.26 | 5.26 | 5.26 | 5.26 | 5.26 |
-| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.47 | 16.47 | 16.47 | 16.47 | 16.47 | 16.47 | 16.47 |
-| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.65 | 19.65 | 19.65 | 19.65 | 19.65 | 19.65 | 19.65 |
-| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 18.69 | 18.69 | 18.69 | 18.69 | 18.69 | 18.69 | 18.69 |
-| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.80 | 16.80 | 16.80 | 16.80 | 16.80 | 16.80 | 16.80 |
-| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.36 | 20.36 | 20.36 | 20.36 | 20.36 | 20.36 | 20.36 |
-| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 28.36 | 28.36 | 28.36 | 28.36 | 28.36 | 28.36 | 28.36 |
-| `Bip01 L Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 4.04 | 4.04 | 4.04 | 4.04 | 4.04 | 4.04 | 4.04 |
-| `Bip01 L Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.23 | 26.23 | 26.23 | 26.23 | 26.23 | 26.23 | 26.23 |
-| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 18.74 | 18.74 | 18.74 | 18.74 | 18.74 | 18.74 | 18.74 |
-| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 24.51 | 24.51 | 24.51 | 24.51 | 24.51 | 24.51 | 24.51 |
-| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.73 | 2.73 | 2.73 | 2.73 | 2.73 | 2.73 | 2.73 |
-| `Bip01 R Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.90 | 16.90 | 16.90 | 16.90 | 16.90 | 16.90 | 16.90 |
-| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.34 | 23.34 | 23.34 | 23.34 | 23.34 | 23.34 | 23.34 |
-| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 25.66 | 25.66 | 25.66 | 25.66 | 25.66 | 25.66 | 25.66 |
-| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.82 | 21.82 | 21.82 | 21.82 | 21.82 | 21.82 | 21.82 |
-| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 |
-| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.28 | 14.28 | 14.28 | 14.28 | 14.28 | 14.28 | 14.28 |
-| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.10 | 14.10 | 14.10 | 14.10 | 14.10 | 14.10 | 14.10 |
-| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.44 | 12.44 | 12.44 | 12.44 | 12.44 | 12.44 | 12.44 |
-| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 |
+| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | chain gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.01 | — | 12.01 | 12.01 | 12.01 | 12.01 | 12.01 | 12.01 |
+| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 4.00 | — | 4.00 | 4.00 | 4.00 | 4.00 | 4.00 | 4.00 |
+| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.26 | — | 5.26 | 5.26 | 5.26 | 5.26 | 5.26 | 5.26 |
+| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.47 | — | 16.47 | 16.47 | 16.47 | 16.47 | 16.47 | 16.47 |
+| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.65 | — | 19.65 | 19.65 | 19.65 | 19.65 | 19.65 | 19.65 |
+| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 18.69 | — | 18.69 | 18.69 | 18.69 | 18.69 | 18.69 | 18.69 |
+| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.80 | — | 16.80 | 16.80 | 16.80 | 16.80 | 16.80 | 16.80 |
+| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.36 | — | 20.36 | 20.36 | 20.36 | 20.36 | 20.36 | 20.36 |
+| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 28.36 | — | 28.36 | 28.36 | 28.36 | 28.36 | 28.36 | 28.36 |
+| `Bip01 L Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 4.04 | — | 4.04 | 4.04 | 4.04 | 4.04 | 4.04 | 4.04 |
+| `Bip01 L Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.23 | — | 26.23 | 26.23 | 26.23 | 26.23 | 26.23 | 26.23 |
+| `Bip01 L Finger0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 61.46 | — | 61.46 | 61.46 | 61.46 | 61.46 | 61.46 | 61.46 |
+| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 18.74 | — | 18.74 | 18.74 | 18.74 | 18.74 | 18.74 | 18.74 |
+| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 24.51 | — | 24.51 | 24.51 | 24.51 | 24.51 | 24.51 | 24.51 |
+| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.73 | — | 2.73 | 2.73 | 2.73 | 2.73 | 2.73 | 2.73 |
+| `Bip01 R Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 16.90 | — | 16.90 | 16.90 | 16.90 | 16.90 | 16.90 | 16.90 |
+| `Bip01 R Finger0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 68.32 | — | 68.32 | 68.32 | 68.32 | 68.32 | 68.32 | 68.32 |
+| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.34 | — | 23.34 | 23.34 | 23.34 | 23.34 | 23.34 | 23.34 |
+| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 25.66 | — | 25.66 | 25.66 | 25.66 | 25.66 | 25.66 | 25.66 |
+| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.82 | — | 21.82 | 21.82 | 21.82 | 21.82 | 21.82 | 21.82 |
+| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.80 | — | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 |
+| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.28 | — | 14.28 | 14.28 | 14.28 | 14.28 | 14.28 | 14.28 |
+| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.10 | — | 14.10 | 14.10 | 14.10 | 14.10 | 14.10 | 14.10 |
+| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.44 | — | 12.44 | 12.44 | 12.44 | 12.44 | 12.44 | 12.44 |
+| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.80 | — | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 | 6.80 |
 
 ### `models/npcs/npc/男npc1/男npc1.ecm` <- `models/npcs/npc/卫兵npc1/卫兵npc1.ecm` [walk]
 
-- candidate `走`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm
-  - skipped `Bip01 L Forearm`: rest gap 84.6 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 113.7 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 99.1 deg > 45
-  - skipped `Bip01 R UpperArm`: rest gap 54.3 deg > 45
-  - skipped `Bip01 R Finger0`: rest gap 90.1 deg > 45
+- candidate `走`: missing locomotion bones: Bip01 L Hand, Bip01 R Hand
+  - skipped `Bip01 L Hand`: parent-frame divergence 99.2 deg > 45
+  - skipped `Bip01 L Finger0`: parent-frame divergence 108.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 45.7 deg > 45
+  - skipped `Bip01 R Finger0`: parent-frame divergence 67.7 deg > 45
 
 mapped (bind-kept bones are absent):
 
-| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.49 | 26.49 | 26.49 | 26.49 | 26.49 | 26.49 | 26.49 |
-| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.50 | 2.50 | 2.50 | 2.50 | 2.50 | 2.50 | 2.50 |
-| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.30 | 2.30 | 2.30 | 2.30 | 2.30 | 2.30 | 2.30 |
-| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.02 | 23.02 | 23.02 | 23.02 | 23.02 | 23.02 | 23.02 |
-| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.15 | 14.15 | 14.15 | 14.15 | 14.15 | 14.15 | 14.15 |
-| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 32.06 | 32.06 | 32.06 | 32.06 | 32.06 | 32.06 | 32.06 |
-| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.48 | 20.48 | 20.48 | 20.48 | 20.48 | 20.48 | 20.48 |
-| `Bip01 Ponytail2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 |
-| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 33.08 | 33.08 | 33.08 | 33.08 | 33.08 | 33.08 | 33.08 |
-| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 30.98 | 30.98 | 30.98 | 30.98 | 30.98 | 30.98 | 30.98 |
-| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 37.61 | 37.61 | 37.61 | 37.61 | 37.61 | 37.61 | 37.61 |
-| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 22.04 | 22.04 | 22.04 | 22.04 | 22.04 | 22.04 | 22.04 |
-| `Bip01 R Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.72 | 23.72 | 23.72 | 23.72 | 23.72 | 23.72 | 23.72 |
-| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.05 | 19.05 | 19.05 | 19.05 | 19.05 | 19.05 | 19.05 |
-| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 25.61 | 25.61 | 25.61 | 25.61 | 25.61 | 25.61 | 25.61 |
-| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.24 | 12.24 | 12.24 | 12.24 | 12.24 | 12.24 | 12.24 |
-| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.26 | 12.26 | 12.26 | 12.26 | 12.26 | 12.26 | 12.26 |
-| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.04 | 9.04 | 9.04 | 9.04 | 9.04 | 9.04 | 9.04 |
-| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.06 | 14.06 | 14.06 | 14.06 | 14.06 | 14.06 | 14.06 |
-| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.82 | 20.82 | 20.82 | 20.82 | 20.82 | 20.82 | 20.82 |
-| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 |
+| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | chain gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.49 | — | 26.49 | 26.49 | 26.49 | 26.49 | 26.49 | 26.49 |
+| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.50 | — | 2.50 | 2.50 | 2.50 | 2.50 | 2.50 | 2.50 |
+| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.30 | — | 2.30 | 2.30 | 2.30 | 2.30 | 2.30 | 2.30 |
+| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.02 | — | 23.02 | 23.02 | 23.02 | 23.02 | 23.02 | 23.02 |
+| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.15 | — | 14.15 | 14.15 | 14.15 | 14.15 | 14.15 | 14.15 |
+| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 32.06 | — | 32.06 | 32.06 | 32.06 | 32.06 | 32.06 | 32.06 |
+| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.48 | — | 20.48 | 20.48 | 20.48 | 20.48 | 20.48 | 20.48 |
+| `Bip01 Ponytail2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.00 | — | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 |
+| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 33.08 | — | 33.08 | 33.08 | 33.08 | 33.08 | 33.08 | 33.08 |
+| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 30.98 | — | 30.98 | 30.98 | 30.98 | 30.98 | 30.98 | 30.98 |
+| `Bip01 L Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 84.57 | — | 84.57 | 84.57 | 84.57 | 84.57 | 84.57 | 84.57 |
+| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 37.61 | — | 37.61 | 37.61 | 37.61 | 37.61 | 37.61 | 37.61 |
+| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 54.29 | — | 54.29 | 54.29 | 54.29 | 54.29 | 54.29 | 54.29 |
+| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 22.04 | — | 22.04 | 22.04 | 22.04 | 22.04 | 22.04 | 22.04 |
+| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.05 | — | 19.05 | 19.05 | 19.05 | 19.05 | 19.05 | 19.05 |
+| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 25.61 | — | 25.61 | 25.61 | 25.61 | 25.61 | 25.61 | 25.61 |
+| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.24 | — | 12.24 | 12.24 | 12.24 | 12.24 | 12.24 | 12.24 |
+| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.26 | — | 12.26 | 12.26 | 12.26 | 12.26 | 12.26 | 12.26 |
+| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.04 | — | 9.04 | 9.04 | 9.04 | 9.04 | 9.04 | 9.04 |
+| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.06 | — | 14.06 | 14.06 | 14.06 | 14.06 | 14.06 | 14.06 |
+| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.82 | — | 20.82 | 20.82 | 20.82 | 20.82 | 20.82 | 20.82 |
+| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.54 | — | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 |
 
 ### `models/npcs/npc/男npc1/男npc1.ecm` <- `models/npcs/npc/卫兵npc1/卫兵npc1.ecm` [run]
 
-- candidate `跑`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm
-  - skipped `Bip01 L Forearm`: rest gap 84.6 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 113.7 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 99.1 deg > 45
-  - skipped `Bip01 R UpperArm`: rest gap 54.3 deg > 45
-  - skipped `Bip01 R Finger0`: rest gap 90.1 deg > 45
+- candidate `跑`: missing locomotion bones: Bip01 L Hand, Bip01 R Hand
+  - skipped `Bip01 L Hand`: parent-frame divergence 99.2 deg > 45
+  - skipped `Bip01 L Finger0`: parent-frame divergence 108.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 45.7 deg > 45
+  - skipped `Bip01 R Finger0`: parent-frame divergence 67.7 deg > 45
 
 mapped (bind-kept bones are absent):
 
-| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.49 | 26.49 | 26.49 | 26.49 | 26.49 | 26.49 | 26.49 |
-| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.50 | 2.50 | 2.50 | 2.50 | 2.50 | 2.50 | 2.50 |
-| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.30 | 2.30 | 2.30 | 2.30 | 2.30 | 2.30 | 2.30 |
-| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.02 | 23.02 | 23.02 | 23.02 | 23.02 | 23.02 | 23.02 |
-| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.15 | 14.15 | 14.15 | 14.15 | 14.15 | 14.15 | 14.15 |
-| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 32.06 | 32.06 | 32.06 | 32.06 | 32.06 | 32.06 | 32.06 |
-| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.48 | 20.48 | 20.48 | 20.48 | 20.48 | 20.48 | 20.48 |
-| `Bip01 Ponytail2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 |
-| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 33.08 | 33.08 | 33.08 | 33.08 | 33.08 | 33.08 | 33.08 |
-| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 30.98 | 30.98 | 30.98 | 30.98 | 30.98 | 30.98 | 30.98 |
-| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 37.61 | 37.61 | 37.61 | 37.61 | 37.61 | 37.61 | 37.61 |
-| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 22.04 | 22.04 | 22.04 | 22.04 | 22.04 | 22.04 | 22.04 |
-| `Bip01 R Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.72 | 23.72 | 23.72 | 23.72 | 23.72 | 23.72 | 23.72 |
-| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.05 | 19.05 | 19.05 | 19.05 | 19.05 | 19.05 | 19.05 |
-| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 25.61 | 25.61 | 25.61 | 25.61 | 25.61 | 25.61 | 25.61 |
-| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.24 | 12.24 | 12.24 | 12.24 | 12.24 | 12.24 | 12.24 |
-| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.26 | 12.26 | 12.26 | 12.26 | 12.26 | 12.26 | 12.26 |
-| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.04 | 9.04 | 9.04 | 9.04 | 9.04 | 9.04 | 9.04 |
-| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.06 | 14.06 | 14.06 | 14.06 | 14.06 | 14.06 | 14.06 |
-| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.82 | 20.82 | 20.82 | 20.82 | 20.82 | 20.82 | 20.82 |
-| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 |
+| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | chain gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.49 | — | 26.49 | 26.49 | 26.49 | 26.49 | 26.49 | 26.49 |
+| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.50 | — | 2.50 | 2.50 | 2.50 | 2.50 | 2.50 | 2.50 |
+| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 2.30 | — | 2.30 | 2.30 | 2.30 | 2.30 | 2.30 | 2.30 |
+| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.02 | — | 23.02 | 23.02 | 23.02 | 23.02 | 23.02 | 23.02 |
+| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.15 | — | 14.15 | 14.15 | 14.15 | 14.15 | 14.15 | 14.15 |
+| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 32.06 | — | 32.06 | 32.06 | 32.06 | 32.06 | 32.06 | 32.06 |
+| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.48 | — | 20.48 | 20.48 | 20.48 | 20.48 | 20.48 | 20.48 |
+| `Bip01 Ponytail2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.00 | — | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 |
+| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 33.08 | — | 33.08 | 33.08 | 33.08 | 33.08 | 33.08 | 33.08 |
+| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 30.98 | — | 30.98 | 30.98 | 30.98 | 30.98 | 30.98 | 30.98 |
+| `Bip01 L Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 84.57 | — | 84.57 | 84.57 | 84.57 | 84.57 | 84.57 | 84.57 |
+| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 37.61 | — | 37.61 | 37.61 | 37.61 | 37.61 | 37.61 | 37.61 |
+| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 54.29 | — | 54.29 | 54.29 | 54.29 | 54.29 | 54.29 | 54.29 |
+| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 22.04 | — | 22.04 | 22.04 | 22.04 | 22.04 | 22.04 | 22.04 |
+| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.05 | — | 19.05 | 19.05 | 19.05 | 19.05 | 19.05 | 19.05 |
+| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 25.61 | — | 25.61 | 25.61 | 25.61 | 25.61 | 25.61 | 25.61 |
+| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.24 | — | 12.24 | 12.24 | 12.24 | 12.24 | 12.24 | 12.24 |
+| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 12.26 | — | 12.26 | 12.26 | 12.26 | 12.26 | 12.26 | 12.26 |
+| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.04 | — | 9.04 | 9.04 | 9.04 | 9.04 | 9.04 | 9.04 |
+| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 14.06 | — | 14.06 | 14.06 | 14.06 | 14.06 | 14.06 | 14.06 |
+| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 20.82 | — | 20.82 | 20.82 | 20.82 | 20.82 | 20.82 | 20.82 |
+| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.54 | — | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 |
 
 ### `models/npcs/npc/女npc1/女npc1.ecm` <- `models/players/形象/武侠女/躯干/武侠女.ecm` [walk]
 
-- candidate `行走_绑定_通用`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand
+- candidate `行走_绑定_通用`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
   - skipped `Bip01 Ponytail1_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail11_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail12_AnimJoint`: no target joint by name
-  - skipped `Bip01 L UpperArm`: rest gap 68.2 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 46.5 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 85.0 deg > 45
+  - skipped `Bip01 L Forearm`: parent-frame divergence 67.4 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 65.5 deg > 45
   - skipped `Bip01 L Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger11_AnimJoint`: no target joint by name
-  - skipped `Bip01 R Finger0`: rest gap 83.0 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 62.3 deg > 45
   - skipped `Bip01 R Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1635,17 +1635,17 @@ mapped (bind-kept bones are absent):
   - skipped `Bone02_AnimJoint`: no target joint by name
   - skipped `Bone03_AnimJoint`: no target joint by name
   - skipped `Bone04_AnimJoint`: no target joint by name
-- candidate `行走_骑乘_通用`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand
+- candidate `行走_骑乘_通用`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
   - skipped `Bip01 Ponytail1_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail11_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail12_AnimJoint`: no target joint by name
-  - skipped `Bip01 L UpperArm`: rest gap 68.2 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 46.5 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 85.0 deg > 45
+  - skipped `Bip01 L Forearm`: parent-frame divergence 67.4 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 65.5 deg > 45
   - skipped `Bip01 L Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger11_AnimJoint`: no target joint by name
-  - skipped `Bip01 R Finger0`: rest gap 83.0 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 62.3 deg > 45
   - skipped `Bip01 R Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1656,17 +1656,17 @@ mapped (bind-kept bones are absent):
   - skipped `Bone02_AnimJoint`: no target joint by name
   - skipped `Bone03_AnimJoint`: no target joint by name
   - skipped `Bone04_AnimJoint`: no target joint by name
-- candidate `行走_双手长`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand
+- candidate `行走_双手长`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
   - skipped `Bip01 Ponytail1_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail11_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail12_AnimJoint`: no target joint by name
-  - skipped `Bip01 L UpperArm`: rest gap 68.2 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 46.5 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 85.0 deg > 45
+  - skipped `Bip01 L Forearm`: parent-frame divergence 67.4 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 65.5 deg > 45
   - skipped `Bip01 L Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger11_AnimJoint`: no target joint by name
-  - skipped `Bip01 R Finger0`: rest gap 83.0 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 62.3 deg > 45
   - skipped `Bip01 R Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1677,17 +1677,17 @@ mapped (bind-kept bones are absent):
   - skipped `Bone02_AnimJoint`: no target joint by name
   - skipped `Bone03_AnimJoint`: no target joint by name
   - skipped `Bone04_AnimJoint`: no target joint by name
-- candidate `行走_通用`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand
+- candidate `行走_通用`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
   - skipped `Bip01 Ponytail1_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail11_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail12_AnimJoint`: no target joint by name
-  - skipped `Bip01 L UpperArm`: rest gap 68.2 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 46.5 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 85.0 deg > 45
+  - skipped `Bip01 L Forearm`: parent-frame divergence 67.4 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 65.5 deg > 45
   - skipped `Bip01 L Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger11_AnimJoint`: no target joint by name
-  - skipped `Bip01 R Finger0`: rest gap 83.0 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 62.3 deg > 45
   - skipped `Bip01 R Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1698,17 +1698,17 @@ mapped (bind-kept bones are absent):
   - skipped `Bone02_AnimJoint`: no target joint by name
   - skipped `Bone03_AnimJoint`: no target joint by name
   - skipped `Bone04_AnimJoint`: no target joint by name
-- candidate `移动_绑定_通用`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand
+- candidate `移动_绑定_通用`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
   - skipped `Bip01 Ponytail1_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail11_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail12_AnimJoint`: no target joint by name
-  - skipped `Bip01 L UpperArm`: rest gap 68.2 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 46.5 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 85.0 deg > 45
+  - skipped `Bip01 L Forearm`: parent-frame divergence 67.4 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 65.5 deg > 45
   - skipped `Bip01 L Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger11_AnimJoint`: no target joint by name
-  - skipped `Bip01 R Finger0`: rest gap 83.0 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 62.3 deg > 45
   - skipped `Bip01 R Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1722,43 +1722,43 @@ mapped (bind-kept bones are absent):
 
 mapped (bind-kept bones are absent):
 
-| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.09 | 23.09 | 23.09 | 23.09 | 23.09 | 23.09 | 23.09 |
-| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.00 | 9.00 | 9.00 | 9.00 | 9.00 | 9.00 | 9.00 |
-| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 15.10 | 15.10 | 15.10 | 15.10 | 15.10 | 15.10 | 15.10 |
-| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.54 | 11.54 | 11.54 | 11.54 | 11.54 | 11.54 | 11.54 |
-| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 8.17 | 8.17 | 8.17 | 8.17 | 8.17 | 8.17 | 8.17 |
-| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 |
-| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.01 | 26.01 | 26.01 | 26.01 | 26.01 | 26.01 | 26.01 |
-| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.14 | 21.14 | 21.14 | 21.14 | 21.14 | 21.14 | 21.14 |
-| `Bip01 L Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.57 | 11.57 | 11.57 | 11.57 | 11.57 | 11.57 | 11.57 |
-| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 |
-| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 37.43 | 37.43 | 37.43 | 37.43 | 37.43 | 37.43 | 37.43 |
-| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 10.60 | 10.60 | 10.60 | 10.60 | 10.60 | 10.60 | 10.60 |
-| `Bip01 R Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 34.34 | 34.34 | 34.34 | 34.34 | 34.34 | 34.34 | 34.34 |
-| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 41.78 | 41.78 | 41.78 | 41.78 | 41.78 | 41.78 | 41.78 |
-| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 31.10 | 31.10 | 31.10 | 31.10 | 31.10 | 31.10 | 31.10 |
-| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 22.13 | 22.13 | 22.13 | 22.13 | 22.13 | 22.13 | 22.13 |
-| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.56 | 5.56 | 5.56 | 5.56 | 5.56 | 5.56 | 5.56 |
-| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 24.61 | 24.61 | 24.61 | 24.61 | 24.61 | 24.61 | 24.61 |
-| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.34 | 9.34 | 9.34 | 9.34 | 9.34 | 9.34 | 9.34 |
-| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 17.92 | 17.92 | 17.92 | 17.92 | 17.92 | 17.92 | 17.92 |
-| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.24 | 6.24 | 6.24 | 6.24 | 6.24 | 6.24 | 6.24 |
+| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | chain gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.09 | — | 23.09 | 23.09 | 23.09 | 23.09 | 23.09 | 23.09 |
+| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.00 | — | 9.00 | 9.00 | 9.00 | 9.00 | 9.00 | 9.00 |
+| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 15.10 | — | 15.10 | 15.10 | 15.10 | 15.10 | 15.10 | 15.10 |
+| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.54 | — | 11.54 | 11.54 | 11.54 | 11.54 | 11.54 | 11.54 |
+| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 8.17 | — | 8.17 | 8.17 | 8.17 | 8.17 | 8.17 | 8.17 |
+| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.58 | — | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 |
+| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.01 | — | 26.01 | 26.01 | 26.01 | 26.01 | 26.01 | 26.01 |
+| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.14 | — | 21.14 | 21.14 | 21.14 | 21.14 | 21.14 | 21.14 |
+| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 68.19 | — | 68.19 | 68.19 | 68.19 | 68.19 | 68.19 | 68.19 |
+| `Bip01 L Finger0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 84.99 | — | 84.99 | 84.99 | 84.99 | 84.99 | 84.99 | 84.99 |
+| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.58 | — | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 |
+| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 37.43 | — | 37.43 | 37.43 | 37.43 | 37.43 | 37.43 | 37.43 |
+| `Bip01 R Finger0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 83.04 | — | 83.04 | 83.04 | 83.04 | 83.04 | 83.04 | 83.04 |
+| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 41.78 | — | 41.78 | 41.78 | 41.78 | 41.78 | 41.78 | 41.78 |
+| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 31.10 | — | 31.10 | 31.10 | 31.10 | 31.10 | 31.10 | 31.10 |
+| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 22.13 | — | 22.13 | 22.13 | 22.13 | 22.13 | 22.13 | 22.13 |
+| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.56 | — | 5.56 | 5.56 | 5.56 | 5.56 | 5.56 | 5.56 |
+| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 24.61 | — | 24.61 | 24.61 | 24.61 | 24.61 | 24.61 | 24.61 |
+| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.34 | — | 9.34 | 9.34 | 9.34 | 9.34 | 9.34 | 9.34 |
+| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 17.92 | — | 17.92 | 17.92 | 17.92 | 17.92 | 17.92 | 17.92 |
+| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.24 | — | 6.24 | 6.24 | 6.24 | 6.24 | 6.24 | 6.24 |
 
 ### `models/npcs/npc/女npc1/女npc1.ecm` <- `models/players/形象/武侠女/躯干/武侠女.ecm` [run]
 
-- candidate `奔跑_绑定_通用`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand
+- candidate `奔跑_绑定_通用`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
   - skipped `Bip01 Ponytail1_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail11_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail12_AnimJoint`: no target joint by name
-  - skipped `Bip01 L UpperArm`: rest gap 68.2 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 46.5 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 85.0 deg > 45
+  - skipped `Bip01 L Forearm`: parent-frame divergence 67.4 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 65.5 deg > 45
   - skipped `Bip01 L Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger11_AnimJoint`: no target joint by name
-  - skipped `Bip01 R Finger0`: rest gap 83.0 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 62.3 deg > 45
   - skipped `Bip01 R Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1769,17 +1769,17 @@ mapped (bind-kept bones are absent):
   - skipped `Bone02_AnimJoint`: no target joint by name
   - skipped `Bone03_AnimJoint`: no target joint by name
   - skipped `Bone04_AnimJoint`: no target joint by name
-- candidate `奔跑_骑乘_通用`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand
+- candidate `奔跑_骑乘_通用`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
   - skipped `Bip01 Ponytail1_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail11_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail12_AnimJoint`: no target joint by name
-  - skipped `Bip01 L UpperArm`: rest gap 68.2 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 46.5 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 85.0 deg > 45
+  - skipped `Bip01 L Forearm`: parent-frame divergence 67.4 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 65.5 deg > 45
   - skipped `Bip01 L Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger11_AnimJoint`: no target joint by name
-  - skipped `Bip01 R Finger0`: rest gap 83.0 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 62.3 deg > 45
   - skipped `Bip01 R Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1790,17 +1790,17 @@ mapped (bind-kept bones are absent):
   - skipped `Bone02_AnimJoint`: no target joint by name
   - skipped `Bone03_AnimJoint`: no target joint by name
   - skipped `Bone04_AnimJoint`: no target joint by name
-- candidate `奔跑_双手长`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand
+- candidate `奔跑_双手长`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
   - skipped `Bip01 Ponytail1_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail11_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail12_AnimJoint`: no target joint by name
-  - skipped `Bip01 L UpperArm`: rest gap 68.2 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 46.5 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 85.0 deg > 45
+  - skipped `Bip01 L Forearm`: parent-frame divergence 67.4 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 65.5 deg > 45
   - skipped `Bip01 L Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger11_AnimJoint`: no target joint by name
-  - skipped `Bip01 R Finger0`: rest gap 83.0 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 62.3 deg > 45
   - skipped `Bip01 R Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1811,17 +1811,17 @@ mapped (bind-kept bones are absent):
   - skipped `Bone02_AnimJoint`: no target joint by name
   - skipped `Bone03_AnimJoint`: no target joint by name
   - skipped `Bone04_AnimJoint`: no target joint by name
-- candidate `奔跑_通用`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Hand
+- candidate `奔跑_通用`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
   - skipped `Bip01 Ponytail1_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail11_AnimJoint`: no target joint by name
   - skipped `Bip01 Ponytail12_AnimJoint`: no target joint by name
-  - skipped `Bip01 L UpperArm`: rest gap 68.2 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 46.5 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 85.0 deg > 45
+  - skipped `Bip01 L Forearm`: parent-frame divergence 67.4 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 65.5 deg > 45
   - skipped `Bip01 L Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 L Finger11_AnimJoint`: no target joint by name
-  - skipped `Bip01 R Finger0`: rest gap 83.0 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.9 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 62.3 deg > 45
   - skipped `Bip01 R Finger01_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger1_AnimJoint`: no target joint by name
   - skipped `Bip01 R Finger11_AnimJoint`: no target joint by name
@@ -1835,97 +1835,97 @@ mapped (bind-kept bones are absent):
 
 mapped (bind-kept bones are absent):
 
-| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.09 | 23.09 | 23.09 | 23.09 | 23.09 | 23.09 | 23.09 |
-| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.00 | 9.00 | 9.00 | 9.00 | 9.00 | 9.00 | 9.00 |
-| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 15.10 | 15.10 | 15.10 | 15.10 | 15.10 | 15.10 | 15.10 |
-| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.54 | 11.54 | 11.54 | 11.54 | 11.54 | 11.54 | 11.54 |
-| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 8.17 | 8.17 | 8.17 | 8.17 | 8.17 | 8.17 | 8.17 |
-| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 |
-| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.01 | 26.01 | 26.01 | 26.01 | 26.01 | 26.01 | 26.01 |
-| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.14 | 21.14 | 21.14 | 21.14 | 21.14 | 21.14 | 21.14 |
-| `Bip01 L Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.57 | 11.57 | 11.57 | 11.57 | 11.57 | 11.57 | 11.57 |
-| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 |
-| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 37.43 | 37.43 | 37.43 | 37.43 | 37.43 | 37.43 | 37.43 |
-| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 10.60 | 10.60 | 10.60 | 10.60 | 10.60 | 10.60 | 10.60 |
-| `Bip01 R Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 34.34 | 34.34 | 34.34 | 34.34 | 34.34 | 34.34 | 34.34 |
-| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 41.78 | 41.78 | 41.78 | 41.78 | 41.78 | 41.78 | 41.78 |
-| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 31.10 | 31.10 | 31.10 | 31.10 | 31.10 | 31.10 | 31.10 |
-| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 22.13 | 22.13 | 22.13 | 22.13 | 22.13 | 22.13 | 22.13 |
-| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.56 | 5.56 | 5.56 | 5.56 | 5.56 | 5.56 | 5.56 |
-| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 24.61 | 24.61 | 24.61 | 24.61 | 24.61 | 24.61 | 24.61 |
-| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.34 | 9.34 | 9.34 | 9.34 | 9.34 | 9.34 | 9.34 |
-| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 17.92 | 17.92 | 17.92 | 17.92 | 17.92 | 17.92 | 17.92 |
-| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.24 | 6.24 | 6.24 | 6.24 | 6.24 | 6.24 | 6.24 |
+| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | chain gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.09 | — | 23.09 | 23.09 | 23.09 | 23.09 | 23.09 | 23.09 |
+| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.00 | — | 9.00 | 9.00 | 9.00 | 9.00 | 9.00 | 9.00 |
+| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 15.10 | — | 15.10 | 15.10 | 15.10 | 15.10 | 15.10 | 15.10 |
+| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.54 | — | 11.54 | 11.54 | 11.54 | 11.54 | 11.54 | 11.54 |
+| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 8.17 | — | 8.17 | 8.17 | 8.17 | 8.17 | 8.17 | 8.17 |
+| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.58 | — | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 |
+| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 26.01 | — | 26.01 | 26.01 | 26.01 | 26.01 | 26.01 | 26.01 |
+| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.14 | — | 21.14 | 21.14 | 21.14 | 21.14 | 21.14 | 21.14 |
+| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 68.19 | — | 68.19 | 68.19 | 68.19 | 68.19 | 68.19 | 68.19 |
+| `Bip01 L Finger0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 84.99 | — | 84.99 | 84.99 | 84.99 | 84.99 | 84.99 | 84.99 |
+| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.58 | — | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 | 11.58 |
+| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 37.43 | — | 37.43 | 37.43 | 37.43 | 37.43 | 37.43 | 37.43 |
+| `Bip01 R Finger0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 83.04 | — | 83.04 | 83.04 | 83.04 | 83.04 | 83.04 | 83.04 |
+| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 41.78 | — | 41.78 | 41.78 | 41.78 | 41.78 | 41.78 | 41.78 |
+| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 31.10 | — | 31.10 | 31.10 | 31.10 | 31.10 | 31.10 | 31.10 |
+| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 22.13 | — | 22.13 | 22.13 | 22.13 | 22.13 | 22.13 | 22.13 |
+| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.56 | — | 5.56 | 5.56 | 5.56 | 5.56 | 5.56 | 5.56 |
+| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 24.61 | — | 24.61 | 24.61 | 24.61 | 24.61 | 24.61 | 24.61 |
+| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 9.34 | — | 9.34 | 9.34 | 9.34 | 9.34 | 9.34 | 9.34 |
+| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 17.92 | — | 17.92 | 17.92 | 17.92 | 17.92 | 17.92 | 17.92 |
+| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 6.24 | — | 6.24 | 6.24 | 6.24 | 6.24 | 6.24 | 6.24 |
 
 ### `models/npcs/npc/女npc1/女npc1.ecm` <- `models/npcs/npc/卫兵npc1/卫兵npc1.ecm` [walk]
 
-- candidate `走`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm
-  - skipped `Bip01 L UpperArm`: rest gap 49.5 deg > 45
-  - skipped `Bip01 L Forearm`: rest gap 76.9 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 117.9 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 83.7 deg > 45
-  - skipped `Bip01 R UpperArm`: rest gap 75.0 deg > 45
-  - skipped `Bip01 R Finger0`: rest gap 82.0 deg > 45
+- candidate `走`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
+  - skipped `Bip01 L Forearm`: parent-frame divergence 60.9 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 110.5 deg > 45
+  - skipped `Bip01 L Finger0`: parent-frame divergence 107.7 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.2 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 70.0 deg > 45
+  - skipped `Bip01 R Finger0`: parent-frame divergence 97.3 deg > 45
 
 mapped (bind-kept bones are absent):
 
-| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 15.63 | 15.63 | 15.63 | 15.63 | 15.63 | 15.63 | 15.63 |
-| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 7.50 | 7.50 | 7.50 | 7.50 | 7.50 | 7.50 | 7.50 |
-| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.31 | 11.31 | 11.31 | 11.31 | 11.31 | 11.31 | 11.31 |
-| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 3.88 | 3.88 | 3.88 | 3.88 | 3.88 | 3.88 | 3.88 |
-| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 8.14 | 8.14 | 8.14 | 8.14 | 8.14 | 8.14 | 8.14 |
-| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 36.19 | 36.19 | 36.19 | 36.19 | 36.19 | 36.19 | 36.19 |
-| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 30.26 | 30.26 | 30.26 | 30.26 | 30.26 | 30.26 | 30.26 |
-| `Bip01 Ponytail2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 |
-| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 41.70 | 41.70 | 41.70 | 41.70 | 41.70 | 41.70 | 41.70 |
-| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 36.24 | 36.24 | 36.24 | 36.24 | 36.24 | 36.24 | 36.24 |
-| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 13.97 | 13.97 | 13.97 | 13.97 | 13.97 | 13.97 | 13.97 |
-| `Bip01 R Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 32.30 | 32.30 | 32.30 | 32.30 | 32.30 | 32.30 | 32.30 |
-| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 31.97 | 31.97 | 31.97 | 31.97 | 31.97 | 31.97 | 31.97 |
-| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 33.38 | 33.38 | 33.38 | 33.38 | 33.38 | 33.38 | 33.38 |
-| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.51 | 21.51 | 21.51 | 21.51 | 21.51 | 21.51 | 21.51 |
-| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 7.16 | 7.16 | 7.16 | 7.16 | 7.16 | 7.16 | 7.16 |
-| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.60 | 23.60 | 23.60 | 23.60 | 23.60 | 23.60 | 23.60 |
-| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.63 | 11.63 | 11.63 | 11.63 | 11.63 | 11.63 | 11.63 |
-| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 34.26 | 34.26 | 34.26 | 34.26 | 34.26 | 34.26 | 34.26 |
-| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 |
+| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | chain gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 15.63 | — | 15.63 | 15.63 | 15.63 | 15.63 | 15.63 | 15.63 |
+| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 7.50 | — | 7.50 | 7.50 | 7.50 | 7.50 | 7.50 | 7.50 |
+| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.31 | — | 11.31 | 11.31 | 11.31 | 11.31 | 11.31 | 11.31 |
+| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 3.88 | — | 3.88 | 3.88 | 3.88 | 3.88 | 3.88 | 3.88 |
+| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 8.14 | — | 8.14 | 8.14 | 8.14 | 8.14 | 8.14 | 8.14 |
+| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 36.19 | — | 36.19 | 36.19 | 36.19 | 36.19 | 36.19 | 36.19 |
+| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 30.26 | — | 30.26 | 30.26 | 30.26 | 30.26 | 30.26 | 30.26 |
+| `Bip01 Ponytail2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.00 | — | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 |
+| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 41.70 | — | 41.70 | 41.70 | 41.70 | 41.70 | 41.70 | 41.70 |
+| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 49.48 | — | 49.48 | 49.48 | 49.48 | 49.48 | 49.48 | 49.48 |
+| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 36.24 | — | 36.24 | 36.24 | 36.24 | 36.24 | 36.24 | 36.24 |
+| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 74.99 | — | 74.99 | 74.99 | 74.99 | 74.99 | 74.99 | 74.99 |
+| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 31.97 | — | 31.97 | 31.97 | 31.97 | 31.97 | 31.97 | 31.97 |
+| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 33.38 | — | 33.38 | 33.38 | 33.38 | 33.38 | 33.38 | 33.38 |
+| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.51 | — | 21.51 | 21.51 | 21.51 | 21.51 | 21.51 | 21.51 |
+| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 7.16 | — | 7.16 | 7.16 | 7.16 | 7.16 | 7.16 | 7.16 |
+| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.60 | — | 23.60 | 23.60 | 23.60 | 23.60 | 23.60 | 23.60 |
+| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.63 | — | 11.63 | 11.63 | 11.63 | 11.63 | 11.63 | 11.63 |
+| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 34.26 | — | 34.26 | 34.26 | 34.26 | 34.26 | 34.26 | 34.26 |
+| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.54 | — | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 |
 
 ### `models/npcs/npc/女npc1/女npc1.ecm` <- `models/npcs/npc/卫兵npc1/卫兵npc1.ecm` [run]
 
-- candidate `跑`: missing locomotion bones: Bip01 L UpperArm, Bip01 L Forearm, Bip01 L Hand, Bip01 R UpperArm
-  - skipped `Bip01 L UpperArm`: rest gap 49.5 deg > 45
-  - skipped `Bip01 L Forearm`: rest gap 76.9 deg > 45
-  - skipped `Bip01 L Hand`: rest gap 117.9 deg > 45
-  - skipped `Bip01 L Finger0`: rest gap 83.7 deg > 45
-  - skipped `Bip01 R UpperArm`: rest gap 75.0 deg > 45
-  - skipped `Bip01 R Finger0`: rest gap 82.0 deg > 45
+- candidate `跑`: missing locomotion bones: Bip01 L Forearm, Bip01 L Hand, Bip01 R Forearm, Bip01 R Hand
+  - skipped `Bip01 L Forearm`: parent-frame divergence 60.9 deg > 45
+  - skipped `Bip01 L Hand`: parent-frame divergence 110.5 deg > 45
+  - skipped `Bip01 L Finger0`: parent-frame divergence 107.7 deg > 45
+  - skipped `Bip01 R Forearm`: parent-frame divergence 64.2 deg > 45
+  - skipped `Bip01 R Hand`: parent-frame divergence 70.0 deg > 45
+  - skipped `Bip01 R Finger0`: parent-frame divergence 97.3 deg > 45
 
 mapped (bind-kept bones are absent):
 
-| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 15.63 | 15.63 | 15.63 | 15.63 | 15.63 | 15.63 | 15.63 |
-| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 7.50 | 7.50 | 7.50 | 7.50 | 7.50 | 7.50 | 7.50 |
-| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.31 | 11.31 | 11.31 | 11.31 | 11.31 | 11.31 | 11.31 |
-| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 3.88 | 3.88 | 3.88 | 3.88 | 3.88 | 3.88 | 3.88 |
-| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 8.14 | 8.14 | 8.14 | 8.14 | 8.14 | 8.14 | 8.14 |
-| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 36.19 | 36.19 | 36.19 | 36.19 | 36.19 | 36.19 | 36.19 |
-| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 30.26 | 30.26 | 30.26 | 30.26 | 30.26 | 30.26 | 30.26 |
-| `Bip01 Ponytail2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 |
-| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 41.70 | 41.70 | 41.70 | 41.70 | 41.70 | 41.70 | 41.70 |
-| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 36.24 | 36.24 | 36.24 | 36.24 | 36.24 | 36.24 | 36.24 |
-| `Bip01 R Forearm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 13.97 | 13.97 | 13.97 | 13.97 | 13.97 | 13.97 | 13.97 |
-| `Bip01 R Hand` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 32.30 | 32.30 | 32.30 | 32.30 | 32.30 | 32.30 | 32.30 |
-| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 31.97 | 31.97 | 31.97 | 31.97 | 31.97 | 31.97 | 31.97 |
-| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 33.38 | 33.38 | 33.38 | 33.38 | 33.38 | 33.38 | 33.38 |
-| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.51 | 21.51 | 21.51 | 21.51 | 21.51 | 21.51 | 21.51 |
-| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 7.16 | 7.16 | 7.16 | 7.16 | 7.16 | 7.16 | 7.16 |
-| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.60 | 23.60 | 23.60 | 23.60 | 23.60 | 23.60 | 23.60 |
-| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.63 | 11.63 | 11.63 | 11.63 | 11.63 | 11.63 | 11.63 |
-| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 34.26 | 34.26 | 34.26 | 34.26 | 34.26 | 34.26 | 34.26 |
-| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 |
+| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | rest gap° | chain gap° | resB first | resB mid | resB last | resA first | resA mid | resA last |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `Bip01` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 15.63 | — | 15.63 | 15.63 | 15.63 | 15.63 | 15.63 | 15.63 |
+| `Bip01 Pelvis` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 7.50 | — | 7.50 | 7.50 | 7.50 | 7.50 | 7.50 | 7.50 |
+| `Bip01 Spine` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.31 | — | 11.31 | 11.31 | 11.31 | 11.31 | 11.31 | 11.31 |
+| `Bip01 Spine1` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 3.88 | — | 3.88 | 3.88 | 3.88 | 3.88 | 3.88 | 3.88 |
+| `Bip01 Spine2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 8.14 | — | 8.14 | 8.14 | 8.14 | 8.14 | 8.14 | 8.14 |
+| `Bip01 Neck` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 36.19 | — | 36.19 | 36.19 | 36.19 | 36.19 | 36.19 | 36.19 |
+| `Bip01 Head` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 30.26 | — | 30.26 | 30.26 | 30.26 | 30.26 | 30.26 | 30.26 |
+| `Bip01 Ponytail2` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 19.00 | — | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 | 19.00 |
+| `Bip01 L Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 41.70 | — | 41.70 | 41.70 | 41.70 | 41.70 | 41.70 | 41.70 |
+| `Bip01 L UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 49.48 | — | 49.48 | 49.48 | 49.48 | 49.48 | 49.48 | 49.48 |
+| `Bip01 R Clavicle` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 36.24 | — | 36.24 | 36.24 | 36.24 | 36.24 | 36.24 | 36.24 |
+| `Bip01 R UpperArm` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 74.99 | — | 74.99 | 74.99 | 74.99 | 74.99 | 74.99 | 74.99 |
+| `Bip01 L Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 31.97 | — | 31.97 | 31.97 | 31.97 | 31.97 | 31.97 | 31.97 |
+| `Bip01 L Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 33.38 | — | 33.38 | 33.38 | 33.38 | 33.38 | 33.38 | 33.38 |
+| `Bip01 L Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 21.51 | — | 21.51 | 21.51 | 21.51 | 21.51 | 21.51 | 21.51 |
+| `Bip01 L Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 7.16 | — | 7.16 | 7.16 | 7.16 | 7.16 | 7.16 | 7.16 |
+| `Bip01 R Thigh` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 23.60 | — | 23.60 | 23.60 | 23.60 | 23.60 | 23.60 | 23.60 |
+| `Bip01 R Calf` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 11.63 | — | 11.63 | 11.63 | 11.63 | 11.63 | 11.63 | 11.63 |
+| `Bip01 R Foot` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 34.26 | — | 34.26 | 34.26 | 34.26 | 34.26 | 34.26 | 34.26 |
+| `Bip01 R Toe0` | 0 | 0 | 1.000 | 1.000 | 0.0000 | 0.0000 | (1.0, 1.0, 1.0) | (1.0, 1.0, 1.0) | 5.54 | — | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 | 5.54 |
 
