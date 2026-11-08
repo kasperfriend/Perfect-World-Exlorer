@@ -5,10 +5,10 @@
 //! block §58@736..848 and the §39 tail 1228..1528.
 //!
 //! Neither section carries a `file_icon` field: the client draws an NPC or a mob
-//! from its modelled rig, and the only authored icon these records reach is the
-//! pet egg a mob is captured as (`id_pet_egg_captured` → `PET_EGG_ESSENCE`
-//! `file_icon`). That link is used where it exists; nothing is substituted for a
-//! record that has none.
+//! from its modelled rig. The only artwork these records reach is the pet egg a
+//! mob is captured as (`id_pet_egg_captured` → `PET_EGG_ESSENCE` `file_icon`),
+//! which belongs to the pet system rather than to the template, so the tab shows
+//! the rig and does not present an egg as the NPC's own icon.
 use super::elements::visit_v27_records;
 use encoding_rs::GBK;
 use std::collections::HashMap;
@@ -24,7 +24,6 @@ const SECTION_MONSTER_TYPE: usize = 38;
 const SECTION_MONSTER: usize = 39;
 const SECTION_NPC_TYPE: usize = 57;
 const SECTION_NPC: usize = 58;
-const SECTION_PET_EGG: usize = 96;
 
 /// `NPC_ESSENCE` service-id fields: (label, record offset, service table).
 ///
@@ -117,9 +116,6 @@ pub struct Entry {
     pub search_name: String,
     /// Authored `.ecm`, already normalised to the archive's separators.
     pub model: String,
-    /// Client icon reached through `id_pet_egg_captured`, empty when there is
-    /// no such link. NPCs never carry one.
-    pub icon: String,
     pub type_id: u32,
     pub type_name: String,
     pub record: Vec<u8>,
@@ -218,9 +214,6 @@ impl Database {
         let mut db = Self::default();
         let mut npc_types: HashMap<u32, String> = HashMap::new();
         let mut monster_types: HashMap<u32, String> = HashMap::new();
-        let mut eggs: HashMap<u32, String> = HashMap::new();
-        let mut linked: Vec<(usize, u32)> = Vec::new();
-        let mut monster_ids: Vec<usize> = Vec::new();
         let wanted = service_tables();
         visit_v27_records(bytes, |section, record| {
             let id = number(record, 0);
@@ -249,9 +242,6 @@ impl Database {
                         .collect();
                     db.monster_addons.insert(id, (name, params));
                 }
-                SECTION_PET_EGG => {
-                    eggs.insert(id, encoded(record, 196, 128));
-                }
                 SECTION_NPC => {
                     let name = wide(record, 4, 64).trim().to_string();
                     db.by_id.entry(id).or_insert(db.entries.len());
@@ -261,12 +251,10 @@ impl Database {
                         search_name: name.to_lowercase(),
                         name,
                         model: model_path(record, 80),
-                        icon: String::new(),
                         type_id: number(record, 68),
                         type_name: String::new(),
                         record: record.to_vec(),
                     });
-                    linked.push((db.entries.len() - 1, number(record, 212)));
                 }
                 SECTION_MONSTER => {
                     let name = wide(record, 8, 64).trim().to_string();
@@ -277,12 +265,10 @@ impl Database {
                         search_name: name.to_lowercase(),
                         name,
                         model: model_path(record, 144),
-                        icon: String::new(),
                         type_id: number(record, 4),
                         type_name: String::new(),
                         record: record.to_vec(),
                     });
-                    monster_ids.push(db.entries.len() - 1);
                 }
                 _ => {
                     if wanted.contains(&section) {
@@ -302,24 +288,6 @@ impl Database {
                 &monster_types
             };
             entry.type_name = table.get(&entry.type_id).cloned().unwrap_or_default();
-        }
-        // A mob's authored icon is the egg it is captured as, and an NPC that
-        // borrows a mob's attributes borrows that mob's egg icon as well.
-        for index in monster_ids {
-            let icon = eggs
-                .get(&number(&db.entries[index].record, 552))
-                .cloned()
-                .unwrap_or_default();
-            db.entries[index].icon = icon;
-        }
-        for (index, source) in linked {
-            if source == 0 {
-                continue;
-            }
-            if let Some(&target) = db.by_id.get(&source) {
-                let icon = db.entries[target].icon.clone();
-                db.entries[index].icon = icon;
-            }
         }
         Ok(db)
     }
@@ -991,10 +959,6 @@ mod tests {
         let mut task_in = vec![0; 1092];
         task_in[0..4].copy_from_slice(&701u32.to_le_bytes());
         task_in[68..72].copy_from_slice(&439u32.to_le_bytes());
-        let mut egg = vec![0; 628];
-        egg[0..4].copy_from_slice(&960u32.to_le_bytes());
-        let icon = b"Surfaces\\icons\\pet\\ox_egg.dds";
-        egg[196..196 + icon.len()].copy_from_slice(icon);
         elements::synthetic_records(&[
             (37, vec![addon]),
             (38, vec![monster_type]),
@@ -1003,7 +967,6 @@ mod tests {
             (46, vec![task_in]),
             (57, vec![type_record]),
             (58, vec![npc_record(2109, "Apothecary Cheng")]),
-            (96, vec![egg]),
         ])
     }
 
@@ -1017,8 +980,6 @@ mod tests {
         assert_eq!(npc.type_name, "Normal");
         assert_eq!(npc.greeting(), "Hello there");
         assert_eq!(npc.source_monster(), Some(900));
-        // The icon is borrowed from the linked mob's captured egg.
-        assert_eq!(npc.icon, "Surfaces\\icons\\pet\\ox_egg.dds");
         let services = npc.services(&db);
         let sell = services.iter().find(|s| s.label == "Sell goods").unwrap();
         assert_eq!(sell.name, "Goods");
@@ -1097,7 +1058,6 @@ mod tests {
                 name: String::new(),
                 search_name: String::new(),
                 model: String::new(),
-                icon: String::new(),
                 type_id: 14,
                 type_name: String::new(),
                 record: record.clone(),
@@ -1131,7 +1091,6 @@ mod tests {
             name: String::new(),
             search_name: String::new(),
             model: String::new(),
-            icon: String::new(),
             type_id: 3214,
             type_name: String::new(),
             record: npc,

@@ -141,8 +141,6 @@ struct State {
     npc_search: String,
     npc_selected: Option<usize>,
     npc_comparison: Vec<usize>,
-    npc_compare_open: bool,
-    npc_show_3d: bool,
     preview: Option<preview3d::Preview>,
     show_3d: bool,
     preview_female: bool,
@@ -239,8 +237,6 @@ impl Librarian {
                     npc_search: String::new(),
                     npc_selected: None,
                     npc_comparison: Vec::new(),
-                    npc_compare_open: false,
-                    npc_show_3d: true,
                     preview: None,
                     show_3d: false,
                     preview_female: false,
@@ -938,9 +934,6 @@ impl State {
         renderer: &mut egui_wgpu::Renderer,
         format: wgpu::TextureFormat,
     ) {
-        if !self.npc_show_3d {
-            return;
-        }
         let Some(index) = self.npc_selected else {
             return;
         };
@@ -968,11 +961,11 @@ impl State {
                     self.npc_selected = None;
                 }
             }
-            if ui
-                .selectable_label(self.npc_compare_open, "Comparison")
-                .clicked()
-            {
-                self.npc_compare_open = !self.npc_compare_open;
+            // Comparison lives in the shared Comparison tab, so the badge here
+            // says how many columns it currently holds.
+            let columns = self.npc_comparison.len();
+            if columns != 0 {
+                ui.label(format!("{columns} in Comparison"));
             }
         });
         ui.horizontal(|ui| {
@@ -980,10 +973,6 @@ impl State {
             ui.text_edit_singleline(&mut self.npc_search);
             ui.label(format!("{} templates", self.npc_database.entries.len()));
         });
-        if self.npc_compare_open {
-            self.npc_comparison_ui(ui);
-            return;
-        }
         let query = self.npc_search.to_lowercase();
         let indices: Vec<usize> = self
             .npc_database
@@ -1037,7 +1026,6 @@ impl State {
         let kind = entry.kind;
         let id = entry.id;
         let model = entry.model.clone();
-        let icon = entry.icon.clone();
         let sections = entry.sections(&self.npc_database);
         let drops = entry.drops();
         let drop_counts = entry.drop_counts();
@@ -1050,16 +1038,12 @@ impl State {
         };
         ui.heading(heading);
         ui.label(format!("ID {id} · {}", kind.name()));
-        ui.horizontal(|ui| {
-            ui.selectable_value(&mut self.npc_show_3d, false, "2D icon");
-            ui.selectable_value(&mut self.npc_show_3d, true, "3D model");
-        });
-        if self.npc_show_3d && model.is_empty() {
+        if model.is_empty() {
             ui.colored_label(
                 egui::Color32::YELLOW,
                 "This template names no rig, so there is no model to show.",
             );
-        } else if self.npc_show_3d {
+        } else {
             if let Some(preview) = &mut self.preview {
                 if let Some(error) = &preview.error {
                     ui.colored_label(egui::Color32::LIGHT_RED, error);
@@ -1136,32 +1120,16 @@ impl State {
                     ui.ctx().request_repaint();
                 }
                 ui.label("Left-drag to orbit; right-drag to move; use the slider to zoom.");
-            } else if !model.is_empty() {
+            } else {
                 ui.label("Preparing preview…");
             }
-        } else if !icon.is_empty() {
-            // `get` falls back to a generic inventory cell, which would claim an
-            // artwork this record does not have, so it only runs on a real path.
-            match self.icons.get(ui.ctx(), &mut self.assets, &icon) {
-                Some(texture) => {
-                    ui.image((texture, egui::vec2(64., 64.)));
-                    ui.small(format!("Icon: {icon}"));
-                }
-                None => {
-                    ui.colored_label(
-                        egui::Color32::YELLOW,
-                        format!("The icon atlas does not contain {icon}."),
-                    );
-                }
-            }
-        } else {
-            ui.small(
-                "`NPC_ESSENCE` and `MONSTER_ESSENCE` carry no icon path, and this record has no \
-                 captured pet egg whose artwork the client would draw instead, so the game \
-                 shows the modelled rig only.",
-            );
         }
-        if ui.button("Add to comparison").clicked() && !self.npc_comparison.contains(&index) {
+        if ui
+            .button("Add to comparison")
+            .on_hover_text("Add as a column in the Comparison tab")
+            .clicked()
+            && !self.npc_comparison.contains(&index)
+        {
             self.npc_comparison.push(index);
         }
         ui.separator();
@@ -1242,36 +1210,49 @@ impl State {
             }
         }
     }
-    fn npc_comparison_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("NPC comparison");
+    /// The NPC and monster columns of the shared comparison tab.
+    ///
+    /// NPCs and items have disjoint attributes, so they are laid out as two
+    /// sections of one tab rather than one grid with a column type nobody can
+    /// read across.
+    fn npc_comparison_section(&mut self, ui: &mut egui::Ui) {
         if self.npc_comparison.is_empty() {
-            ui.label("Add NPCs or monsters from their details to compare them.");
             return;
         }
+        ui.heading("NPCs and monsters");
         // The grid only reads the database, so it runs from borrowed records and
         // reports the two actions back instead of mutating in place.
         let entries: Vec<&npcs::Entry> = self
             .npc_comparison
             .iter()
-            .map(|&index| &self.npc_database.entries[index])
+            .filter_map(|&index| self.npc_database.entries.get(index))
             .collect();
+        if entries.is_empty() {
+            self.npc_comparison.clear();
+            return;
+        }
         // Both actions are resolved against the list as it is now: removing a
         // column first would shift what the "open" position refers to.
         let (remove, jump) = npc_comparison_grid(ui, &entries);
         if let Some(position) = jump {
             self.npc_selected = self.npc_comparison.get(position).copied();
-            self.npc_compare_open = false;
+            self.npcs_open = true;
+            self.compare_open = false;
         }
         if let Some(position) = remove {
             if position < self.npc_comparison.len() {
                 self.npc_comparison.remove(position);
             }
         }
+        ui.separator();
     }
     fn comparison_ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Comparison");
+        self.npc_comparison_section(ui);
         if self.comparison.is_empty() {
-            ui.label("Add items from their details to compare them.");
+            if self.npc_comparison.is_empty() {
+                ui.label("Add items from their details, or NPCs and monsters from theirs.");
+            }
             return;
         }
         let mut remove = None;
@@ -1446,8 +1427,6 @@ mod tests {
             npc_search: String::new(),
             npc_selected: None,
             npc_comparison: Vec::new(),
-            npc_compare_open: false,
-            npc_show_3d: false,
             preview: None,
             show_3d: false,
             preview_female: false,
@@ -1476,13 +1455,19 @@ mod tests {
         run(&mut state);
         assert_eq!(state.database.items[state.comparison[0]].id, 42);
 
-        // The NPC tab renders from its own records, including the comparison.
+        // The NPC tab renders from its own records.
         state.npcs_open = true;
-        state.npc_comparison.push(0);
-        run(&mut state);
-        state.npc_compare_open = true;
         run(&mut state);
         assert!(state.npc_database.entries.is_empty() || state.npc_selected.is_none());
+
+        // NPC columns belong to the shared Comparison tab, next to the items. A
+        // stale index into an empty database must be dropped, not panicked on.
+        state.npc_comparison.push(0);
+        state.npcs_open = false;
+        state.compare_open = true;
+        run(&mut state);
+        assert!(state.npc_comparison.is_empty(), "stale NPC column dropped");
+        assert_eq!(state.database.items[state.comparison[0]].id, 42);
     }
 
     /// The NPC tab against a real client's own records, skipped when none is

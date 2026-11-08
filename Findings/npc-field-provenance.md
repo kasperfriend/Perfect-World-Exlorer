@@ -66,6 +66,10 @@ record uses the third.
   reading life at 552 shifts every later field by one slot and reports egg ids as
   hit points.
 
+The egg id is shown as an attribute. It is not used as the creature's icon: the
+egg's artwork belongs to the pet system, and neither section carries a
+`file_icon` field of its own.
+
 ## What cannot be resolved from `elements.data`
 
 Monster skill ids (`id_skill`, `skills_1..32`) and the pet-egg skill lists name

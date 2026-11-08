@@ -16,40 +16,46 @@ explicit Left, Right and Remove controls.
 
 ## NPCs
 
-The highlighted tab row carries **All Items** and **Comparison** for items and
-**NPCs** for creatures. **NPCs** has its own **Comparison** toggle.
-It reads the same `elements.data`: the 2,838 `NPC_ESSENCE` records and the 4,208
-`MONSTER_ESSENCE` records, switched between with the NPCs/Monsters buttons. Search
-matches names and IDs, and selecting a template opens its details.
+The highlighted tab row carries **All Items**, **Comparison** and **NPCs**. It
+reads the same `elements.data`: the 2,838 `NPC_ESSENCE` records and the 4,208
+`MONSTER_ESSENCE` records, switched between with the NPCs/Monsters buttons.
+Search matches names and IDs, and selecting a template opens its details.
 
-An NPC shows its authored `.ecm`, type, greeting, refresh time, tax rate, whether
-it is territorial, and — when the record names one — the monster whose attributes
-replace its own, with a link to that monster. Monsters show level, life, defence,
-the five magic defences, attack and armor, damage, attack/aggro/sight ranges,
-speeds, experience, money and their behaviour enumerations (aggressive code,
-ranged or close-range attacks, habitat, stance, on-death outcome, stealth levels). Every service an NPC
-offers is resolved through its own service table, so the shop, task, craft and
-teleport tables are named from client data instead of being described generically;
-the `combined_services` bit field is expanded with the client's own bit meanings.
-Monster drop tables list their item templates with the authored probabilities and
-the per-roll count distribution, and every drop links to the item's details.
+An NPC shows its authored `.ecm`, type, greeting, refresh time, tax rate,
+whether it is territorial, and — when the record names one — the monster whose
+attributes replace its own, with a link to that monster. Monsters show level,
+life, defence, the five magic defences, attack and armor, damage,
+attack/aggro/sight ranges, speeds, experience, money and their behaviour
+enumerations (aggressive code, ranged or close-range attacks, habitat, stance,
+on-death outcome, stealth levels). Every service an NPC offers is resolved
+through its own service table, so the shop, task, craft and teleport tables are
+named from client data instead of being described generically; the
+`combined_services` field is expanded with the client's own bit meanings.
+Monster drop tables list their item templates with the authored probabilities
+and the per-roll count distribution, and every drop links to the item's details.
 Monster skills and the type's add-on rolls are shown the same way. Habitat
 labels are the client's own `inhabit_type` strings (`Ground`, `Water`, `Air`,
-`Ground+Water`, `Ground+Air`, `Water+Sky`, `Ground+Water+Air`), and the tax field
-is already a percentage in the file rather than a fraction.
+`Ground+Water`, `Ground+Air`, `Water+Sky`, `Ground+Water+Air`), and the tax
+field is already a percentage in the file rather than a fraction.
 
 The 3D preview hands the record's own `.ecm` to the same renderer the item tab
-uses, so orbit, pan, zoom, flip, turntable and the action list all work. It starts
-on the standing scene action the client requests for a placed NPC (`站立`, with the
-client's own `休闲` fallback), and rigs with no such action keep their first clip.
+uses, so orbit, pan, zoom, flip, turntable and the action list all work. It
+starts on the standing scene action the client requests for a placed NPC
+(`站立`, with the client's own `休闲` fallback), and rigs with no such action keep
+their first clip.
 
-`NPC_ESSENCE` and `MONSTER_ESSENCE` carry no icon field, so the **2D icon** view
-shows the artwork a record actually reaches: the pet egg a monster is captured as,
-also inherited by an NPC that borrows that monster's attributes. Templates without
-that link say so rather than showing a stand-in image. Add templates to the NPC
-comparison to align their numeric attributes; the baseline and best-value
-highlighting work the same way as the item comparison, and only the fields the
-selected records actually carry appear.
+`NPC_ESSENCE` and `MONSTER_ESSENCE` carry no icon field: these templates have no
+2D artwork of their own, and the pet egg a monster is captured as belongs to the
+pet system rather than to the creature. The tab therefore shows the rig and
+nothing else instead of inventing a picture, and the monster's pet egg is listed
+as the attribute it is.
+
+**Add to comparison** on a template drops it into the shared **Comparison** tab,
+under an *NPCs and monsters* section beside the item columns. Adding a creature
+does not switch tabs. Columns are aligned on the attributes both records carry,
+so an NPC and a monster compare on what they share and an item never appears in
+the creature section. The baseline and best-value highlighting work the same way
+as for items.
 
 Switch to **3D model** for an offscreen ECM/SMD preview, or a class/gender
 floating equipment mesh for armor and fashion. Select the class and gender
