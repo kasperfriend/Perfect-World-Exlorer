@@ -721,9 +721,10 @@ pub struct Fractal {
     pub wave_length: f32,
     /// Milliseconds between rebuilds.
     pub interval: u32,
-    /// Three `Width` values: head, tail and segment width.
+    /// The three authored `Width` lines, in file order: see
+    /// [`Fractal::width_at`] for what each one means.
     pub widths: Vec<f32>,
-    /// Three `Alpha` values: head, tail and segment alpha.
+    /// The three authored `Alpha` lines, in file order.
     pub alphas: Vec<f32>,
     /// Second `Amplitude`: the ribbon displacement amplitude.
     pub amplitude: f32,
@@ -756,6 +757,65 @@ impl Default for Fractal {
             use_normal: false,
             normal: Vec3::ZERO,
             filter: 1,
+        }
+    }
+}
+
+impl Fractal {
+    /// The authored cross-section width at fraction `t` of the strip.
+    ///
+    /// The client does not treat the three `Width` lines as independent
+    /// channels. Its strip builder reads `+0x2c0` and `+0x2c8` — the first and
+    /// third lines — as the width at the two *ends* of the strip and `+0x2c4`,
+    /// the second line, as the width at its midpoint:
+    ///
+    /// * for `t >= 0.5` (disassembly `0x709a95`) the pair it interpolates is
+    ///   `Width[2] -> Width[0]`, i.e. end-to-end,
+    /// * for `t < 0.5` (`0x709a9d`, `0x709aeb`, `0x709ad5`) it interpolates
+    ///   `Width[1] -> Width[0]` and passes the fraction through `sin`, giving a
+    ///   cos-shaped taper out of the midpoint.
+    ///
+    /// So the authored order is `[end, midpoint, start]`, not `[head, mid,
+    /// tail]`. A file that writes a single `Width` repeats it, and the two
+    /// shipped shapes collapse to the old two-point ramp — which is why the
+    /// 356 corpus fractals that author only one width read correctly either
+    /// way. The 623 that author three do not: 76 carry their widest cross
+    /// section in the middle, and dropping the midpoint loses 17.5% of the
+    /// strip's area on average across the whole corpus.
+    ///
+    /// Note the two ends are *not* interchangeable — `t = 0` is `Width[2]`, the
+    /// third line — so a strip whose end widths differ and whose segments are
+    /// not symmetric draws differently from the naive head/tail reading.
+    pub fn width_at(&self, t: f32) -> f32 {
+        profile_at(&self.widths, t)
+    }
+
+    /// The authored alpha at fraction `t` of the strip, on the same three-point
+    /// profile and with the same `[end, midpoint, start]` order as
+    /// [`Fractal::width_at`]: the client reads `+0x2cc`/`+0x2d0`/`+0x2d4`,
+    /// which the loader fills from the three `Alpha` lines in file order.
+    pub fn alpha_at(&self, t: f32) -> f32 {
+        profile_at(&self.alphas, t)
+    }
+}
+
+/// Sample a three-point authored profile.
+///
+/// Order is `[end, midpoint, start]`. One value is constant, two interpolate
+/// end to start with no midpoint, three use the midpoint as the apex of a
+/// two-segment ramp.
+fn profile_at(values: &[f32], t: f32) -> f32 {
+    let t = t.clamp(0., 1.);
+    match values {
+        [] => 0.,
+        [only] => *only,
+        [end, start] => end + (start - end) * t,
+        [end, mid, start, ..] => {
+            if t <= 0.5 {
+                end + (mid - end) * (t / 0.5)
+            } else {
+                mid + (start - mid) * ((t - 0.5) / 0.5)
+            }
         }
     }
 }

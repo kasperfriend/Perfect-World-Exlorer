@@ -3637,7 +3637,14 @@ fn emit_fractal(
         Spec::Trail(spec) => (&spec.fractal, Some(spec)),
         _ => return,
     };
+    // `Segs` counts cross-sections, not quads. The client's strip builder
+    // divides the draw index by `+0x2b0` (which the loader fills from `Segs`)
+    // and stops one short of it — `0x7092f9` passes `+0x2b0 - 1` where the loop
+    // counter stops `jl` — so a `Segs: 10` ribbon is 9 quads spanning the full
+    // axis, each one `1/10` of the length. Using `Segs` quads here drew one
+    // extra section past the authored end.
     let segments = spec.segments.max(2) as usize;
+    let quad_count = segments - 1;
     let interval = spec.interval.max(1) as f32;
     fractal.timer += dt * 1000.;
     if fractal.timer >= interval || fractal.offsets.len() != segments + 1 {
@@ -3663,16 +3670,26 @@ fn emit_fractal(
     if let Some(trail) = trail {
         update_trail(fractal, trail, element, dt * 1000., segments);
     }
-    let head_width = spec.widths.first().copied().unwrap_or(0.1);
-    let tail_width = spec.widths.get(1).copied().unwrap_or(head_width);
-    let head_alpha = spec.alphas.first().copied().unwrap_or(1.);
-    let tail_alpha = spec.alphas.get(1).copied().unwrap_or(head_alpha);
     let matrix = context.placement;
     let start = matrix.transform_point3(spec.start_position);
     let end = matrix.transform_point3(spec.end_position);
-    let axis = end - start;
-    if axis.length_squared() < 1e-12 {
-        return;
+    let mut axis = end - start;
+    // A strip whose authored ends coincide is not empty in the client. Its
+    // direction routine (`0x709ca1`..`0x709d1c`) normalises `EndPos - StartPos`,
+    // finds the tiny magnitude and takes the `jmp 0x709d48` branch, which leaves
+    // the direction vector at zero and keeps drawing — the tapers then hang off
+    // a zero-length axis. 502 of the 734 corpus fractals author
+    // `StartPos == EndPos == 0.0, 0.0, 0.0`, and 63 of those placements are
+    // installed in `world.ecwld` (for example
+    // `gfx/场景/新种族地图/09黄色的电球.gfx`). Those effects are a tapered point,
+    // not an absent element; aborting here is what silently dropped them.
+    let degenerate = axis.length_squared() < 1e-12;
+    if degenerate {
+        // Keep the strip visible by giving the collapsed axis the direction the
+        // client falls back to when a caller hands it a zero vector. The
+        // authored shape (three-point tapers below) is preserved, so the patch
+        // is the same silhouette the authored widths describe.
+        axis = Vec3::Z;
     }
     // The strip faces the camera: its width axis is the cross of the strip axis
     // and the view direction. `UseNormal`/`Normal` author a fixed width axis
@@ -3703,17 +3720,17 @@ fn emit_fractal(
     };
     for slot in 0..drawn {
         let index = first + slot;
-        if index >= segments {
+        if index >= quad_count {
             break;
         }
         let t0 = index as f32 / segments as f32;
         let t1 = (index + 1) as f32 / segments as f32;
         let a = start.lerp(end, t0) + fractal.offsets[index];
         let b = start.lerp(end, t1) + fractal.offsets[index + 1];
-        let width0 = (head_width + (tail_width - head_width) * t0).max(0.) * context.scale * 0.5;
-        let width1 = (head_width + (tail_width - head_width) * t1).max(0.) * context.scale * 0.5;
-        let alpha0 = head_alpha + (tail_alpha - head_alpha) * t0;
-        let mut alpha1 = head_alpha + (tail_alpha - head_alpha) * t1;
+        let width0 = spec.width_at(t0).max(0.) * context.scale * 0.5;
+        let width1 = spec.width_at(t1).max(0.) * context.scale * 0.5;
+        let alpha0 = spec.alpha_at(t0);
+        let mut alpha1 = spec.alpha_at(t1);
         // A trail's tail disappears over its authored fade; a fractal ribbon
         // keeps the alpha ramp exactly as written.
         if let Some(trail) = trail {
@@ -3927,6 +3944,95 @@ mod tests {
         player
             .advance(dt_ms, &view(), Mat4::IDENTITY, 1., 1.)
             .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// A fractal (element 150) at version 79 with the authored ends, widths and
+    /// alphas interpolated in. `Segs: 4` gives three quads over four
+    /// cross-sections, matching the client's `+0x2b0 - 1` loop bound.
+    fn fractal(start: &str, end: &str, widths: [f32; 3], alphas: [f32; 3]) -> String {
+        format!(
+            "{}GFXELEMENTID: 150\r\nName: strip\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+             RepeatCount: 1\r\nRepeatDelay: 0\r\nTexFile: 粒子\\strip.dds\r\nBindEle: \r\n\
+             ZEnable: 0\r\nMatchGrnd: 0\r\nTexRow: 1\r\nTexCol: 1\r\nTexInterval: 50\r\n\
+             Priority: 0\r\nIsDummy: 0\r\nDummyEle: \r\nWarp: 0\r\nTileMode: 0\r\n\
+             TexSpeed: 0\r\nTexSpeed: 0\r\nUReverse: 0\r\nVReverse: 0\r\nUVExchg: 0\r\n\
+             RenderLayer: 0\r\nNoDownSample: 0\r\nResetLoopEnd: 0\r\nTexAnimMaxTime: 0\r\n\
+             BufLen: 256\r\nAmplitude: 1.000000\r\nWaveLen: 1\r\nPersistence: 1.000000\r\n\
+             OctaveNum: 1\r\nStartPos: {start}\r\nEndPos: {end}\r\nSegs: 4\r\nLightNum: 0\r\n\
+             WaveLen: 1.000000\r\nInterval: 100\r\nWidth: {}\r\nWidth: {}\r\nWidth: {}\r\n\
+             Alpha: {}\r\nAlpha: {}\r\nAlpha: {}\r\nAmplitude: 0.000000\r\nPos1Enable: 0\r\n\
+             Pos2Enable: 0\r\nUseNormal: 0\r\nNormal: 0, 0, 0\r\nFilter: 1\r\n\
+             StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
+             Position: 0, 0, 0\r\nColor: -1\r\nScale: 1.000000\r\n\
+             Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n",
+            header79(1),
+            widths[0],
+            widths[1],
+            widths[2],
+            alphas[0],
+            alphas[1],
+            alphas[2],
+        )
+    }
+
+    /// The three authored `Width` lines are `[end, midpoint, start]`, not
+    /// `[head, mid, tail]`. The client's strip builder interpolates
+    /// `Width[1] -> Width[0]` over the first half of the axis and
+    /// `Width[2] -> Width[0]` over the second (disassembly `0x709a58`..`0x709aeb`),
+    /// so a profile whose middle line is its widest draws a strip that pinches at
+    /// both ends. Reading only the first two lines — which is what the emitter
+    /// did before this was measured — loses the apex and 17.5% of the strip's
+    /// area across the corpus.
+    #[test]
+    fn a_three_point_width_profile_peaks_in_the_middle_of_the_strip() {
+        let mut spec = gfx_file::Fractal::default();
+        spec.widths = vec![0.2, 1.0, 0.2];
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        assert!(near(spec.width_at(0.0), 0.2), "the first line is one end");
+        assert!(near(spec.width_at(1.0), 0.2), "the third line is the other");
+        assert!(
+            near(spec.width_at(0.5), 1.0),
+            "the second line is the midpoint"
+        );
+        assert!(
+            near(spec.width_at(0.25), 0.6),
+            "first half ramps end -> midpoint"
+        );
+        assert!(
+            near(spec.width_at(0.75), 0.6),
+            "second half midpoint -> start"
+        );
+        // A single authored line repeats, which collapses to a constant strip;
+        // 356 corpus fractals author one width and read the same either way.
+        spec.widths = vec![0.4];
+        assert!(near(spec.width_at(0.75), 0.4));
+        // Two lines interpolate end to start with no midpoint.
+        spec.widths = vec![0.0, 2.0];
+        assert!(near(spec.width_at(0.5), 1.0));
+    }
+
+    /// A fractal whose authored ends coincide still draws. The client's
+    /// direction routine (`0x709ca1`..`0x709d1c`) sees the tiny `EndPos -
+    /// StartPos`, leaves the direction at zero and jumps past the divide, so the
+    /// strip keeps its authored tapers instead of vanishing. 502 of the 734
+    /// corpus fractals author `StartPos == EndPos == 0`, and 63 of those
+    /// placements are installed in the world.
+    #[test]
+    fn a_fractal_with_coincident_ends_still_draws_its_tapers() {
+        let strip = fractal("0, 0, 0", "0, 0, 0", [0.0, 1.0, 0.0], [0.5, 1.0, 0.5]);
+        let mut player = build(&strip);
+        step(&mut player, 16.);
+        let quads = player.quads();
+        assert_eq!(quads.len(), 3, "four cross-sections, three quads");
+        // The apex is authored in the middle, so the first quad is thinner than
+        // the strip's own middle. A zero-length strip is not an empty one.
+        let width = |quad: &EffectQuad| {
+            let a = Vec3::from_array(quad.positions[0]);
+            let b = Vec3::from_array(quad.positions[1]);
+            (a - b).length()
+        };
+        assert!(width(&quads[0]) < width(&quads[1]), "the tapers survive");
+        assert!(quads.iter().all(|q| q.color[3] > 0.), "and stay visible");
     }
 
     /// The quad centre, which for a centred origin is the element position.
@@ -6352,15 +6458,16 @@ mod tests {
     #[test]
     fn a_trail_that_does_not_append_draws_its_whole_strip_forever() {
         let mut player = build(&trail(4, false, true, 100., 100.));
+        // `Segs: 4` is four cross-sections, so the strip is three quads.
         assert_eq!(
             trail_quads(&mut player, 16.),
-            4,
+            3,
             "the whole strip exists on frame one"
         );
         for frame in 1..20 {
             assert_eq!(
                 trail_quads(&mut player, 16.),
-                4,
+                3,
                 "frame {frame}: a rebuilt strip is never aged, so nothing expires"
             );
         }
@@ -6377,7 +6484,7 @@ mod tests {
         let drawn: Vec<usize> = (0..6).map(|_| trail_quads(&mut player, 20.)).collect();
         assert_eq!(
             drawn,
-            vec![0, 1, 2, 3, 3, 4],
+            vec![0, 1, 2, 3, 3, 3],
             "one vertex per 25 ms, and the frame that only reaches 25 ms lays none"
         );
     }
@@ -6406,7 +6513,7 @@ mod tests {
         let drawn: Vec<usize> = (0..7).map(|_| trail_quads(&mut player, 30.)).collect();
         assert_eq!(
             drawn,
-            vec![1, 2, 3, 3, 2, 1, 0],
+            vec![1, 2, 3, 2, 1, 0, 0],
             "the strip grows, holds at three, then loses its oldest vertex a frame at a time"
         );
     }
@@ -6421,7 +6528,7 @@ mod tests {
         let drawn: Vec<usize> = (0..7).map(|_| trail_quads(&mut player, 30.)).collect();
         assert_eq!(
             drawn,
-            vec![1, 2, 3, 4, 4, 4, 4],
+            vec![1, 2, 3, 3, 3, 3, 3],
             "the strip reaches its full length and stays there"
         );
     }
@@ -6436,8 +6543,8 @@ mod tests {
         let mut player = build(&trail(300, false, true, 100., 100.));
         assert_eq!(
             trail_quads(&mut player, 16.),
-            TRAIL_RING_CAPACITY,
-            "a 300-segment strip draws the newest 256 of its vertices"
+            TRAIL_RING_CAPACITY - 1,
+            "a 300-section strip draws the newest 255 quads of its vertices"
         );
     }
 
@@ -6491,7 +6598,7 @@ mod tests {
         for _ in 0..4 {
             trail_quads(&mut player, 30.);
         }
-        assert_eq!(player.quads().len(), 4, "the whole strip is down");
+        assert_eq!(player.quads().len(), 3, "the whole strip is down");
         player.reset();
         assert_eq!(
             trail_quads(&mut player, 16.),
@@ -6514,11 +6621,11 @@ mod tests {
         for _ in 0..4 {
             trail_quads(&mut player, 30.);
         }
-        assert_eq!(player.quads().len(), 4, "the whole strip is down");
+        assert_eq!(player.quads().len(), 3, "the whole strip is down");
         player.reset();
         assert_eq!(
             trail_quads(&mut player, 16.),
-            4,
+            3,
             "the ring survives the restart and the strip is still whole"
         );
     }
