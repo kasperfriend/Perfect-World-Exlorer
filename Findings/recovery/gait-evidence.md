@@ -130,202 +130,202 @@ Retail `models.pck` read directly. Matrices are the ones the viewer's `Mat4::fro
 - walk candidate `走` (action #10): 24466..31133 ms (length 6668), tracks=26 verdict=accepted
 - run candidate `跑` (action #5): 7933..8666 ms (length 734), tracks=26 verdict=accepted
 
-## Clip content probe (shipped gender donors)
+## Clip content probe (shipped gender donors, window-restricted)
 
-What the selected walk/run clips actually contain. `root`/`pelvis` are the authored position-key axis ranges (min..max) next to the bone's rest translation. `delta` values are the authored parent-space swing angle in degrees at the first/mid/max key. Residents play these deltas after frame transport with the root pinned to bind, so an authored root/pelvis drop or a folded thigh reads as a crouch or a sit in game.
+What each locomotion slice actually contains INSIDE its authored clip window - not over the whole master track. The combined actions are windows into shared master recordings, so whole-track statistics describe jumps and falls, not the walk the game plays. `root`/`pelvis` are the authored position-key axis ranges within the window next to the bone's rest translation; the deltas are the authored parent-space swing angle in degrees inside the window. An authored root/pelvis drop or folded thigh reads as a crouch or a sit in game.
 
 ### `models/players/形象/武侠男/躯干/武侠男.ecm`
 
 - walk `行走_绑定_通用` (#94): 98733..99733 ms (len 1001 ms), tracks=35
-  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
-  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
-  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
-  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
-  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
-  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
-  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
-  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
-  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+  - root pos window-keys=17 rest=(0.000, 1.100, 0.023) x[-0.012..0.013] y[1.037..1.095] z[-0.049..-0.049]
+  - pelvis pos window-keys=4 rest=(-0.016, 0.000, -0.000) x[-0.016..-0.016] y[0.000..0.000] z[0.000..0.000]
+  - Bip01 Spine: delta max 17.7 deg, mean 16.9 deg over 17 window keys
+  - Bip01 L Thigh: delta max 33.2 deg, mean 21.2 deg over 17 window keys
+  - Bip01 L Calf: delta max 48.3 deg, mean 23.7 deg over 17 window keys
+  - Bip01 L Foot: delta max 16.3 deg, mean 9.9 deg over 17 window keys
+  - Bip01 R Thigh: delta max 33.7 deg, mean 18.2 deg over 17 window keys
+  - Bip01 L UpperArm: delta max 35.1 deg, mean 33.2 deg over 17 window keys
+  - Bip01 L Forearm: delta max 81.5 deg, mean 80.8 deg over 17 window keys
+  - Bip01 Head: delta max 20.2 deg, mean 18.0 deg over 17 window keys
 - walk `行走_骑乘_通用` (#95): 99800..101400 ms (len 1601 ms), tracks=35
-  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
-  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
-  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
-  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
-  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
-  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
-  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
-  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
-  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+  - root pos window-keys=25 rest=(0.000, 1.100, 0.023) x[0.000..0.025] y[2.078..2.105] z[-0.354..-0.330]
+  - pelvis pos window-keys=3 rest=(-0.016, 0.000, -0.000) x[-0.016..-0.016] y[-0.000..-0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 20.5 deg, mean 18.2 deg over 25 window keys
+  - Bip01 L Thigh: delta max 82.7 deg, mean 80.6 deg over 25 window keys
+  - Bip01 L Calf: delta max 66.1 deg, mean 66.1 deg over 3 window keys
+  - Bip01 L Foot: delta max 23.5 deg, mean 23.5 deg over 3 window keys
+  - Bip01 R Thigh: delta max 82.5 deg, mean 80.3 deg over 25 window keys
+  - Bip01 L UpperArm: delta max 34.4 deg, mean 33.0 deg over 25 window keys
+  - Bip01 L Forearm: delta max 44.0 deg, mean 40.9 deg over 25 window keys
+  - Bip01 Head: delta max 14.2 deg, mean 14.2 deg over 25 window keys
 - walk `行走_双手长` (#96): 101466..102600 ms (len 1135 ms), tracks=35
-  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
-  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
-  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
-  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
-  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
-  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
-  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
-  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
-  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+  - root pos window-keys=19 rest=(0.000, 1.100, 0.023) x[-0.018..0.021] y[1.036..1.107] z[-0.054..-0.020]
+  - pelvis pos window-keys=4 rest=(-0.016, 0.000, -0.000) x[-0.016..-0.016] y[0.000..0.000] z[0.000..0.000]
+  - Bip01 Spine: delta max 13.7 deg, mean 12.3 deg over 19 window keys
+  - Bip01 L Thigh: delta max 50.5 deg, mean 25.6 deg over 19 window keys
+  - Bip01 L Calf: delta max 54.5 deg, mean 24.0 deg over 19 window keys
+  - Bip01 L Foot: delta max 21.8 deg, mean 11.4 deg over 19 window keys
+  - Bip01 R Thigh: delta max 46.7 deg, mean 29.9 deg over 19 window keys
+  - Bip01 L UpperArm: delta max 27.7 deg, mean 22.7 deg over 19 window keys
+  - Bip01 L Forearm: delta max 17.1 deg, mean 9.8 deg over 19 window keys
+  - Bip01 Head: delta max 20.8 deg, mean 14.8 deg over 19 window keys
 - walk `行走_通用` (#97): 102666..103800 ms (len 1135 ms), tracks=35
-  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
-  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
-  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
-  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
-  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
-  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
-  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
-  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
-  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+  - root pos window-keys=19 rest=(0.000, 1.100, 0.023) x[-0.018..0.021] y[1.036..1.107] z[-0.054..-0.020]
+  - pelvis pos window-keys=4 rest=(-0.016, 0.000, -0.000) x[-0.016..-0.016] y[0.000..0.000] z[0.000..0.000]
+  - Bip01 Spine: delta max 13.7 deg, mean 12.3 deg over 19 window keys
+  - Bip01 L Thigh: delta max 50.5 deg, mean 25.6 deg over 19 window keys
+  - Bip01 L Calf: delta max 54.5 deg, mean 24.0 deg over 19 window keys
+  - Bip01 L Foot: delta max 21.8 deg, mean 11.4 deg over 19 window keys
+  - Bip01 R Thigh: delta max 46.7 deg, mean 29.9 deg over 19 window keys
+  - Bip01 L UpperArm: delta max 27.7 deg, mean 22.7 deg over 19 window keys
+  - Bip01 L Forearm: delta max 17.1 deg, mean 9.8 deg over 19 window keys
+  - Bip01 Head: delta max 20.8 deg, mean 14.8 deg over 19 window keys
 - run `奔跑_绑定_通用` (#5): 3200..3866 ms (len 667 ms), tracks=35
-  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
-  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
-  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
-  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
-  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
-  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
-  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
-  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
-  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+  - root pos window-keys=11 rest=(0.000, 1.100, 0.023) x[-0.009..0.009] y[0.998..1.150] z[-0.050..-0.006]
+  - pelvis pos window-keys=4 rest=(-0.016, 0.000, -0.000) x[-0.016..-0.016] y[-0.000..-0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 14.6 deg, mean 8.3 deg over 11 window keys
+  - Bip01 L Thigh: delta max 74.8 deg, mean 37.0 deg over 11 window keys
+  - Bip01 L Calf: delta max 102.3 deg, mean 42.8 deg over 11 window keys
+  - Bip01 L Foot: delta max 25.4 deg, mean 14.1 deg over 11 window keys
+  - Bip01 R Thigh: delta max 72.2 deg, mean 36.2 deg over 11 window keys
+  - Bip01 L UpperArm: delta max 45.7 deg, mean 39.7 deg over 11 window keys
+  - Bip01 L Forearm: delta max 66.0 deg, mean 66.0 deg over 4 window keys
+  - Bip01 Head: delta max 15.4 deg, mean 7.8 deg over 11 window keys
 - run `奔跑_骑乘_通用` (#6): 3933..4733 ms (len 801 ms), tracks=35
-  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
-  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
-  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
-  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
-  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
-  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
-  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
-  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
-  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+  - root pos window-keys=14 rest=(0.000, 1.100, 0.023) x[0.000..0.000] y[1.924..2.167] z[-0.264..-0.221]
+  - pelvis pos window-keys=4 rest=(-0.016, 0.000, -0.000) x[-0.016..-0.016] y[-0.000..-0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 24.0 deg, mean 21.2 deg over 14 window keys
+  - Bip01 L Thigh: delta max 85.7 deg, mean 83.3 deg over 14 window keys
+  - Bip01 L Calf: delta max 66.1 deg, mean 66.1 deg over 4 window keys
+  - Bip01 L Foot: delta max 23.5 deg, mean 23.5 deg over 4 window keys
+  - Bip01 R Thigh: delta max 85.7 deg, mean 83.1 deg over 14 window keys
+  - Bip01 L UpperArm: delta max 43.8 deg, mean 42.3 deg over 14 window keys
+  - Bip01 L Forearm: delta max 54.2 deg, mean 40.6 deg over 14 window keys
+  - Bip01 Head: delta max 28.6 deg, mean 19.7 deg over 14 window keys
 - run `奔跑_双手长` (#7): 4800..5466 ms (len 667 ms), tracks=35
-  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
-  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
-  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
-  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
-  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
-  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
-  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
-  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
-  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+  - root pos window-keys=11 rest=(0.000, 1.100, 0.023) x[-0.018..0.020] y[0.998..1.143] z[-0.050..-0.008]
+  - pelvis pos window-keys=4 rest=(-0.016, 0.000, -0.000) x[-0.016..-0.016] y[0.000..0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 17.6 deg, mean 11.3 deg over 11 window keys
+  - Bip01 L Thigh: delta max 81.8 deg, mean 40.7 deg over 11 window keys
+  - Bip01 L Calf: delta max 109.4 deg, mean 48.0 deg over 11 window keys
+  - Bip01 L Foot: delta max 25.4 deg, mean 11.5 deg over 11 window keys
+  - Bip01 R Thigh: delta max 77.0 deg, mean 37.7 deg over 11 window keys
+  - Bip01 L UpperArm: delta max 45.2 deg, mean 37.7 deg over 11 window keys
+  - Bip01 L Forearm: delta max 109.9 deg, mean 96.0 deg over 11 window keys
+  - Bip01 Head: delta max 26.7 deg, mean 19.9 deg over 11 window keys
 - run `奔跑_通用` (#8): 5533..6200 ms (len 668 ms), tracks=35
-  - root pos keys=5325 rest=(0.000, 1.100, 0.023) x[-0.422..0.705] y[0.101..3.812] z[-1.073..1.826]
-  - pelvis pos keys=1335 rest=(-0.016, 0.000, -0.000) x[-0.140..-0.016] y[-0.000..0.000] z[-0.062..0.001]
-  - Bip01 Spine: delta first 0.0 mid 6.5 last 8.8 max 70.9 deg over 5489 keys
-  - Bip01 L Thigh: delta first 0.0 mid 19.5 last 61.6 max 177.6 deg over 5585 keys
-  - Bip01 L Calf: delta first 0.0 mid 7.7 last 20.5 max 175.3 deg over 5246 keys
-  - Bip01 L Foot: delta first 0.0 mid 9.6 last 11.4 max 94.4 deg over 5248 keys
-  - Bip01 R Thigh: delta first 0.0 mid 9.9 last 54.3 max 160.3 deg over 5584 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 7.1 last 43.5 max 179.9 deg over 5572 keys
-  - Bip01 L Forearm: delta first 0.0 mid 8.6 last 84.4 max 137.6 deg over 5212 keys
-  - Bip01 Head: delta first 0.0 mid 16.7 last 63.7 max 118.1 deg over 5615 keys
+  - root pos window-keys=12 rest=(0.000, 1.100, 0.023) x[-0.018..0.020] y[0.998..1.143] z[-0.050..-0.008]
+  - pelvis pos window-keys=4 rest=(-0.016, 0.000, -0.000) x[-0.016..-0.016] y[0.000..0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 17.6 deg, mean 10.9 deg over 12 window keys
+  - Bip01 L Thigh: delta max 81.8 deg, mean 41.8 deg over 12 window keys
+  - Bip01 L Calf: delta max 109.4 deg, mean 48.4 deg over 12 window keys
+  - Bip01 L Foot: delta max 25.4 deg, mean 12.7 deg over 12 window keys
+  - Bip01 R Thigh: delta max 77.0 deg, mean 37.2 deg over 12 window keys
+  - Bip01 L UpperArm: delta max 55.3 deg, mean 37.7 deg over 12 window keys
+  - Bip01 L Forearm: delta max 60.0 deg, mean 41.8 deg over 12 window keys
+  - Bip01 Head: delta max 26.7 deg, mean 19.5 deg over 12 window keys
 
 ### `models/players/形象/武侠女/躯干/武侠女.ecm`
 
 - walk `行走_绑定_通用` (#91): 97733..98866 ms (len 1134 ms), tracks=41
-  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
-  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
-  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
-  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
-  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
-  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
-  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
-  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
-  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+  - root pos window-keys=19 rest=(0.000, 1.029, 0.012) x[-0.046..-0.000] y[1.384..1.487] z[0.210..0.218]
+  - pelvis pos window-keys=4 rest=(0.000, 0.000, 0.000) x[-0.000..-0.000] y[0.000..0.000] z[0.000..0.000]
+  - Bip01 Spine: delta max 59.4 deg, mean 59.4 deg over 4 window keys
+  - Bip01 L Thigh: delta max 80.3 deg, mean 80.1 deg over 19 window keys
+  - Bip01 L Calf: delta max 100.2 deg, mean 99.6 deg over 19 window keys
+  - Bip01 L Foot: delta max 21.9 deg, mean 21.0 deg over 19 window keys
+  - Bip01 R Thigh: delta max 90.6 deg, mean 90.1 deg over 19 window keys
+  - Bip01 L UpperArm: delta max 44.2 deg, mean 44.2 deg over 4 window keys
+  - Bip01 L Forearm: delta max 69.5 deg, mean 69.5 deg over 4 window keys
+  - Bip01 Head: delta max 11.2 deg, mean 9.8 deg over 19 window keys
 - walk `行走_骑乘_通用` (#92): 98933..100533 ms (len 1601 ms), tracks=41
-  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
-  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
-  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
-  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
-  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
-  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
-  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
-  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
-  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+  - root pos window-keys=4 rest=(0.000, 1.029, 0.012) x[0.000..0.000] y[2.160..2.160] z[-0.035..-0.035]
+  - pelvis pos window-keys=4 rest=(0.000, 0.000, 0.000) x[-0.000..-0.000] y[0.000..0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 19.1 deg, mean 18.4 deg over 26 window keys
+  - Bip01 L Thigh: delta max 80.1 deg, mean 79.4 deg over 26 window keys
+  - Bip01 L Calf: delta max 64.0 deg, mean 64.0 deg over 4 window keys
+  - Bip01 L Foot: delta max 31.2 deg, mean 31.2 deg over 4 window keys
+  - Bip01 R Thigh: delta max 79.9 deg, mean 79.3 deg over 26 window keys
+  - Bip01 L UpperArm: delta max 33.2 deg, mean 32.4 deg over 26 window keys
+  - Bip01 L Forearm: delta max 41.3 deg, mean 38.8 deg over 26 window keys
+  - Bip01 Head: delta max 14.6 deg, mean 14.4 deg over 26 window keys
 - walk `行走_双手长` (#93): 100600..101666 ms (len 1067 ms), tracks=41
-  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
-  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
-  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
-  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
-  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
-  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
-  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
-  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
-  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+  - root pos window-keys=17 rest=(0.000, 1.029, 0.012) x[-0.006..0.007] y[0.978..1.029] z[-0.049..-0.045]
+  - pelvis pos window-keys=4 rest=(0.000, 0.000, 0.000) x[-0.000..-0.000] y[-0.000..-0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 11.4 deg, mean 10.5 deg over 17 window keys
+  - Bip01 L Thigh: delta max 34.0 deg, mean 26.5 deg over 17 window keys
+  - Bip01 L Calf: delta max 58.6 deg, mean 22.5 deg over 17 window keys
+  - Bip01 L Foot: delta max 20.6 deg, mean 16.4 deg over 17 window keys
+  - Bip01 R Thigh: delta max 35.1 deg, mean 26.5 deg over 17 window keys
+  - Bip01 L UpperArm: delta max 39.0 deg, mean 32.1 deg over 17 window keys
+  - Bip01 L Forearm: delta max 15.4 deg, mean 9.2 deg over 17 window keys
+  - Bip01 Head: delta max 11.2 deg, mean 9.0 deg over 17 window keys
 - walk `行走_通用` (#94): 101733..102800 ms (len 1068 ms), tracks=41
-  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
-  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
-  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
-  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
-  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
-  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
-  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
-  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
-  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+  - root pos window-keys=18 rest=(0.000, 1.029, 0.012) x[-0.006..0.007] y[0.978..1.029] z[-0.049..-0.045]
+  - pelvis pos window-keys=4 rest=(0.000, 0.000, 0.000) x[-0.000..-0.000] y[-0.000..-0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 11.4 deg, mean 10.6 deg over 18 window keys
+  - Bip01 L Thigh: delta max 34.0 deg, mean 26.8 deg over 18 window keys
+  - Bip01 L Calf: delta max 58.6 deg, mean 21.4 deg over 18 window keys
+  - Bip01 L Foot: delta max 20.6 deg, mean 16.3 deg over 18 window keys
+  - Bip01 R Thigh: delta max 35.1 deg, mean 26.5 deg over 18 window keys
+  - Bip01 L UpperArm: delta max 39.0 deg, mean 32.5 deg over 18 window keys
+  - Bip01 L Forearm: delta max 15.4 deg, mean 9.6 deg over 18 window keys
+  - Bip01 Head: delta max 11.2 deg, mean 9.1 deg over 18 window keys
 - walk `移动_绑定_通用` (#96): 107600..107600 ms (len 1 ms), tracks=41
-  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
-  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
-  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
-  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
-  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
-  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
-  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
-  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
-  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+  - root pos window-keys=1 rest=(0.000, 1.029, 0.012) x[0.128..0.128] y[1.340..1.340] z[0.156..0.156]
+  - pelvis pos window-keys=1 rest=(0.000, 0.000, 0.000) x[0.000..0.000] y[-0.000..-0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 59.4 deg, mean 59.4 deg over 1 window keys
+  - Bip01 L Thigh: delta max 96.4 deg, mean 96.4 deg over 1 window keys
+  - Bip01 L Calf: delta max 112.4 deg, mean 112.4 deg over 1 window keys
+  - Bip01 L Foot: delta max 14.5 deg, mean 14.5 deg over 1 window keys
+  - Bip01 R Thigh: delta max 103.3 deg, mean 103.3 deg over 1 window keys
+  - Bip01 L UpperArm: delta max 44.2 deg, mean 44.2 deg over 1 window keys
+  - Bip01 L Forearm: delta max 69.5 deg, mean 69.5 deg over 1 window keys
+  - Bip01 Head: delta max 25.8 deg, mean 25.8 deg over 1 window keys
 - run `奔跑_绑定_通用` (#5): 4066..4800 ms (len 735 ms), tracks=41
-  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
-  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
-  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
-  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
-  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
-  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
-  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
-  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
-  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+  - root pos window-keys=13 rest=(0.000, 1.029, 0.012) x[-0.033..-0.009] y[1.242..1.420] z[0.353..0.353]
+  - pelvis pos window-keys=4 rest=(0.000, 0.000, 0.000) x[0.000..0.000] y[0.000..0.000] z[0.000..0.000]
+  - Bip01 Spine: delta max 59.4 deg, mean 59.4 deg over 4 window keys
+  - Bip01 L Thigh: delta max 80.3 deg, mean 80.2 deg over 13 window keys
+  - Bip01 L Calf: delta max 100.2 deg, mean 99.6 deg over 13 window keys
+  - Bip01 L Foot: delta max 21.9 deg, mean 21.0 deg over 13 window keys
+  - Bip01 R Thigh: delta max 90.6 deg, mean 90.1 deg over 13 window keys
+  - Bip01 L UpperArm: delta max 44.2 deg, mean 44.2 deg over 4 window keys
+  - Bip01 L Forearm: delta max 69.5 deg, mean 69.5 deg over 4 window keys
+  - Bip01 Head: delta max 11.2 deg, mean 9.7 deg over 13 window keys
 - run `奔跑_骑乘_通用` (#6): 4866..5666 ms (len 801 ms), tracks=41
-  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
-  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
-  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
-  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
-  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
-  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
-  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
-  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
-  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+  - root pos window-keys=4 rest=(0.000, 1.029, 0.012) x[0.000..0.000] y[2.160..2.160] z[-0.035..-0.035]
+  - pelvis pos window-keys=4 rest=(0.000, 0.000, 0.000) x[-0.000..-0.000] y[0.000..0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 23.5 deg, mean 21.8 deg over 14 window keys
+  - Bip01 L Thigh: delta max 84.1 deg, mean 82.6 deg over 14 window keys
+  - Bip01 L Calf: delta max 64.0 deg, mean 64.0 deg over 4 window keys
+  - Bip01 L Foot: delta max 31.2 deg, mean 31.2 deg over 4 window keys
+  - Bip01 R Thigh: delta max 84.2 deg, mean 82.6 deg over 14 window keys
+  - Bip01 L UpperArm: delta max 32.3 deg, mean 32.0 deg over 14 window keys
+  - Bip01 L Forearm: delta max 55.7 deg, mean 49.3 deg over 14 window keys
+  - Bip01 Head: delta max 28.0 deg, mean 16.9 deg over 14 window keys
 - run `奔跑_双手长` (#7): 5733..6400 ms (len 668 ms), tracks=41
-  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
-  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
-  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
-  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
-  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
-  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
-  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
-  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
-  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+  - root pos window-keys=12 rest=(0.000, 1.029, 0.012) x[-0.015..0.014] y[0.931..1.071] z[0.001..0.049]
+  - pelvis pos window-keys=4 rest=(0.000, 0.000, 0.000) x[-0.000..-0.000] y[0.000..0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 17.5 deg, mean 10.9 deg over 12 window keys
+  - Bip01 L Thigh: delta max 93.0 deg, mean 44.1 deg over 12 window keys
+  - Bip01 L Calf: delta max 109.6 deg, mean 55.8 deg over 12 window keys
+  - Bip01 L Foot: delta max 34.8 deg, mean 20.8 deg over 12 window keys
+  - Bip01 R Thigh: delta max 93.9 deg, mean 45.9 deg over 12 window keys
+  - Bip01 L UpperArm: delta max 45.6 deg, mean 41.6 deg over 12 window keys
+  - Bip01 L Forearm: delta max 95.6 deg, mean 87.4 deg over 12 window keys
+  - Bip01 Head: delta max 46.6 deg, mean 38.1 deg over 12 window keys
 - run `奔跑_通用` (#8): 6466..7133 ms (len 668 ms), tracks=41
-  - root pos keys=5155 rest=(0.000, 1.029, 0.012) x[-0.363..0.340] y[0.038..2.619] z[-0.812..1.565]
-  - pelvis pos keys=1358 rest=(0.000, 0.000, 0.000) x[-0.000..0.000] y[-0.000..0.000] z[-0.000..0.000]
-  - Bip01 Spine: delta first 0.0 mid 18.1 last 8.9 max 70.6 deg over 5341 keys
-  - Bip01 L Thigh: delta first 0.0 mid 45.5 last 57.7 max 179.8 deg over 5396 keys
-  - Bip01 L Calf: delta first 0.0 mid 5.8 last 12.2 max 154.1 deg over 5105 keys
-  - Bip01 L Foot: delta first 0.0 mid 31.0 last 22.1 max 102.2 deg over 5145 keys
-  - Bip01 R Thigh: delta first 0.0 mid 23.8 last 47.6 max 164.7 deg over 5417 keys
-  - Bip01 L UpperArm: delta first 0.0 mid 66.8 last 42.7 max 178.5 deg over 5450 keys
-  - Bip01 L Forearm: delta first 0.0 mid 2.6 last 84.2 max 137.1 deg over 5318 keys
-  - Bip01 Head: delta first 0.0 mid 24.2 last 64.5 max 118.2 deg over 5498 keys
+  - root pos window-keys=12 rest=(0.000, 1.029, 0.012) x[-0.015..0.014] y[0.931..1.071] z[0.001..0.049]
+  - pelvis pos window-keys=4 rest=(0.000, 0.000, 0.000) x[-0.000..-0.000] y[0.000..0.000] z[-0.000..-0.000]
+  - Bip01 Spine: delta max 17.5 deg, mean 10.9 deg over 12 window keys
+  - Bip01 L Thigh: delta max 93.0 deg, mean 44.1 deg over 12 window keys
+  - Bip01 L Calf: delta max 109.6 deg, mean 55.8 deg over 12 window keys
+  - Bip01 L Foot: delta max 34.8 deg, mean 20.8 deg over 12 window keys
+  - Bip01 R Thigh: delta max 93.9 deg, mean 45.9 deg over 12 window keys
+  - Bip01 L UpperArm: delta max 51.0 deg, mean 45.7 deg over 12 window keys
+  - Bip01 L Forearm: delta max 62.0 deg, mean 48.6 deg over 12 window keys
+  - Bip01 Head: delta max 46.6 deg, mean 38.1 deg over 12 window keys
 
 ## Resident candidates: 69 rigs
 
