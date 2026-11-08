@@ -87,6 +87,19 @@ pub fn tokenize(source: &str) -> Vec<Field> {
     for line in source.lines() {
         let line = line.trim_end_matches('\r');
         let Some((key, value)) = line.split_once(':') else {
+            // A grid (210/211) writes one bare vertex per cell between the
+            // colour list and `fGridSize`, and the colour list itself is
+            // `dwColor:` lines. Dropping the bare rows loses the whole
+            // authored surface: all 216 corpus grid elements carry them, and
+            // they are what make a waterfall curtain 23 units tall and 36
+            // wide instead of a 0.5-unit flat patch on the floor.
+            let row = line.trim();
+            // Only inside an element can a bare row be a grid vertex; anything
+            // before the first `GFXELEMENTID` is a malformed container and must
+            // still be reported as one.
+            if !row.is_empty() && fields.iter().any(|(key, _)| key == "GFXELEMENTID") {
+                fields.push((GRID_VERTEX.to_string(), row.to_string()));
+            }
             continue;
         };
         let key = key.trim();
@@ -208,6 +221,14 @@ impl Element {
         let mut clock = 0f32;
         for key in &self.keypoints {
             if key.time_span < 0. {
+                // A negative span is "hold this keypoint forever", the same
+                // reading `sample` already gives it by turning it into
+                // `INFINITY`. Returning `None` here is what it must do: the
+                // waterfall curtain is a single keypoint at `-1`, and summing
+                // it as a duration produced `cycle = -1`, which `element_phase`
+                // reads as "finished before it started" and pins to phase 0.
+                // 775 elements across 180 roots are authored this way, so this
+                // one line was freezing every one of them at their first frame.
                 return None;
             }
             clock += key.time_span;
@@ -963,6 +984,10 @@ pub struct Child {
     pub play_speed: f32,
 }
 
+/// Key the tokenizer gives a bare vertex row. No `.gfx` key can collide with it:
+/// every real key is an identifier and this one starts with a space.
+const GRID_VERTEX: &str = " vertex";
+
 /// Cell grid (elements 210, 211). Colours are hex strings without a prefix, so
 /// a six digit colour really does carry alpha 0, exactly as the client reads it.
 #[derive(Clone, Debug, PartialEq)]
@@ -970,6 +995,9 @@ pub struct Grid {
     pub columns: u32,
     pub rows: u32,
     pub colors: Vec<u32>,
+    /// One authored corner per cell, row-major and already in element-local
+    /// space. Empty only for a grid that writes none, which no corpus file does.
+    pub vertices: Vec<Vec3>,
     pub cell_size: f32,
     pub z_offset: f32,
 }
@@ -1527,7 +1555,7 @@ impl<'a> Lookup<'a> {
 fn spec(id: u32, fields: &[Field], version: u32) -> Result<Spec, String> {
     let lookup = Lookup::new(fields);
     for key in lookup.fields.iter().map(|(key, _)| key.as_str()) {
-        if !KNOWN_KEYS.contains(&key) {
+        if key != GRID_VERTEX && !KNOWN_KEYS.contains(&key) {
             return Err(format!("element {id} carries the unknown key {key:?}"));
         }
     }
@@ -1971,10 +1999,36 @@ fn grid(lookup: &Lookup) -> Result<Grid, String> {
             colors.len()
         ));
     }
+    // The authored surface: `wNumber * hNumber` bare `x y z` rows. A grid is
+    // laid out cell by cell, not vertex by vertex, so two columns and four rows
+    // write eight corners — the top and bottom edge of each quad column. The
+    // quads between them are what the emitter draws.
+    let mut vertices = Vec::with_capacity(expected);
+    for row in lookup.all(GRID_VERTEX) {
+        let mut parts = row.split_whitespace();
+        let mut next = |axis: &str| -> Result<f32, String> {
+            parts
+                .next()
+                .ok_or_else(|| format!("grid vertex missing {axis} in {row:?}"))
+                .and_then(|value| float("grid vertex", value))
+        };
+        let point = Vec3::new(next("x")?, next("y")?, next("z")?);
+        if !point.is_finite() {
+            return Err(format!("non-finite grid vertex {row:?}"));
+        }
+        vertices.push(point);
+    }
+    if !vertices.is_empty() && vertices.len() != expected {
+        return Err(format!(
+            "grid {columns}x{rows} writes {} vertices, expected {expected}",
+            vertices.len()
+        ));
+    }
     Ok(Grid {
         columns,
         rows,
         colors,
+        vertices,
         cell_size: lookup.number("fGridSize", 1.)?,
         z_offset: lookup.number("fZOffset", 0.)?,
     })
@@ -2852,6 +2906,8 @@ mod tests {
         // the alpha byte zero, eight digits carry it.
         assert_eq!(grid.colors, vec![0x00ff_ffff, 0x69ff_ffff, 0x1eff_ffff, 0]);
         assert_eq!(grid.cell_size, 0.5);
+        // The flat 2x2 sample carries no bare rows, so the fallback is intact.
+        assert!(grid.vertices.is_empty());
 
         let Spec::Child(child) = &root.elements[3].spec else {
             panic!("element 200 is a nested root");
@@ -3210,6 +3266,61 @@ mod tests {
         assert_eq!(fields.len(), 3);
         assert_eq!(fields[1], ("Name".to_string(), "a:b:c".to_string()));
         assert_eq!(fields[2].1, "");
+    }
+
+    /// A grid writes its surface as bare `x y z` rows, one per vertex, between
+    /// the colour list and `fGridSize` — no key, no colon. The tokenizer used to
+    /// drop every such line, which discarded the geometry of all 216 corpus
+    /// grids and left each one to be rebuilt from `fGridSize` as a flat patch.
+    #[test]
+    fn a_grid_keeps_its_authored_vertices() {
+        let source = header37(1) + "GFXELEMENTID: 210\nName: g\nSrcBlend: 5\nDestBlend: 2\nwNumber: 2\nhNumber: 2\n\
+             -58.0 35.0 9.0\ndwColor: ffffffff\n\
+             -34.0 35.0 9.0\ndwColor: ffffffff\n\
+             -58.0 0.0 9.0\ndwColor: ffffffff\n\
+             -34.0 0.0 9.0\ndwColor: ffffffff\n\
+             fGridSize: 0.5\nfZOffset: 0.0\nStartTime: 0\nKEYPOINTCOUNT: 1\n\
+             InterpolateMode: 0\nTimeSpan: -1\nPosition: 0, 0, 0\nColor: -1\n\
+             Scale: 1\nDirection: 0, 0, 0, 1\nRad_2D: 0\nCtrlMethodCount: 0\n";
+        let fields = tokenize(&source);
+        assert_eq!(
+            fields.iter().filter(|(key, _)| key == GRID_VERTEX).count(),
+            4,
+            "every bare row is kept"
+        );
+        let root = parse(&source).expect("grid");
+        let Spec::Grid(grid) = &root.elements[0].spec else {
+            panic!("element 210 is a grid");
+        };
+        assert_eq!(grid.vertices.len(), 4);
+        assert_eq!(grid.vertices[0], Vec3::new(-58., 35., 9.));
+        assert_eq!(grid.vertices[3], Vec3::new(-34., 0., 9.));
+
+        // A count that disagrees with `wNumber * hNumber` is an error, not a
+        // silently flattened patch.
+        let short = source.replace("-58.0 0.0 9.0\ndwColor", "dwColor");
+        assert!(parse(&short).is_err());
+    }
+
+    /// `TimeSpan: -1` means "hold forever". Summing it as a duration produced a
+    /// negative cycle, which `element_phase` reads as finished-at-once, so the
+    /// element sat on its first frame: 775 elements across 180 roots, including
+    /// every waterfall curtain, were frozen that way.
+    #[test]
+    fn a_negative_timespan_is_forever_not_a_negative_duration() {
+        let root = parse(&(header37(1)
+            + "GFXELEMENTID: 210\nName: g\nSrcBlend: 5\nDestBlend: 2\nwNumber: 1\nhNumber: 1\ndwColor: ffffffff\n\
+             0 0 0\nfGridSize: 1\nStartTime: 0\nKEYPOINTCOUNT: 1\n\
+             InterpolateMode: 0\nTimeSpan: -1\nPosition: 0, 0, 0\nColor: -1\n\
+             Scale: 1\nDirection: 0, 0, 0, 1\nRad_2D: 0\nCtrlMethodCount: 0\n"))
+        .expect("grid");
+        assert_eq!(root.elements[0].keypoints[0].time_span, -1.);
+        assert_eq!(
+            root.elements[0].duration_ms(),
+            None,
+            "an open-ended keypoint has no duration"
+        );
+        assert_eq!(root.duration_ms(), None);
     }
 
     /// `0x724416` scans `IsUseHSVInterp` into an integer, `0x72441d` tests that

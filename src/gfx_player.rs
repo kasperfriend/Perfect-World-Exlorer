@@ -2807,31 +2807,62 @@ fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
         return;
     };
     let matrix = context.placement;
+    let uv = flipbook_uv(context.common, context.clock);
+    let mut positions = [[0f32; 3]; 4];
+
+    // A grid is a lattice of `columns * rows` **vertices**, not cells: all 216
+    // corpus grids write exactly one `x y z` row and one `dwColor` per vertex,
+    // and none is degenerate. Two columns by four rows is therefore a curtain
+    // one quad wide and three tall — the shape every waterfall in the game is
+    // authored as, 23 units wide and 36 tall, with the lower rows tinted
+    // `88caff` so the sheet fades out at its foot. Building the quads from
+    // `fGridSize` instead collapses that curtain to a 0.5-unit patch lying flat
+    // on the ground, which is the motionless white rectangle on screen.
+    //
+    // The authored positions are already element-local, so they take the
+    // element matrix but not the `scale` the flat fallback multiplies in.
+    let authored = !grid.vertices.is_empty();
     let cell = grid.cell_size * context.scale;
-    if !(cell.is_finite()) || cell <= 0. {
+    if !authored && (!cell.is_finite() || cell <= 0.) {
         return;
     }
     let half = cell * 0.5;
-    let mut positions = [[0f32; 3]; 4];
-    let uv = flipbook_uv(context.common, context.clock);
-    for row in 0..grid.rows {
-        for col in 0..grid.columns {
+    let (span_x, span_z) = if authored {
+        (grid.columns.saturating_sub(1), grid.rows.saturating_sub(1))
+    } else {
+        (grid.columns, grid.rows)
+    };
+    for row in 0..span_z {
+        for col in 0..span_x {
             let index = (row * grid.columns + col) as usize;
             let Some(value) = grid.colors.get(index) else {
                 continue;
             };
+            // One flat colour per quad: the corner with the lowest index wins.
+            // A vertex that fades to transparent therefore still draws while
+            // any of its neighbours is opaque, which keeps the top of a curtain
+            // solid and stops only the fully transparent foot.
             let color = rgba(*value, context.color_scale);
             if color[3] < ALPHA_CUTOFF {
                 continue;
             }
-            let x = (col as f32 - (grid.columns as f32 - 1.) * 0.5) * cell;
-            let z = (row as f32 - (grid.rows as f32 - 1.) * 0.5) * cell;
-            let corners = [
-                Vec3::new(x - half, grid.z_offset, z - half),
-                Vec3::new(x + half, grid.z_offset, z - half),
-                Vec3::new(x - half, grid.z_offset, z + half),
-                Vec3::new(x + half, grid.z_offset, z + half),
-            ];
+            let corners = if authored {
+                let columns = grid.columns as usize;
+                let at = |offset: usize| grid.vertices.get(index + offset).copied();
+                match (at(0), at(1), at(columns), at(columns + 1)) {
+                    (Some(a), Some(b), Some(c), Some(d)) => [a, b, c, d],
+                    _ => continue,
+                }
+            } else {
+                let x = (col as f32 - (grid.columns as f32 - 1.) * 0.5) * cell;
+                let z = (row as f32 - (grid.rows as f32 - 1.) * 0.5) * cell;
+                [
+                    Vec3::new(x - half, grid.z_offset, z - half),
+                    Vec3::new(x + half, grid.z_offset, z - half),
+                    Vec3::new(x - half, grid.z_offset, z + half),
+                    Vec3::new(x + half, grid.z_offset, z + half),
+                ]
+            };
             for (slot, corner) in corners.into_iter().enumerate() {
                 positions[slot] = matrix.transform_point3(corner).to_array();
             }
@@ -4220,6 +4251,73 @@ mod tests {
         StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
         Position: 1, 2, 3\r\nColor: -1\r\nScale: 2\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\n\
         CtrlMethodCount: 0\r\n";
+
+    /// A grid is a lattice of authored vertices, so a 2x4 grid must produce a
+    /// 1x3 sheet at the authored corners — not a 2x4 block of `fGridSize` cells
+    /// lying on the floor, which is what the waterfall rendered as: a motionless
+    /// white rectangle. And because `TexSpeed` scrolls its map, that sheet must
+    /// move every frame.
+    #[test]
+    fn a_grid_builds_its_authored_sheet_and_scrolls_it() {
+        let grid = "GFXELEMENTID: 210\nName: curtain\nSrcBlend: 5\nDestBlend: 2\n\
+                   TexFile: 物体\\waterfall.dds\nTexRow: 1\nTexCol: 1\n\
+                   TexSpeed: -0.400000\nwNumber: 2\nhNumber: 4\n\
+                   -58.299149 35.844849 9.029253\ndwColor: ffffffff\n\
+                   -34.900089 35.844849 9.029253\ndwColor: ffffffff\n\
+                   -58.299149 22.257586 9.029253\ndwColor: ffffffff\n\
+                   -34.900089 22.257586 9.029253\ndwColor: ffffffff\n\
+                   -58.299149 12.348745 9.029253\ndwColor: ffffffff\n\
+                   -34.900089 12.348745 9.029253\ndwColor: ffffffff\n\
+                   -58.299149 -0.006341 9.029253\ndwColor: 88caff\n\
+                   -34.900089 -0.006341 9.029253\ndwColor: 88caff\n\
+                   fGridSize: 0.500000\nfZOffset: 0.000000\n\
+                   StartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\n\
+                   TimeSpan: -1\nPosition: 0.000000, 0.000000, 0.000000\n\
+                   Color: -13261313\nScale: 1.000000\n\
+                   Direction: 0.000000, 0.000000, 0.000000, 1.000000\n\
+                   Rad_2D: 0.000000\nCtrlMethodCount: 0\n";
+        let mut player = build(&(header37(1) + grid));
+        step(&mut player, 0.);
+        let quads = player.quads().to_vec();
+        assert_eq!(quads.len(), 3, "a 2x4 lattice is one quad column, three tall");
+
+        // The authored extent, in element space: 23.4 wide and 35.85 tall.
+        let (mut lo_y, mut hi_y, mut lo_x, mut hi_x) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
+        for quad in &quads {
+            for point in &quad.positions {
+                lo_y = lo_y.min(point[1]);
+                hi_y = hi_y.max(point[1]);
+                lo_x = lo_x.min(point[0]);
+                hi_x = hi_x.max(point[0]);
+            }
+        }
+        // The fixture's `DedaultScale` is 2, so the authored extent is doubled;
+        // the *ratio* is what proves the authored corners were used, since a
+        // `fGridSize` patch would be 1.0 by 1.5 and never 23.4 by 35.85.
+        let scale = 2.;
+        assert!(
+            (hi_y - lo_y - 35.85 * scale).abs() < 0.1,
+            "the curtain hangs {} units, not the authored {}",
+            hi_y - lo_y,
+            35.85 * scale
+        );
+        assert!((hi_x - lo_x - 23.4 * scale).abs() < 0.1);
+        assert!(
+            (hi_y - lo_y) / (hi_x - lo_x) > 1.4,
+            "the sheet must be taller than it is wide, as authored"
+        );
+
+        // `TexSpeed` scrolls V, so no two frames may share the same uv.
+        let first = quads[0].uv;
+        let mut moved = 0;
+        for _ in 0..10 {
+            step(&mut player, 33.);
+            if player.quads()[0].uv != first {
+                moved += 1;
+            }
+        }
+        assert_eq!(moved, 10, "the sheet must scroll on every frame");
+    }
 
     /// An empty `TexFile` is *not* drawable geometry. 3,459 of the corpus's
     /// elements author no map, and the GPU pass substitutes a flat opaque white
