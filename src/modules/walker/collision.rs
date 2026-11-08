@@ -23,6 +23,10 @@ const DIST_EPSILON: f32 = 0.03125;
 const CHDATA_SKIP_COLLISION: u32 = 0x00000004;
 const MAX_CELLS_PER_QUERY: usize = 4096;
 const MAX_SLIDE_ITERATIONS: usize = 4;
+/// Bound the streaming work one frame may absorb. The loader uses a bounded
+/// channel, but inserting a batch of 32 hulls into the cell grids is main-thread
+/// work; spreading it keeps a large world load from producing one long frame.
+const MAX_BATCHES_PER_POLL: usize = 4;
 /// Half-width of the box the name line-of-sight test sweeps along the view ray.
 const SIGHT_PROBE: f32 = 0.02;
 
@@ -296,14 +300,28 @@ impl CollisionWorld {
         }
     }
 
-    fn trace(&self, start: Vec3, delta: Vec3, extents: Vec3) -> Option<Trace> {
+    /// Candidate hull indices for a sweep and the query AABB used to reject
+    /// distant brushes. A query that would span more than
+    /// [`MAX_CELLS_PER_QUERY`] cells falls back to the whole world, matching the
+    /// original per-sweep behaviour without rebuilding the id lists twice.
+    fn candidates(
+        &self,
+        start: Vec3,
+        delta: Vec3,
+        extents: Vec3,
+        include_trees: bool,
+    ) -> (Vec<usize>, Vec<usize>, Vec3, Vec3) {
         let end = start + delta;
         let min = start.min(end) - extents;
         let max = start.max(end) + extents;
         let query_center = (min + max) * 0.5;
         let query_extents = (max - min) * 0.5;
         let mut building_ids = self.large_buildings.clone();
-        let mut tree_ids = self.large_trees.clone();
+        let mut tree_ids = if include_trees {
+            self.large_trees.clone()
+        } else {
+            Vec::new()
+        };
         let mut cover_all = true;
         if let Some((x0, x1, z0, z1, count)) = cell_count(min, max) {
             if count <= MAX_CELLS_PER_QUERY {
@@ -313,8 +331,10 @@ impl CollisionWorld {
                         if let Some(ids) = self.building_grid.get(&(x, z)) {
                             building_ids.extend_from_slice(ids);
                         }
-                        if let Some(ids) = self.tree_grid.get(&(x, z)) {
-                            tree_ids.extend_from_slice(ids);
+                        if include_trees {
+                            if let Some(ids) = self.tree_grid.get(&(x, z)) {
+                                tree_ids.extend_from_slice(ids);
+                            }
                         }
                     }
                 }
@@ -322,13 +342,22 @@ impl CollisionWorld {
         }
         if cover_all {
             building_ids.extend(0..self.buildings.len());
-            tree_ids.extend(0..self.trees.len());
+            if include_trees {
+                tree_ids.extend(0..self.trees.len());
+            }
         }
         building_ids.sort_unstable();
         building_ids.dedup();
-        tree_ids.sort_unstable();
-        tree_ids.dedup();
+        if include_trees {
+            tree_ids.sort_unstable();
+            tree_ids.dedup();
+        }
+        (building_ids, tree_ids, query_center, query_extents)
+    }
 
+    fn trace(&self, start: Vec3, delta: Vec3, extents: Vec3) -> Option<Trace> {
+        let (building_ids, tree_ids, query_center, query_extents) =
+            self.candidates(start, delta, extents, true);
         let mut best: Option<Trace> = None;
         let mut retain = |candidate: Trace| {
             if best.is_none_or(|old| candidate.fraction < old.fraction) {
@@ -414,30 +443,8 @@ impl CollisionWorld {
 
     /// [`Self::trace`] restricted to BMD building brushes.
     fn trace_buildings(&self, start: Vec3, delta: Vec3, extents: Vec3) -> Option<Trace> {
-        let end = start + delta;
-        let min = start.min(end) - extents;
-        let max = start.max(end) + extents;
-        let query_center = (min + max) * 0.5;
-        let query_extents = (max - min) * 0.5;
-        let mut building_ids = self.large_buildings.clone();
-        let mut cover_all = true;
-        if let Some((x0, x1, z0, z1, count)) = cell_count(min, max) {
-            if count <= MAX_CELLS_PER_QUERY {
-                cover_all = false;
-                for x in x0..=x1 {
-                    for z in z0..=z1 {
-                        if let Some(ids) = self.building_grid.get(&(x, z)) {
-                            building_ids.extend_from_slice(ids);
-                        }
-                    }
-                }
-            }
-        }
-        if cover_all {
-            building_ids.extend(0..self.buildings.len());
-        }
-        building_ids.sort_unstable();
-        building_ids.dedup();
+        let (building_ids, _, query_center, query_extents) =
+            self.candidates(start, delta, extents, false);
         let mut best: Option<Trace> = None;
         for index in building_ids {
             let brush = &self.buildings[index];
@@ -461,6 +468,40 @@ impl CollisionWorld {
         best
     }
 
+    /// Down trace that only accepts an upward-facing building hull. Tree hulls
+    /// are scenery, never a floor, and a brush that already contains the player
+    /// AABB reports `start_solid` (fraction 0); letting either win made the
+    /// whole support query fail and dropped the body off the real floor.
+    fn trace_support(&self, start: Vec3, delta: Vec3, extents: Vec3) -> Option<Trace> {
+        let (building_ids, _, query_center, query_extents) =
+            self.candidates(start, delta, extents, false);
+        let mut best: Option<Trace> = None;
+        for index in building_ids {
+            let brush = &self.buildings[index];
+            if brush.flags & CHDATA_SKIP_COLLISION != 0 {
+                continue;
+            }
+            if !overlaps(
+                query_center,
+                query_extents,
+                Vec3::from_array(brush.center),
+                Vec3::from_array(brush.extents),
+            ) {
+                continue;
+            }
+            let Some(hit) = trace_brush(brush, start, delta, extents) else {
+                continue;
+            };
+            if hit.start_solid || hit.normal.y < 0.5 {
+                continue;
+            }
+            if best.is_none_or(|old| hit.fraction < old.fraction) {
+                best = Some(hit);
+            }
+        }
+        best
+    }
+
     fn support(&self, feet: Vec3, extents: Vec3, max_down: f32) -> Option<Ground> {
         if !max_down.is_finite() || max_down < 0.0 {
             return None;
@@ -472,18 +513,29 @@ impl CollisionWorld {
         const CONTACT_LIFT: f32 = 0.01;
         let start = feet + Vec3::Y * (extents.y + CONTACT_LIFT);
         let delta = Vec3::NEG_Y * (max_down + CONTACT_LIFT);
-        let hit = self.trace(start, delta, extents)?;
-        if hit.start_solid || hit.normal.y < 0.5 {
-            return None;
-        }
+        let hit = self.trace_support(start, delta, extents)?;
         let center = start + delta * hit.fraction;
         Some(Ground {
-            height: center.y - extents.y,
+            // A down trace must never raise the body. When a sweep begins
+            // inside DIST_EPSILON of the plane its fraction is zero and the raw
+            // height is CONTACT_LIFT above the feet; that used to climb a
+            // centimetre per frame and jitter the landing animation.
+            height: (center.y - extents.y).min(feet.y),
             normal: hit.normal,
         })
     }
 
     fn resolve(&self, old_feet: Vec3, desired_feet: Vec3, extents: Vec3) -> ResolvedMove {
+        if old_feet == desired_feet {
+            // A stationary body cannot sweep into anything. Skipping the hull
+            // query also avoids a spurious `start_solid` hit on the very plane
+            // the fixed step just settled the feet onto.
+            return ResolvedMove {
+                feet: old_feet,
+                blocked: false,
+                normal: Vec3::ZERO,
+            };
+        }
         let mut center = old_feet + Vec3::Y * extents.y;
         let mut remaining = desired_feet - old_feet;
         let mut blocked = false;
@@ -543,6 +595,14 @@ impl crate::modules::populator::FloorSource for Collision {
 
     fn solid_at(&self, feet: Vec3, extents: Vec3) -> bool {
         Collision::solid_at(self, feet, extents)
+    }
+}
+
+/// The fixed-step physics integrator asks for the same hull tops that the
+/// swept wall pass uses. Terrain remains the permanent floor in `physics`.
+impl super::physics::ObjectSupport for Collision {
+    fn object_support(&self, feet: Vec3, extents: Vec3, max_down: f32) -> Option<Ground> {
+        Collision::support(self, feet, extents, max_down)
     }
 }
 
@@ -917,9 +977,18 @@ impl Collision {
         }
     }
 
+    /// True while the loader still has batches to hand to the main thread.
+    pub fn is_loading(&self) -> bool {
+        self.receiver.is_some()
+    }
+
     pub fn poll(&mut self) {
         let mut finished = false;
+        let mut batches = 0;
         loop {
+            if batches >= MAX_BATCHES_PER_POLL {
+                break;
+            }
             let message = match self.receiver.as_ref() {
                 Some(receiver) => receiver.try_recv(),
                 None => break,
@@ -930,6 +999,7 @@ impl Collision {
                     brushes,
                     decks,
                 }) => {
+                    batches += 1;
                     self.building_processed = processed;
                     self.world.add_buildings(brushes);
                     self.world.add_decks(decks);
@@ -1082,16 +1152,16 @@ impl Collision {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bmd::BrushSide;
+    use crate::{bmd::BrushSide, modules::walker::physics};
 
-    fn cube() -> CollisionBrush {
+    fn box_brush(center: [f32; 3], extents: [f32; 3]) -> CollisionBrush {
         let sides = [
-            ([1.0, 0.0, 0.0], 1.0),
-            ([-1.0, 0.0, 0.0], 1.0),
-            ([0.0, 1.0, 0.0], 1.0),
-            ([0.0, -1.0, 0.0], 1.0),
-            ([0.0, 0.0, 1.0], 1.0),
-            ([0.0, 0.0, -1.0], 1.0),
+            ([1.0, 0.0, 0.0], center[0] + extents[0]),
+            ([-1.0, 0.0, 0.0], extents[0] - center[0]),
+            ([0.0, 1.0, 0.0], center[1] + extents[1]),
+            ([0.0, -1.0, 0.0], extents[1] - center[1]),
+            ([0.0, 0.0, 1.0], center[2] + extents[2]),
+            ([0.0, 0.0, -1.0], extents[2] - center[2]),
         ]
         .into_iter()
         .map(|(normal, distance)| BrushSide {
@@ -1101,11 +1171,15 @@ mod tests {
         })
         .collect();
         CollisionBrush {
-            center: [0.0; 3],
-            extents: [1.0; 3],
+            center,
+            extents,
             flags: 0,
             sides,
         }
+    }
+
+    fn cube() -> CollisionBrush {
+        box_brush([0.0; 3], [1.0; 3])
     }
 
     #[test]
@@ -1170,6 +1244,72 @@ mod tests {
         assert!(collision
             .support(Vec3::new(3.0, 1.5, 0.0), extents, 1.0)
             .is_none());
+    }
+
+    #[test]
+    fn support_ignores_hulls_that_already_contain_the_player() {
+        // A building interior/canopy brush that contains the AABB reports
+        // `start_solid` with fraction 0. It must not veto the real floor plate
+        // below, which used to leave the body airborne on every such frame.
+        let enclosing = box_brush([0., 2., 0.], [4., 4., 4.]);
+        let floor_plate = box_brush([0., 0.5, 0.], [2., 0.5, 2.]);
+        let collision = Collision::from_parts(vec![enclosing, floor_plate]);
+        let extents = Vec3::new(0.3, 0.9, 0.3);
+        let feet = Vec3::new(0., 1.0 + DIST_EPSILON, 0.);
+        let support = collision
+            .support(feet, extents, 0.3)
+            .expect("the floor plate is still a support plane");
+        assert_eq!(support.normal, Vec3::Y);
+        assert!((support.height - feet.y).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_down_trace_never_lifts_the_feet() {
+        let collision = Collision::from_parts(vec![cube()]);
+        let extents = Vec3::new(0.3, 0.9, 0.3);
+        // Exact contact used to report CONTACT_LIFT above the feet, which made
+        // the body climb a centimetre every frame while standing on a roof.
+        for feet_y in [1.0, 1.01, 1.02, 1.03, 1.0 + DIST_EPSILON] {
+            let feet = Vec3::new(0., feet_y, 0.);
+            let support = collision
+                .support(feet, extents, 0.3)
+                .expect("cube top should still support the feet");
+            assert!(support.height <= feet_y + 1e-6, "at {feet_y}: {support:?}");
+        }
+    }
+
+    #[test]
+    fn tree_canopies_do_not_become_walkable_support() {
+        let mut world = CollisionWorld::default();
+        world.add_tree_type(0, vec![cube()]);
+        world.add_tree(0, Vec3::new(0., 3., 0.));
+        let collision = Collision {
+            world,
+            ..Collision::default()
+        };
+        let extents = Vec3::new(0.3, 0.9, 0.3);
+        assert!(collision
+            .support(Vec3::new(0., 5., 0.), extents, 1.0)
+            .is_none());
+        // The swept wall pass still sees the tree hull.
+        assert!(
+            collision
+                .resolve(Vec3::new(-3., 3., 0.), Vec3::new(3., 3., 0.), extents)
+                .blocked
+        );
+    }
+
+    #[test]
+    fn physics_floor_and_the_inherent_support_query_agree() {
+        let collision = Collision::from_parts(vec![cube()]);
+        let extents = Vec3::new(0.3, 0.9, 0.3);
+        let feet = Vec3::new(0., 1.5, 0.);
+        let direct = collision.support(feet, extents, 1.0).unwrap();
+        let via_floor =
+            <Collision as physics::ObjectSupport>::object_support(&collision, feet, extents, 1.0)
+                .unwrap();
+        assert_eq!(direct.height, via_floor.height);
+        assert_eq!(direct.normal, via_floor.normal);
     }
 
     #[test]

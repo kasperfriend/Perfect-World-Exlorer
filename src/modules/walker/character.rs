@@ -812,6 +812,8 @@ pub struct Character {
     travel: TravelState,
     /// Eye anchor in body-model space, measured from the bind/reference head.
     camera_anchor: Vec3,
+    /// Index of the animated head bone, used by the Real Camera mode.
+    head_bone: Option<usize>,
     last_jump: u64,
     last_landing: u64,
     sound_commands: Vec<SoundCommand>,
@@ -923,6 +925,7 @@ impl Character {
             soulsphere_player,
             travel: TravelState::Ground,
             camera_anchor,
+            head_bone,
             last_jump: 0,
             last_landing: 0,
             sound_commands: Vec::new(),
@@ -1187,6 +1190,16 @@ impl Character {
         Ok(())
     }
 
+    /// Eye at the current animated head. The stable [`Self::eye`] is a
+    /// bind-pose anchor that deliberately ignores clip bob; this one follows
+    /// the head bone's translation and rotation, so walking, jumping, landing,
+    /// flying and riding all move the camera the way the skeleton does.
+    /// `None` means the rig cannot supply a usable animated head, in which
+    /// case the caller keeps the stable anchor.
+    pub(super) fn real_camera_eye(&self) -> Option<Vec3> {
+        animated_eye_position(&self.posed, self.head_bone).ok()
+    }
+
     pub(super) fn soulsphere_hidden(&self) -> bool {
         // Keep the mesh/draw arrays stable. Walker skips only submission, just
         // as CECPlayer::ShowMagicWeapon changes visibility without resetting
@@ -1267,9 +1280,73 @@ fn eye_position(posed: &Posed, head_bone: Option<usize>) -> Result<Vec3, String>
     Ok(Vec3::new(origin.x, top - 0.12, origin.z))
 }
 
+/// Real Camera eye: the head bone's world position plus the eye offset along
+/// the head's own up axis. Offsetting along the local axis (instead of world Y)
+/// means nodding and rolling the head tilt the eye too, while translation
+/// supplies the bob/sway. `absolute` already contains the character's world
+/// transform, so no extra model multiplication is needed here.
+fn animated_eye_position(posed: &Posed, head_bone: Option<usize>) -> Result<Vec3, String> {
+    let Some(index) = head_bone else {
+        // Rigs with no head bone use the measured top of the posed body mesh,
+        // which still follows the current animation's vertex positions.
+        return eye_position(posed, None);
+    };
+    let matrix = posed
+        .pose
+        .body
+        .absolute
+        .get(index)
+        .ok_or("character head bone is outside the pose")?;
+    if !matrix.is_finite() {
+        return Err("non-finite animated head transform".into());
+    }
+    let up = matrix.y_axis.truncate().normalize_or_zero();
+    let up = if up.length_squared() > 0.5 {
+        up
+    } else {
+        Vec3::Y
+    };
+    let eye = matrix.transform_point3(Vec3::ZERO) + up * HEAD_EYE_OFFSET;
+    if !eye.is_finite() {
+        return Err("non-finite real camera eye".into());
+    }
+    Ok(eye)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skeleton_pose;
+    use glam::Quat;
+
+    fn posed_with_head(head: Mat4) -> Posed {
+        let identity = || skeleton_pose::Pose {
+            absolute: vec![Mat4::IDENTITY],
+            skin: vec![Mat4::IDENTITY],
+            model: Mat4::IDENTITY,
+        };
+        Posed {
+            pose: CharacterPose {
+                body: skeleton_pose::Pose {
+                    absolute: vec![head],
+                    skin: vec![Mat4::IDENTITY],
+                    model: Mat4::IDENTITY,
+                },
+                face: identity(),
+                weapons: Vec::new(),
+                flight: None,
+                mount: None,
+                travel: TravelState::Ground,
+            },
+            meshes: CharacterMeshes {
+                body: Vec::new(),
+                face: Vec::new(),
+                weapons: Vec::new(),
+                flight: Vec::new(),
+                mount: Vec::new(),
+            },
+        }
+    }
 
     fn action(name: &str) -> ecmodel::Action {
         ecmodel::Action {
@@ -1940,5 +2017,36 @@ mod tests {
         let matrix = character_transform(Vec3::new(3., 8., -2.), Vec3::X);
         assert_eq!(matrix.transform_point3(Vec3::ZERO), Vec3::new(3., 8., -2.));
         assert_eq!(matrix.transform_vector3(Vec3::Z), Vec3::X);
+    }
+
+    #[test]
+    fn real_camera_eye_follows_head_translation_and_rotation() {
+        // A translated head moves the eye by exactly the same amount: this is
+        // the bob/sway the stable bind anchor deliberately discarded.
+        let posed = posed_with_head(Mat4::from_translation(Vec3::new(2., 3., 4.)));
+        assert_eq!(
+            animated_eye_position(&posed, Some(0)).unwrap(),
+            Vec3::new(2., 3. + HEAD_EYE_OFFSET, 4.)
+        );
+
+        // A head rolled 90 degrees about Z has its up axis along -X, so the
+        // eye offset tilts with the head instead of staying vertical.
+        let tilted = Mat4::from_rotation_translation(
+            Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+            Vec3::new(2., 3., 4.),
+        );
+        let eye = animated_eye_position(&posed_with_head(tilted), Some(0)).unwrap();
+        assert!(
+            (eye - Vec3::new(2. - HEAD_EYE_OFFSET, 3., 4.)).length() < 1e-5,
+            "{eye:?}"
+        );
+    }
+
+    #[test]
+    fn real_camera_eye_rejects_a_broken_head_bone() {
+        let posed = posed_with_head(Mat4::IDENTITY);
+        assert!(animated_eye_position(&posed, Some(7)).is_err());
+        let degenerate = Mat4::from_cols_array(&[f32::NAN; 16]);
+        assert!(animated_eye_position(&posed_with_head(degenerate), Some(0)).is_err());
     }
 }

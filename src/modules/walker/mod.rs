@@ -17,7 +17,7 @@ use self::{
     physics::{Body, FlightInput, Input, Mechanics},
 };
 use crate::{
-    gfx_decal_gpu,
+    gfx_decal, gfx_decal_gpu,
     model_asset::{ModelAsset, PosedMesh},
     model_draw_gpu,
     modules::designer::{
@@ -32,12 +32,13 @@ use std::{collections::HashSet, path::PathBuf};
 use winit::keyboard::KeyCode;
 
 const THIRD_PERSON_DISTANCE: f32 = 4.5;
-const OBJECT_DOWN_TRACE: f32 = 0.3;
 
 #[derive(Clone, Copy, Debug)]
 struct Settings {
     mechanics: Mechanics,
     first_person: bool,
+    /// First-person-only camera attached to the animated head bone.
+    real_camera: bool,
     object_collision: bool,
     camera_distance: f32,
     camera_distance_target: f32,
@@ -48,6 +49,7 @@ impl Default for Settings {
         Self {
             mechanics: Mechanics::default(),
             first_person: false,
+            real_camera: false,
             object_collision: true,
             camera_distance: THIRD_PERSON_DISTANCE,
             camera_distance_target: THIRD_PERSON_DISTANCE,
@@ -112,6 +114,17 @@ fn zoomed_distance(current: f32, steps: f32) -> f32 {
     (current - change).clamp(0.0, 20.0)
 }
 
+/// The Real Camera is a first-person-only option: third person always uses the
+/// orbiting camera, and a rig that cannot supply an animated head keeps the
+/// stable bind-head anchor rather than jumping to the world origin.
+fn first_person_eye(real_camera: bool, animated: Option<Vec3>, stable: Vec3) -> Vec3 {
+    if real_camera {
+        animated.unwrap_or(stable)
+    } else {
+        stable
+    }
+}
+
 fn eased_camera_distance(current: f32, target: f32, delta: f32) -> f32 {
     if !delta.is_finite() || delta <= 0.0 {
         return current;
@@ -135,6 +148,36 @@ enum ModelPart {
     Mount,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PartVisibility {
+    All,
+    /// First person draws the body except the native head skin.
+    BodyWithoutHead,
+    Hidden,
+}
+
+/// Which part geometry each camera mode submits. In first person only the
+/// native head and face are hidden: wings/fly-swords and the right-hand sword
+/// are attached to the body and must remain in front of the head camera.
+fn part_visibility(
+    part: &ModelPart,
+    first_person: bool,
+    soulsphere_hidden: bool,
+) -> PartVisibility {
+    if soulsphere_hidden && matches!(part, ModelPart::Weapon { right: true }) {
+        return PartVisibility::Hidden;
+    }
+    if !first_person {
+        return PartVisibility::All;
+    }
+    match part {
+        ModelPart::Body => PartVisibility::BodyWithoutHead,
+        // The head/face geometry would fill the near plane from inside.
+        ModelPart::Face => PartVisibility::Hidden,
+        ModelPart::Flight | ModelPart::Weapon { .. } | ModelPart::Mount => PartVisibility::All,
+    }
+}
+
 struct RenderModel<'a> {
     part: ModelPart,
     asset: &'a ModelAsset,
@@ -145,6 +188,10 @@ struct Gpu {
     draws: Vec<model_draw_gpu::Draw>,
     parts: Vec<ModelPart>,
     gfx: gfx_decal_gpu::Draw,
+    /// Quads for the pose that is already uploaded. Reflection/refraction
+    /// passes reuse them instead of recomputing every hook matrix again.
+    quads: Vec<gfx_decal::Quad>,
+    pose_generation: u64,
     // Keep the sampler alive alongside bind groups that reference it.
     _sampler: wgpu::Sampler,
 }
@@ -215,9 +262,11 @@ pub struct Walker {
     settings: Settings,
     body: Option<Body>,
     character: Option<Character>,
-    object_grounded: bool,
     facing: Vec3,
     camera_position: Option<Vec3>,
+    /// Incremented once per simulation frame, so the second and later render
+    /// passes of that frame can refresh only their per-pass constants.
+    pose_generation: u64,
     travel: TravelState,
     flight_hotkey: Hotkey,
     mount_hotkey: Hotkey,
@@ -244,9 +293,9 @@ impl Default for Walker {
             settings: Settings::default(),
             body: None,
             character: None,
-            object_grounded: false,
             facing: Vec3::NEG_Z,
             camera_position: None,
+            pose_generation: 0,
             travel: TravelState::Ground,
             flight_hotkey: Hotkey {
                 key: KeyCode::KeyF,
@@ -300,7 +349,9 @@ impl Walker {
     /// inactive; the load is only requested, never forced.
     pub fn prepare_object_collision(&mut self) {
         self.collision.ensure_loading();
-        self.collision.poll();
+        if self.collision.is_loading() {
+            self.collision.poll();
+        }
     }
 
     /// The building hulls, for placement support queries.
@@ -379,15 +430,19 @@ impl Walker {
 
     pub fn update_audio(&mut self, enabled: bool, volume: f32) {
         let active = self.is_active();
-        let commands = if active {
-            self.character
-                .as_mut()
-                .map(|character| character.take_sound_commands())
-                .unwrap_or_default()
+        // Always drain the animation clock: leaving edges queued would replay
+        // them on the next enable. The sound selection itself is only worth
+        // computing when the channel is actually on.
+        let commands = self
+            .character
+            .as_mut()
+            .map(|character| character.take_sound_commands())
+            .unwrap_or_default();
+        let movement = if active && enabled {
+            self.movement_sound()
         } else {
-            Vec::new()
+            None
         };
-        let movement = if active { self.movement_sound() } else { None };
         self.audio
             .update(enabled && active, volume, commands, movement);
     }
@@ -408,7 +463,6 @@ impl Walker {
             }
             self.body = None;
             self.character = None;
-            self.object_grounded = false;
             self.camera_position = None;
             self.gpu = None;
             self.gpu_failed = false;
@@ -449,7 +503,6 @@ impl Walker {
                 .set_move_speed(character.assembly.class_speeds.run);
             self.body = Some(Body::new(position));
             self.character = Some(character);
-            self.object_grounded = false;
             self.facing = facing;
             self.gpu = None;
             self.gpu_failed = false;
@@ -565,7 +618,9 @@ impl Walker {
             self.settings.camera_distance_target,
             delta,
         );
-        self.collision.poll();
+        if self.collision.is_loading() {
+            self.collision.poll();
+        }
         let mut captured = false;
         if let Some(action) = self.capture {
             if self.capture_wait_release {
@@ -677,7 +732,24 @@ impl Walker {
             0.0
         };
 
-        let map = self.map.as_ref()?.clone();
+        let map = self.map.as_ref()?;
+        let extents = movement_constants.collision_extents();
+        // The fixed-step integrator must see object hull tops while it decides
+        // whether the body is grounded. Patching `grounded` after the step (the
+        // old `ground_on_object` path) made every frame on a roof transiently
+        // airborne: the terrain-only step projected movement onto the terrain
+        // normal, produced a bogus vertical velocity and restarted the landing
+        // animation, so a character jumping onto an object jittered in mid-air.
+        let objects: Option<&dyn physics::ObjectSupport> = if self.settings.object_collision {
+            Some(&self.collision)
+        } else {
+            None
+        };
+        let floor = physics::Floor {
+            map,
+            extents,
+            objects,
+        };
         let body = self.body.as_mut()?;
         let previous_position = body.position;
         if input_enabled {
@@ -688,14 +760,14 @@ impl Walker {
                     Input { direction, jump },
                     water_vertical,
                     swim_speed,
-                    &map,
+                    floor,
                     &self.water,
                     movement_constants,
                 ),
                 TravelState::Mounted => {
                     let mut mechanics = self.settings.mechanics;
                     mechanics.move_speed = mount_speed?;
-                    body.advance_mounted(delta, &mechanics, Input { direction, jump }, &map);
+                    body.advance_mounted(delta, &mechanics, Input { direction, jump }, floor);
                 }
                 TravelState::Flying => body.advance_flight(
                     delta,
@@ -704,18 +776,19 @@ impl Walker {
                         vertical,
                         speed: flight_speed?,
                     },
-                    &map,
+                    map,
                     &self.water,
                     movement_constants,
                 ),
             }
         }
         if self.settings.object_collision {
-            let resolved = self.collision.resolve(
-                previous_position,
-                body.position,
-                movement_constants.collision_extents(),
-            );
+            // Swept AABB blocking and wall sliding remain a separate layer.
+            // Support/landing is owned by the fixed step above, so this only
+            // stops horizontal penetration and ceilings.
+            let resolved = self
+                .collision
+                .resolve(previous_position, body.position, extents);
             body.position = resolved.feet;
             if resolved.blocked {
                 if resolved.normal.y >= 0.5 && body.vertical_velocity < 0.0 {
@@ -725,59 +798,34 @@ impl Walker {
                 }
             }
         }
-        // Object collision is an additional layer, never a terrain toggle.
-        // Reapply permanent terrain support after wall sliding as the new x/z
-        // may reference a higher terrain triangle than the old position did.
-        let support = physics::ground(&map, body.position.x, body.position.z);
-        if body.position.y < support.height {
-            body.position.y = support.height;
-            if support.normal.y >= 0.5 && body.vertical_velocity <= 0.0 {
-                let newly_landed = !body.grounded;
-                body.vertical_velocity = 0.0;
-                body.grounded = true;
-                body.jump_count = 0;
-                body.water_jumping = false;
-                if newly_landed {
-                    body.landed_generation = body.landed_generation.wrapping_add(1);
-                }
-            }
-        }
-        // A building/tree top is a support plane too, not merely a wall that
-        // zeroes vertical velocity. Keep this after the terrain pass and use
-        // the higher surface, so object collision can never disable terrain.
-        let mut object_grounded = false;
-        if self.settings.object_collision
-            && self.travel != TravelState::Flying
-            && !(body.swimming && !body.water_jumping)
-            && body.vertical_velocity <= 0.0
-        {
-            if let Some(object) = self.collision.support(
-                body.position,
-                movement_constants.collision_extents(),
-                OBJECT_DOWN_TRACE,
-            ) {
-                if object.height >= support.height {
-                    body.ground_on_object(object, self.object_grounded);
-                    object_grounded = true;
-                }
-            }
-        }
-        self.object_grounded = object_grounded;
+        // Wall sliding can move x/z onto a higher terrain triangle. Object
+        // collision is an additional layer, never a terrain toggle.
+        body.apply_terrain_floor(map);
         if let Some(character) = &mut self.character {
             if let Err(error) =
                 character.update(delta, body, self.facing, self.travel, rushing, vertical)
             {
                 self.last_error = Some(format!("Walker animation: {error}"));
             }
+            self.pose_generation = self.pose_generation.wrapping_add(1);
             let eye = character.eye;
             if self.settings.first_person {
+                // Real Camera samples the current animated head bone, so the
+                // view bobs and sways with the locomotion/flying/riding clips.
+                // The ordinary first-person mode keeps the stable bind anchor.
+                let animated = if self.settings.real_camera {
+                    character.real_camera_eye()
+                } else {
+                    None
+                };
+                let eye = first_person_eye(self.settings.real_camera, animated, eye);
                 self.camera_position = Some(eye);
                 return Some(eye);
             }
             let cp = pitch.cos();
             let look = Vec3::new(s * cp, pitch.sin(), -c * cp);
             let mut camera = eye - look * self.settings.camera_distance;
-            let clearance = physics::ground(&map, camera.x, camera.z).height + 0.25;
+            let clearance = physics::ground(map, camera.x, camera.z).height + 0.25;
             camera.y = camera.y.max(clearance);
             self.camera_position = Some(camera);
             return Some(camera);
@@ -910,7 +958,12 @@ impl Walker {
                 physics::CONTINUOUS_JUMP_HEIGHT,
             ));
         ui.checkbox(&mut self.settings.first_person, "First Person Mode")
-            .on_hover_text("Uses a stable bind-head eye anchor without animation bob. The body and mount remain visible; native head/face, right-hand weapon, and flight meshes are hidden.");
+            .on_hover_text("Attaches the camera to the character's head. Only the native head and face are hidden; wings, fly-swords, weapons and the mount stay visible.");
+        ui.add_enabled(
+            self.settings.first_person,
+            egui::Checkbox::new(&mut self.settings.real_camera, "Real Camera"),
+        )
+        .on_hover_text("First Person only: follow the animated head bone instead of the stable bind-head anchor, so the view gets real head bob, sway, nod and travel movement. Mouse look still controls orientation.");
         if ui
             .checkbox(&mut self.settings.object_collision, "Collision check")
             .on_hover_text("Collide with native BMD building/object hulls and TBH tree hulls. Terrain collision remains enabled permanently, even when this option is off.")
@@ -1038,6 +1091,8 @@ impl Walker {
                     draws,
                     parts,
                     gfx,
+                    quads: decal_quads.clone(),
+                    pose_generation: self.pose_generation,
                     _sampler: sampler,
                 })
             })();
@@ -1050,28 +1105,55 @@ impl Walker {
                 }
             }
         }
-        let update = (|| -> Result<(), String> {
+        // The host draws the character once per pass (main, reflection,
+        // refraction). Posed vertices are shared by every pass; only the
+        // view/projection and clip constants change, so uploading the whole
+        // skeleton again for each pass is pure main-thread/PCIe churn.
+        let pose_uploaded = self
+            .gpu
+            .as_ref()
+            .is_some_and(|gpu| gpu.pose_generation == self.pose_generation);
+        let update = (|| -> Result<Option<Vec<gfx_decal::Quad>>, String> {
             let gpu = self.gpu.as_ref().ok_or("Walker GPU draws missing")?;
             let character = self.character.as_ref().ok_or("Walker character missing")?;
             let models = render_models(character, &character.posed.meshes)?;
             if models.len() != gpu.draws.len() {
                 return Err("travel draw count changed without rebuilding GPU resources".into());
             }
-            for (index, model) in models.into_iter().enumerate() {
-                gpu.draws[index].update(queue, model.asset, model.poses, frame)?;
+            let mut quads = None;
+            if pose_uploaded {
+                for (index, model) in models.iter().enumerate() {
+                    gpu.draws[index].update_constants(queue, model.asset, frame)?;
+                }
+            } else {
+                for (index, model) in models.into_iter().enumerate() {
+                    gpu.draws[index].update_posed(queue, model.asset, model.poses, frame)?;
+                }
+                quads = Some(
+                    character
+                        .gfx
+                        .quads(&character.assembly, &character.posed.pose)?,
+                );
             }
-            let decal_quads = character
-                .gfx
-                .quads(&character.assembly, &character.posed.pose)?;
+            let decal_quads = quads.as_deref().unwrap_or(gpu.quads.as_slice());
             gpu.gfx
-                .update(queue, frame.matrix, frame.clip_plane, &decal_quads)?;
-            Ok(())
+                .update(queue, frame.matrix, frame.clip_plane, decal_quads)?;
+            Ok(quads)
         })();
-        if let Err(error) = update {
-            self.last_error = Some(format!("Walker rendering: {error}"));
-            self.gpu_failed = true;
-            self.gpu = None;
-            return;
+        match update {
+            Ok(Some(quads)) => {
+                if let Some(gpu) = self.gpu.as_mut() {
+                    gpu.quads = quads;
+                    gpu.pose_generation = self.pose_generation;
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                self.last_error = Some(format!("Walker rendering: {error}"));
+                self.gpu_failed = true;
+                self.gpu = None;
+                return;
+            }
         }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("add-on Walker character pass"),
@@ -1095,22 +1177,20 @@ impl Walker {
             occlusion_query_set: None,
         });
         if let Some(gpu) = &self.gpu {
+            let soulsphere_hidden = self
+                .character
+                .as_ref()
+                .is_some_and(|character| character.soulsphere_hidden());
             for (draw, part) in gpu.draws.iter().zip(&gpu.parts) {
-                match part {
-                    ModelPart::Body if self.settings.first_person => {
-                        // Skin 1 is the separate native head installed by
-                        // CECPlayer. Keep every pose uploaded; only submission
-                        // changes, so the full-mesh validation remains intact.
+                match part_visibility(part, self.settings.first_person, soulsphere_hidden) {
+                    PartVisibility::Hidden => {}
+                    // Skin 1 is the separate native head installed by
+                    // CECPlayer. Keep every pose uploaded; only submission
+                    // changes, so the full-mesh validation remains intact.
+                    PartVisibility::BodyWithoutHead => {
                         draw.draw_filtered(&mut pass, |(skin, _)| skin != 1);
                     }
-                    ModelPart::Face | ModelPart::Flight if self.settings.first_person => {}
-                    ModelPart::Weapon { right: true }
-                        if self.settings.first_person
-                            || self
-                                .character
-                                .as_ref()
-                                .is_some_and(|character| character.soulsphere_hidden()) => {}
-                    _ => draw.draw(&mut pass),
+                    PartVisibility::All => draw.draw(&mut pass),
                 }
             }
             gpu.gfx.draw_quads(&mut pass);
@@ -1175,5 +1255,57 @@ mod tests {
         assert!(!jump_requested(true, true, TravelState::Ground));
         assert!(!jump_requested(true, true, TravelState::Mounted));
         assert!(!jump_requested(false, false, TravelState::Mounted));
+    }
+
+    #[test]
+    fn first_person_keeps_wings_swords_and_mount_visible() {
+        assert_eq!(
+            part_visibility(&ModelPart::Flight, true, false),
+            PartVisibility::All,
+            "flying wings/fly-sword must be drawn in first person"
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Weapon { right: true }, true, false),
+            PartVisibility::All,
+            "the right-hand sword must be drawn in first person"
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Weapon { right: false }, true, false),
+            PartVisibility::All
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Mount, true, false),
+            PartVisibility::All
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Face, true, false),
+            PartVisibility::Hidden
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Body, true, false),
+            PartVisibility::BodyWithoutHead
+        );
+        // The authored ShowMagicWeapon rule still wins in either camera mode.
+        assert_eq!(
+            part_visibility(&ModelPart::Weapon { right: true }, true, true),
+            PartVisibility::Hidden
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Flight, false, false),
+            PartVisibility::All
+        );
+        assert_eq!(
+            part_visibility(&ModelPart::Body, false, false),
+            PartVisibility::All
+        );
+    }
+
+    #[test]
+    fn real_camera_only_replaces_the_first_person_eye() {
+        let stable = Vec3::new(0., 1.6, 0.);
+        let animated = Vec3::new(0.08, 1.63, -0.02);
+        assert_eq!(first_person_eye(false, Some(animated), stable), stable);
+        assert_eq!(first_person_eye(true, Some(animated), stable), animated);
+        assert_eq!(first_person_eye(true, None, stable), stable);
     }
 }
