@@ -176,6 +176,58 @@ pub fn effect_ground(map: &MapSpace, position: Vec3) -> gfx_player::GroundHit {
     }
 }
 
+/// Upward-facing object hull tops, queried at a feet position. Terrain support
+/// is permanent and lives in [`Floor`]; implementations only add BMD/tree
+/// surfaces so the fixed-step integrator can see the same floor that wall
+/// sliding uses.
+pub trait ObjectSupport {
+    /// Highest walkable surface within `max_down` of `feet`, or `None`.
+    fn object_support(&self, feet: Vec3, extents: Vec3, max_down: f32) -> Option<Ground>;
+}
+
+/// The one support plane a physics step is allowed to use. Terrain is always
+/// present; an object hull top wins only when it is higher and walkable.
+///
+/// Keeping this query *inside* the fixed step is essential: a post-step patch
+/// that sets `grounded` back to `true` cannot stop the step from first clearing
+/// it, projecting movement onto the terrain normal and restarting the landing
+/// animation (the object-landing jitter this replaced).
+#[derive(Clone, Copy)]
+pub struct Floor<'a> {
+    pub map: &'a MapSpace,
+    pub extents: Vec3,
+    pub objects: Option<&'a dyn ObjectSupport>,
+}
+
+impl<'a> Floor<'a> {
+    /// Terrain-only floor, for tests and callers without object collision.
+    pub fn terrain(map: &'a MapSpace) -> Self {
+        Self {
+            map,
+            extents: Vec3::ZERO,
+            objects: None,
+        }
+    }
+
+    /// Native terrain sample, without object hulls (water entry uses it).
+    fn terrain_at(&self, x: f32, z: f32) -> Ground {
+        ground(self.map, x, z)
+    }
+
+    /// Higher of terrain and an object hull top reachable by a down trace from
+    /// `feet`. A surface that is not walkable or sits below the terrain is not
+    /// a support plane.
+    fn at(&self, feet: Vec3, max_down: f32) -> Ground {
+        let terrain = self.terrain_at(feet.x, feet.z);
+        self.objects
+            .and_then(|objects| objects.object_support(feet, self.extents, max_down))
+            .filter(|object| {
+                object.normal.y >= GROUND_NORMAL_MIN && object.height >= terrain.height
+            })
+            .unwrap_or(terrain)
+    }
+}
+
 /// Maximum height of the client's semi-implicit integration at Walker's fixed
 /// 60 Hz physics step. This deliberately is not the continuous v²/(2g) value.
 pub fn integrated_apex(mut launch_speed: f32) -> f32 {
@@ -294,8 +346,8 @@ impl Body {
         }
     }
 
-    pub fn advance(&mut self, delta: f32, mechanics: &Mechanics, input: Input, map: &MapSpace) {
-        self.advance_ground(delta, mechanics, input, map, MAX_JUMPS);
+    pub fn advance(&mut self, delta: f32, mechanics: &Mechanics, input: Input, floor: Floor<'_>) {
+        self.advance_ground(delta, mechanics, input, floor, MAX_JUMPS);
     }
 
     /// `CECHostPlayer::CanDo(CANDO_JUMP)` permits the ordinary second jump but
@@ -305,9 +357,9 @@ impl Body {
         delta: f32,
         mechanics: &Mechanics,
         input: Input,
-        map: &MapSpace,
+        floor: Floor<'_>,
     ) {
-        self.advance_ground(delta, mechanics, input, map, MOUNTED_MAX_JUMPS);
+        self.advance_ground(delta, mechanics, input, floor, MOUNTED_MAX_JUMPS);
     }
 
     fn advance_ground(
@@ -315,7 +367,7 @@ impl Body {
         delta: f32,
         mechanics: &Mechanics,
         input: Input,
-        map: &MapSpace,
+        floor: Floor<'_>,
         max_jumps: u8,
     ) {
         if !delta.is_finite() || delta <= 0. {
@@ -330,7 +382,7 @@ impl Body {
             if self.accumulator < 0. {
                 self.accumulator = 0.;
             }
-            self.step(mechanics, input.direction, map, max_jumps);
+            self.step(mechanics, input.direction, floor, max_jumps);
         }
     }
 
@@ -343,7 +395,7 @@ impl Body {
         input: Input,
         vertical: f32,
         swim_speed: f32,
-        map: &MapSpace,
+        floor: Floor<'_>,
         water: &[WaterArea],
         constants: MovementConstants,
     ) {
@@ -362,7 +414,7 @@ impl Body {
                 input.direction,
                 vertical,
                 swim_speed.max(0.),
-                map,
+                floor,
                 water,
                 constants,
             );
@@ -376,14 +428,21 @@ impl Body {
         )
     }
 
-    /// Install an object support plane after the terrain-only fixed step.
-    /// `continued_support` distinguishes a persistent object contact from a
-    /// real airborne landing. Without it, the terrain step's transient
-    /// `grounded = false` restarts the landing action on every frame.
-    pub fn ground_on_object(&mut self, support: Ground, continued_support: bool) {
-        let newly_landed = !continued_support && !self.grounded;
+    /// Wall sliding can move x/z onto a higher terrain triangle than the one
+    /// the fixed step sampled. Reapply the permanent terrain floor afterwards;
+    /// object support is already resolved inside [`Body::step`], so this pass
+    /// never touches grounded state for a body standing on a hull.
+    pub fn apply_terrain_floor(&mut self, map: &MapSpace) {
+        let support = ground(map, self.position.x, self.position.z);
+        if self.position.y >= support.height {
+            return;
+        }
         self.position.y = support.height;
-        self.vertical_velocity = 0.0;
+        if support.normal.y < GROUND_NORMAL_MIN || self.vertical_velocity > 0. {
+            return;
+        }
+        let newly_landed = !self.grounded;
+        self.vertical_velocity = 0.;
         self.grounded = true;
         self.jump_count = 0;
         self.water_jumping = false;
@@ -474,22 +533,22 @@ impl Body {
         direction: Vec3,
         vertical: f32,
         swim_speed: f32,
-        map: &MapSpace,
+        floor: Floor<'_>,
         areas: &[WaterArea],
         constants: MovementConstants,
     ) {
         let direction = Vec3::new(direction.x, 0., direction.z).normalize_or_zero();
-        let support = ground(map, self.position.x, self.position.z);
+        let terrain = floor.terrain_at(self.position.x, self.position.z);
         let level = water_height(areas, self.position.x, self.position.z);
         self.water_height = level;
-        self.swimming = enters_water(self.position, support.height, level, constants);
+        self.swimming = enters_water(self.position, terrain.height, level, constants);
         if !self.swimming {
             let max_jumps = if self.water_jumping {
                 MOUNTED_MAX_JUMPS
             } else {
                 MAX_JUMPS
             };
-            self.step(mechanics, direction, map, max_jumps);
+            self.step(mechanics, direction, floor, max_jumps);
             return;
         }
 
@@ -498,7 +557,7 @@ impl Body {
         if self.water_jumping && self.vertical_velocity > 0.0 {
             // A water jump uses GroundMove while its vertical velocity is
             // positive. Further jumps are rejected by IsJumpInWater().
-            self.step_water_jump(mechanics, direction, map);
+            self.step_water_jump(mechanics, direction, floor);
             return;
         }
 
@@ -511,7 +570,7 @@ impl Body {
             self.water_jumping = true;
             self.jump_count = 1;
             self.jump_generation = self.jump_generation.wrapping_add(1);
-            self.step_water_jump(mechanics, direction, map);
+            self.step_water_jump(mechanics, direction, floor);
             return;
         }
 
@@ -523,7 +582,7 @@ impl Body {
         let wish = direction + Vec3::Y * vertical;
         self.moving = wish.length_squared() > 0.5;
         let near_surface = level
-            .is_some_and(|water| self.position.y > water - 2.0 && self.position.y > support.height);
+            .is_some_and(|water| self.position.y > water - 2.0 && self.position.y > terrain.height);
         let move_speed = if near_surface {
             mechanics.move_speed.min(swim_speed)
         } else {
@@ -549,20 +608,23 @@ impl Body {
                 }
             }
         }
-        let floor =
-            ground(map, self.position.x, self.position.z).height + constants.min_water_height;
-        if self.position.y < floor {
-            self.position.y = floor;
+        let water_floor =
+            floor.terrain_at(self.position.x, self.position.z).height + constants.min_water_height;
+        if self.position.y < water_floor {
+            self.position.y = water_floor;
             self.vertical_velocity = 0.0;
         }
     }
 
-    fn step_water_jump(&mut self, mechanics: &Mechanics, direction: Vec3, map: &MapSpace) {
+    fn step_water_jump(&mut self, mechanics: &Mechanics, direction: Vec3, floor: Floor<'_>) {
         self.moving = direction.length_squared() > 0.5;
+        let previous_y = self.position.y;
         self.vertical_velocity -= GRAVITY * STEP_SECONDS;
         self.position +=
             (direction * mechanics.move_speed + Vec3::Y * self.vertical_velocity) * STEP_SECONDS;
-        let support = ground(map, self.position.x, self.position.z);
+        let drop = (previous_y - self.position.y).max(0.);
+        let query = Vec3::new(self.position.x, previous_y, self.position.z);
+        let support = floor.at(query, DOWN_TRACE + drop);
         if self.position.y <= support.height {
             self.position.y = support.height;
             self.vertical_velocity = 0.0;
@@ -579,7 +641,7 @@ impl Body {
         }
     }
 
-    fn step(&mut self, mechanics: &Mechanics, direction: Vec3, map: &MapSpace, max_jumps: u8) {
+    fn step(&mut self, mechanics: &Mechanics, direction: Vec3, floor: Floor<'_>, max_jumps: u8) {
         let direction = Vec3::new(direction.x, 0., direction.z).normalize_or_zero();
         self.moving = direction.length_squared() > 0.5;
         let jump = std::mem::take(&mut self.jump_queued);
@@ -596,7 +658,11 @@ impl Body {
         }
 
         if self.grounded {
-            let support = ground(map, self.position.x, self.position.z);
+            // The combined floor (terrain or hull top) is the plane the fixed
+            // step actually stands on. Projecting onto terrain here used to
+            // inject a bogus vertical velocity and clear `grounded` every
+            // frame while standing on an object.
+            let support = floor.at(self.position, DOWN_TRACE);
             let horizontal = direction * mechanics.move_speed;
             let speed = horizontal.length();
             let mut velocity = horizontal;
@@ -608,7 +674,7 @@ impl Body {
                 velocity = (direction - support.normal * dot * 1.01) * speed;
             }
             self.position += velocity * STEP_SECONDS;
-            let next = ground(map, self.position.x, self.position.z);
+            let next = floor.at(self.position, DOWN_TRACE);
             let rise = next.height - self.position.y;
             if next.normal.y >= GROUND_NORMAL_MIN && rise <= STEP_HEIGHT && rise >= -DOWN_TRACE {
                 self.position.y = next.height;
@@ -621,11 +687,17 @@ impl Body {
             return;
         }
 
+        let previous_y = self.position.y;
         let horizontal = direction * mechanics.move_speed;
         self.vertical_velocity -= GRAVITY * STEP_SECONDS;
         let velocity = horizontal + Vec3::Y * self.vertical_velocity;
         self.position += velocity * STEP_SECONDS;
-        let support = ground(map, self.position.x, self.position.z);
+        // A 60 Hz step can cross a thin hull top in one tick. Trace from the
+        // pre-step feet over the whole drop so the highest floor in that range
+        // wins; without this the character falls through roofs and never lands.
+        let drop = (previous_y - self.position.y).max(0.);
+        let query = Vec3::new(self.position.x, previous_y, self.position.z);
+        let support = floor.at(query, DOWN_TRACE + drop);
         if self.position.y <= support.height {
             self.position.y = support.height;
             if support.normal.y >= GROUND_NORMAL_MIN && self.vertical_velocity <= 0. {
@@ -696,7 +768,7 @@ mod tests {
                     direction: Vec3::new(1., 0., 1.),
                     jump: false,
                 },
-                &map,
+                Floor::terrain(&map),
             );
         }
         let displacement = body.position - Vec3::new(0., 10., 0.);
@@ -719,7 +791,7 @@ mod tests {
                 direction: Vec3::ZERO,
                 jump: true,
             },
-            &map,
+            Floor::terrain(&map),
         );
         assert_eq!(body.jump_count, 1);
         assert!(!body.grounded);
@@ -731,7 +803,7 @@ mod tests {
                 direction: Vec3::ZERO,
                 jump: true,
             },
-            &map,
+            Floor::terrain(&map),
         );
         assert_eq!(body.jump_count, 2);
         // The second jump replaces velocity with 10 m/s. After the same
@@ -745,11 +817,16 @@ mod tests {
                 direction: Vec3::ZERO,
                 jump: true,
             },
-            &map,
+            Floor::terrain(&map),
         );
         assert_eq!(body.jump_count, 2, "third jump must be rejected");
         for _ in 0..300 {
-            body.advance(STEP_SECONDS, &mechanics, Input::default(), &map);
+            body.advance(
+                STEP_SECONDS,
+                &mechanics,
+                Input::default(),
+                Floor::terrain(&map),
+            );
         }
         assert!(body.grounded);
         assert_eq!(body.jump_count, 0);
@@ -769,7 +846,7 @@ mod tests {
                 direction: Vec3::ZERO,
                 jump: true,
             },
-            &map,
+            Floor::terrain(&map),
         );
         assert_eq!(body.jump_count, 0);
         assert!(body.vertical_velocity < 0.);
@@ -840,37 +917,152 @@ mod tests {
         assert!((body.position.y - 12.7).abs() < 0.000_1);
     }
 
-    #[test]
-    fn persistent_object_support_does_not_restart_landing_every_frame() {
-        let map = flat_map();
-        let mechanics = Mechanics::default();
-        let input = Input::default();
-        let object = Ground {
-            height: 12.0,
-            normal: Vec3::Y,
-        };
-        let mut body = Body::new(Vec3::new(0.0, object.height, 0.0));
-        body.ground_on_object(object, false);
-        for _ in 0..120 {
-            body.advance(STEP_SECONDS, &mechanics, input, &map);
-            // The terrain-only step cannot see the object at y=12 above its
-            // y=10 map, so it transiently clears grounded on every iteration.
-            assert!(!body.grounded);
-            body.ground_on_object(object, true);
-            assert!(body.grounded);
-            assert_eq!(body.position.y, object.height);
-            assert_eq!(body.vertical_velocity, 0.0);
-            assert_eq!(body.landed_generation, 0);
-        }
+    /// A finite upward-facing deck standing in for a BMD hull top: like
+    /// `CollisionWorld::support`, the down trace only finds it inside its
+    /// footprint, at or below the queried feet, and within `max_down`.
+    struct Deck {
+        half: f32,
+        top: f32,
+    }
 
-        let mut airborne = Body::new(Vec3::new(0.0, 13.0, 0.0));
-        airborne.grounded = false;
-        airborne.vertical_velocity = -1.0;
-        airborne.advance(STEP_SECONDS, &mechanics, input, &map);
-        assert!(!airborne.grounded);
-        airborne.ground_on_object(object, false);
-        assert!(airborne.grounded);
-        assert_eq!(airborne.landed_generation, 1);
+    impl ObjectSupport for Deck {
+        fn object_support(&self, feet: Vec3, _extents: Vec3, max_down: f32) -> Option<Ground> {
+            let surface = self.top + 0.031_25; // native DIST_EPSILON clearance
+            if feet.x.abs() <= self.half
+                && feet.z.abs() <= self.half
+                && feet.y >= surface
+                && feet.y - surface <= max_down
+            {
+                Some(Ground {
+                    height: surface,
+                    normal: Vec3::Y,
+                })
+            } else {
+                None
+            }
+        }
+    }
+
+    fn make_deck(half: f32, top: f32) -> Deck {
+        Deck { half, top }
+    }
+
+    fn deck_floor<'a>(map: &'a MapSpace, deck: &'a Deck) -> Floor<'a> {
+        Floor {
+            map,
+            extents: Vec3::new(0.3, 0.9, 0.3),
+            objects: Some(deck),
+        }
+    }
+
+    fn sloped_map() -> MapSpace {
+        let mut heights = vec![10.0f32; 64];
+        for y in 0..8 {
+            for x in 0..8 {
+                heights[y * 8 + x] = 10. + x as f32 * 0.2;
+            }
+        }
+        MapSpace {
+            width: 8,
+            height: 8,
+            spacing: 2.,
+            heights: heights.into(),
+        }
+    }
+
+    #[test]
+    fn landing_on_a_hull_is_one_stable_grounded_state() {
+        let map = flat_map();
+        let deck = make_deck(3., 12.);
+        let floor = deck_floor(&map, &deck);
+        let mechanics = Mechanics::default();
+        let mut body = Body::new(Vec3::new(0., 14., 0.));
+        body.grounded = false;
+        for _ in 0..300 {
+            body.advance(STEP_SECONDS, &mechanics, Input::default(), floor);
+        }
+        assert!(body.grounded);
+        assert!((body.position.y - deck.top - 0.031_25).abs() < 1e-5);
+        assert_eq!(body.landed_generation, 1, "one landing, not one per frame");
+
+        // Standing still must not restart the landing action or drift upward.
+        for _ in 0..120 {
+            body.advance(STEP_SECONDS, &mechanics, Input::default(), floor);
+            assert!(body.grounded);
+            assert_eq!(body.vertical_velocity, 0.);
+            assert!((body.position.y - deck.top - 0.031_25).abs() < 1e-5);
+        }
+        assert_eq!(body.landed_generation, 1);
+    }
+
+    #[test]
+    fn moving_on_a_hull_over_sloped_terrain_stays_grounded() {
+        // The terrain normal used to project horizontal movement into a
+        // positive vertical velocity, which made the post-step support query
+        // skip the hull and left the character in a jittering falling state.
+        let map = sloped_map();
+        let deck = make_deck(20., 12.);
+        let floor = deck_floor(&map, &deck);
+        let mechanics = Mechanics::default();
+        let mut body = Body::new(Vec3::new(0., deck.top + 0.031_25, 0.));
+        let uphill = Input {
+            direction: Vec3::X,
+            jump: false,
+        };
+        for _ in 0..60 {
+            body.advance(STEP_SECONDS, &mechanics, uphill, floor);
+            assert!(body.grounded, "lost hull support at {:?}", body.position);
+            assert!(body.vertical_velocity <= 0.);
+            assert!((body.position.y - deck.top - 0.031_25).abs() < 1e-5);
+        }
+        assert_eq!(body.landed_generation, 0);
+    }
+
+    #[test]
+    fn walking_off_a_hull_falls_to_the_permanent_terrain_floor() {
+        let map = flat_map();
+        let deck = make_deck(1., 12.);
+        let floor = deck_floor(&map, &deck);
+        let mechanics = Mechanics::default();
+        let mut body = Body::new(Vec3::new(0., deck.top + 0.031_25, 0.));
+        let walk = Input {
+            direction: Vec3::X,
+            jump: false,
+        };
+        for _ in 0..300 {
+            body.advance(STEP_SECONDS, &mechanics, walk, floor);
+        }
+        assert!(body.grounded);
+        assert_eq!(body.position.y, 10.);
+        assert_eq!(body.landed_generation, 1);
+    }
+
+    #[test]
+    fn jumping_from_a_hull_lands_back_on_it_once() {
+        let map = flat_map();
+        let deck = make_deck(3., 12.);
+        let floor = deck_floor(&map, &deck);
+        let mechanics = Mechanics::default();
+        let mut body = Body::new(Vec3::new(0., deck.top + 0.031_25, 0.));
+        body.advance(
+            STEP_SECONDS,
+            &mechanics,
+            Input {
+                direction: Vec3::ZERO,
+                jump: true,
+            },
+            floor,
+        );
+        assert!(!body.grounded);
+        assert_eq!(body.jump_count, 1);
+        assert_eq!(body.jump_generation, 1);
+        for _ in 0..300 {
+            body.advance(STEP_SECONDS, &mechanics, Input::default(), floor);
+        }
+        assert!(body.grounded);
+        assert_eq!(body.position.y, deck.top + 0.031_25);
+        assert_eq!(body.landed_generation, 1);
+        assert_eq!(body.jump_count, 0);
     }
 
     #[test]
@@ -886,7 +1078,7 @@ mod tests {
                     direction: Vec3::ZERO,
                     jump: true,
                 },
-                &map,
+                Floor::terrain(&map),
             );
             assert_eq!(body.jump_count, expected);
         }
@@ -964,7 +1156,7 @@ mod tests {
                 },
                 1.0,
                 3.0,
-                &map,
+                Floor::terrain(&map),
                 &water,
                 constants,
             );
@@ -991,7 +1183,7 @@ mod tests {
             },
             0.0,
             3.0,
-            &map,
+            Floor::terrain(&map),
             &water,
             constants,
         );
@@ -1007,7 +1199,7 @@ mod tests {
             },
             0.0,
             3.0,
-            &map,
+            Floor::terrain(&map),
             &water,
             constants,
         );

@@ -210,15 +210,14 @@ doorway) and the terrain below is within 2 units, the actor stands on the ground
 instead. A bridge deck ten units up is never traded for the river bed, because the
 drop obeys the same guard as the sweep.
 
-Otherwise the placement is swept outward over 5 rings (0.5 … 2.5 units) × 8
+Otherwise the placement is swept outward over 8 rings (0.5 … 6 units) × 16
 directions. Every candidate is re-resolved with the same height policy and is
 rejected when it would move the actor more than `WALL_RING_LIFT` (2 units), so
 getting out of a wall never also climbs a storey or drops an NPC off a bridge. A
 nudged placement keeps its own floor — a step up to a free spot 1 unit higher is
 used, a 5-unit climb is refused. An authored height is never changed by the
-sweep. A placement with nowhere free keeps its authored column and is counted as
-`in walls`; the settings window shows both counts and the first session report
-logs them once.
+sweep. If no free column exists, the actor is hidden rather than drawn inside a
+wall and counted as `in walls`; a new hull-streaming batch retries placement.
 
 The sweep runs once per placement per hull stamp (the hulls stream in, so it
 re-runs when a batch lands), not per frame.
@@ -280,10 +279,29 @@ files**, and this was checked rather than assumed:
 * The remaining orientation source is the server's `gamedata/npcgen.data`,
   which the client does not ship.
 
-Every placement therefore keeps the rig's own authored forward axis (yaw 0,
-local `+Z` forward, exactly `walker::character::character_transform`), which is
-why the observed facing looks right in game. The viewer's earlier optional
-"turn to face the camera" is removed.
+The exact server-authored yaw remains unavailable: the `pw142` Drive folder has
+no `gamedata/npcgen.data` or other server spawn file. A previous viewer change
+assigned a stable but arbitrary yaw to each placement; that made existing NPCs
+face random directions and was removed. Until the server-authored spawn data is
+available, the viewer preserves the model's authored forward direction rather
+than fabricating per-NPC yaw. This is not recovery of the server's original
+instance directions.
+
+## Texture fault diagnostics
+
+Population textures keep `models.pck` as the canonical source (it carries NPC
+texture sheets beside their rigs), with a same-path `textures.pck` fallback if a
+payload cannot be decoded. The correct `pw142/models.zip.001`–`.010` set has
+been reassembled and validated. Guard rigs 1–4 resolve through ECM, SMD, BON,
+SKI and referenced textures; their meshes and action tracks parse.
+
+**Guard/resident appearance root cause:** the main Guard1 body mesh uses
+`r_男npc3.dds`. Its alpha channel is a specular mask, not opacity. Designer and
+Librarian classify `r_` textures for the native reflect-alpha path, but
+Populator did not. That made the alpha mask cut holes in the body, matching the
+attached screenshots. Populator now applies the same per-mesh classification
+before retaining/drawing any NPC rig. This fixes the source-side rendering
+policy; the updated build still needs an in-game confirmation.
 
 ## Overhead names (font and drawing, from the client's own files)
 
@@ -348,3 +366,48 @@ run time and uses that family and size for every label:
   terrain along the camera-to-head ray and sweeps the same BMD building/tree
   hulls the Walker collides with, so no name is ever visible through a wall,
   a roof or a hill. Bodies stay visible; only the label goes away.
+
+## Live World (Experimental): client-side prototype
+
+The 1.4.2 client has no server population-generation or patrol-route data. Its
+515 placed NPC records, human model templates and `world_targets.txt` city
+coordinates are inputs for a visual prototype, not authored resident schedules
+or safe spawn zones. The archive contains nine targets named as cities or
+districts; a target does not guarantee nearby walkable ground.
+
+The prototype uses only the original numbered male/female NPC rig families
+found near city targets and assigns generated residents synthetic names and ids.
+It does not copy a native NPC's identity, placement, route or schedule. The
+original city rigs have no recognized walk/run actions, so Live World now
+retargets locomotion tracks from the four Guard animation assets onto the
+original resident skeletons when joint/bone names match and the resulting posed
+mesh demonstrably changes. Retargeting preserves target bind translations,
+rebases local rotations from donor rest pose to resident rest pose, and rejects
+incompatible skeleton maps; Guard meshes are never used. If a donor cannot
+provide validated walk and run clips for a rig, that resident keeps the previous
+bind-pose route movement. Routes remain locally validated against terrain, water,
+buildings, floors and occupied actors; failed routes are retried or replanned.
+
+**Why the palette changed:** 43 distinct local male/female rigs are available
+across the nine city zones, but none has a recognized walk/run action. Guards
+`卫兵npc1`–`4` do have moving clips, but using their models made generated
+residents look like guards and collapsed the model variety. The donor clips are
+now used only as animation data behind a strict skeleton-map and posed-geometry
+check; the original male/female models remain the only visible generated rigs.
+
+**Guard asset check:** the reassembled `pw142/models.zip.001`–`.010` archive
+passes `unzip -t` and contains 40,753 `models.pck` entries. For each Guard rig
+1–4, the ECM→SMD→BON/SKI references resolve; parsed skins have valid mesh/index,
+material and joint references, and every referenced texture is present in the
+pack. The four SMD/BON sets also expose changing walk/run tracks. The visible
+body holes were caused by Populator treating the `r_` reflect-mask alpha channel
+as opacity. It now applies the same reflect-alpha classification as
+Designer/Librarian. Guards remain excluded from generated residents; the
+original male/female city rigs translate in bind pose without animation.
+
+The 1.4.2 `element/models.pck` is 888,028,116 bytes; the split files were the
+user-confirmed correct source, not a different build. Live World remains marked
+Experimental because names/routes are synthetic, some resident skeletons may
+not accept a validated retarget and therefore keep bind-pose movement, routes
+can all be rejected, and the corrected model/material/animation handling still
+needs an in-game run.

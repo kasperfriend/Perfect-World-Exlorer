@@ -49,7 +49,7 @@ impl Renderer {
         asset: &ModelAsset,
         poses: &[PosedMesh],
         frame: model_draw_gpu::Frame,
-        mut read: impl FnMut(&str) -> Result<Vec<u8>, String>,
+        mut read: impl FnMut(&str) -> Result<Vec<Vec<u8>>, String>,
     ) -> Result<model_draw_gpu::Draw, String> {
         let Self {
             sampler,
@@ -74,13 +74,30 @@ impl Renderer {
                 if let Some(cached) = textures.get(path) {
                     return Ok(cached.clone());
                 }
-                let bytes = read(path)?;
-                let (texture, alpha) = model_texture_gpu::upload_with_alpha(
-                    device,
-                    queue,
-                    &bytes,
-                    model_texture_gpu::UploadMode::Auto,
-                )?;
+                let candidates = read(path)?;
+                let mut failures = Vec::new();
+                let mut uploaded = None;
+                for bytes in candidates {
+                    match model_texture_gpu::upload_with_alpha(
+                        device,
+                        queue,
+                        &bytes,
+                        model_texture_gpu::UploadMode::Auto,
+                    ) {
+                        Ok((texture, alpha)) => {
+                            uploaded = Some((texture, alpha));
+                            break;
+                        }
+                        Err(error) => failures.push(error),
+                    }
+                }
+                let (texture, alpha) = uploaded.ok_or_else(|| {
+                    if failures.is_empty() {
+                        format!("no archive contained texture {path}")
+                    } else {
+                        format!("{path}: {}", failures.join("; "))
+                    }
+                })?;
                 let entry = (Arc::new(texture), alpha);
                 textures.insert(path.to_owned(), entry.clone());
                 Ok(entry)
