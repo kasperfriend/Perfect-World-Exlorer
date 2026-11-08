@@ -274,6 +274,29 @@ placements, and 2,275 is all of them across 163 distinct roots.
 | `场景/骷髅光柱.gfx` | 1 | 0 | 0 | 1 |
 | `场景/龙宫入口.gfx` | 1 | 0 | 0 | 1 |
 
+## Element 190 curves now draw
+
+Element 190 was the last class the player parsed and then skipped. It is used by
+exactly one placed root, the distant floating city `0远完美浮空城.gfx`, on two
+elements textured `图案/pattern032.dds` and `图案/光球1.dds`.
+
+The builder is `0x708460`. It takes the root's own `Vec:` pair (`root+0x188`,
+`root+0x18c`) rather than the element position, cross-multiplies two vectors for
+a side, normalises the chord, and divides 1.0 by that normalised length for the
+segment count. It tests the chord against `±1e-6` — as 8-byte doubles, `fcoml`,
+not floats — and drops the quad when the span is degenerate. That the class reads
+two root-level vectors is the point of it: a curve spans a distance rather than
+marking a point.
+
+The endpoints and the segment count are the recovered values. The exact
+orientation of the cross-product side vector is not claimed, because the two
+operands the builder multiplies are chosen inside the routine and not all of the
+call sites that fill its argument block are recovered; the quad is oriented
+across the chord from the view instead. So the residual error mode is a ribbon
+whose width axis could be turned about its own length, not a ribbon that fails to
+draw. The floating city now emits 1,274 quads including `图案/光球1.dds`, and a
+test requires both curve textures to reach the quad list.
+
 ## What is verified
 
 Measured on this branch, at `a25179d`:
@@ -289,6 +312,11 @@ Measured on this branch, at `a25179d`:
 - **1,606 of 1,606 extracted textures decode.** 1,267 DDS with zero failures —
   617 DXT1, 314 DXT3, 301 DXT5, 31 BGRA8, 3 RGB565 — and 339 TGA/BMP/JPG through
   the image decoder.
+- **Every element class draws.** 14 classes over the corpus: particle 13,665,
+  sprite 8,864, ribbon 2,956, child 1,530, cylinder 1,116, fractal 734, light 546,
+  sound 491, model 447, grid 216, curve 208, trail 156, wave 79, lightning 11.
+  Only element 190 used to be counted instead of drawn; it draws now. No placed
+  root contains an unknown element id.
 - **Animation is healthy.** UVs change on 390 of 400 sampled frames; the quad
   count at the waterfall steps 854 to 3,148 to 8,777.
 - **Fire is bounded.** `火焰1` and `好火焰` author `Acc 10..12` along `+Y` with
