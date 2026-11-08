@@ -22,10 +22,23 @@ pub fn evaluate(
     if !seconds.is_finite() || !model.is_finite() {
         return Err("nonfinite pose input".into());
     }
-    if s.bones.iter().any(|b| b.flags != 0) || s.joints.iter().any(|j| j.class != 15) {
+    // Bone flags: 0 is an ordinary deforming bone. Flag 1 is the helper-joint
+    // bit — 533 bones across the shipped skeletons carry it, and they are the
+    // 3ds Max helper objects a rig leaves behind (`Box01`, `Cylinder01`,
+    // `Line01`, `02_Bip02 Footsteps`), 515 of them unparented roots. They still
+    // carry a valid local transform, so they pose exactly like any other bone.
+    //
+    // This is measured, not assumed: not one flag-1 bone in the archive has a
+    // negative-determinant local matrix (533 positive, 0 negative), and neither
+    // does any flag-0 bone (5,573 positive). A reflection bit would show up
+    // there, so no shipped skeleton asks to mirror geometry.
+    //
+    // Flags 2 and 3 do not appear in the effect archive at all (25 and 175 bones
+    // in the wider model archive do), so they stay refused rather than guessed:
+    // the client's scale/constraint controllers are not decoded.
+    if s.bones.iter().any(|b| b.flags > 1) || s.joints.iter().any(|j| j.class != 15) {
         return Err(
-            "bone reflection, scale/constraint controller or non-animation joint is unsupported"
-                .into(),
+            "scale/constraint bone controller or non-animation joint is unsupported".into(),
         );
     }
     let count = s.bones.len();
@@ -267,5 +280,29 @@ mod tests {
         s = skeleton();
         s.joints[0].class = 12;
         assert!(evaluate(&s, &[], 0., Mat4::IDENTITY).is_err());
+    }
+
+    /// The helper-joint bit must pose exactly like an ordinary bone, and the
+    /// bits the client uses for scale and constraint controllers must still be
+    /// refused.
+    ///
+    /// Measured over the shipped skeletons: 533 bones carry flag 1 and none of
+    /// them has a negative-determinant local matrix, so the bit cannot mean
+    /// "reflect". They are the leftover 3ds Max helpers (`Box01`, `Cylinder01`,
+    /// `02_Bip02 Footsteps`), 515 of them unparented. Flags 2 and 3 do not occur
+    /// in the effect archive, so they stay refused rather than guessed.
+    #[test]
+    fn helper_joint_bones_pose_but_scale_controllers_stay_refused() {
+        let mut s = skeleton();
+        s.bones[0].flags = 1;
+        let posed = evaluate(&s, &[], 0., Mat4::IDENTITY).expect("a helper joint is still a bone");
+        assert_eq!(posed.absolute.len(), s.bones.len());
+        for flags in [2u8, 3] {
+            s.bones[0].flags = flags;
+            assert!(
+                evaluate(&s, &[], 0., Mat4::IDENTITY).is_err(),
+                "flag {flags} is a scale/constraint controller and must stay refused"
+            );
+        }
     }
 }

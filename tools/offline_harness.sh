@@ -253,6 +253,18 @@ pub mod gfx_light;
 pub mod gfx_owner;
 #[path = "$REPO/src/gfx_player.rs"]
 pub mod gfx_player;
+#[path = "$REPO/src/model_material.rs"]
+pub mod model_material;
+#[path = "$REPO/src/skeleton_pose.rs"]
+pub mod skeleton_pose;
+#[path = "$REPO/src/skin_pose.rs"]
+pub mod skin_pose;
+#[path = "$REPO/src/model_asset.rs"]
+pub mod model_asset;
+#[path = "$REPO/src/skeleton.rs"]
+pub mod skeleton;
+#[path = "$REPO/src/skin.rs"]
+pub mod skin;
 #[path = "$REPO/src/model_dds.rs"]
 pub mod model_dds;
 #[path = "$REPO/src/scene.rs"]
@@ -287,6 +299,6 @@ case "${1:-test}" in
             "$REPO/src/gfx_color_track.rs" "$REPO/src/gfx_catalog.rs" "$REPO/src/ecmodel.rs" \
             "$REPO/src/gfx_light.rs" "$REPO/src/gfx_owner.rs" "$REPO/src/scene_lights.rs" \
             "$REPO/src/view_settings.rs" "$REPO/src/client_weather.rs" \
-            "$REPO/src/sky_transition.rs" "$REPO/src/scene.rs" "$REPO/src/model_dds.rs" ;;
+            "$REPO/src/sky_transition.rs" "$REPO/src/scene.rs" "$REPO/src/model_dds.rs" "$REPO/src/skin.rs" "$REPO/src/skeleton.rs" "$REPO/src/skeleton_pose.rs" "$REPO/src/skin_pose.rs" "$REPO/src/model_asset.rs" "$REPO/src/model_material.rs" ;;
     *) echo "usage: $0 {setup|check|test|fmt}" >&2; exit 2 ;;
 esac
