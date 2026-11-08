@@ -546,6 +546,18 @@ const GAIT_CORE_BONES: [&str; 23] = [
     "Bip01 R Toe0",
 ];
 
+/// Ordering tier for locomotion candidates: 0 = the generic cycle names,
+/// 1 = every other locomotion-named slice. Stable sorting keeps file order
+/// within a tier.
+fn gait_candidate_rank(name: &str) -> u8 {
+    const PLAIN: [&str; 10] = [
+        "行走_通用", "移动_通用", "行走", "移动", "走",
+        "奔跑_通用", "跑_通用", "奔跑", "跑",
+    ];
+    let lower = name.to_lowercase();
+    if PLAIN.iter().any(|plain| lower == *plain) { 0 } else { 1 }
+}
+
 /// Rotation-only absolute rest orientations of a skeleton's bones, indexed by
 /// bone index and composing parent * local like the engine does. Resolution is
 /// memoised and depth-limited; corrupt cyclic parent data resolves to `None`
@@ -640,10 +652,22 @@ fn retarget_gait_clip(
     }
     let source_chain = rest_rotation_chain(&source.skeleton.bones);
     let target_chain = rest_rotation_chain(&target.skeleton.bones);
-    for (action_index, action) in source.model.actions.iter().enumerate() {
-        if gait_kind(&action.name) != Some(kind) {
-            continue;
-        }
+    // The client's file order puts the bound/grapple frames first. Played on a
+    // resident those fold the legs into a squat or a knee-lift - what the playtest
+    // saw as "sitting in air" - while the generic cycle slices (`行走_通用` /
+    // `奔跑_通用` and their bare-name twins) are the upright walks real players use.
+    // Plain names win outright; ties and unknowns keep file order.
+    let mut candidates: Vec<usize> = source
+        .model
+        .actions
+        .iter()
+        .enumerate()
+        .filter(|(_, action)| gait_kind(&action.name) == Some(kind))
+        .map(|(index, _)| index)
+        .collect();
+    candidates.sort_by_key(|&index| gait_candidate_rank(&source.model.actions[index].name));
+    for action_index in candidates {
+        let action = &source.model.actions[action_index];
         let Some(clip) = Clip::new(source, action_index) else {
             continue;
         };

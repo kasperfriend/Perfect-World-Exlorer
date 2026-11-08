@@ -390,6 +390,27 @@ def gait_kind(name):
     return None
 
 
+def gait_candidate_rank(name):
+    """Selection tier mirroring src/modules/populator/mod.rs::gait_candidate_rank.
+
+    The client's file order puts the bound/grapple slices first, which fold the
+    legs into a squat on a resident rig. The generic cycle slices win outright.
+    """
+    plain = {"行走_通用", "移动_通用", "行走", "移动", "走",
+             "奔跑_通用", "跑_通用", "奔跑", "跑"}
+    return 0 if name.lower() in plain else 1
+
+
+def _ranked_candidates(model_actions, kind):
+    indexed = [
+        (action_index, action)
+        for action_index, action in enumerate(model_actions)
+        if gait_kind(action["name"]) == kind
+    ]
+    indexed.sort(key=lambda pair: gait_candidate_rank(pair[1]["name"]))
+    return indexed
+
+
 def clip_ms(action, skeleton_fps):
     fps = action["fps"] if action.get("fps") and action["fps"] > 0 else skeleton_fps
     if not fps or fps <= 0 or action["end"] < action["start"] or action["start"] < 0:
@@ -812,7 +833,7 @@ def visibly_moves_proxy(source, target, entry):
 
 
 def runtime_gait(source, target, kind):
-    """Mirror the game's ordered loop over walk/run candidates.
+    """Mirror the game's ranked loop over walk/run candidates.
 
     Returns {"selected": entry-or-None, "trace": [...]}. Every candidate the
     game would consider is listed with the stage that decided its fate.
@@ -823,9 +844,7 @@ def runtime_gait(source, target, kind):
     for i, j in enumerate(target["skeleton"]["joints"]):
         t_joints.setdefault(j["name"], []).append(i)
     trace = []
-    for action_index, action in enumerate(source["model"]["actions"]):
-        if gait_kind(action["name"]) != kind:
-            continue
+    for action_index, action in _ranked_candidates(source["model"]["actions"], kind):
         clip = clip_ms(action, source["skeleton"]["fps"])
         if clip is None:
             trace.append((action["name"], "Clip::new rejects", None))
@@ -853,7 +872,8 @@ def runtime_selection_section(donors, resident_paths, load_cached):
     lines = [
         "## Runtime selection mirror (per resident, gender donor)\n\n",
         "What the game would actually play for each numbered resident rig, in "
-        "`model.actions` order, with the `visibly_moves` gate evaluated on the "
+        "the game's selection order (generic cycle names first, then file "
+        "order), with the `visibly_moves` gate evaluated on the "
         "retargeted pose exactly where the game evaluates it. `vise` is a "
         "bone-level proxy strictly more sensitive than the game's "
         "8-vertices-per-mesh vertex hash; `max bone move` is the largest "
@@ -925,9 +945,7 @@ def retarget_clip(source, target, kind, gate="legacy"):
         t_joints.setdefault(j["name"], []).append(i)
 
     report = {"kind": kind, "actions": [], "accepted": None}
-    for action_index, action in enumerate(source["model"]["actions"]):
-        if gait_kind(action["name"]) != kind:
-            continue
+    for action_index, action in _ranked_candidates(source["model"]["actions"], kind):
         entry, stop = _evaluate_candidate(source, target, kind, t_joints, action_index, action, gate)
         report["actions"].append(entry)
         if entry["verdict"] == "accepted":
