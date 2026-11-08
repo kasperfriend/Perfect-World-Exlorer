@@ -51,9 +51,9 @@ PROP_RIGS = {
 }
 
 # Mirrors the shipped retarget fix (src/modules/populator/mod.rs):
-# acceptance is full coverage of the locomotion bones, and a bone whose rest
-# frames diverge beyond MAX_GAP_DEG keeps its bind pose instead of being
-# re-oriented onto unrelated axes.
+# acceptance is full coverage of the locomotion bones. Pose deltas are
+# transported between every rig's own parent frame, so no rest-gap bind-keep
+# is applied; broken (non-rotation) bones keep their bind pose instead.
 CORE_BONES = (
     "Bip01", "Bip01 Pelvis", "Bip01 Spine", "Bip01 Spine1", "Bip01 Spine2",
     "Bip01 Neck", "Bip01 Head",
@@ -63,7 +63,6 @@ CORE_BONES = (
     "Bip01 R Thigh", "Bip01 R Calf", "Bip01 R Foot", "Bip01 R Toe0",
 )
 CORE_SET = frozenset(CORE_BONES)
-MAX_GAP_DEG = 45.0
 
 
 # --------------------------------------------------------------------------
@@ -154,6 +153,23 @@ def angle_between_rotation_mats(a, b):
 
 def _t3(a):
     return [[a[c][r] for c in range(3)] for r in range(3)]
+
+
+def mat3_to_quat(m):
+    tr = trace3(m)
+    if tr > 0.0:
+        s = math.sqrt(tr + 1.0) * 2.0
+        w, x, y, z = 0.25 * s, (m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s, (m[1][0] - m[0][1]) / s
+    elif m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        s = math.sqrt(max(0.0, 1.0 + m[0][0] - m[1][1] - m[2][2])) * 2.0
+        w, x, y, z = (m[2][1] - m[1][2]) / s, 0.25 * s, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s
+    elif m[1][1] > m[2][2]:
+        s = math.sqrt(max(0.0, 1.0 + m[1][1] - m[0][0] - m[2][2])) * 2.0
+        w, x, y, z = (m[0][2] - m[2][0]) / s, (m[0][1] + m[1][0]) / s, 0.25 * s, (m[1][2] + m[2][1]) / s
+    else:
+        s = math.sqrt(max(0.0, 1.0 + m[2][2] - m[0][0] - m[1][1])) * 2.0
+        w, x, y, z = (m[1][0] - m[0][1]) / s, (m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, 0.25 * s
+    return quat_norm([x, y, z, w])
 
 
 # --------------------------------------------------------------------------
@@ -443,6 +459,37 @@ def _chain_divergence(src_abs, tgt_abs, sbone, tbone):
     return angle_between_rotation_mats(src_abs[sp], tgt_abs[tp])
 
 
+
+
+def _mat3_conj(m, a, m_inv):
+    return mat3_mul(mat3_mul(m, a), m_inv)
+
+
+def _transport_track(track, sb, tb, m):
+    """Rebase one donor track onto the target: D = Rs * S^-1 is transported
+    from the donor's parent frame into the target's parent frame with the
+    exact change of basis M = F_t^-1 * F_s (rest world rotations), giving
+    Rm = M D M^-1 T. Bind-to-bind collapses to T at Rs = S."""
+    s_unit = unit_cols_to_mat(sb["unit"])
+    t_unit = unit_cols_to_mat(tb["unit"])
+    if mat3_det(s_unit) <= 0.0 or mat3_det(t_unit) <= 0.0:
+        bind = mat3_to_quat(t_unit)
+        return {**track, "rotation": {**track["rotation"],
+                                      "keys": [list(bind) for _ in track["rotation"]["keys"]]}}
+    s_inv = _t3(s_unit)
+    m = m if m is not None else [[1.0 if i == j else 0.0 for j in range(3)] for i in range(3)]
+    m_inv = _t3(m)
+    rotation = track["rotation"]
+    keys = []
+    for key in rotation["keys"]:
+        rs = quat_to_mat3(quat_norm(key))
+        d = mat3_mul(rs, s_inv)
+        d_t = _mat3_conj(m, d, m_inv)
+        rm = mat3_mul(d_t, t_unit)
+        keys.append(mat3_to_quat(rm))
+    return {**track, "rotation": {**rotation, "keys": keys}}
+
+
 def retarget_clip(source, target, kind, gate="legacy"):
     t_joints = {}
     for i, j in enumerate(target["skeleton"]["joints"]):
@@ -485,9 +532,8 @@ def retarget_clip(source, target, kind, gate="legacy"):
 
         mapped, seen, skipped = [], set(), []
         aborted = None
-        if gate == "core":
-            src_abs = _abs_rest_rotations(source["skeleton"]["bones"])
-            tgt_abs = _abs_rest_rotations(target["skeleton"]["bones"])
+        src_abs = _abs_rest_rotations(source["skeleton"]["bones"])
+        tgt_abs = _abs_rest_rotations(target["skeleton"]["bones"])
         for track in source_tracks:
             sid = track["id"]
             sjoint = source["skeleton"]["joints"][sid] if 0 <= sid < len(source["skeleton"]["joints"]) else None
@@ -533,28 +579,31 @@ def retarget_clip(source, target, kind, gate="legacy"):
                 if mat3_det(s_unit) > 0.0 and mat3_det(t_unit) > 0.0
                 else 999.0
             )
-            if gate == "core":
-                chain_gap = _chain_divergence(src_abs, tgt_abs, sbone, tbone)
-                if chain_gap > MAX_GAP_DEG:
-                    skipped.append(
-                        (sbone["name"], f"parent-frame divergence {chain_gap:.1f} deg > {MAX_GAP_DEG:.0f}")
-                    )
-                    continue
+            chain_gap = _chain_divergence(src_abs, tgt_abs, sbone, tbone)
+            broken = mat3_det(s_unit) <= 0.0 or mat3_det(t_unit) <= 0.0
+            if mat3_det(s_unit) > 0.0 and mat3_det(t_unit) > 0.0:
+                sp, tp = sbone["parent"], tbone["parent"]
+                if 0 <= sp < len(src_abs) and 0 <= tp < len(tgt_abs):
+                    m = mat3_mul(_t3(tgt_abs[tp]), src_abs[sp])
+                else:
+                    m = None
             else:
-                chain_gap = None
+                m = None
+            track = _transport_track(track, sb, tb, m)
             mapped.append(
                 {"joint": sjoint["name"], "bone": sbone["name"],
                  "src": sb, "tgt": tb,
                  "src_flags": sbone["flags"], "tgt_flags": tbone["flags"],
                  "rest_gap": rest_gap,
                  "chain_gap": chain_gap,
+                 "broken": broken,
                  "track": track}
             )
         if aborted:
             entry["verdict"] = aborted
             report["actions"].append(entry)
             continue
-        mapped_names = {m["bone"] for m in mapped}
+        mapped_names = {m["bone"] for m in mapped if not m.get("broken")}
         core_gaps = [m["rest_gap"] for m in mapped if m["bone"] in CORE_SET]
         entry["max_core_gap"] = max(core_gaps) if core_gaps else None
         chain_gaps = [m["chain_gap"] for m in mapped if m["bone"] in CORE_SET and m["chain_gap"] is not None]
@@ -792,11 +841,14 @@ def write_markdown(pack, names, out_path):
 
     lines.append(
         "## Summary table\n\n"
-        "`player *` columns use the shipped core-coverage gate (45 deg parent-frame "
-        "divergence bind cutoff) with the gender-correct player donor. `guard *` columns "
-        "keep the legacy 70% gate (Guard rigs, the old behaviour) for contrast. "
-        "`max chain gap` is the largest parent-frame divergence over mapped locomotion "
-        "bones for the same-gender player donor.\n\n"
+        "`player *` columns use the shipped core-coverage gate on retargeting "
+        "(formula A rebased into each target's parent frame: Rm = M D M^-1 T with "
+        "M = F_t^-1 F_s over rest parent-frame rotations) with the gender-correct "
+        "player donor. `guard *` columns keep the legacy 70% gate (Guard rigs, "
+        "the old behaviour) for contrast. `max chain gap` is the largest "
+        "parent-frame divergence over mapped locomotion bones for the "
+        "same-gender player donor; it is diagnostic only and never rejects a "
+        "clip.\n\n"
     )
     lines.append(
         "| resident | bon | bones | flagged | non15 | det≈0 | nonortho | scale≠1 | "
