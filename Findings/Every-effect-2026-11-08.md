@@ -802,6 +802,35 @@ consequently stands *unexplained* rather than fixed — the conversion is not it
 cause, and withdrawing that false claim is the honest position. City of Raging
 Tides also stands unexplained. Waterfalls are addressed in Update 12.
 
+### The corpus tests were not running
+
+Every test that reaches the corpus starts with
+
+```rust
+let Some(root) = corpus_root() else { return };
+```
+
+and `corpus_root` is `PathBuf::from("google_drive/x")` with an `is_dir()` gate.
+In this session `google_drive/` is empty, so **every one of those tests returns
+silently and reports `ok`**. They are indistinguishable from passing tests in
+the harness output. `emitted_world_roots_draw_nothing_until_the_clock_runs`,
+which is the waterfall animation check, is one of them.
+
+That is the mechanism by which a wrong fix can look verified. Two of the claims
+withdrawn above were argued from corpus numbers that were either misread or, in
+the 75 x 253 case, invented — and nothing in the test run contradicted either,
+because the tests that would have were no-ops.
+
+Two corrections follow, and they are worth more than any single fix here:
+
+1. **A corpus test that skips is not evidence.** If the suite is run without
+   `google_drive/`, its result says nothing about corpus behaviour, and a claim
+   about corpus behaviour must not cite it.
+2. **A test must fail on the old code.** The withdrawn Amplitude test asserted
+   the sprite moved *more* than twenty units and passed — it pinned the bug as
+   the specification. The replacement asserts the opposite bound and was
+   confirmed to fail at 708 units when the conversion is removed.
+
 ### Method note
 
 Two of the last three "fixes" in this file were wrong and had to be reverted: the
