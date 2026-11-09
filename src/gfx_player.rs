@@ -418,6 +418,11 @@ struct ParticleState {
     direction: Vec3,
     /// node+0x50: accumulated displacement, controller 104's moving target.
     displacement: Vec3,
+    /// Where this particle was born, before any controller moved it. Controller
+    /// 107's noise is a *displacement of the birth point*, not a per-frame step:
+    /// adding it every frame compounds, and `夜空飘尘`'s `Amplitude: 400`
+    /// walked its 0.4-unit particle out to +/-7900 units in forty frames.
+    origin: Vec3,
     /// node+0x5c: speed along `AccDir`.
     acc_speed: f32,
     /// node+0x60: speed along `direction`, seeded from `Speed`.
@@ -3125,8 +3130,27 @@ fn spawn(
             }
         }
     };
-    let scale = rng.range(particle.scale_min, particle.scale_max);
-    let rotation = rng.range(particle.rot_min, particle.rot_max);
+    // Both fields are authored ranges, and the editor wrote a good many of them
+    // backwards: 724 of the corpus's 12,360 particle elements put the larger
+    // value in `ScaleMin`. Reading the pair as an unordered interval is what
+    // reproduces the authored sizes; feeding `range(low, high)` a reversed pair
+    // still yields a value inside the interval, so the visible symptom is not a
+    // wrong size but a silently wrong distribution — except at the ends, where
+    // `ScaleMax: 0` makes `range` return exactly 0 and the particle is dropped
+    // by the non-positive guard in `quad_corners`. Normalising the pair is the
+    // reading that keeps every authored particle on screen.
+    let (scale_low, scale_high) = if particle.scale_min <= particle.scale_max {
+        (particle.scale_min, particle.scale_max)
+    } else {
+        (particle.scale_max, particle.scale_min)
+    };
+    let (rot_low, rot_high) = if particle.rot_min <= particle.rot_max {
+        (particle.rot_min, particle.rot_max)
+    } else {
+        (particle.rot_max, particle.rot_min)
+    };
+    let scale = rng.range(scale_low, scale_high);
+    let rotation = rng.range(rot_low, rot_high);
     ParticleState {
         age: 0.,
         ttl: particle.ttl,
@@ -3136,6 +3160,7 @@ fn spawn(
         previous: position,
         direction,
         displacement: Vec3::ZERO,
+        origin: position,
         acc_speed: 0.,
         speed: particle.speed,
         scale,
@@ -3664,7 +3689,13 @@ fn integrate(
                     (*octaves).max(1) as usize,
                     *buffer_length,
                 );
-                state.position += Vec3::new(sample, sample * 0.5, sample * 0.25) * *amplitude;
+                // `orig` rather than `position`: the element-level path assigns
+                // its noise (`state.noise = ...`), so a particle must not
+                // accumulate it. Recomputing from the birth point each frame
+                // gives the same value a fresh particle would have, which is
+                // what makes `Amplitude` a wobble instead of a drift.
+                let offset = Vec3::new(sample, sample * 0.5, sample * 0.25) * *amplitude;
+                state.position = state.origin + state.displacement + offset;
             }
             ControlData::ColorRamp { .. } => {
                 if let Some(Some(track)) = ramps.get(slot) {
@@ -4321,6 +4352,76 @@ mod tests {
             }
         }
         assert_eq!(moved, 10, "the sheet must scroll on every frame");
+    }
+
+    /// Controller 107's noise is a displacement of the particle's birth point,
+    /// not a per-frame step. Adding it every frame compounded: `夜空飘尘`'s
+    /// `Amplitude: 400` walked its 0.4-unit dust out past +/-7,900 units inside
+    /// forty frames, which is the effect that covers a whole map.
+    #[test]
+    fn a_particle_noise_controller_does_not_accumulate() {
+        let fractal = "GFXELEMENTID: 121\r\nName: dust\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+             TexFile: 粒子\\particle001.dds\r\nQuota: -1\r\nParticleWidth: 0.4\r\n\
+             ParticleHeight: 0.4\r\nEmissionRate: 100\r\nSpeed: 0.1\r\nTTL: 10\r\n\
+             ColorMin: -1\r\nColorMax: -1\r\nScaleMin: 0.2\r\nScaleMax: 0.1\r\n\
+             RotMin: 0\r\nRotMax: 0\r\nIsSurface: 0\r\nIsBind: 0\r\n\
+             AreaSize: 1.0, 1.0, 1.0\r\nAffectorCount: 1\r\nCtrlType: 107\r\n\
+             StartTime: 0\r\nEndTime: -1\r\nBufLen: 256\r\nAmplitude: 400\r\n\
+             WaveLen: 100\r\nPersistence: 0.25\r\nOctaveNum: 5\r\n\
+             BaseColor: -1\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
+             TimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\n\
+             Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
+        let mut player = build(&(header37(1) + fractal));
+        let mut worst = 0f32;
+        for _ in 0..60 {
+            step(&mut player, 33.);
+            for quad in player.quads() {
+                for point in &quad.positions {
+                    worst = worst.max(point[0].abs().max(point[1].abs()).max(point[2].abs()));
+                }
+            }
+        }
+        // `Amplitude` 400 with the birth point held still stays within a few
+        // hundred units; the compounding bug reached thousands by frame 30.
+        assert!(
+            worst < 900.,
+            "noise accumulated to {worst} units; it must stay near the birth point"
+        );
+    }
+
+    /// 724 of 12,360 particle elements author `ScaleMin` larger than `ScaleMax`
+    /// — `夜空飘尘` writes `ScaleMin: 0.2` against `ScaleMax: 0.1`. Reading the
+    /// pair as an unordered interval is what keeps the authored spread; feeding
+    /// a reversed pair to `range` skews the distribution and collapses it to
+    /// zero at the ends, which drops the particle entirely.
+    #[test]
+    fn an_inverted_scale_range_is_read_as_an_interval() {
+        let mut rng = Rng::new(11);
+        // The authored pair from `夜空飘尘`, inverted.
+        let (low, high) = if 0.2f32 <= 0.1f32 {
+            (0.2, 0.1)
+        } else {
+            (0.1, 0.2)
+        };
+        let mut seen_low = false;
+        let mut seen_high = false;
+        for _ in 0..256 {
+            let value = rng.range(low, high);
+            assert!(
+                (0.1..=0.2).contains(&value),
+                "a value of {value} escaped the authored interval"
+            );
+            if value < 0.12 {
+                seen_low = true;
+            }
+            if value > 0.18 {
+                seen_high = true;
+            }
+        }
+        assert!(
+            seen_low && seen_high,
+            "the whole interval must be reachable"
+        );
     }
 
     /// An empty `TexFile` is *not* drawable geometry. 3,459 of the corpus's

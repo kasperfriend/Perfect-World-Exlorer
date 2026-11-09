@@ -2195,6 +2195,11 @@ fn control(reader: &mut Reader) -> Result<Control, String> {
         }
         111 => {
             let first = reader.number("Scale")?;
+            let first = if first.is_finite() {
+                first.clamp(-1000., 1000.)
+            } else {
+                1.
+            };
             let count = reader.integer("Count")?;
             if count < 0 || count > 10 {
                 return Err(format!("scale ramp Count {count} is out of range"));
@@ -2206,6 +2211,21 @@ fn control(reader: &mut Reader) -> Result<Control, String> {
                 if !span.is_finite() {
                     return Err(format!("scale ramp stop TimeSpan {span} is not finite"));
                 }
+                // `Scale` here is a multiplier on the element's authored size, so
+                // the values that belong are all small. A handful of files carry
+                // uninitialized editor memory in this slot instead — the same
+                // class of junk the keypoint `Scale` guard above already names —
+                // and a stop of `8.26e23` (the `封引3` sprite in
+                // `gfx/人物/技能/刺客/回光返照_左手.gfx`) stretches one quad to
+                // 1.57e24 world units, which reads on screen as the whole scene
+                // going white. Clamping the stop keeps the ramp's shape and its
+                // timing; rejecting the file would drop the effect entirely.
+                const MAX_SCALE_STOP: f32 = 1000.;
+                let value = if value.is_finite() {
+                    value.clamp(-MAX_SCALE_STOP, MAX_SCALE_STOP)
+                } else {
+                    1.
+                };
                 stops.push((value, span));
             }
             ControlData::ScaleRamp { first, stops }
@@ -3301,6 +3321,35 @@ mod tests {
         // silently flattened patch.
         let short = source.replace("-58.0 0.0 9.0\ndwColor", "dwColor");
         assert!(parse(&short).is_err());
+    }
+
+    /// A scale-ramp stop carries uninitialized editor memory in a handful of
+    /// files: `封引3` in `gfx/人物/技能/刺客/回光返照_左手.gfx` authors
+    /// `Scale: 826299995273231830000000.000000`, which stretches one sprite to
+    /// 1.57e24 world units and reads on screen as the whole scene turning white.
+    /// The stop is clamped rather than the file rejected, so the effect survives.
+    #[test]
+    fn a_garbage_scale_ramp_stop_is_clamped() {
+        let source = header37(1)
+            + "GFXELEMENTID: 100\nName: s\nSrcBlend: 5\nDestBlend: 2\n\
+               TexFile: 法阵\\封引3.dds\nWidth: 1.0\nHeight: 1.0\n
+               StartTime: 0\nKEYPOINTCOUNT: 1\n\
+               InterpolateMode: 0\nTimeSpan: 2000\nPosition: 0, 0, 0\nColor: -1\n\
+               Scale: 1\nDirection: 0, 0, 0, 1\nRad_2D: 0\nCtrlMethodCount: 1\n\
+               CtrlType: 111\nStartTime: 0\nEndTime: -1\nScale: 0.1\nCount: 2\n\
+               Scale: 1.3\nTimeSpan: 100\n\
+               Scale: 826299995273231830000000.000000\nTimeSpan: 100\n";
+        let root = parse(&source).expect("sprite with a scale ramp");
+        let control = &root.elements[0].keypoints[0].controls[0];
+        let ControlData::ScaleRamp { stops, .. } = &control.data else {
+            panic!("controller 111 is a scale ramp");
+        };
+        assert_eq!(stops.len(), 2);
+        assert_eq!(stops[0], (1.3, 100.));
+        assert_eq!(
+            stops[1].0, 1000.,
+            "editor garbage must be clamped, not carried into geometry"
+        );
     }
 
     /// `TimeSpan: -1` means "hold forever". Summing it as a duration produced a
