@@ -195,6 +195,12 @@ pub struct ViewSettings {
     pub weather_override: WeatherOverride,
     /// World tab: pin one `sky.lst` row instead of the day/night ladder.
     pub sky_override: SkyOverride,
+    /// Which live-logging channels are ticked. Bit `n` is
+    /// `crate::diagnostics::Channel::ALL[n]`, so the whole Logging tab survives a
+    /// restart without a key per channel.
+    pub logging_mask: u64,
+    /// Where the log files go; empty means `<client root>/pwe-logs`.
+    pub logging_dir: String,
 }
 impl Default for ViewSettings {
     fn default() -> Self {
@@ -262,6 +268,10 @@ impl Default for ViewSettings {
             // constants can be inspected anywhere.
             weather_override: WeatherOverride::Auto,
             sky_override: SkyOverride::Auto,
+            // Off by default: logging is a tool the user reaches for, not a cost
+            // every session pays.
+            logging_mask: 0,
+            logging_dir: String::new(),
         }
     }
 }
@@ -376,6 +386,16 @@ impl ViewSettings {
                 "cloud_detail" => flag!(s.cloud_detail),
                 "whole_world" => flag!(s.whole_world),
                 "water_reflections" => flag!(s.water_reflections),
+                "logging_mask" => {
+                    if let Ok(bits) = v.parse::<u64>() {
+                        s.logging_mask = bits;
+                    }
+                }
+                "logging_dir" => {
+                    // An empty value is the default directory, so it is stored
+                    // rather than ignored: clearing the box must persist too.
+                    s.logging_dir = v.to_string();
+                }
                 "world_effects" => flag!(s.world_effects),
                 "atmospheric_fog" => flag!(s.atmospheric_fog),
                 "bloom" => flag!(s.bloom),
@@ -410,14 +430,14 @@ impl ViewSettings {
             "radius={}\nterrain_cutoff={}\ntree_lod_scale={}\nscenery_quality={}\ncamera_speed={}\nboost={}\nsensitivity={}\nfar={}\ntime_of_day={}\ntime_pass_enabled={}\ntime_pass_speed={}\nall_to_vram={}\n",
             "whole_world={}\nwater_reflections={}\nworld_effects={}\natmospheric_fog={}\nbloom={}\nbloom_strength={}\nbloom_mode={}\nbloom_tint={}\nbloom_brightness_fade={}\nbloom_opacity_fade={}\nclient_gamma={}\ngamma_setting={}\n",
             "terrain_lightmaps={}\nmodel_backface_culling={}\nmusic_enabled={}\nmusic_volume={}\nambience_enabled={}\nsound_volume={}\neffects_enabled={}\neffects_volume={}\nfullscreen={}\nshow_zone_entry={}\n",
-            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncelestial_brightness={}\nignore_celestial_flags={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\nweather_override={}\nsky_override={}\n"),
+            "show_minimap={}\nminimap_range={}\ntree_wind_strength={}\nclient_tree_wind_preview={}\nregional_tree_lighting={}\ngrass_distance_fade={}\ngrass_wind_enabled={}\ngrass_wind_amplitude={}\nstreamed_regions={}\narea_grass_lightmaps={}\nvegetation_authored_mips={}\ncelestial_discs={}\ncelestial_brightness={}\nignore_celestial_flags={}\ncloud_detail={}\nsharpen={}\nresolution_scale={}\nworld_map_style={}\nminimap_style={}\nminimap_shape={}\nweather_override={}\nsky_override={}\nlogging_mask={}\nlogging_dir={}\n"),
             self.detail.radius,self.detail.terrain_cutoff,self.detail.tree_lod_scale,self.detail.scenery_quality,self.camera_speed,self.boost,self.sensitivity,self.far,self.time_of_day,self.time_pass_enabled,self.time_pass_speed,self.all_to_vram,
             self.whole_world,self.water_reflections,self.world_effects,self.atmospheric_fog,self.bloom,self.bloom_strength,self.bloom_mode,self.bloom_tint,self.bloom_brightness_fade,self.bloom_opacity_fade,self.client_gamma,self.gamma_setting,
             self.terrain_lightmaps,self.model_backface_culling,self.music_enabled,self.music_volume,self.ambience_enabled,self.sound_volume,self.effects_enabled,self.effects_volume,self.fullscreen,self.show_zone_entry,
             self.show_minimap,self.minimap_range,self.tree_wind_strength,self.client_tree_wind_preview,self.regional_tree_lighting,self.grass_distance_fade,self.grass_wind_enabled,self.grass_wind_amplitude,self.streamed_regions,self.area_grass_lightmaps,self.vegetation_authored_mips,self.celestial_discs,self.celestial_brightness,self.ignore_celestial_flags,self.cloud_detail,self.sharpen,self.resolution_scale,
             self.world_map_style.label(),self.minimap_style.label(),
             self.minimap_shape.label(),
-            self.weather_override.token(),self.sky_override.token())
+            self.weather_override.token(),self.sky_override.token(),self.logging_mask,self.logging_dir)
     }
     fn file() -> Option<std::path::PathBuf> {
         #[cfg(windows)]

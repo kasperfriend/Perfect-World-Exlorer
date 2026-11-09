@@ -817,6 +817,10 @@ struct ElementContext<'a> {
     rotation: f32,
     /// Milliseconds on the element clock, for flipbooks and UV scroll.
     clock: f32,
+    /// The archive path of the root this element belongs to, so a log line says
+    /// which asset it came from. Empty when the host never named the player,
+    /// which is only true of tests.
+    root: &'a str,
 }
 
 impl ElementContext<'_> {
@@ -991,6 +995,10 @@ pub struct Player {
     /// Effect-archive models named by element 160, already posed and turned into
     /// triangle lists. Empty when the host supplied no model reader.
     models: Vec<Vec<EffectMesh>>,
+    /// Archive path of the root, for the log lines. The player cannot read it out
+    /// of `Root` because the text does not carry its own name, so the host hands
+    /// it over; empty until then, and in tests.
+    name: String,
 }
 
 impl Player {
@@ -1003,6 +1011,117 @@ impl Player {
         load_child: &mut dyn FnMut(&str) -> Result<Root, String>,
     ) -> Result<Self, String> {
         Self::with_depth(root, seed, load_child, 0, &mut Vec::new())
+    }
+
+    /// Name the root for the log lines, and write its element table once.
+    ///
+    /// The table is the single most useful thing to have when an artefact has to
+    /// be traced back: it pairs the element ids a log line reports with the
+    /// authored `TexFile`, size, grid and blend the editor wrote. It is dumped
+    /// here rather than per frame because it never changes.
+    pub fn set_name(&mut self, name: impl Into<String>) {
+        self.name = name.into();
+        if !crate::diagnostics::enabled(crate::diagnostics::Channel::EffectElements) {
+            return;
+        }
+        crate::diag!(
+            EffectElements,
+            "{} version={} default_scale={:.3} play_speed={:.3} default_alpha={:.3} \
+             raytrace={} face_to_viewer={} use_aabb={} shake={} elements={} textures={} \
+             warnings={} models={}",
+            self.name,
+            self.root.version,
+            self.root.default_scale,
+            self.root.play_speed,
+            self.root.default_alpha,
+            self.root.raytrace,
+            self.root.face_to_viewer,
+            self.root.use_aabb,
+            self.root.shake_cam,
+            self.root.elements.len(),
+            self.textures.len(),
+            self.warnings.len(),
+            self.models.len()
+        );
+        for (index, element) in self.root.elements.iter().enumerate() {
+            let common = &element.common;
+            let (width, height, extra) = match &element.spec {
+                Spec::Sprite(sprite) => (
+                    sprite.width,
+                    sprite.height,
+                    format!(
+                        "rot_from_view={} grnd_norm_only={} no_scale={:?} origin={:?} z={:.3} \
+                         match_surface={}",
+                        sprite.rotate_from_view,
+                        sprite.ground_normal_only,
+                        sprite.no_scale,
+                        sprite.origin,
+                        sprite.z_offset,
+                        sprite.match_surface
+                    ),
+                ),
+                Spec::Cylinder(cylinder) => (
+                    cylinder.radius,
+                    cylinder.height,
+                    format!(
+                        "sects={} pitch={:.3} centre={} no_rad_scale={} no_hei_scale={}",
+                        cylinder.sections,
+                        cylinder.pitch,
+                        cylinder.origin_at_center,
+                        cylinder.no_radius_scale,
+                        cylinder.no_height_scale
+                    ),
+                ),
+                Spec::Grid(grid) => (
+                    grid.cell_size,
+                    grid.cell_size,
+                    format!(
+                        "rows={} cols={} cell={:.3} z={:.3}",
+                        grid.rows, grid.columns, grid.cell_size, grid.z_offset
+                    ),
+                ),
+                _ => (0., 0., String::new()),
+            };
+            crate::diag!(
+                EffectElements,
+                "{} #{} id={} name={:?} tex={:?} blend={}/{} layer={} prio={} size={:.3}x{:.3} \
+                 grid={}x{} interval={} tile={} speed=({:.3},{:.3}) flips={}{}{} \
+                 repeat={} delay={:.1} start={:.0}ms keys={} match_grnd={} z_enable={} {} {}",
+                self.name,
+                index,
+                element.id,
+                common.name,
+                common.texture,
+                common.source_blend,
+                common.destination_blend,
+                common.render_layer,
+                common.priority,
+                width,
+                height,
+                common.tex_col,
+                common.tex_row,
+                common.tex_interval,
+                common.tile_mode,
+                common.tex_speed[0],
+                common.tex_speed[1],
+                if common.reverse_u { "U" } else { "" },
+                if common.reverse_v { "V" } else { "" },
+                if common.exchange_uv { "X" } else { "" },
+                common.repeat_count,
+                common.repeat_delay,
+                element.start_time,
+                element.keypoints.len(),
+                common.match_ground,
+                common.depth_test,
+                if common.is_dummy { "dummy" } else { "" },
+                extra
+            );
+        }
+    }
+
+    /// The name the host gave this root, empty until [`Self::set_name`].
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Elements that could not be resolved at load time.
@@ -1137,6 +1256,7 @@ impl Player {
             // sequence the elements draw from.
             shake_seed: seed.wrapping_add(0x5348_414b),
             warnings,
+            name: String::new(),
             textures,
             models: Vec::new(),
         })
@@ -1399,6 +1519,7 @@ impl Player {
         let color_scale =
             self.root.default_alpha * alpha * distance_fade(&self.root, view.position, base);
         let time = self.time;
+        let root_name = self.name.as_str();
         let play_speed = self.root.play_speed;
         let version = self.root.version;
         let face_to_viewer = self.root.face_to_viewer;
@@ -1463,6 +1584,7 @@ impl Player {
                 &mut out,
                 &element_meshes,
                 drape,
+                root_name,
             )?;
             runtime.ended = done;
             finished = finished && done;
@@ -1482,9 +1604,39 @@ impl Player {
         );
         self.rng = rng;
         stats.quads = out.len();
+        let loops = self.loops();
+        // The clock channel: the whole root once a frame. This is the line that
+        // answers "is it running at all, and at what rate", which is the first
+        // question for anything that looks frozen.
+        crate::diag!(
+            EffectClock,
+            "{} t={:.1}ms dt={:.1}ms play_speed={:.3} finished={} loops={loops} \
+             elements={} quads={} particles={} emitters={} ribbons={} models={} \
+             lights={} sounds={} dummies={} unrendered={} alpha={:.3} scale={:.3} \
+             drape={} ground={}",
+            root_name,
+            self.time,
+            dt_ms,
+            play_speed,
+            finished && !loops,
+            self.elements.len(),
+            stats.quads,
+            stats.particles,
+            stats.emitters,
+            stats.ribbons,
+            stats.models,
+            stats.lights,
+            stats.sounds,
+            stats.dummies,
+            stats.unrendered,
+            color_scale,
+            scale,
+            drape.is_some(),
+            frames.is_some()
+        );
         self.stats = stats;
         self.quads = out;
-        self.finished = finished && !self.loops();
+        self.finished = finished && !loops;
         Ok(())
     }
 
@@ -1593,6 +1745,8 @@ fn advance_element(
     // The owner's surface, for the ground-draped sprite path. Copy, so every
     // element of the root can take its own.
     drape: Option<GroundSampler<'_>>,
+    // The root's archive path, carried into every log line this element writes.
+    root: &str,
 ) -> Result<bool, String> {
     let local = time - element.start_time;
     if local < 0. {
@@ -1658,7 +1812,38 @@ fn advance_element(
         // rotation, not a speed).
         rotation: sampled.rad_2d + runtime.state.rotation,
         clock: phase,
+        root,
     };
+    // The Logging tab's frame channel: what the element resolved to this tick.
+    // The basis is the world matrix the card is drawn in, so a card that is in
+    // the right place but the wrong way round shows up as a basis a reader can
+    // compare with the client's `GetParentTM`/`GetParentDir` pair.
+    if crate::diagnostics::enabled(crate::diagnostics::Channel::EffectFrames) {
+        let keypoint_direction = sampled.direction * Vec3::Z;
+        let column = |axis: Vec3| format!("({:.2},{:.2},{:.2})", axis.x, axis.y, axis.z);
+        crate::diag!(
+            EffectFrames,
+            "{} id={} kp={} clock={:.0}ms scale={:.3} key=({:.3},{:.3},{:.3}) dir={} \
+             rot={:.3} color={:#010x} basis right={} up={} dir={} origin=({:.1},{:.1},{:.1})",
+            root,
+            element.id,
+            index,
+            phase,
+            context.scale,
+            key.position.x,
+            key.position.y,
+            key.position.z,
+            column(keypoint_direction),
+            context.rotation,
+            context.color,
+            column(placement.x_axis.truncate()),
+            column(placement.y_axis.truncate()),
+            column(placement.z_axis.truncate()),
+            placement.w_axis.x,
+            placement.w_axis.y,
+            placement.w_axis.z
+        );
+    }
     // `IsDummy` marks an element the client builds but never submits: `冲击波1`
     // keeps a whole child element behind it. Note that `DummyEle` is *not* this
     // flag — it names another element to take a basis from, and the drawable
@@ -2505,8 +2690,20 @@ fn push_quad(
         return;
     }
     if color[3] < ALPHA_CUTOFF {
+        crate::diag!(
+            EffectAlpha,
+            "{} id={} dropped at the cutoff: alpha {:.4} < {} textured={}",
+            context.root,
+            context.id,
+            color[3],
+            ALPHA_CUTOFF,
+            texture
+        );
         return;
     }
+    // Every card of every class passes through here, which is why both the card
+    // and the UV channel are wired at this one funnel instead of in each class.
+    log_card(context, texture, positions, uv, color, out.len());
     out.push(EffectQuad {
         texture: texture.to_string(),
         source_blend: context.common.source_blend,
@@ -2519,6 +2716,103 @@ fn push_quad(
         color,
         mesh: None,
     });
+}
+
+/// The card channel and the UV channel, written from [`push_quad`].
+///
+/// A card line is the whole geometry of one quad: the four corners in the
+/// client's own order, the centre, the two edge lengths and which texture it
+/// draws. That is what a screenshot artefact needs to be matched against the
+/// element table, and what tells a correctly placed card with a wrong basis from
+/// a wrong placement.
+///
+/// A UV line is the window the card samples: the flipbook cell or the tile
+/// repeat is already baked into `uv`, so the line prints the window itself plus
+/// the authored grid and speed it came from.
+fn log_card(
+    context: &ElementContext,
+    texture: &str,
+    positions: [[f32; 3]; 4],
+    uv: [[f32; 2]; 4],
+    color: [f32; 4],
+    index: usize,
+) {
+    if !crate::diagnostics::any() {
+        return;
+    }
+    if crate::diagnostics::enabled(crate::diagnostics::Channel::EffectCards) {
+        let span = |a: [f32; 3], b: [f32; 3]| {
+            let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+            (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+        };
+        let centre = [
+            (positions[0][0] + positions[1][0] + positions[2][0] + positions[3][0]) / 4.,
+            (positions[0][1] + positions[1][1] + positions[2][1] + positions[3][1]) / 4.,
+            (positions[0][2] + positions[1][2] + positions[2][2] + positions[3][2]) / 4.,
+        ];
+        crate::diag!(
+            EffectCards,
+            "{} id={} #{} tex={} blend={}/{} layer={} prio={} a={:.3} \
+             {:.2}x{:.2} c=({:.2},{:.2},{:.2}) \
+             p0=({:.2},{:.2},{:.2}) p1=({:.2},{:.2},{:.2}) p2=({:.2},{:.2},{:.2}) \
+             p3=({:.2},{:.2},{:.2})",
+            context.root,
+            context.id,
+            index,
+            texture,
+            context.common.source_blend,
+            context.common.destination_blend,
+            context.common.render_layer,
+            context.common.priority,
+            color[3],
+            span(positions[0], positions[1]),
+            span(positions[0], positions[3]),
+            centre[0],
+            centre[1],
+            centre[2],
+            positions[0][0],
+            positions[0][1],
+            positions[0][2],
+            positions[1][0],
+            positions[1][1],
+            positions[1][2],
+            positions[2][0],
+            positions[2][1],
+            positions[2][2],
+            positions[3][0],
+            positions[3][1],
+            positions[3][2]
+        );
+    }
+    if crate::diagnostics::enabled(crate::diagnostics::Channel::EffectUv) {
+        let common = context.common;
+        crate::diag!(
+            EffectUv,
+            "{} id={} #{} tile={} grid={}x{} interval={}ms speed=({:.3},{:.3}) \
+             flips={}{}{} clock={:.0}ms uv=[({:.3},{:.3}),({:.3},{:.3}),({:.3},{:.3}),({:.3},{:.3})]",
+            context.root,
+            context.id,
+            index,
+            common.tile_mode,
+            common.tex_col,
+            common.tex_row,
+            common.tex_interval,
+            common.tex_speed[0],
+            common.tex_speed[1],
+            if common.reverse_u { "U" } else { "" },
+            if common.reverse_v { "V" } else { "" },
+            if common.exchange_uv { "X" } else { "" },
+            context.clock,
+            uv[0][0],
+            uv[0][1],
+            uv[1][0],
+            uv[1][1],
+            uv[2][0],
+            uv[2][1],
+            uv[3][0],
+            uv[3][1]
+        );
+    }
 }
 
 /// Controller 107's `Amplitude` is authored in centimetres, not world units.
@@ -2557,7 +2851,23 @@ fn emit_clock(
         Spec::Sprite(sprite) => emit_sprite(sprite, context, face_to_viewer, out, drape),
         Spec::Cylinder(cylinder) => emit_cylinder(cylinder, context, out),
         Spec::Grid(grid) => emit_grid(grid, context, out),
-        Spec::Light(_) => stats.lights += 1,
+        Spec::Light(_) => {
+            stats.lights += 1;
+            // Lights are published even when world effects are switched off, so
+            // this channel is readable with the graph released.
+            crate::diag!(
+                EffectLights,
+                "{} id={} at ({:.2},{:.2},{:.2}) colour={:#010x} alpha={:.3} clock={:.0}ms",
+                context.root,
+                context.id,
+                context.placement.w_axis.x,
+                context.placement.w_axis.y,
+                context.placement.w_axis.z,
+                context.color,
+                context.rgba()[3],
+                context.clock
+            );
+        }
         Spec::Sound(_) => stats.sounds += 1,
         Spec::Model(_) => stats.models += 1,
         Spec::Curve(curve) => emit_curve(curve, context, out),
@@ -2581,10 +2891,34 @@ fn emit_sprite(
     drape: Option<GroundSampler<'_>>,
 ) {
     let color = context.rgba();
+    crate::diag!(
+        EffectAlpha,
+        "{} id={} authored={:#010x} color_scale={:.4} rgba=({:.3},{:.3},{:.3},{:.3}) \
+         cutoff={} size={:.3}x{:.3} origin={:?}",
+        context.root,
+        context.id,
+        context.color,
+        context.color_scale,
+        color[0],
+        color[1],
+        color[2],
+        color[3],
+        ALPHA_CUTOFF,
+        sprite.width,
+        sprite.height,
+        sprite.origin
+    );
     if color[3] < ALPHA_CUTOFF {
         return;
     }
     let Ok(texture) = texture_path(&context.common.texture) else {
+        crate::diag!(
+            EffectTextures,
+            "{} id={} texture {:?} is not a usable archive path",
+            context.root,
+            context.id,
+            context.common.texture
+        );
         return;
     };
     // `RotFromView` decides where the orientation comes from: 598 retail sprites
@@ -2607,6 +2941,36 @@ fn emit_sprite(
     } else {
         QuadBasis::Element
     };
+    // Which of the three branches built the card is exactly what the Logging
+    // tab's decal channel is for: an axial card that should have been a billboard
+    // and a billboard card that should never have been one look the same in a
+    // size.
+    crate::diag!(
+        EffectDecals,
+        "{} id={} basis={} rot_from_view={} face_to_viewer={} texture={} \
+         origin={:?} z_offset={:.3} clock={:.0}ms",
+        context.root,
+        context.id,
+        basis.name(),
+        sprite.rotate_from_view,
+        face_to_viewer,
+        texture,
+        sprite.origin,
+        sprite.z_offset,
+        context.clock
+    );
+    crate::diag!(
+        EffectTextures,
+        "{} id={} texture={} blend={}/{} layer={} prio={} z_enable={}",
+        context.root,
+        context.id,
+        texture,
+        context.common.source_blend,
+        context.common.destination_blend,
+        context.common.render_layer,
+        context.common.priority,
+        context.common.depth_test
+    );
     // A ground sheet is not a card. `Fill_Verts_3D` cuts it into two-unit cells
     // and asks the terrain for each vertex's own height; everything below is the
     // flat fallback for the sheets that cannot be draped.
@@ -2679,6 +3043,16 @@ fn drape_sprite(
         || sprite.ground_normal_only
         || !sampler.near_ground
     {
+        crate::diag!(
+            EffectGround,
+            "{} id={} flat card: id100={} match_ground={} grnd_norm_only={} near_ground={}",
+            context.root,
+            context.id,
+            context.id == 100,
+            context.common.match_ground,
+            sprite.ground_normal_only,
+            sampler.near_ground
+        );
         return false;
     }
     // `fParentScale` scales the extents in the client before the cell count is
@@ -2713,12 +3087,12 @@ fn drape_sprite(
     let centre = context.placement.transform_point3(Vec3::ZERO);
     // The query is a field, not a method: `sampler.height(..)` would look for a
     // method on the struct, so it is bound first.
-    let height = sampler.height;
+    let height_at = sampler.height;
     let uv = flipbook_uv(context.common, context.clock);
     let sample = |i: usize, j: usize| -> Option<([f32; 3], [f32; 2])> {
         let x = centre.x - width1 + j as f32 * cell_w;
         let z = centre.z + height2 - i as f32 * cell_h;
-        let y = height(x, z)? + GROUND_DRAPE_LIFT;
+        let y = height_at(x, z)? + GROUND_DRAPE_LIFT;
         let fi = i as f32 / rows as f32;
         let fj = j as f32 / cols as f32;
         let u = uv[0][0] + (uv[1][0] - uv[0][0]) * fj;
@@ -2753,6 +3127,24 @@ fn drape_sprite(
             push_quad(out, context, texture, positions, uvs, color);
         }
     }
+    crate::diag!(
+        EffectGround,
+        "{} id={} draped {:.2}x{:.2} into {}x{} cells of {:.2}x{:.2} at ({:.2},{:.2}) \
+         quads={} surface={:?} lift={}",
+        context.root,
+        context.id,
+        width,
+        height,
+        cols,
+        rows,
+        cell_w,
+        cell_h,
+        centre.x,
+        centre.z,
+        out.len(),
+        height_at(centre.x, centre.z),
+        GROUND_DRAPE_LIFT
+    );
     true
 }
 
@@ -2776,6 +3168,18 @@ enum QuadBasis {
     /// `RotFromView`: an axial billboard. The card's height stays on the
     /// element's own direction and only its width turns to the camera.
     Axial,
+}
+
+impl QuadBasis {
+    /// The name the decal channel prints, so a log line says which of the three
+    /// branches built a card without a `Debug` derive on the payload.
+    fn name(self) -> &'static str {
+        match self {
+            Self::Billboard { .. } => "billboard",
+            Self::Element => "element",
+            Self::Axial => "axial",
+        }
+    }
 }
 
 /// Build the four world-space corners of one quad, in the client's order
@@ -2895,6 +3299,23 @@ fn quad_corners(
 /// the client multiplies a model's vertices by. Model colour is taken from the
 /// element's keypoint like any other class, through `context.rgba()`.
 fn emit_model(meshes: &[EffectMesh], context: &ElementContext, out: &mut Vec<EffectQuad>) {
+    crate::diag!(
+        EffectModels,
+        "{} id={} meshes={} vertices={} textures={:?} at ({:.2},{:.2},{:.2}) scale={:.3}",
+        context.root,
+        context.id,
+        meshes.len(),
+        meshes.iter().map(|mesh| mesh.vertices.len()).sum::<usize>(),
+        meshes
+            .iter()
+            .map(|mesh| mesh.texture.as_str())
+            .take(4)
+            .collect::<Vec<_>>(),
+        context.placement.w_axis.x,
+        context.placement.w_axis.y,
+        context.placement.w_axis.z,
+        context.scale
+    );
     let color = context.rgba();
     if color[3] < ALPHA_CUTOFF {
         return;
@@ -3367,6 +3788,37 @@ fn emit_particles(
         });
     }
     stats.particles += particles.len();
+    // Spawns, deaths and the live count together: a particle that never dies is
+    // a leak and one that dies at once is invisible, and the two read the same
+    // in a single number.
+    crate::diag!(
+        EffectParticles,
+        "{} id={} live={} quota={} rate={:.2}/s ttl={:.2}s size={:.3}x{:.3} \
+         origin={:?} 3d={} billboard={} dir=({:.2},{:.2},{:.2}) speed={:.2} \
+         acc={:.2} angle={:.2} ground={} surface={} bind={} area={:?} radius={:?}",
+        context.root,
+        context.id,
+        particles.len(),
+        quota,
+        particle.emission_rate,
+        particle.ttl,
+        particle.width,
+        particle.height,
+        particle.origin,
+        particle.is_3d,
+        !particle.is_3d,
+        particle.initial_direction.x,
+        particle.initial_direction.y,
+        particle.initial_direction.z,
+        particle.speed,
+        particle.particle_acc,
+        particle.angle,
+        particle.start_on_ground,
+        particle.is_surface,
+        particle.is_bind,
+        particle.area_size,
+        particle.radius
+    );
 
     let tint = context.rgba();
     if tint[3] < ALPHA_CUTOFF {
@@ -5893,6 +6345,7 @@ mod tests {
             emission_scale: 1.,
             rotation: 0.,
             clock: 0.,
+            root: "test.gfx",
         }
     }
 
@@ -7527,6 +7980,16 @@ mod tests {
             step(&mut player, dt);
             assert_eq!(player.quads()[0].uv[0], want, "clock {clock}");
         }
+    }
+
+    /// The name a host gives a player is what identifies it in every log line the
+    /// element, frame and card channels write, so it has to survive `set_name`.
+    #[test]
+    fn a_player_remembers_the_name_its_host_gave_it() {
+        let mut player = build(&(header37(1) + SPRITE));
+        assert_eq!(player.name(), "");
+        player.set_name("gfx/场景/树林光束.gfx");
+        assert_eq!(player.name(), "gfx/场景/树林光束.gfx");
     }
 
     /// `RotFromView: 0` keeps the authored keypoint basis: the card lies in the

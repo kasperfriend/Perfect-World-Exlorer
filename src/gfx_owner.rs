@@ -801,7 +801,24 @@ impl Manager {
                 continue;
             }
             if !owner.request.active || owner.elapsed < owner.request.start_ms {
-                owner.player = None;
+                if owner.player.take().is_some() {
+                    crate::diag!(
+                        EffectRoots,
+                        "{} released: active={} elapsed={:.0}ms start={:.0}ms",
+                        owner.request.path,
+                        owner.request.active,
+                        owner.elapsed,
+                        owner.request.start_ms
+                    );
+                }
+                crate::diag!(
+                    EffectCulling,
+                    "{} skipped: active={} elapsed={:.0}ms start={:.0}ms",
+                    owner.request.path,
+                    owner.request.active,
+                    owner.elapsed,
+                    owner.request.start_ms
+                );
                 continue;
             }
             let scaled = (delta_ms as f32 * owner.request.speed).max(0.);
@@ -825,6 +842,29 @@ impl Manager {
             // the roof bagua is authored 0.304 and came out 44.8 units wide
             // instead of 13.6, and `水门_瀑布` is authored 2.736.
             let authored_scale = placement_scale(&world);
+            crate::diag!(
+                EffectCulling,
+                "{} drawn: record scale {:.3} alpha {:.3} speed {:.3} elapsed {:.0}ms \
+                 origin ({:.1},{:.1},{:.1}); basis right=({:.2},{:.2},{:.2}) \
+                 up=({:.2},{:.2},{:.2}) dir=({:.2},{:.2},{:.2})",
+                owner.request.path,
+                authored_scale,
+                alpha,
+                owner.request.speed,
+                owner.elapsed,
+                world[12],
+                world[13],
+                world[14],
+                world[0],
+                world[1],
+                world[2],
+                world[4],
+                world[5],
+                world[6],
+                world[8],
+                world[9],
+                world[10]
+            );
             let stepped = {
                 let Some(player) = owner.player.as_mut() else {
                     continue;
@@ -863,6 +903,7 @@ impl Manager {
             // open. Overwritten every interval, so the newest view wins.
             let report = census_report(&mut rows, out.len());
             eprint!("{report}");
+            crate::diag!(RenderEffects, "{}", report.trim_end());
             if let Err(error) = std::fs::write("effect-census.txt", &report) {
                 self.effect_warnings
                     .push(format!("effect census not written: {error}"));
@@ -907,12 +948,25 @@ impl Manager {
                 for warning in player.warnings() {
                     let line = format!("{path}: {warning}");
                     if !self.effect_warnings.contains(&line) {
+                        crate::diag!(EffectProblems, "{line}");
                         self.effect_warnings.push(line);
                     }
                 }
+                crate::diag!(
+                    EffectRoots,
+                    "{} built: warnings={} textures={} models={} quads={} \
+                     previous_failures={}",
+                    player.name(),
+                    player.warnings().len(),
+                    player.textures().len(),
+                    player.models().len(),
+                    player.quads().len(),
+                    self.effect_failures.len()
+                );
                 self.owners[index].player = Some(player);
             }
             Err(error) => {
+                crate::diag!(EffectProblems, "{path} would not build: {error}");
                 self.owners[index].player_failed = true;
                 self.effect_failures.push(format!("{origin}: {error}"));
             }
@@ -932,11 +986,15 @@ impl Manager {
     ) -> Result<Player, String> {
         let root = crate::gfx_file::parse(text).map_err(|error| format!("{path}: {error}"))?;
         let seed = gfx_player::path_seed(path);
-        Player::new(root, seed, &mut |child| {
+        let mut player = Player::new(root, seed, &mut |child| {
             let text = read(child)?;
             crate::gfx_file::parse(&text).map_err(|error| format!("{child}: {error}"))
         })
-        .map_err(|error| format!("{path}: {error}"))
+        .map_err(|error| format!("{path}: {error}"))?;
+        // Naming the root is what lets the element, frame and card channels say
+        // which asset a line came from, and it writes the element table once.
+        player.set_name(path);
+        Ok(player)
     }
 
     /// Lazily load exactly one pending root; 0x5b1a00 returns after a load.

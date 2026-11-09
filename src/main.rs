@@ -36,6 +36,7 @@ mod cloud_gpu;
 #[allow(dead_code)]
 mod cloud_surface;
 mod color_chain;
+mod diagnostics;
 mod display_gamma;
 mod dxt;
 mod ecmodel;
@@ -841,6 +842,18 @@ fn main() {
     // Publish the saved residency choice before anything opens a cache: the
     // terrain store and the decoded-texture caches both read it.
     let saved = view_settings::ViewSettings::load();
+    // Live logging goes before everything else, so the first load can already be
+    // logged: the folder defaults to the client root, the mask is whatever the
+    // settings tab left ticked, and the session line names the run.
+    diagnostics::set_default_dir(path.join("pwe-logs"));
+    diagnostics::apply_dir(&saved.logging_dir);
+    diagnostics::set_mask(saved.logging_mask);
+    diagnostics::set_session(format!(
+        "client root {} | version {} | mask {:#018x}",
+        path.display(),
+        env!("CARGO_PKG_VERSION"),
+        saved.logging_mask
+    ));
     objects::set_unbounded_textures(saved.all_to_vram);
     #[cfg(windows)]
     let loading = windows_setup::LoadingWindow::start();
