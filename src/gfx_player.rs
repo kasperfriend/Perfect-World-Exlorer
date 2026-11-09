@@ -1332,7 +1332,7 @@ impl Player {
         alpha: f32,
         ground: Option<GroundHit>,
     ) -> Result<(), String> {
-        self.advance_with_terrain(dt_ms, view, transform, scale, alpha, ground, None)
+        self.advance_with_terrain(dt_ms, view, transform, scale, alpha, ground, None, 1.)
     }
 
     /// The same frame with both kinds of ground data: the single sample the
@@ -1361,6 +1361,15 @@ impl Player {
         // owner's own frame is built from, and a caller can have one without
         // the other.
         terrain: Option<GroundHeightQuery<'_>>,
+        // The scale the *placement matrix* already carries, when the caller put
+        // one there. A world owner does: `0x5b3700` bakes the ECWLD record's
+        // scale into the node matrix. `A3DDecalEx::Fill_Verts_2D` sizes a card
+        // from `m_pGfx->GetActualScale()` and takes only its centre from
+        // `GetParentTM()`, so a 100/101 sprite must not be scaled twice — it is
+        // divided back out there. World geometry (particles, models, rings,
+        // grids, the draped sheet) is built in the parent frame and keeps it.
+        // A caller whose matrix carries no scale passes 1.0.
+        owner_scale: f32,
     ) -> Result<(), String> {
         if !dt_ms.is_finite() || dt_ms < 0. {
             return Err(format!("invalid effect delta {dt_ms}"));
@@ -1370,6 +1379,9 @@ impl Player {
         }
         if !alpha.is_finite() || alpha < 0. {
             return Err(format!("invalid effect alpha {alpha}"));
+        }
+        if !owner_scale.is_finite() || owner_scale <= 0. {
+            return Err(format!("invalid placement scale {owner_scale}"));
         }
         if !transform.is_finite() {
             return Err("non-finite effect transform".into());
@@ -1466,7 +1478,7 @@ impl Player {
                 view,
                 parent,
                 color_scale,
-                scale,
+                owner_scale,
                 [self.root.aabb_center, self.root.aabb_half],
                 &mut rng,
                 &mut stats,
@@ -8091,7 +8103,7 @@ mod tests {
     /// effects get: the drape answers to the query alone.
     fn step_draped(player: &mut Player, transform: Mat4, terrain: Option<GroundHeightQuery<'_>>) {
         player
-            .advance_with_terrain(16., &view(), transform, 1., 1., None, terrain)
+            .advance_with_terrain(16., &view(), transform, 1., 1., None, terrain, 1.)
             .unwrap_or_else(|error| panic!("{error}"));
     }
 

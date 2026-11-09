@@ -234,6 +234,7 @@ impl CharacterGfx {
                     effect.alpha,
                     ground,
                     terrain,
+                    1.,
                 )
                 .map_err(|error| format!("{}: {error}", effect.path))?;
             out.extend(player.quads().iter().cloned());

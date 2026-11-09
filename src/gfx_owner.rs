@@ -837,6 +837,7 @@ impl Manager {
                         alpha,
                         None,
                         terrain,
+                        authored_scale,
                     )
                     .map(|()| player.quads().to_vec())
             };
