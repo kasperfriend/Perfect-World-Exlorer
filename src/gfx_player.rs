@@ -2295,8 +2295,15 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
     let cells = rows * cols;
     let mut uv = [[0., 0.], [1., 0.], [0., 1.], [1., 1.]];
     if cells > 1 {
+        // A missing `TexInterval` is 0, and 0 used to be substituted with
+        // **1 ms**: a sheet with `TexRow`/`TexCol` above one but no interval
+        // flipped a thousand cells a second, which at 60 Hz is a strobe rather
+        // than an animation. Nothing authors a one-millisecond flip, so an
+        // absent interval holds the first cell. Every corpus element that
+        // enables the flipbook writes an interval, so this only decides a
+        // damaged or hand-written record.
         let interval = if common.tex_interval == 0 {
-            1.
+            f32::INFINITY
         } else {
             common.tex_interval as f32
         };
@@ -2305,7 +2312,11 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
         } else {
             cells
         };
-        let index = ((clock_ms.max(0.) / interval).floor() as u32) % limit;
+        let index = if interval.is_finite() {
+            ((clock_ms.max(0.) / interval).floor() as u32) % limit
+        } else {
+            0
+        };
         let row = index / cols;
         let col = index % cols;
         let u0 = col as f32 / cols as f32;
@@ -7122,6 +7133,35 @@ mod tests {
         step(&mut tiled, 16.);
         assert_eq!(tiled.quads().len(), 1);
         assert_eq!(tiled.quads()[0].tile_mode, 1);
+    }
+
+    /// A flipbook with no authored `TexInterval` must hold its first cell, not
+    /// flip a thousand times a second. The fallback used to substitute 1 ms for
+    /// the absent interval, so a `TexRow`/`TexCol` sheet with the key omitted
+    /// strobed at 1000 Hz — the purest form of "the effect plays too fast".
+    #[test]
+    fn a_flipbook_without_an_interval_holds_its_first_cell() {
+        use crate::gfx_file::Common;
+        let mut common = Common::default();
+        common.tex_row = 2;
+        common.tex_col = 2;
+        common.tex_interval = 0;
+        // Every sample over two seconds has to be the same cell: the top-left
+        // quarter, [0,0]..[0.5,0.5].
+        for ms in [0f32, 16., 500., 1000., 1999.] {
+            let uv = flipbook_uv(&common, ms);
+            assert_eq!(uv[0], [0., 0.], "at {ms} ms the top-left corner moved");
+            assert_eq!(uv[3], [0.5, 0.5], "at {ms} ms the cell changed");
+        }
+        // An authored interval still animates: 100 ms per cell over four cells.
+        common.tex_interval = 100;
+        assert_eq!(flipbook_uv(&common, 0.)[0], [0., 0.]);
+        assert_eq!(flipbook_uv(&common, 150.)[0], [0.5, 0.], "cell 2 at 150 ms");
+        assert_eq!(
+            flipbook_uv(&common, 350.)[0],
+            [0.5, 0.5],
+            "cell 4 at 350 ms"
+        );
     }
 
     /// The version-76 boundary on the depth test. The rule came from the static

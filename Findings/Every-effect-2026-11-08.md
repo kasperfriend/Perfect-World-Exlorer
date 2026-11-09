@@ -723,3 +723,16 @@ evidence available:
 | `dummy_element`, `is_loop`, `enable_material`, `enable_origin_1/2`, `position_1/2_enable` | covered elsewhere in these findings |
 | `alpha_compare`, `alpha_segments`, `ambient`, `specular`, `attenuation`, `falloff`, `max_distance`, `min_distance`, `light_type`, `light_number` | light-element keys; element 130 executes, the strip family is documented as unsupported |
 | `action`, `alpha_segments`, `average_generation_segments`, `beta_segments`, `is_average_generation*`, `scale_no_offset`, `stroke_amplitude`, `yaw_effect`, `phi`, `render_side`, `write_z`, `match_surface`, `max_extent`, `tile_mode` (now used) | no corpus element reaches the routine that would read them |
+
+### Update 8 — a flipbook with no `TexInterval` flipped at 1000 Hz
+
+`flipbook_uv` substituted **1 ms** for an absent `TexInterval`. A sheet with
+`TexRow`/`TexCol` above one and the key omitted therefore changed cell a thousand
+times a second, which at 60 Hz is a strobe rather than an animation — the purest
+form of "the effect plays too fast". The parser defaults the key to 0, so any
+record that enables the flipbook without writing an interval reached it.
+
+Nothing authors a one-millisecond flip, so an absent interval now holds the first
+cell. Every corpus element that enables the flipbook does write an interval, so
+this decides only a damaged or hand-written record; the test fails on the old
+fallback (`at 1999 ms the top-left corner moved`) and passes on the new one.
