@@ -176,8 +176,7 @@ impl Gallery {
                 map.map(|map| physics::effect_ground(map, spawn.transform.w_axis.truncate()));
             // The drape needs the surface under the sheet, not the one sample
             // the frames are built from.
-            let height =
-                |x: f32, z: f32| map.map(|map| physics::ground(map, x, z).height);
+            let height = |x: f32, z: f32| map.map(|map| physics::ground(map, x, z).height);
             let terrain: Option<gfx_player::GroundHeightQuery<'_>> = Some(&height);
             spawn
                 .player

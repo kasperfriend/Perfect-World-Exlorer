@@ -2619,8 +2619,16 @@ fn drape_sprite(
     // the offsets below would lose it if they went through the matrix, which is
     // why the same product the billboard branch reads is taken here.
     let parent_scale = context.placement.x_axis.truncate().length();
-    let scale_x = (if sprite.no_scale[0] { 1. } else { context.scale }) * parent_scale;
-    let scale_y = (if sprite.no_scale[1] { 1. } else { context.scale }) * parent_scale;
+    let scale_x = (if sprite.no_scale[0] {
+        1.
+    } else {
+        context.scale
+    }) * parent_scale;
+    let scale_y = (if sprite.no_scale[1] {
+        1.
+    } else {
+        context.scale
+    }) * parent_scale;
     let width1 = sprite.width * 2. * sprite.origin[0] * scale_x;
     let height0 = sprite.height * 2. * sprite.origin[1] * scale_y;
     let width2 = sprite.width * 2. * scale_x - width1;
@@ -8024,11 +8032,7 @@ mod tests {
 
     /// The same frame with terrain but no `GroundHit`, which is what the world's
     /// effects get: the drape answers to the query alone.
-    fn step_draped(
-        player: &mut Player,
-        transform: Mat4,
-        terrain: Option<GroundHeightQuery<'_>>,
-    ) {
+    fn step_draped(player: &mut Player, transform: Mat4, terrain: Option<GroundHeightQuery<'_>>) {
         player
             .advance_with_terrain(16., &view(), transform, 1., 1., None, terrain)
             .unwrap_or_else(|error| panic!("{error}"));
@@ -8283,8 +8287,14 @@ mod tests {
         // The flipbook rect is spread over the lattice, not repeated in every
         // cell: a 2x2 sheet with a one-cell texture covers three distinct
         // coordinates an axis and never more.
-        let mut us: Vec<f32> = quads.iter().flat_map(|q| q.uv.iter().map(|p| p[0])).collect();
-        let mut vs: Vec<f32> = quads.iter().flat_map(|q| q.uv.iter().map(|p| p[1])).collect();
+        let mut us: Vec<f32> = quads
+            .iter()
+            .flat_map(|q| q.uv.iter().map(|p| p[0]))
+            .collect();
+        let mut vs: Vec<f32> = quads
+            .iter()
+            .flat_map(|q| q.uv.iter().map(|p| p[1]))
+            .collect();
         us.sort_by(f32::total_cmp);
         vs.sort_by(f32::total_cmp);
         let distinct = |values: &mut Vec<f32>| {

@@ -726,7 +726,9 @@ impl World {
         // The field and the owner manager are separate places, so the sampler
         // borrows one and the pass advances the other.
         let sampler: Option<crate::gfx_player::GroundHeightQuery<'_>> = self.terrain.as_deref();
-        let quads = self.owners.effect_quads_with_ground(delta_ms, &view, sampler);
+        let quads = self
+            .owners
+            .effect_quads_with_ground(delta_ms, &view, sampler);
         // Say once, on stderr, what the invisible pipeline is doing. Nothing in
         // the world told a user *which* stage was empty when no effect appeared:
         // the roots could be unloaded, out of radius, failed to parse, or drawing
