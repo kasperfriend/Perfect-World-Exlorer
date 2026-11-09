@@ -180,7 +180,7 @@ impl Gallery {
             let terrain: Option<gfx_player::GroundHeightQuery<'_>> = Some(&height);
             spawn
                 .player
-                .advance_with_terrain(dt_ms, view, spawn.transform, 1., 1., ground, terrain, 1.)
+                .advance_with_terrain(dt_ms, view, spawn.transform, 1., 1., ground, terrain)
                 .map_err(|error| format!("{}: {error}", spawn.path))?;
             out.extend(spawn.player.quads().iter().cloned());
         }

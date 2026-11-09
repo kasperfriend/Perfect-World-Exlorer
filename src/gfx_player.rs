@@ -817,15 +817,6 @@ struct ElementContext<'a> {
     rotation: f32,
     /// Milliseconds on the element clock, for flipbooks and UV scroll.
     clock: f32,
-    /// The owner's placement scale, as handed to [`Player::advance_with_terrain`].
-    /// A 100/101 sprite is a screen-space card whose size comes from
-    /// `m_pGfx->GetActualScale()` in `A3DDecalEx::Fill_Verts_2D`, i.e. the GFX's
-    /// own `DedaultScale`; the owner's map scale reaches the card only through
-    /// `GetParentTM() * kp.m_vPos`, which moves its centre. Dividing it back out
-    /// of the extents is what keeps `场景/树林光束.gfx` at its authored 14 units
-    /// under the 8.776 this map authors, while `能量喷泉`'s particles, whose
-    /// geometry is built in the parent frame, still follow the map scale.
-    owner_scale: f32,
 }
 
 impl ElementContext<'_> {
@@ -1332,7 +1323,7 @@ impl Player {
         alpha: f32,
         ground: Option<GroundHit>,
     ) -> Result<(), String> {
-        self.advance_with_terrain(dt_ms, view, transform, scale, alpha, ground, None, 1.)
+        self.advance_with_terrain(dt_ms, view, transform, scale, alpha, ground, None)
     }
 
     /// The same frame with both kinds of ground data: the single sample the
@@ -1361,15 +1352,6 @@ impl Player {
         // owner's own frame is built from, and a caller can have one without
         // the other.
         terrain: Option<GroundHeightQuery<'_>>,
-        // The scale the *placement matrix* already carries, when the caller put
-        // one there. A world owner does: `0x5b3700` bakes the ECWLD record's
-        // scale into the node matrix. `A3DDecalEx::Fill_Verts_2D` sizes a card
-        // from `m_pGfx->GetActualScale()` and takes only its centre from
-        // `GetParentTM()`, so a 100/101 sprite must not be scaled twice — it is
-        // divided back out there. World geometry (particles, models, rings,
-        // grids, the draped sheet) is built in the parent frame and keeps it.
-        // A caller whose matrix carries no scale passes 1.0.
-        owner_scale: f32,
     ) -> Result<(), String> {
         if !dt_ms.is_finite() || dt_ms < 0. {
             return Err(format!("invalid effect delta {dt_ms}"));
@@ -1379,9 +1361,6 @@ impl Player {
         }
         if !alpha.is_finite() || alpha < 0. {
             return Err(format!("invalid effect alpha {alpha}"));
-        }
-        if !owner_scale.is_finite() || owner_scale <= 0. {
-            return Err(format!("invalid placement scale {owner_scale}"));
         }
         if !transform.is_finite() {
             return Err("non-finite effect transform".into());
@@ -1478,7 +1457,6 @@ impl Player {
                 view,
                 parent,
                 color_scale,
-                owner_scale,
                 [self.root.aabb_center, self.root.aabb_half],
                 &mut rng,
                 &mut stats,
@@ -1604,8 +1582,6 @@ fn advance_element(
     view: &View,
     base: Mat4,
     color_scale: f32,
-    // The owner's placement scale, for the screen-space sprite path.
-    owner_scale: f32,
     // The root's `Vec:` pair, which element 190 uses as its span endpoints.
     span: [Vec3; 2],
     rng: &mut Rng,
@@ -1682,7 +1658,6 @@ fn advance_element(
         // rotation, not a speed).
         rotation: sampled.rad_2d + runtime.state.rotation,
         clock: phase,
-        owner_scale,
     };
     // `IsDummy` marks an element the client builds but never submits: `冲击波1`
     // keeps a whole child element behind it. Note that `DummyEle` is *not* this
@@ -2401,6 +2376,46 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
     let cols = common.tex_col.max(1);
     let cells = rows * cols;
     let mut uv = [[0., 0.], [1., 0.], [0., 1.], [1., 1.]];
+    // `TileMode` is not a flipbook. `A3DGFXElement::CalcTexAnimation` takes a
+    // different branch for it:
+    //
+    //     if (m_bTileMode) { m_fTexWid = (float)m_nTexCol; m_fTexHei = (float)m_nTexRow; }
+    //     else if (rows == 1 && cols == 1) m_bNeedCalcTex = false;
+    //     else { m_fTexWid = 1.f / cols; m_fTexHei = 1.f / rows; }
+    //
+    // and `A3DGFXElement::TexAnimation` scrolls instead of stepping:
+    //
+    //     if (m_bTileMode) { m_fTexU += m_fUOffsetSpeed * dt; m_fTexV += m_fVOffsetSpeed * dt; }
+    //     else { ... m_nCurTexCol/m_nCurTexRow step every TexInterval ... }
+    //
+    // so the two flags differ in what `TexRow`/`TexCol` mean. A flipbook cuts
+    // one cell out of a `TexCol x TexRow` grid and steps it every `TexInterval`.
+    // A tiled sheet writes the whole `TexCol x TexRow` range into the vertices
+    // and slides it at `TexSpeed`, so the grid is a *repeat count* and the sheet
+    // flows continuously. Stepping cells as well is what made every waterfall
+    // sheet in `场景/新种族地图` jump between the frames of its atlas instead of
+    // running.
+    let seconds = clock_ms / 1000.;
+    if common.tile_mode {
+        // `m_fTexWid = (float)m_nTexCol` is what makes this a tile rather than
+        // a cell: `Fill_Verts_3D` writes `fU = {m_fTexU, m_fTexU + m_fTexWid}`
+        // straight into the vertices, so the card's UV window is `TexCol` by
+        // `TexRow` texture widths and the sampler's `Repeat` turns that into
+        // `TexCol x TexRow` copies of the sheet. `TexRow`/`TexCol` are the
+        // *repeat counts* here, not a grid of frames.
+        let u = common.tex_speed[0] * seconds;
+        let v = common.tex_speed[1] * seconds;
+        let across = cols as f32;
+        let down = rows as f32;
+        uv = [
+            [u, v],
+            [u + across, v],
+            [u, v + down],
+            [u + across, v + down],
+        ];
+        apply_uv_flips(&mut uv, common);
+        return uv;
+    }
     if cells > 1 {
         // A missing `TexInterval` is 0, and 0 used to be substituted with
         // **1 ms**: a sheet with `TexRow`/`TexCol` above one but no interval
@@ -2439,22 +2454,28 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
         point[0] += scroll_u;
         point[1] += scroll_v;
     }
+    apply_uv_flips(&mut uv, common);
+    uv
+}
+
+/// `UReverse`, `VReverse` and `UVExchg`, the three mirrors `A3DGFXElement`
+/// applies to the sampled window.
+fn apply_uv_flips(uv: &mut [[f32; 2]; 4], common: &Common) {
     if common.reverse_u {
-        for point in &mut uv {
+        for point in uv.iter_mut() {
             point[0] = 1. - point[0];
         }
     }
     if common.reverse_v {
-        for point in &mut uv {
+        for point in uv.iter_mut() {
             point[1] = 1. - point[1];
         }
     }
     if common.exchange_uv {
-        for point in &mut uv {
+        for point in uv.iter_mut() {
             point.swap(0, 1);
         }
     }
-    uv
 }
 
 /// The static decal path proved this gate: before version 76 the client always
@@ -2567,11 +2588,17 @@ fn emit_sprite(
         return;
     };
     // `RotFromView` decides where the orientation comes from: 598 retail sprites
-    // take it from the camera, the other 8,271 keep the authored keypoint
-    // direction, which is what the verified static path does. The root's
-    // `FaceToViewer` forces the camera basis for every sprite in the root.
-    let billboard = sprite.rotate_from_view || face_to_viewer;
-    let basis = if billboard {
+    // set it, the other 8,271 keep the authored keypoint direction, which is what
+    // the verified static path does. The root's `FaceToViewer` faces a whole root
+    // at the camera.
+    //
+    // A `RotFromView` card is *not* screen-facing. `A3DDecalEx::Fill_Verts_3D`
+    // (A3DDecalEx.cpp:357-413) keeps its height on the element's own direction
+    // and takes only the width from the view, so a 0.5 x 10 shaft is a thin
+    // streak lying the way the map turned it, not a screen-tall wall.
+    let basis = if sprite.rotate_from_view {
+        QuadBasis::Axial
+    } else if face_to_viewer {
         QuadBasis::Billboard {
             right: context.view.right,
             up: context.view.up,
@@ -2588,17 +2615,21 @@ fn emit_sprite(
             return;
         }
     }
-    // `Fill_Verts_2D` sizes the card from `m_pGfx->GetActualScale()` — the GFX's
-    // own `DedaultScale` — and takes only the card's *centre* from
-    // `GetParentTM()`, so the owner's map scale must not be multiplied into the
-    // extents. Measured against the 10 November census: `树林光束` is authored
-    // `DedaultScale: 0.7` with 0.5 x 10 cards, and this map places it at 8.776,
-    // which drew a 6 x 123 tree-top shaft where retail draws 0.7 x 14.
-    let owner = if context.owner_scale.is_finite() && context.owner_scale > 1e-6 {
-        context.owner_scale
-    } else {
-        1.
-    };
+    // The card's extent is `Width x Height` doubled, times the keypoint scale,
+    // times `m_pGfx->GetActualScale()`. That last product is
+    // `m_fDefScale * m_fScale` (`A3DGFXEx::CalcActualScale`, A3DGFXEx.h:197-200)
+    // and the world supplies `m_fScale` itself:
+    //
+    //     // CECOrnamentMan::LoadGFXFromFile, EC_ManOrnament.cpp:950
+    //     A3DMATRIX4 mat = a3d_TransformMatrix(pNode->vDir, pNode->vUp, pNode->vPos);
+    //     pGFX->SetScale(pNode->fScale);
+    //     pGFX->SetParentTM(mat);
+    //
+    // so the ECWLD record's scale does reach the card, through `SetScale` rather
+    // than through the placement matrix — which `SetParentTM` normalizes away
+    // (A3DGFXEx.cpp:1589-1595). The placement here already carries
+    // `DedaultScale * record scale` (see `advance_with_terrain`'s `base`), which
+    // is exactly `GetActualScale()`, so the extents take no further factor.
     let positions = quad_corners(
         context,
         basis,
@@ -2608,7 +2639,7 @@ fn emit_sprite(
         sprite.origin,
         sprite.no_scale,
         context.rotation,
-        1. / owner,
+        1.,
     );
     let uv = flipbook_uv(context.common, context.clock);
     push_quad(out, context, &texture, positions, uv, color);
@@ -2742,6 +2773,9 @@ enum QuadBasis {
     /// Element-space: the quad lies in the element's own XY plane and its 2D
     /// spin is about its own Z axis, exactly like the verified static decal.
     Element,
+    /// `RotFromView`: an axial billboard. The card's height stays on the
+    /// element's own direction and only its width turns to the camera.
+    Axial,
 }
 
 /// Build the four world-space corners of one quad, in the client's order
@@ -2799,6 +2833,43 @@ fn quad_corners(
         }
         // A billboard's axes are unit length, so the uniform parent scale they
         // were normalized out of has to be put back on the extents.
+        // `A3DDecalEx::Fill_Verts_3D`'s `m_bRotFromView` branch
+        // (A3DDecalEx.cpp:357-413):
+        //
+        //     A3DVECTOR3 vDir  = RotateVec(GetParentDir() * kp.m_vDir, _unit_z);
+        //     A3DVECTOR3 vView = vPos - pView->GetCamera()->GetPos();
+        //     A3DVECTOR3 vUp   = CrossProduct(vView, vDir); vUp.Normalize();
+        //     verts[1] = vPos + vDir * fHeight2 + vUp * fWidth2;   // (u, v) = (0, 0)
+        //     verts[3] = vPos + vDir * fHeight2 - vUp * fWidth1;   // (1, 0)
+        //     verts[0] = vPos - vDir * fHeight1 + vUp * fWidth2;   // (0, 1)
+        //     verts[2] = vPos - vDir * fHeight1 - vUp * fWidth1;   // (1, 1)
+        //
+        // so the *height* runs along the element's direction, the width along a
+        // view axis that is perpendicular to both the direction and the eye ray,
+        // and the sheet's own `u` runs backwards along that width. The vertices
+        // are world space (`Fill_Verts_3D` returns false), which is why the
+        // owner's scale has to go back onto the extents here exactly as it does
+        // for a plain billboard.
+        QuadBasis::Axial => {
+            let basis_scale = context.placement.x_axis.truncate().length();
+            let world = context.placement.transform_point3(center);
+            let dir = context.placement.z_axis.truncate().normalize_or_zero();
+            let to_eye = context.view.position - world;
+            let right = to_eye.cross(dir).normalize_or_zero();
+            if !dir.is_finite() || dir == Vec3::ZERO || right == Vec3::ZERO {
+                return local.map(|_| [0.; 3]);
+            }
+            let (right, up) = if rotation == 0. {
+                (right, dir)
+            } else {
+                let spin = Quat::from_axis_angle(dir, rotation);
+                (spin * right, dir)
+            };
+            local.map(|corner| {
+                (world - right * (corner.x * basis_scale) + up * (corner.y * basis_scale))
+                    .to_array()
+            })
+        }
         QuadBasis::Billboard { right, up, forward } => {
             let basis_scale = context.placement.x_axis.truncate().length();
             let (right, up) = if rotation == 0. {
@@ -4801,14 +4872,12 @@ mod tests {
         player.quads().to_vec()
     }
 
-    /// A ring is world geometry built in the parent frame, so the owner's
-    /// placement scale reaches its radius through `GetParentTM()`, while a 100/101
-    /// card is a screen-space quad that must not grow. The two paths have to
-    /// disagree: this map places `场景/树林光束.gfx` at 8.776 with 0.5 x 10 cards,
-    /// and scaling those drew 123-unit shafts over the tree tops, while the
-    /// Nightfire `能量喷泉` particles at 5.019 really are five times bigger.
+    /// A ring is world geometry built in the parent frame, so the owner's scale
+    /// reaches its radius through `GetParentTM()` / `CalcActualScale`, exactly
+    /// as it reaches a card's extents — the Nightfire `能量喷泉` at 5.019 really
+    /// is five times bigger than its authored geometry.
     #[test]
-    fn a_ring_follows_the_owner_scale_where_a_sprite_does_not() {
+    fn a_ring_follows_the_owner_scale() {
         let ring = "GFXELEMENTID: 140\r\nName: ring\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
              TexFile: 圆环光\\circle032.dds\r\nRepeatCount: 1\r\nRepeatDelay: 0\r\n\
              Radius: 1.000000\r\nHeight: 1.000000\r\nPitch: 0.000000\r\nSects: 0\r\n\
@@ -4830,6 +4899,121 @@ mod tests {
         assert!(
             (widened - unit * 3.).abs() < 1e-3,
             "a ring is world geometry and follows the placement scale: {widened} from {unit}"
+        );
+    }
+
+    /// `A3DDecalEx::Fill_Verts_3D`'s `m_bRotFromView` branch keeps a card's
+    /// height on `vDir = RotateVec(GetParentDir() * kp.m_vDir, _unit_z)` and
+    /// turns only its width towards the camera:
+    ///
+    ///     A3DVECTOR3 vView = vPos - pView->GetCamera()->GetPos();
+    ///     A3DVECTOR3 vUp   = CrossProduct(vView, vDir);
+    ///     verts[1] = vPos + vDir * fHeight2 + vUp * fWidth2;
+    ///
+    /// So `场景/树林光束.gfx` — eight `RotFromView: 1` cards of 0.5 x 10 — is a
+    /// set of thin streaks lying along the direction the map authors, not a set
+    /// of screen-tall walls. Drawing them as screen billboards is what put
+    /// 123-unit sheets over the tree tops and what turned the two Archosaur
+    /// `天煞光束` shafts, whose records both author `direction: (0, 0, 1)`, into
+    /// vertical columns.
+    #[test]
+    fn a_rot_from_view_card_lies_along_the_element_direction() {
+        let axial = SPRITE
+            .replace("RotFromView: 0", "RotFromView: 1")
+            .replace("Width: 0.25", "Width: 0.5")
+            .replace("Height: 0.5", "Height: 10")
+            .replace("Position: 1, 2, 3", "Position: 0, 0, 0");
+        let mut player = build(&(header37(1) + &axial));
+        // +90 degrees about Y takes the element's +Z onto +X, so the shaft's
+        // long axis has to point east however the camera is turned.
+        player
+            .advance(
+                0.,
+                &view(),
+                Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2),
+                1.,
+                1.,
+            )
+            .unwrap();
+        let quad = player.quads().first().expect("the shaft draws");
+        let corner = |index: usize| Vec3::from_array(quad.positions[index]);
+        // Corner 0 is the top of the card and corner 2 the bottom, so their
+        // difference is the height; corner 1 is the other side of the width.
+        let along = corner(0) - corner(2);
+        let across = corner(1) - corner(0);
+        // Header `DedaultScale 2`, keypoint `Scale 2`, `OrgPt (0.5, 0)`: the
+        // authored 10 becomes 20 and both scales are the client's
+        // `GetActualScale * kp.m_fScale`.
+        assert!(
+            (along.length() - 80.).abs() < 1e-3,
+            "the 10-unit height must lie along +X: {along:?}"
+        );
+        assert!(
+            along.normalize().dot(Vec3::X) > 0.999,
+            "the shaft points the way the element points: {along:?}"
+        );
+        // Width 0.5 doubled, times the keypoint's 2 and the header's
+        // `DedaultScale 2`, is 4 units, and the width axis is the view axis
+        // perpendicular to the eye ray.
+        assert!(
+            (across.length() - 4.).abs() < 1e-3,
+            "the width is the authored 0.5 doubled and scaled: {across:?}"
+        );
+        assert!(
+            across.normalize().dot(Vec3::Y).abs() > 0.999,
+            "the width turns to the camera, and the camera sits on +Z: {across:?}"
+        );
+    }
+
+    /// `TileMode` is not a flipbook. `A3DGFXElement::CalcTexAnimation` gives a
+    /// tiled element `m_fTexWid = TexCol` / `m_fTexHei = TexRow` and
+    /// `A3DGFXElement::TexAnimation` only ever *scrolls* it:
+    ///
+    ///     if (m_bTileMode) { m_fTexU += m_fUOffsetSpeed * dt; m_fTexV += m_fVOffsetSpeed * dt; }
+    ///     else { ...step m_nCurTexCol/m_nCurTexRow every TexInterval... }
+    ///
+    /// with `ApplyPixelShader` sampling `u0 * uv + u1`, `u0 = 1 / TexCol`. A
+    /// tiled sheet therefore shows a window one cell wide and slides it; it
+    /// never cuts between the atlas cells the way a flipbook does. Stepping the
+    /// grid as well is what made the waterfall sheets of `场景/新种族地图` a
+    /// jumble of every frame of their atlas at once.
+    #[test]
+    fn a_tiled_sheet_repeats_and_scrolls_where_a_flipbook_steps_cells() {
+        let common = |tile: bool| Common {
+            tex_row: 2,
+            tex_col: 3,
+            tex_interval: 50,
+            tile_mode: u32::from(tile),
+            tex_speed: [0., -1.5],
+            ..Common::default()
+        };
+        let tiled = flipbook_uv(&common(true), 0.);
+        assert_eq!(tiled[0], [0., 0.], "the window starts in the corner");
+        assert!(
+            (tiled[3][0] - 3.).abs() < 1e-6 && (tiled[3][1] - 2.).abs() < 1e-6,
+            "a tiled window is TexCol x TexRow texture widths, so the sampler \
+             repeats the sheet 3 x 2 times: {tiled:?}"
+        );
+        let slid = flipbook_uv(&common(true), 1000.);
+        assert!(
+            (slid[0][1] + 1.5).abs() < 1e-6,
+            "-1.5 a second is a 1.5-texture slide after one second: {slid:?}"
+        );
+        assert!(
+            (slid[3][1] - slid[0][1] - 2.).abs() < 1e-6,
+            "the window keeps its height and only its origin moves"
+        );
+        assert_eq!(
+            flipbook_uv(&common(true), 1000.)[0][0],
+            0.,
+            "a sheet with no U speed does not drift sideways"
+        );
+        // The flipbook twin steps at 50 ms and stays put between steps.
+        let stepped = flipbook_uv(&common(false), 60.);
+        assert_eq!(flipbook_uv(&common(false), 0.)[0], [0., 0.]);
+        assert!(
+            (stepped[0][0] - 1. / 3.).abs() < 1e-6,
+            "one interval later the flipbook is on the second cell: {stepped:?}"
         );
     }
 
@@ -5709,7 +5893,6 @@ mod tests {
             emission_scale: 1.,
             rotation: 0.,
             clock: 0.,
-            owner_scale: 1.,
         }
     }
 
@@ -7346,17 +7529,23 @@ mod tests {
         }
     }
 
-    /// `RotFromView: 1` takes the basis from the camera, `0` keeps the authored
-    /// keypoint direction: 598 retail sprites against 8,271.
+    /// `RotFromView: 1` keeps the card's height on the element's own direction
+    /// and turns only its width to the camera (`A3DDecalEx::Fill_Verts_3D`,
+    /// A3DDecalEx.cpp:357-413); `0` keeps the authored keypoint basis entirely.
+    /// 598 retail sprites author the flag against 8,271 that do not.
+    ///
+    /// The camera sits on -Y here, square to the card's +Z height axis, so an
+    /// axial card spans X and Z and is flat on Y — while an element-space card
+    /// spans the element's own X and Y and is flat on Z.
     #[test]
-    fn rot_from_view_selects_the_camera_basis() {
+    fn rot_from_view_turns_only_the_width_to_the_camera() {
         let camera = View {
-            position: Vec3::new(0., 0., 10.),
-            right: Vec3::Y,
+            position: Vec3::new(0., -10., 0.),
+            right: Vec3::X,
             up: Vec3::Z,
-            forward: Vec3::X,
+            forward: Vec3::Y,
         };
-        for (rotate_from_view, plane_axis) in [(0, 2usize), (1, 0usize)] {
+        for (rotate_from_view, plane_axis) in [(0, 2usize), (1, 1usize)] {
             let source = header37(1)
                 + &SPRITE.replace(
                     "RotFromView: 0\r\n",
@@ -8103,7 +8292,7 @@ mod tests {
     /// effects get: the drape answers to the query alone.
     fn step_draped(player: &mut Player, transform: Mat4, terrain: Option<GroundHeightQuery<'_>>) {
         player
-            .advance_with_terrain(16., &view(), transform, 1., 1., None, terrain, 1.)
+            .advance_with_terrain(16., &view(), transform, 1., 1., None, terrain)
             .unwrap_or_else(|error| panic!("{error}"));
     }
 

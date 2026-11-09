@@ -668,3 +668,90 @@ own geometry decides where the cap sits relative to the glow.
   is height again.
 - Summoning stations: whether the client caps the emitter per frame; 296
   overlapping additive quads is the measured starting point.
+
+## 10. The client source settles the sun-ray size, and three other readings
+
+The 1.4.2 client is readable on the user's Drive (`pw142/element`, and the
+`GfxCommon` tree of `pw152source`). Four functions decide everything §8 and §9
+were guessing at.
+
+### 10.1 The record scale *does* reach a card — §8's divisor was wrong
+
+```cpp
+// CECOrnamentMan::LoadGFXFromFile — EC_ManOrnament.cpp:950-952
+A3DMATRIX4 mat = a3d_TransformMatrix(pNode->vDir, pNode->vUp, pNode->vPos);
+pGFX->SetScale(pNode->fScale);
+pGFX->SetPlaySpeed(pNode->fSpeed);
+pGFX->SetParentTM(mat);
+```
+
+`pNode->fScale` is the ECWLD record's `[4]` field. `SetScale` feeds
+`CalcActualScale` (`A3DGFXEx.h:197-200`, `m_fActualScale = m_fDefScale * m_fScale`),
+and `SetParentTM` (`A3DGFXEx.cpp:1589-1595`) does the opposite of what §8 assumed:
+it keeps the translation and **normalizes** the three basis rows, so the placement
+matrix's own scale is discarded and the node carries the scale on its own.
+
+So a card's extent is `Width x Height` doubled, times the keypoint scale, times
+`GetActualScale() = DedaultScale x record scale`. For `场景/树林光束.gfx`
+(`DedaultScale 0.7`, 0.5 x 10 cards, eight `RotFromView: 1` elements) at this
+map's 8.776 that is a **6.1 x 123 unit shaft**, and it is meant to be. §8's
+divide-out removed a factor the client applies; it is reverted here, and
+`the_ecwld_record_scale_reaches_a_card` pins it (2.5x record scale is a 2.5x card).
+
+### 10.2 `RotFromView` is an axial billboard, not a screen billboard
+
+```cpp
+// A3DDecalEx::Fill_Verts_3D, RotFromView branch — A3DDecalEx.cpp:357-413
+A3DVECTOR3 vPos  = GetParentTM() * kp.m_vPos;
+A3DVECTOR3 vDir  = RotateVec(GetParentDir() * kp.m_vDir, _unit_z);
+A3DVECTOR3 vView = vPos - pView->GetCamera()->GetPos();
+A3DVECTOR3 vUp   = CrossProduct(vView, vDir); vUp.Normalize();
+verts[1] = vPos + (vDir * fHeight2) + (vUp * fWidth2);
+verts[3] = vPos + (vDir * fHeight2) - (vUp * fWidth1);
+verts[0] = vPos - (vDir * fHeight1) + (vUp * fWidth2);
+verts[2] = vPos - (vDir * fHeight1) - (vUp * fWidth1);
+```
+
+The card's **height runs along the element's own direction** and only its width
+turns to the camera. Drawing these as screen-facing quads is what turned
+`树林光束` into 123-unit walls over the tree tops (the "sun rays are too big"
+report) and what made the Archosaur shafts read horizontally in one spot and
+vertically in the next: both `天煞光束` records author `direction (0, 0, 1)` with
+`up (0, ±1, 0)`, and the branch never looks at `up` at all — the shaft lies along
+Z either way, so the 180 degrees between the two records' `up` vectors is
+invisible in retail.
+
+594 element lines in 232 roots author `RotFromView: 1`. The 2D spin is a roll
+about the shaft axis, and a camera exactly on the axis gives the client a zero
+`vUp` — the corner builder returns a degenerate quad rather than a NaN one.
+
+### 10.3 `TileMode` is a scrolling tile, not a flipbook
+
+```cpp
+// A3DGFXElement::CalcTexAnimation — A3DGFXElement.h:521-540
+if (m_bTileMode) { m_fTexWid = (float)m_nTexCol; m_fTexHei = (float)m_nTexRow; }
+else if (m_nTexRow == 1 && m_nTexCol == 1) m_bNeedCalcTex = false;
+else { m_fTexWid = 1.f / m_nTexCol; m_fTexHei = 1.f / m_nTexRow; }
+
+// A3DGFXElement::TexAnimation — A3DGFXElement.h:539-566
+if (m_bTileMode) { m_fTexU += m_fUOffsetSpeed * dt; m_fTexV += m_fVOffsetSpeed * dt; }
+else { /* step m_nCurTexCol / m_nCurTexRow every TexInterval */ }
+```
+
+and `Fill_Verts_3D` writes `fU = {m_fTexU, m_fTexU + m_fTexWid}` straight into
+the vertices, so a tiled element's UV window is `TexCol x TexRow` texture widths
+— the sampler's `Repeat` makes that many copies — and it slides. `TexRow`/`TexCol`
+are **repeat counts** under this flag and a grid of frames without it.
+
+`flipbook_uv` applied the grid unconditionally, so every tiled sheet cut from
+cell to cell at `TexInterval` instead of flowing: 579 element lines in 197 roots,
+including all four tiled elements of `场景/新种族地图/瀑布.gfx`, nine of
+`瀑布大.gfx`, and the five of `水门_瀑布.gfx` that this map places three times at
+(2618.9, 239.3, -4119.7) and its neighbours.
+
+### 10.4 `NoChangeDir` (unchanged, for the record)
+
+`A3DGFXEx::SetParentTM` skips the basis copy when `m_bNoChangeDir` is set
+(A3DGFXEx.cpp:1592). None of the reported roots authors it — `蘑菇灯` is the only
+one in the corpus that even prints the key, at `NoChangeDir: 0` — so it is not
+the mechanism behind any of the six reports.

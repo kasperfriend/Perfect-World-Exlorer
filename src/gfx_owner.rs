@@ -815,14 +815,15 @@ impl Manager {
                 }
             };
             let transform = Mat4::from_cols_array(&world);
-            // `0x5b3700` applies the record's scale to the placement, and
-            // `Player::advance` normalizes that basis before it fans a sprite
-            // out, so the scale has to be handed over on its own or it is lost.
-            // Measured against the 9 November census: the roof bagua is authored
-            // 0.304 and came out 44.8 units wide instead of 13.6, and
-            // `水门_瀑布` is authored 2.736 — the waterfall sheet was drawn at a
-            // third of its authored size, which is why the falling water read as
-            // a static mesh.
+            // `0x5b3700` bakes the record's scale into the placement, but
+            // `Player::advance` normalizes that basis before it fans anything
+            // out — the client does the same in `A3DGFXEx::SetParentTM`
+            // (A3DGFXEx.cpp:1589-1595) and carries the scale separately, as
+            // `SetScale(record scale)` right after the placement
+            // (EC_ManOrnament.cpp:950-952). So the scale has to be handed over
+            // on its own or it is lost. Measured against the 9 November census:
+            // the roof bagua is authored 0.304 and came out 44.8 units wide
+            // instead of 13.6, and `水门_瀑布` is authored 2.736.
             let authored_scale = placement_scale(&world);
             let stepped = {
                 let Some(player) = owner.player.as_mut() else {
@@ -837,7 +838,6 @@ impl Manager {
                         alpha,
                         None,
                         terrain,
-                        authored_scale,
                     )
                     .map(|()| player.quads().to_vec())
             };
@@ -1659,17 +1659,23 @@ mod tests {
         );
     }
 
-    /// A 100/101 sprite is a screen-space card: `A3DDecalEx::Fill_Verts_2D`
-    /// takes its size from `m_pGfx->GetActualScale()` — the GFX's own
-    /// `DedaultScale` — and only its centre from `GetParentTM()`. The owner's map
-    /// scale therefore places the card without resizing it.
+    /// The world hands an effect its scale through the GFX node, not through the
+    /// placement basis:
     ///
-    /// The 10 November census is the measurement: this map places
-    /// `场景/树林光束.gfx` (`DedaultScale: 0.7`, 0.5 x 10 cards) at 8.776, and
-    /// multiplying that into the extents drew 6 x 123 unit shafts over the tree
-    /// tops where retail draws 0.7 x 14.
+    ///     // CECOrnamentMan::LoadGFXFromFile, EC_ManOrnament.cpp:950
+    ///     A3DMATRIX4 mat = a3d_TransformMatrix(pNode->vDir, pNode->vUp, pNode->vPos);
+    ///     pGFX->SetScale(pNode->fScale);
+    ///     pGFX->SetParentTM(mat);
+    ///
+    /// `CalcActualScale` multiplies it into `m_fDefScale` (A3DGFXEx.h:197-200)
+    /// and every element path sizes from that product, while `SetParentTM`
+    /// normalizes the basis it was given (A3DGFXEx.cpp:1589-1595). A card
+    /// therefore grows with the record's scale — `场景/树林光束` is authored
+    /// 0.5 x 10 at `DedaultScale 0.7` and this map places it at 8.776, so its
+    /// shaft is 6.1 x 123 units long — and the extents never take the scale
+    /// twice.
     #[test]
-    fn the_ecwld_placement_scale_does_not_resize_a_sprite() {
+    fn the_ecwld_record_scale_reaches_a_card() {
         let width = |scale: f32| {
             let mut manager = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
             let mut placed = request_path(1, true, "gfx/scene/torch.gfx");
@@ -1687,8 +1693,8 @@ mod tests {
         assert!(unit > 0., "the sprite has an extent to compare");
         let widened = width(2.5);
         assert!(
-            (widened - unit).abs() < 1e-3,
-            "a 2.5 placement scale must not resize a card: {widened} from {unit}"
+            (widened / unit - 2.5).abs() < 1e-3,
+            "a 2.5 record scale is a 2.5x card: {widened} from {unit}"
         );
     }
 
