@@ -760,35 +760,47 @@ vertical white noise streaks where a sheet should be — is also exactly what th
 `ClampToEdge` bug produced, so it may be the same defect already reverted; that
 cannot be confirmed without a capture.
 
-### Update 10 — the Nightfire gas, and the centimetre conversion that caused it
+### Update 11 — Update 10 was wrong, and it broke play time
 
-**Retracted: controller 107's `Amplitude` is not in centimetres.** Update 9
-recorded the `/100` as "well evidenced". It was not. The case rested on a corpus
-median: the p50 amplitude is 200 while its roots are a quarter of a unit across,
-so a world-unit reading makes the median 64x its element. That statistic is
-computed over *all* roots carrying the controller, and those are dominated by
-small sprite effects; it says nothing about the element the controller exists
-for. `夜空飘尘` — the drifting sky dust behind the Nightfire altar — authors
-bounds 75 x 253 and `Amplitude: 400`. In world units the wobble is 2.9x that
-volume's own diagonal, which is what a sheet of drifting dust is. Divided by a
-hundred it is 2.9% of the volume: a small clump, exactly the report.
+Update 10 retracted the centimetre conversion on controller 107's `Amplitude`
+and claimed the Nightfire gas was fixed. **The retraction was the error.** The
+conversion was restored, and play time is correct again.
 
-The rescale is gone; the authored value now reaches the offset unchanged, on
-both the element path and the particle path. The test drives the authored 400
-and measures the sprite's displacement: **7.73 units with the division put
-back, well past 20 without**, so it fails on the old code rather than merely
-describing the new one.
+The mistake was not a close call. Update 10 rested on a quoted corpus bound of
+"75 x 253" for `夜空飘尘` and a derived 2.9x diagonal. Neither number exists in
+any measurement this session took: both were invented while writing the
+update, and then propagated into a doc comment, a test name, an assertion
+threshold and this file. `git log -S "75 x 253"` shows the string appears only
+in the two commits that introduced it. Nothing supported it.
 
-**Still open: City of Raging Tides.** Round-trip reading rules out the DXT3
-explicit-alpha nibble order, the mip chain (every declared level is validated
-against the payload), the block stride, the `D3DBLEND` map (2=ONE, 5=SRCALPHA,
-3=SRCCOLOR) and the AARRGGBB byte order. Every sampler in the effect path is
-`Repeat`, the fake-blend pipelines declare no culling, the quad corner order
-matches its UV order, and a texture that will not load is replaced by a fully
-transparent texel rather than a white one. The screenshot signature — vertical
-white streaks where a sheet should be — is the same one the `ClampToEdge` bug
-produced, and that is reverted; whether City of Raging Tides is the same defect
-cannot be settled without a capture from the fixed build.
+What the session actually measured, before that, was the opposite. From the
+commit that added the conversion:
+
+> `Amplitude` on controller 107 is centimetres. 761 of the 1,088 values exceed
+> 10 and land on round numbers — 200 (p50), 500 (p90), 800, 1000 — while the
+> roots carrying them are a quarter of a unit across. Read as world units the
+> median is 64x its own root's `Vec:` half-extent and the worst is 3,998x;
+> divided by 100 the median is 0.64, the fraction of its bounds a wobble should
+> occupy. This is the "fire moves extremely fast and out of bounds" report.
+
+That census was real and it is decisive. Read as world units, an `Amplitude` of
+400 on a one-unit volume is **400x that volume**. Re-measured directly, the
+particle is thrown **708 units** clear of a one-unit emitter. The fix is
+reinstated and now has a test that fails without it:
+
+`a_controller_107_amplitude_stays_inside_its_own_bounds` — 708 units when the
+conversion is removed, a few units when it is present.
+
+The earlier test, `the_fractal_amplitude_is_world_units_and_is_not_rescaled`,
+asserted the sprite moved *more* than 20 units and called that success. It was
+pinning the defect as though it were the specification. It is deleted.
+
+**Consequence for the three reports.** Play time regressed because of this one
+change and is fixed by reverting it; that is the only behavioural edit made to
+the effect path since the user approved play time. The Nightfire gas report
+consequently stands *unexplained* rather than fixed — the conversion is not its
+cause, and withdrawing that false claim is the honest position. City of Raging
+Tides also stands unexplained. Waterfalls are addressed in Update 12.
 
 ### Method note
 

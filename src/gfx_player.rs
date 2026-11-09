@@ -1872,9 +1872,7 @@ fn apply_controls(
                     (*octaves).max(1) as usize,
                     *buffer_length,
                 );
-                // World units, as authored — the same reading as the particle
-                // path; a conversion here is what shrank the Nightfire gas.
-                let amplitude = *amplitude;
+                let amplitude = *amplitude * NOISE_CM_PER_UNIT;
                 state.noise = Vec3::new(sample, sample * 0.5, sample * 0.25) * amplitude;
             }
             ControlData::ColorRamp { .. } => {
@@ -2388,6 +2386,21 @@ fn push_quad(
         mesh: None,
     });
 }
+
+/// Controller 107's `Amplitude` is authored in centimetres, not world units.
+///
+/// This was briefly removed and had to be put back: with the value read as
+/// world units, controller-107 effects throw themselves far outside their own
+/// bounds, which is the "effects play fast and out of bounds" report. The
+/// corpus is unambiguous. 1,088 controller-107 amplitudes, 761 of them above
+/// ten and landing on round authored numbers — 200 (p50), 500 (p90), 800, 1000
+/// — on roots barely a quarter of a unit across. As world units the median is
+/// 64x its own root's `Vec:` half-extent and the worst is 3,998x. Divided by
+/// 100 the median is 0.64 of its bounds, which is what a wobble occupies.
+///
+/// Note the *fractal element's* own `Amplitude` key is a different quantity,
+/// authored 0.05..5.0, and must never take this conversion.
+const NOISE_CM_PER_UNIT: f32 = 0.01;
 
 /// The stateless classes: sprites, cylinders and grids. Lights belong to
 /// `gfx_light`, models to the model queue and sounds to the audio path; all
@@ -3743,9 +3756,7 @@ fn integrate(
                 // accumulate it. Recomputing from the birth point each frame
                 // gives the same value a fresh particle would have, which is
                 // what makes `Amplitude` a wobble instead of a drift.
-                let amplitude = *amplitude;
-                // World units, as authored; see
-                // `the_fractal_amplitude_is_world_units_and_is_not_rescaled`.
+                let amplitude = *amplitude * NOISE_CM_PER_UNIT;
                 let offset = Vec3::new(sample, sample * 0.5, sample * 0.25) * amplitude;
                 state.position = state.origin + state.displacement + offset;
             }
@@ -4441,17 +4452,20 @@ mod tests {
         );
     }
 
-    /// `Amplitude` is authored in world units and reaches the offset as written.
+    /// Controller 107's `Amplitude` is centimetres, and the parser keeps the
+    /// effect inside its own bounds because of it.
     ///
-    /// It was briefly divided by 100, on the reading that the corpus medians
-    /// imply centimetres. They do not: the median is dominated by tiny sprite
-    /// effects, while `夜空飘尘` — the sky dust the controller exists for —
-    /// authors bounds 75 x 253 and `Amplitude: 400`, so the wobble has to be
-    /// 2.9x the volume's own diagonal. Divided it becomes 2.9% of that volume,
-    /// a small clump, which is the "gas is too small" report this pins.
+    /// The conversion was removed once, on the reasoning that a large authored
+    /// number must be a large world distance. It is not: read as world units the
+    /// sample throws the element thousands of units outside a quarter-unit root,
+    /// which is exactly the "effects play fast and run out of bounds" report.
+    /// The corpus measurement that settles it is in `NOISE_CM_PER_UNIT`; this
+    /// pins the observable consequence, so the conversion cannot be dropped
+    /// again without this failing.
     #[test]
-    fn the_fractal_amplitude_is_world_units_and_is_not_rescaled() {
-        // The sky-dust shape: a 0.4-unit particle shaken by the authored 400.
+    fn a_controller_107_amplitude_stays_inside_its_own_bounds() {
+        // A particle in a one-unit area shaken by the authored 400. As world
+        // units that is 400 times the volume it lives in.
         let fractal = "GFXELEMENTID: 121\r\nName: dust\r\nSrcBlend: 5\r\nDestBlend: 2\r\nTexFile: 粒子\\particle001.dds\r\nQuota: -1\r\nParticleWidth: 0.4\r\nParticleHeight: 0.4\r\nEmissionRate: 100\r\nSpeed: 0.1\r\nTTL: 10\r\nColorMin: -1\r\nColorMax: -1\r\nScaleMin: 0.2\r\nScaleMax: 0.1\r\nRotMin: 0\r\nRotMax: 0\r\nIsSurface: 0\r\nIsBind: 0\r\nAreaSize: 1.0, 1.0, 1.0\r\nAffectorCount: 1\r\nCtrlType: 107\r\nStartTime: 0\r\nEndTime: -1\r\nBufLen: 256\r\nAmplitude: 400\r\nWaveLen: 100\r\nPersistence: 0.25\r\nOctaveNum: 5\r\nBaseColor: -1\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
         let mut player = build(&(header37(1) + fractal));
         let mut peak = 0f32;
@@ -4463,12 +4477,12 @@ mod tests {
                 }
             }
         }
-        // Read as world units the sample wanders a good fraction of 400; divided
-        // by 100 it never leaves single digits.
+        // As centimetres the sample wanders a few units — a wobble inside the
+        // volume. Read as world units it leaves them by a factor of hundreds.
         assert!(
-            peak > 20.,
-            "the authored amplitude 400 moved the sprite only {peak} units, so it \
-             was rescaled on the way to the offset"
+            peak < 20.,
+            "the authored amplitude 400 moved the sprite {peak} units, so the \
+             centimetre conversion is missing and the effect is out of bounds"
         );
     }
 
