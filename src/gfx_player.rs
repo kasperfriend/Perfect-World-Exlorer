@@ -5948,7 +5948,19 @@ mod tests {
     /// the resolved count is the thing worth reading.
     fn corpus_root() -> Option<std::path::PathBuf> {
         let root = std::path::PathBuf::from("google_drive/x");
-        root.is_dir().then_some(root)
+        if !root.is_dir() {
+            // Say so, loudly and in the test output, rather than returning a
+            // quiet `ok`. A corpus test that silently skips is indistinguishable
+            // from one that passes, and in this session that is exactly how two
+            // wrong fixes came to look verified: the checks that would have
+            // contradicted them never ran.
+            eprintln!(
+                "SKIPPED: no `google_drive/x` corpus on this machine; this test \
+                 proves nothing about shipped assets"
+            );
+            return None;
+        }
+        Some(root)
     }
 
     /// `GrndNormOnly` must put the effect on the slope's plane without moving it
