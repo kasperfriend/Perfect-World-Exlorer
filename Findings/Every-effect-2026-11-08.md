@@ -602,7 +602,7 @@ documented as unused rather than silently hooked to something plausible.
 Four defects, each a corpus fact rather than a guess. The measurements below are
 from the full `gfx.pck` (5,456 roots, 5,459 `.gfx` entries).
 
-**`TimeSpan: -1` was summed as a duration.** `1,0834` elements across 180 roots
+**`TimeSpan: -1` was summed as a duration.** `10,834` elements across 180 roots
 author a negative span, meaning "hold this keypoint forever" — `sample` already
 read it as `INFINITY`, but `duration_ms` added it, producing a negative cycle
 that `element_phase` reads as finished-before-started and pins to phase 0. Those
