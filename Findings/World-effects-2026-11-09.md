@@ -7,11 +7,25 @@ in the game draws, not one root — and all three come with a native citation an
 unit test that fails on the previous code: ring sections, ring pitch, grid UV
 spread, and (section 5.2) the ground-draped decal pass.
 
-This environment has no Rust toolchain, so **nothing here was compiled or run**:
-the new tests were written against the fixtures the existing suite uses and
-reasoned through by hand, but `cargo test` was not executed against them. Treat
-the code changes as reviewed-but-unexecuted until CI says otherwise. Everything
-in the *Measurements* sections was computed here, from the shipped data.
+This environment has no Rust toolchain, so none of this was compiled while it was
+written: the tests were reasoned through by hand and the call sites checked with a
+parser. CI then built it — run
+[`42663541912`](https://github.com/kasperfriend/Perfect-World-Explorer/actions/runs/42663541912)
+passes both jobs, "Rust checks and tests (Linux)" (all binary targets compile, the
+whole unit suite including the five new tests) and "Windows executable (x64)".
+
+Two of the first attempts did not compile, and the way they failed is worth
+recording because it is a property of this code base rather than of the fix:
+`world_models_gpu.rs` and `gfx_owner.rs` are also compiled into the survey
+binaries, whose crate root has no `navigation` module, so a `navigation::MapSpace`
+field there is a hard error; and `advance_with_ground` is a public signature the
+walker add-on compiles against, so its seventh argument broke
+`modules/walker/gallery.rs`. Both are fixed by keeping the module's own type out
+of the struct (a boxed height closure) and by adding `advance_with_terrain`
+beside the six-argument entry point instead of changing it.
+
+Everything in the *Measurements* sections was computed here, from the shipped
+data.
 
 ## 1. The element classes, against the client's own table
 
