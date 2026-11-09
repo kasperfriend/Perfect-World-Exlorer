@@ -581,3 +581,87 @@ Recorded so the next round starts from the measurement rather than from a guess:
 - **Summoning stations: white flickering blobs.** The census taken there is
   dominated by `蓝火` (alpha 1.00) and `岩浆火焰` (296 quads); the flicker is
   likely the flipbook `TexInterval`, which the census does not report yet.
+
+## 9. The remaining five, measured from the world file
+
+§8.2 listed them as questions. The ECWLD record scan answers several of the
+questions outright, so the next round starts from the record rather than from a
+guess. Record layout as `scene::Effect::read` reads it: id `[0]`, scale `[4]`,
+position `[8..20)`, direction `[20..32)`, up `[32..44)`, speed `[44]`,
+valid_time `[48]`, alpha `[52]`, attenuation `[56]`, then a length-prefixed GBK
+path.
+
+### 9.1 The waterfall is not an effect
+
+Of the map's 2,275 placements, **31 name a `瀑布` file**: 28 splash/mist emitters
+(`瀑布水花`, `瀑布水花底`, `瀑布水花中间`, `瀑布水花中间2`, `瀑布水花湍急`) and 3
+`场景\新种族地图\水门_瀑布.gfx` tiles. **No record names `瀑布.gfx`,
+`瀑布大/小/1..4/子/小慢.gfx`**, although all of them are in the archive
+(`gfx/场景/新种族地图/瀑布.gfx` … — 22 archive entries match `瀑布`). At Etherblade
+(blocks 32,70 and 38,69) the world places exactly four splash owners and nothing
+else, which is what the census reported: the viewer draws every effect the map
+puts there.
+
+So the standing sheet is scenery — an ornament or a water piece — and its motion
+lives in the scenery/water path, not in `gfx_player`. The three `水门_瀑布`
+owners are small: five `100` cards of 0.9 x 1.25 at scale 2.736, i.e. 2.5 x 3.4
+units, `TileMode: 1` with `TexSpeed` -1.0 / -1.5 / -1.8 / -2.0 on V and a 2x3 or
+2x2 `TexRow`/`TexCol` grid, plus two `124` emitters. Those scroll correctly in
+`flipbook_uv`; they are simply not what the eye reads as the waterfall.
+
+The scenery pack that holds the sheet is not in this workspace (`gfx.pck` has
+`.gfx` and its textures only), so this item is blocked on the asset, not on a
+reading of the client.
+
+### 9.2 The Archosaur beam pair is a 180-degree roll in the world data
+
+| export | scale | position | direction | up |
+|---|---|---|---|---|
+| 19583 | 6.543 | (1528.0, 602.5, 1032.3) | (0, 0, 1) | (0, **-1**, 0) |
+| 29056 | 6.977 | (491.1, 526.2, -876.9) | (0, 0, 1) | (0, **1**, 0) |
+
+Both are the same root (`天煞光束`, element 100, 2 x 50) and the two `up` vectors
+are exact opposites, orthogonal to `direction` in both cases (cosine 0.000). The
+world therefore does author a flip between the two instances, and
+`placement_transform` reproduces it exactly — its columns are
+`right = up x forward`, `up`, `forward`, so a negated `up` negates the first two
+columns, which is a 180-degree roll about the beam axis. Nothing in the viewer
+inverts it, and nothing in the viewer can tell which of the two the shot shows.
+Every `树林光束` record in the corpus is orthogonal in the same way (62 records,
+cosine 0.000), so a degenerate basis is not the mechanism either.
+
+### 9.3 The summoning-station flames are additive, and their colour is honoured
+
+`场景/岩浆火焰.gfx` is three `121` emitters, all `SrcBlend: 5` / `DestBlend: 2`
+(source alpha, **one** — additive):
+
+| element | texture | rate | TTL | area | colour range | scale |
+|---|---|---|---|---|---|---|
+| Unnamed2 | `particle017.dds` | 150 | 0.8 s | 28 x 24 x 1 | `-112840`..`-32704` = `#FE47B8`..`#FF7FC0` | 0.1..1.0 |
+| Unnamed3 | `smoke001.dds` | 100 | 1.5 s | 28 x 24 x 1 | `-922804224`..`-931135488` | 0.5..1.0 |
+
+`particle_color` honours both ends (`random_color_hsv`/`random_color_rgb`), so the
+white is not a colour default: 150 + 100 particles a second over a 28 x 24 area,
+composited one-on-top-of-another with `DestBlend: one`, saturates to white where
+the quads overlap. That is what the census' `q296` at alpha 0.77 is looking at.
+
+### 9.4 `蘑菇灯` is placed where the map says, so "low" is local
+
+Twelve placements, scale 0.443..0.935, `y` 253.5..272.3, `direction` (0,0,1),
+`up` (0,1,0) for all twelve. The census reports the `circle030白` cards at
+`y` 251..270 — within a unit of the record, and the cards are 11..17 units tall,
+so the root is not offset. "Too low" is therefore inside the root: `蘑菇灯` is
+`160` (a model element) + `100` (`SmallGlowPink`) + `140`, and the model element's
+own geometry decides where the cap sits relative to the glow.
+
+### 9.5 What each still needs
+
+- Waterfall: the scenery pack (the sheet BMD), or the shot that shows which mesh
+  is frozen.
+- Beam flip: one pair of shots of the two `天煞光束` instances.
+- `蘑菇灯`: the `160` element's model, to measure the cap against the glow.
+- Wraithgate spin/floating: the root's affector list for `绿鬼火2` (12 placements,
+  scale 2.0..8.954, all `up` (0,1,0)) — a card that spins is `Rad_2D`, and "floating"
+  is height again.
+- Summoning stations: whether the client caps the emitter per frame; 296
+  overlapping additive quads is the measured starting point.
