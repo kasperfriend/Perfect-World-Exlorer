@@ -426,3 +426,95 @@ same kind of guess this audit keeps having to retract.
 
 It is *not* the reported white-blob cause: all six roots are character and
 monster effects, and the blob report is about static scenery.
+
+## 7. The census answered it: the ECWLD placement scale and alpha never reached a quad
+
+Seven census logs arrived (City of Raging Tides, Nightfire Altar, Shadow Tide
+Camp, Waterbeast Shore, Stairway to Heaven, two Etherblade sweeps). They print,
+per visible root, the largest single quad in world units. Compare that against
+what the file authors and the arithmetic names the defect in one line.
+
+### 7.1 The measurement
+
+For a 100/101 sprite the client's quad is
+`2 x Width x DedaultScale x keypoint Scale x record scale`:
+
+- `A3DDecalEx.h:167-177` — `SetSize` does `fWidth *= 2.0f; m_fWidth1 = m_fOrgPtWidth * fWidth; m_fWidth2 = fWidth - m_fWidth1;`, so the authored `Width` is a **half**-extent and the quad is twice it. `ID_GFXOP_DECAL_WIDTH` (`:125`) returns `m_fWidth*2.0f` for the same reason. The viewer matches this (`gfx_player.rs:2741`), so "the sprites are twice too big" is *not* a defect and never was.
+- The census's "height" is the **diagonal**, because `EffectQuad::positions` is a triangle strip and corner 3 is diagonal from corner 0: `彩虹` reads `105.0x115.5` and `sqrt(105^2 + 48^2) = 115.4`, with `Height 8.0 x 2 x 3.0 = 48`.
+
+| root | element `Width` | `DedaultScale` | record scale | client draws | census drew |
+| --- | --- | --- | --- | --- | --- |
+| `场景/彩虹.gfx` | 17.5 | 3.0 | **1.000** | 105.0 | **105.0** |
+| `场景/屋顶八卦.gfx` | 22.4 | 1.0 | 0.304 | 13.6 | 44.8 |
+| `场景/八卦.gfx` | 3.85 | 1.0 | 1.561 | 12.0 | 7.7 |
+| `场景/新种族地图/白兰树.gfx` | 60.0 | 1.0 | 0.778 | 93.4 | 120.0 |
+| `场景/新种族地图/血鲷封印台罩子.gfx` | 40.0 | 1.0 | 0.714 | 57.1 | 80.0 |
+| `场景/新种族地图/0远完美浮空城.gfx` | 40.0 | 1.0 | 0.804 | 64.3 | 80.0 |
+| `场景/新种族地图/完美远征地主塔_天上大圈.gfx` | 175.0 | 1.0 | 0.701 | 245.4 | 350.0 |
+
+The control row is decisive: where the record scale happens to be 1.000 the
+prediction lands on the census to the decimal, and where it is not, the census is
+exactly `2 x Width x DedaultScale` — the record scale is simply missing.
+
+### 7.2 Two defects, both in the same install path
+
+**The placement scale was normalized away.** `gfx_owner.rs` builds the owner
+transform with `placement_transform` (`0x5b3700` applies the authored scale to
+the three basis columns), and `gfx_player.rs:1376` then does
+
+```rust
+let base = normalize_basis(transform) * Mat4::from_scale(Vec3::splat(self.root.default_scale * scale));
+```
+
+`normalize_basis` strips the scale and only `default_scale * scale` is put back —
+and the owner passed a literal `1.` for `scale`. So every world effect drew at
+`DedaultScale` and nothing else. The owner now hands the matrix's own column
+length over as `placement_scale(&world)`, which is the record scale and nothing
+else, because `placement_transform` bakes it into all three columns.
+
+Corpus: of the map's **2,274** effect placements, **1,936 (85%)** author a scale
+other than 1.0 — median 1.799, p90 6.816, max 89.8, min 0.164, and **1,158** sit
+outside 0.5..2.0. Nothing about this is a rounding detail.
+
+**The record alpha was never installed.** `0x5b33f3` copies the record's alpha
+(offset 52) into the GFX node, and `gfx_owner` already folds `Request::outer`'s
+fourth component into every element's colour (`:771`), but
+`world_models_gpu::install_scene_effects` passed `outer: None`. Every scene
+effect therefore ran at 1.0 no matter what the map authored: the seal dome is
+authored **0.300**, the floating city **2.000**, the yellow electric ball
+**1.500**. 266 of the 2,274 placements differ from 1.0 (0.2 .. 5.0). The
+installer now passes `gfx_owner::scene_alpha(effect.alpha)`.
+
+### 7.3 What that explains, report by report
+
+| report | measured cause |
+| --- | --- |
+| City of Raging Tides: flat white sheet in the courtyard | `血鲷封印台罩子` is authored alpha **0.300** at scale 0.714 — it drew at 1.0 and 1.4x its size, i.e. 3.3x the brightness it was authored for |
+| City of Raging Tides: misplaced effects in the floating city | `0远完美浮空城` scale 0.804 and `盆景水晶` scale 0.376 drew at 1.0 — the crystal's effects were **2.7x** their authored size |
+| Nightfire Altar | `能量喷泉` scale **5.019** and `能量喷泉5` **2.877** were drawn at 1.0, i.e. a fifth of their authored size, and `白兰树` at 0.778 |
+| Stairway to Heaven: misplaced ground yin-yang aura | `屋顶八卦` scale **0.304** drew at 1.0 — 44.8 units wide where the client draws 13.6 |
+| Shadow Tide Camp: broken light, invisible in the middle of a beam | `0完美远征地主塔` 0.701 and `远征地血雕大帐` 0.832 drew at 1.0 |
+| Waterfalls are static | `水门_瀑布` is authored scale **2.736** and `瀑布水花` 1.879..3.593; the animated sheet drew at 36% of its size, so the only thing big enough to read as falling water was the static mesh behind it |
+
+### 7.4 Tests
+
+- `gfx_owner::the_ecwld_placement_scale_reaches_the_quads` — the same root placed
+  at scale 2.5 must draw 2.5x wider; it draws 1.0x before the fix.
+- `gfx_owner::the_ecwld_record_alpha_dims_its_quads` — `scene_alpha(0.3)` reaches
+  the quad as 76/255, `scene_alpha(2.0)` clamps at the byte the shader reads.
+
+### 7.5 Hypotheses that died on the way, so nobody re-tries them
+
+- **Sprite dimensions doubled.** Correct behaviour, cited above; the viewer
+  already matches.
+- **`OrgPtWidth`/`OrgPtHeight` pivots ignored.** Neither key occurs in any of the
+  5,459 corpus files, so every pivot is the 0.5 default and the quad is symmetric.
+- **TGA alpha lost.** Measured: `flarewhite_alpha.tga`, `通道粒子2.tga`,
+  `通道粒子3.tga` and the smoke sheets are 128..810 px 32-bit TGAs with a real
+  alpha channel (mean alpha 44/255 on the flare, 8/255 on `烟雾1`) — not an
+  opaque decode.
+- **Texture paths failing to resolve** (case, doubled separators). `texture_path`
+  goes through `ecmodel::normalize`, which collapses `\\`, drops empty segments
+  and lowercases — the archive is lowercased too, so the lookup matches.
+- **Scrolling UVs clamped, which would freeze a waterfall.** The effect sampler
+  is already `AddressMode::Repeat` on both axes (`gfx_effect_gpu.rs:140-146`).

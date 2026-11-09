@@ -380,7 +380,9 @@ impl World {
                     speed: effect.speed,
                     start_ms: 0,
                     span_ms: None,
-                    outer: None,
+                    // 0x5b33f3 copies the record's alpha into the GFX node; the
+                    // player folds it into every element's colour.
+                    outer: gfx_owner::scene_alpha(effect.alpha),
                     attachment: None,
                     active: false,
                     origin: origin.clone(),

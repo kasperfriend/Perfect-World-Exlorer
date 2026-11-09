@@ -193,6 +193,36 @@ pub fn placement_transform(
     ])
 }
 
+/// The intensity factor an ECWLD effect record authors, in the shape
+/// [`Request::outer`] carries it: white, with the record's alpha (`0x5b33f3`
+/// copies offset 52 straight into the GFX node) as the fourth component.
+///
+/// Dropping it is what made a scene effect louder than the client draws it.
+/// `A3DOrnamentMan::LoadEffect` reads that float for every placement, and the
+/// player folds it into every element's colour, so an owner installed without it
+/// runs at full strength: the seal dome around the City of Raging Tides crystal
+/// is authored **0.300** and the floating city **2.000**. 266 of the map's 2,274
+/// placements differ from 1.0 (min 0.2, max 5.0), so this is not a rounding
+/// detail — it is the difference between a soft dome and a white sheet.
+pub fn scene_alpha(alpha: f32) -> Option<[f32; 4]> {
+    if !alpha.is_finite() {
+        return None;
+    }
+    Some([1., 1., 1., alpha.max(0.)])
+}
+
+/// The uniform scale a placement matrix carries. [`placement_transform`] bakes
+/// the authored scale into the three basis columns, so the column length is the
+/// scale and nothing else.
+pub fn placement_scale(columns: &[f32; 16]) -> f32 {
+    let length = (columns[0] * columns[0] + columns[1] * columns[1] + columns[2] * columns[2]).sqrt();
+    if length.is_finite() && length > 1e-6 {
+        length
+    } else {
+        1.
+    }
+}
+
 /// Normalize an ECWLD/ECM GFX reference into an archive path. Mirrors the
 /// normalized-PCK lookup used for models so `scene\\x.gfx` and `gfx/scene/x.gfx`
 /// name the same root.
@@ -769,20 +799,30 @@ impl Manager {
             }
             let scaled = (delta_ms as f32 * owner.request.speed).max(0.);
             let alpha = owner.request.outer.map_or(1., |outer| outer[3]);
-            let transform = match owner.request.world_transform() {
-                Ok(columns) => Mat4::from_cols_array(&columns),
+            let world = match owner.request.world_transform() {
+                Ok(columns) => columns,
                 Err(error) => {
                     failures.push((owner.request.origin.clone(), error));
                     owner.player = None;
                     continue;
                 }
             };
+            let transform = Mat4::from_cols_array(&world);
+            // `0x5b3700` applies the record's scale to the placement, and
+            // `Player::advance` normalizes that basis before it fans a sprite
+            // out, so the scale has to be handed over on its own or it is lost.
+            // Measured against the 9 November census: the roof bagua is authored
+            // 0.304 and came out 44.8 units wide instead of 13.6, and
+            // `水门_瀑布` is authored 2.736 — the waterfall sheet was drawn at a
+            // third of its authored size, which is why the falling water read as
+            // a static mesh.
+            let authored_scale = placement_scale(&world);
             let stepped = {
                 let Some(player) = owner.player.as_mut() else {
                     continue;
                 };
                 player
-                    .advance_with_terrain(scaled, view, transform, 1., alpha, None, terrain)
+                    .advance_with_terrain(scaled, view, transform, authored_scale, alpha, None, terrain)
                     .map(|()| player.quads().to_vec())
             };
             match stepped {
@@ -1601,6 +1641,70 @@ mod tests {
             quads.len(),
             "a forever keypoint draws the same quad every frame"
         );
+    }
+
+    /// The ECWLD record's scale lives in the placement matrix (`0x5b3700` applies
+    /// it), and `Player::advance` normalizes that basis before it fans a sprite
+    /// out. Unless the owner hands the scale over separately, every placement is
+    /// drawn at 1.0 — which is what the 9 November census measured: the roof
+    /// bagua is authored 0.304 and came out 44.8 units wide instead of 13.6, and
+    /// `水门_瀑布` is authored 2.736, so the waterfall sheet drew at a third of
+    /// its size and the falling water read as a static mesh.
+    #[test]
+    fn the_ecwld_placement_scale_reaches_the_quads() {
+        let width = |manager: &mut Manager| {
+            let quads = manager.effect_quads(16, &camera());
+            let quad = quads.first().expect("the torch sprite draws");
+            let a = Vec3::from_array(quad.positions[0]);
+            let b = Vec3::from_array(quad.positions[1]);
+            (b - a).length()
+        };
+        let mut unit = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
+        unit.insert(request_path(1, true, "gfx/scene/torch.gfx"))
+            .unwrap();
+        unit.update(16, &mut LightPublications::default());
+        let base = width(&mut unit);
+        assert!(base > 0., "the sprite has an extent to compare");
+
+        let mut scaled = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
+        let mut placed = request_path(2, true, "gfx/scene/torch.gfx");
+        placed.transform = placement_transform([0.; 3], [0., 0., 1.], [0., 1., 0.], 2.5).unwrap();
+        scaled.insert(placed).unwrap();
+        scaled.update(16, &mut LightPublications::default());
+        let widened = width(&mut scaled);
+        assert!(
+            (widened - base * 2.5).abs() < 1e-3,
+            "a 2.5 placement scale must widen the sprite 2.5x: {widened} from {base}"
+        );
+    }
+
+    /// `0x5b33f3` copies the record's alpha into the GFX node, and the player
+    /// folds the owner's intensity into every element's colour. An owner
+    /// installed with it draws dimmer than the same owner without it — the seal
+    /// dome around the Crystal in the City of Raging Tides is authored 0.300 and
+    /// was drawn at full strength.
+    #[test]
+    fn the_ecwld_record_alpha_dims_its_quads() {
+        let alpha_of = |outer: Option<[f32; 4]>| {
+            let mut manager = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
+            let mut placed = request_path(3, true, "gfx/scene/torch.gfx");
+            placed.outer = outer;
+            manager.insert(placed).unwrap();
+            manager.update(16, &mut LightPublications::default());
+            let quads = manager.effect_quads(16, &camera());
+            quads.first().expect("the torch sprite draws").color[3]
+        };
+        let full = alpha_of(None);
+        let authored = alpha_of(scene_alpha(0.3));
+        assert!(full > 0.);
+        assert!(
+            (authored / full - 0.3).abs() < 0.01,
+            "an authored alpha of 0.3 must reach the quad: {authored} of {full}"
+        );
+        // A record value above one is a brightness multiplier, not garbage: the
+        // floating city authors 2.0 and clamps at the byte the shader reads.
+        assert_eq!(alpha_of(scene_alpha(2.0)), 1.0);
+        assert_eq!(scene_alpha(f32::NAN), None);
     }
 
     /// An owner outside its activation window costs no graph at all, and is
