@@ -315,6 +315,114 @@ pub struct Manager {
     effects: bool,
     effect_failures: Vec<String>,
     effect_warnings: Vec<String>,
+    /// `PWE_EFFECT_CENSUS=1` turns the effect pass into a report: every visible
+    /// root's largest quad, its texture, its blend pair and where it sat. A
+    /// screenshot can say "white blob at the altar" but not which of the 2,275
+    /// installed roots drew it, and the status line only counts quads.
+    census: Option<Census>,
+}
+
+/// How often the census repeats while the variable is set. Two seconds is long
+/// enough to read one report before the next, and short enough that walking to
+/// an artefact and back does not need a restart.
+const CENSUS_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// One root's contribution to a census line.
+struct CensusRow {
+    path: String,
+    quads: usize,
+    width: f32,
+    height: f32,
+    centre: [f32; 3],
+    texture: String,
+    source: u32,
+    destination: u32,
+    alpha: f32,
+}
+
+struct Census {
+    next: std::time::Instant,
+}
+
+fn census_width(row: &CensusRow) -> f32 {
+    row.width * row.height
+}
+
+/// The largest quad one root drew this frame, with the identity of the element
+/// that submitted it. `EffectQuad` carries no element id, so the texture, the
+/// blend pair and the world size are what identify it; between them and the
+/// root path a corpus search finds the element.
+fn census_row(path: &str, quads: &[EffectQuad]) -> CensusRow {
+    let span = |a: [f32; 3], b: [f32; 3]| {
+        let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+        (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+    };
+    let mut row = CensusRow {
+        path: path.to_string(),
+        quads: quads.len(),
+        width: 0.,
+        height: 0.,
+        centre: [0.; 3],
+        texture: String::new(),
+        source: 0,
+        destination: 0,
+        alpha: 0.,
+    };
+    let mut best = 0f32;
+    for quad in quads {
+        let corners = quad.positions;
+        let width = span(corners[0], corners[1]);
+        let height = span(corners[0], corners[3]);
+        let area = width * height;
+        if !(area > best) {
+            continue;
+        }
+        best = area;
+        row.width = width;
+        row.height = height;
+        row.centre = [
+            (corners[0][0] + corners[1][0] + corners[2][0] + corners[3][0]) / 4.,
+            (corners[0][1] + corners[1][1] + corners[2][1] + corners[3][1]) / 4.,
+            (corners[0][2] + corners[1][2] + corners[2][2] + corners[3][2]) / 4.,
+        ];
+        row.texture = quad.texture.clone();
+        row.source = quad.source_blend;
+        row.destination = quad.destination_blend;
+        row.alpha = quad.color[3];
+    }
+    row
+}
+
+/// Format the census: total quads plus the roots that drew the largest single
+/// quad. Largest first, because a "blob" in a screenshot is a big quad.
+fn census_report(rows: &mut [CensusRow], total: usize) -> String {
+    rows.sort_by(|a, b| census_width(b).total_cmp(&census_width(a)));
+    let mut report = format!(
+        "Effect census: {total} quads from {} visible roots\n",
+        rows.len()
+    );
+    for row in rows.iter().take(20) {
+        let texture = if row.texture.is_empty() {
+            "-"
+        } else {
+            row.texture.as_str()
+        };
+        report.push_str(&format!(
+            "  {:.1}x{:.1} at ({:.1},{:.1},{:.1}) quads={} tex={texture} blend={}/{} \
+             alpha={:.2} {}\n",
+            row.width,
+            row.height,
+            row.centre[0],
+            row.centre[1],
+            row.centre[2],
+            row.quads,
+            row.source,
+            row.destination,
+            row.alpha,
+            row.path
+        ));
+    }
+    report
 }
 
 impl Default for Manager {
@@ -339,6 +447,9 @@ impl Manager {
             effects: true,
             effect_failures: Vec::new(),
             effect_warnings: Vec::new(),
+            census: std::env::var_os("PWE_EFFECT_CENSUS").map(|_| Census {
+                next: std::time::Instant::now() + CENSUS_INTERVAL,
+            }),
         }
     }
 
@@ -638,6 +749,15 @@ impl Manager {
         if !self.effects {
             return out;
         }
+        // Report only when one is due; the rows themselves allocate, so nothing
+        // is collected on the frames between reports.
+        let mut rows = match self.census.as_mut() {
+            Some(census) if std::time::Instant::now() >= census.next => {
+                census.next = std::time::Instant::now() + CENSUS_INTERVAL;
+                Some(Vec::with_capacity(self.owners.len()))
+            }
+            _ => None,
+        };
         let mut failures = Vec::new();
         for owner in &mut self.owners {
             if !matches!(owner.state, State::Live { .. }) {
@@ -666,7 +786,12 @@ impl Manager {
                     .map(|()| player.quads().to_vec())
             };
             match stepped {
-                Ok(quads) => out.extend(quads),
+                Ok(quads) => {
+                    if let Some(rows) = rows.as_mut() {
+                        rows.push(census_row(&owner.request.path, &quads));
+                    }
+                    out.extend(quads);
+                }
                 Err(error) => {
                     failures.push((owner.request.origin.clone(), error));
                     owner.player = None;
@@ -675,6 +800,17 @@ impl Manager {
         }
         for (origin, error) in failures {
             self.effect_failures.push(format!("{origin}: {error}"));
+        }
+        if let Some(mut rows) = rows {
+            // A file, not stderr: the shipped Windows build has no console, so a
+            // report a user is asked to paste has to land somewhere they can
+            // open. Overwritten every interval, so the newest view wins.
+            let report = census_report(&mut rows, out.len());
+            eprint!("{report}");
+            if let Err(error) = std::fs::write("effect-census.txt", &report) {
+                self.effect_warnings
+                    .push(format!("effect census not written: {error}"));
+            }
         }
         out
     }

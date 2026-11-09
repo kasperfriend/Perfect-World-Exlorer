@@ -331,6 +331,8 @@ runtime count, with 1,445 all-day / 154 day-only / 676 night-only placements.
 | … with `Sects: 0` | 1,064 |
 | element-140 `Pitch: 0` | 365 |
 | element-100..104 with `MatchGrnd: 1` | 923 (906 of them 100/102, i.e. draped) |
+| `.gfx` element keys named `TexU`/`TexV`/`TexWid`/`TexHei` | 0 |
+| ECWLD effect records, by authored alpha | 1.0 ×2,008, 0.8 ×57, 0.5 ×45, 2.0 ×41, 0.3 ×34, 5.0 ×14, rest below 3.0 |
 | element-123 with `IsAvgGen: 1` | 45 |
 | `keyNumber` / `GridAnimationLines` in any corpus `.gfx` | 0 / 0 |
 | `场景/新种族地图/` roots / distinct textures / unresolvable | 179 / 247 / **0** |
@@ -346,3 +348,53 @@ runtime count, with 1,445 all-day / 154 day-only / 676 night-only placements.
 * No new texture-resolution change is proposed. The earlier case-folded index was
   retracted because the reader was already case-insensitive, and re-measuring the
   tideborn folder through that same rule finds nothing missing.
+
+## 6. The 9 November follow-up report, and the tool that ends the guessing
+
+The second round of screenshots reports four things still wrong: white flashy
+glow blobs (in several places), effects misplaced in City of Raging Tides'
+floating city, the Nightfire altar unchanged, and static waterfalls. None of them
+can be pinned from the files alone, and three cheap hypotheses died on contact
+with the corpus, so they are recorded here rather than re-tried:
+
+- **Authored UV sub-rects are not a thing.** The client's `Fill_Verts_3D` uses
+  `m_fTexU`/`m_fTexWid`/`m_fTexV`/`m_fTexHei`, which looked like the missing
+  piece for "the whole atlas is drawn instead of one cell". The corpus has no
+  `TexU`, `TexV`, `TexWid`, `TexHei` or `TexNum` key at all: 30,019 `TexFile`
+  lines, and UVs come only from `TexRow`/`TexCol` plus `TexSpeed`, both of which
+  the player already honours.
+- **The waterfall textures all resolve.** All seven `TexFile` values of
+  `水门_瀑布.gfx` map to a member of `gfx.pck` (`纹理\气连续03.tga`,
+  `纹理\流动（通道）.dds`, `normalmap\gas.dds`, `物体\humianbowen.dds`,
+  `多个烟火\shuizhu01.dds`, `烟火\Effects_Textures_1184-1.bmp`, `烟火\沙.tga`),
+  so the animated sheet is not disappearing through a missing texture.
+- **Its clock runs.** Every element of `水门_瀑布.gfx` is a single keypoint with
+  `TimeSpan: -1`, so `element_cycle` is infinite, `element_phase` returns the
+  unclamped local clock, and the `TexSpeed` V scroll (−1.0 … −2.0) is applied
+  from a clock that keeps growing. If the waterfall still looks frozen, the
+  sheets are not being drawn at all and what is visible is the static BMD mesh —
+  and that is a question for the runtime, not for the text.
+
+So this pass adds the runtime tool rather than another guess.
+
+### 6.1 `PWE_EFFECT_CENSUS=1` writes `effect-census.txt`
+
+Set the variable and the world effect pass writes a report every two seconds to
+`effect-census.txt` in the working directory (and to stderr where there is one —
+the shipped Windows build has no console, hence the file):
+
+```
+Effect census: 4218 quads from 137 visible roots
+  9.4x11.2 at (123.0,-45.0,88.2) quads=7 tex=纹理\气连续03.tga blend=2/4 alpha=1.00 gfx/场景/新种族地图/水门_瀑布.gfx
+  ...
+```
+
+One line per visible root, largest single quad first — because an artefact in a
+screenshot is a big quad — with its world size, its world centre, its texture,
+its blend pair, the sampled alpha, the root's quad count and the root path.
+`EffectQuad` carries no element id, but texture + blend + size + root narrows a
+corpus search to one element in a couple of minutes.
+
+Windows: `set PWE_EFFECT_CENSUS=1` in `cmd`, or `$env:PWE_EFFECT_CENSUS=1` in
+PowerShell, before starting the viewer; the file lands next to the working
+directory, which is the viewer's own folder for the portable build.
