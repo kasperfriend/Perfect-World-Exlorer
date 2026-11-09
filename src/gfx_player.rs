@@ -817,6 +817,15 @@ struct ElementContext<'a> {
     rotation: f32,
     /// Milliseconds on the element clock, for flipbooks and UV scroll.
     clock: f32,
+    /// The owner's placement scale, as handed to [`Player::advance_with_terrain`].
+    /// A 100/101 sprite is a screen-space card whose size comes from
+    /// `m_pGfx->GetActualScale()` in `A3DDecalEx::Fill_Verts_2D`, i.e. the GFX's
+    /// own `DedaultScale`; the owner's map scale reaches the card only through
+    /// `GetParentTM() * kp.m_vPos`, which moves its centre. Dividing it back out
+    /// of the extents is what keeps `场景/树林光束.gfx` at its authored 14 units
+    /// under the 8.776 this map authors, while `能量喷泉`'s particles, whose
+    /// geometry is built in the parent frame, still follow the map scale.
+    owner_scale: f32,
 }
 
 impl ElementContext<'_> {
@@ -1457,6 +1466,7 @@ impl Player {
                 view,
                 parent,
                 color_scale,
+                scale,
                 [self.root.aabb_center, self.root.aabb_half],
                 &mut rng,
                 &mut stats,
@@ -1582,6 +1592,8 @@ fn advance_element(
     view: &View,
     base: Mat4,
     color_scale: f32,
+    // The owner's placement scale, for the screen-space sprite path.
+    owner_scale: f32,
     // The root's `Vec:` pair, which element 190 uses as its span endpoints.
     span: [Vec3; 2],
     rng: &mut Rng,
@@ -1658,6 +1670,7 @@ fn advance_element(
         // rotation, not a speed).
         rotation: sampled.rad_2d + runtime.state.rotation,
         clock: phase,
+        owner_scale,
     };
     // `IsDummy` marks an element the client builds but never submits: `冲击波1`
     // keeps a whole child element behind it. Note that `DummyEle` is *not* this
@@ -2563,6 +2576,17 @@ fn emit_sprite(
             return;
         }
     }
+    // `Fill_Verts_2D` sizes the card from `m_pGfx->GetActualScale()` — the GFX's
+    // own `DedaultScale` — and takes only the card's *centre* from
+    // `GetParentTM()`, so the owner's map scale must not be multiplied into the
+    // extents. Measured against the 10 November census: `树林光束` is authored
+    // `DedaultScale: 0.7` with 0.5 x 10 cards, and this map places it at 8.776,
+    // which drew a 6 x 123 tree-top shaft where retail draws 0.7 x 14.
+    let owner = if context.owner_scale.is_finite() && context.owner_scale > 1e-6 {
+        context.owner_scale
+    } else {
+        1.
+    };
     let positions = quad_corners(
         context,
         basis,
@@ -2572,7 +2596,7 @@ fn emit_sprite(
         sprite.origin,
         sprite.no_scale,
         context.rotation,
-        1.,
+        1. / owner,
     );
     let uv = flipbook_uv(context.common, context.clock);
     push_quad(out, context, &texture, positions, uv, color);
@@ -4763,6 +4787,38 @@ mod tests {
         let mut player = build(&(header37(1) + ring.as_str()));
         step(&mut player, 0.);
         player.quads().to_vec()
+    }
+
+    /// A ring is world geometry built in the parent frame, so the owner's
+    /// placement scale reaches its radius through `GetParentTM()`, while a 100/101
+    /// card is a screen-space quad that must not grow. The two paths have to
+    /// disagree: this map places `场景/树林光束.gfx` at 8.776 with 0.5 x 10 cards,
+    /// and scaling those drew 123-unit shafts over the tree tops, while the
+    /// Nightfire `能量喷泉` particles at 5.019 really are five times bigger.
+    #[test]
+    fn a_ring_follows_the_owner_scale_where_a_sprite_does_not() {
+        let ring = "GFXELEMENTID: 140\r\nName: ring\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+             TexFile: 圆环光\\circle032.dds\r\nRepeatCount: 1\r\nRepeatDelay: 0\r\n\
+             Radius: 1.000000\r\nHeight: 1.000000\r\nPitch: 0.000000\r\nSects: 0\r\n\
+             NoRadScale: 0\r\nNoHeiScale: 0\r\nOrgAtCenter: 0\r\n\
+             StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
+             Position: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\n\
+             Rad_2D: 0\r\nCtrlMethodCount: 0\r\n";
+        let radius = |scale: f32| {
+            let mut player = build(&(header37(1) + ring));
+            player
+                .advance(0., &view(), Mat4::from_scale(Vec3::splat(scale)), scale, 1.)
+                .unwrap();
+            let point = player.quads()[0].positions[0];
+            point[0].hypot(point[2])
+        };
+        let unit = radius(1.);
+        let widened = radius(3.);
+        assert!(unit > 0., "the ring has a radius to compare");
+        assert!(
+            (widened - unit * 3.).abs() < 1e-3,
+            "a ring is world geometry and follows the placement scale: {widened} from {unit}"
+        );
     }
 
     /// `Sects: 0` is the client's `_default_sects`, and `A3DGFXRing.cpp` sets

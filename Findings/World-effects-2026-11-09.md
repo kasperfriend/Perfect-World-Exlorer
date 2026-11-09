@@ -518,3 +518,66 @@ installer now passes `gfx_owner::scene_alpha(effect.alpha)`.
   and lowercases — the archive is lowercased too, so the lookup matches.
 - **Scrolling UVs clamped, which would freeze a waterfall.** The effect sampler
   is already `AddressMode::Repeat` on both axes (`gfx_effect_gpu.rs:140-146`).
+
+## 8. Round three: the scale was right for world geometry and wrong for cards
+
+Eight more reports arrived with eight fresh censuses. Two of them are direct
+measurements of the §7 change, one praises it and one rejects it:
+
+| root | placement scale | before §7 | after §7 | report |
+| --- | --- | --- | --- | --- |
+| `场景/新种族地图/能量喷泉.gfx` | **5.019** | 10.5 | 52.7 | "finally has correct size gas" |
+| `场景/树林光束.gfx` | 8.776 | 0.7 x 14.0 | **6.1 x 123.0** | "sun rays became too big" |
+
+Both cannot be right with one rule, so the rule has to be split by path — and the
+client splits it. `A3DDecalEx::Fill_Verts_2D` (`/tmp/decal.cpp:714-760`) builds a
+**screen-space card**: the centre comes from `GetParentTM() * kp.m_vPos`, but the
+size is `m_fWidth1 * kp.m_fScale * fScale` where `fScale` is the projected size
+of one world unit times **`m_pGfx->GetActualScale()`** — the GFX's own
+`DedaultScale`, not the owner's map scale. Everything built in the parent frame —
+particles, models, rings, grids, the `Fill_Verts_3D` ground path — inherits the
+map scale through `GetParentTM()` instead.
+
+That is what the two rows above measure: `能量喷泉` is elements 160 and 123
+(models and emitters, world geometry, scale honoured) and `树林光束` is element
+100 only (`DedaultScale: 0.7`, 0.5 x 10 cards, owner scale 8.776).
+
+### 8.1 What changed
+
+- `emit_sprite` now divides the owner's placement scale back out of the card's
+  extents. The card keeps its authored `DedaultScale` size; the placement still
+  moves its centre, because the centre goes through the placement matrix. A ring
+  or a particle still follows the map scale.
+- `scene_alpha` clamps the authored alpha to 0..1. The node's alpha is a byte
+  once it reaches a vertex, and records authoring **2.0** (`0远完美浮空城`,
+  `主城光球小`) and **5.0** were pushed past what retail draws — a half-alpha
+  element multiplied by two saturates where the client leaves it at half. That is
+  the "too bright blue effect on other craters".
+
+Tests: `a_ring_follows_the_owner_scale_where_a_sprite_does_not` (a ring at 3x is
+3x, a card is not) and `the_ecwld_placement_scale_does_not_resize_a_sprite`.
+
+### 8.2 Still open, and what each needs
+
+Recorded so the next round starts from the measurement rather than from a guess:
+
+- **Waterfalls are static.** The census at Etherblade, Waterbeast Shore and the
+  new pair shows only `瀑布水花`/`瀑布水花底` (the splash emitters) and never a
+  `水门_瀑布` sheet, i.e. the thing that reads as falling water is the static BMD
+  mesh. The next question is whether `水门_瀑布`'s seven quads are drawn at all at
+  those spots, and the census already answers it: they are absent from every log.
+  Either the owners are not activated, or their cards are drawn where the mesh
+  hides them.
+- **Effects rotated 90 degrees** (`天煞光束`, Archosaur). Both placements are in
+  the corpus with different `direction`/`up` pairs; the fix needs those two
+  vectors read next to the shot, because a 90-degree flip is a basis assignment,
+  not a magnitude.
+- **Forest of Songs "Shroom Lights" too low.** `蘑菇灯` places at 9.1..12.2 units
+  now; "too low" is a height, so it is the record's `position.y` against the
+  element's local offset — the same class of question as the 90-degree flip.
+- **Wraithgate: spinning green effect, floating blue fires.** `绿鬼火` draws
+  28.7 x 40.5 cards and `骷髅光柱` 30 x 42.4; a card that spins is a `Rad_2D` or
+  billboard-orientation question, and "floating" is again height.
+- **Summoning stations: white flickering blobs.** The census taken there is
+  dominated by `蓝火` (alpha 1.00) and `岩浆火焰` (296 quads); the flicker is
+  likely the flipbook `TexInterval`, which the census does not report yet.

@@ -208,7 +208,13 @@ pub fn scene_alpha(alpha: f32) -> Option<[f32; 4]> {
     if !alpha.is_finite() {
         return None;
     }
-    Some([1., 1., 1., alpha.max(0.)])
+    // The node's alpha is a byte once it reaches a vertex, so the authored
+    // multiplier is clamped before it is folded in. The 10 November report is
+    // the measurement for the upper bound: records authoring 2.0 (the floating
+    // city, `主城光球小`) and 5.0 turned the craters' blue sheets brighter than
+    // retail, because a half-alpha element at x2 saturates where the client
+    // leaves it at half.
+    Some([1., 1., 1., alpha.clamp(0., 1.)])
 }
 
 /// The uniform scale a placement matrix carries. [`placement_transform`] bakes
@@ -1652,38 +1658,36 @@ mod tests {
         );
     }
 
-    /// The ECWLD record's scale lives in the placement matrix (`0x5b3700` applies
-    /// it), and `Player::advance` normalizes that basis before it fans a sprite
-    /// out. Unless the owner hands the scale over separately, every placement is
-    /// drawn at 1.0 — which is what the 9 November census measured: the roof
-    /// bagua is authored 0.304 and came out 44.8 units wide instead of 13.6, and
-    /// `水门_瀑布` is authored 2.736, so the waterfall sheet drew at a third of
-    /// its size and the falling water read as a static mesh.
+    /// A 100/101 sprite is a screen-space card: `A3DDecalEx::Fill_Verts_2D`
+    /// takes its size from `m_pGfx->GetActualScale()` — the GFX's own
+    /// `DedaultScale` — and only its centre from `GetParentTM()`. The owner's map
+    /// scale therefore places the card without resizing it.
+    ///
+    /// The 10 November census is the measurement: this map places
+    /// `场景/树林光束.gfx` (`DedaultScale: 0.7`, 0.5 x 10 cards) at 8.776, and
+    /// multiplying that into the extents drew 6 x 123 unit shafts over the tree
+    /// tops where retail draws 0.7 x 14.
     #[test]
-    fn the_ecwld_placement_scale_reaches_the_quads() {
-        let width = |manager: &mut Manager| {
+    fn the_ecwld_placement_scale_does_not_resize_a_sprite() {
+        let width = |scale: f32| {
+            let mut manager = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
+            let mut placed = request_path(1, true, "gfx/scene/torch.gfx");
+            placed.transform = placement_transform([0.; 3], [0., 0., 1.], [0., 1., 0.], scale)
+                .unwrap();
+            manager.insert(placed).unwrap();
+            manager.update(16, &mut LightPublications::default());
             let quads = manager.effect_quads(16, &camera());
             let quad = quads.first().expect("the torch sprite draws");
             let a = Vec3::from_array(quad.positions[0]);
             let b = Vec3::from_array(quad.positions[1]);
             (b - a).length()
         };
-        let mut unit = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
-        unit.insert(request_path(1, true, "gfx/scene/torch.gfx"))
-            .unwrap();
-        unit.update(16, &mut LightPublications::default());
-        let base = width(&mut unit);
-        assert!(base > 0., "the sprite has an extent to compare");
-
-        let mut scaled = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
-        let mut placed = request_path(2, true, "gfx/scene/torch.gfx");
-        placed.transform = placement_transform([0.; 3], [0., 0., 1.], [0., 1., 0.], 2.5).unwrap();
-        scaled.insert(placed).unwrap();
-        scaled.update(16, &mut LightPublications::default());
-        let widened = width(&mut scaled);
+        let unit = width(1.);
+        assert!(unit > 0., "the sprite has an extent to compare");
+        let widened = width(2.5);
         assert!(
-            (widened - base * 2.5).abs() < 1e-3,
-            "a 2.5 placement scale must widen the sprite 2.5x: {widened} from {base}"
+            (widened - unit).abs() < 1e-3,
+            "a 2.5 placement scale must not resize a card: {widened} from {unit}"
         );
     }
 
@@ -1710,9 +1714,10 @@ mod tests {
             (authored / full - 0.3).abs() < 0.01,
             "an authored alpha of 0.3 must reach the quad: {authored} of {full}"
         );
-        // A record value above one is a brightness multiplier, not garbage: the
-        // floating city authors 2.0 and clamps at the byte the shader reads.
-        assert_eq!(alpha_of(scene_alpha(2.0)), 1.0);
+        // A record value above one clamps to full strength: the floating city
+        // authors 2.0, and letting it multiply pushed the blue crater sheets past
+        // what retail draws.
+        assert_eq!(alpha_of(scene_alpha(2.0)), alpha_of(scene_alpha(1.0)));
         assert_eq!(scene_alpha(f32::NAN), None);
     }
 
