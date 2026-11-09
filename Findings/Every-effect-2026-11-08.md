@@ -738,3 +738,43 @@ Nothing authors a one-millisecond flip, so an absent interval now holds the firs
 cell. Every corpus element that enables the flipbook does write an interval, so
 this decides only a damaged or hand-written record; the test fails on the old
 fallback (`at 1999 ms the top-left corner moved`) and passes on the new one.
+
+### Update 9 — the three open reports, and what is actually established
+
+**Waterfalls static (fixed, and it was mine).** Update 7 clamped the effect
+sampler to `ClampToEdge`; a waterfall animates only through the `TexSpeed` UV
+scroll, so clamping froze the sheet on one frame and stretched its edge texels
+into vertical streaks. Reverted in `d2b1e89` to a single pass-wide `Repeat`.
+Measured with `Repeat`: a single-image grid element authored `TexSpeed: -0.4`
+(a real value from `瀑布.gfx`, carried in the test fixture) scrolls V from 0.008
+to 0.48 over 960 ms, so the mechanism animates. `瀑布.gfx`'s curtain elements
+author that negative speed, and the flipbook index and the scroll both handle a
+negative rate.
+
+**Nightfire gas smaller than authored (not diagnosed).** The controller-107
+`Amplitude` cm conversion is well evidenced — a 386-unit dust cloud around a
+0.8-unit particle is not a wobble — and `quad_corners` doubles the authored
+dimensions exactly as the decal path does. Neither explains a cloud that is now
+*too small*. Settling it needs `夜空飘尘.gfx`'s own `Amplitude`, `AreaSize`,
+`ScaleMin`/`ScaleMax` and its controller-111 ramp, and the corpus is not
+available in this session.
+
+**City of Raging Tides broken texture (not diagnosed).** Ruled out by reading
+the code and the round-trip tests: the DXT3 explicit-alpha nibble order, the mip
+chain (the parser validates every declared level against the payload and rejects
+a truncated one), the block stride and layout, the `D3DBLEND` map (2=ONE,
+5=SRCALPHA, 3=SRCCOLOR), and the AARRGGBB byte order. What the screenshot shows —
+vertical white noise streaks where a sheet should be — is also exactly what the
+`ClampToEdge` bug produced, so it may be the same defect already reverted; that
+cannot be confirmed without a capture.
+
+### Method note
+
+Two of the last three "fixes" in this file were wrong and had to be reverted: the
+case-folded texture index (a no-op, since `normalize` already lowercases) and the
+`TileMode` sampler clamp (which froze and streaked every waterfall). Both were
+argued from a plausible chain of reasoning rather than measured. The fixes that
+held — the `CtrlType 111` clamp, controller 107's centimetres, element 190's
+inverted segment count, the flipbook's 1 ms fallback — each have a test that
+fails on the old code. That is the bar this file should keep: no claim without a
+failing test or a corpus measurement behind it.
