@@ -7555,7 +7555,10 @@ mod tests {
                 high - low
             })
             .collect();
-        assert!(spread[2] < 1e-5, "the card is flat on the element's Z: {spread:?}");
+        assert!(
+            spread[2] < 1e-5,
+            "the card is flat on the element's Z: {spread:?}"
+        );
         assert!(
             spread[0] > 0.5 && spread[1] > 0.5,
             "the element's X and Y carry the quad: {spread:?}"
