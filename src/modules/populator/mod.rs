@@ -444,17 +444,20 @@ impl Library {
     /// bind-pose route.
     ///
     /// The donor is the normal player's rig for the resident's gender
-    /// (the client's `形象` appearance bodies). Rest frames diverge much
-    /// further than "similar rigs" on some bones (female forearm/hand chains
-    /// reach ~65-81 degrees, thumbs ~85), so the clips must not be re-based
-    /// onto unrelated axes: the retarget transports the donor's parent-space
-    /// swing delta through each rig's own rest frames. Measured on the retail
-    /// client (`Findings/recovery/gait-evidence.md`): every numbered male and
+    /// (the client's `形象` appearance bodies). The resident plays the
+    /// donor's authored local rotations verbatim: both rigs trace the same
+    /// parent chain (name- and parent-checked), so the composed pose is the
+    /// donor's pose rooted at the resident's route placement - at every
+    /// sample the resident plays what the player plays. The previous
+    /// parent-frame delta transport was refuted in game: it preserves swing
+    /// *angles* but anchors every bone to the resident's combat-stance bind,
+    /// which left the pre-flexed arms held across the belly and behind the
+    /// back. Measured on the retail client
+    /// (`Findings/recovery/gait-evidence.md`): every numbered male and
     /// female resident rig maps all 23 locomotion bones from its gender
-    /// donor, walk and run, and the mapped swing deltas are preserved to
-    /// 0.00 degrees of angular error. Guard donors were retired as the
-    /// shipped source; the gender-correct player donor is a strict
-    /// superset match and is what Live World residents play.
+    /// donor, walk and run, and selects the generic `行走_通用` /
+    /// `奔跑_通用` cycles. Guard donors were retired as the shipped source;
+    /// the gender-correct player donor is a strict superset match.
     fn retargeted_gait(&mut self, key: &str, target: &ModelAsset) -> Option<RetargetedGait> {
         if let Some(gait) = self.retargeted_gaits.get(key) {
             return gait.clone();
@@ -568,43 +571,6 @@ fn gait_candidate_rank(name: &str) -> u8 {
 /// bone index and composing parent * local like the engine does. Resolution is
 /// memoised and depth-limited; corrupt cyclic parent data resolves to `None`
 /// so a garbage frame can never carry an animation.
-fn rest_rotation_chain(bones: &[crate::skeleton::Bone]) -> Vec<Option<glam::Quat>> {
-    fn resolve(
-        bones: &[crate::skeleton::Bone],
-        chain: &mut [Option<glam::Quat>],
-        index: usize,
-        depth: usize,
-    ) -> Option<glam::Quat> {
-        if let Some(resolved) = chain[index] {
-            return Some(resolved);
-        }
-        if depth >= bones.len() {
-            return None;
-        }
-        let local = Mat4::from_cols_array(&bones[index].relative)
-            .to_scale_rotation_translation()
-            .1
-            .normalize();
-        if !local.is_finite() {
-            return None;
-        }
-        let world = match usize::try_from(bones[index].parent) {
-            Ok(parent) if parent < bones.len() => resolve(bones, chain, parent, depth + 1)? * local,
-            Ok(_) => return None, // out-of-range parent: garbage hierarchy
-            Err(_) => local,      // root
-        }
-        .normalize();
-        chain[index] = Some(world);
-        Some(world)
-    }
-
-    let mut chain = vec![None; bones.len()];
-    for index in 0..bones.len() {
-        let _ = resolve(bones, &mut chain, index, 0);
-    }
-    chain
-}
-
 /// Determinant of a bone's rest frame; non-positive means the "rotation" is a
 /// reflection or degenerate projection, not a rotation. Such a bone keeps its
 /// bind pose instead of transplanting its swing onto a garbage frame.
@@ -656,8 +622,6 @@ fn retarget_gait_clip(
     if target_joints.len() != target.skeleton.joints.len() {
         return None;
     }
-    let source_chain = rest_rotation_chain(&source.skeleton.bones);
-    let target_chain = rest_rotation_chain(&target.skeleton.bones);
     // The client's file order puts the bound/grapple frames first. Played on a
     // resident those fold the legs into a squat or a knee-lift - what the playtest
     // saw as "sitting in air" - while the generic cycle slices (`行走_通用` /
@@ -737,14 +701,12 @@ fn retarget_gait_clip(
                 compatible = false;
                 break;
             }
-            let (source_scale, source_rest_rotation, _) =
+            let (source_scale, ..) =
                 Mat4::from_cols_array(&source_bone.relative).to_scale_rotation_translation();
-            let (target_scale, target_rest_rotation, target_rest_position) =
+            let (target_scale, _, target_rest_position) =
                 Mat4::from_cols_array(&target_bone.relative).to_scale_rotation_translation();
             if !source_scale.is_finite()
                 || (source_scale - Vec3::ONE).abs().max_element() > 0.02
-                || !source_rest_rotation.is_finite()
-                || !target_rest_rotation.is_finite()
                 || !target_rest_position.is_finite()
                 || !target_scale.is_finite()
                 || (target_scale - Vec3::ONE).abs().max_element() > 0.02
@@ -753,59 +715,30 @@ fn retarget_gait_clip(
                 break;
             }
             // A rest frame that is a reflection or a projection is not a
-            // rotation; do not transplant an animation onto it. The bone
-            // stays at bind (a core bone doing so fails the locomotion
-            // coverage gate below). Positive-determinant frames need no
-            // threshold: the transport below is exact on any rotation pair.
+            // rotation; playing the donor's keys through it would mirror the
+            // bone. The bone stays at bind (a core bone doing so fails the
+            // locomotion coverage gate below).
             if rest_frame_det(source_bone) <= 0.0 || rest_frame_det(target_bone) <= 0.0 {
                 continue;
             }
-            // Transport the donor's parent-space swing into the target's
-            // parent frame. The engine composes absolute = parent * local,
-            // so the delta must be expressed in each rig's own parent axes:
-            // change of basis M = F_target^-1 F_source conjugates the
-            // donor's delta exactly, whatever direction the two bind poses
-            // point their ancestors.
-            let parent_frame = match (
-                usize::try_from(source_bone.parent),
-                usize::try_from(target_bone.parent),
-            ) {
-                (Ok(source_parent), Ok(target_parent)) => {
-                    match (
-                        source_chain.get(source_parent).copied().flatten(),
-                        target_chain.get(target_parent).copied().flatten(),
-                    ) {
-                        (Some(source_frame), Some(target_frame)) => {
-                            target_frame.inverse() * source_frame
-                        }
-                        // Unresolvable ancestor frames: keep the bone at bind.
-                        _ => continue,
-                    }
-                }
-                // Both rigs agree the bone has no parent (roots).
-                _ => glam::Quat::IDENTITY,
-            };
-            let rest_inverse = source_rest_rotation.normalize().inverse();
+            // The donor's authored local rotations are played verbatim on the
+            // resident. Both rigs trace the same parent chain (name- and
+            // parent-checked above), so the composed pose is the donor's
+            // pose rooted at the resident's route placement: at every sample
+            // the resident plays what the player plays. The previous
+            // parent-frame delta transport anchored every bone's swing to the
+            // resident's combat-stance bind - it preserves arc angles, but
+            // the pre-flexed arms stay exactly where the stance holds them,
+            // which the playtest saw as hands inside the belly (walk) and
+            // arms behind the back (run).
             let mut rotation = track.rotation.clone();
             for key in &mut rotation.keys {
                 let authored = glam::Quat::from_array(*key).normalize();
-                // Rm = M (Rs S^-1) M^-1 T: the donor's parent-space swing
-                // delta, expressed in the target's parent frame, applied on
-                // top of the target's bind. At Rs = S this collapses to T;
-                // identical rigs (M = I) reduce to a plain rebase. The bind
-                // pose therefore survives every sample and the swing follows
-                // the donor's world-space arc regardless of how far apart
-                // the two rigs point the ancestors of the bone.
-                let mapped = (parent_frame
-                    * (authored * rest_inverse)
-                    * parent_frame.inverse()
-                    * target_rest_rotation.normalize())
-                .normalize();
-                if !mapped.is_finite() {
+                if !authored.is_finite() {
                     compatible = false;
                     break;
                 }
-                *key = mapped.to_array();
+                *key = authored.to_array();
             }
             if !compatible {
                 break;
@@ -3949,8 +3882,8 @@ mod tests {
                 .unwrap();
             assert_ne!(walk_pose_signature(&bind), walk_pose_signature(&moving));
         }
-        // Identical rest frames reduce the transport to the plain rebase:
-        // M = I, so the mapped keys are the authored keys exactly.
+        // Verbatim transfer copies the authored keys onto every rig, so
+        // the mapped keys are the authored keys exactly.
         let finger = human_gait_joint_index(&target, "Bip01 L Finger0");
         let authored = source.tracks[0]
             .as_ref()
@@ -3977,7 +3910,7 @@ mod tests {
                 .angle_between(glam::Quat::from_array(*retargeted).normalize());
             assert!(
                 angle < 1.0e-4,
-                "rest-equal rebase drifted by {angle} radians"
+                "verbatim transfer drifted by {angle} radians"
             );
         }
 
@@ -3987,27 +3920,18 @@ mod tests {
     }
 
     #[test]
-    fn a_divergent_rest_frame_transports_the_swing_delta() {
+    fn a_divergent_rest_frame_plays_the_donors_pose() {
         // The thumb chains of the resident/player rigs point their rest
-        // frames a long way apart (measured 61-85 degrees). The transport
-        // must keep the thumb in the clip and preserve the authored swing
-        // angle exactly (conjugation preserves rotation angle), instead of
-        // binding it or swinging it about an unrelated axis.
+        // frames a long way apart (measured 61-85 degrees). The donor's
+        // authored local rotations are played verbatim, so a divergent
+        // thumb stays in the clip with the exact authored keys instead of
+        // being bind-kept; the composed pose matches the donor.
         let source = human_gait_asset();
         let target = human_gait_asset_with(Some(("Bip01 L Finger0", 80.0_f32)), false);
         let gait = retargeted_gait_from(&source, &target)
             .expect("the locomotion bones still map completely");
         let thumb = human_gait_joint_index(&target, "Bip01 L Finger0");
         let source_thumb = human_gait_joint_index(&source, "Bip01 L Finger0");
-        let bone_of = |asset: &ModelAsset, joint: usize| {
-            asset.skeleton.bones[asset.skeleton.joints[joint].child as usize].clone()
-        };
-        let source_rest = Mat4::from_cols_array(&bone_of(&source, source_thumb).relative)
-            .to_scale_rotation_translation()
-            .1;
-        let target_rest = Mat4::from_cols_array(&bone_of(&target, thumb).relative)
-            .to_scale_rotation_translation()
-            .1;
         let source_track = source.tracks[0]
             .as_ref()
             .expect("fixture track set")
@@ -4027,93 +3951,14 @@ mod tests {
                 .iter()
                 .zip(source_track.rotation.keys.iter())
             {
-                // Bind-to-bind: an authored identity key must land on the
-                // target's bind orientation exactly.
-                let mapped_delta = (glam::Quat::from_array(*mapped_key).normalize()
-                    * target_rest.normalize().inverse())
-                .normalize();
-                let authored_delta = (glam::Quat::from_array(*authored_key).normalize()
-                    * source_rest.normalize().inverse())
-                .normalize();
-                let mapped_angle = mapped_delta.angle_between(glam::Quat::IDENTITY);
-                let authored_angle = authored_delta.angle_between(glam::Quat::IDENTITY);
+                let angle = glam::Quat::from_array(*mapped_key)
+                    .normalize()
+                    .angle_between(glam::Quat::from_array(*authored_key).normalize());
                 assert!(
-                    (mapped_angle - authored_angle).abs() < 1.0e-4,
-                    "transported delta drifted: authored {authored_angle} rad, transported {mapped_angle} rad"
+                    angle < 1.0e-6,
+                    "verbatim transfer rewrote a key: drifted by {angle} radians"
                 );
             }
-            // The fixture diverges only the thumb itself, so its parent
-            // frames match and the transport is the plain parent-space
-            // rebase Rs S^-1 T. Anything else means the ancestor change of
-            // basis was applied where it must not have been (or vice versa).
-            for (mapped_key, authored_key) in mapped
-                .rotation
-                .keys
-                .iter()
-                .zip(source_track.rotation.keys.iter())
-            {
-                let authored = glam::Quat::from_array(*authored_key).normalize();
-                let mapped = glam::Quat::from_array(*mapped_key).normalize();
-                let rebase =
-                    (authored * source_rest.normalize().inverse() * target_rest.normalize())
-                        .normalize();
-                assert!(
-                    mapped.angle_between(rebase) < 1.0e-4,
-                    "parent frames match, but the mapped key diverges from Rs S^-1 T"
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn rest_rotation_chain_composes_parent_frames() {
-        use crate::skeleton::{Bone, Joint};
-        let mut asset = rig_without_combined_actions();
-        let half_turn = Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
-        for (name, parent, relative) in [
-            ("root", -1_i32, Mat4::IDENTITY),
-            (
-                "pelvis",
-                0_i32,
-                half_turn * Mat4::from_translation(Vec3::new(0., -0.35, 0.)),
-            ),
-            (
-                "sine",
-                1_i32,
-                Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2)
-                    * Mat4::from_translation(Vec3::new(0., -0.4, 0.)),
-            ),
-        ] {
-            let index = asset.skeleton.bones.len();
-            asset.skeleton.bones.push(Bone {
-                name: name.into(),
-                flags: 0,
-                parent,
-                first_joint: index as i32,
-                relative: relative.to_cols_array(),
-                initial: relative.to_cols_array(),
-                children: Vec::new(),
-            });
-            asset.skeleton.joints.push(Joint {
-                class: 15,
-                name: name.into(),
-                parent,
-                child: index as i32,
-                sibling: -1,
-            });
-        }
-        let chain = rest_rotation_chain(&asset.skeleton.bones);
-        let expected = [
-            glam::Quat::IDENTITY,
-            glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
-            glam::Quat::from_rotation_y(std::f32::consts::PI),
-        ];
-        for (index, expected) in expected.iter().enumerate() {
-            let resolved = chain[index].expect("the chain resolves");
-            assert!(
-                resolved.angle_between(*expected) < 1.0e-5,
-                "bone {index}: expected a composed frame"
-            );
         }
     }
 

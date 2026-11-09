@@ -15,8 +15,9 @@ broken and which donors can drive them cleanly:
     every bone, and the per-clip accept/reject decision of the shipped
     ``retarget_gait_clip`` logic, ported line by line;
   * a per-bone map, for a few representative pairs, of the bones the shipped
-    algorithm rejects, skips, or rebases with large angular deviation, under
-    both candidate rebase formulas (shipped local-frame vs parent-frame).
+    algorithm rejects, skips, or plays verbatim, and of the composed absolute
+    pose at window entry/middle/exit (the resident plays the donor's pose, so
+    that is the only invariant the transfer can break).
 
 Nothing here poses a mesh; the numbers are the inputs the Rust code reads.
 
@@ -51,9 +52,9 @@ PROP_RIGS = {
 }
 
 # Mirrors the shipped retarget fix (src/modules/populator/mod.rs):
-# acceptance is full coverage of the locomotion bones. Pose deltas are
-# transported between every rig's own parent frame, so no rest-gap bind-keep
-# is applied; broken (non-rotation) bones keep their bind pose instead.
+# acceptance is full coverage of the locomotion bones. Keys are played
+# verbatim onto the same parent chain, so no rest-gap bind-keep is applied;
+# broken (non-rotation) bones keep their bind pose instead.
 CORE_BONES = (
     "Bip01", "Bip01 Pelvis", "Bip01 Spine", "Bip01 Spine1", "Bip01 Spine2",
     "Bip01 Neck", "Bip01 Head",
@@ -473,9 +474,10 @@ def _abs_rest_rotations(bones):
 def _chain_divergence(src_abs, tgt_abs, sbone, tbone):
     """Angle between the two skeletons' rest PARENT frames for this bone.
 
-    This is the frame the retargeted delta actually lands in once the engine
-    composes absolute = parent * local, so it is the quantity that decides
-    whether the donor's swing axis still reads as a forward swing.
+    Diagnostic only. With verbatim keys the resident reproduces the donor's
+    composed absolute pose exactly (see formula_probe), no matter how far
+    apart the rest frames point, so this quantifies context instead of
+    predicting failures.
     """
     sp, tp = sbone["parent"], tbone["parent"]
     if not (0 <= sp < len(src_abs)) or not (0 <= tp < len(tgt_abs)):
@@ -489,33 +491,13 @@ def _chain_divergence(src_abs, tgt_abs, sbone, tbone):
 
 
 
-def _mat3_conj(m, a, m_inv):
-    return mat3_mul(mat3_mul(m, a), m_inv)
-
-
-def _transport_track(track, sb, tb, m):
-    """Rebase one donor track onto the target: D = Rs * S^-1 is transported
-    from the donor's parent frame into the target's parent frame with the
-    exact change of basis M = F_t^-1 * F_s (rest world rotations), giving
-    Rm = M D M^-1 T. Bind-to-bind collapses to T at Rs = S. A falsy
-    non-None `m` signals an unresolvable parent frame: keep the bind pose."""
-    s_unit = unit_cols_to_mat(sb["unit"])
-    t_unit = unit_cols_to_mat(tb["unit"])
-    if m is False or mat3_det(s_unit) <= 0.0 or mat3_det(t_unit) <= 0.0:
-        bind = mat3_to_quat(t_unit)
-        return {**track, "rotation": {**track["rotation"],
-                                      "keys": [list(bind) for _ in track["rotation"]["keys"]]}}
-    s_inv = _t3(s_unit)
-    m = m if m is not None else [[1.0 if i == j else 0.0 for j in range(3)] for i in range(3)]
-    m_inv = _t3(m)
+def _transport_track(track):
+    """The donor's authored local rotations are played verbatim on the
+    target, mirroring src/modules/populator/mod.rs::retarget_gait_clip: both
+    rigs trace the same parent chain (name- and parent-checked), so the
+    composed pose is the donor's pose rooted at the target's placement."""
     rotation = track["rotation"]
-    keys = []
-    for key in rotation["keys"]:
-        rs = quat_to_mat3(quat_norm(key))
-        d = mat3_mul(rs, s_inv)
-        d_t = _mat3_conj(m, d, m_inv)
-        rm = mat3_mul(d_t, t_unit)
-        keys.append(mat3_to_quat(rm))
+    keys = [quat_norm(key) for key in rotation["keys"]]
     return {**track, "rotation": {**rotation, "keys": keys}}
 
 
@@ -600,33 +582,17 @@ def _evaluate_candidate(source, target, kind, t_joints, action_index, action, ga
                 else None
             )
             chain_gap = _chain_divergence(src_abs, tgt_abs, sbone, tbone)
+            # Only a reflection/degenerate rest frame keeps the bone at
+            # bind. There is no ancestor-frame concept anymore: the donor's
+            # keys are played verbatim on top of the resident's own chain.
             broken = mat3_det(s_unit) <= 0.0 or mat3_det(t_unit) <= 0.0
-            if mat3_det(s_unit) > 0.0 and mat3_det(t_unit) > 0.0:
-                sp, tp = sbone["parent"], tbone["parent"]
-                if (
-                    0 <= sp < len(src_abs)
-                    and 0 <= tp < len(tgt_abs)
-                    and src_abs[sp] is not None
-                    and tgt_abs[tp] is not None
-                ):
-                    m = mat3_mul(_t3(tgt_abs[tp]), src_abs[sp])
-                elif sp < 0 and tp < 0:
-                    m = None  # both roots: identity change of basis
-                else:
-                    m = False  # unresolvable ancestor: bind-keep
-            else:
-                m = False
-            # Keep the transport lazy: only the per-bone detail section
-            # consumes the transported keys, and it runs for a handful of
-            # rigs. `m` is False for bind-kept bones (unresolvable frames).
             mapped.append(
                 {"joint": sjoint["name"], "bone": sbone["name"],
                  "src": sb, "tgt": tb,
                  "src_flags": sbone["flags"], "tgt_flags": tbone["flags"],
                  "rest_gap": rest_gap,
                  "chain_gap": chain_gap,
-                 "broken": broken or m is False,
-                 "m": m,
+                 "broken": broken,
                  "track": track}
             )
         if aborted:
@@ -787,7 +753,7 @@ def visibly_moves_proxy(source, target, entry):
         i = tgt_index.get(mapped["bone"])
         if i is None:
             continue
-        track = _transport_track(mapped["track"], mapped["src"], mapped["tgt"], mapped["m"])
+        track = _transport_track(mapped["track"])
         rest = mat_from_cols(target["skeleton"]["bones"][i]["relative"])
         # The game pins the position track to the target rest translation.
         track["position"] = {
@@ -978,24 +944,82 @@ def clip_motion_deg(track_set, clip):
     return widest
 
 
-def formula_probe(entry):
-    """Per mapped bone, the invariant the bind-anchored transport must hold.
+def _absolute_rotations(bones, local_by_bone):
+    """absolute[i] = absolute[parent] * local[i], composing parent-first like
+    the engine does; roots compose with nothing."""
+    children = [[] for _ in range(len(bones))]
+    queue = deque()
+    for i, bone in enumerate(bones):
+        parent = bone["parent"]
+        if parent == -1:
+            queue.append(i)
+        elif 0 <= parent < len(bones):
+            children[parent].append(i)
+    absolute = [None] * len(bones)
+    while queue:
+        i = queue.popleft()
+        local = local_by_bone[i]
+        parent = bones[i]["parent"]
+        base = None if parent == -1 else absolute[parent]
+        if parent != -1 and base is None:
+            return None  # unresolvable chain: report nothing rather than crash
+        absolute[i] = local if parent == -1 else mat3_mul(base, local)
+        for child in children[i]:
+            queue.append(child)
+    if any(value is None for value in absolute):
+        return None
+    return absolute
 
-    Rm = M (Rs S^-1) M^-1 T is a conjugation, so the parent-space swing
-    delta is preserved exactly: angle(Rs * S^-1) == angle(Rm * T^-1). The
-    `delta err` columns report the absolute deviation from that identity at
-    the first/middle/last key, in degrees. Anything above ~1e-4 uncovers a
-    broken change of basis. Diagnostic only; nothing is gated on it.
+
+def _chain_locals(asset, tracks_by_joint, seconds):
+    """Rest rotation, or the sampled authored rotation, for every bone of a rig."""
+    bones = asset["skeleton"]["bones"]
+    joint_of_bone = {}
+    for joint_index, joint in enumerate(asset["skeleton"]["joints"]):
+        joint_of_bone.setdefault(joint["child"], joint_index)
+    locals_ = []
+    for i, bone in enumerate(bones):
+        joint_index = joint_of_bone.get(i)
+        track = tracks_by_joint.get(joint_index) if joint_index is not None else None
+        if track is not None:
+            rot = sample_keytrack(track["rotation"], seconds)
+            if rot is not None:
+                locals_.append(quat_to_mat3(quat_norm(rot)))
+                continue
+        rel = mat_from_cols(bone["relative"])
+        cols, _ = normalized_cols(rel)
+        locals_.append(unit_cols_to_mat(cols))
+    return locals_
+
+
+def _tracks_by_joint(asset, entry):
+    """All authored tracks of the entry's action, keyed by joint index."""
+    action_index = entry["index"]
+    track_set = asset["tracks"][action_index]
+    if track_set is None and asset["skeleton"]["embedded"]:
+        track_set = {"tracks": asset["skeleton"]["embedded"]}
+    if not track_set or "tracks" not in track_set:
+        return {}
+    return {track["id"]: track for track in track_set["tracks"]}
+
+
+def formula_probe(source, target, entry):
+    """Per mapped bone, the FK invariant the verbatim transfer actually holds.
+
+    Played keys are copied verbatim; the resident's absolute rotation then
+    differs from the donor's by exactly the rest-layout divergence of the
+    bone's ancestor chain - constant across samples as long as every ancestor
+    in the played chain is itself played. `pose match first/mid/last` reports
+    that deviation at the window ends/middle (it mirrors how far apart the
+    two rigs point the chain - it is NOT expected to be 0.0 on a divergent
+    rig, and that is fine). `pose spread` is max minus min of the three: it
+    is ~0.0 whenever the whole ancestor chain is played, and it grows exactly
+    when a mid-chain ancestor is held at bind (unmapped, skipped or broken)
+    while donor-played descendants swing on top of it. Diagnostic only;
+    nothing is gated on it.
     """
-    eye = [[1.0 if i == j else 0.0 for j in range(3)] for i in range(3)]
     rows = []
     for bone in entry.get("bones", []):
-        s_unit = bone["src"]["unit"]
-        t_unit = bone["tgt"]["unit"]
-        s_mat = unit_cols_to_mat(s_unit)
-        t_mat = unit_cols_to_mat(t_unit)
-        s_inv = _t3(s_mat)  # orthonormal inverse
-        t_inv = _t3(t_mat)
         row = {
             "bone": bone["bone"],
             "src_flags": bone.get("src_flags"),
@@ -1009,27 +1033,65 @@ def formula_probe(entry):
             "rest_gap": bone.get("rest_gap"),
             "chain_gap": bone.get("chain_gap"),
         }
-        if bone.get("broken"):
-            rows.append(row)
-            continue
-        track = _transport_track(bone["track"], bone["src"], bone["tgt"], bone.get("m"))
-        keys = track["rotation"]["keys"]
-        if keys:
-            picks = [0, len(keys) // 2, len(keys) - 1]
-            for tag, index in zip(("first", "mid", "last"), picks):
-                authored = quat_norm(bone["track"]["rotation"]["keys"][index])
-                mapped = quat_norm(keys[index])
-                d_auth = mat3_mul(quat_to_mat3(authored), s_inv)
-                d_map = mat3_mul(quat_to_mat3(mapped), t_inv)
-                ang_auth = angle_between_rotation_mats(eye, d_auth)
-                ang_map = angle_between_rotation_mats(eye, d_map)
-                row[f"delta_err_{tag}"] = abs(ang_auth - ang_map)
         rows.append(row)
+
+    mapped = [bone for bone in entry.get("bones", []) if not bone.get("broken")]
+    start_ms, end_ms, _ = entry["clip_ms"]
+    src_all = _tracks_by_joint(source, entry)
+    src_fps = None
+    for bone in mapped:
+        keys = bone["track"]["rotation"]
+        if keys["fps"] > 0:
+            src_fps = keys["fps"]
+            break
+    if src_fps and src_fps > 0:
+        src_bones = source["skeleton"]["bones"]
+        tgt_bones = target["skeleton"]["bones"]
+        src_bone_of_name = {b["name"]: i for i, b in enumerate(src_bones)}
+        tgt_bone_of_name = {b["name"]: i for i, b in enumerate(tgt_bones)}
+        src_joint_of_bone = {j["child"]: idx for idx, j in enumerate(source["skeleton"]["joints"])}
+        tgt_joint_of_bone = {j["child"]: idx for idx, j in enumerate(target["skeleton"]["joints"])}
+        tgt_mapped = {}
+        for bone in mapped:
+            if bone.get("broken"):
+                continue  # bind-kept in game: stays at bind in the FK probe too
+            i = tgt_bone_of_name.get(bone["bone"])
+            if i is None:
+                continue
+            tgt_mapped[tgt_joint_of_bone[i]] = _transport_track(bone["track"])
+        first = mapped[0]["track"]["rotation"] if mapped else None
+        frames = first["frames"] if first else []
+        window = [
+            i for i, f in enumerate(frames)
+            if start_ms * src_fps / 1000.0 - 0.5 <= f <= end_ms * src_fps / 1000.0 + 0.5
+        ]
+        picks = (
+            [window[0], window[len(window) // 2], window[-1]] if window else []
+        )
+        for tag, pick in zip(("first", "mid", "last"), picks):
+            seconds = frames[pick] / src_fps
+            src_locals = _chain_locals(source, src_all, seconds)
+            tgt_locals = _chain_locals(target, tgt_mapped, seconds)
+            src_abs = _absolute_rotations(src_bones, src_locals)
+            tgt_abs = _absolute_rotations(tgt_bones, tgt_locals)
+            if src_abs is None or tgt_abs is None:
+                continue
+            for row in rows:
+                bone = next((b for b in mapped if b["bone"] == row["bone"]), None)
+                if bone is None:
+                    continue
+                s_i = src_bone_of_name[bone["bone"]]
+                t_i = tgt_bone_of_name[bone["bone"]]
+                row[f"pose_match_{tag}"] = angle_between_rotation_mats(src_abs[s_i], tgt_abs[t_i])
+        for row in rows:
+            values = [
+                row[f"pose_match_{tag}"]
+                for tag in ("first", "mid", "last")
+                if f"pose_match_{tag}" in row
+            ]
+            if values:
+                row["pose_spread"] = max(values) - min(values)
     return rows
-
-
-# --------------------------------------------------------------------------
-# reporting
 
 
 def rig_row(name, asset):
@@ -1063,8 +1125,9 @@ def clip_probe_lines(donors):
         "windows into shared master recordings, so whole-track statistics "
         "describe jumps and falls, not the walk the game plays. `root`/`pelvis` "
         "are the authored position-key axis ranges within the window next to "
-        "the bone's rest translation; the deltas are the authored parent-space "
-        "swing angle in degrees inside the window. An authored root/pelvis "
+        "the bone's rest translation; the angle columns are each bone's "
+        "authored rotation vs its rest pose in degrees, inside the window. "
+        "An authored root/pelvis "
         "drop or folded thigh reads as a crouch or a sit in game.\n\n"
     )
     for donor in (
@@ -1298,13 +1361,14 @@ def write_markdown(pack, names, out_path):
     lines.append(
         "## Summary table\n\n"
         "`player *` columns use the shipped core-coverage gate on retargeting "
-        "(formula A rebased into each target's parent frame: Rm = M D M^-1 T with "
-        "M = F_t^-1 F_s over rest parent-frame rotations) with the gender-correct "
-        "player donor. `guard *` columns keep the legacy 70% gate (Guard rigs, "
-        "the old behaviour) for contrast. `max chain gap` is the largest "
-        "parent-frame divergence over mapped locomotion bones for the "
-        "same-gender player donor; it is diagnostic only and never rejects a "
-        "clip.\n\n"
+        "(the donor's authored local rotations played verbatim onto the "
+        "resident's own same-named parent chain, as shipped) with the "
+        "gender-correct player donor. `guard *` columns keep the legacy 70% "
+        "gate (Guard rigs, the old behaviour) for contrast. `max chain gap` "
+        "is the largest rest parent-frame divergence over mapped locomotion "
+        "bones for the same-gender player donor; it is diagnostic only - "
+        "verbatim keys reproduce the donor's composed absolute pose at any "
+        "gap - and never rejects a clip.\n\n"
     )
     lines.append(
         "| resident | bon | bones | flagged | non15 | det≈0 | nonortho | scale≠1 | "
@@ -1383,10 +1447,10 @@ def write_markdown(pack, names, out_path):
                 entry = acc
             lines.append(
                 "| bone | src flag | tgt flag | src det | tgt det | src ortho | tgt ortho | src scale | tgt scale | "
-                "rest gap° | chain gap° | delta err first | delta err mid | delta err last |\n"
-                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: |\n"
+                "rest gap° | chain gap° | pose match first | pose match mid | pose match last | pose spread° |\n"
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n"
             )
-            for row in formula_probe(entry):
+            for row in formula_probe(d_asset, r_asset, entry):
                 def fnum(key):
                     v = row.get(key)
                     return "—" if v is None or (isinstance(v, float) and math.isnan(v)) else f"{v:.2f}"
@@ -1398,7 +1462,7 @@ def write_markdown(pack, names, out_path):
                     f"{tuple(round(s, 4) for s in row['src_scale'])} | "
                     f"{tuple(round(s, 4) for s in row['tgt_scale'])} | "
                     f"{fnum('rest_gap')} | {fnum('chain_gap')} | "
-                    f"{fnum('delta_err_first')} | {fnum('delta_err_mid')} | {fnum('delta_err_last')} |\n"
+                    f"{fnum('pose_match_first')} | {fnum('pose_match_mid')} | {fnum('pose_match_last')} | {fnum('pose_spread')} |\n"
                 )
             lines.append("\n")
 
