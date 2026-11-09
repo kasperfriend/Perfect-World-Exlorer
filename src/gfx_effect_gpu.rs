@@ -49,6 +49,10 @@ struct PipelineKey {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct BucketKey {
     layer: i32,
+    /// `Priority` orders elements *inside* a layer. It is a sort key only, so it
+    /// lives here rather than in `PipelineKey` — a distinct pipeline per
+    /// priority would reload the shader for no gain.
+    priority: i32,
     pipeline: PipelineKey,
     texture: String,
 }
@@ -301,6 +305,7 @@ impl Draw {
                     destination: quad.destination_blend,
                     depth_test: quad.depth_test,
                 },
+                priority: quad.priority,
                 texture: quad.texture.clone(),
             };
             let position = match index.get(&key) {
@@ -337,6 +342,12 @@ impl Draw {
         groups.sort_by(|(a, _), (b, _)| {
             a.layer
                 .cmp(&b.layer)
+                // `Priority` orders the elements inside one `RenderLayer`: the
+                // client authors it 1..5 on every element (7,820 are a 4 and
+                // 5,586 a 2) and nothing read it, so a background dust sheet
+                // and the flash over it landed in whatever order the texture
+                // bucket happened to produce.
+                .then_with(|| a.priority.cmp(&b.priority))
                 .then_with(|| a.pipeline.depth_test.cmp(&b.pipeline.depth_test).reverse())
                 .then_with(|| a.pipeline.source.cmp(&b.pipeline.source))
                 .then_with(|| a.pipeline.destination.cmp(&b.pipeline.destination))
@@ -567,6 +578,7 @@ mod tests {
             destination_blend: destination,
             depth_test,
             layer,
+            priority: 0,
             positions: [[-1., -1., 0.], [1., -1., 0.], [-1., 1., 0.], [1., 1., 0.]],
             uv: [[0., 0.], [1., 0.], [0., 1.], [1., 1.]],
             color,
@@ -919,16 +931,19 @@ mod tests {
         let mut sorted = vec![
             BucketKey {
                 layer: 1,
+                priority: 0,
                 pipeline: pipeline(5, 2, false),
                 texture: "b".into(),
             },
             BucketKey {
                 layer: 0,
+                priority: 0,
                 pipeline: pipeline(5, 6, true),
                 texture: "a".into(),
             },
             BucketKey {
                 layer: 0,
+                priority: 0,
                 pipeline: pipeline(5, 2, false),
                 texture: "a".into(),
             },
@@ -936,6 +951,12 @@ mod tests {
         sorted.sort_by(|a, b| {
             a.layer
                 .cmp(&b.layer)
+                // `Priority` orders the elements inside one `RenderLayer`: the
+                // client authors it 1..5 on every element (7,820 are a 4 and
+                // 5,586 a 2) and nothing read it, so a background dust sheet
+                // and the flash over it landed in whatever order the texture
+                // bucket happened to produce.
+                .then_with(|| a.priority.cmp(&b.priority))
                 .then_with(|| a.pipeline.depth_test.cmp(&b.pipeline.depth_test).reverse())
                 .then_with(|| a.pipeline.source.cmp(&b.pipeline.source))
                 .then_with(|| a.pipeline.destination.cmp(&b.pipeline.destination))
@@ -947,5 +968,53 @@ mod tests {
         assert_eq!(blend_factor(5).unwrap(), wgpu::BlendFactor::SrcAlpha);
         assert_eq!(blend_factor(2).unwrap(), wgpu::BlendFactor::One);
         assert!(blend_factor(99).is_err());
+    }
+
+    /// `Priority` is authored 1..5 on every corpus element and nothing read it,
+    /// so two elements in the same layer and blend state could draw in either
+    /// order. It now orders them inside the layer, and only inside it.
+    #[test]
+    fn priority_orders_elements_within_a_layer() {
+        let pipeline = |source, destination, depth_test| PipelineKey {
+            source,
+            destination,
+            depth_test,
+        };
+        let mut sorted = vec![
+            BucketKey {
+                layer: 0,
+                priority: 4,
+                pipeline: pipeline(5, 2, true),
+                texture: "flash".into(),
+            },
+            BucketKey {
+                layer: 0,
+                priority: 1,
+                pipeline: pipeline(5, 2, true),
+                texture: "dust".into(),
+            },
+            BucketKey {
+                layer: 1,
+                priority: 1,
+                pipeline: pipeline(5, 2, true),
+                texture: "later-layer".into(),
+            },
+        ];
+        sorted.sort_by(|a, b| {
+            a.layer
+                .cmp(&b.layer)
+                .then_with(|| a.priority.cmp(&b.priority))
+                .then_with(|| a.pipeline.depth_test.cmp(&b.pipeline.depth_test).reverse())
+                .then_with(|| a.pipeline.source.cmp(&b.pipeline.source))
+                .then_with(|| a.pipeline.destination.cmp(&b.pipeline.destination))
+                .then_with(|| a.texture.cmp(&b.texture))
+        });
+        assert_eq!(
+            sorted[0].texture, "dust",
+            "priority 1 inside layer 0 draws before priority 4"
+        );
+        assert_eq!(sorted[1].texture, "flash");
+        // Layer still dominates: a priority-1 element in layer 1 comes last.
+        assert_eq!(sorted[2].texture, "later-layer");
     }
 }

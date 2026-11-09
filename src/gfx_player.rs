@@ -138,6 +138,12 @@ pub struct EffectQuad {
     pub depth_test: bool,
     /// The element's `RenderLayer`; the pass sorts by it before blending.
     pub layer: i32,
+    /// The element's authored `Priority` (1..5 on every corpus element). It
+    /// orders blended geometry *within* a layer; the client authors it on every
+    /// element and nothing read it, so a low-priority dust sheet and a
+    /// high-priority flash landed in whatever order the texture bucket
+    /// happened to produce.
+    pub priority: i32,
     /// World-space corners in the client's quad order: top-left, top-right,
     /// bottom-left, bottom-right.
     pub positions: [[f32; 3]; 4],
@@ -2349,6 +2355,7 @@ fn push_quad(
         destination_blend: context.common.destination_blend,
         depth_test: depth_test(context.common, context.version),
         layer: context.common.render_layer,
+        priority: context.common.priority,
         positions,
         uv,
         color,
@@ -2558,6 +2565,7 @@ fn emit_model(meshes: &[EffectMesh], context: &ElementContext, out: &mut Vec<Eff
             destination_blend: context.common.destination_blend,
             depth_test: depth_test(context.common, context.version),
             layer: context.common.render_layer,
+            priority: context.common.priority,
             positions: [[0.; 3]; 4],
             uv: [[0.; 2]; 4],
             color,
