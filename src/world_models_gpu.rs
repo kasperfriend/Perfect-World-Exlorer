@@ -262,11 +262,9 @@ impl World {
             &mut self.read,
             Box::new(move |path: &str| Err(format!("unset reader: {path}"))),
         );
-        self.read = Box::new(move |path: &str| {
-            match gfx_entries.get(path) {
-                Some(entry) => crate::pck::read_entry(&mut gfx_pack, entry),
-                None => previous(path),
-            }
+        self.read = Box::new(move |path: &str| match gfx_entries.get(path) {
+            Some(entry) => crate::pck::read_entry(&mut gfx_pack, entry),
+            None => previous(path),
         });
         // Root text is a separate handle so a root load and a texture load can
         // never interleave their file positions.
