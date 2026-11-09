@@ -115,10 +115,15 @@ impl World {
         element: &Path,
     ) -> Result<Self, String> {
         let mut pack = File::open(element.join("models.pck")).map_err(|e| e.to_string())?;
-        let entries: HashMap<String, crate::pck::Entry> = crate::pck::directory(&mut pack)?
-            .into_iter()
-            .map(|e| (crate::ecmodel::normalize(&e.name), e))
-            .collect();
+        // Case-insensitive for the same reason the `gfx.pck` reader is: the
+        // pack stores lower-case member names and the model descriptors name
+        // them the way the artist typed them.
+        let entries: crate::gfx_catalog::CaseIndex<crate::pck::Entry> =
+            crate::gfx_catalog::CaseIndex::new(
+                crate::pck::directory(&mut pack)?
+                    .into_iter()
+                    .map(|e| (crate::ecmodel::normalize(&e.name), e)),
+            );
         Self::with_reader(device, format, assets, move |path| {
             let entry = entries
                 .get(path)
@@ -234,10 +239,19 @@ impl World {
                 .map(|e| (e.name.as_str(), e.size))
                 .collect(),
         );
-        let entries: HashMap<String, crate::pck::Entry> = directory
-            .iter()
-            .map(|e| (crate::ecmodel::normalize(&e.name), e.clone()))
-            .collect();
+        // Keyed the way the client's file system sees the archive: byte-exact
+        // first, then folded to lower case. The pack stores its members in
+        // lower case while the roots name them the way the artist typed them,
+        // and retail resolves the pair because its file system ignores case. 293
+        // of this corpus's 1,610 distinct texture references differ only by
+        // case, and a miss here is not cheap: the effect pass substitutes a
+        // white texel, so each one drew as an opaque white slab.
+        let entries: crate::gfx_catalog::CaseIndex<crate::pck::Entry> =
+            crate::gfx_catalog::CaseIndex::new(
+                directory
+                    .iter()
+                    .map(|e| (crate::ecmodel::normalize(&e.name), e.clone())),
+            );
         // Asset reads: everything inside `gfx.pck`, textures included. The
         // model reader this object was built with keeps its own archive and is
         // still tried second, so a model texture that a root happens to name
@@ -249,8 +263,7 @@ impl World {
             Box::new(move |path: &str| Err(format!("unset reader: {path}"))),
         );
         self.read = Box::new(move |path: &str| {
-            let key = crate::ecmodel::normalize(path);
-            match gfx_entries.get(&key) {
+            match gfx_entries.get(path) {
                 Some(entry) => crate::pck::read_entry(&mut gfx_pack, entry),
                 None => previous(path),
             }
@@ -262,7 +275,7 @@ impl World {
         self.owners.set_reader(move |path: &str| {
             let entry = root_entries
                 .get(path)
-                .ok_or_else(|| "missing gfx.pck entry".to_string())?;
+                .ok_or_else(|| format!("missing gfx.pck entry: {path}"))?;
             let bytes = crate::pck::read_entry(&mut pack, entry)?;
             if !bytes.starts_with(b"MOXT") {
                 return Err("binary GFX container is not implemented".into());

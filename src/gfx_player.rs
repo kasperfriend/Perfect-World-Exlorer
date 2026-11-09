@@ -1860,7 +1860,8 @@ fn apply_controls(
                     (*octaves).max(1) as usize,
                     *buffer_length,
                 );
-                state.noise = Vec3::new(sample, sample * 0.5, sample * 0.25) * *amplitude;
+                let amplitude = *amplitude * NOISE_CM_PER_UNIT;
+                state.noise = Vec3::new(sample, sample * 0.5, sample * 0.25) * amplitude;
             }
             ControlData::ColorRamp { .. } => {
                 // Open question, recorded in `Findings/`: `ColorTrack::sample`
@@ -2362,6 +2363,17 @@ fn push_quad(
         mesh: None,
     });
 }
+
+/// Controller 107's `Amplitude` is authored in centimetres, not world units.
+///
+/// The corpus proves it: 761 of its 1,088 controller-107 amplitudes exceed 10
+/// and land on round values — 200 (p50), 500 (p90), 800, 1000 — while the roots
+/// that carry them are a quarter of a unit across. Read as world units the
+/// median amplitude is 64x its own root's `Vec:` half-extent and the worst is
+/// 3,998x, which is why the noise did not read as a wobble at all: it threw the
+/// element off the map. Divided by 100 the same median is 0.64, the fraction of
+/// its bounds a wobble should occupy, and the maximum is 1.6.
+const NOISE_CM_PER_UNIT: f32 = 0.01;
 
 /// The stateless classes: sprites, cylinders and grids. Lights belong to
 /// `gfx_light`, models to the model queue and sounds to the audio path; all
@@ -3702,7 +3714,8 @@ fn integrate(
                 // accumulate it. Recomputing from the birth point each frame
                 // gives the same value a fresh particle would have, which is
                 // what makes `Amplitude` a wobble instead of a drift.
-                let offset = Vec3::new(sample, sample * 0.5, sample * 0.25) * *amplitude;
+                let amplitude = *amplitude * NOISE_CM_PER_UNIT;
+                let offset = Vec3::new(sample, sample * 0.5, sample * 0.25) * amplitude;
                 state.position = state.origin + state.displacement + offset;
             }
             ControlData::ColorRamp { .. } => {

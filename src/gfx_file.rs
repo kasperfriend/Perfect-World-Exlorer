@@ -2196,7 +2196,7 @@ fn control(reader: &mut Reader) -> Result<Control, String> {
         111 => {
             let first = reader.number("Scale")?;
             let first = if first.is_finite() {
-                first.clamp(-1000., 1000.)
+                first.clamp(-100., 100.)
             } else {
                 1.
             };
@@ -2211,16 +2211,21 @@ fn control(reader: &mut Reader) -> Result<Control, String> {
                 if !span.is_finite() {
                     return Err(format!("scale ramp stop TimeSpan {span} is not finite"));
                 }
-                // `Scale` here is a multiplier on the element's authored size, so
-                // the values that belong are all small. A handful of files carry
-                // uninitialized editor memory in this slot instead — the same
-                // class of junk the keypoint `Scale` guard above already names —
-                // and a stop of `8.26e23` (the `封引3` sprite in
-                // `gfx/人物/技能/刺客/回光返照_左手.gfx`) stretches one quad to
-                // 1.57e24 world units, which reads on screen as the whole scene
-                // going white. Clamping the stop keeps the ramp's shape and its
-                // timing; rejecting the file would drop the effect entirely.
-                const MAX_SCALE_STOP: f32 = 1000.;
+                // `Scale` here is a multiplier on the element's authored size.
+                // 88 of the corpus's 41,960 stops carry uninitialized editor
+                // memory instead — `-4.24901e23`, `8.26e23`, one as large as
+                // `1.10e27` — the same class of junk the keypoint `Scale` guard
+                // above already names. The largest *legitimate* stop in the whole
+                // corpus is 100 (p99.9 is 80), so anything beyond that is junk.
+                //
+                // Clamping to a bound wider than the authored range is worse than
+                // useless: a clamp of 1000 turned `1.10e27` into a perfectly
+                // valid multiplier of 1000, and 1000 x a `DedaultScale` of 3 is
+                // the 2000-unit flat white quad that covers a map. Clamping to
+                // the authored maximum keeps the ramp's shape and timing on every
+                // honest stop and reduces the junk ones to the largest size the
+                // editor ever shipped.
+                const MAX_SCALE_STOP: f32 = 100.;
                 let value = if value.is_finite() {
                     value.clamp(-MAX_SCALE_STOP, MAX_SCALE_STOP)
                 } else {
@@ -3347,8 +3352,9 @@ mod tests {
         assert_eq!(stops.len(), 2);
         assert_eq!(stops[0], (1.3, 100.));
         assert_eq!(
-            stops[1].0, 1000.,
-            "editor garbage must be clamped, not carried into geometry"
+            stops[1].0, 100.,
+            "editor garbage must be clamped to the authored maximum, not to a \
+             bound wider than anything the editor ever wrote"
         );
     }
 

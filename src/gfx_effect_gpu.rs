@@ -205,6 +205,12 @@ impl Draw {
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             });
+            // Fully transparent, not white. This stand-in is bound whenever a
+            // named texture will not load, and multiply-on-a-white-texel turns
+            // the quad into an opaque slab: a `RingGlowWhite9` ring that failed
+            // to resolve covered the screen in white. A zero texel draws
+            // nothing under every blend pair the corpus authors, so a missing
+            // map costs the element its sprite and nothing else.
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &texture,
@@ -212,7 +218,7 @@ impl Draw {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                &[255, 255, 255, 255],
+                &[0, 0, 0, 0],
                 wgpu::ImageDataLayout {
                     offset: 0,
                     bytes_per_row: Some(4),

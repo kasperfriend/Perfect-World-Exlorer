@@ -247,6 +247,8 @@ pub mod gfx_color_track;
 pub mod gfx_decal;
 #[path = "$REPO/src/gfx_file.rs"]
 pub mod gfx_file;
+#[path = "$REPO/src/gfx_catalog.rs"]
+pub mod gfx_catalog;
 #[path = "$REPO/src/gfx_light.rs"]
 pub mod gfx_light;
 #[path = "$REPO/src/gfx_owner.rs"]
