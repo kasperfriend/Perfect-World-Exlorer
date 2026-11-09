@@ -662,7 +662,7 @@ impl Manager {
                     continue;
                 };
                 player
-                    .advance_with_ground(scaled, view, transform, 1., alpha, None, terrain)
+                    .advance_with_terrain(scaled, view, transform, 1., alpha, None, terrain)
                     .map(|()| player.quads().to_vec())
             };
             match stepped {

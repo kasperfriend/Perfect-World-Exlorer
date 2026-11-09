@@ -1297,7 +1297,7 @@ impl Player {
         scale: f32,
         alpha: f32,
     ) -> Result<(), String> {
-        self.advance_with_ground(dt_ms, view, transform, scale, alpha, None, None)
+        self.advance_with_ground(dt_ms, view, transform, scale, alpha, None)
     }
 
     /// Advance one frame with the ground under the root already sampled.
@@ -1311,16 +1311,34 @@ impl Player {
     /// frame — so `MatchGrnd` and `GroundHeight` stay inert exactly as they are
     /// in the client for an owner that cannot raycast.
     ///
-    /// `terrain` is the separate, optional query the ground *drape* needs. The
-    /// client's owner raycasts once, at its own position, and consumes the pair
-    /// for the element frames, but `A3DDecalEx::Fill_Verts_3D` then asks the
-    /// surface under every vertex of a ground sheet for itself; one sample
-    /// cannot answer that, so a host that can answer it passes the query and
-    /// the sprite path uses it. A caller that has terrain and no `GroundHit`
-    /// still gets the drape — the near-ground byte it gates on is measured from
-    /// the query — and a caller with neither gets exactly what it got before.
+    /// This is [`Self::advance_with_terrain`] without a surface query, which is the
+    /// signature add-on modules already compile against.
     #[allow(clippy::too_many_arguments)]
     pub fn advance_with_ground(
+        &mut self,
+        dt_ms: f32,
+        view: &View,
+        transform: Mat4,
+        scale: f32,
+        alpha: f32,
+        ground: Option<GroundHit>,
+    ) -> Result<(), String> {
+        self.advance_with_terrain(dt_ms, view, transform, scale, alpha, ground, None)
+    }
+
+    /// The same frame with both kinds of ground data: the single sample the
+    /// element frames are built from, and the surface under the sheet.
+    ///
+    /// `terrain` is what the ground *drape* needs. The client's owner raycasts
+    /// once, at its own position, and consumes that pair for the element
+    /// frames, but `A3DDecalEx::Fill_Verts_3D` then asks the surface under every
+    /// vertex of a ground sheet for itself; one sample cannot answer that, so a
+    /// host that can answer it passes the query and the sprite path uses it. A
+    /// caller with terrain and no `GroundHit` still gets the drape — the
+    /// near-ground byte it gates on is measured from the query — and a caller
+    /// with neither gets exactly what it got before.
+    #[allow(clippy::too_many_arguments)]
+    pub fn advance_with_terrain(
         &mut self,
         dt_ms: f32,
         view: &View,
@@ -6435,7 +6453,7 @@ mod tests {
         let mut player = Player::new(parsed, 7, &mut load).unwrap();
         let view = view();
         for _ in 0..40 {
-            let _ = player.advance_with_ground(33., &view, Mat4::IDENTITY, 1., 1., None, None);
+            let _ = player.advance_with_ground(33., &view, Mat4::IDENTITY, 1., 1., None);
         }
         for texture in curves {
             let wanted = texture_path(&texture).unwrap();
@@ -8000,7 +8018,7 @@ mod tests {
 
     fn step_grounded(player: &mut Player, transform: Mat4, ground: Option<GroundHit>) {
         player
-            .advance_with_ground(16., &view(), transform, 1., 1., ground, None)
+            .advance_with_ground(16., &view(), transform, 1., 1., ground)
             .unwrap_or_else(|error| panic!("{error}"));
     }
 
@@ -8012,7 +8030,7 @@ mod tests {
         terrain: Option<GroundHeightQuery<'_>>,
     ) {
         player
-            .advance_with_ground(16., &view(), transform, 1., 1., None, terrain)
+            .advance_with_terrain(16., &view(), transform, 1., 1., None, terrain)
             .unwrap_or_else(|error| panic!("{error}"));
     }
 
@@ -8499,7 +8517,7 @@ mod tests {
                     break;
                 }
                 if grounded
-                    .advance_with_ground(16., &view, transform, 1., 1., Some(ground), None)
+                    .advance_with_ground(16., &view, transform, 1., 1., Some(ground))
                     .is_err()
                 {
                     break;
