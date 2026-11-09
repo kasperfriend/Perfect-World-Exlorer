@@ -998,21 +998,18 @@ mod tests {
                 priority: 4,
                 pipeline: pipeline(5, 2, true),
                 texture: "flash".into(),
-                wrap: false,
             },
             BucketKey {
                 layer: 0,
                 priority: 1,
                 pipeline: pipeline(5, 2, true),
                 texture: "dust".into(),
-                wrap: false,
             },
             BucketKey {
                 layer: 1,
                 priority: 1,
                 pipeline: pipeline(5, 2, true),
                 texture: "later-layer".into(),
-                wrap: false,
             },
         ];
         sorted.sort_by(|a, b| {

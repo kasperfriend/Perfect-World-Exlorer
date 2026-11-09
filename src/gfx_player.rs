@@ -7097,6 +7097,35 @@ mod tests {
         }
     }
 
+    /// A flipbook with no authored `TexInterval` must hold its first cell, not
+    /// flip a thousand times a second. The fallback used to substitute 1 ms for
+    /// the absent interval, so a `TexRow`/`TexCol` sheet with the key omitted
+    /// strobed at 1000 Hz — the purest form of "the effect plays too fast".
+    #[test]
+    fn a_flipbook_without_an_interval_holds_its_first_cell() {
+        use crate::gfx_file::Common;
+        let mut common = Common::default();
+        common.tex_row = 2;
+        common.tex_col = 2;
+        common.tex_interval = 0;
+        // Every sample over two seconds has to be the same cell: the top-left
+        // quarter, [0,0]..[0.5,0.5].
+        for ms in [0f32, 16., 500., 1000., 1999.] {
+            let uv = flipbook_uv(&common, ms);
+            assert_eq!(uv[0], [0., 0.], "at {ms} ms the top-left corner moved");
+            assert_eq!(uv[3], [0.5, 0.5], "at {ms} ms the cell changed");
+        }
+        // An authored interval still animates: 100 ms per cell over four cells.
+        common.tex_interval = 100;
+        assert_eq!(flipbook_uv(&common, 0.)[0], [0., 0.]);
+        assert_eq!(flipbook_uv(&common, 150.)[0], [0.5, 0.], "cell 2 at 150 ms");
+        assert_eq!(
+            flipbook_uv(&common, 350.)[0],
+            [0.5, 0.5],
+            "cell 4 at 350 ms"
+        );
+    }
+
     /// The version-76 boundary on the depth test. The rule came from the static
     /// decal path and `push_quad` applies it to every quad, but nothing tested
     /// the boundary itself: 334 of the corpus's 390 `ZEnable: 0` elements sit in
