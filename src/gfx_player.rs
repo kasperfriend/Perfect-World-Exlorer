@@ -7529,60 +7529,37 @@ mod tests {
         }
     }
 
-    /// `RotFromView: 1` keeps the card's height on the element's own direction
-    /// and turns only its width to the camera (`A3DDecalEx::Fill_Verts_3D`,
-    /// A3DDecalEx.cpp:357-413); `0` keeps the authored keypoint basis entirely.
-    /// 598 retail sprites author the flag against 8,271 that do not.
-    ///
-    /// The camera sits under the element — its keypoint is at (1, 2, 3) — and
-    /// square to the card's +Z height axis, so an axial card spans X and Z and
-    /// is flat on Y, while an element-space card spans the element's own X and Y
-    /// and is flat on Z.
+    /// `RotFromView: 0` keeps the authored keypoint basis: the card lies in the
+    /// element's own XY plane, whatever the camera does. 8,271 of the corpus's
+    /// 8,869 sprites take this path; the 598 that set the flag are covered by
+    /// [`Self::a_rot_from_view_card_lies_along_the_element_direction`].
     #[test]
-    fn rot_from_view_turns_only_the_width_to_the_camera() {
+    fn a_sprite_without_rot_from_view_keeps_the_element_basis() {
         let camera = View {
             position: Vec3::new(1., -8., 3.),
             right: Vec3::X,
             up: Vec3::Z,
             forward: Vec3::Y,
         };
-        for (rotate_from_view, plane_axis) in [(0, 2usize), (1, 1usize)] {
-            let source = header37(1)
-                + &SPRITE.replace(
-                    "RotFromView: 0\r\n",
-                    &format!("RotFromView: {rotate_from_view}\r\n"),
-                );
-            let root = gfx_file::parse(&source).unwrap();
-            let mut player = Player::new(root, 7, &mut |_| Err("no children".into())).unwrap();
-            player.advance(0., &camera, Mat4::IDENTITY, 1., 1.).unwrap();
-            let quad = &player.quads()[0];
-            // An element-space sprite spans the element's X and Y axes; a
-            // camera-facing one spans the camera's right (Y) and up (Z) instead.
-            let spread: Vec<f32> = (0..3)
-                .map(|axis| {
-                    let mut low = f32::INFINITY;
-                    let mut high = f32::NEG_INFINITY;
-                    for corner in &quad.positions {
-                        low = low.min(corner[axis]);
-                        high = high.max(corner[axis]);
-                    }
-                    high - low
-                })
-                .collect();
-            let flat = plane_axis;
-            assert!(
-                spread[flat] < 1e-5,
-                "axis {flat} should be flat: {spread:?}"
-            );
-            for axis in 0..3 {
-                if axis != flat {
-                    assert!(
-                        spread[axis] > 0.5,
-                        "axis {axis} should carry the quad: {spread:?}"
-                    );
+        let mut player = build(&(header37(1) + SPRITE));
+        player.advance(0., &camera, Mat4::IDENTITY, 1., 1.).unwrap();
+        let quad = &player.quads()[0];
+        let spread: Vec<f32> = (0..3)
+            .map(|axis| {
+                let mut low = f32::INFINITY;
+                let mut high = f32::NEG_INFINITY;
+                for corner in &quad.positions {
+                    low = low.min(corner[axis]);
+                    high = high.max(corner[axis]);
                 }
-            }
-        }
+                high - low
+            })
+            .collect();
+        assert!(spread[2] < 1e-5, "the card is flat on the element's Z: {spread:?}");
+        assert!(
+            spread[0] > 0.5 && spread[1] > 0.5,
+            "the element's X and Y carry the quad: {spread:?}"
+        );
     }
 
     /// `FadeByDist` scales the alpha between `FadeStart` and `FadeEnd`, and the
