@@ -641,9 +641,12 @@ cosine 0.000), so a degenerate basis is not the mechanism either.
 | Unnamed3 | `smoke001.dds` | 100 | 1.5 s | 28 x 24 x 1 | `-922804224`..`-931135488` | 0.5..1.0 |
 
 `particle_color` honours both ends (`random_color_hsv`/`random_color_rgb`), so the
-white is not a colour default: 150 + 100 particles a second over a 28 x 24 area,
-composited one-on-top-of-another with `DestBlend: one`, saturates to white where
-the quads overlap. That is what the census' `q296` at alpha 0.77 is looking at.
+white is not a colour default. The count is not inflated either: `rate x TTL` is
+150 x 0.8 + 100 x 1.5 = **270** live particles for one instance, and the census
+measured **296** quads at alpha 0.77. So the emitter is doing what the file says
+and the white is the additive sum of ~270 overlapping quads (`DestBlend: one`)
+inside a 28 x 24 area — the element is authored that way, and what makes it read
+as a blob is where it sits, not what it emits.
 
 ### 9.4 `蘑菇灯` is placed where the map says, so "low" is local
 
