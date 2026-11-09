@@ -3898,8 +3898,9 @@ pub fn run(
             .set_effect_catalog(models.effect_catalog().clone());
         // The world's effects drape their ground sheets over this grid
         // (`A3DDecalEx`'s ground branch), and the renderer is the only thing
-        // that has it.
-        models.set_terrain(map_space.clone());
+        // that has it. The grid is shared, so its copy is a refcount bump.
+        let heights = map_space.clone();
+        models.set_terrain(move |x: f32, z: f32| Some(heights.ground(x, z)));
     }
     let destinations =
         crate::navigation::destinations(&whole_element.join("maps/world/world_targets.txt"));

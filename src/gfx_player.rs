@@ -2974,8 +2974,16 @@ fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<Ef
         let corners = [
             Vec3::new(a0.cos() * lower_radius, base_y, a0.sin() * lower_radius),
             Vec3::new(a1.cos() * lower_radius, base_y, a1.sin() * lower_radius),
-            Vec3::new(a1.cos() * upper_radius, base_y + height, a1.sin() * upper_radius),
-            Vec3::new(a0.cos() * upper_radius, base_y + height, a0.sin() * upper_radius),
+            Vec3::new(
+                a1.cos() * upper_radius,
+                base_y + height,
+                a1.sin() * upper_radius,
+            ),
+            Vec3::new(
+                a0.cos() * upper_radius,
+                base_y + height,
+                a0.sin() * upper_radius,
+            ),
         ];
         for (slot, corner) in corners.into_iter().enumerate() {
             positions[slot] = matrix.transform_point3(corner).to_array();
