@@ -1872,7 +1872,7 @@ fn apply_controls(
                     (*octaves).max(1) as usize,
                     *buffer_length,
                 );
-                let amplitude = *amplitude * NOISE_CM_PER_UNIT;
+                let amplitude = *amplitude;
                 state.noise = Vec3::new(sample, sample * 0.5, sample * 0.25) * amplitude;
             }
             ControlData::ColorRamp { .. } => {
@@ -2387,16 +2387,15 @@ fn push_quad(
     });
 }
 
-/// Controller 107's `Amplitude` is authored in centimetres, not world units.
+/// Controller 107's `Amplitude` reaches the offset in world units.
 ///
-/// The corpus proves it: 761 of its 1,088 controller-107 amplitudes exceed 10
-/// and land on round values — 200 (p50), 500 (p90), 800, 1000 — while the roots
-/// that carry them are a quarter of a unit across. Read as world units the
-/// median amplitude is 64x its own root's `Vec:` half-extent and the worst is
-/// 3,998x, which is why the noise did not read as a wobble at all: it threw the
-/// element off the map. Divided by 100 the same median is 0.64, the fraction of
-/// its bounds a wobble should occupy, and the maximum is 1.6.
-const NOISE_CM_PER_UNIT: f32 = 0.01;
+/// It was briefly divided by 100 on the reading that the values are authored in
+/// centimetres. That was a retraction: the corpus median it rested on is
+/// dominated by tiny sprite effects, and the element it was meant to explain
+/// says the opposite. `夜空飘尘` authors bounds 75 x 253 and `Amplitude: 400`, so
+/// in world units the wobble is 2.9x the volume's own diagonal — drifting sky
+/// dust. Divided by 100 it is 2.9% of that volume, a small clump, which is the
+/// "gas is smaller than it should be" report. The value is used as authored.
 
 /// The stateless classes: sprites, cylinders and grids. Lights belong to
 /// `gfx_light`, models to the model queue and sounds to the audio path; all
@@ -3752,7 +3751,7 @@ fn integrate(
                 // accumulate it. Recomputing from the birth point each frame
                 // gives the same value a fresh particle would have, which is
                 // what makes `Amplitude` a wobble instead of a drift.
-                let amplitude = *amplitude * NOISE_CM_PER_UNIT;
+                let amplitude = *amplitude;
                 let offset = Vec3::new(sample, sample * 0.5, sample * 0.25) * amplitude;
                 state.position = state.origin + state.displacement + offset;
             }
@@ -4445,6 +4444,37 @@ mod tests {
         assert!(
             worst < 900.,
             "noise accumulated to {worst} units; it must stay near the birth point"
+        );
+    }
+
+    /// `Amplitude` is authored in world units and reaches the offset as written.
+    ///
+    /// It was briefly divided by 100, on the reading that the corpus medians
+    /// imply centimetres. They do not: the median is dominated by tiny sprite
+    /// effects, while `夜空飘尘` — the sky dust the controller exists for —
+    /// authors bounds 75 x 253 and `Amplitude: 400`, so the wobble has to be
+    /// 2.9x the volume's own diagonal. Divided it becomes 2.9% of that volume,
+    /// a small clump, which is the "gas is too small" report this pins.
+    #[test]
+    fn the_fractal_amplitude_is_world_units_and_is_not_rescaled() {
+        // The sky-dust shape: a 0.4-unit particle shaken by the authored 400.
+        let fractal = "GFXELEMENTID: 121\r\nName: dust\r\nSrcBlend: 5\r\nDestBlend: 2\r\nTexFile: 粒子\\particle001.dds\r\nQuota: -1\r\nParticleWidth: 0.4\r\nParticleHeight: 0.4\r\nEmissionRate: 100\r\nSpeed: 0.1\r\nTTL: 10\r\nColorMin: -1\r\nColorMax: -1\r\nScaleMin: 0.2\r\nScaleMax: 0.1\r\nRotMin: 0\r\nRotMax: 0\r\nIsSurface: 0\r\nIsBind: 0\r\nAreaSize: 1.0, 1.0, 1.0\r\nAffectorCount: 1\r\nCtrlType: 107\r\nStartTime: 0\r\nEndTime: -1\r\nBufLen: 256\r\nAmplitude: 400\r\nWaveLen: 100\r\nPersistence: 0.25\r\nOctaveNum: 5\r\nBaseColor: -1\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
+        let mut player = build(&(header37(1) + fractal));
+        let mut peak = 0f32;
+        for _ in 0..40 {
+            step(&mut player, 33.);
+            for quad in player.quads() {
+                for point in &quad.positions {
+                    peak = peak.max(point[0].abs().max(point[2].abs()));
+                }
+            }
+        }
+        // Read as world units the sample wanders a good fraction of 400; divided
+        // by 100 it never leaves single digits.
+        assert!(
+            peak > 20.,
+            "the authored amplitude 400 moved the sprite only {peak} units, so it \
+             was rescaled on the way to the offset"
         );
     }
 
