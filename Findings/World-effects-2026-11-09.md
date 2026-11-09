@@ -1,10 +1,11 @@
-# World effects — the 9 November reports, and two decode errors behind them
+# World effects — the 9 November reports, and three decode errors behind them
 
 Second pass over the four reports left open by
-[`Every-effect-2026-11-08.md`](Every-effect-2026-11-08.md). The two defects this
-pass fixed are both **class-level** defects — they change what nearly every
-effect in the game draws, not one root — and both come with a native citation
-and a unit test that fails on the previous code.
+[`Every-effect-2026-11-08.md`](Every-effect-2026-11-08.md). The three defects this
+pass fixed are all **class-level** defects — they change what nearly every effect
+in the game draws, not one root — and all three come with a native citation and a
+unit test that fails on the previous code: ring sections, ring pitch, grid UV
+spread, and (section 5.2) the ground-draped decal pass.
 
 This environment has no Rust toolchain, so **nothing here was compiled or run**:
 the new tests were written against the fixtures the existing suite uses and
@@ -153,7 +154,7 @@ the camera was pointing at — the viewer's status line reports both. Until then
 this pass claims only the two grid/ring fixes above, neither of which is the
 waterfall's animation.
 
-### 5.2 "Gas" at the Nightfire altar is a blob — the ground-draped decal path is missing
+### 5.2 "Gas" at the Nightfire altar is a blob — the ground-draped decal path
 
 The client has a second, per-vertex ground pass that this viewer does not have.
 `A3DDecalEx::Fill_Verts_3D`, taken only when
@@ -185,13 +186,49 @@ The population is large: **923 element-100..104 records** set `MatchGrnd: 1`
 across the corpus (skill circles, fire on the ground, altar glows, the fjord's
 mist), so this is not a per-location patch either.
 
-Not implemented here. It needs a terrain-height callback threaded to the player —
-the current `Option<GroundHit>` is one sample taken at the owner's position, and
-draping needs `Fn(f32, f32) -> Option<f32>` for arbitrary points plus `_grnd_grid`
-and `_max_row_or_col` from the native header (both values still to be read out of
-`A3DGridDecalEx.h`, which was not among the downloaded sources). The change is
-sketched here rather than guessed at because it cannot be compiled or seen in
-this environment.
+**Fixed in this pass.** The two constants are file statics, not header members,
+so the missing `A3DGridDecalEx.h` was never needed: `A3DDecalEx.cpp:29-30` gives
+`_grnd_grid = 2.0f` and `_max_row_or_col = 4`, i.e. two-unit cells and at most
+sixteen quads per sheet.
+
+What landed:
+
+- `gfx_player::GroundHeightQuery` / `GroundSampler` — the surface query the
+  sprite path needs, distinct from `GroundHit` because the drape wants a height
+  at every lattice point while `GroundHit` is the single sample the owner's own
+  frame is built from.
+- `Player::advance_with_ground` takes `terrain: Option<GroundHeightQuery>` as a
+  new last argument. The near-ground byte the branch gates on (`IsCloseToGrnd`)
+  is measured from the query itself — the owner's y minus the surface, signed,
+  exactly as `0x6e54a1` does it — so a caller with terrain and no raycast still
+  gets the drape, and a caller with neither behaves precisely as before.
+- `drape_sprite` reproduces `Fill_Verts_3D`'s branch: element 100 only,
+  `MatchGrnd` set, `GrndNormOnly` clear. The sheet is laid out in the **world**
+  XZ plane (`x = center.x - Width1 + j*cell`, `z = center.z + Height2 - i*cell`),
+  not the element's own plane, so it drops the element's pitch, yaw and 2D spin;
+  the cell count is the parent-scaled extent over 2 truncated and clamped to 4;
+  each vertex takes `terrain(x, z) + 0.2`; the flipbook rect is spread over the
+  whole lattice instead of repeated per cell. A miss anywhere under the sheet
+  leaves the whole sheet flat, because half a drape tears.
+- `gfx_owner::Manager::effect_quads_with_ground` and
+  `world_models_gpu::World::set_terrain` carry the map's `navigation::MapSpace`
+  to the world's effects; `gpu.rs` installs it once, in the same block that
+  hands the modules the effect catalogue. The heights sit behind an `Arc`, so the
+  per-frame copy is a refcount bump.
+
+Two limits to state plainly:
+
+- `YawEffect` (`m_bYawEffectOnGrndNorm`) is not implemented, so 19 of the 906
+  ground-matched sprite records stay world-axis-aligned when the client would
+  have rotated them by the element's direction. The rest author 0 (586) or carry
+  no line at all (301).
+- Only the sprite path drapes. `A3DGridDecalEx`/element 210 is a different class
+  with its own ground handling and was not touched.
+
+Population actually affected, measured across the corpus: **906** element-100/102
+records set `MatchGrnd: 1`; by the client's cell rule 536 of them are one cell
+(a single flat quad, still re-oriented into the ground plane) and 370 split into
+2×2 (172), 3×3 (60), 4×4 (134), 1×4 (3) and 3×2 (1).
 
 ### 5.3 City of Raging Tides: blue glow mis-placed, lightning missing / white blob
 
@@ -279,7 +316,7 @@ runtime count, with 1,445 all-day / 154 day-only / 676 night-only placements.
 | element-140 records | 1,116 |
 | … with `Sects: 0` | 1,064 |
 | element-140 `Pitch: 0` | 365 |
-| element-100..104 with `MatchGrnd: 1` | 923 |
+| element-100..104 with `MatchGrnd: 1` | 923 (906 of them 100/102, i.e. draped) |
 | element-123 with `IsAvgGen: 1` | 45 |
 | `keyNumber` / `GridAnimationLines` in any corpus `.gfx` | 0 / 0 |
 | `场景/新种族地图/` roots / distinct textures / unresolvable | 179 / 247 / **0** |

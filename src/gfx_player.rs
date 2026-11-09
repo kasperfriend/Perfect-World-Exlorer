@@ -867,6 +867,40 @@ pub struct GroundHit {
 /// `0x6fa7ee` and `0x6fa831` then read.
 const GROUND_NEAR_DISTANCE: f32 = 0.2;
 
+/// The surface height under a world X/Z, or `None` where the ray misses.
+///
+/// `A3DDecalEx::Fill_Verts_3D` asks this once per vertex of a ground sheet
+/// (`AfxGetGrndNorm` with a NULL normal, `A3DDecalEx.cpp:517`), which is why a
+/// ground decal can follow a crater floor instead of hovering over it. The
+/// viewer is handed the query rather than owning terrain it does not have.
+pub type GroundHeightQuery<'a> = &'a dyn Fn(f32, f32) -> Option<f32>;
+
+/// The owner's terrain, threaded down to the sprite path so a `MatchGrnd` decal
+/// can be draped over the surface the way `A3DDecalEx::Fill_Verts_3D` drapes it.
+#[derive(Clone, Copy)]
+pub struct GroundSampler<'a> {
+    /// Height of the surface under any world X/Z.
+    pub height: GroundHeightQuery<'a>,
+    /// The client's `IsCloseToGrnd()` byte (owner+0x284). The ground branch
+    /// requires it in addition to the element's own `MatchGrnd`, and it is also
+    /// what `GetParentTM` reads, so the draped sheet and the element's frame
+    /// agree about whether the owner is lying on the ground.
+    pub near_ground: bool,
+}
+
+/// How wide one cell of a draped ground sheet is before the sheet is cut up
+/// (`_grnd_grid`, `A3DDecalEx.cpp:29`).
+const GROUND_GRID_CELL: f32 = 2.;
+/// The most cells a draped sheet is cut into along either axis
+/// (`_max_row_or_col`, `A3DDecalEx.cpp:30`), so one sheet is at most sixteen
+/// quads — the 906 corpus elements that set `MatchGrnd` on a sprite split
+/// 536 at one cell and 370 at two to sixteen.
+const GROUND_MAX_ROW_OR_COL: usize = 4;
+/// The height the ground branch adds over the surface — `vert.y =
+/// AfxGetGrndNorm(...) + .2f` (`A3DDecalEx.cpp:517`). It is the same literal as
+/// `GROUND_NEAR_DISTANCE` because both read the float at `0x8eb828`.
+const GROUND_DRAPE_LIFT: f32 = 0.2;
+
 /// The steepest surface the client will align an effect to. `0x6e5bb9` takes
 /// the absolute dot of the normal with world up and `0x6e5bc1` rejects it below
 /// the float at `0x9bff88`, which `0x6e5b80` computes once at startup as `fcos`
@@ -1263,7 +1297,7 @@ impl Player {
         scale: f32,
         alpha: f32,
     ) -> Result<(), String> {
-        self.advance_with_ground(dt_ms, view, transform, scale, alpha, None)
+        self.advance_with_ground(dt_ms, view, transform, scale, alpha, None, None)
     }
 
     /// Advance one frame with the ground under the root already sampled.
@@ -1276,6 +1310,15 @@ impl Player {
     /// whole pass, `0x6fa7c5` and `0x6fa813` both fall through to the un-snapped
     /// frame — so `MatchGrnd` and `GroundHeight` stay inert exactly as they are
     /// in the client for an owner that cannot raycast.
+    ///
+    /// `terrain` is the separate, optional query the ground *drape* needs. The
+    /// client's owner raycasts once, at its own position, and consumes the pair
+    /// for the element frames, but `A3DDecalEx::Fill_Verts_3D` then asks the
+    /// surface under every vertex of a ground sheet for itself; one sample
+    /// cannot answer that, so a host that can answer it passes the query and
+    /// the sprite path uses it. A caller that has terrain and no `GroundHit`
+    /// still gets the drape — the near-ground byte it gates on is measured from
+    /// the query — and a caller with neither gets exactly what it got before.
     #[allow(clippy::too_many_arguments)]
     pub fn advance_with_ground(
         &mut self,
@@ -1285,6 +1328,12 @@ impl Player {
         scale: f32,
         alpha: f32,
         ground: Option<GroundHit>,
+        // The surface under the owner, for the ground-draped decal path. It is
+        // deliberately separate from `ground`: the drape needs a height at
+        // every vertex of the sheet, while `GroundHit` is the single sample the
+        // owner's own frame is built from, and a caller can have one without
+        // the other.
+        terrain: Option<GroundHeightQuery<'_>>,
     ) -> Result<(), String> {
         if !dt_ms.is_finite() || dt_ms < 0. {
             return Err(format!("invalid effect delta {dt_ms}"));
@@ -1312,6 +1361,23 @@ impl Player {
         // for a frame (`0x6e53f0` is the owner's tick, `0x6fa7c0` is called from
         // the corner builder later in the same frame).
         let frames = ground.and_then(|hit| self.ground_frames(hit, transform, base));
+        // `A3DDecalEx::Fill_Verts_3D` takes its ground branch only for an owner
+        // that was placed with ground data and sits within
+        // `GROUND_NEAR_DISTANCE` of the surface (`m_pGfx->IsCloseToGrnd() &&
+        // m_pGfx->MatchGrnd()`). The client measures that at `0x6e54a1` as the
+        // owner's y minus the raycast height, signed, so an owner below the
+        // surface counts as near it too; the sampler answers the same question
+        // here, since it is the only ground data this path is given.
+        let drape = terrain.map(|height| {
+            let origin = transform.w_axis.truncate();
+            GroundSampler {
+                height,
+                near_ground: matches!(
+                    height(origin.x, origin.z),
+                    Some(surface) if origin.y - surface < GROUND_NEAR_DISTANCE
+                ),
+            }
+        });
         let color_scale =
             self.root.default_alpha * alpha * distance_fade(&self.root, view.position, base);
         let time = self.time;
@@ -1378,6 +1444,7 @@ impl Player {
                 &mut stats,
                 &mut out,
                 &element_meshes,
+                drape,
             )?;
             runtime.ended = done;
             finished = finished && done;
@@ -1505,6 +1572,9 @@ fn advance_element(
     // Models already posed at load time, in element order. Empty when the host
     // supplied no model reader, in which case model elements keep counting.
     meshes: &[EffectMesh],
+    // The owner's surface, for the ground-draped sprite path. Copy, so every
+    // element of the root can take its own.
+    drape: Option<GroundSampler<'_>>,
 ) -> Result<bool, String> {
     let local = time - element.start_time;
     if local < 0. {
@@ -1582,7 +1652,7 @@ fn advance_element(
     }
     match &mut runtime.runtime {
         Runtime::Clock => {
-            emit_clock(element, &context, face_to_viewer, stats, out);
+            emit_clock(element, &context, face_to_viewer, stats, out, drape);
             if matches!(element.spec, Spec::Model(_)) {
                 emit_model(meshes, &context, out);
             }
@@ -2417,9 +2487,10 @@ fn emit_clock(
     face_to_viewer: bool,
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
+    drape: Option<GroundSampler<'_>>,
 ) {
     match &element.spec {
-        Spec::Sprite(sprite) => emit_sprite(sprite, context, face_to_viewer, out),
+        Spec::Sprite(sprite) => emit_sprite(sprite, context, face_to_viewer, out, drape),
         Spec::Cylinder(cylinder) => emit_cylinder(cylinder, context, out),
         Spec::Grid(grid) => emit_grid(grid, context, out),
         Spec::Light(_) => stats.lights += 1,
@@ -2443,6 +2514,7 @@ fn emit_sprite(
     context: &ElementContext,
     face_to_viewer: bool,
     out: &mut Vec<EffectQuad>,
+    drape: Option<GroundSampler<'_>>,
 ) {
     let color = context.rgba();
     if color[3] < ALPHA_CUTOFF {
@@ -2465,6 +2537,14 @@ fn emit_sprite(
     } else {
         QuadBasis::Element
     };
+    // A ground sheet is not a card. `Fill_Verts_3D` cuts it into two-unit cells
+    // and asks the terrain for each vertex's own height; everything below is the
+    // flat fallback for the sheets that cannot be draped.
+    if let Some(sampler) = drape {
+        if drape_sprite(sprite, context, &texture, color, sampler, out) {
+            return;
+        }
+    }
     let positions = quad_corners(
         context,
         basis,
@@ -2478,6 +2558,106 @@ fn emit_sprite(
     );
     let uv = flipbook_uv(context.common, context.clock);
     push_quad(out, context, &texture, positions, uv, color);
+}
+
+/// `A3DDecalEx::Fill_Verts_3D`'s ground branch (`A3DDecalEx.cpp:449-542`),
+/// which is what turns a ground sheet into a piece of the surface.
+///
+/// It is entered only when the element is the 3D decal, sets `MatchGrnd`, does
+/// not set `GrndNormOnly`, and the owner was placed with ground data and sits
+/// within `GROUND_NEAR_DISTANCE` of the surface. The sheet is then laid out in
+/// the **world** XZ plane instead of the element's own plane: column `j` sits at
+/// `-Width1 + j * cell` along world X, row `i` at `Height2 - i * cell` along
+/// world Z, the cell count is the parent-scaled extent over `GROUND_GRID_CELL`
+/// truncated and clamped to `GROUND_MAX_ROW_OR_COL`, and every vertex takes its
+/// own height from the terrain plus the 0.2 lift. The flipbook rect is spread
+/// over the whole lattice rather than repeated per cell, and the element's
+/// pitch, yaw and 2D spin are all dropped — only `YawEffect` puts them back and
+/// that routine is not implemented, which leaves 19 of the 906 ground-matched
+/// corpus elements axis-aligned.
+///
+/// Returns false when the sprite has to stay the flat quad: a sampler that
+/// misses under any lattice point leaves the whole sheet alone, because half a
+/// drape tears, and this path owns no partial mesh to fall back on.
+fn drape_sprite(
+    sprite: &Sprite,
+    context: &ElementContext,
+    texture: &str,
+    color: [f32; 4],
+    sampler: GroundSampler<'_>,
+    out: &mut Vec<EffectQuad>,
+) -> bool {
+    // Element 102 builds its vertices through `Update_Billboard` and 101 is
+    // drawn in screen space; the ground branch only exists on the 3D update.
+    if context.id != 100
+        || !context.common.match_ground
+        || sprite.ground_normal_only
+        || !sampler.near_ground
+    {
+        return false;
+    }
+    // `fParentScale` scales the extents in the client before the cell count is
+    // worked out. The placement already carries the root and placement scale, so
+    // the offsets below would lose it if they went through the matrix, which is
+    // why the same product the billboard branch reads is taken here.
+    let parent_scale = context.placement.x_axis.truncate().length();
+    let scale_x = (if sprite.no_scale[0] { 1. } else { context.scale }) * parent_scale;
+    let scale_y = (if sprite.no_scale[1] { 1. } else { context.scale }) * parent_scale;
+    let width1 = sprite.width * 2. * sprite.origin[0] * scale_x;
+    let height0 = sprite.height * 2. * sprite.origin[1] * scale_y;
+    let width2 = sprite.width * 2. * scale_x - width1;
+    let height2 = sprite.height * 2. * scale_y - height0;
+    let width = width1 + width2;
+    let height = height0 + height2;
+    let cells = |extent: f32| -> usize {
+        let count = (extent / GROUND_GRID_CELL) as i32;
+        count.clamp(1, GROUND_MAX_ROW_OR_COL as i32) as usize
+    };
+    let cols = cells(width);
+    let rows = cells(height);
+    let cell_w = width / cols as f32;
+    let cell_h = height / rows as f32;
+    let centre = context.placement.transform_point3(Vec3::ZERO);
+    let uv = flipbook_uv(context.common, context.clock);
+    let sample = |i: usize, j: usize| -> Option<([f32; 3], [f32; 2])> {
+        let x = centre.x - width1 + j as f32 * cell_w;
+        let z = centre.z + height2 - i as f32 * cell_h;
+        let y = sampler.height(x, z)? + GROUND_DRAPE_LIFT;
+        let fi = i as f32 / rows as f32;
+        let fj = j as f32 / cols as f32;
+        let u = uv[0][0] + (uv[1][0] - uv[0][0]) * fj;
+        let v = uv[0][1] + (uv[2][1] - uv[0][1]) * fi;
+        Some(([x, y, z], [u, v]))
+    };
+    // Sample the whole lattice before emitting anything, so a miss under one
+    // corner cannot leave the rest of the sheet drawn over a hole.
+    let mut lattice = Vec::with_capacity((cols + 1) * (rows + 1));
+    for i in 0..=rows {
+        for j in 0..=cols {
+            let Some(point) = sample(i, j) else {
+                return false;
+            };
+            lattice.push(point);
+        }
+    }
+    for i in 0..rows {
+        for j in 0..cols {
+            let corners = [
+                lattice[i * (cols + 1) + j],
+                lattice[i * (cols + 1) + j + 1],
+                lattice[(i + 1) * (cols + 1) + j],
+                lattice[(i + 1) * (cols + 1) + j + 1],
+            ];
+            let mut positions = [[0f32; 3]; 4];
+            let mut uvs = [[0f32; 2]; 4];
+            for (slot, (position, corner_uv)) in corners.into_iter().enumerate() {
+                positions[slot] = position;
+                uvs[slot] = corner_uv;
+            }
+            push_quad(out, context, texture, positions, uvs, color);
+        }
+    }
+    true
 }
 
 /// The four world-space corners of a quad, using the anchor and per-axis
@@ -6244,7 +6424,7 @@ mod tests {
         let mut player = Player::new(parsed, 7, &mut load).unwrap();
         let view = view();
         for _ in 0..40 {
-            let _ = player.advance_with_ground(33., &view, Mat4::IDENTITY, 1., 1., None);
+            let _ = player.advance_with_ground(33., &view, Mat4::IDENTITY, 1., 1., None, None);
         }
         for texture in curves {
             let wanted = texture_path(&texture).unwrap();
@@ -7809,8 +7989,35 @@ mod tests {
 
     fn step_grounded(player: &mut Player, transform: Mat4, ground: Option<GroundHit>) {
         player
-            .advance_with_ground(16., &view(), transform, 1., 1., ground)
+            .advance_with_ground(16., &view(), transform, 1., 1., ground, None)
             .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// The same frame with terrain but no `GroundHit`, which is what the world's
+    /// effects get: the drape answers to the query alone.
+    fn step_draped(
+        player: &mut Player,
+        transform: Mat4,
+        terrain: Option<GroundHeightQuery<'_>>,
+    ) {
+        player
+            .advance_with_ground(16., &view(), transform, 1., 1., None, terrain)
+            .unwrap_or_else(|error| panic!("{error}"));
+    }
+
+    /// A `MatchGrnd` 3D decal whose parent-scaled extents are four units each
+    /// way: two cells an axis at `_grnd_grid = 2`, and the keypoint scale is
+    /// pinned to one so the arithmetic in the assertions is the client's own.
+    fn draped_sheet(match_ground: bool, ground_normal_only: bool) -> String {
+        header79(1)
+            + &ground_sprite(match_ground, false)
+                .replace("Width: 0.25", "Width: 1")
+                .replace("Height: 0.5", "Height: 1")
+                .replace("Scale: 2", "Scale: 1")
+                .replace(
+                    "GrndNormOnly: 0",
+                    &format!("GrndNormOnly: {}", ground_normal_only as u8),
+                )
     }
 
     /// `0x6e5b90` builds the rotation that takes world up onto the ground
@@ -7999,6 +8206,93 @@ mod tests {
             "an owner that cannot raycast leaves the element alone, got {centre}"
         );
         assert!(grounded.warnings().is_empty(), "{:?}", grounded.warnings());
+    }
+
+    /// `A3DDecalEx::Fill_Verts_3D`'s ground branch: a `MatchGrnd` sheet is cut
+    /// into two-unit cells and every vertex takes its own height from the
+    /// terrain. Four units each way is two cells an axis, so the flat quad
+    /// becomes four, the sheet lies in the world XZ plane, and each corner sits
+    /// 0.2 above the slope underneath it — the number at `0x8eb828` that both
+    /// the lift and the near-ground test read.
+    #[test]
+    fn a_ground_matched_sprite_is_draped_over_the_terrain() {
+        let source = draped_sheet(true, false);
+        let mut player = build(&source);
+        let slope = |x: f32, _z: f32| Some(x);
+        let terrain: GroundHeightQuery<'_> = &slope;
+        step_draped(&mut player, Mat4::IDENTITY, Some(terrain));
+        let quads = player.quads();
+        assert_eq!(
+            quads.len(),
+            4,
+            "two cells an axis should be four quads, got {}",
+            quads.len()
+        );
+        let (mut min_x, mut max_x) = (f32::MAX, f32::MIN);
+        let (mut min_z, mut max_z) = (f32::MAX, f32::MIN);
+        for quad in quads {
+            for corner in quad.positions {
+                let [x, y, z] = corner;
+                assert!(
+                    (y - (x + 0.2)).abs() < 1e-4,
+                    "corner ({x}, {y}, {z}) should sit 0.2 over the slope, not {y}"
+                );
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_z = min_z.min(z);
+                max_z = max_z.max(z);
+            }
+        }
+        assert!(
+            (min_x + 2.).abs() < 1e-4
+                && (max_x - 2.).abs() < 1e-4
+                && (min_z + 2.).abs() < 1e-4
+                && (max_z - 2.).abs() < 1e-4,
+            "the sheet should span four units on the ground, got \
+             {min_x}..{max_x} by {min_z}..{max_z}"
+        );
+        // The flipbook rect is spread over the lattice, not repeated in every
+        // cell: a 2x2 sheet with a one-cell texture covers three distinct
+        // coordinates an axis and never more.
+        let mut us: Vec<f32> = quads.iter().flat_map(|q| q.uv.iter().map(|p| p[0])).collect();
+        let mut vs: Vec<f32> = quads.iter().flat_map(|q| q.uv.iter().map(|p| p[1])).collect();
+        us.sort_by(f32::total_cmp);
+        vs.sort_by(f32::total_cmp);
+        let distinct = |values: &mut Vec<f32>| {
+            values.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+            values.len()
+        };
+        assert_eq!(
+            (distinct(&mut us), distinct(&mut vs)),
+            (3, 3),
+            "a spread rect has three coordinates an axis, a repeated one has two: {us:?} {vs:?}"
+        );
+        assert!(player.warnings().is_empty(), "{:?}", player.warnings());
+    }
+
+    /// The branches that keep the flat quad: a terrain that misses under the
+    /// sheet, an element that asks for the normal only, and a sprite that does
+    /// not set `MatchGrnd` at all. A partial drape would tear, so a miss leaves
+    /// the whole sheet alone.
+    #[test]
+    fn a_ground_sheet_stays_flat_when_it_cannot_be_draped() {
+        let miss = |_x: f32, _z: f32| None;
+        let terrain: GroundHeightQuery<'_> = &miss;
+        let mut missing = build(&draped_sheet(true, false));
+        step_draped(&mut missing, Mat4::IDENTITY, Some(terrain));
+        assert_eq!(missing.quads().len(), 1, "a miss keeps the flat quad");
+        let flat = |x: f32, z: f32| Some(x + z);
+        let terrain: GroundHeightQuery<'_> = &flat;
+        let mut normal_only = build(&draped_sheet(true, true));
+        step_draped(&mut normal_only, Mat4::IDENTITY, Some(terrain));
+        assert_eq!(
+            normal_only.quads().len(),
+            1,
+            "GrndNormOnly leaves the sheet to the normal-aligned frame"
+        );
+        let mut plain = build(&draped_sheet(false, false));
+        step_draped(&mut plain, Mat4::IDENTITY, Some(terrain));
+        assert_eq!(plain.quads().len(), 1, "MatchGrnd: 0 never drapes");
     }
 
     /// All 46 roots that carry a trail (element 152) play through the vertex
@@ -8194,7 +8488,7 @@ mod tests {
                     break;
                 }
                 if grounded
-                    .advance_with_ground(16., &view, transform, 1., 1., Some(ground))
+                    .advance_with_ground(16., &view, transform, 1., 1., Some(ground), None)
                     .is_err()
                 {
                     break;

@@ -86,6 +86,15 @@ pub struct World {
     grid: StaticGrid,
     publications: LightPublications,
     owners: gfx_owner::Manager,
+    /// The map's height grid, when the renderer installed one. It is the only
+    /// terrain the effect pass can see, and it is what lets a `MatchGrnd` decal
+    /// be draped over the surface (`A3DDecalEx`'s ground branch) rather than
+    /// drawn as one flat card at the record's own height.
+    terrain: Option<crate::navigation::MapSpace>,
+    /// A terrain read panicked once, so the grid is no longer offered to the
+    /// decal drape. Latched rather than tested per frame: one damaged block is
+    /// not going to heal, and a panic message per frame is worse than none.
+    terrain_broken: bool,
     producers: Vec<Producer>,
     /// The animated half of the world's effects. Created on the first update that
     /// needs it, because `with_reader` has no queue to build a draw object with.
@@ -184,6 +193,8 @@ impl World {
             grid: StaticGrid::default(),
             publications: LightPublications::default(),
             owners: gfx_owner::Manager::new(),
+            terrain: None,
+            terrain_broken: false,
             producers: Vec::new(),
             effects: None,
             effect_trace_printed: false,
@@ -638,6 +649,19 @@ impl World {
             self.rebuild_alpha_order(center);
         }
     }
+    /// Install the map's height grid, which is what the effect pass needs to
+    /// drape a ground-matched decal over the surface.
+    ///
+    /// The renderer owns the grid (`navigation::MapSpace`) and builds it once
+    /// per world, so it hands a copy over after the world is constructed; the
+    /// heights are behind an `Arc`, so the copy is a refcount bump rather than a
+    /// second copy of the map. Without this the ground branch of
+    /// `A3DDecalEx::Fill_Verts_3D` cannot run and every ground sheet stays one
+    /// flat quad.
+    pub fn set_terrain(&mut self, terrain: crate::navigation::MapSpace) {
+        self.terrain = Some(terrain);
+    }
+
     /// Advance the world's animated effects and upload this frame's quads.
     ///
     /// Main pass only, straight after the light producers, so the geometry and the
@@ -675,7 +699,47 @@ impl World {
                 return;
             }
         };
-        let quads = self.owners.effect_quads(delta_ms, &view);
+        // The map's height grid is the only terrain in the process, so the
+        // ground-draped decal path borrows it here: a copy of the grid is cheap
+        // (the heights themselves are shared) and keeps the borrow off the owner
+        // manager, which is advanced mutably in the same call.
+        //
+        // `MapSpace::ground` goes through `Heights::reader().height()`, which
+        // `expect`s on a damaged backing block. That `expect` used to be reached
+        // only by the minimap teleport, i.e. on a click; a drape reaches it every
+        // frame, and turning a corrupt terrain cache into a crash on the first
+        // frame is not a trade this pass wants to make. One panic is caught, the
+        // sheet stays flat, and the grid is dropped for the rest of the run.
+        let terrain = if self.terrain_broken {
+            None
+        } else {
+            self.terrain.clone()
+        };
+        let broken = std::cell::Cell::new(false);
+        let height = terrain.as_ref().map(|space| {
+            let broken = &broken;
+            move |x: f32, z: f32| {
+                if broken.get() {
+                    return None;
+                }
+                let read = || space.ground(x, z);
+                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(read)) {
+                    Ok(height) => Some(height),
+                    Err(_) => {
+                        broken.set(true);
+                        None
+                    }
+                }
+            }
+        });
+        let sampler: Option<crate::gfx_player::GroundHeightQuery<'_>> = match &height {
+            Some(query) => Some(query),
+            None => None,
+        };
+        let quads = self.owners.effect_quads_with_ground(delta_ms, &view, sampler);
+        if broken.get() {
+            self.terrain_broken = true;
+        }
         // Say once, on stderr, what the invisible pipeline is doing. Nothing in
         // the world told a user *which* stage was empty when no effect appeared:
         // the roots could be unloaded, out of radius, failed to parse, or drawing

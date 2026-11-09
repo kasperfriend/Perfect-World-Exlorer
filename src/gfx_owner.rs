@@ -613,8 +613,27 @@ impl Manager {
     /// factor `0x5b33f3` copies into the GFX node — scales the root the way it
     /// scales a light. The placement already carries the authored scale, so the
     /// player is given a unit one. Nothing at this level can answer a ground
-    /// query, so `MatchGrnd` and `GroundHeight` stay inert for world effects.
+    /// query, so this entry point leaves `MatchGrnd` and `GroundHeight` inert;
+    /// [`Self::effect_quads_with_ground`] is the one that can.
     pub fn effect_quads(&mut self, delta_ms: u32, view: &View) -> Vec<EffectQuad> {
+        self.effect_quads_with_ground(delta_ms, view, None)
+    }
+
+    /// The same pass with the world's terrain in hand, so a ground-matched decal
+    /// can be draped over the surface instead of drawn as one flat card.
+    ///
+    /// This is the only way ground data reaches a player at this level. The
+    /// client's owner raycasts at its own position every frame (`0x6e53f0`), and
+    /// nothing here owns terrain, so the caller that does — the renderer, which
+    /// holds the map's height grid — hands the query down. Without it every
+    /// ground path stays inert and the 906 corpus elements that set `MatchGrnd`
+    /// on a sprite keep their single flat quad.
+    pub fn effect_quads_with_ground(
+        &mut self,
+        delta_ms: u32,
+        view: &View,
+        terrain: Option<crate::gfx_player::GroundHeightQuery<'_>>,
+    ) -> Vec<EffectQuad> {
         let mut out = Vec::new();
         if !self.effects {
             return out;
@@ -643,7 +662,7 @@ impl Manager {
                     continue;
                 };
                 player
-                    .advance_with_ground(scaled, view, transform, 1., alpha, None)
+                    .advance_with_ground(scaled, view, transform, 1., alpha, None, terrain)
                     .map(|()| player.quads().to_vec())
             };
             match stepped {
