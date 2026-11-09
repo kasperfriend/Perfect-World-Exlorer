@@ -5697,6 +5697,7 @@ mod tests {
             emission_scale: 1.,
             rotation: 0.,
             clock: 0.,
+            owner_scale: 1.,
         }
     }
 
