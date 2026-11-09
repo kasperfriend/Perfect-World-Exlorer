@@ -1673,8 +1673,8 @@ mod tests {
         let width = |scale: f32| {
             let mut manager = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
             let mut placed = request_path(1, true, "gfx/scene/torch.gfx");
-            placed.transform = placement_transform([0.; 3], [0., 0., 1.], [0., 1., 0.], scale)
-                .unwrap();
+            placed.transform =
+                placement_transform([0.; 3], [0., 0., 1.], [0., 1., 0.], scale).unwrap();
             manager.insert(placed).unwrap();
             manager.update(16, &mut LightPublications::default());
             let quads = manager.effect_quads(16, &camera());
