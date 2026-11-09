@@ -215,7 +215,8 @@ pub fn scene_alpha(alpha: f32) -> Option<[f32; 4]> {
 /// the authored scale into the three basis columns, so the column length is the
 /// scale and nothing else.
 pub fn placement_scale(columns: &[f32; 16]) -> f32 {
-    let length = (columns[0] * columns[0] + columns[1] * columns[1] + columns[2] * columns[2]).sqrt();
+    let length =
+        (columns[0] * columns[0] + columns[1] * columns[1] + columns[2] * columns[2]).sqrt();
     if length.is_finite() && length > 1e-6 {
         length
     } else {
@@ -822,7 +823,15 @@ impl Manager {
                     continue;
                 };
                 player
-                    .advance_with_terrain(scaled, view, transform, authored_scale, alpha, None, terrain)
+                    .advance_with_terrain(
+                        scaled,
+                        view,
+                        transform,
+                        authored_scale,
+                        alpha,
+                        None,
+                        terrain,
+                    )
                     .map(|()| player.quads().to_vec())
             };
             match stepped {
