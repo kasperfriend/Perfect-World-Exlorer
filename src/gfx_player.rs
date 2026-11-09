@@ -146,6 +146,12 @@ pub struct EffectQuad {
     pub priority: i32,
     /// World-space corners in the client's quad order: top-left, top-right,
     /// bottom-left, bottom-right.
+    /// The element's authored `TileMode`. 0, which every sampled element in the
+    /// corpus writes, clamps the texture to its own cell; anything else lets the
+    /// `TexSpeed` scroll wrap. The sampler used to be one pass-wide `Repeat`, so
+    /// a scrolled sprite showed the opposite edge of its own art smeared back
+    /// into the frame.
+    pub tile_mode: u32,
     pub positions: [[f32; 3]; 4],
     pub uv: [[f32; 2]; 4],
     /// Linear RGB and alpha, already folded with the root and placement alpha.
@@ -1219,10 +1225,12 @@ impl Player {
     /// with no child element returns `None`, so a probe cannot silently read the
     /// parent's clock and mistake it for the child's.
     pub fn child_time_ms(&self) -> Option<f32> {
-        self.elements.iter().find_map(|element| match &element.runtime {
-            Runtime::Child(child) => Some(child.player.time_ms()),
-            _ => None,
-        })
+        self.elements
+            .iter()
+            .find_map(|element| match &element.runtime {
+                Runtime::Child(child) => Some(child.player.time_ms()),
+                _ => None,
+            })
     }
 
     /// Restart the clock, which is what the client does when a looping root runs
@@ -2367,6 +2375,7 @@ fn push_quad(
         depth_test: depth_test(context.common, context.version),
         layer: context.common.render_layer,
         priority: context.common.priority,
+        tile_mode: context.common.tile_mode,
         positions,
         uv,
         color,
@@ -2588,6 +2597,7 @@ fn emit_model(meshes: &[EffectMesh], context: &ElementContext, out: &mut Vec<Eff
             depth_test: depth_test(context.common, context.version),
             layer: context.common.render_layer,
             priority: context.common.priority,
+            tile_mode: context.common.tile_mode,
             positions: [[0.; 3]; 4],
             uv: [[0.; 2]; 4],
             color,
@@ -7030,6 +7040,88 @@ mod tests {
                  which is not the ~1.0 the coefficient asks for"
             );
         }
+    }
+
+    /// A child root's clock must run at the product of the element's own
+    /// `PlaySpeed` and the child root's `PlaySpeed`, exactly once each. The call
+    /// site passes `dt_s * 1000 * element_play_speed` and `advance` then applies
+    /// the child root's own rate, so an accidental second multiplication of the
+    /// same factor would show up here as a squared rate.
+    #[test]
+    fn a_child_clock_runs_at_both_play_speeds_once_each() {
+        // The child root's own PlaySpeed is the parameter; its single sprite is
+        // a forever keypoint, so nothing but the clock moves.
+        let child_root = |rate: f32| {
+            format!(
+                "MOXTVersion: 37\r\nDedaultScale: 1\r\nPlaySpeed: {rate}\r\nDefaultAlpha: 1\r\n\
+                 Raytrace: 0\r\nFadeByDist: 0\r\nFadeStart: 0\r\nFadeEnd: 0\r\n\
+                 Vec: 0, 0, 0\r\nVec: 1, 1, 1\r\nShakeCam: 0\r\nGFXELEMENTCOUNT: 1\r\n\
+                 GFXELEMENTID: 100\r\nName: inner\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+                 RepeatCount: -1\r\nRepeatDelay: 0\r\n\
+                 Width: 1\r\nHeight: 1\r\nRotFromView: 0\r\nGrndNormOnly: 0\r\n\
+                 StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
+                 Position: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\n\
+                 Rad_2D: 0\r\nCtrlMethodCount: 0\r\n"
+            )
+        };
+        let parent = |rate: f32| {
+            format!(
+                "MOXTVersion: 37\r\nDedaultScale: 1\r\nPlaySpeed: 1\r\nDefaultAlpha: 1\r\n\
+                 Raytrace: 0\r\nFadeByDist: 0\r\nFadeStart: 0\r\nFadeEnd: 0\r\n\
+                 Vec: 0, 0, 0\r\nVec: 1, 1, 1\r\nShakeCam: 0\r\nGFXELEMENTCOUNT: 1\r\n\
+                 GFXELEMENTID: 200\r\nName: ch\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+                 GfxPath: T\\c.gfx\r\nOutColor: 0\r\nLoopFlag: 1\r\nPlaySpeed: {rate}\r\n\
+                 StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
+                 Position: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\n\
+                 Rad_2D: 0\r\nCtrlMethodCount: 0\r\n"
+            )
+        };
+        // One 16 ms parent frame. The parent root is at PlaySpeed 1, so the
+        // child clock must read 16 * element_rate * root_rate.
+        for (element_rate, root_rate) in [(1.0f32, 1.0f32), (1.0, 2.0), (2.0, 2.0), (0.5, 1.0)] {
+            let child = child_root(root_rate);
+            let source = parent(element_rate);
+            let root = gfx_file::parse(&source).unwrap();
+            let mut player = Player::new(root, 7, &mut |_| gfx_file::parse(&child)).unwrap();
+            step(&mut player, 16.);
+            let got = player.child_time_ms().expect("the child resolved");
+            let want = 16.0 * element_rate * root_rate;
+            assert!(
+                (got - want).abs() < 0.01,
+                "element PlaySpeed {element_rate} x root PlaySpeed {root_rate}: child clock \
+                 read {got} ms, want {want} ms"
+            );
+        }
+    }
+
+    /// `TileMode` reaches the quad so the pass can choose a sampler. It was
+    /// parsed into `Common` and read by nothing, while the effect pass bound one
+    /// pass-wide `Repeat` sampler to every texture: a sprite whose `TexSpeed`
+    /// scrolls its UVs past the cell edge showed the opposite edge of its own art
+    /// wrapped back in, which an additive sheet shows as a smear.
+    #[test]
+    fn tile_mode_reaches_the_quad_so_the_sampler_can_honour_it() {
+        let sprite = |tile: u32| {
+            header37(1)
+                + &SPRITE.replace(
+                    "TexInterval: 50\r\n",
+                    &format!("TexInterval: 50\r\nTileMode: {tile}\r\n"),
+                )
+        };
+        // 0 is what every sampled corpus element authors, and it clamps.
+        let mut clamped = build(&sprite(0));
+        step(&mut clamped, 16.);
+        assert_eq!(clamped.quads().len(), 1);
+        assert_eq!(
+            clamped.quads()[0].tile_mode,
+            0,
+            "the authored clamp must survive to the pass"
+        );
+        // A nonzero value asks the scroll to wrap.
+        let mut tiled = build(&sprite(1));
+        step(&mut tiled, 16.);
+        assert_eq!(tiled.quads().len(), 1);
+        assert_eq!(tiled.quads()[0].tile_mode, 1);
     }
 
     /// The version-76 boundary on the depth test. The rule came from the static

@@ -692,3 +692,34 @@ invariant and fails on the old formula. **The count remains an inference** — t
 client's element-190 builder was never read, only its endpoints and its
 degenerate-chord gate — but the old count contradicted its own stated invariant,
 which is a defect on the evidence alone.
+
+### Update 7 — `TileMode` was parsed and never read; the sampler always wrapped
+
+`gfx_effect_gpu` created **one** `AddressMode::Repeat` sampler for the whole pass
+and bound it to every effect texture. Its own comment claimed this was driven by
+`TileMode` ("Effect textures tile: `TileMode` and the two `TexSpeed` values scroll
+past the edge of the authored cell") — but `TileMode` was parsed into `Common` and
+read by nothing. A survey of the parsed-but-unreferenced fields found 43 of them,
+and this was the one with a visible consequence.
+
+`TileMode: 0` is what the corpus authors, and `0` clamps. Under `Repeat` a sprite
+whose `TexSpeed` scrolls its UVs past the cell edge shows the **opposite edge of
+its own art** wrapped back in; on an additive sheet that reads as a smear of the
+texture's brightest row instead of the art ending. The fix carries `tile_mode` on
+`EffectQuad` and `wrap` on `BucketKey`, so the pass picks a `ClampToEdge` or a
+`Repeat` sampler per bucket.
+
+### Remaining latent items, named rather than fixed
+
+These are parsed and unused, and none of them changes what is drawn today on the
+evidence available:
+
+| field | why it is inert |
+|---|---|
+| `raytrace`, `phys_exist`, `use_3d_camera`, `force_2d`, `no_down_sample` | authored 0 across the corpus |
+| `start_on_ground` (`IsStartOnGrnd`) | authored 0 on every element; the static decal path does its own ground matching |
+| `render_2d`, `back_layer_2d` | 3 and 12 roots; the screen-space path is not modelled |
+| `no_change_dir` | 81 roots; the direction perturbation it gates is unmeasured |
+| `dummy_element`, `is_loop`, `enable_material`, `enable_origin_1/2`, `position_1/2_enable` | covered elsewhere in these findings |
+| `alpha_compare`, `alpha_segments`, `ambient`, `specular`, `attenuation`, `falloff`, `max_distance`, `min_distance`, `light_type`, `light_number` | light-element keys; element 130 executes, the strip family is documented as unsupported |
+| `action`, `alpha_segments`, `average_generation_segments`, `beta_segments`, `is_average_generation*`, `scale_no_offset`, `stroke_amplitude`, `yaw_effect`, `phi`, `render_side`, `write_z`, `match_surface`, `max_extent`, `tile_mode` (now used) | no corpus element reaches the routine that would read them |

@@ -498,24 +498,6 @@ impl Catalog {
             .find(|entry| entry.path == wanted || entry.path.to_lowercase() == lower)
     }
 
-    /// Build the archive index the way the client's file system sees it:
-    /// byte-exact first, then folded to lower case.
-    ///
-    /// The archive stores its members in lower case (`gfx/textures/normalmap/
-    /// ringglowwhite9.dds`) while the roots name them the way the artist typed
-    /// them (`normalmap\RingGlowWhite9.dds`). Retail resolves the pair because
-    /// it is a case-insensitive file system; a byte-exact map does not, and a
-    /// miss is expensive here because the effect pass substitutes a flat white
-    /// texel, so every miss drew as an opaque white slab. 293 of this corpus's
-    /// 1,610 distinct texture references differ only by case, and only 4 are
-    /// genuinely absent.
-    pub fn case_insensitive<T>(entries: impl Iterator<Item = (String, T)>) -> CaseIndex<T>
-    where
-        T: Clone,
-    {
-        CaseIndex::new(entries)
-    }
-
     /// Every member whose path contains `needle`, case-insensitively.
     pub fn search(&self, needle: &str) -> Vec<&Entry> {
         let needle = needle.to_lowercase();
@@ -837,101 +819,5 @@ mod tests {
         assert!(catalog.group(Group::Water).len() > 100);
         assert!(catalog.group(Group::Fire).len() > 100);
         assert!(catalog.group(Group::SunRays).len() > 10);
-    }
-}
-
-/// An archive index that resolves a path exactly, then case-insensitively.
-///
-/// Built once per archive; `get` is a pair of hash probes. The exact map is
-/// consulted first so an archive that deliberately ships two members differing
-/// only by case still resolves the one the reference spells.
-#[derive(Clone, Debug, Default)]
-pub struct CaseIndex<T> {
-    exact: HashMap<String, T>,
-    folded: HashMap<String, T>,
-}
-
-impl<T: Clone> CaseIndex<T> {
-    pub fn new(entries: impl Iterator<Item = (String, T)>) -> Self {
-        let mut exact = HashMap::new();
-        let mut folded = HashMap::new();
-        for (path, value) in entries {
-            folded
-                .entry(path.to_lowercase())
-                .or_insert_with(|| value.clone());
-            exact.insert(path, value);
-        }
-        Self { exact, folded }
-    }
-
-    /// The member for `path`, matched byte-exactly if possible and otherwise
-    /// ignoring case. `path` may carry either separator style.
-    pub fn get(&self, path: &str) -> Option<&T> {
-        let key = normalize(path);
-        self.exact
-            .get(&key)
-            .or_else(|| self.folded.get(&key.to_lowercase()))
-    }
-
-    pub fn len(&self) -> usize {
-        self.exact.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.exact.is_empty()
-    }
-}
-
-#[cfg(test)]
-mod case_index_tests {
-    use super::CaseIndex;
-
-    fn index() -> CaseIndex<u32> {
-        CaseIndex::new(
-            [
-                (
-                    "gfx/textures/normalmap/ringglowwhite9.dds".to_string(),
-                    1u32,
-                ),
-                (r"gfx/textures/物体/bubble.dds".to_string(), 2),
-                ("gfx/textures/轨迹/符文.dds".to_string(), 3),
-            ]
-            .into_iter(),
-        )
-    }
-
-    #[test]
-    fn a_root_that_differs_only_by_case_still_resolves() {
-        let index = index();
-        // The spellings the corpus actually authors, all of which retail
-        // resolves on a case-insensitive file system.
-        assert_eq!(
-            index.get(r"gfx/textures/normalmap/RingGlowWhite9.dds"),
-            Some(&1)
-        );
-        assert_eq!(index.get(r"gfx/textures\物体\Bubble.dds"), Some(&2));
-        assert_eq!(index.get(r"gfx/textures/轨迹/符文.DDS"), Some(&3));
-        // The exact spelling keeps working, and a fold never invents a member.
-        assert_eq!(
-            index.get("gfx/textures/normalmap/ringglowwhite9.dds"),
-            Some(&1)
-        );
-        assert_eq!(index.get("gfx/textures/normalmap/nothere.dds"), None);
-    }
-
-    #[test]
-    fn an_exact_spelling_wins_over_a_case_twin() {
-        // Two members differing only by case are legal in the archive format;
-        // the one the reference spells byte for byte must win.
-        let index = CaseIndex::new(
-            [
-                ("gfx/a.dds".to_string(), 1u32),
-                ("gfx/A.dds".to_string(), 2),
-            ]
-            .into_iter(),
-        );
-        assert_eq!(index.get("gfx/A.dds"), Some(&2));
-        assert_eq!(index.get("gfx/a.dds"), Some(&1));
-        assert_eq!(index.get("gfx/a.DDS"), Some(&1));
     }
 }
