@@ -7534,13 +7534,14 @@ mod tests {
     /// A3DDecalEx.cpp:357-413); `0` keeps the authored keypoint basis entirely.
     /// 598 retail sprites author the flag against 8,271 that do not.
     ///
-    /// The camera sits on -Y here, square to the card's +Z height axis, so an
-    /// axial card spans X and Z and is flat on Y — while an element-space card
-    /// spans the element's own X and Y and is flat on Z.
+    /// The camera sits under the element — its keypoint is at (1, 2, 3) — and
+    /// square to the card's +Z height axis, so an axial card spans X and Z and
+    /// is flat on Y, while an element-space card spans the element's own X and Y
+    /// and is flat on Z.
     #[test]
     fn rot_from_view_turns_only_the_width_to_the_camera() {
         let camera = View {
-            position: Vec3::new(0., -10., 0.),
+            position: Vec3::new(1., -8., 3.),
             right: Vec3::X,
             up: Vec3::Z,
             forward: Vec3::Y,
