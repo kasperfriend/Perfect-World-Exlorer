@@ -551,11 +551,17 @@ const GAIT_CORE_BONES: [&str; 23] = [
 /// within a tier.
 fn gait_candidate_rank(name: &str) -> u8 {
     const PLAIN: [&str; 9] = [
-        "行走_通用", "移动_通用", "行走", "移动", "走",
-        "奔跑_通用", "跑_通用", "奔跑", "跑",
+        "行走_通用",
+        "移动_通用",
+        "行走",
+        "移动",
+        "走",
+        "奔跑_通用",
+        "跑_通用",
+        "奔跑",
+        "跑",
     ];
-    let lower = name.to_lowercase();
-    if PLAIN.iter().any(|plain| lower == *plain) { 0 } else { 1 }
+    u8::from(!PLAIN.contains(&name.to_lowercase().as_str()))
 }
 
 /// Rotation-only absolute rest orientations of a skeleton's bones, indexed by
