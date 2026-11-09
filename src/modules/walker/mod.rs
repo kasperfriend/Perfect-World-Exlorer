@@ -7,6 +7,7 @@ mod audio;
 mod character;
 mod collision;
 mod designer;
+mod gallery;
 mod gfx;
 pub(crate) mod physics;
 pub(crate) mod pose;
@@ -17,7 +18,7 @@ use self::{
     physics::{Body, FlightInput, Input, Mechanics},
 };
 use crate::{
-    gfx_decal, gfx_decal_gpu,
+    gfx_decal, gfx_decal_gpu, gfx_effect_gpu, gfx_player,
     model_asset::{ModelAsset, PosedMesh},
     model_draw_gpu,
     modules::designer::{
@@ -27,7 +28,7 @@ use crate::{
     navigation::MapSpace,
     water::WaterArea,
 };
-use glam::Vec3;
+use glam::{Mat4, Vec3};
 use std::{collections::HashSet, path::PathBuf};
 use winit::keyboard::KeyCode;
 
@@ -192,6 +193,10 @@ struct Gpu {
     /// passes reuse them instead of recomputing every hook matrix again.
     quads: Vec<gfx_decal::Quad>,
     pose_generation: u64,
+    /// The animated roots: keypoint clocks, controllers, particles, ribbons,
+    /// lightning and nested children, submitted through their own pass so the
+    /// per-bucket blend factors stay exact.
+    effects: gfx_effect_gpu::Draw,
     // Keep the sampler alive alongside bind groups that reference it.
     _sampler: wgpu::Sampler,
 }
@@ -277,9 +282,15 @@ pub struct Walker {
     jump_was_down: bool,
     gpu: Option<Gpu>,
     gpu_failed: bool,
+    /// Wall clock of the previous `render`, because the animated GFX roots need
+    /// a millisecond delta and the host's frame carries none.
+    last_render: Option<std::time::Instant>,
     last_error: Option<String>,
     audio: audio::CharacterAudio,
     collision: collision::Collision,
+    /// Free-standing roots from the effect catalogue, placed in the world and
+    /// submitted through the same pass as the character's own effects.
+    gallery: gallery::Gallery,
 }
 
 impl Default for Walker {
@@ -312,8 +323,10 @@ impl Default for Walker {
             jump_was_down: false,
             gpu: None,
             gpu_failed: false,
+            last_render: None,
             last_error: None,
             audio: audio::CharacterAudio::default(),
+            gallery: gallery::Gallery::default(),
             collision: collision::Collision::default(),
         }
     }
@@ -357,6 +370,7 @@ impl Walker {
         let audio = audio::CharacterAudio::new(&element);
         let collision = collision::Collision::new(element.clone(), scene, &ornaments);
         Self {
+            gallery: gallery::Gallery::new(element.clone()),
             element: Some(element),
             map: Some(map),
             water,
@@ -420,9 +434,11 @@ impl Walker {
         }
         if let Some(character) = &self.character {
             format!(
-                "Active — {} {}",
+                "Active — {} {} — {} persistent GFX root(s), {} animated",
                 character.assembly.design.class.name(),
-                character.assembly.design.gender.name()
+                character.assembly.design.gender.name(),
+                character.gfx.effect_count(),
+                character.gfx.dynamic_count()
             )
         } else {
             "Disabled".into()
@@ -863,6 +879,18 @@ impl Walker {
         None
     }
 
+    /// The camera offset the loaded roots' `ShakeCam` asks for, for the host to
+    /// add to the eye it builds the frame's view-projection from. The client owns
+    /// its camera and applies the offset itself (`0x41a4e0`), restoring it once a
+    /// root leaves its shake window (`0x6e5150`); the walker owns none, so it
+    /// reports what the roots asked for and leaves the applying to whoever holds
+    /// the camera. `Vec3::ZERO` while nothing shakes.
+    pub fn camera_shake(&self) -> Vec3 {
+        self.character
+            .as_ref()
+            .map_or(Vec3::ZERO, |character| character.gfx.camera_shake())
+    }
+
     pub fn settings_ui(&mut self, ui: &mut egui::Ui) {
         let rebuild = if let Some(assets) = self.assets.as_mut() {
             self.designer.ui(ui, assets)
@@ -871,6 +899,16 @@ impl Walker {
         };
         if let Some(design) = rebuild {
             self.change_design(design);
+        }
+
+        ui.separator();
+        ui.heading("Effect gallery");
+        {
+            // Copied out first: the gallery only needs the eye and the look
+            // direction, and taking them keeps its borrow of `self` disjoint.
+            let at = self.camera_position.unwrap_or(Vec3::ZERO);
+            let facing = self.facing;
+            self.gallery.ui(ui, at, facing);
         }
 
         ui.separator();
@@ -1117,12 +1155,24 @@ impl Walker {
                     &decal_quads,
                     |path| assets.read(path),
                 )?;
+                // The effects pass renders into the same reverse-Z depth the
+                // models and the static decals use, so occlusion stays consistent.
+                let effects = gfx_effect_gpu::Draw::new(
+                    device,
+                    queue,
+                    format,
+                    Some((
+                        wgpu::TextureFormat::Depth32Float,
+                        wgpu::CompareFunction::Greater,
+                    )),
+                )?;
                 Ok(Gpu {
                     draws,
                     parts,
                     gfx,
                     quads: decal_quads.clone(),
                     pose_generation: self.pose_generation,
+                    effects,
                     _sampler: sampler,
                 })
             })();
@@ -1185,6 +1235,65 @@ impl Walker {
                 return;
             }
         }
+        // The animated roots advance once per frame, keyed to the pose
+        // generation, because the host calls `render` once per pass (main,
+        // reflection, refraction). Advancing per call would run every effect at
+        // triple speed and let an emitter discharge three times the particles.
+        if !pose_uploaded {
+            let effects = (|| -> Result<Vec<gfx_player::EffectQuad>, String> {
+                let character = self.character.as_mut().ok_or("Walker character missing")?;
+                let assets = self.assets.as_mut().ok_or("Walker assets missing")?;
+                // Terrain for the effects' own ground query: `MatchGrnd` and
+                // `GroundHeight` are gated on an owner byte no `.gfx` file can
+                // set, so the host supplies the sample and those keys stay inert
+                // only while no map is loaded.
+                let map = self.map.as_ref();
+                // `render` carries no delta, so the wall clock supplies one,
+                // clamped: a stall (shader compile, window drag, a breakpoint)
+                // must not fast-forward an effect or let an emitter discharge a
+                // thousand particles in a single frame.
+                let now = std::time::Instant::now();
+                let dt_ms = match self.last_render {
+                    Some(last) => (now.duration_since(last).as_secs_f32() * 1000.).clamp(0., 100.),
+                    None => 0.,
+                };
+                self.last_render = Some(now);
+                // The billboards need a camera basis, and `Frame` only carries
+                // the view-projection, so the eye is recovered from its inverse.
+                let view = gfx_player::View::from_inverse_view_projection(
+                    Mat4::from_cols_array_2d(&frame.matrix).inverse(),
+                );
+                let mut quads = character.gfx.advance(
+                    &character.assembly,
+                    &character.posed.pose,
+                    &view,
+                    dt_ms,
+                    map,
+                )?;
+                // The gallery shares this pass: the same draw object, the same
+                // blend buckets and the same texture resolution, so a
+                // free-standing root renders exactly like an attached one.
+                quads.extend(self.gallery.advance(&view, dt_ms, map)?);
+                if let Some(gpu) = self.gpu.as_mut() {
+                    gpu.effects.update(
+                        device,
+                        queue,
+                        &quads,
+                        frame.matrix,
+                        frame.clip_plane,
+                        [view.position.x, view.position.y, view.position.z, 0.],
+                        &mut |path| assets.read(path),
+                    )?;
+                }
+                Ok(quads)
+            })();
+            match effects {
+                Ok(_) => {}
+                Err(error) => {
+                    self.last_error = Some(format!("Walker effects: {error}"));
+                }
+            }
+        }
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("add-on Walker character pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1224,6 +1333,7 @@ impl Walker {
                 }
             }
             gpu.gfx.draw_quads(&mut pass);
+            gpu.effects.draw(&mut pass);
         }
     }
 }

@@ -13,6 +13,11 @@ pub fn authored_lower_mips(bytes: &[u8]) -> Result<Vec<image::RgbaImage>, String
         crate::model_dds::Format::Dxt1 => 0x3154_5844u32,
         crate::model_dds::Format::Dxt3 => 0x3354_5844u32,
         crate::model_dds::Format::Dxt5 => 0x3554_5844u32,
+        // This helper only rewrites compressed surfaces, because
+        // `crate::dxt::decode_level` is the only decoder it has. An
+        // uncompressed source has no authored chain to carry into an atlas, so
+        // there is nothing for the experiment to preserve.
+        crate::model_dds::Format::Uncompressed(_) => return Ok(Vec::new()),
     };
     let mut out = Vec::with_capacity(dds.mips.len().saturating_sub(1));
     for mip in dds.mips.iter().skip(1) {

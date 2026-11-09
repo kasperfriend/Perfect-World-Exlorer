@@ -11,6 +11,7 @@ See the [full 76-point plan reassessment](Findings/Eight-phase-reassessment-2026
 - Full-world terrain from client terrain files, with native-resolution materials, masks and day/night lightmaps; nearby detail streams as you fly.
 - Static BMD buildings, rocks and scenery; optional whole-world object loading.
 - Ordinary EC world models with retained skeleton/animation/material/texture data and scene-light assignment; complex actions, alpha/special queues and general effects remain incomplete.
+- Authored world effects from the map's own ECWLD records and ECM model events: waterfalls, fire, mist, glows and sun shafts, positioned from the scene, played on the scene clock and textured from `gfx.pck`. A texture that an effect names but the archive lacks draws in its authored vertex colour rather than removing the effect.
 - Client SpeedTree geometry through the client's 32-bit runtime, with sampled leaf motion and approximate LOD; locally streamed grass from client placements and meshes.
 - Experimental animated water, per-height reflections and refraction, shoreline waves, underwater effects, environmental fog, sky, time-of-day control and optional bloom.
 - Searchable teleport destinations, original and rendered world maps, a minimap, zone notices, Windows zone music, experimental stereo zone ambience and experimental positional world effects.

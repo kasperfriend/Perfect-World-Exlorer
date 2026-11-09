@@ -44,12 +44,26 @@ mod far_trees_gpu;
 mod fog_matrix;
 mod foliage_mips;
 #[allow(dead_code)]
+mod gfx_catalog;
 mod gfx_color_track;
 mod gfx_decal;
 mod gfx_decal_gpu;
+/// The wgpu receiver for the animated roots. Its diagnostic accessors are part
+/// of the module's contract even while only its own tests call them.
+#[allow(dead_code)]
+mod gfx_effect_gpu;
+/// The full `.gfx` grammar: every field the container can carry is parsed and
+/// documented, and the runtime player consumes only the visual subset.
+#[allow(dead_code)]
+mod gfx_file;
 #[allow(dead_code)]
 mod gfx_light;
 mod gfx_owner;
+/// The runtime that turns a parsed root into this frame's quads. `reset`,
+/// `textures` and `time_ms` are public contract for callers that are not wired
+/// up yet, so the module carries the same allowance `gfx_file` does.
+#[allow(dead_code)]
+mod gfx_player;
 mod gpu;
 mod grass;
 mod grass_instances;

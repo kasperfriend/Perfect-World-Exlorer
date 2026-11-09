@@ -9,12 +9,22 @@ mod animation;
 mod client_regional_light;
 #[path = "../ecmodel.rs"]
 mod ecmodel;
+#[path = "../gfx_catalog.rs"]
+mod gfx_catalog;
 #[path = "../gfx_color_track.rs"]
 mod gfx_color_track;
+#[path = "../gfx_decal.rs"]
+mod gfx_decal;
+#[path = "../gfx_effect_gpu.rs"]
+mod gfx_effect_gpu;
+#[path = "../gfx_file.rs"]
+mod gfx_file;
 #[path = "../gfx_light.rs"]
 mod gfx_light;
 #[path = "../gfx_owner.rs"]
 mod gfx_owner;
+#[path = "../gfx_player.rs"]
+mod gfx_player;
 #[path = "../model_asset.rs"]
 mod model_asset;
 #[path = "../model_attachment.rs"]
@@ -835,7 +845,10 @@ fn main() {
             ornaments: vec![],
             boxes: vec![],
             effects: vec![scene::Effect {
-                export_id: 17,
+                index: 0,
+                // The record's own id word; the shipped map gives every one of
+                // its 2,275 placements a distinct value.
+                export_id: 1,
                 scale: 1.,
                 position: [0., 0., 0.5],
                 direction: [0., 0., 1.],
@@ -852,7 +865,7 @@ fn main() {
             sounds: vec![],
         }],
     };
-    assert_eq!(world.install_scene_effects(&scene_fixture).unwrap(), 1);
+    assert_eq!(world.install_scene_effects(&scene_fixture), 1);
     world.set_view_center(0., 0., 128.);
     // One root loads per update and the load frame publishes nothing.
     world.update(

@@ -19,17 +19,27 @@
 //! root bound to a skeleton hook follows the posed parent each frame
 //! (0x7b2520 resolves the hook, 0x5b3750 installs the parent node).
 //!
-//! Explicitly NOT implemented: the rest of the GFX graph (particles, sprites,
-//! trails, animated textures) and the visual effect's alpha/attenuation fade.
-//! Those remain in Findings/Unsupported-client-paths.md; they do not fake light
-//! producers.
+//! The rest of the GFX graph — sprites, particles, ribbons, trails, fractals —
+//! plays through [`gfx_player`] too: [`Manager::effect_quads`] advances every
+//! visible owner's root and returns the quads for the host to draw. It is a
+//! separate call from [`Manager::update`] because geometry needs a camera basis
+//! and lights do not, and [`Manager::set_effects_enabled`] gates it, so a host
+//! can turn world effects off without losing its light producers.
+//!
+//! Explicitly NOT implemented: the visual effect's alpha/attenuation fade over
+//! distance, and a ground sample for `MatchGrnd`/`GroundHeight` — world owners
+//! advance with no ground, so those two keys stay inert here exactly as they do
+//! for an owner whose +0x1f4 byte is clear. Those remain in
+//! Findings/Unsupported-client-paths.md; they do not fake light producers.
 
 #![allow(dead_code)]
 
 use crate::{
     gfx_light::Emitter,
+    gfx_player::{self, EffectQuad, Player, View},
     scene_lights::{DynamicLight, LightPublications},
 };
+use glam::Mat4;
 
 /// A root GFX asset attached to a world owner (ECWLD effect or ECM model event).
 #[derive(Clone, Debug)]
@@ -67,9 +77,6 @@ impl Request {
         }
         if self.transform.iter().any(|v| !v.is_finite()) {
             return Err(format!("{}: nonfinite owner placement", self.origin));
-        }
-        if !self.speed.is_finite() || self.speed < 0. {
-            return Err(format!("{}: invalid owner play speed", self.origin));
         }
         if self.span_ms == Some(0) {
             return Err(format!("{}: zero owner lifetime", self.origin));
@@ -200,7 +207,14 @@ pub fn root_path(reference: &str) -> String {
 
 enum State {
     Pending,
-    Live(Vec<Emitter>),
+    /// The root text loaded. `lights` is empty when only the *light* half of the
+    /// root could not be decoded, which is not a reason to withhold its
+    /// geometry: the sprites, particles, trails and beams are a separate graph
+    /// and the client plays them regardless.
+    Live {
+        lights: Vec<Emitter>,
+        light_error: Option<String>,
+    },
     Failed,
 }
 
@@ -209,6 +223,16 @@ struct Owner {
     request: Request,
     elapsed: u32,
     state: State,
+    /// The animated root: every element the light emitters do not cover. Built
+    /// from the same archive text as the emitters, one root per frame, and only
+    /// while the owner is visible, so the graph of an effect nobody can see costs
+    /// nothing. `None` while pending, after a build failure, and whenever the
+    /// owner is outside its activation window or the host has world effects off.
+    player: Option<Player>,
+    /// A build that failed is not retried: the failure is recorded once and the
+    /// owner keeps publishing its lights, which is what it did before the graph
+    /// was implemented at all.
+    player_failed: bool,
 }
 
 /// Publication identity: owner serial in the high half, element index in the
@@ -253,6 +277,13 @@ pub struct Status {
     pub non_light_owners: usize,
     /// Frames the manager has ticked; the loader admits one root per frame.
     pub frames: u64,
+    /// Live owners whose animated root is built and will draw this frame. Zero
+    /// while [`Manager::set_effects_enabled`] is off, and smaller than `live`
+    /// whenever owners are outside their activation window.
+    pub players: usize,
+    /// Owners whose root would not build a player. Their lights still run, so
+    /// they are counted apart from `failed_owners`.
+    pub player_failures: usize,
 }
 
 pub struct Manager {
@@ -274,6 +305,16 @@ pub struct Manager {
     /// mean the queue is still being drained one root per frame.
     frames: u64,
     read: Option<Box<dyn FnMut(&str) -> Result<String, String>>>,
+    /// Binary reader for effect-archive model files (`.SMD`, `.BON`, `.SKI`).
+    /// Element 160 names models from the same archive the roots come from, so a
+    /// host that can read GFX text can read these bytes too; without a reader
+    /// the model elements simply stay undrawn, as they were before.
+    read_model: Option<Box<dyn FnMut(&str) -> Result<Vec<u8>, String>>>,
+    /// Whether the animated effect graph is built and drawn. On by default; a
+    /// host wires it to a world setting. Lights are published either way.
+    effects: bool,
+    effect_failures: Vec<String>,
+    effect_warnings: Vec<String>,
 }
 
 impl Default for Manager {
@@ -294,6 +335,10 @@ impl Manager {
             loads: 0,
             frames: 0,
             read: None,
+            read_model: None,
+            effects: true,
+            effect_failures: Vec::new(),
+            effect_warnings: Vec::new(),
         }
     }
 
@@ -309,9 +354,35 @@ impl Manager {
         manager
     }
 
+    /// Binary reader for the effect archive's model files. Element 160 names a
+    /// `.SMD` (and, through it, a `.BON` skeleton and `.SKI` skins) relative to
+    /// its own folder; those are bytes, not text, so they need their own reader.
+    pub fn set_model_reader(
+        &mut self,
+        read: impl FnMut(&str) -> Result<Vec<u8>, String> + 'static,
+    ) {
+        self.read_model = Some(Box::new(read));
+    }
+
     /// Register an owner. It stays pending until the lazy loader reaches it.
-    pub fn insert(&mut self, request: Request) -> Result<(), String> {
+    pub fn insert(&mut self, mut request: Request) -> Result<(), String> {
         request.validate()?;
+        // Authored play speeds are stored bits, not validated numbers: the
+        // client's tick multiplies its delta by whatever the record carried
+        // and an owner whose clock goes negative or unordered simply never
+        // reaches its StartTime, so retail shows nothing for it. The viewer
+        // freezes such an owner at the same place instead of refusing it --
+        // and a world load must never fail over one placement's word.
+        if !request.speed.is_finite() || request.speed < 0. {
+            let line = format!(
+                "{}: authored play speed {} is not a playable rate; the owner runs frozen, which is where the client's own tick leaves it",
+                request.origin, request.speed
+            );
+            if !self.effect_warnings.contains(&line) {
+                self.effect_warnings.push(line);
+            }
+            request.speed = 0.;
+        }
         if self
             .owners
             .iter()
@@ -326,13 +397,24 @@ impl Manager {
             request,
             elapsed: 0,
             state: State::Pending,
+            player: None,
+            player_failed: false,
         });
         Ok(())
     }
 
     /// Set the manager-wide light-priority limit. Elements with a larger
-    /// authored `Priority` stop publishing but keep progressing, exactly like
-    /// the native gate; the limit itself survives owner churn and region unload.
+    /// authored `Priority` stop publishing but keep progressing; the limit
+    /// itself survives owner churn and region unload.
+    ///
+    /// "Keeps progressing" is the native behaviour and "a larger priority stops
+    /// publishing" is not: `0x70ba00` returns true — proceed, skipping the
+    /// visibility test at `0x6fe120` — when `Priority` is *greater* than the
+    /// detail value at `+0x134`. The viewer's limit is therefore a budget knob
+    /// of its own rather than a reproduction of that gate; see
+    /// `gfx_catalog::priority_exempts` for the dumped direction and
+    /// `Findings/Gfx-effects-parity-assessment-2026-11-05.md` for why the native
+    /// rule is not wired yet.
     pub fn set_priority_limit(&mut self, limit: i32) {
         self.priority_limit = limit;
     }
@@ -412,7 +494,7 @@ impl Manager {
 
     fn unregister(&self, owner: &Owner, publications: &mut LightPublications) {
         let count = match &owner.state {
-            State::Live(emitters) => emitters.len(),
+            State::Live { lights, .. } => lights.len(),
             State::Pending | State::Failed => 0,
         };
         for index in 0..count {
@@ -430,7 +512,7 @@ impl Manager {
         let mut finished = Vec::new();
         let mut failed = Vec::new();
         for owner in &mut self.owners {
-            if !matches!(owner.state, State::Live(_)) {
+            if !matches!(owner.state, State::Live { .. }) {
                 continue;
             }
             match tick_owner(owner, delta_ms, publications, limit) {
@@ -463,6 +545,187 @@ impl Manager {
             }
         }
         self.load_one();
+        // One animated root per frame, the same budget the loader has. Only
+        // owners that are visible right now are admitted, so a world with
+        // thousands of installed effects builds the handful inside the radius.
+        self.build_one_player();
+    }
+
+    /// Gate the animated effect graph: the sprites, particles, ribbons, trails
+    /// and fractals inside every installed root. Lights are published either way,
+    /// so turning this off does not dim anything that was lit — it stops the
+    /// geometry, which is what a "world effects" switch in a settings panel means.
+    ///
+    /// Off drops every player the manager holds, and that is where the memory
+    /// goes back. On does not rebuild them all at once: [`Self::build_one_player`]
+    /// admits one root per frame, so flipping the switch cannot stall a frame on a
+    /// world full of effects.
+    pub fn set_effects_enabled(&mut self, enabled: bool) {
+        if self.effects == enabled {
+            return;
+        }
+        self.effects = enabled;
+        if enabled {
+            return;
+        }
+        for owner in &mut self.owners {
+            owner.player = None;
+        }
+    }
+
+    pub fn effects_enabled(&self) -> bool {
+        self.effects
+    }
+
+    /// Owners whose animated root would not build, as `origin: error`. Their
+    /// lights still run, which is why these are kept apart from
+    /// [`Self::failures`].
+    pub fn effect_failures(&self) -> &[String] {
+        &self.effect_failures
+    }
+
+    /// Warnings the animated roots reported while they were built, as
+    /// `path: warning`. Almost all of them are a nested `GfxPath` the archive does
+    /// not ship: 82 of the corpus's 1,530 child references point at files that
+    /// were never packed, `gfx/人物/技能/牧师/末日惩戒聚光效果.gfx` among them, and
+    /// the client plays the parent without the child. Deduplicated, because a
+    /// root is rebuilt from the archive every time the effect graph is switched
+    /// back on.
+    pub fn effect_warnings(&self) -> &[String] {
+        &self.effect_warnings
+    }
+
+    /// Advance every visible owner's animated root and return the quads this
+    /// frame draws. Call it after [`Self::update`] in the same frame: the owner
+    /// clock, the activation window and the lifetime test read here are the ones
+    /// `update` just advanced, so the geometry and the lights cannot disagree
+    /// about which owners are alive or how old they are.
+    ///
+    /// An owner advances only while it is visible, and that is a viewer budget
+    /// rather than a native rule — `0x70ba00` advances the clock *before* the
+    /// visibility gate, so the client keeps an off-screen effect running. This
+    /// viewer installs every effect in the world at once, and ticking all of them
+    /// to drive geometry nobody can see costs more than the gate is worth. An
+    /// owner that leaves the radius drops its player and starts again when it
+    /// comes back, which is also what the client does when a region unloads.
+    ///
+    /// The authored alpha — `Request::outer`'s fourth component, the intensity
+    /// factor `0x5b33f3` copies into the GFX node — scales the root the way it
+    /// scales a light. The placement already carries the authored scale, so the
+    /// player is given a unit one. Nothing at this level can answer a ground
+    /// query, so `MatchGrnd` and `GroundHeight` stay inert for world effects.
+    pub fn effect_quads(&mut self, delta_ms: u32, view: &View) -> Vec<EffectQuad> {
+        let mut out = Vec::new();
+        if !self.effects {
+            return out;
+        }
+        let mut failures = Vec::new();
+        for owner in &mut self.owners {
+            if !matches!(owner.state, State::Live { .. }) {
+                continue;
+            }
+            if !owner.request.active || owner.elapsed < owner.request.start_ms {
+                owner.player = None;
+                continue;
+            }
+            let scaled = (delta_ms as f32 * owner.request.speed).max(0.);
+            let alpha = owner.request.outer.map_or(1., |outer| outer[3]);
+            let transform = match owner.request.world_transform() {
+                Ok(columns) => Mat4::from_cols_array(&columns),
+                Err(error) => {
+                    failures.push((owner.request.origin.clone(), error));
+                    owner.player = None;
+                    continue;
+                }
+            };
+            let stepped = {
+                let Some(player) = owner.player.as_mut() else {
+                    continue;
+                };
+                player
+                    .advance_with_ground(scaled, view, transform, 1., alpha, None)
+                    .map(|()| player.quads().to_vec())
+            };
+            match stepped {
+                Ok(quads) => out.extend(quads),
+                Err(error) => {
+                    failures.push((owner.request.origin.clone(), error));
+                    owner.player = None;
+                }
+            }
+        }
+        for (origin, error) in failures {
+            self.effect_failures.push(format!("{origin}: {error}"));
+        }
+        out
+    }
+
+    /// Build the animated root for one visible owner, at most one per call, and
+    /// record the failure once if it will not build.
+    fn build_one_player(&mut self) {
+        if !self.effects {
+            return;
+        }
+        let Some(index) = self.owners.iter().position(|owner| {
+            matches!(owner.state, State::Live { .. })
+                && owner.player.is_none()
+                && !owner.player_failed
+                && owner.request.active
+                && owner.elapsed >= owner.request.start_ms
+        }) else {
+            return;
+        };
+        let path = self.owners[index].request.path.clone();
+        let origin = self.owners[index].request.origin.clone();
+        let built = match &mut self.read {
+            Some(read) => read(&path).and_then(|text| {
+                let mut player = Self::player(&text, &path, read)?;
+                // Element 160 names models from the same archive. Resolving them
+                // needs a binary reader; without one the model elements keep
+                // counting and stay undrawn, as they were before.
+                if let Some(model_read) = &mut self.read_model {
+                    // Earlier `read` borrows are released by the block above.
+                    player.load_models(&path, model_read)?;
+                }
+                Ok(player)
+            }),
+            None => Err(format!("{path}: no GFX root reader attached")),
+        };
+        match built {
+            Ok(player) => {
+                for warning in player.warnings() {
+                    let line = format!("{path}: {warning}");
+                    if !self.effect_warnings.contains(&line) {
+                        self.effect_warnings.push(line);
+                    }
+                }
+                self.owners[index].player = Some(player);
+            }
+            Err(error) => {
+                self.owners[index].player_failed = true;
+                self.effect_failures.push(format!("{origin}: {error}"));
+            }
+        }
+    }
+
+    /// Parse a root and build its player, resolving nested `GfxPath` children
+    /// through the same reader the lights use, so a child is another member of the
+    /// same archive. A child the archive does not ship is a warning on the player
+    /// rather than a failure of the owner: 82 of the corpus's 1,530 references
+    /// point at files that were never packed, and the client plays the parent
+    /// without them.
+    fn player(
+        text: &str,
+        path: &str,
+        read: &mut dyn FnMut(&str) -> Result<String, String>,
+    ) -> Result<Player, String> {
+        let root = crate::gfx_file::parse(text).map_err(|error| format!("{path}: {error}"))?;
+        let seed = gfx_player::path_seed(path);
+        Player::new(root, seed, &mut |child| {
+            let text = read(child)?;
+            crate::gfx_file::parse(&text).map_err(|error| format!("{child}: {error}"))
+        })
+        .map_err(|error| format!("{path}: {error}"))
     }
 
     /// Lazily load exactly one pending root; 0x5b1a00 returns after a load.
@@ -473,11 +736,21 @@ impl Manager {
     }
 
     fn load_one(&mut self) {
-        let Some(index) = self
+        // Admit an owner that can actually be drawn before one that cannot.
+        // The retail loader walks its list one root per frame (0x5b1a00) and the
+        // world is small enough that the order never mattered. Here every
+        // ECWLD placement is an owner, so a map with thousands of them spent
+        // minutes parsing roots that the activation radius had already excluded,
+        // while the handful around the player waited their turn in install
+        // order. Sorting by "would this draw now" first drains the visible set
+        // in a few frames, which is what the status line's playing count means.
+        let pending = |o: &Owner| matches!(o.state, State::Pending);
+        let index = self
             .owners
             .iter()
-            .position(|o| matches!(o.state, State::Pending))
-        else {
+            .position(|o| pending(o) && o.request.active)
+            .or_else(|| self.owners.iter().position(pending));
+        let Some(index) = index else {
             return;
         };
         let path = self.owners[index].request.path.clone();
@@ -487,8 +760,21 @@ impl Manager {
             None => Err(format!("{path}: no GFX root reader attached")),
         };
         self.loads += 1;
-        match result.and_then(|text| Self::decode(&text)) {
-            Ok(emitters) => self.owners[index].state = State::Live(emitters),
+        // Two independent halves. The *light* half is `gfx_light`, which only
+        // produces the emitters that publish into the scene-light grid. The
+        // *geometry* half is `gfx_player`, built lazily by `build_one_player`
+        // from the same root text.
+        //
+        // They used to be one gate: a light-decode failure set the owner to
+        // `Failed`, and since only `Live` owners are handed to the player
+        // builder, a root the light parser did not understand also lost its
+        // sprites, particles and trails. On the shipped map that was most of
+        // it — the fire, glow and light-shaft roots were refused for a version
+        // number while their geometry was perfectly playable. A light-side
+        // failure now leaves the owner live with no emitters and a recorded
+        // reason.
+        let text = match result {
+            Ok(text) => text,
             Err(e) => {
                 self.owners[index].state = State::Failed;
                 if is_unsupported(&e) {
@@ -496,8 +782,32 @@ impl Manager {
                 } else {
                     self.failures.push(format!("{origin}: {e}"));
                 }
+                return;
             }
-        }
+        };
+        let (lights, light_error) = match Self::decode(&text) {
+            Ok(emitters) => (emitters, None),
+            // A container this reader cannot open is a *format gap*, not a root
+            // whose light half is missing: there is no text to hand the geometry
+            // side either, so the owner keeps the old dead-end treatment and is
+            // reported as unsupported rather than failed.
+            Err(error) if is_unsupported(&error) => {
+                self.owners[index].state = State::Failed;
+                self.unsupported.push(format!("{origin}: {error}"));
+                return;
+            }
+            Err(error) => {
+                let line = format!("{origin}: {error}");
+                if !self.effect_warnings.contains(&line) {
+                    self.effect_warnings.push(line);
+                }
+                (Vec::new(), Some(error))
+            }
+        };
+        self.owners[index].state = State::Live {
+            lights,
+            light_error,
+        };
     }
 
     fn decode(text: &str) -> Result<Vec<Emitter>, String> {
@@ -514,6 +824,7 @@ impl Manager {
             loads: self.loads,
             failures: self.failures.len(),
             unsupported: self.unsupported.len(),
+            player_failures: self.effect_failures.len(),
             frames: self.frames,
             ..Default::default()
         };
@@ -521,11 +832,14 @@ impl Manager {
             match &owner.state {
                 State::Pending => status.pending += 1,
                 State::Failed => status.failed_owners += 1,
-                State::Live(emitters) => {
+                State::Live { lights, .. } => {
                     status.live += 1;
-                    status.emitters += emitters.len();
-                    if emitters.is_empty() {
+                    status.emitters += lights.len();
+                    if lights.is_empty() {
                         status.non_light_owners += 1;
+                    }
+                    if owner.player.is_some() {
+                        status.players += 1;
                     }
                 }
             }
@@ -560,8 +874,8 @@ fn tick_owner(
     publications: &mut LightPublications,
     priority_limit: i32,
 ) -> Result<bool, String> {
-    let scaled = delta_ms as f32 * owner.request.speed;
-    if !scaled.is_finite() || scaled < 0. || scaled >= u32::MAX as f32 {
+    let scaled = (delta_ms as f32 * owner.request.speed).max(0.);
+    if !scaled.is_finite() || scaled >= u32::MAX as f32 {
         return Err("owner clock overflow".into());
     }
     owner.elapsed = owner.elapsed.saturating_add(scaled as u32);
@@ -575,9 +889,10 @@ fn tick_owner(
     let transform = owner.request.world_transform()?;
     let outer = owner.request.outer;
     let serial = owner.serial;
-    let State::Live(emitters) = &mut owner.state else {
+    let State::Live { lights, .. } = &mut owner.state else {
         return Ok(true);
     };
+    let emitters = lights;
     for (index, emitter) in emitters.iter_mut().enumerate() {
         let light: Option<DynamicLight> =
             emitter.tick(scaled as u32, visible, priority_limit, transform, outer)?;
@@ -592,6 +907,7 @@ fn tick_owner(
 mod tests {
     use super::*;
     use crate::scene_lights::StaticGrid;
+    use glam::Vec3;
 
     fn root(path: &str, text: &str) -> impl FnMut(&str) -> Result<String, String> + 'static {
         let path = path.to_string();
@@ -872,16 +1188,33 @@ mod tests {
         let mut bad = request(3, true);
         bad.transform[0] = f32::INFINITY;
         assert!(manager.insert(bad).is_err());
-        let mut bad = request(4, true);
-        bad.speed = -1.;
-        assert!(manager.insert(bad).is_err());
+        let mut frozen = request(4, true);
+        frozen.speed = -1.;
+        manager
+            .insert(frozen)
+            .expect("a bad speed freezes, not fails");
+        assert!(manager
+            .effect_warnings()
+            .iter()
+            .any(|w| w.contains("not a playable rate")));
+        let mut publications2 = LightPublications::default();
+        manager.update(1000, &mut publications2);
+        manager.update(1000, &mut publications2);
         let mut bad = request(5, true);
         bad.span_ms = Some(0);
         assert!(manager.insert(bad).is_err());
         let mut bad = request(6, true);
         bad.outer = Some([0., 0., 0., -1.]);
         assert!(manager.insert(bad).is_err());
-        assert_eq!(manager.status().live + manager.status().pending, 1);
+        // Without a reader the two accepted owners fail their load, so what
+        // remains proves the split: four rejections, one sanitized speed that
+        // was accepted rather than refused.
+        assert_eq!(manager.status().failed_owners, 2);
+        assert_eq!(manager.status().live + manager.status().pending, 0);
+        let mut drained = LightPublications::default();
+        manager.remove(1, &mut drained);
+        manager.remove(4, &mut drained);
+        assert_eq!(manager.status().failed_owners, 0);
     }
 
     #[test]
@@ -1009,5 +1342,342 @@ mod tests {
             .failures()
             .iter()
             .any(|f| f.contains("owner clock overflow")));
+    }
+    /// Version 37 header with `elements` records, the same shape `gfx_player`'s
+    /// own fixture uses, so one root text plays under both readers.
+    fn header(elements: u32) -> String {
+        format!(
+            "MOXTVersion: 37\r\nDedaultScale: 1\r\nPlaySpeed: 1\r\nDefaultAlpha: 1\r\n\
+             Raytrace: 0\r\nFadeByDist: 0\r\nFadeStart: 0.000000\r\nFadeEnd: 0.000000\r\n\
+             Vec: 0.000000, 0.000000, 0.000000\r\nVec: 1.000000, 1.000000, 1.000000\r\n\
+             ShakeCam: 0\r\nGFXELEMENTCOUNT: {elements}\r\n"
+        )
+    }
+
+    /// One forever sprite at the origin: the smallest root that draws a quad.
+    const SPRITE_ELEMENT: &str = "GFXELEMENTID: 100\r\nName: flame\r\nSrcBlend: 5\r\n\
+        DestBlend: 2\r\nRepeatCount: 1\r\nRepeatDelay: 0\r\nTexFile: 粒子\\glow.dds\r\n\
+        BindEle: \r\nZEnable: 0\r\nMatchGrnd: 0\r\nTexRow: 1\r\nTexCol: 1\r\n\
+        TexInterval: 50\r\nPriority: 2\r\nIsDummy: 0\r\nDummyEle: \r\nWarp: 0\r\n\
+        Width: 0.5\r\nHeight: 0.5\r\nRotFromView: 0\r\nGrndNormOnly: 0\r\nStartTime: 0\r\n\
+        KEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 0, 0, 0\r\n\
+        Color: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\n\
+        CtrlMethodCount: 0\r\n";
+
+    /// A light element both readers accept: `gfx_light::parse` wants `LightType`,
+    /// `Range` and a keypoint colour, `gfx_file` wants the whole 130 record.
+    const LIGHT_ELEMENT: &str = "GFXELEMENTID: 130\r\nName: torch\r\nSrcBlend: 5\r\n\
+        DestBlend: 2\r\nRepeatCount: 1\r\nRepeatDelay: 0\r\nBindEle: \r\nDummyEle: \r\n\
+        IsDummy: 0\r\nMatchGrnd: 0\r\nLightType: 1\r\nPriority: 4\r\nDiffuse: -16776961\r\n\
+        Specular: 0\r\nAmbient: 0\r\nPosition: 0.000000, 1.000000, 0.000000\r\n\
+        Direction: 0.000000, 0.000000, 0.000000\r\nRange: 10.000000\r\nFallOff: 0.000000\r\n\
+        Attenuation0: 0.000000\r\nAttenuation0: 0.100000\r\nAttenuation0: 0.000000\r\n\
+        Theta: 0.000000\r\nPhi: 0.000000\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\n\
+        InterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 1, 2, 3\r\nColor: -1\r\nScale: 1\r\n\
+        Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
+
+    /// A torch: one light and one flame sprite in the same root, which is the
+    /// shape the world's own effect placements have.
+    fn torch_file() -> String {
+        header(2) + LIGHT_ELEMENT + SPRITE_ELEMENT
+    }
+
+    /// [`request`] with a path of its own, so a test points the reader at the root
+    /// it means instead of the default lamp.
+    fn request_path(identity: u64, active: bool, path: &str) -> Request {
+        let mut request = request(identity, active);
+        request.path = path.into();
+        request
+    }
+
+    /// Element 200 pointing at the real retail reference that does not ship:
+    /// `gfx/人物/技能/巫师/技能抑制_闪电.gfx` asks for
+    /// `人物\技能\牧师\末日惩戒聚光效果.gfx`, and gfx.pck has no `牧师` directory
+    /// at all. 82 of the corpus's 1,530 child references are like this.
+    fn dangling_child_file() -> String {
+        header(1)
+            + "GFXELEMENTID: 200\r\nName: ch\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+               GfxPath: 人物\\技能\\牧师\\末日惩戒聚光效果.gfx\r\nOutColor: 1\r\nLoopFlag: 0\r\n\
+               PlaySpeed: 1.000000\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
+               TimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\n\
+               Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n"
+    }
+
+    /// A camera ten units down +Z looking back at the origin, the basis the
+    /// billboards need.
+    fn camera() -> View {
+        View {
+            position: Vec3::new(0., 0., 10.),
+            right: Vec3::X,
+            up: Vec3::Y,
+            forward: Vec3::new(0., 0., -1.),
+        }
+    }
+
+    /// The world's effect placements are installed for the whole map at once, so
+    /// the graph is built only for the owners inside the activation radius: one
+    /// root per frame, in the same frame the loader admitted it.
+    #[test]
+    fn an_active_owner_plays_its_root_and_the_quads_come_out() {
+        let mut manager = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
+        manager
+            .insert(request_path(1, true, "gfx/scene/torch.gfx"))
+            .unwrap();
+        let mut publications = LightPublications::default();
+        manager.update(16, &mut publications);
+        let status = manager.status();
+        assert_eq!(status.live, 1);
+        assert_eq!(status.emitters, 1, "the light half still decodes");
+        assert_eq!(status.players, 1, "the graph is built in the same frame");
+        assert!(manager.effect_failures().is_empty());
+
+        let quads = manager.effect_quads(16, &camera());
+        assert!(
+            !quads.is_empty(),
+            "a forever sprite draws from the first frame it is advanced"
+        );
+        assert!(quads.iter().all(|quad| quad
+            .positions
+            .iter()
+            .flatten()
+            .all(|value| value.is_finite())));
+        assert_eq!(
+            manager.effect_quads(16, &camera()).len(),
+            quads.len(),
+            "a forever keypoint draws the same quad every frame"
+        );
+    }
+
+    /// An owner outside its activation window costs no graph at all, and is
+    /// admitted on the first frame it becomes visible.
+    #[test]
+    fn an_owner_outside_its_window_builds_no_graph_until_it_is_activated() {
+        let mut manager = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
+        manager
+            .insert(request_path(1, false, "gfx/scene/torch.gfx"))
+            .unwrap();
+        let mut publications = LightPublications::default();
+        manager.update(16, &mut publications);
+        assert_eq!(manager.status().live, 1);
+        assert_eq!(
+            manager.status().players,
+            0,
+            "an inactive owner builds no player"
+        );
+        assert!(manager.effect_quads(16, &camera()).is_empty());
+
+        manager.set_active(1, true);
+        manager.update(16, &mut publications);
+        assert_eq!(manager.status().players, 1);
+        assert!(!manager.effect_quads(16, &camera()).is_empty());
+
+        // Leaving the window again drops the graph, so an effect nobody can see
+        // holds no runtime state.
+        manager.set_active(1, false);
+        assert!(manager.effect_quads(16, &camera()).is_empty());
+        assert_eq!(manager.status().players, 0);
+    }
+
+    /// The world-effects switch gates the geometry only. A torch that stops
+    /// drawing still lights the wall, which is what separating the two calls is
+    /// for, and switching back on rebuilds one root per frame rather than all at
+    /// once.
+    #[test]
+    fn switching_world_effects_off_drops_the_graph_and_keeps_the_lights() {
+        let mut manager = Manager::with_reader(root("gfx/scene/torch.gfx", &torch_file()));
+        manager
+            .insert(request_path(1, true, "gfx/scene/torch.gfx"))
+            .unwrap();
+        let mut publications = LightPublications::default();
+        let mut grid = grid();
+        manager.update(16, &mut publications);
+        assert_eq!(manager.status().players, 1);
+        assert!(!manager.effect_quads(16, &camera()).is_empty());
+
+        manager.set_effects_enabled(false);
+        assert!(!manager.effects_enabled());
+        assert_eq!(manager.status().players, 0, "off drops every player");
+        assert!(manager.effect_quads(16, &camera()).is_empty());
+        manager.update(16, &mut publications);
+        assert_eq!(manager.status().players, 0, "off admits no rebuild");
+        assert_eq!(publications.len(), 1, "the light producer is untouched");
+        publications.consume_into(&mut grid);
+        assert!(
+            grid.query([1., 2., 3.], 1.).is_some(),
+            "the torch still lights the wall with its flame switched off"
+        );
+
+        manager.set_effects_enabled(true);
+        assert_eq!(
+            manager.status().players,
+            0,
+            "switching on does not rebuild every root in one frame"
+        );
+        manager.update(16, &mut publications);
+        assert_eq!(manager.status().players, 1, "one root per frame");
+        assert!(!manager.effect_quads(16, &camera()).is_empty());
+    }
+
+    /// A child the archive does not ship is a warning, not a failure: the parent
+    /// plays with what it has, exactly as the client does. This is the retail case
+    /// behind `gfx/人物/技能/巫师/技能抑制_闪电.gfx`.
+    #[test]
+    fn a_child_the_archive_does_not_ship_leaves_the_parent_playing() {
+        let mut manager = Manager::with_reader(root(
+            "gfx/人物/技能/巫师/技能抑制_闪电.gfx",
+            &dangling_child_file(),
+        ));
+        manager
+            .insert(request_path(
+                1,
+                true,
+                "gfx/人物/技能/巫师/技能抑制_闪电.gfx",
+            ))
+            .unwrap();
+        let mut publications = LightPublications::default();
+        manager.update(16, &mut publications);
+        assert_eq!(manager.status().live, 1);
+        assert_eq!(manager.status().players, 1, "the parent still builds");
+        assert!(
+            manager.failures().is_empty(),
+            "a missing child is not a broken root: {:?}",
+            manager.failures()
+        );
+        assert!(manager.effect_failures().is_empty());
+        let warnings = manager.effect_warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].contains("末日惩戒聚光效果.gfx"),
+            "the warning names the child that does not ship: {}",
+            warnings[0]
+        );
+        assert!(
+            manager.effect_quads(16, &camera()).is_empty(),
+            "the child was the only thing this root drew"
+        );
+
+        // Rebuilding after a toggle must not report the same child twice.
+        manager.set_effects_enabled(false);
+        manager.set_effects_enabled(true);
+        manager.update(16, &mut publications);
+        assert_eq!(manager.effect_warnings().len(), 1);
+    }
+
+    /// A root whose graph will not build keeps publishing its lights, and the
+    /// failure is recorded once rather than retried every frame.
+    #[test]
+    fn a_root_that_will_not_play_keeps_its_lights_and_reports_once() {
+        let mut manager = Manager::with_reader(move |path: &str| {
+            if path == "gfx/scene/lamp.gfx" {
+                // The light half parses; the full root does not, because id 999
+                // is not an element the container knows.
+                Ok(light_file())
+            } else {
+                Err("missing GFX root".into())
+            }
+        });
+        manager.insert(request(1, true)).unwrap();
+        let mut publications = LightPublications::default();
+        for _ in 0..3 {
+            manager.update(16, &mut publications);
+        }
+        assert_eq!(manager.status().players, 0);
+        assert_eq!(publications.len(), 1, "the light is unaffected");
+        assert_eq!(
+            manager.effect_failures().len(),
+            1,
+            "one report, not one per frame: {:?}",
+            manager.effect_failures()
+        );
+    }
+
+    /// The shipped map's own waterfall, played from its own placement.
+    ///
+    /// This is the regression for the defect that made the world look dead: the
+    /// ECWLD effect record was read four bytes off, so a day-only placement's
+    /// play speed came out of its day/night word (a float bit pattern of about
+    /// 1.06e9, a clock that jumps and freezes) and its position out of the middle
+    /// of its direction vector (x near zero, y thousands of units underground).
+    /// Here the record is the map's, the transform is built from the record the
+    /// reader now returns, and the owner has to go live, build a player, and
+    /// produce moving geometry inside the authored footprint.
+    /// Skips when the archive is not staged beside the checkout.
+    #[test]
+    fn corpus_waterfall_plays_from_its_authored_placement() {
+        let scene_path = std::path::Path::new("google_drive/world.ecwld");
+        let archive = std::path::Path::new("google_drive/x");
+        if !scene_path.is_file() || !archive.is_dir() {
+            eprintln!("SKIPPED: no `google_drive/world.ecwld` corpus on this machine; this test proves nothing about the shipped map");
+            return;
+        }
+        let scene = crate::scene::Scene::load(scene_path).unwrap();
+        let effect = scene
+            .blocks
+            .iter()
+            .flat_map(|block| &block.effects)
+            .find(|effect| effect.path.contains("瀑布水花湍急"))
+            .expect("the shipped map places a waterfall spray");
+        // The corrected layout is what puts this record on the map instead of
+        // under it: the authored origins sit in the low thousands, and the
+        // heights are hillside heights, not direction remnants.
+        assert!(effect.position[0].abs() > 100., "{:?}", effect.position);
+        assert!(effect.position[1].abs() < 1000., "{:?}", effect.position);
+        assert!(effect.speed > 0. && effect.speed < 20., "{}", effect.speed);
+        let mut manager = Manager::with_reader(|path: &str| {
+            let bytes = std::fs::read(archive.join(path)).map_err(|e| e.to_string())?;
+            let (text, _, bad) = encoding_rs::GBK.decode(&bytes);
+            if bad {
+                return Err("invalid GBK GFX text".into());
+            }
+            Ok(text.into_owned())
+        });
+        let mut r = request(1, true);
+        r.path = root_path(&effect.path);
+        r.transform =
+            placement_transform(effect.position, effect.direction, effect.up, effect.scale)
+                .unwrap();
+        r.speed = effect.speed;
+        manager.insert(r).unwrap();
+        let mut publications = LightPublications::default();
+        let view = View {
+            position: Vec3::new(
+                effect.position[0],
+                effect.position[1] + 60.,
+                effect.position[2] + 90.,
+            ),
+            ..Default::default()
+        };
+        let mut counts = Vec::new();
+        let mut moved_uv = false;
+        let mut previous: Option<Vec<[f32; 2]>> = None;
+        let mut furthest = 0f32;
+        for _ in 0..16 {
+            manager.update(16, &mut publications);
+            let quads = manager.effect_quads(16, &view);
+            counts.push(quads.len());
+            for quad in &quads {
+                let corner = quad.positions[0];
+                let d = Vec3::from(corner) - Vec3::from(effect.position);
+                furthest = furthest.max(d.length());
+            }
+            let uv: Vec<[f32; 2]> = quads.iter().flat_map(|quad| quad.uv).collect();
+            if previous.as_ref().is_some_and(|p| *p != uv) {
+                moved_uv = true;
+            }
+            previous = Some(uv);
+        }
+        assert_eq!(manager.status().live, 1, "the owner went live");
+        assert_eq!(manager.status().players, 1, "and built its animated root");
+        assert!(
+            counts.last().copied().unwrap_or(0) > counts[0],
+            "the spray grows as the clock runs: {counts:?}"
+        );
+        assert!(moved_uv, "the waterfall scrolls its texture");
+        // A spray authored at scale 3.11 stays on its own placement; the old
+        // reading put it on the far side of the map.
+        assert!(
+            furthest < 30.,
+            "geometry within the authored footprint: {furthest}"
+        );
     }
 }

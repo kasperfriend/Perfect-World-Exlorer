@@ -17,6 +17,39 @@ fn decode_mip(
 ) -> Result<Vec<u8>, String> {
     // image's block decoder expects dimensions divisible by four. Decode the
     // complete stored blocks, then crop; tiny authored mips are not discarded.
+    // An uncompressed surface needs no decoder: the archive stores exactly the
+    // bytes a texture wants, so swap the two colour channels and hand it over.
+    // Round-tripping it through the block decoder's synthetic header is what
+    // used to fail, and a failure here becomes the draw's white placeholder.
+    if let Format::Uncompressed(layout) = format {
+        let mut rgba = Vec::with_capacity((mip.width * mip.height * 4) as usize);
+        if layout.bits == 16 {
+            // RGB565: five or six bits per channel, expanded by replicating the
+            // high bits into the low ones so full scale is 255 rather than 248.
+            for pixel in mip.bytes.chunks_exact(2) {
+                let v = u16::from_le_bytes([pixel[0], pixel[1]]);
+                let r = ((v >> 11) & 0x1f) as u32;
+                let g = ((v >> 5) & 0x3f) as u32;
+                let b = (v & 0x1f) as u32;
+                rgba.extend_from_slice(&[
+                    ((r * 255 + 15) / 31) as u8,
+                    ((g * 255 + 31) / 63) as u8,
+                    ((b * 255 + 15) / 31) as u8,
+                    255,
+                ]);
+            }
+        } else if layout.bits == 24 {
+            for pixel in mip.bytes.chunks_exact(3) {
+                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 255]);
+            }
+        } else {
+            for pixel in mip.bytes.chunks_exact(4) {
+                let a = if layout.has_alpha { pixel[3] } else { 255 };
+                rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], a]);
+            }
+        }
+        return Ok(rgba);
+    }
     let width = (mip.width + 3) / 4 * 4;
     let height = (mip.height + 3) / 4 * 4;
     let mut single = bytes[..128].to_vec();
@@ -146,7 +179,11 @@ fn upload_dds(
     if first.width.max(first.height) > device.limits().max_texture_dimension_2d {
         return Err("model DDS exceeds device texture dimensions".into());
     }
+    // `native` means "upload the stored bytes untouched", which is only true for
+    // block-compressed surfaces. An uncompressed BGRA surface is a plain texel
+    // array: it must go through the channel swap below, not straight to BC.
     let native = matches!(mode, UploadMode::Auto)
+        && !matches!(d.format, Format::Uncompressed(_))
         && device
             .features()
             .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
@@ -157,6 +194,9 @@ fn upload_dds(
             Format::Dxt1 => wgpu::TextureFormat::Bc1RgbaUnorm,
             Format::Dxt3 => wgpu::TextureFormat::Bc2RgbaUnorm,
             Format::Dxt5 => wgpu::TextureFormat::Bc3RgbaUnorm,
+            // Unreachable: `native` excludes uncompressed surfaces. Spelled out
+            // so the match stays exhaustive if that gate is ever loosened.
+            Format::Uncompressed(_) => wgpu::TextureFormat::Rgba8Unorm,
         }
     } else {
         wgpu::TextureFormat::Rgba8Unorm

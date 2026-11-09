@@ -4,7 +4,7 @@
 //! they publish into.
 //! Never sends baked terrain/BMD/tree vertices through receiving-model lighting.
 use crate::{
-    gfx_owner, model_attachment,
+    gfx_effect_gpu, gfx_owner, model_attachment,
     model_draw_gpu::{Draw, Frame},
     model_queue,
     scene_lights::{DynamicLight, LightPublications, SceneLights, StaticGrid},
@@ -16,6 +16,9 @@ mod cutoff_residency;
 
 /// Identity space for ECM model-event owners, kept disjoint from scene effects.
 const MODEL_EVENT_IDENTITY: u64 = 1 << 40;
+/// On-demand catalogue spawns. Scene effects take the low identities and model
+/// events take `1 << 40`, so a gallery spawn cannot collide with either.
+const CATALOG_EFFECT_IDENTITY: u64 = 3 << 40;
 
 /// One light-producing owner installed from the scene or from a model event.
 struct Producer {
@@ -84,6 +87,18 @@ pub struct World {
     publications: LightPublications,
     owners: gfx_owner::Manager,
     producers: Vec<Producer>,
+    /// The animated half of the world's effects. Created on the first update that
+    /// needs it, because `with_reader` has no queue to build a draw object with.
+    effects: Option<gfx_effect_gpu::Draw>,
+    /// The one-line effect trace has been printed for this world.
+    effect_trace_printed: bool,
+    /// Quads the installed roots drew this frame, uploaded to [`Self::effects`].
+    effect_quads: Vec<crate::gfx_player::EffectQuad>,
+    /// Every `.gfx` member of the attached archive, grouped by its authored name
+    /// so a module can ask for "a waterfall" instead of a path.
+    catalog: crate::gfx_catalog::Catalog,
+    /// Identities handed out to on-demand catalogue spawns.
+    catalog_spawns: u64,
     /// Explorer position and effect activation radius in world units.
     view: Option<(f32, f32, f32)>,
     resident_bounds: Option<[f32; 4]>,
@@ -170,25 +185,84 @@ impl World {
             publications: LightPublications::default(),
             owners: gfx_owner::Manager::new(),
             producers: Vec::new(),
+            effects: None,
+            effect_trace_printed: false,
+            effect_quads: Vec::new(),
+            catalog: crate::gfx_catalog::Catalog::default(),
+            catalog_spawns: 0,
             view: None,
             resident_bounds: None,
             alpha: Vec::new(),
             reported: Vec::new(),
         })
     }
+    /// A world with no model assets of its own.
+    ///
+    /// The animated effect half of this object does not need `models.pck` or a
+    /// single EC model instance: every root it plays comes from `gfx.pck` and
+    /// every placement from the map. This exists so a map whose model archive
+    /// the viewer cannot open still shows its waterfalls, fire and glows instead
+    /// of losing them with the models, which is what nesting both behind one
+    /// archive used to do.
+    pub fn without_models(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        Self::with_reader(device, format, Assets::default(), |path: &str| {
+            Err(format!("no model archive attached: {path}"))
+        })
+        .expect("an empty world model set cannot be invalid")
+    }
     /// Attach the real GFX archive so installed producers can load their roots.
     /// Root text is GBK-decoded here; the owner manager never guesses an
     /// encoding and refuses binary containers explicitly.
+    ///
+    /// The same archive carries the effects' **textures**. A root's elements name
+    /// `TexFile` values that resolve to `gfx/textures/...`, and those members
+    /// ship in `gfx.pck` — not in the `models.pck` this object was constructed
+    /// with. Handing the effect draw the model reader therefore made every
+    /// texture lookup miss, and `gfx_effect_gpu::Draw::update` drops a whole
+    /// bucket whose texture will not load, so a world with thousands of
+    /// correctly placed roots still drew nothing at all. One handle over
+    /// `gfx.pck` now answers both questions, which is what the client's own
+    /// `Gfx\` root means by a relative path.
     pub fn attach_gfx_archive(&mut self, element: &Path) -> Result<(), String> {
         let mut pack = File::open(element.join("gfx.pck")).map_err(|e| format!("gfx.pck: {e}"))?;
-        let entries: HashMap<String, crate::pck::Entry> = crate::pck::directory(&mut pack)?
-            .into_iter()
-            .map(|e| (crate::ecmodel::normalize(&e.name), e))
+        let directory = crate::pck::directory(&mut pack)?;
+        // The catalogue is the directory read once: names and sizes only, so
+        // opening it costs nothing per member until somebody asks to play one.
+        self.catalog = crate::gfx_catalog::Catalog::from_directory(
+            directory
+                .iter()
+                .map(|e| (e.name.as_str(), e.size))
+                .collect(),
+        );
+        // Keyed on `normalize`, which lowercases: the pack stores its members in
+        // lower case and the roots name them the way the artist typed them, and
+        // this map has always resolved the pair.
+        let entries: HashMap<String, crate::pck::Entry> = directory
+            .iter()
+            .map(|e| (crate::ecmodel::normalize(&e.name), e.clone()))
             .collect();
+        // Asset reads: everything inside `gfx.pck`, textures included. The
+        // model reader this object was built with keeps its own archive and is
+        // still tried second, so a model texture that a root happens to name
+        // still resolves.
+        let gfx_entries = entries.clone();
+        let mut gfx_pack = pack;
+        let mut previous = std::mem::replace(
+            &mut self.read,
+            Box::new(move |path: &str| Err(format!("unset reader: {path}"))),
+        );
+        self.read = Box::new(move |path: &str| match gfx_entries.get(path) {
+            Some(entry) => crate::pck::read_entry(&mut gfx_pack, entry),
+            None => previous(path),
+        });
+        // Root text is a separate handle so a root load and a texture load can
+        // never interleave their file positions.
+        let root_entries = entries.clone();
+        let mut pack = File::open(element.join("gfx.pck")).map_err(|e| format!("gfx.pck: {e}"))?;
         self.owners.set_reader(move |path: &str| {
-            let entry = entries
+            let entry = root_entries
                 .get(path)
-                .ok_or_else(|| "missing gfx.pck entry".to_string())?;
+                .ok_or_else(|| format!("missing gfx.pck entry: {path}"))?;
             let bytes = crate::pck::read_entry(&mut pack, entry)?;
             if !bytes.starts_with(b"MOXT") {
                 return Err("binary GFX container is not implemented".into());
@@ -199,6 +273,25 @@ impl World {
             }
             Ok(text.into_owned())
         });
+        // Effect-archive models are binary and live in the same package, under
+        // `gfx/models/`. Element 160 names them relative to its own folder, so
+        // the key here is the archive's own path, prefix included.
+        let model_entries = entries.clone();
+        let mut model_pack =
+            File::open(element.join("gfx.pck")).map_err(|e| format!("gfx.pck: {e}"))?;
+        self.owners.set_model_reader(move |path: &str| {
+            let key = crate::ecmodel::normalize(path);
+            let name = if key.starts_with("gfx/models/") {
+                key.clone()
+            } else {
+                format!("gfx/models/{key}")
+            };
+            let entry = model_entries
+                .get(&name)
+                .or_else(|| model_entries.get(&key))
+                .ok_or_else(|| format!("{name}: missing gfx.pck entry"))?;
+            crate::pck::read_entry(&mut model_pack, entry)
+        });
         Ok(())
     }
     /// Attach an arbitrary root reader (diagnostics and GPU regressions).
@@ -208,20 +301,68 @@ impl World {
     ) {
         self.owners.set_reader(read);
     }
+    /// The attached archive's effect catalogue: every `.gfx` member, grouped by
+    /// the name its author gave it. Empty until `attach_gfx_archive` runs.
+    pub fn effect_catalog(&self) -> &crate::gfx_catalog::Catalog {
+        &self.catalog
+    }
+
+    /// How many members fall in each catalogue group, for a status line.
+    pub fn effect_census(&self) -> Vec<(crate::gfx_catalog::Group, usize)> {
+        self.catalog.census()
+    }
+
+    /// Play one catalogue member on demand, at a world transform, through the
+    /// same owner queue the scene and model effects use: one root loads per
+    /// frame, the priority gate and the light publications are shared, and a
+    /// root neither reader accepts is a named failure rather than an
+    /// approximation. The returned identity is the one to `set_active` or
+    /// `remove` later.
+    pub fn spawn_catalog_effect(
+        &mut self,
+        path: &str,
+        transform: [f32; 16],
+        origin: &str,
+    ) -> Result<u64, String> {
+        let request = self.catalog.request(
+            CATALOG_EFFECT_IDENTITY + self.catalog_spawns,
+            path,
+            transform,
+            origin,
+        )?;
+        let identity = request.identity;
+        self.owners.insert(request)?;
+        self.catalog_spawns += 1;
+        Ok(identity)
+    }
+
     /// Install the actual ECWLD effect placements as scene-light producers.
     /// The owners stay pending and are loaded one root per update, as 0x5b1a00.
-    pub fn install_scene_effects(&mut self, scene: &crate::scene::Scene) -> Result<usize, String> {
+    pub fn install_scene_effects(&mut self, scene: &crate::scene::Scene) -> usize {
         let mut installed = 0;
         for block in &scene.blocks {
             for effect in &block.effects {
-                let transform = gfx_owner::placement_transform(
+                let origin = format!(
+                    "world.ecwld ({},{}) effect {}",
+                    block.row, block.col, effect.index
+                );
+                // One malformed placement is a reported absence, never a
+                // refused world: the client loads the map and plays what it
+                // can, and so does the viewer.
+                let transform = match gfx_owner::placement_transform(
                     effect.position,
                     effect.direction,
                     effect.up,
                     effect.scale,
-                )?;
+                ) {
+                    Ok(transform) => transform,
+                    Err(error) => {
+                        self.reported.push(format!("{origin}: {error}"));
+                        continue;
+                    }
+                };
                 let identity = self.producers.len() as u64;
-                self.owners.insert(gfx_owner::Request {
+                let request = gfx_owner::Request {
                     identity,
                     path: gfx_owner::root_path(&effect.path),
                     transform,
@@ -231,11 +372,12 @@ impl World {
                     outer: None,
                     attachment: None,
                     active: false,
-                    origin: format!(
-                        "world.ecwld ({},{}) export {}",
-                        block.row, block.col, effect.export_id
-                    ),
-                })?;
+                    origin: origin.clone(),
+                };
+                if let Err(error) = self.owners.insert(request) {
+                    self.reported.push(format!("{origin}: {error}"));
+                    continue;
+                }
                 self.producers.push(Producer {
                     identity,
                     valid_time: Some(effect.valid_time),
@@ -245,7 +387,7 @@ impl World {
                 installed += 1;
             }
         }
-        Ok(installed)
+        installed
     }
     /// Install ECM EventType-100 roots, including hook-attached ones.
     ///
@@ -254,11 +396,18 @@ impl World {
     /// (`gfx_owner::Request::attachment`); a hook-free root is placed by the
     /// model transform the event inherits. An unknown hook name or a malformed
     /// hook record is an explicit failure, never the model origin.
-    pub fn install_model_events(&mut self) -> Result<usize, String> {
+    pub fn install_model_events(&mut self) -> usize {
         let mut installed = 0;
         for (index, instance) in self.assets.instances.iter().enumerate() {
             let asset = &self.assets.assets[instance.asset];
-            let transform = *self.slots[index].transform.as_ref().map_err(Clone::clone)?;
+            let transform = match self.slots[index].transform.as_ref() {
+                Ok(transform) => *transform,
+                Err(error) => {
+                    self.reported
+                        .push(format!("{}: {error}", instance.placement.path));
+                    continue;
+                }
+            };
             for (event_index, event) in asset.descriptor.events.iter().enumerate() {
                 let Some(path) = event.gfx_path() else {
                     continue;
@@ -267,19 +416,40 @@ impl World {
                     "{} export {} event {event_index}",
                     instance.placement.path, instance.placement.export_id
                 );
-                let record = model_attachment::from_fields(&event.fields)
-                    .map_err(|e| format!("{described}: {e}"))?;
+                let record = match model_attachment::from_fields(&event.fields) {
+                    Ok(record) => record,
+                    Err(error) => {
+                        self.reported.push(format!("{described}: {error}"));
+                        continue;
+                    }
+                };
                 let local = match &record {
-                    Some(record) => record.local()?,
+                    Some(record) => match record.local() {
+                        Ok(local) => local,
+                        Err(error) => {
+                            self.reported.push(format!("{described}: {error}"));
+                            continue;
+                        }
+                    },
                     None => glam::Mat4::IDENTITY,
                 };
-                let start_ms = event_milliseconds(event, "StartTime")?.max(0.);
-                let span_ms = match event_milliseconds(event, "TimeSpan")? {
-                    value if value < 0. => None,
-                    value => Some(value.trunc() as u32),
+                let start_ms = match event_milliseconds(event, "StartTime") {
+                    Ok(value) => value.max(0.),
+                    Err(error) => {
+                        self.reported.push(format!("{described}: {error}"));
+                        continue;
+                    }
+                };
+                let span_ms = match event_milliseconds(event, "TimeSpan") {
+                    Ok(value) if value < 0. => None,
+                    Ok(value) => Some(value.trunc() as u32),
+                    Err(error) => {
+                        self.reported.push(format!("{described}: {error}"));
+                        continue;
+                    }
                 };
                 let identity = MODEL_EVENT_IDENTITY + self.producers.len() as u64;
-                self.owners.insert(gfx_owner::Request {
+                let request = gfx_owner::Request {
                     identity,
                     path: gfx_owner::root_path(&path),
                     // A hooked root's local frame is the hook record and its
@@ -295,8 +465,12 @@ impl World {
                     outer: None,
                     attachment: None,
                     active: false,
-                    origin: described,
-                })?;
+                    origin: described.clone(),
+                };
+                if let Err(error) = self.owners.insert(request) {
+                    self.reported.push(format!("{described}: {error}"));
+                    continue;
+                }
                 self.producers.push(Producer {
                     identity,
                     valid_time: None,
@@ -310,7 +484,7 @@ impl World {
                 installed += 1;
             }
         }
-        Ok(installed)
+        installed
     }
     /// Release receiving-model geometry and poses outside the installed terrain
     /// window, rather than merely disabling their effect-light producers.
@@ -455,6 +629,7 @@ impl World {
             self.resolve_attachments();
             self.apply_activation(night);
             self.owners.update(delta_ms, &mut self.publications);
+            self.update_effects(device, queue, frame, delta_ms);
             self.grid.update(lights, center);
             self.publications.consume_into(&mut self.grid);
         }
@@ -463,6 +638,154 @@ impl World {
             self.rebuild_alpha_order(center);
         }
     }
+    /// Advance the world's animated effects and upload this frame's quads.
+    ///
+    /// Main pass only, straight after the light producers, so the geometry and the
+    /// lights read the same owner clocks and cannot disagree about which effects
+    /// are alive. The placements are the world's own: every ECWLD effect record
+    /// and every ECM model event this world installed, which is where the retail
+    /// waterfalls, torch fire and glows already are — nothing here is positioned
+    /// by an add-on module or by the explorer's own body.
+    fn update_effects(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        frame: Frame,
+        delta_ms: u32,
+    ) {
+        if !self.owners.effects_enabled() {
+            self.effect_quads.clear();
+            return;
+        }
+        // The billboards need a camera basis and `Frame` carries only the
+        // view-projection, so the eye comes back out of its inverse. A frame
+        // whose matrix cannot be undone is reported rather than replaced with a
+        // default view: the default puts the eye at the world origin, which
+        // turns every billboard away from a player standing in a waterfall and
+        // looks exactly like "the map has no effects".
+        let view = match crate::gfx_player::View::try_from_inverse_view_projection(
+            glam::Mat4::from_cols_array_2d(&frame.matrix).inverse(),
+        ) {
+            Ok(view) => view,
+            Err(error) => {
+                if !self.reported.contains(&error) {
+                    self.reported.push(error);
+                }
+                self.effect_quads.clear();
+                return;
+            }
+        };
+        let quads = self.owners.effect_quads(delta_ms, &view);
+        // Say once, on stderr, what the invisible pipeline is doing. Nothing in
+        // the world told a user *which* stage was empty when no effect appeared:
+        // the roots could be unloaded, out of radius, failed to parse, or drawing
+        // off screen, and all four look identical from the outside. This costs
+        // one line per run.
+        if !self.effect_trace_printed {
+            let status = self.owners.status();
+            eprintln!(
+                "World effects: {} installed, {} loaded, {} pending, {} playing, \
+                 {} frames ticked, {} quads this frame, eye ({:.0},{:.0},{:.0}); \
+                 {} load failures, {} graph failures, {} warnings",
+                self.producers.len(),
+                status.live,
+                status.pending,
+                status.players,
+                status.frames,
+                quads.len(),
+                view.position.x,
+                view.position.y,
+                view.position.z,
+                status.failures,
+                status.player_failures,
+                self.owners.effect_warnings().len(),
+            );
+            for line in self.owners.failures().iter().take(3) {
+                eprintln!("World effects: load failure: {line}");
+            }
+            for line in self.owners.effect_failures().iter().take(3) {
+                eprintln!("World effects: graph failure: {line}");
+            }
+            self.effect_trace_printed = true;
+        }
+        let Self {
+            effects,
+            effect_quads,
+            read,
+            format,
+            reported,
+            ..
+        } = self;
+        *effect_quads = quads;
+        if effects.is_none() {
+            // The same reverse-Z depth the world's models use, so an effect in
+            // front of a wall is occluded by nothing and one behind it is hidden.
+            match gfx_effect_gpu::Draw::new(
+                device,
+                queue,
+                *format,
+                Some((
+                    wgpu::TextureFormat::Depth32Float,
+                    wgpu::CompareFunction::Greater,
+                )),
+            ) {
+                Ok(draw) => *effects = Some(draw),
+                Err(error) => {
+                    reported.push(format!("world effects: {error}"));
+                    return;
+                }
+            }
+        }
+        let Some(draw) = effects.as_mut() else {
+            return;
+        };
+        if let Err(error) = draw.update(
+            device,
+            queue,
+            effect_quads,
+            frame.matrix,
+            frame.clip_plane,
+            [view.position.x, view.position.y, view.position.z, 0.],
+            &mut **read,
+        ) {
+            reported.push(format!("world effects: {error}"));
+        }
+    }
+
+    /// Switch the world's animated effects on or off: the sprites, particles,
+    /// ribbons, trails and fractals inside every installed root. The light
+    /// producers are untouched either way, so a torch whose flame is switched off
+    /// still lights the wall around it. Off releases every player the owners hold;
+    /// on rebuilds them one root per frame.
+    pub fn set_effects_enabled(&mut self, enabled: bool) {
+        self.owners.set_effects_enabled(enabled);
+        if !enabled {
+            self.effect_quads.clear();
+        }
+    }
+
+    pub fn effects_enabled(&self) -> bool {
+        self.owners.effects_enabled()
+    }
+
+    /// Quads the world's animated effects produced this frame.
+    pub fn effect_quad_count(&self) -> usize {
+        self.effect_quads.len()
+    }
+
+    /// Roots whose animated graph would not build, as `origin: error`. Their
+    /// lights still run, so these are kept apart from [`Self::gfx_failures`].
+    pub fn effect_failures(&self) -> Vec<String> {
+        self.owners.effect_failures().to_vec()
+    }
+
+    /// Warnings the animated roots reported, nearly all of them a nested `GfxPath`
+    /// the archive does not ship. The parent plays without the child, which is
+    /// what the client does, so these are not failures.
+    pub fn effect_warnings(&self) -> Vec<String> {
+        self.owners.effect_warnings().to_vec()
+    }
+
     /// Tick every playback clock once and evaluate each model's pose once.
     /// 0x7b2520 resolves hooks from this pose, and every pass of the frame
     /// (main, reflection, refraction) reuses it.
@@ -703,6 +1026,11 @@ impl World {
             if let Some(Some(draw)) = self.slots.get(candidate.slot).map(|s| &s.draw) {
                 draw.draw_alpha_mesh(pass, candidate.mesh);
             }
+        }
+        // Blended effect quads last, after the opaque models and the alpha meshes,
+        // with their own render-layer sort inside the draw object.
+        if let Some(effects) = &self.effects {
+            effects.draw(pass);
         }
     }
     pub fn alpha_order(&self) -> Vec<(usize, usize)> {

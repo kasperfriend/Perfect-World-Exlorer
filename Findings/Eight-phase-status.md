@@ -106,7 +106,7 @@ and ownership: [Phase 3 plan and agent prompts](Phase-3-plan-and-agent-prompts.m
 - [ ] P7.01 — Finish parsing and rendering the client’s EC/animated world models, including their geometry, materials, skeletons and animation data.
 - [ ] P7.02 — Implement their animation playback, timing, transforms, LOD and visibility.
 - [ ] P7.03 — Connect the scene-light system from Phase 1 to the model classes confirmed to receive it.
-- [ ] P7.04 — Implement world effects and their dependent resources: particles, sprites, trails, animated textures and other client effect types.
+- [ ] P7.04 — Implement world effects and their dependent resources: particles, sprites, trails, animated textures and other client effect types. *(7 November: the animated graph now plays for every world-owned root — `gfx_owner::Manager::effect_quads` into `world_models_gpu::World`'s own `gfx_effect_gpu::Draw`, in the world receiving-model pass, behind a World-tab switch that defaults on. What is left under this item is the sound (170), model (160) and curve (190) element types and the authored fade/stop phase.)*
 - [ ] P7.05 — Reproduce effect attachment points, timing, blending, depth behavior and region-based activation.
 - [x] P7.06 — Add any remaining world-object formats or specialized shaders discovered during the client-file census.
 - [ ] P7.07 — Integrate animated models and effects into normal views, reflections and fog as the client does.

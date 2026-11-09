@@ -129,8 +129,15 @@ fn decode(fields: &[(&str, &str)]) -> Result<Definition, String> {
             if take(fields, &mut i, "CtrlType")? != "108" {
                 return Err("unsupported GFX light controller".into());
             }
-            let start = number(take(fields, &mut i, "StartTime")?)?;
-            let end = number(take(fields, &mut i, "EndTime")?)?;
+            // The container writes milliseconds, but a `ColorTrack` window is
+            // in seconds ("Start/end are seconds; segment lengths are
+            // milliseconds", `gfx_color_track`) and `Emitter::tick` samples it
+            // with the seconds elapsed since the element's own `StartTime`.
+            // Passing the raw milliseconds through put the ramp a thousand
+            // times later than authored: a controller starting after 0 never
+            // left the keypoint colour, and one with an end never expired.
+            let start: f32 = number(take(fields, &mut i, "StartTime")?)?;
+            let end: f32 = number(take(fields, &mut i, "EndTime")?)?;
             let original = packed(take(fields, &mut i, "Color")?)?;
             let count: usize = number(take(fields, &mut i, "Count")?)?;
             if count == 0 || count > 10 {
@@ -142,7 +149,14 @@ fn decode(fields: &[(&str, &str)]) -> Result<Definition, String> {
                 let duration = number(take(fields, &mut i, "TimeSpan")?)?;
                 destinations.push((color, duration));
             }
-            Some(ColorTrack::new(start, end, original, &destinations)?)
+            // The segment lengths stay in milliseconds, which is the unit the
+            // track walks its 128-entry tables with.
+            Some(ColorTrack::new(
+                start / 1000.,
+                end / 1000.,
+                original,
+                &destinations,
+            )?)
         }
         _ => return Err("unsupported GFX light controller count".into()),
     };
@@ -218,8 +232,21 @@ pub fn parse(text: &str) -> Result<Vec<Definition>, String> {
             .ok_or("expected text GFX")?
             .trim(),
     )?;
-    if !matches!(version, 37 | 39 | 41 | 45 | 52 | 58 | 64 | 73 | 75 | 79) {
-        return Err("unverified GFX light version".into());
+    // The client's root loader (0x6e3470) reads `MOXTVersion` first and rejects
+    // anything **above** 79 (`cmp 0x4f`). That is the whole rule: there is no
+    // lower bound, and every optional key is gated per version inside the
+    // element loaders rather than the file being refused outright.
+    //
+    // This used to be a ten-value whitelist, which was invented rather than
+    // measured and cost most of the map. `gfx.pck` ships 27 distinct versions;
+    // of the 163 roots `world.ecwld` names, 97 are below the old list's lowest
+    // entry and were refused here — among them every fire, glow and light
+    // shafts (`火焰1`, `篝火`, `光运`, `佛光` all ship as 33 or 35). Because a
+    // refusal here marks the owner `State::Failed`, and only `State::Live`
+    // owners ever build a player, those roots drew no geometry at all: the map
+    // showed its one allowed waterfall and nothing else.
+    if version > 79 {
+        return Err(format!("GFX version {version} is newer than 79"));
     }
     let mut expected = None;
     let mut elements = 0;
@@ -283,6 +310,15 @@ impl Emitter {
     }
     /// Input delta has already been scaled by the GFX owner's clock. Visibility
     /// and priority gate publication, not keypoint progression (0x70ba00).
+    ///
+    /// The priority half is a viewer policy and its sense is the *opposite* of
+    /// the native gate it sits next to: `0x70ba44` jumps on `Priority > detail`
+    /// to `0x70bd0b`, which is `mov $0x1,%al; ret $0x4`, so a higher priority
+    /// exempts an element from the visibility test at `0x6fe120` instead of
+    /// suppressing it. Reproducing the native rule needs that camera-relative
+    /// test, which this emitter is not given, so the limit stays a manager-wide
+    /// budget knob. `gfx_catalog::priority_exempts` carries the dumped direction
+    /// for whoever adds the test.
     pub fn tick(
         &mut self,
         delta_ms: u32,
@@ -317,6 +353,8 @@ impl Emitter {
         }
         // DWORD wrap before StartTime leaves a previously active keypoint's
         // process data intact in 0x6edd80; it does not unpublish that live key.
+        // Viewer policy, not the native comparison: see `tick`'s doc comment and
+        // `gfx_catalog::priority_exempts` for the dumped direction.
         if !visible || self.definition.priority > manager_priority {
             return Ok(None);
         }
@@ -371,6 +409,40 @@ mod tests {
         emitter.reset();
         assert!(emitter.tick(100, true, 4, parent, None).unwrap().is_some());
     }
+    /// A controller 108 window is milliseconds in the file and seconds inside
+    /// `ColorTrack`, so it has to be converted at construction. With the raw
+    /// milliseconds a controller that starts at 500 ms never opened at all — the
+    /// emitter kept the keypoint colour (0x80808080) for its whole life — and a
+    /// window that ended never expired.
+    #[test]
+    fn the_color_ramp_window_is_converted_from_milliseconds() {
+        let ramp = file().replace("TimeSpan: 1000", "TimeSpan: 3000").replace(
+            "CtrlMethodCount: 0\n",
+            "CtrlMethodCount: 1\nCtrlType: 108\nStartTime: 500\nEndTime: 2500\n\
+                 Color: 0\nCount: 1\nColor: -1\nTimeSpan: 1000\n",
+        );
+        let mut emitter = Emitter::new(parse(&ramp).unwrap().pop().unwrap());
+
+        // Before the window opens the keypoint colour is preserved.
+        let light = emitter.tick(100, true, 4, IDENTITY, None).unwrap().unwrap();
+        assert_eq!(light.color, [128. / 255.; 4]);
+
+        // 700 ms later the window is open and the ramp is 700 ms into its one
+        // second from black to white.
+        let light = emitter.tick(700, true, 4, IDENTITY, None).unwrap().unwrap();
+        let want = ColorTrack::new(0.5, 2.5, 0, &[(u32::MAX, 1000.)])
+            .unwrap()
+            .sample(0.7)
+            .expect("0.7 s is inside the converted window");
+        let want = [16, 8, 0, 24].map(|shift| ((want >> shift) & 255) as f32 / 255.);
+        assert_eq!(light.color, want);
+        assert_ne!(
+            light.color,
+            [128. / 255.; 4],
+            "an unconverted window leaves the ramp shut for its whole life"
+        );
+    }
+
     #[test]
     fn hidden_and_low_priority_lights_still_progress_before_publication_gate() {
         let mut e = Emitter::new(parse(&file()).unwrap().pop().unwrap());
