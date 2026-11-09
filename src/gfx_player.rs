@@ -2618,11 +2618,14 @@ fn drape_sprite(
     let cell_w = width / cols as f32;
     let cell_h = height / rows as f32;
     let centre = context.placement.transform_point3(Vec3::ZERO);
+    // The query is a field, not a method: `sampler.height(..)` would look for a
+    // method on the struct, so it is bound first.
+    let height = sampler.height;
     let uv = flipbook_uv(context.common, context.clock);
     let sample = |i: usize, j: usize| -> Option<([f32; 3], [f32; 2])> {
         let x = centre.x - width1 + j as f32 * cell_w;
         let z = centre.z + height2 - i as f32 * cell_h;
-        let y = sampler.height(x, z)? + GROUND_DRAPE_LIFT;
+        let y = height(x, z)? + GROUND_DRAPE_LIFT;
         let fi = i as f32 / rows as f32;
         let fj = j as f32 / cols as f32;
         let u = uv[0][0] + (uv[1][0] - uv[0][0]) * fj;
