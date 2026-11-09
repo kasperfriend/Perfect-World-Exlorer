@@ -243,10 +243,9 @@ impl Channel {
             | Self::SceneTerrain
             | Self::SceneSky
             | Self::SceneSounds => Page::Scene,
-            Self::ModelLoads
-            | Self::ModelMaterials
-            | Self::ModelAnimation
-            | Self::ModelQueue => Page::Models,
+            Self::ModelLoads | Self::ModelMaterials | Self::ModelAnimation | Self::ModelQueue => {
+                Page::Models
+            }
             Self::RenderEffects
             | Self::RenderWorld
             | Self::RenderWater
@@ -552,10 +551,7 @@ impl Channel {
             | Self::RenderWater
             | Self::RenderPost
             | Self::RenderTextures => 500,
-            Self::TimingFrame
-            | Self::TimingMemory
-            | Self::TimingCamera
-            | Self::AudioState => 1000,
+            Self::TimingFrame | Self::TimingMemory | Self::TimingCamera | Self::AudioState => 1000,
         }
     }
 }
@@ -892,7 +888,10 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
                 .iter()
                 .filter(|c| c.page() == page_option && *mask & (1u64 << c.index()) != 0)
                 .count(),
-            Channel::ALL.iter().filter(|c| c.page() == page_option).count()
+            Channel::ALL
+                .iter()
+                .filter(|c| c.page() == page_option)
+                .count()
         ))
         .small()
         .weak(),
@@ -1046,7 +1045,10 @@ mod tests {
         emit(Channel::SceneSounds, "a line about a sound");
         let text = std::fs::read_to_string(dir.join("scene-sounds.log")).expect("log file");
         assert!(text.contains("a line about a sound"), "{text}");
-        assert!(text.contains("scene-sounds --"), "the header names the run: {text}");
+        assert!(
+            text.contains("scene-sounds --"),
+            "the header names the run: {text}"
+        );
         assert_eq!(count(Channel::SceneSounds), 1);
         assert!(tail(10).contains("a line about a sound"));
         // A second line appends rather than replacing.
