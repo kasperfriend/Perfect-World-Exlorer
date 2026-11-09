@@ -633,13 +633,72 @@ writes 0.2 against 0.1. The pair is read as an unordered interval.
 4 and 5,586 a 2. It now orders blended geometry inside a `RenderLayer`, as a
 sort key on `BucketKey` rather than `PipelineKey`.
 
+## Update 5 — the white mass was a case-sensitive texture lookup
+
+`particle001.dds` was a red herring, as measured above: dark **(5, 27, 46)** and
+100% opaque, so it cannot render white. The white was never the altar's own
+texture. It was **293 textures that never loaded at all**.
+
+`gfx.pck` stores its members in lower case — `gfx/textures/normalmap/
+ringglowwhite9.dds` — while the roots name them the way the artist typed them:
+`normalmap\RingGlowWhite9.dds`. Retail resolves the pair because its file system
+ignores case. The asset reader was a byte-exact `HashMap`, so it did not.
+
+Of the corpus's **1,610 distinct texture references, 297 missed**, and only **4**
+are genuinely absent. The effect pass bound a `[255,255,255,255]` stand-in for
+every miss, so each one drew as an **opaque white slab**. Measured across the
+corpus:
+
+| | before | after |
+|---|---|---|
+| roots with *every* texture failing (100% white) | **87** | **0** |
+| roots with *any* texture failing | **1,340** | ≤ 4 refs total |
+| `瀑布.gfx` element textures resolving | 30 / 52 | **52 / 52** |
+
+`RingGlowWhite9.dds` alone is named by **76** roots, `Bubble.dds` by 99,
+`烟火\Dust.tga` by 57. `瀑布.gfx` — the waterfall — failed **22 of its 52**
+textures, all of them by case, so two thirds of its elements were painting white
+slabs over the curtain. That is why the waterfall stayed wrong through three
+geometry fixes.
+
+**Fixed.** `gfx_catalog::CaseIndex` resolves a path byte-exactly and then folded
+to lower case, so a deliberately shipped case twin still resolves the spelling
+the root used. The `gfx.pck` asset, root, model and `models.pck` readers all go
+through it. The effect pass's stand-in is now `[0,0,0,0]`: a missing map costs
+the element its sprite and must never paint it white.
+
+### Two more scale errors, both mine
+
+**The scale clamp was 1000, above anything the editor ever wrote.** `CtrlType
+111`'s `Scale` carries uninitialized editor memory in 88 of 41,960 stops, up to
+`1.10e27`. Clamping to +/-1000 turned the junk into a *valid* multiplier of 1000,
+and 1000 x `DedaultScale` 3 is the 2,000-unit flat quad. The largest legitimate
+stop in the corpus is **100** (p99.9 is 80). Clamped to 100 that quad is 200
+units, inside its own root's bounds.
+
+**`Amplitude` is centimetres.** 761 of the 1,088 controller-107 amplitudes exceed
+10 and land on round numbers — 200 (p50), 500 (p90), 800, 1000 — while the roots
+carrying them are a quarter of a unit across. Read as world units the median is
+**64x** its own root's `Vec:` half-extent and the worst is **3,998x**; divided by
+100 the median is 0.64, the fraction of its bounds a wobble should occupy. This
+is the "fire moves extremely fast and out of bounds" report.
+
+| | before | after |
+|---|---|---|
+| `夜空飘尘` worst coordinate, 1 s | **386.8** | **6.96** |
+| `五体符飞行` ribbon width | **539.8** (skewed) | **0.198** |
+| `变异沼泽鸟` flat quad | 2,000 | 200 |
+
+### Waterfall verified
+
+`瀑布.gfx` holds steady at ~950 quads for 20 s with `max|coord| = 66.7`, inside
+its authored `Vec:` span of -60.2..62.6. `瀑布大` holds 185 quads at 53.5.
+`瀑布水花` and `水门_瀑布` stay under 8 units. No growth, no drift.
+
 ### Still open
 
-`gfx/场景/夜空飘尘.gfx` names `粒子\particle001.dds`, which decodes to a dark
-blue-black mean of **(5, 27, 46)** and is **100% opaque** across all 256 DXT1
-blocks. An additive quad of that texture cannot render pure white, and
-`texture_path` builds exactly `gfx/textures/粒子/particle001.dds`, which the pack
-contains. So the remaining white is not the texture and not the path: it is
-either the draw order (now ordered, unverified on screen) or the blend state.
-Settling it needs a screenshot of the altar after this change, or the retail
+Nothing measured. The remaining risk is visual: the altar's own
+`粒子\particle001.dds` is dark blue, so with its 87 white slabs gone it should
+read as dim blue dust. If it still reads white on screen, the next suspect is the
+blend state rather than geometry or textures, and settling that needs the retail
 `0x6e4xxx` submit path for element 121's blend override.
