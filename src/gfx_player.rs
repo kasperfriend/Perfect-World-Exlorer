@@ -2402,6 +2402,12 @@ fn push_quad(
 /// authored 0.05..5.0, and must never take this conversion.
 const NOISE_CM_PER_UNIT: f32 = 0.01;
 
+/// `_default_sects` in `A3DGFXRing.cpp`: the section count a ring falls back to
+/// when its `Sects` record is zero, which is what the editor writes for "leave
+/// it alone". It is a count of ring segments, so the band is built from this
+/// many quads.
+const DEFAULT_RING_SECTIONS: usize = 36;
+
 /// The stateless classes: sprites, cylinders and grids. Lights belong to
 /// `gfx_light`, models to the model queue and sounds to the audio path; all
 /// three are counted so the status line stays honest.
@@ -2728,7 +2734,18 @@ fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<Ef
     let Ok(texture) = texture_path(&context.common.texture) else {
         return;
     };
-    let sections = cylinder.sections.max(3) as usize;
+    // `Sects: 0` is not "three sections". `A3DGFXRing::InitStreamBuffer` reads
+    // `if (m_nSects) nSect = m_nSects; else nSect = _default_sects;` and
+    // `_default_sects` is 36, so the zero the editor writes means "the default"
+    // — and it writes it on 1,064 of the corpus's 1,116 element-140 records.
+    // Clamping the zero up to three drew every one of those rings as a
+    // three-sided prism: the city's light rings and the altar bands came out as
+    // angular slabs instead of round bands.
+    let sections = match cylinder.sections {
+        0 => DEFAULT_RING_SECTIONS,
+        count => usize::try_from(count).unwrap_or(DEFAULT_RING_SECTIONS),
+    }
+    .max(3);
     let radius = cylinder.radius
         * if cylinder.no_radius_scale {
             1.
@@ -2744,6 +2761,25 @@ fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<Ef
     if !(radius.is_finite() && height.is_finite()) || radius <= 0. || height <= 0. {
         return;
     }
+    // `Pitch` tilts the band, and it does so through the radii, not through an
+    // angular offset: `fDeltaRadius = fHalfHeight * tan(pitch)` after
+    // `tan(pitch)` is clamped to `fLimit = m_fRadius / fHalfHeight`, then
+    // `fUppderRadius = m_fRadius - fDeltaRadius` for the upper row and
+    // `fLowerRadius = m_fRadius + fDeltaRadius` for the lower one. The band's
+    // foot is therefore the wider edge and its roof the narrower one, which is
+    // what makes a flat ring texture read as a surface seen at an angle.
+    let half_height = height * 0.5;
+    let (upper_radius, lower_radius) = if half_height > 0. {
+        let limit = radius / half_height;
+        let mut tan = cylinder.pitch.tan();
+        if !tan.is_finite() {
+            tan = limit;
+        }
+        let delta = half_height * tan.clamp(-limit, limit);
+        (radius - delta, radius + delta)
+    } else {
+        (radius, radius)
+    };
     let base_y = if cylinder.origin_at_center {
         -height * 0.5
     } else {
@@ -2753,25 +2789,26 @@ fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<Ef
     let uv = flipbook_uv(context.common, context.clock);
     let mut positions = [[0f32; 3]; 4];
     for index in 0..sections {
-        let a0 = index as f32 / sections as f32 * std::f32::consts::TAU + cylinder.pitch;
-        let a1 = (index + 1) as f32 / sections as f32 * std::f32::consts::TAU + cylinder.pitch;
+        let a0 = index as f32 / sections as f32 * std::f32::consts::TAU;
+        let a1 = (index + 1) as f32 / sections as f32 * std::f32::consts::TAU;
         let corners = [
-            Vec3::new(a0.cos() * radius, base_y, a0.sin() * radius),
-            Vec3::new(a1.cos() * radius, base_y, a1.sin() * radius),
-            Vec3::new(a1.cos() * radius, base_y + height, a1.sin() * radius),
-            Vec3::new(a0.cos() * radius, base_y + height, a0.sin() * radius),
+            Vec3::new(a0.cos() * lower_radius, base_y, a0.sin() * lower_radius),
+            Vec3::new(a1.cos() * lower_radius, base_y, a1.sin() * lower_radius),
+            Vec3::new(a1.cos() * upper_radius, base_y + height, a1.sin() * upper_radius),
+            Vec3::new(a0.cos() * upper_radius, base_y + height, a0.sin() * upper_radius),
         ];
         for (slot, corner) in corners.into_iter().enumerate() {
             positions[slot] = matrix.transform_point3(corner).to_array();
         }
-        let u0 = index as f32 / sections as f32;
-        let u1 = (index + 1) as f32 / sections as f32;
-        let strip = [
-            [u0 + uv[0][0], uv[0][1]],
-            [u1 + uv[0][0], uv[1][1]],
-            [u0 + uv[2][0], uv[2][1]],
-            [u1 + uv[2][0], uv[3][1]],
-        ];
+        // `tu = i * m_fTexWid / nSects + m_fTexU`, and the lower row of the
+        // strip carries `tv = m_fTexV + m_fTexHei` while the upper carries
+        // `m_fTexV`.
+        let u_start = uv[0][0];
+        let u_span = uv[1][0] - uv[0][0];
+        let u0 = u_start + u_span * index as f32 / sections as f32;
+        let u1 = u_start + u_span * (index + 1) as f32 / sections as f32;
+        let (v_low, v_high) = (uv[2][1], uv[0][1]);
+        let strip = [[u0, v_low], [u1, v_low], [u1, v_high], [u0, v_high]];
         push_quad(out, context, &texture, positions, strip, color);
     }
 }
@@ -2874,7 +2911,7 @@ fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
         return;
     };
     let matrix = context.placement;
-    let uv = flipbook_uv(context.common, context.clock);
+    let rect = flipbook_uv(context.common, context.clock);
     let mut positions = [[0f32; 3]; 4];
 
     // A grid is a lattice of `columns * rows` **vertices**, not cells: all 216
@@ -2899,6 +2936,15 @@ fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
     } else {
         (grid.columns, grid.rows)
     };
+    // `A3DGridDecalEx::_setUVCoord` spreads **one** texture rect across the whole
+    // lattice: U from `m_fTexU` in `m_nWidthVertNum - 1` steps and V from
+    // `m_fTexV` in `m_nHeightVertNum - 1` steps. Handing every cell the whole
+    // rect instead tiled the sheet once per row — a 2x4 curtain repeated the
+    // image three times down its height and restarted the `TexSpeed` scroll at
+    // every row boundary, which reads as three stacked copies sliding over each
+    // other rather than one sheet flowing.
+    let (u_start, v_start) = (rect[0][0], rect[0][1]);
+    let (u_span, v_span) = (rect[1][0] - rect[0][0], rect[2][1] - rect[0][1]);
     for row in 0..span_z {
         for col in 0..span_x {
             let index = (row * grid.columns + col) as usize;
@@ -2933,6 +2979,11 @@ fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
             for (slot, corner) in corners.into_iter().enumerate() {
                 positions[slot] = matrix.transform_point3(corner).to_array();
             }
+            let ua = u_start + u_span * col as f32 / span_x as f32;
+            let ub = u_start + u_span * (col + 1) as f32 / span_x as f32;
+            let va = v_start + v_span * row as f32 / span_z as f32;
+            let vb = v_start + v_span * (row + 1) as f32 / span_z as f32;
+            let uv = [[ua, va], [ub, va], [ua, vb], [ub, vb]];
             push_quad(out, context, &texture, positions, uv, color);
         }
     }
@@ -4434,6 +4485,115 @@ mod tests {
             stalled, 0,
             "the curtain stopped scrolling {stalled} times over twenty seconds; \
              a waterfall that stalls is the static sheet the report describes"
+        );
+    }
+
+    /// `A3DGridDecalEx::_setUVCoord` spreads **one** texture rect across the
+    /// whole lattice — U from `m_fTexU` in `m_nWidthVertNum - 1` steps and V
+    /// from `m_fTexV` in `m_nHeightVertNum - 1` — so a 2x3 lattice samples half
+    /// the sheet per row. Handing every cell the whole rect, which is what the
+    /// code did, stacked one copy of the image per row and restarted the
+    /// `TexSpeed` scroll at every row boundary.
+    #[test]
+    fn a_grid_spreads_one_texture_rect_over_its_lattice() {
+        let grid = "GFXELEMENTID: 210\nName: curtain\nSrcBlend: 5\nDestBlend: 2\n\
+                    TexFile: 物体\\\\waterfall.dds\nTexRow: 1\nTexCol: 1\n\
+                    TexSpeed: -0.400000\nwNumber: 2\nhNumber: 3\n\
+                    -1.000000 20.000000 0.000000\ndwColor: ffffffff\n\
+                    1.000000 20.000000 0.000000\ndwColor: ffffffff\n\
+                    -1.000000 10.000000 0.000000\ndwColor: ffffffff\n\
+                    1.000000 10.000000 0.000000\ndwColor: ffffffff\n\
+                    -1.000000 0.000000 0.000000\ndwColor: ffffffff\n\
+                    1.000000 0.000000 0.000000\ndwColor: ffffffff\n\
+                    fGridSize: 0.500000\nfZOffset: 0.000000\n\
+                    StartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\n\
+                    TimeSpan: -1\nPosition: 0.000000, 0.000000, 0.000000\n\
+                    Color: -1\nScale: 1.000000\n\
+                    Direction: 0.000000, 0.000000, 0.000000, 1.000000\n\
+                    Rad_2D: 0.000000\nCtrlMethodCount: 0\n";
+        let mut player = build(&(header37(1) + grid));
+        step(&mut player, 0.);
+        let quads = player.quads().to_vec();
+        assert_eq!(quads.len(), 2, "a 2x3 lattice is one quad column, two tall");
+        let (first, second) = (quads[0].uv, quads[1].uv);
+        assert!(
+            (second[0][1] - first[0][1] - 0.5).abs() < 1e-5,
+            "the second row must start half a sheet lower, not on the same texel: \
+             {first:?} then {second:?}"
+        );
+        assert!(
+            (first[2][1] - first[0][1] - 0.5).abs() < 1e-5,
+            "one row of a three-row lattice is half the sheet, not all of it: {first:?}"
+        );
+        assert!(
+            (first[1][0] - 1.).abs() < 1e-5,
+            "the single column still spans the full width: {first:?}"
+        );
+    }
+
+    /// The element-140 record of a ring at radius 1, height 1, with the given
+    /// `Pitch` and the editor's `Sects: 0`.
+    fn ring_quads(pitch: f32) -> Vec<EffectQuad> {
+        let ring = format!(
+            "GFXELEMENTID: 140\r\nName: ring\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+             TexFile: 圆环光\\circle032.dds\r\nRepeatCount: 1\r\nRepeatDelay: 0\r\n\
+             Radius: 1.000000\r\nHeight: 1.000000\r\nPitch: {pitch:.6}\r\nSects: 0\r\n\
+             NoRadScale: 0\r\nNoHeiScale: 0\r\nOrgAtCenter: 0\r\n\
+             StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
+             Position: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\n\
+             Rad_2D: 0\r\nCtrlMethodCount: 0\r\n"
+        );
+        let mut player = build(&(header37(1) + ring.as_str()));
+        step(&mut player, 0.);
+        player.quads().to_vec()
+    }
+
+    /// `Sects: 0` is the client's `_default_sects`, and `A3DGFXRing.cpp` sets
+    /// that to 36 (`if (m_nSects) nSect = m_nSects; else nSect = _default_sects;`).
+    /// The editor writes the zero on 1,064 of the corpus's 1,116 element-140
+    /// records, so clamping it up to three turned nearly every ring in the game
+    /// into a three-sided prism.
+    #[test]
+    fn a_ring_authored_without_sects_is_thirty_six_sections() {
+        assert_eq!(
+            ring_quads(0.).len(),
+            36,
+            "Sects 0 must fall back to the client's 36 sections, not three"
+        );
+    }
+
+    /// `Pitch` is a texture pitch, spent as `tan(pitch)` on the band's two
+    /// radii after clamping to `radius / halfHeight`: the foot is wider and the
+    /// roof narrower. The code used it as an angular offset of the first
+    /// vertex, which turned the band on its axis and left both rows the same
+    /// size.
+    #[test]
+    fn a_ring_pitch_tilts_the_band_through_its_radii() {
+        let radius = |point: [f32; 3]| point[0].hypot(point[2]);
+        let rows = |quads: &[EffectQuad]| {
+            let quad = &quads[0];
+            // Corners 0 and 1 are the foot row, 2 and 3 the roof.
+            (
+                (radius(quad.positions[0]) + radius(quad.positions[1])) * 0.5,
+                (radius(quad.positions[2]) + radius(quad.positions[3])) * 0.5,
+            )
+        };
+        let (flat_foot, flat_roof) = rows(&ring_quads(0.));
+        assert!(
+            (flat_foot - flat_roof).abs() < 1e-4,
+            "a level ring keeps one radius: {flat_foot} against {flat_roof}"
+        );
+        // atan(0.5) gives `tan = 0.5`, so the rows differ by
+        // `halfHeight * tan` = 0.25 on a height of 1: half the radius either way.
+        let (foot, roof) = rows(&ring_quads(0.463_648));
+        assert!(
+            foot > flat_foot && roof < flat_roof,
+            "pitch must widen the foot and narrow the roof: {foot} / {roof}"
+        );
+        assert!(
+            ((foot - roof) / flat_foot - 0.5).abs() < 1e-3,
+            "the two rows must differ by two half-height tangents, half the \
+             radius here: {foot} against {roof}"
         );
     }
 
