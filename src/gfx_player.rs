@@ -2396,7 +2396,7 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
     // sheet in `场景/新种族地图` jump between the frames of its atlas instead of
     // running.
     let seconds = clock_ms / 1000.;
-    if common.tile_mode {
+    if common.tile_mode != 0 {
         // `m_fTexWid = (float)m_nTexCol` is what makes this a tile rather than
         // a cell: `Fill_Verts_3D` writes `fU = {m_fTexU, m_fTexU + m_fTexWid}`
         // straight into the vertices, so the card's UV window is `TexCol` by
