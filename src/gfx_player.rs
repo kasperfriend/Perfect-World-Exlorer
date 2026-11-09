@@ -4415,6 +4415,26 @@ mod tests {
             }
         }
         assert_eq!(moved, 10, "the sheet must scroll on every frame");
+
+        // Ten frames is a blink; a player that scrolls briefly and then stops
+        // reads as a still image to anyone watching. Run the clock for twenty
+        // seconds and require the scroll to still be advancing at the end, with
+        // no frame repeating the one before it.
+        let mut stalled = 0;
+        let mut previous = player.quads()[0].uv;
+        for _ in 0..600 {
+            step(&mut player, 33.);
+            let now = player.quads()[0].uv;
+            if now == previous {
+                stalled += 1;
+            }
+            previous = now;
+        }
+        assert_eq!(
+            stalled, 0,
+            "the curtain stopped scrolling {stalled} times over twenty seconds; \
+             a waterfall that stalls is the static sheet the report describes"
+        );
     }
 
     /// Controller 107's noise is a displacement of the particle's birth point,
