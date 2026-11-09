@@ -596,3 +596,50 @@ between the flat and the ground-aligned billboard basis, and the ground-aligned
 path already exists via `match_ground`/`ground_normal_only`, which is what the
 16 `MatchSurface` sprites are observed to need. Both stay decoded and
 documented as unused rather than silently hooked to something plausible.
+
+## Update 4 — the values that grow without bound
+
+Four defects, each a corpus fact rather than a guess. The measurements below are
+from the full `gfx.pck` (5,456 roots, 5,459 `.gfx` entries).
+
+**`TimeSpan: -1` was summed as a duration.** `1,0834` elements across 180 roots
+author a negative span, meaning "hold this keypoint forever" — `sample` already
+read it as `INFINITY`, but `duration_ms` added it, producing a negative cycle
+that `element_phase` reads as finished-before-started and pins to phase 0. Those
+elements sat on their first frame. **10,541 elements across 2,606 roots** were
+frozen this way; 393 of the 435 roots exercised now animate.
+
+**A grid is a lattice of vertices, not cells.** All 216 corpus grids write one
+bare `x y z` row per vertex between the colour list and `fGridSize`, and the
+tokenizer dropped every line without a colon. The parser rebuilt each grid from
+`fGridSize` as a 0.5-unit patch flat on the floor. The waterfall curtain is a
+2x4 lattice: 23.4 units wide, 35.85 tall, lower rows tinted `88caff`.
+
+**Controller 107 accumulated.** It added `noise * Amplitude` to the particle
+position once per frame instead of placing it relative to the birth point.
+`夜空飘尘` with `Amplitude: 400` walked a 0.4-unit dust particle past +/-7,900
+world units in forty frames. It now re-seeds from birth and holds at +/-386.
+
+**Scale-ramp stops carry uninitialized editor memory.** Thirty stops hold
+values from 4.25e23 to 8.26e23; `封引3` in `回光返照_左手.gfx` authors
+`Scale: 826299995273231830000000.000000`. One sprite stretched to 1.57e24 units.
+Stops are clamped to +/-1000. Worst corpus extent falls from 3.3e24 to 4,000 and
+the count of roots exceeding 10 units from 1,010 to 567.
+
+**724 of 12,360 particle elements invert `ScaleMin`/`ScaleMax`.** `夜空飘尘`
+writes 0.2 against 0.1. The pair is read as an unordered interval.
+
+**`Priority` is authored 1..5 on every element and was never read.** 7,820 are a
+4 and 5,586 a 2. It now orders blended geometry inside a `RenderLayer`, as a
+sort key on `BucketKey` rather than `PipelineKey`.
+
+### Still open
+
+`gfx/场景/夜空飘尘.gfx` names `粒子\particle001.dds`, which decodes to a dark
+blue-black mean of **(5, 27, 46)** and is **100% opaque** across all 256 DXT1
+blocks. An additive quad of that texture cannot render pure white, and
+`texture_path` builds exactly `gfx/textures/粒子/particle001.dds`, which the pack
+contains. So the remaining white is not the texture and not the path: it is
+either the draw order (now ordered, unverified on screen) or the blend state.
+Settling it needs a screenshot of the altar after this change, or the retail
+`0x6e4xxx` submit path for element 121's blend override.
