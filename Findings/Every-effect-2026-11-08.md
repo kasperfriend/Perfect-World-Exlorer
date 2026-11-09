@@ -633,72 +633,62 @@ writes 0.2 against 0.1. The pair is read as an unordered interval.
 4 and 5,586 a 2. It now orders blended geometry inside a `RenderLayer`, as a
 sort key on `BucketKey` rather than `PipelineKey`.
 
-## Update 5 — the white mass was a case-sensitive texture lookup
+## Update 5 — retracted: the white mass was NOT a case-sensitive lookup
 
-`particle001.dds` was a red herring, as measured above: dark **(5, 27, 46)** and
-100% opaque, so it cannot render white. The white was never the altar's own
-texture. It was **293 textures that never loaded at all**.
+**This update first claimed the white mass was a case-sensitive texture lookup and
+293 unreachable textures. That claim is wrong and is retracted here.**
 
-`gfx.pck` stores its members in lower case — `gfx/textures/normalmap/
-ringglowwhite9.dds` — while the roots name them the way the artist typed them:
-`normalmap\RingGlowWhite9.dds`. Retail resolves the pair because its file system
-ignores case. The asset reader was a byte-exact `HashMap`, so it did not.
+`ecmodel::normalize` already lowercases:
 
-Of the corpus's **1,610 distinct texture references, 297 missed**, and only **4**
-are genuinely absent. The effect pass bound a `[255,255,255,255]` stand-in for
-every miss, so each one drew as an **opaque white slab**. Measured across the
-corpus:
+```rust
+path.trim().replace('\\', "/").split('/').filter(|x| !x.is_empty())
+    .collect::<Vec<_>>().join("/").to_lowercase()
+```
 
-| | before | after |
-|---|---|---|
-| roots with *every* texture failing (100% white) | **87** | **0** |
-| roots with *any* texture failing | **1,340** | ≤ 4 refs total |
-| `瀑布.gfx` element textures resolving | 30 / 52 | **52 / 52** |
+Every archive map was keyed on `normalize(&entry.name)`, so it was
+case-insensitive from the start. The 293 "misses" were measured with a *Python*
+comparison that was case-sensitive, not with the Rust reader. Re-measured through
+the real code path, the miss count is **unchanged** by case folding — the
+`CaseIndex` added in that update resolves exactly what the old map already
+resolved, and is a no-op. It has been removed.
 
-`RingGlowWhite9.dds` alone is named by **76** roots, `Bubble.dds` by 99,
-`烟火\Dust.tga` by 57. `瀑布.gfx` — the waterfall — failed **22 of its 52**
-textures, all of them by case, so two thirds of its elements were painting white
-slabs over the curtain. That is why the waterfall stayed wrong through three
-geometry fixes.
+What that update did get right, and is kept: the effect pass's stand-in texture
+was `[255,255,255,255]`, so any texture that genuinely fails to load paints an
+opaque white slab. It is now `[0,0,0,0]`. The 4 references that are genuinely
+absent (`图案/场景3紫.dds`, `序列/闪电.tga`, `图案/155.dds`, `序列/闪电竖.tga`)
+are the only ones that ever hit it.
 
-**Fixed.** `gfx_catalog::CaseIndex` resolves a path byte-exactly and then folded
-to lower case, so a deliberately shipped case twin still resolves the spelling
-the root used. The `gfx.pck` asset, root, model and `models.pck` readers all go
-through it. The effect pass's stand-in is now `[0,0,0,0]`: a missing map costs
-the element its sprite and must never paint it white.
-
-### Two more scale errors, both mine
+### What survived from this work
 
 **The scale clamp was 1000, above anything the editor ever wrote.** `CtrlType
 111`'s `Scale` carries uninitialized editor memory in 88 of 41,960 stops, up to
 `1.10e27`. Clamping to +/-1000 turned the junk into a *valid* multiplier of 1000,
-and 1000 x `DedaultScale` 3 is the 2,000-unit flat quad. The largest legitimate
-stop in the corpus is **100** (p99.9 is 80). Clamped to 100 that quad is 200
-units, inside its own root's bounds.
+and 1000 x `DedaultScale` 3 is a 2,000-unit flat quad. The largest legitimate
+stop is **100** (p99.9 is 80). Clamped to 100 that quad is 200 units, inside its
+own root's bounds.
 
-**`Amplitude` is centimetres.** 761 of the 1,088 controller-107 amplitudes exceed
+**`Amplitude` on controller 107 is centimetres.** 761 of the 1,088 values exceed
 10 and land on round numbers — 200 (p50), 500 (p90), 800, 1000 — while the roots
 carrying them are a quarter of a unit across. Read as world units the median is
-**64x** its own root's `Vec:` half-extent and the worst is **3,998x**; divided by
-100 the median is 0.64, the fraction of its bounds a wobble should occupy. This
-is the "fire moves extremely fast and out of bounds" report.
+64x its own root's `Vec:` half-extent and the worst is 3,998x; divided by 100 the
+median is 0.64, the fraction of its bounds a wobble should occupy. This is the
+"fire moves extremely fast and out of bounds" report. Note the *fractal* element's
+own `Amplitude` key is a different quantity, authored 0.05..5.0, and is correctly
+left alone.
 
-| | before | after |
-|---|---|---|
-| `夜空飘尘` worst coordinate, 1 s | **386.8** | **6.96** |
-| `五体符飞行` ribbon width | **539.8** (skewed) | **0.198** |
-| `变异沼泽鸟` flat quad | 2,000 | 200 |
+### Update 6 — element 190's segment count was inverted
 
-### Waterfall verified
+`emit_curve` sized its strip with `(1.0 / length) * coefficient`. Its own comment
+states the invariant it must hold — "keeps the stretch per segment constant" —
+and `stretch = length / segments` under that formula is `length^2 / coefficient`,
+so it holds for nothing: a *longer* chord got *fewer* segments. Any chord longer
+than the coefficient hit the one-segment floor and drew the entire beam or sword
+trail as a single billboard stretched across its span.
 
-`瀑布.gfx` holds steady at ~950 quads for 20 s with `max|coord| = 66.7`, inside
-its authored `Vec:` span of -60.2..62.6. `瀑布大` holds 185 quads at 53.5.
-`瀑布水花` and `水门_瀑布` stay under 8 units. No growth, no drift.
-
-### Still open
-
-Nothing measured. The remaining risk is visual: the altar's own
-`粒子\particle001.dds` is dark blue, so with its 87 white slabs gone it should
-read as dim blue dust. If it still reads white on screen, the next suspect is the
-blend state rather than geometry or textures, and settling that needs the retail
-`0x6e4xxx` submit path for element 121's blend override.
+Fixed to `length / coefficient`, which makes `stretch` the coefficient exactly.
+`Coeff` is 1.0 on every corpus element 190, so a 10-unit beam is ten quads and a
+40-unit beam forty, still under the 256 cap. A regression test asserts the
+invariant and fails on the old formula. **The count remains an inference** — the
+client's element-190 builder was never read, only its endpoints and its
+degenerate-chord gate — but the old count contradicted its own stated invariant,
+which is a defect on the evidence alone.

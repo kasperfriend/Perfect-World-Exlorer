@@ -1215,6 +1215,16 @@ impl Player {
         self.time
     }
 
+    /// The clock of the first nested root, for the child-timing audits. A root
+    /// with no child element returns `None`, so a probe cannot silently read the
+    /// parent's clock and mistake it for the child's.
+    pub fn child_time_ms(&self) -> Option<f32> {
+        self.elements.iter().find_map(|element| match &element.runtime {
+            Runtime::Child(child) => Some(child.player.time_ms()),
+            _ => None,
+        })
+    }
+
     /// Restart the clock, which is what the client does when a looping root runs
     /// out and starts again. Everything an element has accumulated survives —
     /// live particles, ribbon history, the noise a fractal strip is half way
@@ -2790,9 +2800,24 @@ fn emit_curve(curve: &Curve, context: &ElementContext, out: &mut Vec<EffectQuad>
     if !length.is_finite() || length <= 1e-6 {
         return;
     }
-    // The recovered count: `1.0 / normalised_length`, so a longer span carries
-    // more segments and keeps the stretch per segment constant.
-    let segments = ((1.0 / length) * curve.coefficient).clamp(1.0, 256.0) as usize;
+    // Segment count for a constant stretch per segment.
+    //
+    // The count was `(1.0 / length) * coefficient`, which is inverted: it gave
+    // a *longer* chord fewer segments. Its own comment states the invariant it
+    // is meant to hold -- "keeps the stretch per segment constant" -- and
+    // `stretch = length / segments` is `length^2 / coefficient` under that
+    // formula, so it holds for nothing. Any chord longer than the coefficient
+    // collapsed to the one-segment floor and drew the whole beam or trail as a
+    // single billboard stretched across its span, which is the flat smear this
+    // element is visible as. `length / coefficient` makes `stretch` the
+    // coefficient exactly, which is the constant the comment names.
+    //
+    // `Coeff` is authored 1.0 on every corpus element 190 (the parser defaults
+    // it there), so a 10-unit beam is ten quads and a 40-unit beam forty, and
+    // the 256 cap still bounds the worst case. The count remains an inference:
+    // the client's builder at the element-190 routine was never read, only the
+    // endpoints and the degenerate-chord gate.
+    let segments = (length / curve.coefficient.max(1e-3)).clamp(1.0, 256.0) as usize;
     let segments = segments.max(1);
     let uv = flipbook_uv(context.common, context.clock);
     let color = rgba(context.color, context.color_scale);
@@ -6943,6 +6968,68 @@ mod tests {
         step(&mut player, 16.);
         assert_eq!(player.quads().len(), 1, "the child's sprite draws");
         assert_eq!(player.stats().children, 1);
+    }
+
+    /// Element 190's segment count has to hold its own stated invariant: the
+    /// stretch per segment is constant. The count was `(1 / length) * coeff`,
+    /// which is inverted, so a beam longer than the coefficient collapsed to the
+    /// one-segment floor and drew as a single billboard across the whole span.
+    #[test]
+    fn a_curve_keeps_a_constant_stretch_per_segment() {
+        // Two 2-point spans of very different lengths, one element each.
+        let curve = |a: &str, b: &str| {
+            format!(
+                "GFXELEMENTID: 190\nName: cu\nSrcBlend: 5\nDestBlend: 2\n\
+                 Coeff: 1.000000\nheight: 1.0\n\
+                 RepeatCount: 1\nRepeatDelay: 0\n\
+                 StartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\nTimeSpan: -1\n\
+                 Position: 0, 0, 0\nColor: -1\nScale: 1\nDirection: 0, 0, 0, 1\n\
+                 Rad_2D: 0\nCtrlMethodCount: 0\n"
+            ) + &format!("Vec: {a}\nVec: {b}\n")
+        };
+        let _ = curve;
+        // The span comes from the root's two `Vec:` lines, so the length is set
+        // on the root header. Compare a 10-unit chord with a 40-unit one: the
+        // quad count must scale with the chord, not collapse to one.
+        let root_span = |half: f32| {
+            format!(
+                "MOXTVersion: 79\r\nDedaultScale: 1\r\nPlaySpeed: 1\r\nDefaultAlpha: 1\r\n\
+                 Raytrace: 0\r\nFadeByDist: 0\r\nFadeStart: 0\r\nFadeEnd: 0\r\n\
+                 Vec: 0, 0, 0\r\nVec: {h}, 0, 0\r\nShakeCam: 0\r\nGFXELEMENTCOUNT: 1\r\n\
+                 GFXELEMENTID: 190\r\nName: cu\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+                 TexFile: 轨迹\\beam.dds\r\nPriority: 2\r\nIsDummy: 0\r\n\
+                 Coeff: 1.000000\r\nheight: 1.000000\r\n\
+                 RepeatCount: 1\r\nRepeatDelay: 0\r\n\
+                 StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
+                 Position: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\n\
+                 Rad_2D: 0\r\nCtrlMethodCount: 0\r\n",
+                h = half
+            )
+        };
+        let count = |half: f32| {
+            let mut player = build(&root_span(half));
+            step(&mut player, 16.);
+            player.quads().len()
+        };
+        let short = count(5.);
+        let long = count(20.);
+        assert!(short >= 2, "a 10-unit chord is {short} quads, not one slab");
+        assert!(
+            long > short,
+            "a 40-unit chord ({long}) must carry more segments than a 10-unit one \
+             ({short}); the count is inverted if it does not"
+        );
+        // The invariant itself: stretch per segment is the coefficient.
+        for half in [5f32, 20.] {
+            let length = half * 2.;
+            let segments = count(half).max(1) as f32;
+            let stretch = length / segments;
+            assert!(
+                (stretch - 1.).abs() < 1.05,
+                "assumed span {length} -> {segments} quads, stretch {stretch}, \
+                 which is not the ~1.0 the coefficient asks for"
+            );
+        }
     }
 
     /// The version-76 boundary on the depth test. The rule came from the static
