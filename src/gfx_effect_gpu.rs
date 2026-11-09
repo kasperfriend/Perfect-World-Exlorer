@@ -55,10 +55,6 @@ struct BucketKey {
     priority: i32,
     pipeline: PipelineKey,
     texture: String,
-    /// `true` when the element's authored `TileMode` asks the `TexSpeed` scroll
-    /// to wrap. The pass used to bind one `Repeat` sampler to every texture,
-    /// which smeared a scrolled sprite's opposite edge back into its own cell.
-    wrap: bool,
 }
 
 struct TextureEntry {
@@ -90,10 +86,7 @@ pub struct Draw {
     textures: HashMap<String, TextureEntry>,
     buckets: HashMap<BucketKey, Bucket>,
     uniform: wgpu::Buffer,
-    /// `TileMode: 0` — the authored value on every sampled corpus element.
-    sampler_clamp: wgpu::Sampler,
-    /// `TileMode` non-zero: the scroll is allowed to wrap.
-    sampler_repeat: wgpu::Sampler,
+    sampler: wgpu::Sampler,
     /// Stand-in used when an element's texture will not load.
     ///
     /// Dropping the bucket instead — which this used to do — means a single
@@ -137,38 +130,22 @@ impl Draw {
         ) {
             return Err("GFX effects require an encoded UNORM target".into());
         }
-        // Two samplers, chosen per bucket from the element's own `TileMode`.
-        // This used to be a single `Repeat` sampler for the whole pass, which
-        // was wrong for the authored value: every sampled corpus element writes
-        // `TileMode: 0`, and `0` clamps. Under `Repeat` a sprite whose `TexSpeed`
-        // scrolls its UVs past the edge showed the opposite edge of its own art
-        // wrapped back in, and on an additive sheet that reads as a smear of the
-        // texture's brightest row rather than as the art ending.
-        let sampler = |wrap: bool| {
-            device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some(if wrap {
-                    "native GFX effect sampler (tiled)"
-                } else {
-                    "native GFX effect sampler (clamped)"
-                }),
-                address_mode_u: if wrap {
-                    wgpu::AddressMode::Repeat
-                } else {
-                    wgpu::AddressMode::ClampToEdge
-                },
-                address_mode_v: if wrap {
-                    wgpu::AddressMode::Repeat
-                } else {
-                    wgpu::AddressMode::ClampToEdge
-                },
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            })
-        };
-        let sampler_clamp = sampler(false);
-        let sampler_repeat = sampler(true);
+        // `Repeat`, always. `TileMode` must NOT drive this: a waterfall has no
+        // flipbook (its sheet is one image, `TexRow`/`TexCol` 1) and its whole
+        // animation is the `TexSpeed` UV scroll, which walks past [0,1] for as
+        // long as the effect plays. Clamping that scroll freezes the sheet on its
+        // edge texel — the waterfall stops dead — and stretches those edge texels
+        // across the quad as vertical streaks. Clamping was tried and produced
+        // exactly that, so the wrap is required whether or not `TileMode` is 0.
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("native GFX effect sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
         let uniform = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("GFX effect frame constants"),
             contents: bytemuck::bytes_of(&Params {
@@ -271,8 +248,7 @@ impl Draw {
             textures: HashMap::new(),
             buckets: HashMap::new(),
             uniform,
-            sampler_clamp,
-            sampler_repeat,
+            sampler,
             fallback,
             order: Vec::new(),
             staging: Vec::new(),
@@ -342,7 +318,6 @@ impl Draw {
                 },
                 priority: quad.priority,
                 texture: quad.texture.clone(),
-                wrap: quad.tile_mode != 0,
             };
             let position = match index.get(&key) {
                 Some(position) => *position,
@@ -443,11 +418,7 @@ impl Draw {
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Sampler(if key.wrap {
-                                &self.sampler_repeat
-                            } else {
-                                &self.sampler_clamp
-                            }),
+                            resource: wgpu::BindingResource::Sampler(&self.sampler),
                         },
                     ],
                 });
@@ -614,7 +585,6 @@ mod tests {
         color: [f32; 4],
     ) -> EffectQuad {
         EffectQuad {
-            tile_mode: 0,
             texture: texture.into(),
             source_blend: source,
             destination_blend: destination,
@@ -976,21 +946,18 @@ mod tests {
                 priority: 0,
                 pipeline: pipeline(5, 2, false),
                 texture: "b".into(),
-                wrap: false,
             },
             BucketKey {
                 layer: 0,
                 priority: 0,
                 pipeline: pipeline(5, 6, true),
                 texture: "a".into(),
-                wrap: false,
             },
             BucketKey {
                 layer: 0,
                 priority: 0,
                 pipeline: pipeline(5, 2, false),
                 texture: "a".into(),
-                wrap: false,
             },
         ];
         sorted.sort_by(|a, b| {

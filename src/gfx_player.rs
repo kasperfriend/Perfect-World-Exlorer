@@ -146,12 +146,6 @@ pub struct EffectQuad {
     pub priority: i32,
     /// World-space corners in the client's quad order: top-left, top-right,
     /// bottom-left, bottom-right.
-    /// The element's authored `TileMode`. 0, which every sampled element in the
-    /// corpus writes, clamps the texture to its own cell; anything else lets the
-    /// `TexSpeed` scroll wrap. The sampler used to be one pass-wide `Repeat`, so
-    /// a scrolled sprite showed the opposite edge of its own art smeared back
-    /// into the frame.
-    pub tile_mode: u32,
     pub positions: [[f32; 3]; 4],
     pub uv: [[f32; 2]; 4],
     /// Linear RGB and alpha, already folded with the root and placement alpha.
@@ -2386,7 +2380,6 @@ fn push_quad(
         depth_test: depth_test(context.common, context.version),
         layer: context.common.render_layer,
         priority: context.common.priority,
-        tile_mode: context.common.tile_mode,
         positions,
         uv,
         color,
@@ -2608,7 +2601,6 @@ fn emit_model(meshes: &[EffectMesh], context: &ElementContext, out: &mut Vec<Eff
             depth_test: depth_test(context.common, context.version),
             layer: context.common.render_layer,
             priority: context.common.priority,
-            tile_mode: context.common.tile_mode,
             positions: [[0.; 3]; 4],
             uv: [[0.; 2]; 4],
             color,
@@ -7103,65 +7095,6 @@ mod tests {
                  read {got} ms, want {want} ms"
             );
         }
-    }
-
-    /// `TileMode` reaches the quad so the pass can choose a sampler. It was
-    /// parsed into `Common` and read by nothing, while the effect pass bound one
-    /// pass-wide `Repeat` sampler to every texture: a sprite whose `TexSpeed`
-    /// scrolls its UVs past the cell edge showed the opposite edge of its own art
-    /// wrapped back in, which an additive sheet shows as a smear.
-    #[test]
-    fn tile_mode_reaches_the_quad_so_the_sampler_can_honour_it() {
-        let sprite = |tile: u32| {
-            header37(1)
-                + &SPRITE.replace(
-                    "TexInterval: 50\r\n",
-                    &format!("TexInterval: 50\r\nTileMode: {tile}\r\n"),
-                )
-        };
-        // 0 is what every sampled corpus element authors, and it clamps.
-        let mut clamped = build(&sprite(0));
-        step(&mut clamped, 16.);
-        assert_eq!(clamped.quads().len(), 1);
-        assert_eq!(
-            clamped.quads()[0].tile_mode,
-            0,
-            "the authored clamp must survive to the pass"
-        );
-        // A nonzero value asks the scroll to wrap.
-        let mut tiled = build(&sprite(1));
-        step(&mut tiled, 16.);
-        assert_eq!(tiled.quads().len(), 1);
-        assert_eq!(tiled.quads()[0].tile_mode, 1);
-    }
-
-    /// A flipbook with no authored `TexInterval` must hold its first cell, not
-    /// flip a thousand times a second. The fallback used to substitute 1 ms for
-    /// the absent interval, so a `TexRow`/`TexCol` sheet with the key omitted
-    /// strobed at 1000 Hz — the purest form of "the effect plays too fast".
-    #[test]
-    fn a_flipbook_without_an_interval_holds_its_first_cell() {
-        use crate::gfx_file::Common;
-        let mut common = Common::default();
-        common.tex_row = 2;
-        common.tex_col = 2;
-        common.tex_interval = 0;
-        // Every sample over two seconds has to be the same cell: the top-left
-        // quarter, [0,0]..[0.5,0.5].
-        for ms in [0f32, 16., 500., 1000., 1999.] {
-            let uv = flipbook_uv(&common, ms);
-            assert_eq!(uv[0], [0., 0.], "at {ms} ms the top-left corner moved");
-            assert_eq!(uv[3], [0.5, 0.5], "at {ms} ms the cell changed");
-        }
-        // An authored interval still animates: 100 ms per cell over four cells.
-        common.tex_interval = 100;
-        assert_eq!(flipbook_uv(&common, 0.)[0], [0., 0.]);
-        assert_eq!(flipbook_uv(&common, 150.)[0], [0.5, 0.], "cell 2 at 150 ms");
-        assert_eq!(
-            flipbook_uv(&common, 350.)[0],
-            [0.5, 0.5],
-            "cell 4 at 350 ms"
-        );
     }
 
     /// The version-76 boundary on the depth test. The rule came from the static
