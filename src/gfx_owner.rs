@@ -1607,6 +1607,7 @@ mod tests {
         let scene_path = std::path::Path::new("google_drive/world.ecwld");
         let archive = std::path::Path::new("google_drive/x");
         if !scene_path.is_file() || !archive.is_dir() {
+            eprintln!("SKIPPED: no `google_drive/world.ecwld` corpus on this machine; this test proves nothing about the shipped map");
             return;
         }
         let scene = crate::scene::Scene::load(scene_path).unwrap();
