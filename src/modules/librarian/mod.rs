@@ -6,6 +6,7 @@ mod database;
 mod descriptions;
 mod elements;
 mod icons;
+mod npcs;
 mod preview3d;
 
 use crate::modules::designer::catalog::{Class, Gender};
@@ -34,6 +35,129 @@ fn preview_image(
     response
 }
 
+/// Whole numbers print without a fraction; everything else keeps two decimals.
+fn format_value(value: f64) -> String {
+    if value.fract() == 0. {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.2}")
+    }
+}
+
+/// Cell width for a comparison column.
+///
+/// The longest names the shipped data carries are 31 characters for an NPC and
+/// 32 for a monster, at the default 12.5 px text size, so about 200 px keeps a
+/// whole name on one line. A grid column's width defaults to `interact_size.x`
+/// (about 40 px), and a label wrapped into that strip measures narrow, so the
+/// column never grew with it -- which is what folded names onto several lines
+/// and cropped them. An explicit width per cell fixes the squeeze at its cause.
+const COMPARISON_CELL_WIDTH: f32 = 200.;
+/// The attribute name column only has to fit the longest field name.
+const COMPARISON_LABEL_WIDTH: f32 = 165.;
+
+/// One cell of a comparison grid, sized and unwrapped so it cannot be squeezed
+/// into a narrow strip.
+fn comparison_cell(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    ui.vertical(|ui| {
+        // A fixed width also makes `wrap_text()` false for this cell, because
+        // that only reports true while the cell's maximum width is unbounded.
+        ui.set_width(COMPARISON_CELL_WIDTH);
+        add(ui);
+    });
+}
+
+/// The attribute-name cell.
+fn comparison_label(ui: &mut egui::Ui, text: &str) {
+    ui.vertical(|ui| {
+        ui.set_width(COMPARISON_LABEL_WIDTH);
+        ui.add(egui::Label::new(text).wrap(false));
+    });
+}
+
+/// A value cell: never wraps, and elides with a tooltip rather than being cut.
+fn comparison_value(ui: &mut egui::Ui, text: impl Into<String>, highlight: bool) {
+    let mut text = egui::RichText::new(text.into());
+    if highlight {
+        text = text.color(egui::Color32::LIGHT_GREEN);
+    }
+    comparison_cell(ui, |ui| {
+        ui.add(egui::Label::new(text).truncate(true));
+    });
+}
+
+/// Comparison grid shared by every NPC and monster column. Returns the column a
+/// user asked to remove and the column a user asked to open.
+fn npc_comparison_grid(
+    ui: &mut egui::Ui,
+    entries: &[&npcs::Entry],
+) -> (Option<usize>, Option<usize>) {
+    let rows = npcs::compare_rows(entries);
+    let mut remove = None;
+    let mut jump = None;
+    egui::ScrollArea::both()
+        .id_source("librarian_npc_compare")
+        .show(ui, |ui| {
+            egui::Grid::new("librarian_npc_comparison_grid")
+                .striped(true)
+                .min_col_width(COMPARISON_CELL_WIDTH)
+                .spacing(egui::vec2(14., 6.))
+                .show(ui, |ui| {
+                    comparison_label(ui, "Attribute");
+                    for (position, entry) in entries.iter().enumerate() {
+                        comparison_cell(ui, |ui| {
+                            // 123 shipped NPC templates carry no name.
+                            let name = if entry.name.is_empty() {
+                                format!("Unnamed {}", entry.kind.name())
+                            } else {
+                                entry.name.clone()
+                            };
+                            // A link is a frameless button, so it extends rather
+                            // than wrapping the way a plain label does; the
+                            // tooltip still carries the whole name.
+                            if ui.link(name.clone()).on_hover_text(name).clicked() {
+                                jump = Some(position);
+                            }
+                            ui.label(entry.kind.name());
+                            if ui
+                                .small_button("Remove")
+                                .on_hover_text("Remove from the comparison")
+                                .clicked()
+                            {
+                                remove = Some(position);
+                            }
+                        });
+                    }
+                    ui.end_row();
+                    for (name, values) in &rows {
+                        comparison_label(ui, name);
+                        let baseline = values.first().copied().flatten();
+                        let best = npcs::best(name, values);
+                        for value in values {
+                            match value {
+                                Some(value) => {
+                                    let text = match baseline {
+                                        Some(base) if (value - base).abs() > f64::EPSILON => {
+                                            format!(
+                                                "{} ({:+.2})",
+                                                format_value(*value),
+                                                value - base
+                                            )
+                                        }
+                                        _ => format_value(*value),
+                                    };
+                                    comparison_value(ui, text, best == Some(*value));
+                                }
+                                None => comparison_value(ui, "—", false),
+                            }
+                        }
+                        ui.end_row();
+                    }
+                });
+        });
+    (remove, jump)
+}
+
 pub struct Librarian {
     root: PathBuf,
     state: Option<State>,
@@ -52,6 +176,12 @@ struct State {
     selected: Option<usize>,
     comparison: Vec<usize>,
     compare_open: bool,
+    npc_database: npcs::Database,
+    npcs_open: bool,
+    npc_kind: Option<npcs::Kind>,
+    npc_search: String,
+    npc_selected: Option<usize>,
+    npc_comparison: Vec<usize>,
     preview: Option<preview3d::Preview>,
     show_3d: bool,
     preview_female: bool,
@@ -93,10 +223,25 @@ impl Librarian {
             return;
         }
         let mut assets = LibrarianAssets::open(&self.root);
-        match assets
-            .read_elements_data()
-            .and_then(|bytes| Database::parse_v27(&bytes))
-        {
+        let elements = assets.read_elements_data();
+        let mut npc_database = npcs::Database::default();
+        let mut npc_error = None;
+        if let Ok(bytes) = &elements {
+            match npcs::Database::parse(bytes) {
+                Ok(mut database) => {
+                    if let Some(table) = assets.read_config("data/task_npc.data") {
+                        database.attach_placements(&table);
+                    }
+                    npc_database = database;
+                }
+                Err(error) => npc_error = Some(error),
+            }
+        }
+        if let Some(error) = npc_error {
+            self.error = Some(format!("NPC records could not be read: {error}"));
+            return;
+        }
+        match elements.and_then(|bytes| Database::parse_v27(&bytes)) {
             Ok(mut database) => {
                 for name in ["configs/item_desc.txt", "configs/item_ext_desc.txt"] {
                     if let Some(bytes) = assets.read_config(name) {
@@ -127,6 +272,12 @@ impl Librarian {
                     selected: None,
                     comparison: Vec::new(),
                     compare_open: false,
+                    npc_database,
+                    npcs_open: false,
+                    npc_kind: Some(npcs::Kind::Npc),
+                    npc_search: String::new(),
+                    npc_selected: None,
+                    npc_comparison: Vec::new(),
                     preview: None,
                     show_3d: false,
                     preview_female: false,
@@ -155,6 +306,10 @@ impl Librarian {
             return;
         }
         let Some(state) = &mut self.state else { return };
+        if state.npcs_open {
+            state.prepare_npc_preview(device, queue, renderer, format);
+            return;
+        }
         if !state.show_3d {
             return;
         }
@@ -162,6 +317,8 @@ impl Librarian {
         let preview = state
             .preview
             .get_or_insert_with(|| preview3d::Preview::new(device, renderer, format));
+        // An item preview keeps the model's own first clip.
+        preview.idle_action = None;
         let item = &state.database.items[index];
         let gender = if state.preview_female { "f" } else { "m" };
         let hair = item.head_hair().and_then(|(hair, texture)| {
@@ -246,15 +403,18 @@ impl State {
                             .strong()
                             .color(egui::Color32::WHITE),
                     )
-                    .fill(if !self.compare_open && self.category.is_none() {
-                        egui::Color32::from_rgb(50, 113, 165)
-                    } else {
-                        egui::Color32::from_rgb(40, 65, 90)
-                    }),
+                    .fill(
+                        if !self.npcs_open && !self.compare_open && self.category.is_none() {
+                            egui::Color32::from_rgb(50, 113, 165)
+                        } else {
+                            egui::Color32::from_rgb(40, 65, 90)
+                        },
+                    ),
                 )
                 .clicked()
             {
                 self.compare_open = false;
+                self.npcs_open = false;
                 self.category = None;
                 self.section = None;
                 self.major = None;
@@ -263,12 +423,13 @@ impl State {
             for category in Category::ALL {
                 if ui
                     .selectable_label(
-                        !self.compare_open && self.category == Some(category),
+                        !self.npcs_open && !self.compare_open && self.category == Some(category),
                         category.name(),
                     )
                     .clicked()
                 {
                     self.compare_open = false;
+                    self.npcs_open = false;
                     self.category = Some(category);
                     self.section = None;
                     self.major = None;
@@ -282,7 +443,7 @@ impl State {
                             .strong()
                             .color(egui::Color32::WHITE),
                     )
-                    .fill(if self.compare_open {
+                    .fill(if !self.npcs_open && self.compare_open {
                         egui::Color32::from_rgb(158, 104, 35)
                     } else {
                         egui::Color32::from_rgb(95, 68, 33)
@@ -290,12 +451,39 @@ impl State {
                 )
                 .clicked()
             {
+                self.npcs_open = false;
                 self.compare_open = true;
+            }
+            if ui
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("NPCs")
+                            .strong()
+                            .color(egui::Color32::WHITE),
+                    )
+                    .fill(if self.npcs_open {
+                        egui::Color32::from_rgb(108, 76, 155)
+                    } else {
+                        egui::Color32::from_rgb(66, 47, 96)
+                    }),
+                )
+                .on_hover_text(
+                    "NPC and monster templates from elements.data, with their rigs, \
+                     services, drop tables and comparison.",
+                )
+                .clicked()
+            {
+                self.npcs_open = true;
+                self.compare_open = false;
             }
         });
         ui.separator();
         if !self.icons.has_atlas() {
             ui.colored_label(egui::Color32::YELLOW, "Inventory icon atlases could not be loaded from surfaces.pck; loose icons may still be available.");
+        }
+        if self.npcs_open {
+            self.npcs_ui(ui);
+            return;
         }
         if self.compare_open {
             self.comparison_ui(ui);
@@ -775,10 +963,337 @@ impl State {
                 });
         });
     }
+    /// Runs the offscreen preview for the selected NPC or monster.
+    ///
+    /// The record's own `.ecm` is handed over verbatim: no body, equipment or
+    /// hair path is substituted, so the rig on screen is the one the client
+    /// instantiates for that template.
+    fn prepare_npc_preview(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        renderer: &mut egui_wgpu::Renderer,
+        format: wgpu::TextureFormat,
+    ) {
+        let Some(index) = self.npc_selected else {
+            return;
+        };
+        let Some(entry) = self.npc_database.entries.get(index) else {
+            return;
+        };
+        let model = entry.model.clone();
+        let preview = self
+            .preview
+            .get_or_insert_with(|| preview3d::Preview::new(device, renderer, format));
+        preview.idle_action = Some(npcs::SCENE_IDLE.to_owned());
+        preview.update(device, queue, format, &mut self.assets, &model, None, true);
+    }
+    fn npcs_ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            for (kind, label) in [(npcs::Kind::Npc, "NPCs"), (npcs::Kind::Monster, "Monsters")] {
+                if ui
+                    .selectable_label(
+                        self.npc_kind == Some(kind),
+                        format!("{label} ({})", self.npc_database.count(kind)),
+                    )
+                    .clicked()
+                {
+                    self.npc_kind = Some(kind);
+                    self.npc_selected = None;
+                }
+            }
+            // Comparison lives in the shared Comparison tab, so the badge here
+            // says how many columns it currently holds.
+            let columns = self.npc_comparison.len();
+            if columns != 0 {
+                ui.label(format!("{columns} in Comparison"));
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Search:");
+            ui.text_edit_singleline(&mut self.npc_search);
+            ui.label(format!("{} templates", self.npc_database.entries.len()));
+        });
+        let query = self.npc_search.to_lowercase();
+        let indices: Vec<usize> = self
+            .npc_database
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                self.npc_kind.map_or(true, |kind| entry.kind == kind)
+                    && (query.is_empty()
+                        || entry.search_name.contains(&query)
+                        || entry.id.to_string().contains(&query))
+            })
+            .map(|(index, _)| index)
+            .collect();
+        ui.label(format!("{} matching templates", indices.len()));
+        ui.columns(2, |columns| {
+            egui::ScrollArea::vertical()
+                .id_source("librarian_npcs")
+                .show_rows(&mut columns[0], 23., indices.len(), |ui, range| {
+                    for row in range {
+                        let index = indices[row];
+                        let entry = &self.npc_database.entries[index];
+                        // 123 shipped NPC templates carry no name and no rig;
+                        // label them so the row is still selectable.
+                        let label = if entry.name.is_empty() {
+                            format!("Unnamed {}  [{}]", entry.kind.name(), entry.id)
+                        } else {
+                            format!("{}  [{}]", entry.name, entry.id)
+                        };
+                        if ui
+                            .selectable_label(self.npc_selected == Some(index), label)
+                            .clicked()
+                        {
+                            self.npc_selected = Some(index);
+                        }
+                    }
+                });
+            egui::ScrollArea::vertical()
+                .id_source("librarian_npc_details")
+                .show(&mut columns[1], |ui| self.npc_details_ui(ui));
+        });
+    }
+    fn npc_details_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(index) = self.npc_selected else {
+            ui.label("Select an NPC or monster to see its details.");
+            return;
+        };
+        let Some(entry) = self.npc_database.entries.get(index) else {
+            return;
+        };
+        let kind = entry.kind;
+        let id = entry.id;
+        let model = entry.model.clone();
+        let sections = entry.sections(&self.npc_database);
+        let drops = entry.drops();
+        let drop_counts = entry.drop_counts();
+        let skills = entry.skills();
+        let source_monster = entry.source_monster();
+        let heading = if entry.name.is_empty() {
+            format!("Unnamed {}", kind.name())
+        } else {
+            entry.name.clone()
+        };
+        ui.heading(heading);
+        ui.label(format!("ID {id} · {}", kind.name()));
+        if model.is_empty() {
+            ui.colored_label(
+                egui::Color32::YELLOW,
+                "This template names no rig, so there is no model to show.",
+            );
+        } else {
+            if let Some(preview) = &mut self.preview {
+                if let Some(error) = &preview.error {
+                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                }
+                if let Some(error) = &preview.animation_error {
+                    ui.colored_label(egui::Color32::YELLOW, error);
+                }
+                for warning in &preview.warnings {
+                    ui.colored_label(egui::Color32::YELLOW, warning);
+                }
+                let size = ui.available_width().min(300.);
+                let response = preview_image(ui, preview.texture_id, size, preview.flip_vertical);
+                if response.dragged() {
+                    let (mut delta, pan) = ui.input(|i| {
+                        (
+                            i.pointer.delta(),
+                            i.pointer.button_down(egui::PointerButton::Secondary)
+                                || i.modifiers.shift,
+                        )
+                    });
+                    if preview.flip_vertical {
+                        delta.y = -delta.y;
+                    }
+                    if pan {
+                        preview.pan_by(delta);
+                    } else {
+                        preview.yaw += delta.x * 0.01;
+                        preview.pitch = preview3d::orbit_pitch(preview.pitch, delta.y);
+                    }
+                }
+                let mut magnification = 1. / preview.zoom;
+                if ui
+                    .add(
+                        egui::Slider::new(&mut magnification, 0.2..=1. / 0.3)
+                            .logarithmic(true)
+                            .text("Zoom"),
+                    )
+                    .changed()
+                {
+                    preview.zoom = 1. / magnification;
+                }
+                ui.checkbox(&mut preview.flip_vertical, "Flip vertically");
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut preview.turntable, "Turntable");
+                    ui.checkbox(&mut preview.playing, "Animation");
+                });
+                let actions = preview.action_names();
+                if !actions.is_empty() {
+                    let labels: Vec<String> = actions
+                        .iter()
+                        .enumerate()
+                        .map(|(i, name)| preview3d::action_label(name, i))
+                        .collect();
+                    egui::ComboBox::from_label("Action")
+                        .selected_text(
+                            labels
+                                .get(preview.action)
+                                .map(String::as_str)
+                                .unwrap_or("Bind pose"),
+                        )
+                        .show_ui(ui, |ui| {
+                            for (action, name) in labels.iter().enumerate() {
+                                if ui
+                                    .selectable_label(preview.action == action, name)
+                                    .on_hover_text(&actions[action])
+                                    .clicked()
+                                {
+                                    preview.select_action(action);
+                                }
+                            }
+                        });
+                }
+                if preview.playing || preview.turntable {
+                    ui.ctx().request_repaint();
+                }
+                ui.label("Left-drag to orbit; right-drag to move; use the slider to zoom.");
+            } else {
+                ui.label("Preparing preview…");
+            }
+        }
+        if ui
+            .button("Add to comparison")
+            .on_hover_text("Add as a column in the Comparison tab")
+            .clicked()
+            && !self.npc_comparison.contains(&index)
+        {
+            self.npc_comparison.push(index);
+        }
+        ui.separator();
+        for (title, lines) in sections {
+            ui.strong(title);
+            for line in lines {
+                ui.label(line);
+            }
+            ui.separator();
+        }
+        if !drops.is_empty() {
+            ui.strong("Drops");
+            let (times, counts) = drop_counts;
+            let distribution: Vec<String> = counts
+                .iter()
+                .enumerate()
+                .filter(|(_, chance)| **chance > 0.)
+                .map(|(count, chance)| format!("{count}× {:.1}%", chance * 100.))
+                .collect();
+            ui.label(format!(
+                "Rolls: {times}{}",
+                if distribution.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {}", distribution.join(", "))
+                }
+            ));
+            for (id, chance) in drops {
+                let name = self
+                    .database
+                    .by_id
+                    .get(&id)
+                    .map(|&target| self.database.items[target].name.clone())
+                    .unwrap_or_else(|| format!("Item {id} (not an item template)"));
+                if ui
+                    .link(format!("{} · {:.2}%", name, chance * 100.))
+                    .clicked()
+                {
+                    if let Some(&target) = self.database.by_id.get(&id) {
+                        self.selected = Some(target);
+                        self.category = None;
+                        self.section = None;
+                        self.major = None;
+                        self.subtype = None;
+                        self.npcs_open = false;
+                    }
+                }
+            }
+            ui.separator();
+        }
+        if !skills.is_empty() {
+            ui.strong("Skills");
+            for (id, level, when) in skills {
+                let name = self
+                    .database
+                    .skill_names
+                    .get(&id.saturating_mul(10))
+                    .map(|name| descriptions::plain_text(name))
+                    .unwrap_or_else(|| format!("Skill {id}"));
+                ui.label(format!("{name} · level {level} · {when}"));
+            }
+            ui.separator();
+        }
+        if let Some(source) = source_monster {
+            // Resolve both the target and its label before the link, so the
+            // click handler below is free to change the selection.
+            if let Some(&target) = self.npc_database.by_id.get(&source) {
+                let name = self.npc_database.entries[target].name.clone();
+                let label = if name.is_empty() {
+                    format!("Open the monster these attributes come from: monster {source}")
+                } else {
+                    format!("Open the monster these attributes come from: {name} ({source})")
+                };
+                if ui.link(label).clicked() {
+                    self.npc_kind = Some(npcs::Kind::Monster);
+                    self.npc_selected = Some(target);
+                }
+            }
+        }
+    }
+    /// The NPC and monster columns of the shared comparison tab.
+    ///
+    /// NPCs and items have disjoint attributes, so they are laid out as two
+    /// sections of one tab rather than one grid with a column type nobody can
+    /// read across.
+    fn npc_comparison_section(&mut self, ui: &mut egui::Ui) {
+        if self.npc_comparison.is_empty() {
+            return;
+        }
+        ui.heading("NPCs and monsters");
+        // The grid only reads the database, so it runs from borrowed records and
+        // reports the two actions back instead of mutating in place.
+        let entries: Vec<&npcs::Entry> = self
+            .npc_comparison
+            .iter()
+            .filter_map(|&index| self.npc_database.entries.get(index))
+            .collect();
+        if entries.is_empty() {
+            self.npc_comparison.clear();
+            return;
+        }
+        // Both actions are resolved against the list as it is now: removing a
+        // column first would shift what the "open" position refers to.
+        let (remove, jump) = npc_comparison_grid(ui, &entries);
+        if let Some(position) = jump {
+            self.npc_selected = self.npc_comparison.get(position).copied();
+            self.npcs_open = true;
+            self.compare_open = false;
+        }
+        if let Some(position) = remove {
+            if position < self.npc_comparison.len() {
+                self.npc_comparison.remove(position);
+            }
+        }
+        ui.separator();
+    }
     fn comparison_ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Comparison");
+        self.npc_comparison_section(ui);
         if self.comparison.is_empty() {
-            ui.label("Add items from their details to compare them.");
+            if self.npc_comparison.is_empty() {
+                ui.label("Add items from their details, or NPCs and monsters from theirs.");
+            }
             return;
         }
         let mut remove = None;
@@ -797,13 +1312,15 @@ impl State {
                     ui.label("Comparisons and baseline are limited to this category.");
                     egui::Grid::new(("librarian_comparison_grid", category.name()))
                         .striped(true)
+                        .min_col_width(COMPARISON_CELL_WIDTH)
+                        .spacing(egui::vec2(14., 6.))
                         .show(ui, |ui| {
-                            ui.strong("Attribute");
+                            comparison_label(ui, "Attribute");
                             for (group_col, &col) in columns.iter().enumerate() {
                                 let index = self.comparison[col];
                                 let item = &self.database.items[index];
-                                ui.vertical(|ui| {
-                                    if ui.link(&item.name).clicked() {
+                                comparison_cell(ui, |ui| {
+                                    if ui.link(&item.name).on_hover_text(&item.name).clicked() {
                                         jump = Some(index);
                                     }
                                     ui.horizontal(|ui| {
@@ -843,7 +1360,7 @@ impl State {
                                 .map(|&col| &self.database.items[self.comparison[col]])
                                 .collect();
                             for (name, values) in compare::rows(&items) {
-                                ui.label(name);
+                                comparison_label(ui, name);
                                 let baseline = values.first().copied().flatten();
                                 let best = compare::best(name, &values);
                                 for value in values {
@@ -851,27 +1368,14 @@ impl State {
                                         Some(value) => {
                                             let delta =
                                                 baseline.map(|base| value - base).unwrap_or(0.);
-                                            let format_number = |n: f64| {
-                                                if n.fract() == 0. {
-                                                    format!("{n:.0}")
-                                                } else {
-                                                    format!("{n:.2}")
-                                                }
-                                            };
                                             let text = if delta == 0. {
-                                                format_number(value)
+                                                format_value(value)
                                             } else {
-                                                format!("{} ({:+.2})", format_number(value), delta)
+                                                format!("{} ({:+.2})", format_value(value), delta)
                                             };
-                                            if best == Some(value) {
-                                                ui.colored_label(egui::Color32::LIGHT_GREEN, text);
-                                            } else {
-                                                ui.label(text);
-                                            }
+                                            comparison_value(ui, text, best == Some(value));
                                         }
-                                        None => {
-                                            ui.label("—");
-                                        }
+                                        None => comparison_value(ui, "—", false),
                                     }
                                 }
                                 ui.end_row();
@@ -947,6 +1451,12 @@ mod tests {
             selected: Some(0),
             comparison: vec![0],
             compare_open: false,
+            npc_database: npcs::Database::default(),
+            npcs_open: false,
+            npc_kind: Some(npcs::Kind::Npc),
+            npc_search: String::new(),
+            npc_selected: None,
+            npc_comparison: Vec::new(),
             preview: None,
             show_3d: false,
             preview_female: false,
@@ -974,5 +1484,87 @@ mod tests {
         state.compare_open = true;
         run(&mut state);
         assert_eq!(state.database.items[state.comparison[0]].id, 42);
+
+        // The NPC tab renders from its own records.
+        state.npcs_open = true;
+        run(&mut state);
+        assert!(state.npc_database.entries.is_empty() || state.npc_selected.is_none());
+
+        // NPC columns belong to the shared Comparison tab, next to the items. A
+        // stale index into an empty database must be dropped, not panicked on.
+        state.npc_comparison.push(0);
+        state.npcs_open = false;
+        state.compare_open = true;
+        run(&mut state);
+        assert!(state.npc_comparison.is_empty(), "stale NPC column dropped");
+        assert_eq!(state.database.items[state.comparison[0]].id, 42);
+    }
+
+    /// The NPC tab against a real client's own records, skipped when none is
+    /// installed.
+    #[test]
+    fn authentic_npc_and_monster_templates_when_available() {
+        let Ok(path) = std::env::var("PW_LIBRARIAN_ELEMENTS") else {
+            return;
+        };
+        let bytes = std::fs::read(&path).expect("read PW_LIBRARIAN_ELEMENTS");
+        let npcs = npcs::Database::parse(&bytes).expect("parse NPC and monster records");
+        assert_eq!(npcs.count(npcs::Kind::Npc), 2_838, "NPC_ESSENCE templates");
+        assert_eq!(
+            npcs.count(npcs::Kind::Monster),
+            4_208,
+            "MONSTER_ESSENCE templates"
+        );
+
+        let apothecary = &npcs.entries[npcs.by_id[&2109]];
+        assert_eq!(apothecary.name, "Apothecary Cheng");
+        assert_eq!(apothecary.model, "models/npcs/npc/男npc4/男npc4.ecm");
+        assert_eq!(apothecary.source_monster(), Some(2111));
+        assert_eq!(npcs.entries[npcs.by_id[&2111]].name, "Merchant");
+        let labels: Vec<&str> = apothecary
+            .services(&npcs)
+            .iter()
+            .map(|service| service.label)
+            .collect();
+        assert!(labels.contains(&"Sell goods") && labels.contains(&"Offer tasks"));
+        assert!(!apothecary.greeting().is_empty());
+
+        let tauroc = &npcs.entries[npcs.by_id[&986]];
+        assert_eq!(tauroc.name, "Tauroc Valorian");
+        // §39@552 is the captured pet egg; the life total is @556.
+        assert_eq!(tauroc.egg(), Some(11_983));
+        let life = tauroc
+            .attributes()
+            .into_iter()
+            .find(|(name, _)| *name == "Life")
+            .map(|(_, value)| value);
+        assert_eq!(life, Some(10_234.));
+        assert!(!tauroc.drops().is_empty());
+        assert_eq!(tauroc.drops()[0].0, 8_612);
+
+        // Every panel must render from the shipped records: these records are
+        // authored data, so a panic or a wild number means the field map is
+        // wrong, not that the record is odd.
+        for entry in &npcs.entries {
+            let _ = entry.sections(&npcs);
+            let _ = entry.services(&npcs);
+            let _ = entry.drop_counts();
+            let _ = entry.skills();
+            let _ = entry.addons(&npcs);
+            for (name, value) in entry.attributes() {
+                assert!(value.is_finite(), "{} {name} is not finite", entry.id);
+            }
+            for (id, chance) in entry.drops() {
+                assert!(id > 0 && (0.0..=1.0).contains(&chance), "{}", entry.id);
+            }
+            let (times, counts) = entry.drop_counts();
+            assert!(times <= 10, "{} rolls {times} times", entry.id);
+            let total: f64 = counts.iter().map(|share| f64::from(*share)).sum();
+            assert!(
+                times == 0 || (total - 1.0).abs() < 0.001,
+                "{} counts sum to {total}",
+                entry.id
+            );
+        }
     }
 }
