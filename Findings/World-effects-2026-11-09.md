@@ -398,3 +398,31 @@ corpus search to one element in a couple of minutes.
 Windows: `set PWE_EFFECT_CENSUS=1` in `cmd`, or `$env:PWE_EFFECT_CENSUS=1` in
 PowerShell, before starting the viewer; the file lands next to the working
 directory, which is the viewer's own folder for the portable build.
+
+### 6.2 A measured anomaly: six roots author a scale no geometry can use
+
+While ranking corpus quads to find the white sheets, one class of value stood
+out as impossible rather than merely large. Ten `Scale:` keypoints in six roots
+hold values between 4e17 and 1e27:
+
+| root | keypoints | value |
+| --- | --- | --- |
+| `怪物/宠物通用/大龙虾_水波.gfx` | 1 | 1.104e27 |
+| `人物/技能/刺客/回光返照_落光环.gfx` | 3 | 8.263e23 |
+| `人物/技能/刺客/回光返照_左手.gfx` | 1 | 8.263e23 |
+| `怪物/技能/变异沼泽鸟_技能.gfx` | 1 | 1.284e22 |
+| `怪物/宠物通用/麋鹿左角.gfx` | 2 | 4.183e17 |
+| `怪物/宠物通用/麋鹿右角.gfx` | 2 | 4.183e17 |
+
+They sit in the last keypoint of otherwise sane ramps (`0.1, 1.3, 1.0, 1.2,
+0.95, 8.26e23`), which is the shape of an editor writing an uninitialised float
+into the final key, not of an intended size: a 1.9-unit card at 8.26e23 is
+1.6e24 units across. `gfx_player`'s `ElementContext::scale` guards only against
+non-finite and non-positive values, so these pass through intact and the quad
+covers the screen. Both the `ScaleChage` cap (third field, `9999.0` in the same
+file) and any client-side clamp remain uncited, so this file records the
+measurement and nothing is clamped yet — a clamp without a citation would be the
+same kind of guess this audit keeps having to retract.
+
+It is *not* the reported white-blob cause: all six roots are character and
+monster effects, and the blob report is about static scenery.
