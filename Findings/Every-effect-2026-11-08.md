@@ -751,14 +751,6 @@ to 0.48 over 960 ms, so the mechanism animates. `瀑布.gfx`'s curtain elements
 author that negative speed, and the flipbook index and the scroll both handle a
 negative rate.
 
-**Nightfire gas smaller than authored (not diagnosed).** The controller-107
-`Amplitude` cm conversion is well evidenced — a 386-unit dust cloud around a
-0.8-unit particle is not a wobble — and `quad_corners` doubles the authored
-dimensions exactly as the decal path does. Neither explains a cloud that is now
-*too small*. Settling it needs `夜空飘尘.gfx`'s own `Amplitude`, `AreaSize`,
-`ScaleMin`/`ScaleMax` and its controller-111 ramp, and the corpus is not
-available in this session.
-
 **City of Raging Tides broken texture (not diagnosed).** Ruled out by reading
 the code and the round-trip tests: the DXT3 explicit-alpha nibble order, the mip
 chain (the parser validates every declared level against the payload and rejects
@@ -767,6 +759,36 @@ a truncated one), the block stride and layout, the `D3DBLEND` map (2=ONE,
 vertical white noise streaks where a sheet should be — is also exactly what the
 `ClampToEdge` bug produced, so it may be the same defect already reverted; that
 cannot be confirmed without a capture.
+
+### Update 10 — the Nightfire gas, and the centimetre conversion that caused it
+
+**Retracted: controller 107's `Amplitude` is not in centimetres.** Update 9
+recorded the `/100` as "well evidenced". It was not. The case rested on a corpus
+median: the p50 amplitude is 200 while its roots are a quarter of a unit across,
+so a world-unit reading makes the median 64x its element. That statistic is
+computed over *all* roots carrying the controller, and those are dominated by
+small sprite effects; it says nothing about the element the controller exists
+for. `夜空飘尘` — the drifting sky dust behind the Nightfire altar — authors
+bounds 75 x 253 and `Amplitude: 400`. In world units the wobble is 2.9x that
+volume's own diagonal, which is what a sheet of drifting dust is. Divided by a
+hundred it is 2.9% of the volume: a small clump, exactly the report.
+
+The rescale is gone; the authored value now reaches the offset unchanged, on
+both the element path and the particle path. The test drives the authored 400
+and measures the sprite's displacement: **7.73 units with the division put
+back, well past 20 without**, so it fails on the old code rather than merely
+describing the new one.
+
+**Still open: City of Raging Tides.** Round-trip reading rules out the DXT3
+explicit-alpha nibble order, the mip chain (every declared level is validated
+against the payload), the block stride, the `D3DBLEND` map (2=ONE, 5=SRCALPHA,
+3=SRCCOLOR) and the AARRGGBB byte order. Every sampler in the effect path is
+`Repeat`, the fake-blend pipelines declare no culling, the quad corner order
+matches its UV order, and a texture that will not load is replaced by a fully
+transparent texel rather than a white one. The screenshot signature — vertical
+white streaks where a sheet should be — is the same one the `ClampToEdge` bug
+produced, and that is reverted; whether City of Raging Tides is the same defect
+cannot be settled without a capture from the fixed build.
 
 ### Method note
 

@@ -1872,6 +1872,8 @@ fn apply_controls(
                     (*octaves).max(1) as usize,
                     *buffer_length,
                 );
+                // World units, as authored — the same reading as the particle
+                // path; a conversion here is what shrank the Nightfire gas.
                 let amplitude = *amplitude;
                 state.noise = Vec3::new(sample, sample * 0.5, sample * 0.25) * amplitude;
             }
@@ -2386,16 +2388,6 @@ fn push_quad(
         mesh: None,
     });
 }
-
-/// Controller 107's `Amplitude` reaches the offset in world units.
-///
-/// It was briefly divided by 100 on the reading that the values are authored in
-/// centimetres. That was a retraction: the corpus median it rested on is
-/// dominated by tiny sprite effects, and the element it was meant to explain
-/// says the opposite. `夜空飘尘` authors bounds 75 x 253 and `Amplitude: 400`, so
-/// in world units the wobble is 2.9x the volume's own diagonal — drifting sky
-/// dust. Divided by 100 it is 2.9% of that volume, a small clump, which is the
-/// "gas is smaller than it should be" report. The value is used as authored.
 
 /// The stateless classes: sprites, cylinders and grids. Lights belong to
 /// `gfx_light`, models to the model queue and sounds to the audio path; all
@@ -3752,6 +3744,8 @@ fn integrate(
                 // gives the same value a fresh particle would have, which is
                 // what makes `Amplitude` a wobble instead of a drift.
                 let amplitude = *amplitude;
+                // World units, as authored; see
+                // `the_fractal_amplitude_is_world_units_and_is_not_rescaled`.
                 let offset = Vec3::new(sample, sample * 0.5, sample * 0.25) * amplitude;
                 state.position = state.origin + state.displacement + offset;
             }
