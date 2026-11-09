@@ -44,6 +44,48 @@ fn format_value(value: f64) -> String {
     }
 }
 
+/// Cell width for a comparison column.
+///
+/// The longest names the shipped data carries are 31 characters for an NPC and
+/// 32 for a monster, at the default 12.5 px text size, so about 200 px keeps a
+/// whole name on one line. A grid column's width defaults to `interact_size.x`
+/// (about 40 px), and a label wrapped into that strip measures narrow, so the
+/// column never grew with it -- which is what folded names onto several lines
+/// and cropped them. An explicit width per cell fixes the squeeze at its cause.
+const COMPARISON_CELL_WIDTH: f32 = 200.;
+/// The attribute name column only has to fit the longest field name.
+const COMPARISON_LABEL_WIDTH: f32 = 165.;
+
+/// One cell of a comparison grid, sized and unwrapped so it cannot be squeezed
+/// into a narrow strip.
+fn comparison_cell(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+    ui.vertical(|ui| {
+        // A fixed width also makes `wrap_text()` false for this cell, because
+        // that only reports true while the cell's maximum width is unbounded.
+        ui.set_width(COMPARISON_CELL_WIDTH);
+        add(ui);
+    });
+}
+
+/// The attribute-name cell.
+fn comparison_label(ui: &mut egui::Ui, text: &str) {
+    ui.vertical(|ui| {
+        ui.set_width(COMPARISON_LABEL_WIDTH);
+        ui.add(egui::Label::new(text).wrap(false));
+    });
+}
+
+/// A value cell: never wraps, and elides with a tooltip rather than being cut.
+fn comparison_value(ui: &mut egui::Ui, text: impl Into<String>, highlight: bool) {
+    let mut text = egui::RichText::new(text.into());
+    if highlight {
+        text = text.color(egui::Color32::LIGHT_GREEN);
+    }
+    comparison_cell(ui, |ui| {
+        ui.add(egui::Label::new(text).truncate(true));
+    });
+}
+
 /// Comparison grid shared by every NPC and monster column. Returns the column a
 /// user asked to remove and the column a user asked to open.
 fn npc_comparison_grid(
@@ -58,17 +100,22 @@ fn npc_comparison_grid(
         .show(ui, |ui| {
             egui::Grid::new("librarian_npc_comparison_grid")
                 .striped(true)
+                .min_col_width(COMPARISON_CELL_WIDTH)
+                .spacing(egui::vec2(14., 6.))
                 .show(ui, |ui| {
-                    ui.strong("Attribute");
+                    comparison_label(ui, "Attribute");
                     for (position, entry) in entries.iter().enumerate() {
-                        ui.vertical(|ui| {
+                        comparison_cell(ui, |ui| {
                             // 123 shipped NPC templates carry no name.
                             let name = if entry.name.is_empty() {
                                 format!("Unnamed {}", entry.kind.name())
                             } else {
                                 entry.name.clone()
                             };
-                            if ui.link(name).clicked() {
+                            // A link is a frameless button, so it extends rather
+                            // than wrapping the way a plain label does; the
+                            // tooltip still carries the whole name.
+                            if ui.link(name.clone()).on_hover_text(name).clicked() {
                                 jump = Some(position);
                             }
                             ui.label(entry.kind.name());
@@ -83,7 +130,7 @@ fn npc_comparison_grid(
                     }
                     ui.end_row();
                     for (name, values) in &rows {
-                        ui.label(*name);
+                        comparison_label(ui, name);
                         let baseline = values.first().copied().flatten();
                         let best = npcs::best(name, values);
                         for value in values {
@@ -99,15 +146,9 @@ fn npc_comparison_grid(
                                         }
                                         _ => format_value(*value),
                                     };
-                                    if best == Some(*value) {
-                                        ui.colored_label(egui::Color32::LIGHT_GREEN, text);
-                                    } else {
-                                        ui.label(text);
-                                    }
+                                    comparison_value(ui, text, best == Some(*value));
                                 }
-                                None => {
-                                    ui.label("—");
-                                }
+                                None => comparison_value(ui, "—", false),
                             }
                         }
                         ui.end_row();
@@ -1271,13 +1312,15 @@ impl State {
                     ui.label("Comparisons and baseline are limited to this category.");
                     egui::Grid::new(("librarian_comparison_grid", category.name()))
                         .striped(true)
+                        .min_col_width(COMPARISON_CELL_WIDTH)
+                        .spacing(egui::vec2(14., 6.))
                         .show(ui, |ui| {
-                            ui.strong("Attribute");
+                            comparison_label(ui, "Attribute");
                             for (group_col, &col) in columns.iter().enumerate() {
                                 let index = self.comparison[col];
                                 let item = &self.database.items[index];
-                                ui.vertical(|ui| {
-                                    if ui.link(&item.name).clicked() {
+                                comparison_cell(ui, |ui| {
+                                    if ui.link(&item.name).on_hover_text(&item.name).clicked() {
                                         jump = Some(index);
                                     }
                                     ui.horizontal(|ui| {
@@ -1317,7 +1360,7 @@ impl State {
                                 .map(|&col| &self.database.items[self.comparison[col]])
                                 .collect();
                             for (name, values) in compare::rows(&items) {
-                                ui.label(name);
+                                comparison_label(ui, name);
                                 let baseline = values.first().copied().flatten();
                                 let best = compare::best(name, &values);
                                 for value in values {
@@ -1325,27 +1368,14 @@ impl State {
                                         Some(value) => {
                                             let delta =
                                                 baseline.map(|base| value - base).unwrap_or(0.);
-                                            let format_number = |n: f64| {
-                                                if n.fract() == 0. {
-                                                    format!("{n:.0}")
-                                                } else {
-                                                    format!("{n:.2}")
-                                                }
-                                            };
                                             let text = if delta == 0. {
-                                                format_number(value)
+                                                format_value(value)
                                             } else {
-                                                format!("{} ({:+.2})", format_number(value), delta)
+                                                format!("{} ({:+.2})", format_value(value), delta)
                                             };
-                                            if best == Some(value) {
-                                                ui.colored_label(egui::Color32::LIGHT_GREEN, text);
-                                            } else {
-                                                ui.label(text);
-                                            }
+                                            comparison_value(ui, text, best == Some(value));
                                         }
-                                        None => {
-                                            ui.label("—");
-                                        }
+                                        None => comparison_value(ui, "—", false),
                                     }
                                 }
                                 ui.end_row();
