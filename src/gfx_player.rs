@@ -102,7 +102,6 @@ use crate::{
         Child, Common, Control, ControlData, Curve, Cylinder, Element, Grid, KeyPoint, Lightning,
         Particle, Root, Spec, Sprite, Trail,
     },
-    view_settings::EffectShaft,
 };
 use glam::{Mat4, Quat, Vec3, Vec4};
 
@@ -3229,6 +3228,62 @@ fn drape_sprite(
         GROUND_DRAPE_LIFT
     );
     true
+}
+
+/// Which rule builds the shaft of a `RotFromView` card.
+///
+/// The client's rule is `RotateVec(GetParentDir() * kp.m_vDir, _unit_z)`
+/// (`A3DDecalEx::Fill_Verts_3D`, A3DDecalEx.cpp:365): the placement's own Z
+/// axis, so a keypoint that turns Z onto the world's Y produces a shaft that
+/// stands up. That is the default and it is what the decal channel reports as
+/// `basis=axial`.
+///
+/// Three rounds of reports said the Archosaur beam and the forest sun-shafts
+/// point the wrong way while the log said the card was built exactly the way
+/// the client builds it, and a log cannot say which of the two is wrong: the
+/// card's size and basis are the same numbers either way. These four modes put
+/// every candidate rule behind one switch, so one build can show all of them in
+/// the same camera and the footage can pick the winner.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum EffectShaft {
+    /// The client's rule: the placement's own Z axis.
+    #[default]
+    Client,
+    /// The root's direction, with the keypoint quaternion taken back out.
+    RootDir,
+    /// World up, for a shaft that should always stand.
+    WorldUp,
+    /// The placement's Z axis flattened into the world's horizontal plane.
+    Horizontal,
+}
+impl EffectShaft {
+    pub const ALL: [Self; 4] = [Self::Client, Self::RootDir, Self::WorldUp, Self::Horizontal];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Client => "Client (placement Z)",
+            Self::RootDir => "Root direction",
+            Self::WorldUp => "World up",
+            Self::Horizontal => "Horizontal",
+        }
+    }
+    /// Persisted spelling and the token the decal channel prints.
+    pub fn token(self) -> &'static str {
+        match self {
+            Self::Client => "client",
+            Self::RootDir => "root",
+            Self::WorldUp => "up",
+            Self::Horizontal => "flat",
+        }
+    }
+    pub(crate) fn parse(text: &str) -> Option<Self> {
+        match text {
+            "client" => Some(Self::Client),
+            "root" => Some(Self::RootDir),
+            "up" => Some(Self::WorldUp),
+            "flat" => Some(Self::Horizontal),
+            _ => None,
+        }
+    }
 }
 
 /// The four world-space corners of a quad, using the anchor and per-axis
