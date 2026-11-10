@@ -1233,3 +1233,104 @@ instant and 2024-02-29.)
   name them, and it was not ticked in any of the four captures.
 * **Models that never load.** `盆景水晶.gfx id=160 meshes=0` is reported on
   `effect-problems`, which was also not ticked.
+
+## 16. The engine's own element and control tables, read from the pw152 source
+
+The `GfxCommon` folder in the report (`pw152source/GfxCommon`) is the real
+engine, not a decompilation: `A3DGFXEx.cpp`, `A3DGFXElement.{h,cpp}`,
+`A3DDecalEx.cpp`, `A3DGFXRing.cpp`, `A3DGFXKeyPoint.cpp`, `A3DGFXLight.cpp`,
+`A3DGFXExMan.cpp` and the rest. Three of this round's fixes come straight out of
+it, and so do two corrections to what the viewer thought its elements were.
+
+### The element table (`A3DGFXElement.h:26-51`)
+
+| Id | Class | Viewer before this round |
+| --- | --- | --- |
+| 100/101/102 | `A3DDecalEx` 3D / 2D / billboard | correct |
+| 110 | `A3DTrail` | correct |
+| 120..125 | particle emitters | correct |
+| 130 | `A3DGFXLight` | correct |
+| **140** | **`A3DGFXRing`** | parsed as `Cylinder`, and rendered as one |
+| 150 | `A3DGFXLightning` | called `Fractal` |
+| 151 | `A3DLtnBolt` | called `Lightning` |
+| 152 | `A3DGFXLightningEx` | called `Trail` |
+| 160 | `A3DGFXModel` | correct |
+| 170 | sound | correct |
+| 180 | `A3DLtnTrail` | called `Wave` |
+| **190** | **`A3DGFXParaboloid`** | called `Curve`, and built from the *root's* `Vec` pair |
+| 200 | `A3DGFXContainer` | correct |
+| 210/211 | grid decal 3D / 2D | correct |
+| 220/221 | physics emitters | not parsed |
+| 230 | `A3DGFXECModel` | not parsed |
+
+The 140 row is only a naming debt — `A3DGFXRing::InitStreamBuffer` and
+`FillVertexBuffer` are what `emit_cylinder` already reproduces, including the
+`Sects: 0` default of 36, the `fDeltaRadius = fHalfHeight * tan(pitch)` clamp and
+the strip's `tu = i * TexWid / nSect`. **The 190 row is not.** Element 190 is a
+paraboloid, and the viewer has been rendering it as a "curve" that takes its two
+endpoints from the owner's `Vec:` pair. That is why the floating city, whose
+roots are full of 190s, is the one place the effect reads worst.
+
+### The control table (`a3dgfxkeypoint.h:34-47`)
+
+| Id | Class | Effect on the keypoint |
+| --- | --- | --- |
+| 100 | `A3DGFXCtrlMove` | position += Dir * dist |
+| 101 | `A3DGFXCtrlRot` | **`Rad_2D` += dist** (the card's own 2D spin) |
+| 102 | `A3DGFXCtrlRotAxis` | `m_vDir = Q(axis, dist) * m_vDir`, position orbits the axis line |
+| 103 | `A3DGFXCtrlRevol` | same shape |
+| 104 | `A3DGFXCtrlCentriMove` | pulls toward `Pos` |
+| 105 | `A3DGFXCtrlColorChange` | per-channel colour rates |
+| 106 | `A3DGFXCtrlScaleChange` | scale ramp with min/max |
+| 107..112 | noise / colour transfer / scale transfer / curve move | **parsed as load errors** |
+
+Two things fell out of that table:
+
+* `A3DGFXCtrlRotAxis::Process` builds the spin as `Q(m_vAxis, fDist)` and
+  **left**-multiplies the keypoint direction. The player accumulated a scalar
+  and multiplied `Quat::from_axis_angle(Vec3::Z, orbit)` on the *right*: a
+  different rotation for every axis an artist did not author as Z, and about the
+  wrong frame even then. That is the Wraithgate "spinning lights" shape of
+  error — a spin that turns the card about an axis nobody authored.
+* `CtrlType: 112` is `ID_KPCTRL_NOISE_BASE`, and 241 retail controls are exactly
+  that. The parser rejects 107..112 as "unsupported", so **every element that
+  carries one fails to load** — a silent whole-root loss, not a cosmetic
+  difference. This is the next thing to parse.
+
+### Texture animation (`A3DGFXElement.h:521-577`, `A3DGFXElement.cpp:1250-1276`)
+
+```cpp
+void CalcTexAnimation() {          // tile: wid = TexCol, hei = TexRow
+    if (m_bTileMode) { m_fTexWid = (float)m_nTexCol; m_fTexHei = (float)m_nTexRow; }
+    else if (m_nTexRow == 1 && m_nTexCol == 1) m_bNeedCalcTex = false;
+    else { m_fTexWid = 1.f / m_nTexCol; m_fTexHei = 1.f / m_nTexRow; }
+}
+void TexAnimation(DWORD dwTickTime) {
+    if (m_bTileMode) {
+        m_fTexU += m_fUOffsetSpeed * dwTickTime * .001f;   // scroll, tile only
+        m_fTexV += m_fVOffsetSpeed * dwTickTime * .001f;
+    } else {
+        m_dwTexTimeRemain += dwTickTime;
+        if (m_dwTexTimeRemain < m_dwTexInterval) return;
+        m_dwTexTimeRemain -= m_dwTexInterval;
+        if (++m_nCurTexCol >= m_nTexCol) { if (++m_nCurTexRow >= m_nTexRow) { row = 0; col = 0; } else col = 0; }
+        m_fTexU = m_fTexWid * m_nCurTexCol;                 // assigned, never scrolled
+        m_fTexV = m_fTexHei * m_nCurTexRow;
+    }
+}
+bool TickAnimation(DWORD dwTickTime) {
+    m_dwTexTickCount += dwTickTime;
+    if (m_bTileMode || m_dwTexTimeTotal == 0 || m_dwTexTimeTotal > m_dwTexTickCount)
+        TexAnimation(dwTickTime);      // past the total: the sheet holds its frame
+}
+```
+
+The viewer did both halves of that at once: it stepped the flipbook cell **and**
+added `TexSpeed * time` on top. `水门_瀑布` authors `TexSpeed (0, -1.5)` with
+`TileMode 0` and a `3x2` atlas, so after twenty seconds its UV window sat thirty
+texture heights below the sheet and the card sampled nothing but the edge. That
+is the flat white sheet. The atlas was stepping the whole time; the scroll on top
+is what hid it.
+
+`TexAnimMaxTime` also stops the walk where it stands rather than shortening the
+loop, which the old `limit = clamp(total / interval, 1, cells)` got wrong.
