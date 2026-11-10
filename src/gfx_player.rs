@@ -617,7 +617,11 @@ struct CtrlState {
     offset: Vec3,
     velocity: Vec3,
     rotation: f32,
-    orbit: f32,
+    /// The accumulated `CtrlType: 102`/`103` spin, as a quaternion about the
+    /// axis the record authors. The client left-multiplies it onto the keypoint
+    /// direction (`A3DGFXCtrlRotAxis::Process`: `Q(m_vAxis, angle) * m_vDir`),
+    /// so it is a rotation in the owner's frame, not about the element's own Z.
+    orbit: Quat,
     scale_extra: f32,
     color_offset: [i32; 4],
     /// Sub-integer carry of controller 105, one per channel (ctrl+0x24..0x30).
@@ -703,7 +707,7 @@ impl CtrlState {
             offset: Vec3::ZERO,
             velocity: Vec3::ZERO,
             rotation: 0.,
-            orbit: 0.,
+            orbit: Quat::IDENTITY,
             scale_extra: 0.,
             color_offset: [0; 4],
             color_remainder: [0.; 4],
@@ -1792,8 +1796,13 @@ fn advance_element(
         .unwrap_or(runtime.state.offset + runtime.state.noise);
     // The interpolated keypoint orientation, not the raw one: a root that
     // authors two keypoints with different `Direction` quaternions turns
-    // smoothly between them, and ctrl 100's `Dir` orbit spins on top of that.
-    let direction = sampled.direction * Quat::from_axis_angle(Vec3::Z, runtime.state.orbit);
+    // smoothly between them, and a 102/103 axis spin turns on top of that.
+    // `A3DGFXCtrlRotAxis::Process` builds the spin as `Q(m_vAxis, angle)` and
+    // multiplies it on the **left** of `m_vDir`, so it acts in the owner's
+    // frame. The first version of this line spun about the element's own Z on
+    // the right instead, which is a different rotation for every axis an artist
+    // did not author as Z.
+    let direction = runtime.state.orbit * sampled.direction;
     let placement = base * Mat4::from_rotation_translation(direction, sampled.position + offset);
     // Publish the world placement before anything consumes it, so an element
     // bound to this one follows the matrix it actually used. `0x6fe120` reads
@@ -2102,13 +2111,16 @@ fn apply_controls(
                 acc,
             } => {
                 let dspl = displacement(*vel, *acc, local, dt);
-                state.orbit += dspl;
                 let axis = if axis.length_squared() > 1e-12 {
                     axis.normalize()
                 } else {
                     Vec3::Y
                 };
                 let rotation = Quat::from_axis_angle(axis, dspl);
+                // `A3DGFXCtrlRotAxis::Process` does both halves: it spins the
+                // keypoint direction about the authored axis, and it orbits the
+                // keypoint position around that axis through `m_vPos`.
+                state.orbit = rotation * state.orbit;
                 state.offset = rotation * (state.offset - *pos) + *pos;
             }
             ControlData::Attract { pos, vel, acc } => {
@@ -2632,13 +2644,24 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
         } else {
             common.tex_interval as f32
         };
-        let limit = if common.tex_anim_max_time > 0. {
-            ((common.tex_anim_max_time / interval) as u32).clamp(1, cells)
-        } else {
-            cells
+        // `TexAnimMaxTime` stops the walk where it stands, it does not shorten
+        // the loop. `A3DGFXElement::TickAnimation` gates the tick itself:
+        //
+        //     m_dwTexTickCount += dwTickTime;
+        //     if (m_bTileMode || m_dwTexTimeTotal == 0 || m_dwTexTimeTotal > m_dwTexTickCount)
+        //         TexAnimation(dwTickTime);
+        //
+        // so once the tick count passes the authored total the element stops
+        // calling `TexAnimation` and the sheet holds the frame it had reached
+        // ("停留在最后一帧上", A3DGFXElement.cpp:1268-1274). The tile branch is
+        // exempt, and a zero total never stops. Holding the clock at the total
+        // reproduces that exactly.
+        let tick = match common.tex_anim_max_time {
+            total if total > 0. && clock_ms > total => total,
+            _ => clock_ms.max(0.),
         };
         let index = if interval.is_finite() {
-            ((clock_ms.max(0.) / interval).floor() as u32) % limit
+            ((tick / interval).floor() as u32) % cells
         } else {
             0
         };
@@ -2650,13 +2673,19 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
         let dv = 1. / rows as f32;
         uv = [[u0, v0], [u0 + du, v0], [u0, v0 + dv], [u0 + du, v0 + dv]];
     }
-    // Two `TexSpeed` values under one key scroll U and V continuously.
-    let scroll_u = common.tex_speed[0] * clock_ms / 1000.;
-    let scroll_v = common.tex_speed[1] * clock_ms / 1000.;
-    for point in &mut uv {
-        point[0] += scroll_u;
-        point[1] += scroll_v;
-    }
+    // `TexSpeed` is a `TileMode` value and nothing else. The client reads both
+    // halves into `m_fUOffsetSpeed`/`m_fVOffsetSpeed` at version 34 and uses
+    // them in exactly one branch of `A3DGFXElement::TexAnimation`:
+    //
+    //     if (m_bTileMode) { m_fTexU += m_fUOffsetSpeed * dt; m_fTexV += m_fVOffsetSpeed * dt; }
+    //     else { ...step m_nCurTexCol/m_nCurTexRow...; m_fTexU = m_fTexWid * col; }
+    //
+    // and the tile branch above has already returned. Scrolling here as well
+    // meant a flipbook added `TexSpeed * time` on top of its cell: `水门_瀑布`
+    // authors `TexSpeed (0, -1.5)` with `TileMode 0` and a `3x2` atlas, so after
+    // twenty seconds its window sat thirty texture heights below the sheet and
+    // the card sampled nothing but the edge — the flat white sheet in the
+    // report. The atlas was stepping underneath the whole time.
     apply_uv_flips(&mut uv, common);
     uv
 }
@@ -8200,18 +8229,21 @@ mod tests {
             "clock 750 wraps to cell 1"
         );
 
-        // `TexAnimMaxTime` shortens the walk: 300 ms at a 100 ms interval is
-        // three cells, so the fourth is never reached.
+        // `TexAnimMaxTime` stops the walk where it stands instead of shortening
+        // the loop: `TickAnimation` simply stops calling `TexAnimation` once
+        // `m_dwTexTickCount` passes the total, so the sheet holds its last
+        // reached frame (A3DGFXElement.cpp:1268-1274).
         // The minimal sprite record carries no `TexAnimMaxTime`, so add it where
         // the retail element-100 layout puts it: after `Warp`, before `Width`.
         let limited = source.replace("Warp: 0\r\n", "Warp: 0\r\nTexAnimMaxTime: 300\r\n");
         let mut player = build(&limited);
-        // limit = clamp(300 / 100, 1, 6) = 3 cells, so the walk is 0, 1, 2, 0.
+        // 300 ms at a 100 ms interval reaches cell 3, and the walk stops there:
+        // clock 350 still reads cell 3.
         for (dt, clock, want) in [
             (0., 0., [0., 0.]),
             (150., 150., [1. / 3., 0.]),
             (100., 250., [2. / 3., 0.]),
-            (100., 350., [0., 0.]),
+            (100., 350., [0., 0.5]),
         ] {
             step(&mut player, dt);
             assert_eq!(player.quads()[0].uv[0], want, "clock {clock}");
