@@ -3618,6 +3618,23 @@ fn emit_curve(curve: &Curve, context: &ElementContext, out: &mut Vec<EffectQuad>
     // endpoints and the degenerate-chord gate.
     let segments = (length / curve.coefficient.max(1e-3)).clamp(1.0, 256.0) as usize;
     let segments = segments.max(1);
+    crate::diag!(
+        EffectTrails,
+        "{} id={} curve length={:.2} coefficient={:.3} segments={} half_width={:.3} \
+         from=({:.2},{:.2},{:.2}) to=({:.2},{:.2},{:.2})",
+        context.root,
+        context.id,
+        length,
+        curve.coefficient,
+        segments,
+        curve.height * 0.5 * context.scale,
+        start.x,
+        start.y,
+        start.z,
+        end.x,
+        end.y,
+        end.z
+    );
     let uv = flipbook_uv(context.common, context.clock);
     let color = rgba(context.color, context.color_scale);
     if color[3] < ALPHA_CUTOFF {
@@ -4659,6 +4676,16 @@ fn emit_ribbon(
     out: &mut Vec<EffectQuad>,
 ) {
     stats.ribbons += 1;
+    crate::diag!(
+        EffectTrails,
+        "{} id={} ribbon/wave segments={} colour={:#010x} alpha={:.3} clock={:.0}ms",
+        context.root,
+        context.id,
+        ribbon.vertices.len(),
+        context.color,
+        context.rgba()[3],
+        context.clock
+    );
     let color = context.rgba();
     if color[3] < ALPHA_CUTOFF {
         return;
@@ -4875,6 +4902,19 @@ fn emit_fractal(
     out: &mut Vec<EffectQuad>,
 ) {
     stats.ribbons += 1;
+    crate::diag!(
+        EffectTrails,
+        "{} id={} fractal/trail records={} laid={} offsets={} colour={:#010x} alpha={:.3} \
+         clock={:.0}ms",
+        context.root,
+        context.id,
+        fractal.trail.records.len(),
+        fractal.trail.laid,
+        fractal.offsets.len(),
+        context.color,
+        context.rgba()[3],
+        context.clock
+    );
     let color = context.rgba();
     if color[3] < ALPHA_CUTOFF {
         return;

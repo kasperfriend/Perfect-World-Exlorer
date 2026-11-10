@@ -538,6 +538,36 @@ impl Manager {
         {
             return Err(format!("duplicate GFX owner identity {}", request.identity));
         }
+        // The scene channel: the record exactly as the map asked for it. Paired
+        // with `effect-roots` (which says what the loader did with it) this is the
+        // whole path from `world.ecwld` to a drawn card.
+        crate::diag!(
+            SceneEffects,
+            "{} -> {} speed={:.3} start={}ms span={:?} alpha={:?} active={} \
+             pos=({:.1},{:.1},{:.1}) right=({:.2},{:.2},{:.2}) up=({:.2},{:.2},{:.2}) \
+             dir=({:.2},{:.2},{:.2}) scale_x={:.3} attached={}",
+            request.origin,
+            request.path,
+            request.speed,
+            request.start_ms,
+            request.span_ms,
+            request.outer.map(|outer| outer[3]),
+            request.active,
+            request.transform[12],
+            request.transform[13],
+            request.transform[14],
+            request.transform[0],
+            request.transform[1],
+            request.transform[2],
+            request.transform[4],
+            request.transform[5],
+            request.transform[6],
+            request.transform[8],
+            request.transform[9],
+            request.transform[10],
+            placement_scale(&request.transform),
+            request.attachment.is_some()
+        );
         let serial = self.next_serial;
         self.next_serial = self.next_serial.wrapping_add(1);
         self.owners.push(Owner {
@@ -953,6 +983,12 @@ impl Manager {
                     }
                 }
                 crate::diag!(
+                    ModelQueue,
+                    "{} admitted on frame {} (one root per frame, 0x5b1a00)",
+                    player.name(),
+                    self.frames
+                );
+                crate::diag!(
                     EffectRoots,
                     "{} built: warnings={} textures={} models={} quads={} \
                      previous_failures={}",
@@ -967,6 +1003,7 @@ impl Manager {
             }
             Err(error) => {
                 crate::diag!(EffectProblems, "{path} would not build: {error}");
+                crate::diag!(ModelQueue, "{path} rejected while loading effects: {error}");
                 self.owners[index].player_failed = true;
                 self.effect_failures.push(format!("{origin}: {error}"));
             }

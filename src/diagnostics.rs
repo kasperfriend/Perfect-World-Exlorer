@@ -513,6 +513,37 @@ impl Channel {
         }
     }
 
+    /// Whether this build has a call site for the channel yet.
+    ///
+    /// The list is honest rather than aspirational: a ticked channel with no hook
+    /// would write an empty file, and an empty file looks exactly like a
+    /// subsystem that is working. The settings tab marks the rest so a report is
+    /// never built on a channel that could not have said anything.
+    pub fn wired(self) -> bool {
+        matches!(
+            self,
+            Self::EffectRoots
+                | Self::EffectElements
+                | Self::EffectFrames
+                | Self::EffectCards
+                | Self::EffectUv
+                | Self::EffectTextures
+                | Self::EffectAlpha
+                | Self::EffectGround
+                | Self::EffectParticles
+                | Self::EffectTrails
+                | Self::EffectModels
+                | Self::EffectLights
+                | Self::EffectCulling
+                | Self::EffectClock
+                | Self::EffectDecals
+                | Self::EffectProblems
+                | Self::SceneEffects
+                | Self::ModelQueue
+                | Self::RenderEffects
+        )
+    }
+
     /// Minimum milliseconds between two lines of this channel. Structural
     /// channels (loads, tables, placements) are 0 — they happen once. Per-frame
     /// channels are throttled so a heavy scene cannot turn logging into the
@@ -930,6 +961,14 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
                     if response.changed() {
                         *mask = if on { *mask | bit } else { *mask & !bit };
                         changed = true;
+                    }
+                    if !channel.wired() {
+                        ui.label(
+                            egui::RichText::new("no hook in this build yet")
+                                .small()
+                                .weak()
+                                .italics(),
+                        );
                     }
                     let written = count(*channel);
                     let dropped = suppressed(*channel);
