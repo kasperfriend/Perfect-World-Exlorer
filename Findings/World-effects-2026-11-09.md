@@ -712,8 +712,29 @@ verts[0] = vPos - (vDir * fHeight1) + (vUp * fWidth2);
 verts[2] = vPos - (vDir * fHeight1) - (vUp * fWidth1);
 ```
 
-The card's **height runs along the element's own direction** and only its width
-turns to the camera. Drawing these as screen-facing quads is what turned
+The card's **height runs along the shaft direction** and only its width turns to
+the camera. That direction is *not* the element's Z axis: Angelica is a
+row-vector engine, `SetDirAndUp` writes the basis as **rows**
+(A3DGFXEx.cpp:1574-1585: `SetRow(0, right)`, `SetRow(1, up)`, `SetRow(2, dir)`),
+so `RotateVec(m_qDir * kp.m_vDir, _unit_z)` is the third *column* of that
+row-major basis — the parent's inverse rotation applied to the keypoint
+direction, `(right.z, up.z, dir.z)`.
+
+The shipped `world.ecwld` decides this on its own records (read 9 November,
+2,275 effect placements, `google_drive/world.ecwld`):
+
+| Record | `dir` | `up` | Third column | Reads as |
+| --- | --- | --- | --- | --- |
+| `天煞光束` (1528.0, 602.5, 1032.3) | (0, 0, 1) | (0, -1, 0) | (0, 0, 1) | horizontal shaft |
+| `天煞光束` (491.1, 526.2, -876.9) | (0, 0, 1) | (0, 1, 0) | (0, 0, 1) | horizontal shaft |
+| `树林光束` (232.3, 229.1, 2960.8) | (0, 0.565, 0.825) | (0, 0.825, -0.565) | (0, -0.565, 0.825) | 34 degrees **down** |
+
+The Archosaur pair is horizontal in both variants, which is what the footage
+shows, and the 49 `树林光束` placements all tilt along the column rather than
+along their authored `dir`. Reading `dir` directly tilted every forest shaft the
+wrong way through the vertical — the "sun rays point in random directions"
+report. `a_rot_from_view_shaft_follows_the_row_major_basis` pins all three rows
+of that table. Drawing these as screen-facing quads is what turned
 `树林光束` into 123-unit walls over the tree tops (the "sun rays are too big"
 report) and what made the Archosaur shafts read horizontally in one spot and
 vertically in the next: both `天煞光束` records author `direction (0, 0, 1)` with
