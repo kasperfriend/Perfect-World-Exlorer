@@ -1228,16 +1228,6 @@ fn describe_files(files: &[(Channel, PathBuf, u64)]) -> String {
     format!("{} channel files, {}", files.len(), human_bytes(bytes))
 }
 
-fn human_bytes(bytes: u64) -> String {
-    if bytes >= 1024 * 1024 {
-        format!("{:.1} MB", bytes as f64 / (1024. * 1024.))
-    } else if bytes >= 1024 {
-        format!("{:.1} kB", bytes as f64 / 1024.)
-    } else {
-        format!("{bytes} B")
-    }
-}
-
 /// Write [`summary_text`] into the log folder as `summary.log`, replacing the
 /// previous one, and remember a note for the button's row.
 pub fn write_summary() -> Result<PathBuf, String> {
