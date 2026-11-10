@@ -2161,7 +2161,11 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
             .clicked()
         {
             if let Err(error) = write_summary() {
-                ui.label(egui::RichText::new(format!("no summary: {error}")).small().weak());
+                ui.label(
+                    egui::RichText::new(format!("no summary: {error}"))
+                        .small()
+                        .weak(),
+                );
             }
         }
     });
@@ -2439,7 +2443,10 @@ mod tests {
         .expect("culled");
         let text = summary_text(&dir);
         assert!(text.contains("gfx/场景/花瓣分飞.gfx id=121"), "{text}");
-        assert!(text.contains("(x200)"), "the repeat has to be counted: {text}");
+        assert!(
+            text.contains("(x200)"),
+            "the repeat has to be counted: {text}"
+        );
         assert!(text.contains("gfx/场景/水门_瀑布.gfx id=100"), "{text}");
         assert_eq!(
             text.matches("gfx/场景/花瓣分飞.gfx id=121 #").count(),
