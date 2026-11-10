@@ -766,10 +766,7 @@ impl Preset {
 
     /// The files it will produce, for the tooltip and the session file.
     pub fn keys(&self) -> Vec<&'static str> {
-        self.files()
-            .iter()
-            .map(|channel| channel.key())
-            .collect()
+        self.files().iter().map(|channel| channel.key()).collect()
     }
 
     fn files(&self) -> Vec<Channel> {
@@ -1640,7 +1637,10 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
                 ui.horizontal(|ui| {
                     let mut all = all_on;
                     let help = if blind == 0 {
-                        format!("Tick or untick all {} channels in this group.", members.len())
+                        format!(
+                            "Tick or untick all {} channels in this group.",
+                            members.len()
+                        )
                     } else {
                         format!(
                             "Tick or untick the {} channels here that can write; the {blind} \
@@ -1838,7 +1838,10 @@ mod tests {
                 // with no hook is an empty file and no answer.
                 assert_eq!(
                     mask.count_ones() as usize,
-                    Channel::ALL.iter().filter(|channel| channel.wired()).count()
+                    Channel::ALL
+                        .iter()
+                        .filter(|channel| channel.wired())
+                        .count()
                 );
                 assert!(preset.channels.is_empty(), "{} is ambiguous", preset.name);
             } else {
@@ -1917,7 +1920,10 @@ mod tests {
         let wired = all_wired_mask().count_ones() as usize;
         assert_eq!(
             wired,
-            Channel::ALL.iter().filter(|channel| channel.wired()).count()
+            Channel::ALL
+                .iter()
+                .filter(|channel| channel.wired())
+                .count()
         );
         assert!(
             wired > 0 && wired < CHANNELS,
