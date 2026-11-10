@@ -985,3 +985,59 @@ because the file lists every root that drew:
 A second capture at City of Raging Tides with **Sub-elements** on gives
 `effect-problems` the empty-path model element, with the element index and the
 reader's own error text.
+
+## 13. The second batch: four reports, and what they could not say
+
+Four more reports arrived — `Waterfall`, `Wraithgate-2`, `Archosaur`,
+`FlickeringRandomSunrays` — each copied from a build whose logging still had the
+flood in it. Read together they say one thing about the tool and one thing about
+each defect.
+
+**The tool first.** Every one of the four ends with a tail of two hundred lines
+that belongs to a single channel: 200 `effect-cards` at the waterfall, 179
+`effect-particles` at the Wraithgate, 127 `effect-culling` at the Archosaur, 166
+`effect-particles` at the sun rays. The channels that would have answered the
+question were ticked — `effect-uv` wrote 4,142 lines, `effect-clock` 56,
+`effect-trails` 13 — and are not in the report at all, because the tail is the
+last two hundred lines of all of them mixed and one of them always wins.
+
+Two more things the four reports show about the tool:
+
+* every one says `mask 0x0000000000000000` and `0 of 36 on` while naming five
+  channels that wrote megabytes — a report copied after the group was unticked.
+  The line now prints the live mask next to the count, and says when nothing is on
+  but lines exist;
+* none of the four could have answered its own question: `Cards` did not include
+  the clock when the waterfall was captured, so "did the window advance" had no
+  clock in the file to compare against. `Cards` and `Sub-elements` tick
+  `effect-clock` now.
+
+| Report | Channels that wrote | What the tail held | What was missing |
+| --- | --- | --- | --- |
+| Waterfall | cards 2744, uv 4142, textures 12, alpha 36, decals 12 | 200 card lines, all `花瓣分飞.gfx id=121` | the five `水门_瀑布` roots, if they drew at all — 12 texture lines is the whole list, and none of them made the tail |
+| Wraithgate-2 | ground 35, particles 280 | 179 particle lines | trails and clock: the ring is neither a particle nor a ground cell |
+| Archosaur | frames 18, culling 191, clock 63 | 127 culling lines | every one of the 18 `effect-frames` lines is `烟1.gfx`, not the beam |
+| Sunrays | ground 21, particles 168, trails 14, models 3 | 166 particle lines | `effect-frames` was not ticked: the placement group was not on |
+
+**The Archosaur report is the clearest case.** Seventeen `effect-frames` lines came
+back and every one of them describes `gfx/场景/烟1.gfx id=120` — a smoke effect at
+`scale=11.623` sitting at `(1203.9, 242.4, 1223.6)`. `天煞光束.gfx` is in the same
+scene (`effect-clock` proves it: `t=9210…10468ms`, `play_speed=0.400`,
+`elements=4 quads=4 particles=0`, `alpha=0.600 scale=6.543`), so the beam builds and
+draws four quads, and its frames were dropped by the channel's 250 ms floor before
+the file saw them. `effect-frames` is keyed per root and element now: every element
+of every root is written once and then at most four times a second, so the next
+Archosaur capture contains the beam's own basis columns.
+
+**The sun-ray report adds one fact and one oddity.** `树林光束` is element 100 with
+`match_ground=false`, so it is drawn as one flat card — as authored, not as a
+missed drape. And `pk场入口青铜剑.gfx id=150` prints `fractal/trail records=0
+laid=0 offsets=7` on every sample for twelve seconds: a fractal element that has
+seven offsets and lays no records. That is recorded, not explained; it is the one
+thing in the four files that looks like a rendering fault rather than a missing
+channel.
+
+**What to send next.** Rebuild, fly to the artefact, tick the group, F8, wait five
+seconds, F8, **Summary**, and attach `summary.log` plus the pasted report. The
+summary lists every root and element that drew, once each, with how many lines it
+wrote — which is the list the last four reports did not have.
