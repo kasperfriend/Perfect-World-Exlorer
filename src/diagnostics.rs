@@ -725,15 +725,14 @@ pub const PRESETS: [Preset; 6] = [
                it. Generous and cheap, so it is the first thing to try on any \
                effect that moves when it should not.",
         all: false,
-        channels: &
-            [
-                Channel::EffectRoots,
-                Channel::EffectElements,
-                Channel::EffectTrails,
-                Channel::EffectUv,
-                Channel::EffectClock,
-                Channel::EffectCards,
-            ],
+        channels: &[
+            Channel::EffectRoots,
+            Channel::EffectElements,
+            Channel::EffectTrails,
+            Channel::EffectUv,
+            Channel::EffectClock,
+            Channel::EffectCards,
+        ],
     },
     Preset {
         name: "Everything",
@@ -1266,12 +1265,16 @@ fn edit_slot() -> &'static Mutex<Option<String>> {
 }
 
 fn edit_buffer(directory: &str) -> String {
-    let mut slot = edit_slot().lock().unwrap_or_else(|error| error.into_inner());
+    let mut slot = edit_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     slot.get_or_insert_with(|| directory.to_string()).clone()
 }
 
 fn set_edit_buffer(text: &str) {
-    let mut slot = edit_slot().lock().unwrap_or_else(|error| error.into_inner());
+    let mut slot = edit_slot()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
     *slot = Some(text.to_string());
 }
 
@@ -1340,7 +1343,11 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
                 .map(|dir| dir.display().to_string())
                 .unwrap_or_else(|| "<explorer folder>/pwe-logs".to_string())
         );
-        if ui.button("Explorer folder").on_hover_text(default_help).clicked() {
+        if ui
+            .button("Explorer folder")
+            .on_hover_text(default_help)
+            .clicked()
+        {
             edit.clear();
             set_edit_buffer("");
             if !directory.is_empty() {
@@ -1680,11 +1687,15 @@ mod tests {
     #[test]
     fn the_explorer_root_is_the_checkout_that_built_a_cargo_binary() {
         assert_eq!(
-            explorer_root_from(Path::new("/work/Perfect-World-Explorer/target/debug/pwe.exe")),
+            explorer_root_from(Path::new(
+                "/work/Perfect-World-Explorer/target/debug/pwe.exe"
+            )),
             PathBuf::from("/work/Perfect-World-Explorer")
         );
         assert_eq!(
-            explorer_root_from(Path::new("/work/Perfect-World-Explorer/target/release/pwe.exe")),
+            explorer_root_from(Path::new(
+                "/work/Perfect-World-Explorer/target/release/pwe.exe"
+            )),
             PathBuf::from("/work/Perfect-World-Explorer")
         );
         // A shipped build: the executable's own folder is the root.
