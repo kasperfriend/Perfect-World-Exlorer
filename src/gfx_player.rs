@@ -8243,40 +8243,31 @@ mod tests {
         context.keypoint_direction =
             Quat::from_axis_angle(Vec3::X, std::f32::consts::FRAC_PI_2);
         context.placement = Mat4::from_quat(context.keypoint_direction);
-        // A zero-width card is a line: its two far corners differ only along
-        // the shaft, so the axis falls out of the corners the builder returns.
-        let mut axis = |mode| {
-            context.shaft = mode;
-            let corners = quad_corners(
-                &context,
-                QuadBasis::Axial,
-                Vec3::ZERO,
-                0.,
-                1.,
-                [0.5, 0.5],
-                [false; 2],
-                0.,
-                1.,
-            );
-            let along = Vec3::from_array(corners[0]) - Vec3::from_array(corners[2]);
-            along.normalize()
-        };
+
         // The client's `GetParentDir() * kp.m_vDir`, applied to `_unit_z`: the
         // placement's own Z axis, so this keypoint stands the shaft up.
         assert!(
-            axis(EffectShaft::Client).dot(Vec3::Y).abs() > 0.999,
+            shaft_axis(&mut context, EffectShaft::Client)
+                .dot(Vec3::Y)
+                .abs()
+                > 0.999,
             "the client rule has to follow the keypoint"
         );
         // World up stands the shaft up whatever the placement says.
-        assert!(axis(EffectShaft::WorldUp).dot(Vec3::Y).abs() > 0.999);
+        assert!(shaft_axis(&mut context, EffectShaft::WorldUp).dot(Vec3::Y).abs() > 0.999);
         // The root's own direction, with the keypoint taken back out: taking
         // this keypoint out of the placement leaves the identity, so the shaft
         // goes back onto +Z.
-        assert!(axis(EffectShaft::RootDir).dot(Vec3::Z).abs() > 0.999);
+        assert!(
+            shaft_axis(&mut context, EffectShaft::RootDir)
+                .dot(Vec3::Z)
+                .abs()
+                > 0.999
+        );
         // The client axis with its rise removed. Its rise was the whole axis,
         // so this case falls back to the root direction flattened; the point of
         // the assertion is that the answer is horizontal and unit length.
-        let flat = axis(EffectShaft::Horizontal);
+        let flat = shaft_axis(&mut context, EffectShaft::Horizontal);
         assert!(flat.y.abs() < 1e-5, "horizontal must have no rise: {flat}");
         assert!((flat.length() - 1.).abs() < 1e-4);
 
@@ -8287,11 +8278,31 @@ mod tests {
         context.keypoint_direction = Quat::IDENTITY;
         context.placement = Mat4::from_rotation_x(0.5);
         let expected = context.placement.z_axis.truncate().normalize();
-        let shaft = axis(EffectShaft::Client);
+        let shaft = shaft_axis(&mut context, EffectShaft::Client);
         assert!(
             (shaft - expected).length() < 1e-4,
             "the shaft has to be the placement's Z, not its inverse: {shaft} vs {expected}"
         );
+    }
+
+    /// The axis a zero-width axial card is drawn along, for one shaft rule: its
+    /// two far corners differ only along the shaft, so the axis falls out of the
+    /// corners the builder returns.
+    fn shaft_axis(context: &mut ElementContext<'_>, shaft: EffectShaft) -> Vec3 {
+        context.shaft = shaft;
+        let corners = quad_corners(
+            context,
+            QuadBasis::Axial,
+            Vec3::ZERO,
+            0.,
+            1.,
+            [0.5, 0.5],
+            [false; 2],
+            0.,
+            1.,
+        );
+        let along = Vec3::from_array(corners[0]) - Vec3::from_array(corners[2]);
+        along.normalize()
     }
 
     /// The two records the map actually authors decide the axial direction, and
