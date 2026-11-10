@@ -656,9 +656,13 @@ fn child_runtime(
         return Err(format!("GFX child {path} references itself"));
     }
     let nested = load_child(&path).map_err(|error| format!("GFX child {path}: {error}"))?;
-    stack.push(path);
-    let player = Player::with_depth(nested, rng.next_u32(), load_child, depth + 1, stack)?;
+    stack.push(path.clone());
+    let mut player = Player::with_depth(nested, rng.next_u32(), load_child, depth + 1, stack)?;
     stack.pop();
+    // A nested root is still a root, and without a name every line it writes
+    // starts with a space: `" id=160 meshes=0"` was a child model that never
+    // loaded, reported in a way that named nothing at all.
+    player.set_name(path.as_str());
     Ok(ChildState {
         player: Box::new(player),
         out_color: child.out_color,
@@ -1829,7 +1833,7 @@ fn advance_element(
         // about the beam it was taken for.
         crate::diag_keyed!(
             EffectFrames,
-            format!("{} id={}", root, element.id),
+            at(context),
             250,
             "{} id={} kp={} clock={:.0}ms scale={:.3} key=({:.3},{:.3},{:.3}) dir={} \
              rot={:.3} color={:#010x} basis right={} up={} dir={} origin=({:.1},{:.1},{:.1})",
@@ -2700,7 +2704,7 @@ fn push_quad(
     if color[3] < ALPHA_CUTOFF {
         crate::diag_keyed!(
             EffectAlpha,
-            format!("{} id={} cut", context.root, context.id),
+            format!("{} cut", at(context)),
             2000,
             "{} id={} dropped at the cutoff: alpha {:.4} < {} textured={}",
             context.root,
@@ -2726,6 +2730,23 @@ fn push_quad(
         color,
         mesh: None,
     });
+}
+
+/// The identity a keyed line is filed under: the root, the element, and the
+/// placement's world position.
+///
+/// The position belongs in the key because one root is placed many times — a
+/// grove of forty-nine `树林光束`, a row of torches, several sheets of one
+/// waterfall — and the same element id under the same path is a *different*
+/// billboard at each of them. Keyed by path and id alone every copy collapsed
+/// into one line, so a capture of a grove of beams came back showing one beam
+/// and could not say whether the rest pointed somewhere else.
+fn at(context: &ElementContext) -> String {
+    let p = context.placement.w_axis;
+    format!(
+        "{} id={} @{:.0},{:.0},{:.0}",
+        context.root, context.id, p.x, p.y, p.z
+    )
 }
 
 /// The card channel and the UV channel, written from [`push_quad`].
@@ -2762,7 +2783,7 @@ fn log_card(
         ];
         crate::diag_keyed!(
             EffectCards,
-            format!("{} id={} #{}", context.root, context.id, index),
+            format!("{} {}", at(context), texture),
             2000,
             "{} id={} #{} tex={} blend={}/{} layer={} prio={} a={:.3} \
              {:.2}x{:.2} c=({:.2},{:.2},{:.2}) \
@@ -2800,7 +2821,7 @@ fn log_card(
         let common = context.common;
         crate::diag_keyed!(
             EffectUv,
-            format!("{} id={} #{}", context.root, context.id, index),
+            format!("{} {}", at(context), texture),
             1000,
             "{} id={} #{} tile={} grid={}x{} interval={}ms speed=({:.3},{:.3}) \
              flips={}{}{} clock={:.0}ms uv=[({:.3},{:.3}),({:.3},{:.3}),({:.3},{:.3}),({:.3},{:.3})]",
@@ -2871,7 +2892,7 @@ fn emit_clock(
             // this channel is readable with the graph released.
             crate::diag_keyed!(
                 EffectLights,
-                format!("{} id={}", context.root, context.id),
+                at(context),
                 1000,
                 "{} id={} at ({:.2},{:.2},{:.2}) colour={:#010x} alpha={:.3} clock={:.0}ms",
                 context.root,
@@ -2909,7 +2930,7 @@ fn emit_sprite(
     let color = context.rgba();
     crate::diag_keyed!(
         EffectAlpha,
-        format!("{} id={}", context.root, context.id),
+        at(context),
         500,
         "{} id={} authored={:#010x} color_scale={:.4} rgba=({:.3},{:.3},{:.3},{:.3}) \
          cutoff={} size={:.3}x{:.3} origin={:?}",
@@ -2932,10 +2953,7 @@ fn emit_sprite(
     let Ok(texture) = texture_path(&context.common.texture) else {
         crate::diag_keyed!(
             EffectTextures,
-            format!(
-                "{} id={} {:?}",
-                context.root, context.id, context.common.texture
-            ),
+            format!("{} {:?}", at(context), context.common.texture),
             5000,
             "{} id={} texture {:?} is not a usable archive path",
             context.root,
@@ -2970,7 +2988,7 @@ fn emit_sprite(
     // size.
     crate::diag_keyed!(
         EffectDecals,
-        format!("{} id={}", context.root, context.id),
+        at(context),
         2000,
         "{} id={} basis={} rot_from_view={} face_to_viewer={} texture={} \
          origin={:?} z_offset={:.3} clock={:.0}ms",
@@ -2989,7 +3007,7 @@ fn emit_sprite(
     // time, and hide every other line behind them.
     crate::diag_keyed!(
         EffectTextures,
-        format!("{} id={} {}", context.root, context.id, texture),
+        format!("{} {}", at(context), texture),
         5000,
         "{} id={} texture={} blend={}/{} layer={} prio={} z_enable={}",
         context.root,
@@ -3080,7 +3098,7 @@ fn drape_sprite(
         if context.id == 100 {
             crate::diag_keyed!(
                 EffectGround,
-                format!("{} id={} flat", context.root, context.id),
+                format!("{} flat", at(context)),
                 2000,
                 "{} id={} flat card: match_ground={} grnd_norm_only={} near_ground={}",
                 context.root,
@@ -3166,7 +3184,7 @@ fn drape_sprite(
     }
     crate::diag_keyed!(
         EffectGround,
-        format!("{} id={} drawn", context.root, context.id),
+        format!("{} drawn", at(context)),
         2000,
         "{} id={} draped {:.2}x{:.2} into {}x{} cells of {:.2}x{:.2} at ({:.2},{:.2}) \
          quads={} surface={:?} lift={}",
@@ -3370,9 +3388,8 @@ fn emit_model(meshes: &[EffectMesh], context: &ElementContext, out: &mut Vec<Eff
     crate::diag_keyed!(
         EffectModels,
         format!(
-            "{} id={} {:?}",
-            context.root,
-            context.id,
+            "{} {:?}",
+            at(context),
             meshes.first().map(|mesh| mesh.texture.as_str())
         ),
         5000,
@@ -3695,7 +3712,7 @@ fn emit_curve(curve: &Curve, context: &ElementContext, out: &mut Vec<EffectQuad>
     let segments = segments.max(1);
     crate::diag_keyed!(
         EffectTrails,
-        format!("{} id={}", context.root, context.id),
+        at(context),
         1000,
         "{} id={} curve length={:.2} coefficient={:.3} segments={} half_width={:.3} \
          from=({:.2},{:.2},{:.2}) to=({:.2},{:.2},{:.2})",
@@ -3887,7 +3904,7 @@ fn emit_particles(
     // in a single number.
     crate::diag_keyed!(
         EffectParticles,
-        format!("{} id={}", context.root, context.id),
+        at(context),
         500,
         "{} id={} live={} quota={} rate={:.2}/s ttl={:.2}s size={:.3}x{:.3} \
          origin={:?} 3d={} billboard={} dir=({:.2},{:.2},{:.2}) speed={:.2} \
@@ -4757,7 +4774,7 @@ fn emit_ribbon(
     stats.ribbons += 1;
     crate::diag_keyed!(
         EffectTrails,
-        format!("{} id={} ribbon", context.root, context.id),
+        format!("{} ribbon", at(context)),
         1000,
         "{} id={} ribbon/wave segments={} colour={:#010x} alpha={:.3} clock={:.0}ms",
         context.root,
@@ -4985,7 +5002,7 @@ fn emit_fractal(
     stats.ribbons += 1;
     crate::diag_keyed!(
         EffectTrails,
-        format!("{} id={} fractal", context.root, context.id),
+        format!("{} fractal", at(context)),
         1000,
         "{} id={} fractal/trail records={} laid={} offsets={} colour={:#010x} alpha={:.3} \
          clock={:.0}ms",

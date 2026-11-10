@@ -1098,11 +1098,18 @@ fn subject_of(line: &str) -> String {
         let head = &body[..at + 4];
         let rest = &body[at + 4..];
         if let Some(id) = rest.find(" id=") {
-            let digits: String = rest[id + 4..]
-                .chars()
-                .take_while(|c| c.is_ascii_digit())
-                .collect();
+            let after = &rest[id + 4..];
+            let digits: String = after.chars().take_while(|c| c.is_ascii_digit()).collect();
             if !digits.is_empty() {
+                // The placement, when the line names one: a root is placed many
+                // times and each copy is its own billboard, so a summary that
+                // dropped the position would show one beam out of forty-nine.
+                if let Some(place) = after[digits.len()..].strip_prefix(" @") {
+                    let place: String = place.chars().take_while(|c| *c != ' ').collect();
+                    if !place.is_empty() {
+                        return format!("{head} id={digits} @{place}");
+                    }
+                }
                 return format!("{head} id={digits}");
             }
         }
@@ -2442,6 +2449,9 @@ mod tests {
         cards.push_str(
             "[ 120.000] gfx/场景/水门_瀑布.gfx id=100 tile=1 grid=100x100 speed=(0.000,-1.500)\n",
         );
+        // The same asset placed twice is two things, not one.
+        cards.push_str("[ 120.100] gfx/场景/树林光束.gfx id=100 @594,229,3144 kp=1\n");
+        cards.push_str("[ 120.200] gfx/场景/树林光束.gfx id=100 @232,229,2961 kp=1\n");
         std::fs::write(dir.join("effect-cards.log"), cards).expect("cards");
         std::fs::write(
             dir.join("effect-culled.log"),
@@ -2455,6 +2465,11 @@ mod tests {
             "the repeat has to be counted: {text}"
         );
         assert!(text.contains("gfx/场景/水门_瀑布.gfx id=100"), "{text}");
+        assert_eq!(
+            text.matches("gfx/场景/树林光束.gfx id=100 @").count(),
+            2,
+            "a root placed twice is two subjects: {text}"
+        );
         assert_eq!(
             text.matches("gfx/场景/花瓣分飞.gfx id=121 #").count(),
             1,
