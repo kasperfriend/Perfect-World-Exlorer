@@ -790,12 +790,42 @@ a live count of lines written, and how many lines its throttle dropped. A
 channel with no call site in this build is marked *no hook in this build yet*, so
 an empty file can never be mistaken for a healthy subsystem.
 
-Every channel writes its own file, `<client root>/pwe-logs/<channel>.log`, with a
-header naming the root, version and channel, a `[+12.345]` timestamp on every
-line, and an 8 MiB rotation (`.log.1`). The same lines appear in a rolling tail
-under the switches, with **Copy tail** so a session can be pasted straight into a
-report. The tick boxes and the folder persist in `viewer-settings.txt`
-(`logging_mask`, `logging_dir`), so a capture survives a restart.
+Every channel writes its own file in `<explorer folder>/pwe-logs/`, with a header
+naming the run and the channel, a `[+12.345]` timestamp on every line, and an
+8 MiB rotation (`.log.1`). The folder belongs to the explorer, next to its
+executable (a `cargo run` checkout resolves `target/debug` back to the checkout
+itself), never to the client install it is reading: the game directory is not
+where a report should have to be found. A folder saved by an older build that
+still points inside the client root is treated as unset, so the move needs no
+manual clearing of the box.
+
+`session.log` is written whether or not a channel is ticked. It carries the run
+header (client root, explorer root, version, mask), every capture started, every
+folder change, and every mark — which is what makes a folder of channel files
+explainable a week later.
+
+The tick boxes and the folder persist in `viewer-settings.txt` (`logging_mask`,
+`logging_dir`), so a capture survives a restart.
+
+### Captures: the five clicks that match the open reports
+
+Six buttons sit above the channel list. A capture **replaces** the mask rather
+than adding to it — a capture with a leftover channel in it reads as one long log
+with no boundary, and the point is a short file that answers one question:
+
+| Button | Ticks | For |
+| --- | --- | --- |
+| **Sun rays** | roots, elements, frames, cards, decals, textures, alpha, culling | `树林光束`, all 49 placements |
+| **Archosaur beams** | the same eight | `天煞光束`, the two horizontal shafts |
+| **Waterfall** | scene-effects, roots, elements, UV, textures, clock, cards | `水门_瀑布`, the five scrolling sheets |
+| **Crater colour** | scene-effects, roots, cards, textures, alpha, culling, clock | the saturated blue disc at the bottom of the crater |
+| **Trails and rings** | roots, elements, trails, UV, clock, cards | Wraithgate's ring, ribbons, waves |
+| **Everything** | all 36 | a report that has not been narrowed down yet |
+
+**F8** drops a `---- MARK camera (x, y, z) yaw … pitch … time … ----` line into
+`session.log` *and* into every channel that is on, past the throttle and past the
+mask. Two marks bracket the window being reported, so the log names the position
+and the moment instead of describing them.
 
 ### The Effects page, channel by channel
 
@@ -825,18 +855,36 @@ with it. The Models page carries `model-queue` (one root admitted per frame, and
 what was rejected), and Render carries `render-effects`, where the effect census
 also lands instead of only going to `effect-census.txt`.
 
-### How to capture one of the open reports
+### How to log an issue properly
 
-1. Settings ▸ Logging ▸ **Effects**, tick `Roots`, `Element table`, `Frames`,
-   `Cards`, `UV`, `Decals`, `Colour and alpha`, `Lights`, `Problems`, and
-   `Scene ▸ Effect records`.
-2. Walk to the artefact and stand still for a second or two.
-3. **Copy tail** (or send `pwe-logs/effect-cards.log` and
-   `pwe-logs/effect-frames.log`).
+The page spells this out under **How to capture a report**, so it does not live
+only in this file:
 
-A card line carries the corners, so the *direction* a shaft lies in is in the
-log; a frame line carries the basis it came from, so "wrong way round" and "wrong
-place" become different defects instead of one screenshot. For the waterfall the
-pair to compare is `effect-uv` (is the window moving?) with `effect-clock` (is the
-element running at all?); for the summoning station it is `effect-particles`
-(spawn rate against live count) with `effect-alpha`.
+1. **Click the capture** for the report. The mask, the tooltip and
+   `session.log` all name the set, so there is no doubt what was running.
+2. **Fly to the spot, get the artefact on screen, press F8.** The mark carries
+   the camera pose: position, yaw, pitch and the app clock.
+3. **Wait a few seconds** — two or three frames of a waterfall, one full turn of
+   a ring — then **press F8 again**. The pair of marks is the window; everything
+   between them is the evidence.
+4. **Copy report.** It carries the build, the client root, the folder, every
+   switch that is on, what each of the 36 channels wrote (lines and throttled
+   lines) and the live tail — one block, ready to paste. A log without that
+   header is most of what usually has to be asked about afterwards.
+5. **Attach the two or three files the report names**, not the whole folder, if
+   the tail was not enough. `Clear files` between defects: two captures in one
+   folder read as a single session with no boundary.
+
+A channel that says *no hook in this build yet* has no call site, so ticking it
+produces nothing on purpose; that belongs in the report rather than in a wait.
+
+### What each open report needs, exactly
+
+| Report | Capture | Read it like this |
+| --- | --- | --- |
+| Sun rays point at random | **Sun rays** | `effect-frames` prints each element's keypoint and the basis columns; `effect-cards` prints the corners, so the shaft's direction is a number. Compare with the `dir`/`up` pair `scene-effects` prints for the same placement. |
+| Archosaur beams are both horizontal | **Archosaur beams** | Two placements of one root — `alpha 0.60 @ speed 1.0` and `alpha 1.00 @ speed 0.100`. `effect-clock` shows whether the second one starts late, `effect-frames` shows both bases. |
+| Waterfall does not move | **Waterfall** | `effect-uv` against `effect-clock`: the window has to advance while the clock advances. If the clock runs and the window does not, the sheet is pinned; if neither runs, the element is asleep. |
+| Crater is pure blue | **Crater colour** | `scene-effects` names what the map placed there; `effect-cards` says which root built the disc; `effect-alpha` says what its colour fold produced; `effect-textures` says whether the texture resolved at all. |
+| Wraithgate ring spins fully | **Trails and rings** | `effect-trails` for the ribbon, `effect-uv` for the scroll along it, `effect-clock` for the turn. |
+| Shroom lights sit too low | **Sun rays** | `effect-cards` gives the world Y of every card; `effect-ground` says whether the drape moved it. |
