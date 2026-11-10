@@ -755,3 +755,67 @@ including all four tiled elements of `场景/新种族地图/瀑布.gfx`, nine o
 (A3DGFXEx.cpp:1592). None of the reported roots authors it — `蘑菇灯` is the only
 one in the corpus that even prints the key, at `NoChangeDir: 0` — so it is not
 the mechanism behind any of the six reports.
+
+## 11. Settings ▸ Logging: live, per-subsystem logging the viewer can be asked for
+
+A screenshot says "there is a blue disc in the crater" and nothing else. The
+status line counts quads but not which root drew one. Both gaps are closed by a
+logging tab that is off by default and can be switched on while the viewer runs:
+
+**Settings ▸ LOGGING** (fifth tab, next to Graphics/World/Sound/Interface) has
+sub-tabs **Effects · Scene · Models · Render · Timing** and 36 channels. Each
+channel is a tick box with a tooltip that says exactly what its lines contain,
+a live count of lines written, and how many lines its throttle dropped. A
+channel with no call site in this build is marked *no hook in this build yet*, so
+an empty file can never be mistaken for a healthy subsystem.
+
+Every channel writes its own file, `<client root>/pwe-logs/<channel>.log`, with a
+header naming the root, version and channel, a `[+12.345]` timestamp on every
+line, and an 8 MiB rotation (`.log.1`). The same lines appear in a rolling tail
+under the switches, with **Copy tail** so a session can be pasted straight into a
+report. The tick boxes and the folder persist in `viewer-settings.txt`
+(`logging_mask`, `logging_dir`), so a capture survives a restart.
+
+### The Effects page, channel by channel
+
+| Channel | What a line is |
+| --- | --- |
+| `effect-roots` | Root built, activated, released: path, warning/texture/model counts |
+| `effect-elements` | The element table of a root, written once when it is named: id, class, `TexFile`, W/H, grid, interval, tile flag, speeds, blend, keypoint count |
+| `effect-frames` | Per element: keypoint position/direction/scale, clock, and the world basis (`right`/`up`/`dir` columns) the card is drawn in |
+| `effect-cards` | Every card: four world corners, centre, width x height, texture, blend, priority |
+| `effect-uv` | The UV window: tile flag, `TexCol x TexRow`, interval, speeds, clock, four UV corners |
+| `effect-textures` | Texture resolution, hit or unusable path, blend pair |
+| `effect-alpha` | Authored colour, `color_scale`, final RGBA, the cutoff and whether the card survived it |
+| `effect-ground` | Ground branch: why a sheet stayed flat, or cell count/size, quad count and the sampled surface |
+| `effect-particles` | Live/quota/rate/ttl/size/origin, 3D and billboard, direction, speed, acc, ground, surface, bind, area, radius |
+| `effect-trails` | Ribbon/wave segment counts, curve length/segments/half-width, fractal and trail record counts |
+| `effect-models` | Element-160/161 meshes: vertex and texture counts, placement, scale |
+| `effect-lights` | Lights published, with position, colour, alpha, clock |
+| `effect-culling` | Every owner: drawn with its record scale/alpha/speed/basis, or skipped with `active` and `start` |
+| `effect-clock` | The whole root once a frame: time, dt, play speed, finished/loops, per-class counts, alpha, scale, drape and ground state |
+| `effect-decals` | Which basis built a card (`element`/`axial`/`billboard`), the `RotFromView` and `FaceToViewer` flags, origin, Z offset |
+| `effect-problems` | Every non-fatal failure and warning, in order |
+
+The Scene page carries `scene-effects` — the `world.ecwld` records themselves,
+with origin, path, speed, start/span, alpha, position and basis — which is the
+counterpart to `effect-roots`: what the map asked for, and what the loader did
+with it. The Models page carries `model-queue` (one root admitted per frame, and
+what was rejected), and Render carries `render-effects`, where the effect census
+also lands instead of only going to `effect-census.txt`.
+
+### How to capture one of the open reports
+
+1. Settings ▸ Logging ▸ **Effects**, tick `Roots`, `Element table`, `Frames`,
+   `Cards`, `UV`, `Decals`, `Colour and alpha`, `Lights`, `Problems`, and
+   `Scene ▸ Effect records`.
+2. Walk to the artefact and stand still for a second or two.
+3. **Copy tail** (or send `pwe-logs/effect-cards.log` and
+   `pwe-logs/effect-frames.log`).
+
+A card line carries the corners, so the *direction* a shaft lies in is in the
+log; a frame line carries the basis it came from, so "wrong way round" and "wrong
+place" become different defects instead of one screenshot. For the waterfall the
+pair to compare is `effect-uv` (is the window moving?) with `effect-clock` (is the
+element running at all?); for the summoning station it is `effect-particles`
+(spawn rate against live count) with `effect-alpha`.
