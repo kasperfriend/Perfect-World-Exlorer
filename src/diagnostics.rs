@@ -1076,9 +1076,13 @@ pub fn report() -> String {
     out.push_str("Perfect World Explorer -- live log report\n");
     out.push_str(&format!("# session:  {session_text}\n"));
     out.push_str(&format!("# folder:   {dir_text} ({})\n", folder_summary()));
+    // The live mask, next to the count: a report copied after the boxes were
+    // unticked still carries a tail from when they were ticked, and the two
+    // numbers together say so instead of looking like a broken report.
     out.push_str(&format!(
-        "# channels: {} of {CHANNELS} on ({})\n",
+        "# channels: {} of {CHANNELS} on, mask {:#018x} ({})\n",
         on.len(),
+        MASK.load(Ordering::Relaxed),
         if on.is_empty() {
             "none".to_string()
         } else {

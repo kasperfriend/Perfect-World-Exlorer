@@ -922,3 +922,57 @@ produces nothing on purpose; that belongs in the report rather than in a wait.
 | Crater is pure blue | **Cards** | `scene-effects` names what the map placed there; `effect-cards` says which root built the disc; `effect-alpha` says what its colour fold produced; `effect-textures` says whether the texture resolved at all. |
 | Wraithgate ring spins fully | **Sub-elements** | `effect-trails` for the ribbon, `effect-uv` for the scroll along it, `effect-clock` for the turn. |
 | Shroom lights sit too low | **Sub-elements** | `effect-cards` gives the world Y of every card; `effect-ground` says whether the drape moved it. |
+
+## 12. What the first batch of live reports showed
+
+Five captures came back from the field — the stuck waterfall, the random sun
+rays, the archosaur beam, the spinning Wraithgate ring, the City of Raging Tides.
+The single most useful thing in them was a **defect in the logging itself**, which
+is why the fix in §11 is the one that mattered:
+
+* **The channel with the most to say drowned everything else.** `effect-textures`
+  and `effect-models` are facts about a load, so they were given no throttle — and
+  every element of every root wrote one line *per frame*. A waterfall with a
+  splash root and five water-sheet roots put the splash's `id=123 … textures=[…]`
+  line down sixty times a second and pushed the sheet roots out of both the file
+  and the tail. The evidence that was wanted — the five `水门_瀑布` roots and their
+  `TexSpeed` — was the thing being buried. Both channels are now keyed: one line
+  per root, element and texture, refreshed every five seconds.
+* **Culling said the same thing forever.** `光运.gfx skipped: active=false
+  elapsed=…ms start=0ms` repeats for every root that is not drawn, every frame, and
+  the elapsed count in it changes every frame so the repeat collapse could not
+  catch it. It is now keyed by root: a root states once why it is not drawn, and
+  again only every ten seconds while that stays true.
+* **`effect-cards` on the splash proved the splash is not the water.** Forty-nine
+  to fifty particle billboards inside `area=Some(Vec3(0.3, 3.5, 0.3))` at
+  `speed=4.00`, `ttl=1.00s`, with `effect-uv` for that root always
+  `tile=0 grid=1x1 speed=(0.000,0.000)` — a spray of droplets with no scroll of its
+  own, whose corners jump every frame. The running water is the five 100-sheet
+  tiled roots from §10, and the scroll lives in their `TexSpeed` (−1…−2 on V).
+* **A model element with no path at all** appears at City of Raging Tides:
+  `effect-models` prints `id=160 meshes=0 vertices=0 textures=[] at
+  (2555.24, 238.20, −4182.58) scale=10.000` for an element whose model path is
+  empty. `Player::collect_models` answers a model that will not pose with an empty
+  mesh list plus the warning `element 160 model : <error>`, so `effect-problems`
+  names the cause; whether the record has no path or the reader lost it is what
+  that one line decides. It is not yet established which, so it is recorded here
+  rather than guessed at.
+
+### What the next capture has to answer
+
+One capture at the waterfall with **Cards** on now settles the whole question,
+because the file lists every root that drew:
+
+1. `grep 水门_瀑布 effect-uv.log` — five roots, `tile=1 grid=100x100
+   speed=(…, −1.5)`. If they are there, the sheets draw and the window is a
+   function of the clock; if they are absent while the splash is present, the
+   sheets are never submitted and the water on screen is not them.
+2. `grep 水门_瀑布 effect-clock.log` — `t=` climbing, `play_speed` non-zero. A clock
+   that does not move pins a window that is otherwise correct.
+3. `(N identical lines collapsed)` on a `水门_瀑布` UV line is the shortest
+   possible statement of the defect: the sheet is drawn and its window is not
+   advancing.
+
+A second capture at City of Raging Tides with **Sub-elements** on gives
+`effect-problems` the empty-path model element, with the element index and the
+reader's own error text.
