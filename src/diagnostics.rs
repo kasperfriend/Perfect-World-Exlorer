@@ -46,7 +46,7 @@
 
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -861,6 +861,8 @@ struct Inner {
     repeats: Vec<u64>,
     /// Tokens left and when they were last topped up, per channel.
     budget: Vec<(f32, Instant)>,
+    /// What the last **Summary** click wrote, for the line under the buttons.
+    summary: Option<String>,
     /// When each key was last written, per channel. This is what makes a
     /// per-frame channel a *list* of everything on screen instead of a sample of
     /// whatever happened to reach the file first.
@@ -883,6 +885,7 @@ impl Inner {
             last_body: (0..CHANNELS).map(|_| None).collect(),
             repeats: vec![0; CHANNELS],
             budget: vec![(BUDGET_BURST, Instant::now()); CHANNELS],
+            summary: None,
             keys: (0..CHANNELS)
                 .map(|_| std::collections::HashMap::new())
                 .collect(),
@@ -1051,6 +1054,219 @@ pub fn mark(note: impl AsRef<str>) {
     }
 }
 
+/// Subjects kept per channel in a summary, first-seen order. A waterfall with a
+/// thousand cards has one subject; a scene with forty roots has forty, and the
+/// file says how many were left out.
+const SUMMARY_SUBJECTS: usize = 80;
+
+/// Lines read per channel from disk. A summary is a digest, not a copy: this
+/// bound keeps a 200 MB folder from being read to the end for a file nobody
+/// wants that long.
+const SUMMARY_LINES: usize = 500_000;
+
+/// The body of a line: everything after the `[ 119.835] ` stamp, so the stamp
+/// does not become part of a subject's identity.
+fn body_of(line: &str) -> &str {
+    match line.find(']') {
+        Some(at) if line.starts_with('[') => line[at + 1..].trim_start(),
+        _ => line.trim(),
+    }
+}
+
+/// What a line is about, as opposed to what it says this frame.
+///
+/// Almost every effect line starts with the root's archive path and the element
+/// id — `gfx/场景/水门_瀑布.gfx id=100 tile=1 …` — so the path and the id are the
+/// subject and everything after them is the measurement. That is what lets a
+/// summary name every root and element that drew in one line each, instead of
+/// printing the same card four hundred times.
+///
+/// Structural lines (a group header, a failure, a collapsed run) have no path;
+/// for those the shape of the line is its identity, with digits masked, so
+/// `3 identical lines collapsed` and `240 identical lines collapsed` are one
+/// subject.
+fn subject_of(line: &str) -> String {
+    let body = body_of(line);
+    if let Some(at) = body.find(".gfx") {
+        let head = &body[..at + 4];
+        let rest = &body[at + 4..];
+        if let Some(id) = rest.find(" id=") {
+            let digits: String = rest[id + 4..]
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            if !digits.is_empty() {
+                return format!("{head} id={digits}");
+            }
+        }
+        return head.to_string();
+    }
+    body.chars()
+        .take(64)
+        .map(|c| if c.is_ascii_digit() { '#' } else { c })
+        .collect()
+}
+
+/// Merge the folder's channel files into one digest, for the **Summary** button.
+///
+/// The problem this answers: a report's tail is the last two hundred lines of
+/// every channel mixed together, so one busy channel — four hundred splash
+/// cards, a hundred culled roots — is all a report ever shows, and the file with
+/// the answer in it is a megabyte nobody attaches. The summary is one file:
+/// every channel, one line per subject it wrote about, with how many lines that
+/// subject produced. A folder of six files becomes a page that names every root
+/// and element that drew.
+pub fn summary_text(dir: &Path) -> String {
+    let mut out = String::new();
+    let files = channel_files(dir);
+    out.push_str("Perfect World Explorer -- live log summary\n");
+    {
+        let inner = registry().lock().unwrap_or_else(|e| e.into_inner());
+        out.push_str(&format!("# session: {}\n", inner.session));
+    }
+    out.push_str(&format!("# folder:   {}\n", dir.display()));
+    out.push_str(&format!("# files:    {}\n", describe_files(&files)));
+    out.push_str(
+        "# one line per subject (a root and an element id, or a line's shape), with how many\n\
+         # lines that subject wrote. Read this first; open the channel file for the detail.\n",
+    );
+    if files.is_empty() {
+        out.push_str("\n(no channel file yet -- tick a channel, or a group, and reproduce)\n");
+        return out;
+    }
+    for (channel, path, bytes) in &files {
+        out.push_str(&format!(
+            "\n## {} -- {} lines, {} throttled, {} bytes on disk\n",
+            channel.key(),
+            count(*channel),
+            suppressed(*channel),
+            bytes
+        ));
+        let Ok(file) = File::open(path) else {
+            out.push_str("   (could not be opened)\n");
+            continue;
+        };
+        let mut subjects: Vec<(String, u64, String)> = Vec::new();
+        let mut index_of: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut lines = 0usize;
+        for line in std::io::BufReader::new(file).lines() {
+            let Ok(line) = line else { break };
+            if line.trim().is_empty() || line.starts_with('#') {
+                continue;
+            }
+            lines += 1;
+            if lines > SUMMARY_LINES {
+                break;
+            }
+            let subject = subject_of(&line);
+            let seen = index_of.get(&subject).copied();
+            match seen {
+                Some(at) => subjects[at].1 += 1,
+                None => {
+                    index_of.insert(subject.clone(), subjects.len());
+                    subjects.push((subject, 1, shorten(&line, 400)));
+                }
+            }
+        }
+        if lines > SUMMARY_LINES {
+            out.push_str(&format!(
+                "   (scanned the first {SUMMARY_LINES} of the file)\n"
+            ));
+        }
+        out.push_str(&format!("   {} subjects\n", subjects.len()));
+        for (_, times, example) in subjects.iter().take(SUMMARY_SUBJECTS) {
+            if *times > 1 {
+                out.push_str(&format!("   (x{times}) {example}\n"));
+            } else {
+                out.push_str(&format!("   {example}\n"));
+            }
+        }
+        if subjects.len() > SUMMARY_SUBJECTS {
+            out.push_str(&format!(
+                "   ... {} more subjects, in the channel file\n",
+                subjects.len() - SUMMARY_SUBJECTS
+            ));
+        }
+    }
+    out
+}
+
+/// Cut a line down to `limit` characters, with an ellipsis, so a card with twelve
+/// coordinates cannot make one summary line two screens wide.
+fn shorten(line: &str, limit: usize) -> String {
+    let text = line.trim_end();
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let mut cut: String = text.chars().take(limit).collect();
+    cut.push('…');
+    cut
+}
+
+/// Every channel file in the folder, in channel order, with its size.
+fn channel_files(dir: &Path) -> Vec<(Channel, PathBuf, u64)> {
+    let mut out = Vec::new();
+    for channel in Channel::ALL {
+        if !channel.wired() {
+            continue;
+        }
+        let path = dir.join(format!("{}.log", channel.key()));
+        let Ok(meta) = std::fs::metadata(&path) else {
+            continue;
+        };
+        out.push((channel, path, meta.len()));
+    }
+    out
+}
+
+fn describe_files(files: &[(Channel, PathBuf, u64)]) -> String {
+    if files.is_empty() {
+        return "none".to_string();
+    }
+    let bytes: u64 = files.iter().map(|(_, _, bytes)| *bytes).sum();
+    format!("{} channel files, {}", files.len(), human_bytes(bytes))
+}
+
+fn human_bytes(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024. * 1024.))
+    } else if bytes >= 1024 {
+        format!("{:.1} kB", bytes as f64 / 1024.)
+    } else {
+        format!("{bytes} B")
+    }
+}
+
+/// Write [`summary_text`] into the log folder as `summary.log`, replacing the
+/// previous one, and remember a note for the button's row.
+pub fn write_summary() -> Result<PathBuf, String> {
+    let Some(dir) = dir() else {
+        return Err("no log folder yet".to_string());
+    };
+    std::fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    let text = summary_text(&dir);
+    let path = dir.join("summary.log");
+    std::fs::write(&path, text.as_bytes()).map_err(|error| error.to_string())?;
+    let note = format!(
+        "summary.log -- {} lines, {}",
+        text.lines().count(),
+        human_bytes(text.len() as u64)
+    );
+    {
+        let mut inner = registry().lock().unwrap_or_else(|e| e.into_inner());
+        inner.summary = Some(note.clone());
+    }
+    session(format!("SUMMARY {note}"));
+    Ok(path)
+}
+
+/// What the last **Summary** click wrote, for the row under the buttons.
+pub fn summary_note() -> Option<String> {
+    let inner = registry().lock().unwrap_or_else(|e| e.into_inner());
+    inner.summary.clone()
+}
+
 /// One block of text describing the run, for the settings page's **Copy
 /// report** button: the header, which channels are on, what each of them wrote,
 /// and the live tail. This is the thing to paste into a report — it names the
@@ -1089,6 +1305,14 @@ pub fn report() -> String {
             on.join(", ")
         }
     ));
+    // A report copied after the boxes were unticked would otherwise read as a
+    // report from a channel that was never on.
+    if on.is_empty() && Channel::ALL.iter().any(|channel| count(*channel) > 0) {
+        out.push_str(
+            "# note:     nothing is on now, so nothing new is being written; the counts and\n\
+             #           the tail below are from earlier in this session\n",
+        );
+    }
     for channel in Channel::ALL.iter().filter(|channel| count(**channel) > 0) {
         out.push_str(&format!(
             "#   {:16} {:>7} lines {:>6} throttled  {}\n",
@@ -1099,9 +1323,45 @@ pub fn report() -> String {
         ));
     }
     out.push_str("\n--- live tail ---\n");
-    out.push_str(&tail(TAIL_LINES));
+    out.push_str(&tail_balanced(TAIL_LINES, REPORT_TAIL_PER_CHANNEL));
     out.push('\n');
     out
+}
+
+/// How many tail lines one channel may contribute to a report. Two hundred card
+/// lines from one root is what a report used to look like at a waterfall: five
+/// boxes were ticked, and the tail named one of them.
+const REPORT_TAIL_PER_CHANNEL: usize = 20;
+
+/// The tail with a cap per channel, keeping the most recent lines of each.
+fn tail_balanced(limit: usize, per_channel: usize) -> String {
+    let text = tail(limit);
+    let lines: Vec<&str> = text.lines().collect();
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    let mut keep = vec![false; lines.len()];
+    for (index, line) in lines.iter().enumerate().rev() {
+        let key = line.split(':').next().unwrap_or("");
+        let count = counts.entry(key).or_insert(0);
+        if *count < per_channel {
+            *count += 1;
+            keep[index] = true;
+        }
+    }
+    let kept: Vec<&str> = lines
+        .iter()
+        .zip(keep.iter())
+        .filter(|(_, keep)| **keep)
+        .map(|(line, _)| *line)
+        .collect();
+    if kept.len() == lines.len() {
+        return kept.join("\n");
+    }
+    format!(
+        "{}\n({} lines trimmed: at most {per_channel} per channel; the files and Summary \
+         have the rest)",
+        kept.join("\n"),
+        lines.len() - kept.len()
+    )
 }
 
 /// Write one line to a channel. Cheap to call when the channel is off; that is
@@ -1266,6 +1526,7 @@ pub fn clear() {
     inner.last_body.iter_mut().for_each(|body| *body = None);
     inner.repeats.iter_mut().for_each(|repeats| *repeats = 0);
     inner.keys.iter_mut().for_each(|keys| keys.clear());
+    inner.summary = None;
     inner
         .budget
         .iter_mut()
@@ -1900,7 +2161,23 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
         {
             ui.output_mut(|output| output.copied_text = report());
         }
+        if ui
+            .button("Summary")
+            .on_hover_text(
+                "Merge every channel file into one `summary.log`: one line per root and \
+                 element that drew, with how many lines it wrote. This is the file to \
+                 attach when the tail is all one busy channel.",
+            )
+            .clicked()
+        {
+            if let Err(error) = write_summary() {
+                ui.label(egui::RichText::new(format!("no summary: {error}")).small().weak());
+            }
+        }
     });
+    if let Some(note) = summary_note() {
+        ui.label(egui::RichText::new(note).small().monospace());
+    }
     egui::ScrollArea::vertical()
         .id_source("logging-tail")
         .max_height(180.)
@@ -2145,6 +2422,47 @@ mod tests {
         assert!(text.contains("a root"), "{text}");
         assert!(text.contains("of 36 on"), "{text}");
         set_mask(0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_summary_names_every_subject_once() {
+        let dir = std::env::temp_dir().join(format!("pwe-summary-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        // Two hundred cards of one root and one that belongs to another: the
+        // summary has to be two lines of subjects, not two hundred of cards.
+        let mut cards = String::new();
+        for card in 0..200 {
+            cards.push_str(&format!(
+                "[ 119.{card:03}] gfx/场景/花瓣分飞.gfx id=121 #{card} tex=a.dds a=1.000\n"
+            ));
+        }
+        cards.push_str(
+            "[ 120.000] gfx/场景/水门_瀑布.gfx id=100 tile=1 grid=100x100 speed=(0.000,-1.500)\n",
+        );
+        std::fs::write(dir.join("effect-cards.log"), cards).expect("cards");
+        std::fs::write(
+            dir.join("effect-culled.log"),
+            "[ 1.000] gfx/场景/炉香.gfx skipped: active=false elapsed=228097ms\n",
+        )
+        .expect("culled");
+        let text = summary_text(&dir);
+        assert!(text.contains("gfx/场景/花瓣分飞.gfx id=121"), "{text}");
+        assert!(text.contains("(x200)"), "the repeat has to be counted: {text}");
+        assert!(text.contains("gfx/场景/水门_瀑布.gfx id=100"), "{text}");
+        assert_eq!(
+            text.matches("gfx/场景/花瓣分飞.gfx id=121 #").count(),
+            1,
+            "one line per subject: {text}"
+        );
+        // A channel with no file is not a channel with nothing to say.
+        assert!(!text.contains("## effect-uv"), "{text}");
+        // A subject's identity does not include the timestamp.
+        assert!(
+            !text.contains("(x1) [ 119."),
+            "each distinct card is a distinct line? {text}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

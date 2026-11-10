@@ -1823,8 +1823,14 @@ fn advance_element(
     if crate::diagnostics::enabled(crate::diagnostics::Channel::EffectFrames) {
         let keypoint_direction = sampled.direction * Vec3::Z;
         let column = |axis: Vec3| format!("({:.2},{:.2},{:.2})", axis.x, axis.y, axis.z);
-        crate::diag!(
+        // Keyed by root and element, not throttled channel-wide: the first root
+        // to reach a whole-channel throttle owned the file, and an Archosaur
+        // capture came back with eighteen lines about one smoke effect and none
+        // about the beam it was taken for.
+        crate::diag_keyed!(
             EffectFrames,
+            format!("{} id={}", root, element.id),
+            250,
             "{} id={} kp={} clock={:.0}ms scale={:.3} key=({:.3},{:.3},{:.3}) dir={} \
              rot={:.3} color={:#010x} basis right={} up={} dir={} origin=({:.1},{:.1},{:.1})",
             root,

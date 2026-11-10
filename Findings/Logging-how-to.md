@@ -25,13 +25,30 @@ folder box. **Open** shows it in the file manager, **Explorer folder** puts the
 box back to the default, and **Clear files** deletes the `.log` files so the next
 capture starts from an empty folder.
 
-Two kinds of file:
+Three kinds of file:
 
 * **`<channel>.log`** — one per ticked channel, `[+12.345]` on every line, rotated
   to `.log.1` at 8 MiB;
 * **`session.log`** — always written: the run header (client root, explorer root,
-  version, mask), every capture started, every folder change, every **F8** mark.
-  It is the file that explains the others a week later.
+  version, mask), every capture started, every folder change, every **F8** mark,
+  every summary written. It is the file that explains the others a week later;
+* **`summary.log`** — written by the **Summary** button: every channel file merged
+  into one digest, **one line per subject** (a root and an element id, or the
+  shape of a structural line) with how many lines that subject wrote. Six files
+  and a million lines become a page that names every root that drew. This is the
+  file to attach when the tail is all one busy channel.
+
+```text
+## effect-uv -- 4142 lines, 74896 throttled, 204800 bytes on disk
+   6 subjects
+   (x1204) [ 118.307] gfx/场景/水门_瀑布.gfx id=100 tile=1 grid=100x100 ...
+   [ 119.835] gfx/场景/花瓣分飞.gfx id=121 #197 tex=gfx/textures/物体/flowers2.dds ...
+```
+
+`Summary` replaces the previous `summary.log` each time, so the newest click is
+the one to send. `Copy report` stays the short version: the switches, the counts,
+and a tail capped at 20 lines per channel so one root cannot bury the five boxes
+that were ticked.
 
 ## Groups, one click each
 
@@ -96,12 +113,15 @@ with a position and a timestamp instead of a description.
 2. **Fly to the spot, get the artefact on screen, press F8.**
 3. **Wait a few seconds** — two or three frames of a waterfall, one full turn of
    a ring — then **press F8 again**.
-4. **Copy report.** It carries the build, the client root, the folder, every
-   switch that is on, what each of the 36 channels wrote (lines and throttled
-   lines), and the live tail. That block plus one sentence about what is wrong is
-   a complete report.
-5. **Attach the two or three files the report names** if the tail is not enough —
-   not the folder. `Clear files` between defects.
+4. **Click Summary** and **attach `summary.log`**, with **Copy report** pasted in
+   the message. The report carries the build, the client root, the folder, the
+   live mask, every switch that is on, what each of the 36 channels wrote (lines
+   and throttled lines), and a tail with at most 20 lines per channel. The
+   summary names every root and element that drew, once each, with a count — so
+   "the wrong root drew nothing" and "the right root drew the wrong thing" read
+   differently at a glance.
+5. **Open a channel file only when the summary is not enough** — attach the one
+   file, not the folder. `Clear files` between defects.
 
 (`Copy tail` copies the live tail alone, when the header is already in the
 report.)

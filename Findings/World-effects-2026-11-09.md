@@ -856,6 +856,15 @@ The row reads `1,204 lines, 12 budgeted, 3,880 repeats collapsed`: lines plus
 repeats is the number of times the thing was seen, so *40 lines, 3,900 repeats* is
 a complete list, not a channel that stopped working.
 
+**Summary** (next to Copy report) merges every channel file into one
+`summary.log`: one line per **subject** — the root's archive path plus the element
+id, or the shape of a structural line — carrying the first line that subject
+wrote and how many lines it wrote in total. This is what makes a waterfall
+capture usable: `(x1204) gfx/场景/水门_瀑布.gfx id=100 tile=1 grid=100x100 …` in a
+few hundred lines instead of a megabyte of splash cards. At most 80 subjects per
+channel, and the file says how many were left out. Copy report's tail is capped at
+20 lines per channel for the same reason.
+
 **F8** drops a `---- MARK camera (x, y, z) yaw … pitch … time … ----` line into
 `session.log` *and* into every channel that is on, past the throttle and past the
 mask. Two marks bracket the window being reported, so the log names the position
