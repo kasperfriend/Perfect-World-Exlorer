@@ -102,6 +102,7 @@ use crate::{
         Child, Common, Control, ControlData, Curve, Cylinder, Element, Grid, KeyPoint, Lightning,
         Particle, Root, Spec, Sprite, Trail,
     },
+    view_settings::EffectShaft,
 };
 use glam::{Mat4, Quat, Vec3, Vec4};
 
@@ -791,6 +792,10 @@ struct ElementContext<'a> {
     placement: Mat4,
     /// The rotation `placement` adds on top of the parent basis: the
     /// interpolated keypoint `Direction` with ctrl 100's orbit spun about Z.
+    /// Which rule builds the shaft of a `RotFromView` card. Published from the
+    /// settings tab through [`set_shaft_mode`], copied in here so a card's
+    /// geometry is decided by the value the frame it belongs to was built with.
+    shaft: EffectShaft,
     /// The client's emission direction is expressed in the emitter's own frame,
     /// so undoing this is what turns one of its directions into a local one.
     spin: Quat,
@@ -1799,6 +1804,7 @@ fn advance_element(
     let context = ElementContext {
         id: element.id,
         placement,
+        shaft: shaft_mode(),
         spin: direction,
         keypoint_direction: sampled.direction,
         view,
@@ -2742,6 +2748,24 @@ fn push_quad(
 /// billboard at each of them. Keyed by path and id alone every copy collapsed
 /// into one line, so a capture of a grove of beams came back showing one beam
 /// and could not say whether the rest pointed somewhere else.
+/// The rule the axial card's shaft is built with. A process-wide mirror of
+/// `view_settings::EffectShaft`, like the logging mask, so the settings tab can
+/// change it without threading it through every player the owner builds.
+static SHAFT_MODE: std::sync::atomic::AtomicU8 =
+    std::sync::atomic::AtomicU8::new(EffectShaft::Client as u8);
+/// Publish the settings tab's choice. Cheap enough to call every frame.
+pub fn set_shaft_mode(mode: EffectShaft) {
+    SHAFT_MODE.store(mode as u8, std::sync::atomic::Ordering::Relaxed);
+}
+fn shaft_mode() -> EffectShaft {
+    match SHAFT_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => EffectShaft::RootDir,
+        2 => EffectShaft::WorldUp,
+        3 => EffectShaft::Horizontal,
+        _ => EffectShaft::Client,
+    }
+}
+
 fn at(context: &ElementContext) -> String {
     let p = context.placement.w_axis;
     format!(
@@ -2991,11 +3015,12 @@ fn emit_sprite(
         EffectDecals,
         at(context),
         2000,
-        "{} id={} basis={} rot_from_view={} face_to_viewer={} texture={} \
+        "{} id={} basis={} shaft={} rot_from_view={} face_to_viewer={} texture={} \
          origin={:?} z_offset={:.3} clock={:.0}ms",
         context.root,
         context.id,
         basis.name(),
+        shaft_mode().token(),
         sprite.rotate_from_view,
         face_to_viewer,
         texture,
@@ -3315,36 +3340,47 @@ fn quad_corners(
         QuadBasis::Axial => {
             let basis_scale = context.placement.x_axis.truncate().length();
             let world = context.placement.transform_point3(center);
-            // `RotateVec(GetParentDir() * kp.m_vDir, _unit_z)` is not the element's
-            // own Z axis. Angelica is a **row-vector** engine: `SetDirAndUp`
-            // writes the basis as rows —
-            //
-            //     vRight = CrossProduct(vUp, vDir);
-            //     m_matNoScale.SetRow(0, vRight);
-            //     m_matNoScale.SetRow(1, vUp);
-            //     m_matNoScale.SetRow(2, vDir);
-            //     m_qDir.ConvertFromMatrix(m_matNoScale);
-            //
-            // (A3DGFXEx.cpp:1574-1585, and `SetParentTM` copies the parent's rows
-            // the same way at :1587-1602) — so `m_qDir * (0,0,1)` is the third
-            // *column* of the row-major basis, `(right.z, up.z, dir.z)`, which is
-            // the parent's inverse rotation applied to the keypoint direction.
-            // The map proves it twice over:
-            //
-            //   * both `天煞光束` records author `dir (0,0,1)` with `up (0,±1,0)`;
-            //     the column is `(0,0,1)` either way, so those shafts lie
-            //     horizontally — which is what the Archosaur footage shows;
-            //   * the 49 `树林光束` records author dirs like `(0,0.565,0.825)`
-            //     with `up (0,0.825,-0.565)`; their column is `(0,-0.565,0.825)`,
-            //     a shaft tilted *down* by 34 degrees, where the raw `dir` would
-            //     have tilted it up by the same angle and read as "the sun rays
-            //     point in random directions".
             let keypoint = context.keypoint_direction;
+            // The client's rule, and it is shorter than what this branch used to
+            // do: `A3DDecalEx::Fill_Verts_3D` (A3DDecalEx.cpp:365) is
+            //
+            //     A3DVECTOR3 vDir = RotateVec(GetParentDir() * kp.m_vDir, _unit_z);
+            //
+            // `GetParentDir()` is the owner's direction quaternion and
+            // `kp.m_vDir` is the keypoint's, so their product is the placement's
+            // own rotation and `* _unit_z` takes its Z axis. The shaft is
+            // therefore the placement's Z axis. Nothing else: no transpose, and
+            // no second application of the keypoint.
+            //
+            // That matters. The first version of this branch multiplied the
+            // *transpose* of the parent by the keypoint direction, which is the
+            // parent's **inverse** rotation. Every shaft was mirrored about its
+            // own centre: the forest's 49 `树林光束` records author directions
+            // like `(0, 0.565, 0.825)` -- 34 degrees up -- and were drawn at the
+            // same angle *down*, which is exactly the "sun rays point in random
+            // directions" the field report describes.
+            let client = context.placement.z_axis.truncate().normalize_or_zero();
+            // `parent` is the placement with the keypoint taken back out, i.e.
+            // the owner's own `GetParentDir`.
             let parent = context.placement * Mat4::from_quat(keypoint.inverse());
-            let dir = parent
-                .transpose()
-                .transform_vector3(keypoint * Vec3::Z)
-                .normalize_or_zero();
+            let dir = match context.shaft {
+                EffectShaft::Client => client,
+                // The root's own direction, whatever the .gfx keypoint adds on
+                // top of it: what the ecwld record asked for on its own.
+                EffectShaft::RootDir => parent.z_axis.truncate().normalize_or_zero(),
+                EffectShaft::WorldUp => Vec3::Y,
+                // The client axis with its rise removed, so a shaft that should
+                // sweep across the ground stays in the ground plane.
+                EffectShaft::Horizontal => {
+                    let flat = Vec3::new(client.x, 0., client.z);
+                    if flat.length() > 1e-4 {
+                        flat.normalize()
+                    } else {
+                        let root = parent.z_axis.truncate();
+                        Vec3::new(root.x, 0., root.z).normalize_or_zero()
+                    }
+                }
+            };
             let to_eye = context.view.position - world;
             let right = to_eye.cross(dir).normalize_or_zero();
             if !dir.is_finite() || dir == Vec3::ZERO || right == Vec3::ZERO {
@@ -6477,6 +6513,7 @@ mod tests {
         ElementContext {
             id: 123,
             placement: Mat4::IDENTITY,
+            shaft: EffectShaft::Client,
             spin: Quat::IDENTITY,
             keypoint_direction: Quat::IDENTITY,
             view,
@@ -8134,6 +8171,72 @@ mod tests {
         assert_eq!(player.name(), "");
         player.set_name("gfx/场景/树林光束.gfx");
         assert_eq!(player.name(), "gfx/场景/树林光束.gfx");
+    }
+
+    /// The four shaft rules the settings tab offers, on the one keypoint the
+    /// reports disagree about: a `Direction` that turns the card's own Z onto
+    /// the world's +Y. The client's rule follows it and stands the shaft up;
+    /// the other three are the comparisons a report can act on.
+    #[test]
+    fn the_axial_shaft_rule_is_the_settings_choice() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        // The keypoint the Archosaur report came back vertical on: a `Direction`
+        // that turns the card's own Z onto the world's +Y. A placement is
+        // `parent * keypoint`, so this is what the corners are built against.
+        context.keypoint_direction =
+            Quat::from_axis_angle(Vec3::X, std::f32::consts::FRAC_PI_2);
+        context.placement = Mat4::from_quat(context.keypoint_direction);
+        // A zero-width card is a line: its two far corners differ only along
+        // the shaft, so the axis falls out of the corners the builder returns.
+        let mut axis = |mode| {
+            context.shaft = mode;
+            let corners = quad_corners(
+                &context,
+                QuadBasis::Axial,
+                Vec3::ZERO,
+                0.,
+                1.,
+                [0.5, 0.5],
+                [false; 2],
+                0.,
+                1.,
+            );
+            let along = Vec3::from_array(corners[0]) - Vec3::from_array(corners[2]);
+            along.normalize()
+        };
+        // The client's `GetParentDir() * kp.m_vDir`, applied to `_unit_z`: the
+        // placement's own Z axis, so this keypoint stands the shaft up.
+        assert!(
+            axis(EffectShaft::Client).dot(Vec3::Y).abs() > 0.999,
+            "the client rule has to follow the keypoint"
+        );
+        // World up stands the shaft up whatever the placement says.
+        assert!(axis(EffectShaft::WorldUp).dot(Vec3::Y).abs() > 0.999);
+        // The root's own direction, with the keypoint taken back out: taking
+        // this keypoint out of the placement leaves the identity, so the shaft
+        // goes back onto +Z.
+        assert!(axis(EffectShaft::RootDir).dot(Vec3::Z).abs() > 0.999);
+        // The client axis with its rise removed. Its rise was the whole axis,
+        // so this case falls back to the root direction flattened; the point of
+        // the assertion is that the answer is horizontal and unit length.
+        let flat = axis(EffectShaft::Horizontal);
+        assert!(flat.y.abs() < 1e-5, "horizontal must have no rise: {flat}");
+        assert!((flat.length() - 1.).abs() < 1e-4);
+
+        // The bug the switch was added over: the branch used to multiply the
+        // parent's *transpose*, i.e. its inverse rotation, so every shaft was
+        // mirrored about its centre. A tilted placement has to come out on the
+        // side the placement itself is on.
+        context.keypoint_direction = Quat::IDENTITY;
+        context.placement = Mat4::from_rotation_x(0.5);
+        let expected = context.placement.z_axis.truncate().normalize();
+        let shaft = axis(EffectShaft::Client);
+        assert!(
+            (shaft - expected).length() < 1e-4,
+            "the shaft has to be the placement's Z, not its inverse: {shaft} vs {expected}"
+        );
     }
 
     /// The two records the map actually authors decide the axial direction, and

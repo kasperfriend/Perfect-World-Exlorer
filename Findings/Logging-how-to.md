@@ -34,7 +34,11 @@ Three kinds of file:
   every summary written. It is the file that explains the others a week later;
 * **`summary.log`** — written by the **Summary** button: every channel file merged
   into one digest, **one line per subject** (a root and an element id, or the
-  shape of a structural line) with how many lines that subject wrote. Six files
+  shape of a structural line) with how many lines that subject wrote. Its header
+  names the **binary that wrote it** — full path, size and write time, from
+  `std::env::current_exe` — so a report cannot be mistaken for a newer build than
+  the one it came from. Read that line first: if it predates the fix the report is
+  about, nothing else in the file matters. Six files
   and a million lines become a page that names every root that drew. This is the
   file to attach when the tail is all one busy channel.
 

@@ -1130,6 +1130,51 @@ fn subject_of(line: &str) -> String {
 /// every channel, one line per subject it wrote about, with how many lines that
 /// subject produced. A folder of six files becomes a page that names every root
 /// and element that drew.
+/// Which executable wrote this folder.
+///
+/// Four reports in a row said a fix had changed nothing on screen, and a log
+/// cannot tell a stale executable from a wrong matrix: the card's size, basis
+/// and clock come out identically either way. The running binary's own path,
+/// size and write time are the one fact that separates the two, so the summary
+/// starts with them.
+fn build_line() -> String {
+    let Ok(exe) = std::env::current_exe() else {
+        return "unknown (current_exe failed)".into();
+    };
+    let mut out = exe.display().to_string();
+    if let Ok(meta) = std::fs::metadata(&exe) {
+        out.push_str(&format!(" ({}", human_bytes(meta.len())));
+        if let Ok(written) = meta.modified() {
+            out.push_str(&format!(", written {}", utc_stamp(written)));
+        }
+        out.push(')');
+    }
+    out
+}
+
+/// `YYYY-MM-DD HH:MM:SS UTC` from a `SystemTime`, so the header needs no date
+/// dependency. Civil-from-days is Hinnant's algorithm; the epoch is 1970-01-01.
+fn utc_stamp(time: std::time::SystemTime) -> String {
+    let secs = time.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let (days, rem) = (secs / 86_400, secs % 86_400);
+    let z = days as i64 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if month <= 2 { y + 1 } else { y };
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02} UTC",
+        rem / 3600,
+        (rem / 60) % 60,
+        rem % 60
+    )
+}
+
 pub fn summary_text(dir: &Path) -> String {
     let mut out = String::new();
     let files = channel_files(dir);
@@ -1138,6 +1183,7 @@ pub fn summary_text(dir: &Path) -> String {
         let inner = registry().lock().unwrap_or_else(|e| e.into_inner());
         out.push_str(&format!("# session: {}\n", inner.session));
     }
+    out.push_str(&format!("# build:    {}\n", build_line()));
     out.push_str(&format!("# folder:   {}\n", dir.display()));
     out.push_str(&format!("# files:    {}\n", describe_files(&files)));
     out.push_str(
@@ -2431,6 +2477,21 @@ mod tests {
         assert!(text.contains("of 36 on"), "{text}");
         set_mask(0);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A report cannot say whether the fix it was taken for is in the binary it
+    /// was taken with, so the summary names the binary. The epoch and one known
+    /// instant pin the civil-from-days arithmetic a log header now depends on.
+    #[test]
+    fn the_summary_stamps_the_binary_that_wrote_it() {
+        let epoch = std::time::UNIX_EPOCH;
+        assert_eq!(utc_stamp(epoch), "1970-01-01 00:00:00 UTC");
+        let known = epoch + std::time::Duration::from_secs(1_700_000_000);
+        assert_eq!(utc_stamp(known), "2023-11-14 22:13:20 UTC");
+        // A leap day, because the day count is where this arithmetic fails.
+        let leap = epoch + std::time::Duration::from_secs(1_709_164_800);
+        assert_eq!(utc_stamp(leap), "2024-02-29 00:00:00 UTC");
+        assert!(!build_line().is_empty());
     }
 
     #[test]

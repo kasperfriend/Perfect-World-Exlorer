@@ -1139,3 +1139,97 @@ Both are reported by `Player::collect_models` as `element N model <path>: <error
 on the `effect-problems` channel, which was not ticked. The child now carries its
 path in every line, so the next capture names the asset even before the error text
 is read.
+
+## 15. The fourth batch: an inverse rotation, a switch, and the binary's own name
+
+Four reports (`Archosaur-2`, `Wraithgate-2`, `WaterfallAndSunrays-2`,
+`CityOfRagingTides`) came back with the same verdict: nothing had changed. Two of
+the complaints were real and one of them was findable in the client source, not
+in the log.
+
+### The axial branch was using the parent's inverse rotation
+
+`A3DDecalEx::Fill_Verts_3D` builds a `RotFromView` card's shaft with one line
+(A3DDecalEx.cpp:365, fetched this round from the pw152 source folder):
+
+```cpp
+A3DVECTOR3 vDir = RotateVec(GetParentDir() * kp.m_vDir, _unit_z);
+```
+
+`GetParentDir()` is the owner's `A3DQUATERNION` and `kp.m_vDir` is the
+keypoint's — line 464 of the same file assigns that product straight into an
+`A3DQUATERNION` — so the product is the **placement's own rotation** and
+`* _unit_z` takes its Z axis. The branch instead did
+
+```rust
+let parent = context.placement * Mat4::from_quat(keypoint.inverse());
+let dir = parent.transpose().transform_vector3(keypoint * Vec3::Z)
+```
+
+which multiplies the parent's **transpose** — for a rotation, its inverse — and
+applies the keypoint a second time. A transpose is not visible on an axis-aligned
+placement, which is why every test still passed; on a placement that is tilted it
+mirrors the shaft about its centre. That is exactly the reported symptom: the
+forest's 49 `树林光束` records author directions like `(0, 0.565, 0.825)`, 34
+degrees **up**, and the cards were drawn 12–34 degrees **down**. Every shaft in
+the map was pointing the wrong way whenever its placement was rotated, and no
+amount of swapping keypoint vs. parent could fix that, because the error was the
+matrix, not the operands.
+
+The branch now returns the placement's Z axis for the client rule. `RootDir`,
+`WorldUp` and `Horizontal` are kept beside it under a settings switch (see below),
+and a test pins all four against corners the builder actually returns.
+
+### A switch, because a log cannot settle a picture
+
+The Archosaur beam is the case the log cannot decide. `天煞光束` element 100's
+keypoint turns Z onto +Y, so the client rule — correctly implemented now — gives
+a **vertical** 655-unit shaft, and the archive footage in the report shows the
+same summoning column standing up. The report says both beams should be
+horizontal. Both readings are consistent with the same log, because the card's
+size, basis and clock are identical either way; only the picture separates them.
+
+So `Settings ▸ World ▸ RotFromView card axis` now offers the four candidates:
+
+| Row | Rule | What it answers |
+| --- | --- | --- |
+| Client (placement Z) | `q_parent * q_keypoint * _unit_z` | the faithful answer, default |
+| Root direction | `q_parent * _unit_z` | ignores the .gfx keypoint |
+| World up | `+Y` | stands every shaft up |
+| Horizontal | client axis, rise removed | sweeps in the ground plane |
+
+It is persisted as `effect_shaft=` (`view_settings::EffectShaft`), published to
+the player through `gfx_player::set_shaft_mode`, and **printed in the decal
+channel** as `shaft=client|root|up|flat`, so the next report says which rule
+produced the picture it describes. Flipping the row and re-shooting one
+screenshot settles the beam in a single round instead of another blind rebuild.
+
+### The summary now names the binary that wrote it
+
+Four rounds of "nothing has been fixed" cannot be told apart from four rounds of
+a stale executable: the same numbers come out of both. `summary.log` therefore
+starts with
+
+```
+# build:    E:\pw142\Perfect World Explorer\pwe.exe (5.2 MB, written 2026-11-09 19:12:44 UTC)
+```
+
+— the path, size and write time of the running executable, read from
+`std::env::current_exe`. If the next report's header is older than the branch it
+was taken for, that is the whole explanation and no matrix has to be blamed.
+(`utc_stamp` is Hinnant's civil-from-days, tested against the epoch, one known
+instant and 2024-02-29.)
+
+### What is still open
+
+* **The waterfall still does not flow.** `水门_瀑布.gfx id=100` scrolls its UVs at
+  `-1.500 × clock` and the card is 4.92 × 8.43 of `纹理/气连续03.tga`; the
+  picture is a flat white sheet. The UVs are moving, so the next question is the
+  sampled texels (a `.tga` whose alpha the loader may be dropping) and not the
+  clock. `effect-textures` reports the path and nothing about its contents; the
+  texture channel needs a line that says whether alpha survived decode.
+* **The portal has no ring.** `绿色传送门.gfx` still emits no card for two of its
+  five elements. `effect-elements` (the element table) is the channel that would
+  name them, and it was not ticked in any of the four captures.
+* **Models that never load.** `盆景水晶.gfx id=160 meshes=0` is reported on
+  `effect-problems`, which was also not ticked.
