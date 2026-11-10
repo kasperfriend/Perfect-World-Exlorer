@@ -3257,7 +3257,36 @@ fn quad_corners(
         QuadBasis::Axial => {
             let basis_scale = context.placement.x_axis.truncate().length();
             let world = context.placement.transform_point3(center);
-            let dir = context.placement.z_axis.truncate().normalize_or_zero();
+            // `RotateVec(GetParentDir() * kp.m_vDir, _unit_z)` is not the element's
+            // own Z axis. Angelica is a **row-vector** engine: `SetDirAndUp`
+            // writes the basis as rows —
+            //
+            //     vRight = CrossProduct(vUp, vDir);
+            //     m_matNoScale.SetRow(0, vRight);
+            //     m_matNoScale.SetRow(1, vUp);
+            //     m_matNoScale.SetRow(2, vDir);
+            //     m_qDir.ConvertFromMatrix(m_matNoScale);
+            //
+            // (A3DGFXEx.cpp:1574-1585, and `SetParentTM` copies the parent's rows
+            // the same way at :1587-1602) — so `m_qDir * (0,0,1)` is the third
+            // *column* of the row-major basis, `(right.z, up.z, dir.z)`, which is
+            // the parent's inverse rotation applied to the keypoint direction.
+            // The map proves it twice over:
+            //
+            //   * both `天煞光束` records author `dir (0,0,1)` with `up (0,±1,0)`;
+            //     the column is `(0,0,1)` either way, so those shafts lie
+            //     horizontally — which is what the Archosaur footage shows;
+            //   * the 49 `树林光束` records author dirs like `(0,0.565,0.825)`
+            //     with `up (0,0.825,-0.565)`; their column is `(0,-0.565,0.825)`,
+            //     a shaft tilted *down* by 34 degrees, where the raw `dir` would
+            //     have tilted it up by the same angle and read as "the sun rays
+            //     point in random directions".
+            let keypoint = context.keypoint_direction;
+            let parent = context.placement * Mat4::from_quat(keypoint.inverse());
+            let dir = parent
+                .transpose()
+                .transform_vector3(keypoint * Vec3::Z)
+                .normalize_or_zero();
             let to_eye = context.view.position - world;
             let right = to_eye.cross(dir).normalize_or_zero();
             if !dir.is_finite() || dir == Vec3::ZERO || right == Vec3::ZERO {
@@ -5440,8 +5469,11 @@ mod tests {
             (along.length() - 80.).abs() < 1e-3,
             "the 10-unit height must lie along +X: {along:?}"
         );
+        // The row-major basis the client reads gives the mirrored axis (see the
+        // Axial arm), and a centred card is symmetric about its own middle, so
+        // what has to hold is the line, not the sign.
         assert!(
-            along.normalize().dot(Vec3::X) > 0.999,
+            along.normalize().dot(Vec3::X).abs() > 0.999,
             "the shaft points the way the element points: {along:?}"
         );
         // Width 0.5 doubled, times the keypoint's 2 and the header's
@@ -8030,6 +8062,68 @@ mod tests {
         assert_eq!(player.name(), "");
         player.set_name("gfx/场景/树林光束.gfx");
         assert_eq!(player.name(), "gfx/场景/树林光束.gfx");
+    }
+
+    /// The two records the map actually authors decide the axial direction, and
+    /// neither of them agrees with "the element's Z axis".
+    ///
+    /// `A3DGFXEx::SetDirAndUp` (A3DGFXEx.cpp:1574-1585) writes the basis as
+    /// **rows** — `SetRow(0, right)`, `SetRow(1, up)`, `SetRow(2, dir)` — and
+    /// `m_qDir * (0,0,1)` is therefore the third *column* of that row-major
+    /// matrix, `(right.z, up.z, dir.z)`. The two placements below are quoted from
+    /// `world.ecwld`:
+    ///
+    /// * `天煞光束` at (1528.0, 602.5, 1032.3) — `dir (0,0,1)`, `up (0,-1,0)` —
+    ///   gives `(0,0,1)`: the shaft lies horizontally, as the Archosaur footage
+    ///   shows.
+    /// * `树林光束` at (232.3, 229.1, 2960.8) — `dir (0,0.565,0.825)`,
+    ///   `up (0,0.825,-0.565)` — gives `(0,-0.565,0.825)`: tilted **down** 34
+    ///   degrees. Reading the raw `dir` instead tilts the same shaft up by 34
+    ///   degrees, which is what made the forest rays look scattered.
+    #[test]
+    fn a_rot_from_view_shaft_follows_the_row_major_basis() {
+        let axial = SPRITE
+            .replace("RotFromView: 0", "RotFromView: 1")
+            .replace("Position: 1, 2, 3", "Position: 0, 0, 0");
+        // Off the shaft axes, so no case degenerates: a camera exactly on the
+        // shaft gives the client a zero `vUp` as well.
+        let camera = View {
+            position: Vec3::new(5., 5., 10.),
+            ..view()
+        };
+        let some = |dir: Vec3, up: Vec3, expect: Vec3| {
+            let mut player = build(&(header37(1) + &axial));
+            let transform = Mat4::from_cols(
+                up.cross(dir).extend(0.),
+                up.extend(0.),
+                dir.extend(0.),
+                Vec3::ZERO.extend(1.),
+            );
+            player.advance(0., &camera, transform, 1., 1.).unwrap();
+            let quad = player.quads().first().expect("the shaft draws");
+            let along = Vec3::from_array(quad.positions[0]) - Vec3::from_array(quad.positions[2]);
+            assert!(
+                along.normalize().dot(expect).abs() > 0.999,
+                "dir {dir:?} up {up:?} should give {expect:?}, got {along:?}"
+            );
+        };
+        // Horizontal, both records of the Archosaur pair.
+        some(
+            Vec3::new(0., 0., 1.),
+            Vec3::new(0., -1., 0.),
+            Vec3::new(0., 0., 1.),
+        );
+        some(
+            Vec3::new(0., 0., 1.),
+            Vec3::new(0., 1., 0.),
+            Vec3::new(0., 0., 1.),
+        );
+        // Down-tilted, the forest's sun ray.
+        some(
+            Vec3::new(0., 0.565, 0.825),
+            Vec3::new(0., 0.825, -0.565),
+            Vec3::new(0., -0.565, 0.825),
+        );
     }
 
     /// `RotFromView: 0` keeps the authored keypoint basis: the card lies in the
