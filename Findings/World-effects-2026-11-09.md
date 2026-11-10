@@ -823,8 +823,8 @@ it: a group with a leftover channel in it reads as one long log with no boundary
 | Button | Ticks | Answers |
 | --- | --- | --- |
 | **Placement** | roots, elements, frames, culling, clock | where a root is, how it was built, the basis its cards are drawn in, and whether it draws at all |
-| **Cards** | cards, UV, decals, textures, alpha | the geometry and the pixels: corners, scroll window, basis, texture, colour |
-| **Sub-elements** | particles, trails, models, lights, ground | everything that hangs off a root instead of being a card |
+| **Cards** | cards, UV, decals, textures, alpha, clock | the geometry and the pixels: corners, scroll window, basis, texture, colour, and whether the window is advancing |
+| **Sub-elements** | particles, trails, models, lights, ground, clock | everything that hangs off a root instead of being a card, and the clock that turns it |
 | **Scene** | scene-effects, effect draws, model queue, problems | what the map placed, what reached the GPU, what failed |
 | **Everything** | every channel that can write | a report that has not been narrowed down yet |
 

@@ -60,13 +60,15 @@ frozen", because both questions are about the same records.
 | Group | Ticks |
 | --- | --- |
 | **Placement** | roots, element table, element frames and basis, culling, clock |
-| **Cards** | card corners, UV window, decals, textures, colour and alpha folds |
-| **Sub-elements** | particles, trails, meshes, lights, ground drape |
+| **Cards** | card corners, UV window, decals, textures, colour and alpha folds, and the clock |
+| **Sub-elements** | particles, trails, meshes, lights, ground drape, and the clock |
 | **Scene** | the `world.ecwld` records, effect draws, the model queue, problems |
 | **Everything** | every channel that can write |
 
 A group **replaces** the mask instead of adding to it, so a file is about one
-question. Channels are grouped under the same four headings on the Effects page —
+question. **Cards** and **Sub-elements** also tick the clock, because a UV window
+and a turning ring are both functions of it: a capture that says what a window was
+without saying whether it moved answers half the question. Channels are grouped under the same four headings on the Effects page —
 **Where it is**, **Cards**, **Sub-elements**, **Diagnosis** — and each heading,
 like each page, has its own tick box. Every bulk switch touches only the channels
 that can write, so it never leaves empty files behind.

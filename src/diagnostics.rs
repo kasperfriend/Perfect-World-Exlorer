@@ -701,6 +701,10 @@ const CARDS: &[Channel] = &[
     Channel::EffectDecals,
     Channel::EffectTextures,
     Channel::EffectAlpha,
+    // The clock comes with the cards because a UV window is a function of it:
+    // a waterfall capture that ticked this group and not the clock could say
+    // what the window was and not whether it moved.
+    Channel::EffectClock,
 ];
 
 const SUB_ELEMENTS: &[Channel] = &[
@@ -709,6 +713,8 @@ const SUB_ELEMENTS: &[Channel] = &[
     Channel::EffectModels,
     Channel::EffectLights,
     Channel::EffectGround,
+    // Same reason as the cards group: "is the ring turning" is a clock question.
+    Channel::EffectClock,
 ];
 
 const SCENE: &[Channel] = &[
@@ -730,15 +736,16 @@ pub const PRESETS: [Preset; 5] = [
     Preset {
         name: "Cards",
         help: "The geometry and the pixels of every card: four corners, the UV \
-               window, which basis built it, the texture it resolved and what the \
-               colour and alpha folds made of it.",
+               window, which basis built it, the texture it resolved, what the \
+               colour and alpha folds made of it, and the clock the window is a \
+               function of.",
         all: false,
         channels: CARDS,
     },
     Preset {
         name: "Sub-elements",
         help: "What hangs off a root instead of being a card: particles, trails, \
-               meshes, lights and the ground drape.",
+               meshes, lights, the ground drape and the clock that turns them.",
         all: false,
         channels: SUB_ELEMENTS,
     },

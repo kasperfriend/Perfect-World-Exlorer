@@ -3073,18 +3073,23 @@ fn drape_sprite(
         || sprite.ground_normal_only
         || !sampler.near_ground
     {
-        crate::diag_keyed!(
-            EffectGround,
-            format!("{} id={} flat", context.root, context.id),
-            2000,
-            "{} id={} flat card: id100={} match_ground={} grnd_norm_only={} near_ground={}",
-            context.root,
-            context.id,
-            context.id == 100,
-            context.common.match_ground,
-            sprite.ground_normal_only,
-            sampler.near_ground
-        );
+        // Only element 100 was ever a ground candidate: 101 is drawn in screen
+        // space and 102 through `Update_Billboard`, so "flat card" about them is
+        // a line about a branch they never had. The channel used to fill with
+        // them and say nothing about the one element it is named for.
+        if context.id == 100 {
+            crate::diag_keyed!(
+                EffectGround,
+                format!("{} id={} flat", context.root, context.id),
+                2000,
+                "{} id={} flat card: match_ground={} grnd_norm_only={} near_ground={}",
+                context.root,
+                context.id,
+                context.common.match_ground,
+                sprite.ground_normal_only,
+                sampler.near_ground
+            );
+        }
         return false;
     }
     // `fParentScale` scales the extents in the client before the cell count is
