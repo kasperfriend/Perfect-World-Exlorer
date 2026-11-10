@@ -2928,9 +2928,7 @@ fn emit_sprite(
             EffectTextures,
             format!(
                 "{} id={} {:?}",
-                context.root,
-                context.id,
-                context.common.texture
+                context.root, context.id, context.common.texture
             ),
             5000,
             "{} id={} texture {:?} is not a usable archive path",
