@@ -8234,7 +8234,12 @@ mod tests {
     /// the other three are the comparisons a report can act on.
     #[test]
     fn the_axial_shaft_rule_is_the_settings_choice() {
-        let view = view();
+        // Off the shaft axes, so no case degenerates: a camera on the shaft
+        // gives the client a zero `vUp` and the builder returns a zero quad.
+        let view = View {
+            position: Vec3::new(5., 5., 10.),
+            ..view()
+        };
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
         // The keypoint the Archosaur report came back vertical on: a `Direction`
@@ -8359,11 +8364,18 @@ mod tests {
             Vec3::new(0., 1., 0.),
             Vec3::new(0., 0., 1.),
         );
-        // Down-tilted, the forest's sun ray.
+        // The forest's sun ray, and the case this test got wrong for three
+        // reports. `RotateVec(q_parent * q_kp, _unit_z)` takes the placement's
+        // own Z axis, so a record that authors `dir (0, 0.565, 0.825)` -- 34
+        // degrees *up* -- is drawn 34 degrees up. The expectation here used to
+        // be `(0, -0.565, 0.825)`, the same angle *down*, because the branch it
+        // pinned multiplied the parent's transpose; that mirrored every shaft
+        // about its centre and is what the field report saw as "the sun rays
+        // point in random directions".
         some(
             Vec3::new(0., 0.565, 0.825),
             Vec3::new(0., 0.825, -0.565),
-            Vec3::new(0., -0.565, 0.825),
+            Vec3::new(0., 0.565, 0.825),
         );
     }
 
