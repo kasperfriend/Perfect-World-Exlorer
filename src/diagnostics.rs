@@ -2060,6 +2060,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pwe-repeat-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         set_dir(dir.clone());
+        clear();
         set_mask(1 << Channel::SceneSounds.index());
         emit(Channel::SceneSounds, "the same card");
         emit(Channel::SceneSounds, "the same card");
@@ -2077,6 +2078,7 @@ mod tests {
         );
         assert!(text.contains("a different card"), "{text}");
         set_mask(0);
+        clear();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2086,6 +2088,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pwe-budget-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         set_dir(dir.clone());
+        clear();
         set_mask(1 << Channel::SceneSounds.index());
         // Every line is different, so the repeat collapse cannot be what stops
         // them; only the budget can.
@@ -2103,6 +2106,7 @@ mod tests {
             "the bucket holds {burst} and refills slowly, wrote {written}"
         );
         set_mask(0);
+        clear();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2122,6 +2126,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("pwe-diag-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         set_dir(dir.clone());
+        // Counters are process-wide, so the test that asserts an exact count has
+        // to start from a known one.
+        clear();
         set_mask(1 << Channel::SceneSounds.index());
         emit(Channel::SceneSounds, "a line about a sound");
         let text = std::fs::read_to_string(dir.join("scene-sounds.log")).expect("log file");
