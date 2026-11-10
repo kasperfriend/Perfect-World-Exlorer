@@ -841,16 +841,24 @@ fn main() {
     let path = PathBuf::from(&args[1]);
     // Publish the saved residency choice before anything opens a cache: the
     // terrain store and the decoded-texture caches both read it.
-    let saved = view_settings::ViewSettings::load();
+    let mut saved = view_settings::ViewSettings::load();
     // Live logging goes before everything else, so the first load can already be
-    // logged: the folder defaults to the client root, the mask is whatever the
+    // logged: the folder defaults to the explorer's own `pwe-logs`, next to the
+    // executable rather than inside the client install, the mask is whatever the
     // settings tab left ticked, and the session line names the run.
-    diagnostics::set_default_dir(path.join("pwe-logs"));
+    diagnostics::set_default_dir(diagnostics::explorer_root().join("pwe-logs"));
+    // A folder written by an older build points inside the client root. Treat it
+    // as never having been set, so the move to the explorer's own folder takes
+    // effect without anyone having to clear the box by hand.
+    if diagnostics::is_legacy_default(&saved.logging_dir, &path) {
+        saved.logging_dir.clear();
+    }
     diagnostics::apply_dir(&saved.logging_dir);
     diagnostics::set_mask(saved.logging_mask);
     diagnostics::set_session(format!(
-        "client root {} | version {} | mask {:#018x}",
+        "client root {} | explorer {} | version {} | mask {:#018x}",
         path.display(),
+        diagnostics::explorer_root().display(),
         env!("CARGO_PKG_VERSION"),
         saved.logging_mask
     ));

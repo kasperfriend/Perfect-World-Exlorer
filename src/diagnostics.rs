@@ -7,10 +7,15 @@
 //! ticks them in **Settings ▸ Logging**, or unless `PWE_LOG` names them, and the
 //! cost of a disabled channel is one relaxed atomic load per call site.
 //!
-//! Three sinks, each with a different job:
+//! Four sinks, each with a different job:
 //!
-//! * **a file per channel** in `<client root>/pwe-logs/`, appended and rotated
-//!   at 8 MiB, so a session can be read after the fact and handed over whole;
+//! * **a file per channel** in `<explorer folder>/pwe-logs/`, appended and
+//!   rotated at 8 MiB, so a session can be read after the fact and handed over
+//!   whole. The folder belongs to the explorer, not to the client it is reading:
+//!   a 40 GB game install is not where a report should have to be found;
+//! * **`session.log`**, written whether or not any channel is ticked: the run's
+//!   header, every capture started, every mark placed (`F8`), every folder
+//!   change. It is the one file that always explains the others;
 //! * **a rolling tail** of the last few hundred lines, which the settings tab
 //!   shows live so a defect can be watched while it happens;
 //! * **per-channel counters** (lines written, lines suppressed by the throttle),
@@ -27,7 +32,7 @@
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
@@ -60,6 +65,18 @@ impl Page {
             Self::Models => "Models",
             Self::Render => "Render",
             Self::Timing => "Timing",
+        }
+    }
+
+    /// The groups of a page, in the order they are listed. Channels name their
+    /// group, so the list here is the only place the order lives.
+    pub fn groups(self) -> &'static [&'static str] {
+        match self {
+            Self::Effects => &["Where it is", "Cards", "Sub-elements", "Diagnosis"],
+            Self::Scene => &["Placements", "Terrain, sky and water"],
+            Self::Models => &["Loading", "Shading", "Animation"],
+            Self::Render => &["Batches", "Post and uploads"],
+            Self::Timing => &["Frame and camera", "Load and memory", "Audio"],
         }
     }
 
@@ -256,6 +273,40 @@ impl Channel {
             | Self::TimingMemory
             | Self::TimingCamera
             | Self::AudioState => Page::Timing,
+        }
+    }
+
+    /// Which heading inside its page the channel is listed under. A group is
+    /// about what the line is *for*: where an effect is, what its cards are made
+    /// of, what hangs off it, and what went wrong.
+    pub fn group(self) -> &'static str {
+        match self {
+            Self::EffectRoots
+            | Self::EffectElements
+            | Self::EffectFrames
+            | Self::EffectCulling
+            | Self::EffectClock => "Where it is",
+            Self::EffectCards
+            | Self::EffectUv
+            | Self::EffectDecals
+            | Self::EffectTextures
+            | Self::EffectAlpha => "Cards",
+            Self::EffectParticles
+            | Self::EffectTrails
+            | Self::EffectModels
+            | Self::EffectLights
+            | Self::EffectGround => "Sub-elements",
+            Self::EffectProblems => "Diagnosis",
+            Self::SceneEffects | Self::SceneOrnaments | Self::SceneSounds => "Placements",
+            Self::SceneTerrain | Self::SceneSky | Self::SceneWater => "Terrain, sky and water",
+            Self::ModelLoads | Self::ModelQueue => "Loading",
+            Self::ModelMaterials => "Shading",
+            Self::ModelAnimation => "Animation",
+            Self::RenderEffects | Self::RenderWorld | Self::RenderWater => "Batches",
+            Self::RenderPost | Self::RenderTextures => "Post and uploads",
+            Self::TimingFrame | Self::TimingCamera => "Frame and camera",
+            Self::TimingLoad | Self::TimingMemory => "Load and memory",
+            Self::AudioState => "Audio",
         }
     }
 
@@ -587,6 +638,134 @@ impl Channel {
     }
 }
 
+/// One click's worth of channels: exactly the ones a particular report needs,
+/// and nothing else, so the files stay short enough to read.
+///
+/// Every preset names a report that was actually filed against this viewer, so
+/// "which boxes do I tick for the sun rays" never has to be asked again. Ticking
+/// a preset replaces the mask instead of adding to it: a capture with a leftover
+/// channel in it is a capture nobody can read.
+pub struct Preset {
+    pub name: &'static str,
+    /// What the preset is for, shown as the button's tooltip.
+    pub help: &'static str,
+    /// Everything, ignoring the list — the button is still one of the set.
+    pub all: bool,
+    pub channels: &'static [Channel],
+}
+
+/// `树林光束` and the Archosaur pair share almost everything: what differs is
+/// whether the UV window matters, which it does for a waterfall and does not for
+/// a beam that has one keypoint.
+const BEAM_CHANNELS: &[Channel] = &[
+    Channel::EffectRoots,
+    Channel::EffectElements,
+    Channel::EffectFrames,
+    Channel::EffectCards,
+    Channel::EffectDecals,
+    Channel::EffectTextures,
+    Channel::EffectAlpha,
+    Channel::EffectCulling,
+];
+
+pub const PRESETS: [Preset; 6] = [
+    Preset {
+        name: "Sun rays",
+        help: "树林光束: which root placed the rays, which element built each card, \
+               which basis the card was drawn on, and the texture and blend it got. \
+               The direction of the shaft is in effect-cards.",
+        all: false,
+        channels: BEAM_CHANNELS,
+    },
+    Preset {
+        name: "Archosaur beams",
+        help: "天煞光束: the two placements that fire one after the other. \
+               effect-frames prints each element's keypoint basis, which is where \
+               a shaft that should be horizontal stops being horizontal.",
+        all: false,
+        channels: BEAM_CHANNELS,
+    },
+    Preset {
+        name: "Waterfall",
+        help: "水门_瀑布: the five sheets and their scroll. effect-uv prints the \
+               tile window per frame and effect-clock prints the clock it advances \
+               on; between them a frozen sheet says which half is wrong.",
+        all: false,
+        channels: &[
+            Channel::SceneEffects,
+            Channel::EffectRoots,
+            Channel::EffectElements,
+            Channel::EffectUv,
+            Channel::EffectTextures,
+            Channel::EffectClock,
+            Channel::EffectCards,
+        ],
+    },
+    Preset {
+        name: "Crater colour",
+        help: "A saturated disc at the bottom of a crater: effect-cards names the \
+               root, effect-textures says whether the texture resolved, effect-alpha \
+               says what the colour and alpha folds produced, and scene-effects \
+               says what the map placed there.",
+        all: false,
+        channels: &[
+            Channel::SceneEffects,
+            Channel::EffectRoots,
+            Channel::EffectCards,
+            Channel::EffectTextures,
+            Channel::EffectAlpha,
+            Channel::EffectCulling,
+            Channel::EffectClock,
+        ],
+    },
+    Preset {
+        name: "Trails and rings",
+        help: "Ribbons, fractals, waves and spinning rings: the trail geometry, \
+               the UV window that has to scroll along it, and the clock that turns \
+               it. Generous and cheap, so it is the first thing to try on any \
+               effect that moves when it should not.",
+        all: false,
+        channels: &
+            [
+                Channel::EffectRoots,
+                Channel::EffectElements,
+                Channel::EffectTrails,
+                Channel::EffectUv,
+                Channel::EffectClock,
+                Channel::EffectCards,
+            ],
+    },
+    Preset {
+        name: "Everything",
+        help: "Every channel at once, for a report that has not been narrowed down \
+               yet. Heavy: expect hundreds of megabytes on a long walk.",
+        all: true,
+        channels: &[],
+    },
+];
+
+impl Preset {
+    /// The mask this preset means.
+    pub fn mask(&self) -> u64 {
+        if self.all {
+            return Channel::ALL
+                .iter()
+                .fold(0u64, |mask, channel| mask | 1u64 << channel.index());
+        }
+        self.channels
+            .iter()
+            .fold(0u64, |mask, channel| mask | 1u64 << channel.index())
+    }
+
+    /// The files it will produce, for the tooltip and the session file.
+    pub fn keys(&self) -> Vec<&'static str> {
+        if self.all {
+            return Channel::ALL.iter().map(|channel| channel.key()).collect();
+        }
+        self.channels.iter().map(|channel| channel.key()).collect()
+    }
+}
+
 /// Write one line to a channel, formatting only when that channel is on.
 ///
 /// `crate::diag!(EffectCards, "{} id={}", self.name, id)` costs one relaxed
@@ -693,7 +872,8 @@ pub fn any() -> bool {
 }
 
 /// Point the files at a directory. The settings tab shows this path; the default
-/// is `<client root>/pwe-logs`.
+/// is `<explorer folder>/pwe-logs`, next to the executable rather than inside the
+/// client install the viewer happens to be reading.
 pub fn set_dir(dir: impl Into<PathBuf>) {
     let dir = dir.into();
     let mut inner = registry().lock().unwrap_or_else(|e| e.into_inner());
@@ -723,14 +903,114 @@ pub fn set_mask(mask: u64) {
 /// The description written into every file's header: client root, version and
 /// whatever else identifies the run.
 pub fn set_session(text: impl Into<String>) {
-    let mut inner = registry().lock().unwrap_or_else(|e| e.into_inner());
-    inner.session = text.into();
+    let text = text.into();
+    {
+        let mut inner = registry().lock().unwrap_or_else(|e| e.into_inner());
+        inner.session = text.clone();
+    }
+    session(format!("==== SESSION {text} ===="));
+}
+
+/// The always-on timeline, `session.log` in the log folder.
+///
+/// It is written whether or not a single channel is ticked, and it is the one
+/// file that explains the others a week later: the run's header, every capture
+/// started, every mark placed, every folder change. It stays small because
+/// nothing per-frame ever writes here.
+pub fn session(text: impl AsRef<str>) {
+    let Some(dir) = dir() else {
+        return;
+    };
+    std::fs::create_dir_all(&dir).ok();
+    let stamp = {
+        let inner = registry().lock().unwrap_or_else(|e| e.into_inner());
+        inner.started.elapsed().as_secs_f32()
+    };
+    let line = format!("[{stamp:8.3}] {}\n", text.as_ref());
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("session.log"))
+    {
+        let _ = file.write_all(line.as_bytes());
+    }
+}
+
+/// Drop a marker into `session.log` and into every channel that is on.
+///
+/// The viewer binds this to `F8` and sends the camera pose with it, so "at this
+/// spot, this happened" is a line every file agrees on instead of a paragraph in
+/// a report that names no position.
+pub fn mark(note: impl AsRef<str>) {
+    let line = format!("---- MARK {} ----", note.as_ref());
+    session(&line);
+    for channel in Channel::ALL {
+        if enabled(channel) {
+            push(channel, &line, true);
+        }
+    }
+}
+
+/// One block of text describing the run, for the settings page's **Copy
+/// report** button: the header, which channels are on, what each of them wrote,
+/// and the live tail. This is the thing to paste into a report — it names the
+/// build, the folder and the switches, which is most of what a log is missing
+/// when it arrives alone.
+pub fn report() -> String {
+    let (session_text, dir_text) = {
+        let inner = registry().lock().unwrap_or_else(|e| e.into_inner());
+        (
+            inner.session.clone(),
+            match &inner.dir {
+                Some(dir) => dir.display().to_string(),
+                None => "(not set)".to_string(),
+            },
+        )
+    };
+    let on: Vec<&'static str> = Channel::ALL
+        .iter()
+        .filter(|channel| enabled(**channel))
+        .map(|channel| channel.key())
+        .collect();
+    let mut out = String::new();
+    out.push_str("Perfect World Explorer -- live log report\n");
+    out.push_str(&format!("# session:  {session_text}\n"));
+    out.push_str(&format!("# folder:   {dir_text} ({})\n", folder_summary()));
+    out.push_str(&format!(
+        "# channels: {} of {CHANNELS} on ({})\n",
+        on.len(),
+        if on.is_empty() {
+            "none".to_string()
+        } else {
+            on.join(", ")
+        }
+    ));
+    for channel in Channel::ALL.iter().filter(|channel| count(**channel) > 0) {
+        out.push_str(&format!(
+            "#   {:16} {:>7} lines {:>6} throttled  {}\n",
+            channel.key(),
+            count(*channel),
+            suppressed(*channel),
+            channel.label()
+        ));
+    }
+    out.push_str("\n--- live tail ---\n");
+    out.push_str(&tail(TAIL_LINES));
+    out.push('\n');
+    out
 }
 
 /// Write one line to a channel. Cheap to call when the channel is off; that is
 /// the only reason call sites may pass a `format!` straight in.
 pub fn emit(channel: Channel, line: impl AsRef<str>) {
-    if !enabled(channel) {
+    push(channel, line.as_ref(), false);
+}
+
+/// [`emit`], except that `force` writes even when the channel is off. Only a
+/// mark uses it: a marker the user asked for must land in the file it was aimed
+/// at, whatever the throttle and the mask say.
+fn push(channel: Channel, line: &str, force: bool) {
+    if !force && !enabled(channel) {
         return;
     }
     let now = Instant::now();
@@ -747,8 +1027,7 @@ pub fn emit(channel: Channel, line: impl AsRef<str>) {
         inner.last[index] = Some(now);
     }
     let stamp = now.duration_since(inner.started).as_secs_f32();
-    let text = line.as_ref();
-    let rendered = format!("[{stamp:8.3}] {text}\n");
+    let rendered = format!("[{stamp:8.3}] {line}\n");
     inner.counts[index] = inner.counts[index].saturating_add(1);
     if let Some(file) = inner.file(channel) {
         match file.write_all(rendered.as_bytes()) {
@@ -820,18 +1099,130 @@ pub fn clear() {
     inner.dropped_from_tail = 0;
 }
 
-/// The folder a blank settings box means. Set once at startup from the client
-/// root, so the settings window never has to know that root itself.
+/// The folder a blank settings box means. Set once at startup from
+/// [`explorer_root`], so the settings window never has to know that path itself.
 static DEFAULT_DIR: OnceLock<PathBuf> = OnceLock::new();
 
-/// Remember `<client root>/pwe-logs`. First call wins: the path cannot change
+/// Remember `<explorer folder>/pwe-logs`. First call wins: the path cannot change
 /// while a session runs.
 pub fn set_default_dir(dir: impl Into<PathBuf>) {
     let _ = DEFAULT_DIR.set(dir.into());
 }
 
-/// Point the logs at the directory the settings file names, or at the client
-/// root's own folder when the box is empty, and make sure it exists.
+/// The folder the explorer itself lives in.
+///
+/// Logs, and the settings file next to them, belong to the tool, not to the
+/// game: the client root is a 40 GB install that may well be read-only, and
+/// nobody should have to go looking for a report inside it.
+pub fn explorer_root() -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .map(|exe| explorer_root_from(&exe))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")))
+}
+
+/// [`explorer_root`] for a known executable path, split out so a test can point
+/// it at a `target/debug` tree without touching the real one. A cargo build's
+/// executable sits two levels below the checkout that built it, and logging into
+/// `target/debug/pwe-logs` would hide the files under a folder cargo deletes.
+fn explorer_root_from(exe: &Path) -> PathBuf {
+    let Some(dir) = exe.parent() else {
+        return PathBuf::from(".");
+    };
+    let cargo = matches!(
+        dir.file_name().and_then(|name| name.to_str()),
+        Some("debug") | Some("release")
+    ) && dir
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str())
+        == Some("target");
+    if cargo {
+        if let Some(root) = dir.parent().and_then(|target| target.parent()) {
+            return root.to_path_buf();
+        }
+    }
+    dir.to_path_buf()
+}
+
+/// The folder a blank box means, for the settings page's tooltip.
+pub fn default_dir() -> Option<PathBuf> {
+    DEFAULT_DIR.get().cloned()
+}
+
+/// What the folder holds right now: "7 files, 2.4 MB". The count is what tells a
+/// ticked channel apart from a channel that wrote nothing.
+///
+/// Cached for half a second: the settings page asks once per frame, and a
+/// directory scan per frame is a silly thing to do while a world streams in.
+pub fn folder_summary() -> String {
+    static CACHE: OnceLock<Mutex<Option<(Instant, String)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    {
+        let guard = cache.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some((at, text)) = guard.as_ref() {
+            if at.elapsed().as_millis() < 500 {
+                return text.clone();
+            }
+        }
+    }
+    let text = scan_folder();
+    {
+        let mut guard = cache.lock().unwrap_or_else(|error| error.into_inner());
+        *guard = Some((Instant::now(), text.clone()));
+    }
+    text
+}
+
+fn scan_folder() -> String {
+    let Some(dir) = dir() else {
+        return "no folder yet".to_string();
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return "folder does not exist yet".to_string();
+    };
+    let mut files = 0usize;
+    let mut bytes = 0u64;
+    for entry in entries.flatten() {
+        if entry.path().extension().and_then(|ext| ext.to_str()) == Some("log") {
+            files += 1;
+            bytes += entry.metadata().map(|meta| meta.len()).unwrap_or(0);
+        }
+    }
+    if files == 0 {
+        "empty".to_string()
+    } else {
+        format!("{files} files, {}", human_bytes(bytes))
+    }
+}
+
+fn human_bytes(bytes: u64) -> String {
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes < 1024 * 1024 {
+        format!("{:.1} kB", bytes as f64 / 1024.)
+    } else {
+        format!("{:.1} MB", bytes as f64 / (1024. * 1024.))
+    }
+}
+
+/// Show the log folder in the platform's file manager. Best effort: a headless
+/// session simply does nothing.
+pub fn open_folder() {
+    let Some(dir) = dir() else {
+        return;
+    };
+    std::fs::create_dir_all(&dir).ok();
+    #[cfg(windows)]
+    let _ = std::process::Command::new("explorer").arg(&dir).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(&dir).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let _ = std::process::Command::new("xdg-open").arg(&dir).spawn();
+}
+
+/// Point the logs at the directory the settings file names, or at the explorer's
+/// own folder when the box is empty, and make sure it exists.
 pub fn apply_dir(text: &str) -> Option<PathBuf> {
     let trimmed = text.trim();
     let dir = if trimmed.is_empty() {
@@ -842,6 +1233,14 @@ pub fn apply_dir(text: &str) -> Option<PathBuf> {
     set_dir(dir.clone());
     std::fs::create_dir_all(&dir).ok();
     Some(dir)
+}
+
+/// Whether a saved folder is the one older builds wrote to, `<client
+/// root>/pwe-logs`, so a session that predates the move can be pointed at the
+/// new default instead of silently keeping the old place.
+pub fn is_legacy_default(text: &str, client_root: &Path) -> bool {
+    let trimmed = text.trim();
+    !trimmed.is_empty() && Path::new(trimmed) == client_root.join("pwe-logs").as_path()
 }
 
 /// Path the settings tab shows.
@@ -857,43 +1256,159 @@ pub fn display_dir() -> String {
 static UI_PAGE: AtomicU64 = AtomicU64::new(0);
 static UI_FOLLOW: AtomicBool = AtomicBool::new(true);
 
-/// The Logging page of the settings window: subtabs across the channel pages,
-/// a tick per channel with what it costs and has produced so far, and a live tail
-/// of everything the session has written.
+/// The folder box. It is applied when the user says so, not on every keystroke:
+/// creating a directory per typed character is how a log folder ends up as `C`,
+/// `C:` and `C:\P`.
+static UI_EDIT: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn edit_slot() -> &'static Mutex<Option<String>> {
+    UI_EDIT.get_or_init(|| Mutex::new(None))
+}
+
+fn edit_buffer(directory: &str) -> String {
+    let mut slot = edit_slot().lock().unwrap_or_else(|error| error.into_inner());
+    slot.get_or_insert_with(|| directory.to_string()).clone()
+}
+
+fn set_edit_buffer(text: &str) {
+    let mut slot = edit_slot().lock().unwrap_or_else(|error| error.into_inner());
+    *slot = Some(text.to_string());
+}
+
+/// The five steps the page spells out, so "how do I log this properly" is
+/// answered where the switches are rather than in a conversation.
+const REPORT_STEPS: [&str; 6] = [
+    "1. Click the capture that matches the defect. It ticks exactly the channels that \
+        report needs and leaves everything else off.",
+    "2. Fly or walk to the spot, get the artefact on screen, and press F8. The MARK line \
+        carries the camera pose, so the log names the position instead of describing it.",
+    "3. Wait a few seconds — two or three frames of a waterfall, one full turn of a ring — \
+        then press F8 again to close the window you are reporting.",
+    "4. Click Copy report. It carries the build, the folder, every switch that was on, \
+        what each channel wrote, and the tail; paste that into the report.",
+    "5. If the tail is not enough, attach the two or three files the report names from the \
+        folder above — not the whole folder.",
+    "One defect per capture, and Clear files in between: two captures in one folder read as \
+        one long log with no boundary. A channel marked \"no hook in this build yet\" has no \
+        call site, so ticking it produces nothing — worth saying in the report.",
+];
+
+/// The Logging page of the settings window.
 ///
-/// Returns true when a tick or the directory changed, so the caller can both
+/// Laid out in the order a report is made: where the files go, which capture is
+/// running, then the channels grouped by what they are for, then the live tail.
+/// Every control explains itself on hover, because the page exists so that nobody
+/// has to read this file to use it.
+///
+/// Returns true when a tick, the folder or a capture changed, so the caller can
 /// apply the new mask and persist it.
 pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
     let mut changed = false;
     ui.label(
         egui::RichText::new(
-            "Ticks start and stop live logging while the viewer runs. Every channel \
-             writes its own file in the folder below, with a timestamp on each line, \
-             and the newest lines are shown here as they arrive.",
+            "Tick a channel and it starts writing its own file while the viewer runs. \
+             A capture ticks the set one known report needs. F8 drops a MARK line with \
+             the camera pose into session.log and into every channel that is on.",
         )
         .small()
         .weak(),
     );
+    // ---- where the files go -------------------------------------------------
+    let mut edit = edit_buffer(directory.as_str());
     ui.horizontal_wrapped(|ui| {
         ui.label("Folder:");
         let response = ui.add(
-            egui::TextEdit::singleline(directory)
-                .hint_text("empty = <client root>/pwe-logs")
-                .desired_width(260.),
+            egui::TextEdit::singleline(&mut edit)
+                .hint_text("<explorer folder>/pwe-logs")
+                .desired_width(300.),
         );
-        if response.changed() {
+        let entered =
+            response.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter));
+        let apply = ui.button("Apply").on_hover_text(
+            "Write the logs here from now on. An empty box means the explorer's own \
+             pwe-logs folder, wherever the executable lives.",
+        );
+        if (apply.clicked() || entered) && edit.trim() != directory.trim() {
+            set_edit_buffer(&edit);
+            *directory = edit.trim().to_string();
             changed = true;
         }
-        if ui.button("Apply folder").clicked() {
-            changed = true;
+        let default_help = format!(
+            "Back to {}, next to the executable rather than inside the client install \
+             the viewer is reading.",
+            default_dir()
+                .map(|dir| dir.display().to_string())
+                .unwrap_or_else(|| "<explorer folder>/pwe-logs".to_string())
+        );
+        if ui.button("Explorer folder").on_hover_text(default_help).clicked() {
+            edit.clear();
+            set_edit_buffer("");
+            if !directory.is_empty() {
+                directory.clear();
+                changed = true;
+            }
         }
-        if ui.button("Clear files and tail").clicked() {
+        if ui
+            .button("Open")
+            .on_hover_text("Show the folder in the file manager.")
+            .clicked()
+        {
+            open_folder();
+        }
+        if ui
+            .button("Clear files")
+            .on_hover_text("Delete this folder's log files and start the tail over.")
+            .clicked()
+        {
             clear();
+            session("---- CLEARED the log files ----");
         }
     });
-    ui.label(egui::RichText::new(display_dir()).small().monospace());
+    ui.label(
+        egui::RichText::new(format!("{}  --  {}", display_dir(), folder_summary()))
+            .small()
+            .monospace(),
+    );
     ui.separator();
 
+    // ---- captures -----------------------------------------------------------
+    ui.label(
+        egui::RichText::new("CAPTURES -- one click ticks the set a report needs")
+            .small()
+            .strong(),
+    );
+    ui.horizontal_wrapped(|ui| {
+        for preset in PRESETS.iter() {
+            let keys = preset.keys();
+            let help = format!(
+                "{}\n\nTicks exactly {} channels and leaves the rest off:\n{}",
+                preset.help,
+                keys.len(),
+                keys.join(", ")
+            );
+            if ui.button(preset.name).on_hover_text(help).clicked() {
+                *mask = preset.mask();
+                session(format!(
+                    "---- CAPTURE {} -- {} channels: {} ----",
+                    preset.name,
+                    keys.len(),
+                    keys.join(", ")
+                ));
+                changed = true;
+            }
+        }
+        if ui
+            .button("Nothing")
+            .on_hover_text("Untick every channel; the files already written stay.")
+            .clicked()
+        {
+            *mask = 0;
+            changed = true;
+        }
+    });
+    ui.separator();
+
+    // ---- channels -----------------------------------------------------------
     let mut page = UI_PAGE.load(Ordering::Relaxed) as usize;
     ui.horizontal_wrapped(|ui| {
         let width = ((ui.available_width() - 16.) / Page::ALL.len() as f32).clamp(70., 120.);
@@ -913,15 +1428,16 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
     let page_option = Page::ALL[page];
     ui.label(
         egui::RichText::new(format!(
-            "{}  —  {} of {} channels on",
+            "{}  --  {} of {} channels on",
             page_option.blurb(),
             Channel::ALL
                 .iter()
-                .filter(|c| c.page() == page_option && *mask & (1u64 << c.index()) != 0)
+                .filter(|channel| channel.page() == page_option
+                    && *mask & (1u64 << channel.index()) != 0)
                 .count(),
             Channel::ALL
                 .iter()
-                .filter(|c| c.page() == page_option)
+                .filter(|channel| channel.page() == page_option)
                 .count()
         ))
         .small()
@@ -940,26 +1456,40 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
             }
             changed = true;
         }
-        if ui.button("All off").clicked() {
-            *mask = 0;
-            changed = true;
-        }
     });
     ui.separator();
     egui::ScrollArea::vertical()
         .id_source("logging-channels")
-        .max_height(210.)
+        .max_height(220.)
         .auto_shrink([false, false])
         .show(ui, |ui| {
-            for channel in Channel::ALL.iter().filter(|c| c.page() == page_option) {
-                let bit = 1u64 << channel.index();
-                let mut on = *mask & bit != 0;
-                ui.horizontal(|ui| {
+            for group in page_option.groups() {
+                let members: Vec<Channel> = Channel::ALL
+                    .iter()
+                    .copied()
+                    .filter(|channel| channel.page() == page_option && channel.group() == *group)
+                    .collect();
+                if members.is_empty() {
+                    continue;
+                }
+                let on = members
+                    .iter()
+                    .filter(|channel| *mask & (1u64 << channel.index()) != 0)
+                    .count();
+                ui.add_space(6.);
+                ui.label(
+                    egui::RichText::new(format!("{group}  --  {on} of {}", members.len()))
+                        .small()
+                        .strong(),
+                );
+                for channel in members {
+                    let bit = 1u64 << channel.index();
+                    let mut ticked = *mask & bit != 0;
                     let response = ui
-                        .checkbox(&mut on, channel.label())
+                        .checkbox(&mut ticked, channel.label())
                         .on_hover_text(channel.help());
                     if response.changed() {
-                        *mask = if on { *mask | bit } else { *mask & !bit };
+                        *mask = if ticked { *mask | bit } else { *mask & !bit };
                         changed = true;
                     }
                     if !channel.wired() {
@@ -970,12 +1500,15 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
                                 .italics(),
                         );
                     }
-                    let written = count(*channel);
-                    let dropped = suppressed(*channel);
-                    let throttle = channel.throttle_ms();
+                    let written = count(channel);
+                    let dropped = suppressed(channel);
                     let detail = if written == 0 && dropped == 0 {
-                        String::new()
-                    } else if throttle == 0 {
+                        if ticked {
+                            "on, nothing yet".to_string()
+                        } else {
+                            String::new()
+                        }
+                    } else if channel.throttle_ms() == 0 {
                         format!("{written} lines")
                     } else {
                         format!("{written} lines, {dropped} throttled")
@@ -983,10 +1516,12 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
                     if !detail.is_empty() {
                         ui.label(egui::RichText::new(detail).small().weak());
                     }
-                });
+                }
             }
         });
     ui.separator();
+
+    // ---- tail ---------------------------------------------------------------
     let dropped = tail_dropped();
     if dropped > 0 {
         ui.label(
@@ -1003,17 +1538,39 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
         if ui.checkbox(&mut follow, "Follow").changed() {
             UI_FOLLOW.store(follow, Ordering::Relaxed);
         }
-        if ui.button("Copy tail").clicked() {
+        if ui
+            .button("Copy tail")
+            .on_hover_text("The tail alone, one line per entry.")
+            .clicked()
+        {
             ui.output_mut(|output| output.copied_text = tail(TAIL_LINES));
+        }
+        if ui
+            .button("Copy report")
+            .on_hover_text(
+                "The build, the folder, every switch that is on, what each channel wrote, \
+                 and the tail -- one block, ready to paste into a report.",
+            )
+            .clicked()
+        {
+            ui.output_mut(|output| output.copied_text = report());
         }
     });
     egui::ScrollArea::vertical()
         .id_source("logging-tail")
-        .max_height(200.)
+        .max_height(180.)
         .auto_shrink([false, false])
         .stick_to_bottom(UI_FOLLOW.load(Ordering::Relaxed))
         .show(ui, |ui| {
             ui.monospace(tail(TAIL_LINES));
+        });
+    ui.add_space(4.);
+    egui::CollapsingHeader::new("How to capture a report")
+        .default_open(false)
+        .show(ui, |ui| {
+            for step in REPORT_STEPS {
+                ui.label(egui::RichText::new(step).small());
+            }
         });
     changed
 }
@@ -1021,6 +1578,7 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
 
     /// The registry is process-wide, so the tests that change it take turns
@@ -1062,6 +1620,130 @@ mod tests {
                 assert_eq!(channel.page(), Page::Effects, "{}", channel.key());
             }
         }
+    }
+
+    #[test]
+    fn every_channel_sits_in_one_of_its_page_groups() {
+        for page in Page::ALL {
+            for channel in Channel::ALL.iter().filter(|channel| channel.page() == page) {
+                assert!(
+                    page.groups().contains(&channel.group()),
+                    "{} names {:?}, which {} does not list",
+                    channel.key(),
+                    channel.group(),
+                    page.label()
+                );
+            }
+            // A heading with nothing under it is worse than no heading.
+            for group in page.groups() {
+                assert!(
+                    Channel::ALL
+                        .iter()
+                        .any(|channel| channel.page() == page && channel.group() == *group),
+                    "{} lists {group} with no channels",
+                    page.label()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_preset_names_channels_that_exist() {
+        for preset in PRESETS.iter() {
+            assert!(!preset.name.is_empty());
+            assert!(!preset.help.is_empty());
+            let mask = preset.mask();
+            assert!(mask != 0, "{} ticks nothing", preset.name);
+            if preset.all {
+                assert_eq!(mask.count_ones() as usize, CHANNELS);
+                assert!(preset.channels.is_empty(), "{} is ambiguous", preset.name);
+            } else {
+                assert!(!preset.channels.is_empty());
+                assert_eq!(mask.count_ones() as usize, preset.channels.len());
+                for channel in preset.channels {
+                    assert!(
+                        Channel::ALL.contains(channel),
+                        "{} is not a channel",
+                        channel.key()
+                    );
+                }
+                let keys = preset.keys();
+                let mut sorted = keys.clone();
+                sorted.sort_unstable();
+                let before = sorted.len();
+                sorted.dedup();
+                assert_eq!(before, sorted.len(), "{} lists one twice", preset.name);
+            }
+        }
+    }
+
+    #[test]
+    fn the_explorer_root_is_the_checkout_that_built_a_cargo_binary() {
+        assert_eq!(
+            explorer_root_from(Path::new("/work/Perfect-World-Explorer/target/debug/pwe.exe")),
+            PathBuf::from("/work/Perfect-World-Explorer")
+        );
+        assert_eq!(
+            explorer_root_from(Path::new("/work/Perfect-World-Explorer/target/release/pwe.exe")),
+            PathBuf::from("/work/Perfect-World-Explorer")
+        );
+        // A shipped build: the executable's own folder is the root.
+        assert_eq!(
+            explorer_root_from(Path::new("/opt/PWE/Perfect-World-Explorer.exe")),
+            PathBuf::from("/opt/PWE")
+        );
+        // `debug` without a `target` above it is just a folder name.
+        assert_eq!(
+            explorer_root_from(Path::new("/tmp/debug/pwe")),
+            PathBuf::from("/tmp/debug")
+        );
+    }
+
+    #[test]
+    fn a_saved_client_root_folder_migrates_to_the_new_default() {
+        let client = Path::new("/games/pw");
+        assert!(is_legacy_default("/games/pw/pwe-logs", client));
+        assert!(!is_legacy_default("", client));
+        assert!(!is_legacy_default("/home/me/PWE/pwe-logs", client));
+        assert!(!is_legacy_default("/games/pw/pwe-logs-old", client));
+    }
+
+    #[test]
+    fn a_mark_lands_in_session_log_with_no_channel_ticked() {
+        let _guard = lock();
+        let dir = std::env::temp_dir().join(format!("pwe-mark-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        set_dir(dir.clone());
+        set_mask(0);
+        mark("camera at 1 2 3");
+        let text = std::fs::read_to_string(dir.join("session.log")).expect("session log");
+        assert!(text.contains("MARK camera at 1 2 3"), "{text}");
+        // And it reaches a channel that is on, past the throttle that would
+        // otherwise drop the second line of the millisecond.
+        set_mask(1 << Channel::EffectParticles.index());
+        mark("second");
+        let text = std::fs::read_to_string(dir.join("effect-particles.log")).expect("channel log");
+        assert!(text.contains("MARK second"), "{text}");
+        set_mask(0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_report_names_the_run_and_the_switches() {
+        let _guard = lock();
+        let dir = std::env::temp_dir().join(format!("pwe-report-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        set_dir(dir.clone());
+        set_session("client root X | version 9.9.9 | mask 0x1");
+        set_mask(PRESETS[0].mask());
+        emit(Channel::EffectRoots, "a root");
+        let text = report();
+        assert!(text.contains("client root X"), "{text}");
+        assert!(text.contains("effect-roots"), "{text}");
+        assert!(text.contains("a root"), "{text}");
+        assert!(text.contains("of 36 on"), "{text}");
+        set_mask(0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
