@@ -1155,7 +1155,9 @@ fn build_line() -> String {
 /// `YYYY-MM-DD HH:MM:SS UTC` from a `SystemTime`, so the header needs no date
 /// dependency. Civil-from-days is Hinnant's algorithm; the epoch is 1970-01-01.
 fn utc_stamp(time: std::time::SystemTime) -> String {
-    let secs = time.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let secs = time
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
     let (days, rem) = (secs / 86_400, secs % 86_400);
     let z = days as i64 + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;

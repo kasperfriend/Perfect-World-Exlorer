@@ -8245,8 +8245,7 @@ mod tests {
         // The keypoint the Archosaur report came back vertical on: a `Direction`
         // that turns the card's own Z onto the world's +Y. A placement is
         // `parent * keypoint`, so this is what the corners are built against.
-        context.keypoint_direction =
-            Quat::from_axis_angle(Vec3::X, std::f32::consts::FRAC_PI_2);
+        context.keypoint_direction = Quat::from_axis_angle(Vec3::X, std::f32::consts::FRAC_PI_2);
         context.placement = Mat4::from_quat(context.keypoint_direction);
 
         // The client's `GetParentDir() * kp.m_vDir`, applied to `_unit_z`: the
@@ -8259,7 +8258,12 @@ mod tests {
             "the client rule has to follow the keypoint"
         );
         // World up stands the shaft up whatever the placement says.
-        assert!(shaft_axis(&mut context, EffectShaft::WorldUp).dot(Vec3::Y).abs() > 0.999);
+        assert!(
+            shaft_axis(&mut context, EffectShaft::WorldUp)
+                .dot(Vec3::Y)
+                .abs()
+                > 0.999
+        );
         // The root's own direction, with the keypoint taken back out: taking
         // this keypoint out of the placement leaves the identity, so the shaft
         // goes back onto +Z.
