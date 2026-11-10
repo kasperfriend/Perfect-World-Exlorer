@@ -1334,3 +1334,62 @@ is what hid it.
 
 `TexAnimMaxTime` also stops the walk where it stands rather than shortening the
 loop, which the old `limit = clamp(total / interval, 1, cells)` got wrong.
+
+## 17. The sun rays and the waterfalls, against the census numbers
+
+### The shafts are the authored size after all
+
+`Sunrays.txt` (431 quads, 34 roots) lists every `场景/树林光束.gfx` card with its
+census size. Two of them, from different placements:
+
+```text
+7.4x147.4 at (2408.9,269.6,-1588.5) quads=7 tex=…/圆环光/circle004.dds a=0.33
+5.7x114.1 at (2234.6,266.8,-1907.4) quads=7 tex=…/圆环光/circle013.dds a=0.50
+```
+
+Both are `Width 0.5 x Height 10`, `DedaultScale 0.7`, doubled, times the
+placement scale — one application of the record scale, which is what §10.1
+derived from `SetScale`/`SetParentTM`. The card in `WaterfallAndSunrays.log`
+frame 17 (`right=(-2.14,3.33,3.70) up=(3.77,3.71,-1.16) dir=(-3.25,2.12,-3.79)`)
+draws `5.42x108.51` running `p0=(630.36,214.88,3105.68)` to `p2=(556.36,238.12,3181.39)`,
+i.e. `(-74.0, 23.2, 75.7)` over 108.5 units — exactly
+`-normalize(right.z, up.z, dir.z) * 108.5`, the third **column** of the row-major
+basis, times the height. The shaft lies where the client's
+`RotateVec(GetParentDir() * kp.m_vDir, _unit_z)` puts it, leaning 12 degrees up
+along the tree line, and it is 108 units long because the map scaled it to
+108 units. Nothing about the geometry or the size is left to change; what the
+four `effect_shaft` rows exist for is proving that in one screenshot.
+
+### The `水门_瀑布` fix is now pinned by a test
+
+`a_waterfall_flipbook_never_scrolls_off_its_sheet` builds exactly the authored
+record — a 3x2 atlas, `TileMode 0`, `TexSpeed (0, -1.5)` — and walks it for forty
+half-second frames, which is the twenty seconds the field report ran. Every
+corner must stay inside the sheet, and the sheet must still change cell: twenty
+seconds of the old code failed the first assertion with every corner reading the
+edge texel, the flat white card.
+
+### The grid decal keeps its scroll, because it is a different class
+
+The first CI run after §16 caught the one place the removed scroll had to stay:
+element 210/211 is `A3DGridDecalEx`, whose curtain fixtures author
+`TexRow: 1, TexCol: 1, TexSpeed: -0.4` — a 1x1 sheet has no cells to step, so
+`A3DGFXElement::TexAnimation`'s flipbook rule cannot be what moves it. The
+scroll now lives in `emit_grid`, next to the class that owns it, and
+`a_grid_builds_its_authored_sheet_and_scrolls_it` still passes.
+
+### The portal's silent elements are not the 107-112 controls
+
+§16 named `CtrlType 107..112` as the leading hypothesis for `绿色传送门`'s two
+silent elements. `Wraithgate-2.log` kills it: the frame line reports
+`elements=5 quads=115 particles=123 emitters=4 unrendered=0` while only ids 123,
+124 and 101 write a card. A rejected control fails its **element's load**, so the
+root would report three elements, not five — the two silent ones loaded and built
+nothing. The element table (`set_name`, `EffectElements`) already prints **every**
+element regardless of quads, so the next capture with that channel ticked names
+them outright; nothing needs to change in the code for that answer.
+
+Still open, in this order: `A3DParaboloid` (element 190 — our `Spec::Curve`
+retains the authored `coefficient` and `height`, so the data is there but the
+surface topology needs `A3DParaboloid.cpp`), the 230 `ECModel` and 220/221
+physics emitters, and `盆景水晶.gfx`'s `meshes=0`.

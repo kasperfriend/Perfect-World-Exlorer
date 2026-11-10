@@ -8262,6 +8262,56 @@ mod tests {
         }
     }
 
+    /// `水门_瀑布` is a 3x2 atlas with `TileMode 0` and `TexSpeed (0, -1.5)`.
+    ///
+    /// The viewer used to scroll those speeds on top of stepping the cells, and
+    /// a flipbook cell is *assigned*, not scrolled: `A3DGFXElement::TexAnimation`
+    /// adds `m_fUOffsetSpeed * dt` in the tile branch only and otherwise writes
+    /// `m_fTexU = m_fTexWid * curCol` (A3DGFXElement.h:539-577, quoted in
+    /// `Findings/World-effects-2026-11-09.md` section 16). Twenty seconds of the
+    /// old code put the window thirty texture heights below the sheet, so the
+    /// sampler returned the same edge texel for every corner: the motionless
+    /// white card the field reported. A flipbook has to stay on its own grid
+    /// however long the effect runs.
+    #[test]
+    fn a_waterfall_flipbook_never_scrolls_off_its_sheet() {
+        let source = header37(1)
+            + &SPRITE
+                .replace("TexRow: 1\r\n", "TexRow: 2\r\n")
+                .replace("TexCol: 1\r\n", "TexCol: 3\r\n")
+                .replace(
+                    "TexFile: 粒子\\glow.dds\r\n",
+                    "TexFile: 物体\\waterfall.dds\r\nTexSpeed: 0\r\nTexSpeed: -1.5\r\n",
+                );
+        let mut player = build(&source);
+        step(&mut player, 0.);
+        let first = player.quads()[0].uv;
+        let mut distinct = Vec::new();
+        // Forty half-second frames is the twenty seconds the report ran for.
+        for _ in 0..40 {
+            step(&mut player, 500.);
+            let uv = player.quads()[0].uv;
+            for (index, point) in uv.iter().enumerate() {
+                assert!(
+                    (0. ..=1.).contains(&point[0]) && (0. ..=1.).contains(&point[1]),
+                    "corner {index} samples {point:?}, off a 3x2 sheet: the window \
+                     scrolled off the atlas",
+                );
+            }
+            if !distinct.contains(&uv) {
+                distinct.push(uv);
+            }
+        }
+        assert!(
+            distinct.len() > 1,
+            "the sheet never changed cell: the flipbook is frozen, not animated"
+        );
+        assert!(
+            first != player.quads()[0].uv,
+            "the last frame repeats the first: the walk is not running"
+        );
+    }
+
     /// The name a host gives a player is what identifies it in every log line the
     /// element, frame and card channels write, so it has to survive `set_name`.
     #[test]
