@@ -1041,3 +1041,101 @@ channel.
 seconds, F8, **Summary**, and attach `summary.log` plus the pasted report. The
 summary lists every root and element that drew, once each, with how many lines it
 wrote — which is the list the last four reports did not have.
+
+## 14. The first summaries: four folders, and the numbers they finally carry
+
+The four summaries arrived from a rebuilt viewer — `Archosaur`, `WaterfallAndSunrays`,
+`Wraithgate`, `RagingTides`. This is the first round of evidence where the channels
+that were ticked are actually *in* the file, and it changes three of the four
+questions.
+
+### What the tool itself got wrong, seen from its own output
+
+* **One root placed many times collapsed into one subject.** Keyed by path and
+  element id, forty-nine `树林光束` were one line, so a capture of a grove of
+  sun-beams reported a single beam and could not say whether the others pointed
+  somewhere else. Every keyed channel now carries the placement:
+  `gfx/场景/树林光束.gfx id=100 @594,229,3144 …`. In the same spirit, cards and UV
+  windows are keyed by element, texture and placement instead of by their slot in
+  the frame's quad buffer, which used to split one card into several subjects
+  whenever the draw order shifted.
+* **The culling list was cut at 80 of 177 subjects** — exactly the list of every
+  root in the scene and why it is not drawn. The per-channel cap is 400 now.
+* **Nested roots had no name.** A child `GfxPath` player was built without
+  `set_name`, so its lines began with a space: `" id=160 meshes=0 vertices=0
+  textures=[] at (2553.51,236.73,-4197.57) scale=10.000"` named nothing at all.
+  Children are named with their own path now.
+
+### Waterfall: the sheet is scrolling, and the other falls have no sheet
+
+`RagingTides`, at `(2618.9, 239.3, -4119.7)`:
+
+```text
+水门_瀑布.gfx id=100 #0 tile=1 grid=3x2 interval=50ms speed=(0.000,-1.500) clock=20230ms
+  uv=[(0.000,-30.345),(3.000,-30.345),(0.000,-28.345),(3.000,-28.345)]
+```
+
+The tile branch is doing what the client does: `TexCol x TexRow` become the UV
+*repeat counts* (3 across, 2 down), and the window starts at `v = -30.345`, which
+is `-1.500 × 20.230 s` to three decimals. Over the 20.23 s the player has existed
+the window moved exactly at the authored rate, downward, which is the direction a
+waterfall falls. The card is `4.92 x 8.43` units (authored `0.900 x 1.250`, scale
+2.736 doubled), tinted `0xff79d3ff` = `(0.475, 0.827, 1.000)`, blended `2/4`,
+priority 1, texture `gfx/textures/纹理/气连续03.tga`. One repeat of 2 UV over
+8.43 units at 1.5 UV/s is about 2.6 units per second — slow for falling water, and
+worth comparing against retail, but not stuck.
+
+At the PK-arena waterfall in `WaterfallAndSunrays` `(361.4, 200.6, 3175.8)` there is
+**no `水门_瀑布` in any channel at all** — not in the frames, cards, UV, textures,
+ground, decals or the 177-subject culling list. What is there is
+`瀑布水花`/`瀑布水花底` (25 splash particles each, `speed=4.00`,
+`area=(0.3, 3.5, 0.3)`, `ttl=1.00s`), `烟1`, `彩虹`, `树林光束`, `海底飘尘2`,
+`花瓣分飞`, `树叶雨`. So that waterfall's water surface is not an effect at all:
+the spray is the only thing that moves, and the wall behind it is the map's own
+water. The two falls are not the same kind of object, which is why one report said
+"the sheets are frozen" and the other had no sheets to look at.
+
+### Archosaur: the beams are vertical now
+
+```text
+effect-cards: 天煞光束.gfx id=100 #0 tex=…/circle032.dds a=0.600 26.17x654.86
+  c=(1528.04,602.49,1036.61) p0=(1538.40,275.33,1028.61) p1=(1517.67,275.33,1044.60)
+  p2=(1538.40,929.66,1028.61) p3=(1517.67,929.66,1044.60)
+effect-frames: basis right=(-6.54,0,0) up=(0,0,-6.54) dir=(0,-6.54,0)
+record matrix: right=(-6.54,0,0) up=(0,-6.54,0) dir=(0,0,6.54)
+```
+
+A 26 by 655-unit shaft whose corners run from y=275 to y=930 — vertical, built
+from the record's rows the way §10 derived. The root reports `elements=4 quads=4`
+at `play_speed=0.400`, `alpha=0.600`, `scale=6.543`, and only element 100 draws.
+The second placement of the same asset (`scale 6.977`, `alpha 1.000`,
+`speed 0.100`) is not in this capture's eleven frame subjects, so it was not on
+screen at that moment; if it still reads horizontal, its own frames will say so now
+that the key includes the placement.
+
+### Wraithgate: the portal root emits no ring
+
+`绿色传送门.gfx` reports `elements=5 quads=115 particles=123 emitters=4`, and only
+three elements ever write a line: 123 (`轨迹/风.dds` trail particles, `3.29 x 4.66`),
+124 (`粒子/xing6.dds` particles whose cards are `0.01 x 0.02` — one centimetre), and
+101 (a `normalmap/gas.dds` sheet, `7.51 x 10.62`, alpha 0.157). No ring card comes
+out of this root at all. Either the ring is another root entirely, or two of its
+five elements draw nothing — and the capture cannot separate the two yet, because
+two elements can share an id, and `effect-elements` (the element table) was not
+ticked. That table is the one thing to add for the next Wraithgate capture.
+
+### RagingTides: two models that never load
+
+Fifteen model elements, thirteen loaded with their meshes and texture names. Two
+did not:
+
+* `盆景水晶.gfx id=160 meshes=0 vertices=0 textures=[] at (2688.67,249.99,-4153.43)`
+  — a named root whose model will not pose;
+* ` id=160 meshes=0 vertices=0 textures=[] at (2553.51,236.73,-4197.57) scale=10.000`
+  — a **nested child root**, ninety units from the waterfall, that drew nothing and
+  named nothing.
+
+Both are reported by `Player::collect_models` as `element N model <path>: <error>`
+on the `effect-problems` channel, which was not ticked. The child now carries its
+path in every line, so the next capture names the asset even before the error text
+is read.
