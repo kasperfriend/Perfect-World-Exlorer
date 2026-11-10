@@ -3888,7 +3888,19 @@ fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
         return;
     };
     let matrix = context.placement;
-    let rect = flipbook_uv(context.common, context.clock);
+    // A grid decal is a class of its own (`A3DGridDecalEx`, ids 210/211) and it
+    // scrolls its sheet from `TexSpeed` whatever `TexRow`/`TexCol` say: the
+    // curtain fixtures author `TexRow: 1`, `TexCol: 1`, `TexSpeed: -0.4`, and a
+    // 1x1 sheet has no cells to step. `A3DGFXElement::TexAnimation`'s tile rule
+    // therefore cannot be the one that moves it, so the scroll this viewer
+    // removed from the decal path is kept here, where it belongs.
+    let mut rect = flipbook_uv(context.common, context.clock);
+    let scroll_u = context.common.tex_speed[0] * context.clock / 1000.;
+    let scroll_v = context.common.tex_speed[1] * context.clock / 1000.;
+    for point in &mut rect {
+        point[0] += scroll_u;
+        point[1] += scroll_v;
+    }
     let mut positions = [[0f32; 3]; 4];
 
     // A grid is a lattice of `columns * rows` **vertices**, not cells: all 216
