@@ -54,20 +54,28 @@ question. Channels are grouped under the same four headings on the Effects page 
 like each page, has its own tick box. Every bulk switch touches only the channels
 that can write, so it never leaves empty files behind.
 
-## Nothing floods a file
+## Nothing floods a file, and nothing is missed either
 
-Three limits, and all of them are counted so nothing disappears quietly:
+Four limits, and all of them are counted so nothing disappears quietly:
 
-* an **unchanged line is collapsed** — a card that has not moved does not write
-  itself again four times a second, and the run of duplicates ends with one line
-  saying `(240 identical lines collapsed)`;
+* **one line per thing, not per frame.** A card, a texture, a model, a light and a
+  root that was culled are each written the first time they appear, then at most
+  once every few seconds — so a file is the *complete list* of what drew: every
+  root, every element, every card, every texture, once each. That is why a
+  watermark of five sheet roots and the four hundred splash cards around them
+  all make it into the same file instead of six of them winning a race;
+* an **unchanged line is collapsed** — a line identical to the one before it is
+  counted, not written, and the run of duplicates ends with one line saying
+  `(240 identical lines collapsed)`;
 * a **budget of ~200 lines a second per channel**, with a burst of 4,000 so one
   load can still dump a whole census;
 * the per-frame channels keep their own **throttle**, which the budget sits on top
   of.
 
 The row next to each tick box shows what happened: `1,204 lines`,
-`1,204 lines, 12 budgeted, 3,880 repeats collapsed`.
+`1,204 lines, 12 budgeted, 3,880 repeats collapsed`. Lines and repeats together
+are the truth: *40 lines, 3,900 repeats collapsed* is a complete list of forty
+things seen a hundred times each, not a channel that stopped working.
 
 ## F8 marks the spot
 
@@ -114,7 +122,7 @@ report.)
 | --- | --- | --- |
 | Sun rays point at random | **Placement** | `effect-frames` (keypoint + basis columns) and `effect-cards` (corners) against the `dir`/`up` pair `scene-effects` prints for the same placement |
 | Archosaur beams are both horizontal | **Placement** | `effect-frames` for both bases; `effect-clock` for whether the second placement starts late |
-| Waterfall does not move | **Cards** | `effect-uv` against `effect-clock`: window advancing with the clock, or pinned while it runs |
+| Waterfall does not move | **Cards** | `effect-uv` against `effect-clock`: the scroll lives in the sheet roots, so look for the root that owns the running water — its `grid`/`speed`/`tile` says whether the window advances, and `(N identical lines collapsed)` on a UV line says it does not |
 | Crater is pure blue | **Cards** | `scene-effects` names the placement, `effect-cards` the root, `effect-textures` whether the texture resolved, `effect-alpha` the fold |
 | Wraithgate ring spins fully | **Sub-elements** | `effect-trails` for the ribbon, `effect-uv` for the scroll, `effect-clock` for the turn |
 | Shroom lights sit too low | **Sub-elements** | `effect-cards` for each card's world Y, `effect-ground` for whether a drape moved it |

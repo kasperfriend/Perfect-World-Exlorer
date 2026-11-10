@@ -21,9 +21,15 @@
 //! * **per-channel counters** (lines written, lines suppressed by the throttle),
 //!   so "no output" can be told apart from "nothing happened".
 //!
-//! Three things keep a file readable, and all three are counted so nothing is
+//! Four things keep a file readable, and all four are counted so nothing is
 //! hidden:
 //!
+//! * **a key** on every channel that names things rather than frames: a card, a
+//!   texture, a model, a root that was culled. Each one is written the first
+//!   time it is seen and then at most once per its own interval
+//!   ([`emit_keyed`]). That is what makes the file the *complete list* of what
+//!   drew — one line per card, per texture, per root — instead of a sample of
+//!   whichever six happened to reach the throttle first;
 //! * **a throttle** on the per-frame channels, which drops lines instead of
 //!   buffering them — a 20 ms effect frame must not turn a 1024-particle scene
 //!   into a 1024-line-per-frame log;
@@ -608,6 +614,12 @@ impl Channel {
     /// channels (loads, tables, placements) are 0 — they happen once. Per-frame
     /// channels are throttled so a heavy scene cannot turn logging into the
     /// bottleneck it is supposed to explain.
+    ///
+    /// This is the channel-wide floor used by plain `diag!` lines. A channel
+    /// written through [`emit_keyed`] carries its own per-key interval instead,
+    /// which is why a texture or a model — both 0 here, because they are facts
+    /// about a load — can still be bounded per element while every element is
+    /// named at least once.
     pub fn throttle_ms(self) -> u32 {
         match self {
             Self::EffectRoots
@@ -794,6 +806,28 @@ macro_rules! diag {
     };
 }
 
+/// [`diag!`] for a channel whose lines describe *things*, not frames: one line
+/// per key, refreshed at most every `slow_ms`.
+///
+///     crate::diag_keyed!(EffectTextures, &format!("{} {id}", self.name), 5000,
+///                        "{} id={id} texture={texture}", self.name);
+///
+/// The key names the thing (root + element + texture), so the file lists every
+/// distinct thing once.
+#[macro_export]
+macro_rules! diag_keyed {
+    ($channel:ident, $key:expr, $slow:expr, $($arg:tt)*) => {
+        if $crate::diagnostics::enabled($crate::diagnostics::Channel::$channel) {
+            $crate::diagnostics::emit_keyed(
+                $crate::diagnostics::Channel::$channel,
+                $key,
+                $slow,
+                format!($($arg)*),
+            );
+        }
+    };
+}
+
 /// The enabled mask, mirrored out of the registry so `enabled()` never locks.
 static MASK: AtomicU64 = AtomicU64::new(0);
 /// How many tail lines the settings tab keeps. Two hundred is a screenful of
@@ -827,6 +861,10 @@ struct Inner {
     repeats: Vec<u64>,
     /// Tokens left and when they were last topped up, per channel.
     budget: Vec<(f32, Instant)>,
+    /// When each key was last written, per channel. This is what makes a
+    /// per-frame channel a *list* of everything on screen instead of a sample of
+    /// whatever happened to reach the file first.
+    keys: Vec<std::collections::HashMap<String, Instant>>,
     tail: VecDeque<String>,
     dropped_from_tail: u64,
     started: Instant,
@@ -845,6 +883,9 @@ impl Inner {
             last_body: (0..CHANNELS).map(|_| None).collect(),
             repeats: vec![0; CHANNELS],
             budget: vec![(BUDGET_BURST, Instant::now()); CHANNELS],
+            keys: (0..CHANNELS)
+                .map(|_| std::collections::HashMap::new())
+                .collect(),
             tail: VecDeque::with_capacity(TAIL_LINES),
             dropped_from_tail: 0,
             started: Instant::now(),
@@ -937,6 +978,7 @@ pub fn set_dir(dir: impl Into<PathBuf>) {
     inner.written.iter_mut().for_each(|w| *w = 0);
     inner.last_body.iter_mut().for_each(|body| *body = None);
     inner.repeats.iter_mut().for_each(|repeats| *repeats = 0);
+    inner.keys.iter_mut().for_each(|keys| keys.clear());
     inner
         .budget
         .iter_mut()
@@ -1064,6 +1106,53 @@ pub fn emit(channel: Channel, line: impl AsRef<str>) {
     push(channel, line.as_ref(), false);
 }
 
+/// Lines a channel keeps a remembered key for. Past this the map is dropped and
+/// keys are relearned: a bound is worth more than a perfect history of a scene
+/// nobody is standing in any more.
+const MAX_KEYS: usize = 4096;
+
+/// Emit one line per **key**, not per call.
+///
+/// This is what a per-frame channel needs in order to be useful: the first time
+/// a card, a texture or a root is seen it is written, and after that at most once
+/// per `slow_ms` for that same key. The file therefore becomes the complete list
+/// of everything that drew — every root, every element, every texture — with the
+/// values refreshed slowly, instead of a random sample of whichever six roots won
+/// the channel-wide throttle. A scene with 400 cards gives 400 lines, not 400
+/// lines per frame.
+pub fn emit_keyed(channel: Channel, key: impl AsRef<str>, slow_ms: u32, line: impl AsRef<str>) {
+    if !enabled(channel) {
+        return;
+    }
+    let key = key.as_ref();
+    let now = Instant::now();
+    let mut inner = registry().lock().unwrap_or_else(|e| e.into_inner());
+    let index = channel.index();
+    let seen = inner.keys[index].get(key).copied();
+    if let Some(at) = seen {
+        if now.duration_since(at).as_millis() < slow_ms as u128 {
+            inner.suppressed[index] = inner.suppressed[index].saturating_add(1);
+            return;
+        }
+    }
+    // The budget still applies: ten thousand distinct keys in one frame is a
+    // flood whatever the keys are.
+    let (tokens, at) = inner.budget[index];
+    let tokens =
+        (tokens + now.duration_since(at).as_secs_f32() * BUDGET_PER_SECOND).min(BUDGET_BURST);
+    if tokens < 1. {
+        inner.budget[index] = (tokens, now);
+        inner.suppressed[index] = inner.suppressed[index].saturating_add(1);
+        return;
+    }
+    inner.budget[index] = (tokens - 1., now);
+    if inner.keys[index].len() > MAX_KEYS {
+        inner.keys[index].clear();
+    }
+    inner.keys[index].insert(key.to_string(), now);
+    inner.write(channel, line.as_ref());
+}
+
 /// [`emit`], except that `force` writes even when the channel is off. Only a
 /// mark uses it: a marker the user asked for must land in the file it was aimed
 /// at, whatever the throttle and the mask say.
@@ -1172,6 +1261,7 @@ pub fn clear() {
     inner.suppressed.iter_mut().for_each(|c| *c = 0);
     inner.last_body.iter_mut().for_each(|body| *body = None);
     inner.repeats.iter_mut().for_each(|repeats| *repeats = 0);
+    inner.keys.iter_mut().for_each(|keys| keys.clear());
     inner
         .budget
         .iter_mut()
@@ -2051,6 +2141,56 @@ mod tests {
         assert!(text.contains("a root"), "{text}");
         assert!(text.contains("of 36 on"), "{text}");
         set_mask(0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_keyed_channel_lists_every_key_once() {
+        let _guard = lock();
+        let dir = std::env::temp_dir().join(format!("pwe-keyed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        set_dir(dir.clone());
+        clear();
+        set_mask(1 << Channel::SceneSounds.index());
+        // The point of the keyed path: a per-frame channel with a thousand
+        // things to say must still name all of them, in one pass, and not
+        // repeat itself frame after frame.
+        for frame in 0..50 {
+            for card in 0..40 {
+                emit_keyed(
+                    Channel::SceneSounds,
+                    format!("card {card}"),
+                    10_000,
+                    format!("card {card} at frame {frame}"),
+                );
+            }
+        }
+        assert_eq!(
+            count(Channel::SceneSounds),
+            40,
+            "one line per key, not one per frame"
+        );
+        assert!(
+            suppressed(Channel::SceneSounds) >= 40 * 49,
+            "the repeats still have to be counted"
+        );
+        let text = std::fs::read_to_string(dir.join("scene-sounds.log")).expect("log");
+        for card in 0..40 {
+            assert!(
+                text.contains(&format!("card {card} at frame 0")),
+                "card {card} is missing from the list: {text}"
+            );
+        }
+        // A key whose interval has passed says something again.
+        emit_keyed(Channel::SceneSounds, "late", 0, "late first");
+        emit_keyed(Channel::SceneSounds, "late", 0, "late second");
+        assert_eq!(
+            count(Channel::SceneSounds),
+            42,
+            "a zero interval never holds"
+        );
+        set_mask(0);
+        clear();
         let _ = std::fs::remove_dir_all(&dir);
     }
 

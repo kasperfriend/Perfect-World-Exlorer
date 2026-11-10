@@ -1608,8 +1608,10 @@ impl Player {
         // The clock channel: the whole root once a frame. This is the line that
         // answers "is it running at all, and at what rate", which is the first
         // question for anything that looks frozen.
-        crate::diag!(
+        crate::diag_keyed!(
             EffectClock,
+            root_name,
+            1000,
             "{} t={:.1}ms dt={:.1}ms play_speed={:.3} finished={} loops={loops} \
              elements={} quads={} particles={} emitters={} ribbons={} models={} \
              lights={} sounds={} dummies={} unrendered={} alpha={:.3} scale={:.3} \
@@ -2690,8 +2692,10 @@ fn push_quad(
         return;
     }
     if color[3] < ALPHA_CUTOFF {
-        crate::diag!(
+        crate::diag_keyed!(
             EffectAlpha,
+            format!("{} id={} cut", context.root, context.id),
+            2000,
             "{} id={} dropped at the cutoff: alpha {:.4} < {} textured={}",
             context.root,
             context.id,
@@ -2750,8 +2754,10 @@ fn log_card(
             (positions[0][1] + positions[1][1] + positions[2][1] + positions[3][1]) / 4.,
             (positions[0][2] + positions[1][2] + positions[2][2] + positions[3][2]) / 4.,
         ];
-        crate::diag!(
+        crate::diag_keyed!(
             EffectCards,
+            format!("{} id={} #{}", context.root, context.id, index),
+            2000,
             "{} id={} #{} tex={} blend={}/{} layer={} prio={} a={:.3} \
              {:.2}x{:.2} c=({:.2},{:.2},{:.2}) \
              p0=({:.2},{:.2},{:.2}) p1=({:.2},{:.2},{:.2}) p2=({:.2},{:.2},{:.2}) \
@@ -2786,8 +2792,10 @@ fn log_card(
     }
     if crate::diagnostics::enabled(crate::diagnostics::Channel::EffectUv) {
         let common = context.common;
-        crate::diag!(
+        crate::diag_keyed!(
             EffectUv,
+            format!("{} id={} #{}", context.root, context.id, index),
+            1000,
             "{} id={} #{} tile={} grid={}x{} interval={}ms speed=({:.3},{:.3}) \
              flips={}{}{} clock={:.0}ms uv=[({:.3},{:.3}),({:.3},{:.3}),({:.3},{:.3}),({:.3},{:.3})]",
             context.root,
@@ -2855,8 +2863,10 @@ fn emit_clock(
             stats.lights += 1;
             // Lights are published even when world effects are switched off, so
             // this channel is readable with the graph released.
-            crate::diag!(
+            crate::diag_keyed!(
                 EffectLights,
+                format!("{} id={}", context.root, context.id),
+                1000,
                 "{} id={} at ({:.2},{:.2},{:.2}) colour={:#010x} alpha={:.3} clock={:.0}ms",
                 context.root,
                 context.id,
@@ -2891,8 +2901,10 @@ fn emit_sprite(
     drape: Option<GroundSampler<'_>>,
 ) {
     let color = context.rgba();
-    crate::diag!(
+    crate::diag_keyed!(
         EffectAlpha,
+        format!("{} id={}", context.root, context.id),
+        500,
         "{} id={} authored={:#010x} color_scale={:.4} rgba=({:.3},{:.3},{:.3},{:.3}) \
          cutoff={} size={:.3}x{:.3} origin={:?}",
         context.root,
@@ -2912,8 +2924,15 @@ fn emit_sprite(
         return;
     }
     let Ok(texture) = texture_path(&context.common.texture) else {
-        crate::diag!(
+        crate::diag_keyed!(
             EffectTextures,
+            format!(
+                "{} id={} {:?}",
+                context.root,
+                context.id,
+                context.common.texture
+            ),
+            5000,
             "{} id={} texture {:?} is not a usable archive path",
             context.root,
             context.id,
@@ -2945,8 +2964,10 @@ fn emit_sprite(
     // tab's decal channel is for: an axial card that should have been a billboard
     // and a billboard card that should never have been one look the same in a
     // size.
-    crate::diag!(
+    crate::diag_keyed!(
         EffectDecals,
+        format!("{} id={}", context.root, context.id),
+        2000,
         "{} id={} basis={} rot_from_view={} face_to_viewer={} texture={} \
          origin={:?} z_offset={:.3} clock={:.0}ms",
         context.root,
@@ -2959,8 +2980,13 @@ fn emit_sprite(
         sprite.z_offset,
         context.clock
     );
-    crate::diag!(
+    // A resolved texture is a fact, not a frame: one line per root, element and
+    // texture. This is the channel that used to fill a folder, six roots at a
+    // time, and hide every other line behind them.
+    crate::diag_keyed!(
         EffectTextures,
+        format!("{} id={} {}", context.root, context.id, texture),
+        5000,
         "{} id={} texture={} blend={}/{} layer={} prio={} z_enable={}",
         context.root,
         context.id,
@@ -3043,8 +3069,10 @@ fn drape_sprite(
         || sprite.ground_normal_only
         || !sampler.near_ground
     {
-        crate::diag!(
+        crate::diag_keyed!(
             EffectGround,
+            format!("{} id={} flat", context.root, context.id),
+            2000,
             "{} id={} flat card: id100={} match_ground={} grnd_norm_only={} near_ground={}",
             context.root,
             context.id,
@@ -3127,8 +3155,10 @@ fn drape_sprite(
             push_quad(out, context, texture, positions, uvs, color);
         }
     }
-    crate::diag!(
+    crate::diag_keyed!(
         EffectGround,
+        format!("{} id={} drawn", context.root, context.id),
+        2000,
         "{} id={} draped {:.2}x{:.2} into {}x{} cells of {:.2}x{:.2} at ({:.2},{:.2}) \
          quads={} surface={:?} lift={}",
         context.root,
@@ -3328,8 +3358,15 @@ fn quad_corners(
 /// the client multiplies a model's vertices by. Model colour is taken from the
 /// element's keypoint like any other class, through `context.rgba()`.
 fn emit_model(meshes: &[EffectMesh], context: &ElementContext, out: &mut Vec<EffectQuad>) {
-    crate::diag!(
+    crate::diag_keyed!(
         EffectModels,
+        format!(
+            "{} id={} {:?}",
+            context.root,
+            context.id,
+            meshes.first().map(|mesh| mesh.texture.as_str())
+        ),
+        5000,
         "{} id={} meshes={} vertices={} textures={:?} at ({:.2},{:.2},{:.2}) scale={:.3}",
         context.root,
         context.id,
@@ -3647,8 +3684,10 @@ fn emit_curve(curve: &Curve, context: &ElementContext, out: &mut Vec<EffectQuad>
     // endpoints and the degenerate-chord gate.
     let segments = (length / curve.coefficient.max(1e-3)).clamp(1.0, 256.0) as usize;
     let segments = segments.max(1);
-    crate::diag!(
+    crate::diag_keyed!(
         EffectTrails,
+        format!("{} id={}", context.root, context.id),
+        1000,
         "{} id={} curve length={:.2} coefficient={:.3} segments={} half_width={:.3} \
          from=({:.2},{:.2},{:.2}) to=({:.2},{:.2},{:.2})",
         context.root,
@@ -3837,8 +3876,10 @@ fn emit_particles(
     // Spawns, deaths and the live count together: a particle that never dies is
     // a leak and one that dies at once is invisible, and the two read the same
     // in a single number.
-    crate::diag!(
+    crate::diag_keyed!(
         EffectParticles,
+        format!("{} id={}", context.root, context.id),
+        500,
         "{} id={} live={} quota={} rate={:.2}/s ttl={:.2}s size={:.3}x{:.3} \
          origin={:?} 3d={} billboard={} dir=({:.2},{:.2},{:.2}) speed={:.2} \
          acc={:.2} angle={:.2} ground={} surface={} bind={} area={:?} radius={:?}",
@@ -4705,8 +4746,10 @@ fn emit_ribbon(
     out: &mut Vec<EffectQuad>,
 ) {
     stats.ribbons += 1;
-    crate::diag!(
+    crate::diag_keyed!(
         EffectTrails,
+        format!("{} id={} ribbon", context.root, context.id),
+        1000,
         "{} id={} ribbon/wave segments={} colour={:#010x} alpha={:.3} clock={:.0}ms",
         context.root,
         context.id,
@@ -4931,8 +4974,10 @@ fn emit_fractal(
     out: &mut Vec<EffectQuad>,
 ) {
     stats.ribbons += 1;
-    crate::diag!(
+    crate::diag_keyed!(
         EffectTrails,
+        format!("{} id={} fractal", context.root, context.id),
+        1000,
         "{} id={} fractal/trail records={} laid={} offsets={} colour={:#010x} alpha={:.3} \
          clock={:.0}ms",
         context.root,

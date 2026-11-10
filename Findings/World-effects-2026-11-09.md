@@ -835,13 +835,26 @@ page. Every bulk switch touches only the channels that actually have a hook: wit
 
 ### Nothing floods a file
 
-Three limits, and all three are counted on the row so nothing disappears
-silently: an unchanged line is **collapsed** and the run of duplicates summarised
-once (`(240 identical lines collapsed)`); each channel has a **budget** of ~200
-lines a second with a 4,000-line burst, so a whole census can land at once and a
-call site in a loop still cannot flood; and the per-frame channels keep their
-throttle underneath. The row reads `1,204 lines, 12 budgeted, 3,880 repeats
-collapsed`.
+Four limits, and all four are counted on the row so nothing disappears silently.
+
+* **One line per thing, not per frame.** Every channel that names things — cards,
+  UV windows, textures, decals, models, lights, particles, trails, ground
+  drapery, the clock per root, a root that was culled — writes a key the first
+  time it is seen and then at most once per its own interval (`emit_keyed`,
+  `diag_keyed!`). Before this, `effect-textures` and `effect-models` streamed every
+  element of every root on every frame and buried the rest of the file; a
+  five-root waterfall put the same texture lines down sixty times a second. Now a
+  file is the *complete list* of what drew, once each, which is the form a
+  screenshot artefact can actually be matched against.
+* An unchanged line is **collapsed** and the run of duplicates summarised once
+  (`(240 identical lines collapsed)`).
+* Each channel has a **budget** of ~200 lines a second with a 4,000-line burst, so
+  a whole census can land at once and a call site in a loop still cannot flood.
+* The per-frame channels keep their **throttle** underneath.
+
+The row reads `1,204 lines, 12 budgeted, 3,880 repeats collapsed`: lines plus
+repeats is the number of times the thing was seen, so *40 lines, 3,900 repeats* is
+a complete list, not a channel that stopped working.
 
 **F8** drops a `---- MARK camera (x, y, z) yaw … pitch … time … ----` line into
 `session.log` *and* into every channel that is on, past the throttle and past the

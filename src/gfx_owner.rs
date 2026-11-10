@@ -841,8 +841,14 @@ impl Manager {
                         owner.request.start_ms
                     );
                 }
-                crate::diag!(
+                // Culling is the channel that filled a report with one repeated
+                // line per root per frame. Keyed by root, so every root says
+                // once why it is not drawn, and says it again only every ten
+                // seconds while that stays true.
+                crate::diag_keyed!(
                     EffectCulling,
+                    format!("{} skipped", owner.request.path),
+                    10_000,
                     "{} skipped: active={} elapsed={:.0}ms start={:.0}ms",
                     owner.request.path,
                     owner.request.active,
@@ -872,8 +878,10 @@ impl Manager {
             // the roof bagua is authored 0.304 and came out 44.8 units wide
             // instead of 13.6, and `水门_瀑布` is authored 2.736.
             let authored_scale = placement_scale(&world);
-            crate::diag!(
+            crate::diag_keyed!(
                 EffectCulling,
+                format!("{} drawn", owner.request.path),
+                5000,
                 "{} drawn: record scale {:.3} alpha {:.3} speed {:.3} elapsed {:.0}ms \
                  origin ({:.1},{:.1},{:.1}); basis right=({:.2},{:.2},{:.2}) \
                  up=({:.2},{:.2},{:.2}) dir=({:.2},{:.2},{:.2})",
