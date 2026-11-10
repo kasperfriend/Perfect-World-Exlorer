@@ -21,10 +21,19 @@
 //! * **per-channel counters** (lines written, lines suppressed by the throttle),
 //!   so "no output" can be told apart from "nothing happened".
 //!
-//! A channel with a throttle drops lines instead of buffering them: the point of
-//! the throttle is to keep a 20 ms effect frame from turning a 1024-particle
-//! scene into a 1024-line-per-frame log. DROPPED lines are counted, and the
-//! counts are shown next to each checkbox.
+//! Three things keep a file readable, and all three are counted so nothing is
+//! hidden:
+//!
+//! * **a throttle** on the per-frame channels, which drops lines instead of
+//!   buffering them — a 20 ms effect frame must not turn a 1024-particle scene
+//!   into a 1024-line-per-frame log;
+//! * **a budget** of [`BUDGET_PER_SECOND`] lines per channel with a
+//!   [`BUDGET_BURST`] bucket, so a whole census can land at once but a call site
+//!   inside a loop can never flood a file;
+//! * **a repeat collapse**: a line identical to the one before it is counted and
+//!   not written, and the run of duplicates is summarised in one line when it
+//!   ends. An unchanged card sampled four times a second says nothing the first
+//!   time it was written.
 //!
 //! The module owns no game state. Call sites decide what a line says; this file
 //! only decides whether it is written, where, and how often.
@@ -662,90 +671,76 @@ pub struct Preset {
     pub channels: &'static [Channel],
 }
 
-/// `树林光束` and the Archosaur pair share almost everything: what differs is
-/// whether the UV window matters, which it does for a waterfall and does not for
-/// a beam that has one keypoint.
-const BEAM_CHANNELS: &[Channel] = &[
+/// The channel groups as one click each. They are named after what a line *is*,
+/// not after a defect: the same group answers "why is this shaft the wrong way
+/// round" and "why is this sheet frozen", because both questions are about the
+/// same records.
+const PLACEMENT: &[Channel] = &[
     Channel::EffectRoots,
     Channel::EffectElements,
     Channel::EffectFrames,
+    Channel::EffectCulling,
+    Channel::EffectClock,
+];
+
+const CARDS: &[Channel] = &[
     Channel::EffectCards,
+    Channel::EffectUv,
     Channel::EffectDecals,
     Channel::EffectTextures,
     Channel::EffectAlpha,
-    Channel::EffectCulling,
 ];
 
-pub const PRESETS: [Preset; 6] = [
+const SUB_ELEMENTS: &[Channel] = &[
+    Channel::EffectParticles,
+    Channel::EffectTrails,
+    Channel::EffectModels,
+    Channel::EffectLights,
+    Channel::EffectGround,
+];
+
+const SCENE: &[Channel] = &[
+    Channel::SceneEffects,
+    Channel::RenderEffects,
+    Channel::ModelQueue,
+    Channel::EffectProblems,
+];
+
+pub const PRESETS: [Preset; 5] = [
     Preset {
-        name: "Sun rays",
-        help: "树林光束: which root placed the rays, which element built each card, \
-               which basis the card was drawn on, and the texture and blend it got. \
-               The direction of the shaft is in effect-cards.",
+        name: "Placement",
+        help: "Where each root is, how it was built, the basis its elements are \
+               drawn in, and the clock and culling that decide whether it draws \
+               at all.",
         all: false,
-        channels: BEAM_CHANNELS,
+        channels: PLACEMENT,
     },
     Preset {
-        name: "Archosaur beams",
-        help: "天煞光束: the two placements that fire one after the other. \
-               effect-frames prints each element's keypoint basis, which is where \
-               a shaft that should be horizontal stops being horizontal.",
+        name: "Cards",
+        help: "The geometry and the pixels of every card: four corners, the UV \
+               window, which basis built it, the texture it resolved and what the \
+               colour and alpha folds made of it.",
         all: false,
-        channels: BEAM_CHANNELS,
+        channels: CARDS,
     },
     Preset {
-        name: "Waterfall",
-        help: "水门_瀑布: the five sheets and their scroll. effect-uv prints the \
-               tile window per frame and effect-clock prints the clock it advances \
-               on; between them a frozen sheet says which half is wrong.",
+        name: "Sub-elements",
+        help: "What hangs off a root instead of being a card: particles, trails, \
+               meshes, lights and the ground drape.",
         all: false,
-        channels: &[
-            Channel::SceneEffects,
-            Channel::EffectRoots,
-            Channel::EffectElements,
-            Channel::EffectUv,
-            Channel::EffectTextures,
-            Channel::EffectClock,
-            Channel::EffectCards,
-        ],
+        channels: SUB_ELEMENTS,
     },
     Preset {
-        name: "Crater colour",
-        help: "A saturated disc at the bottom of a crater: effect-cards names the \
-               root, effect-textures says whether the texture resolved, effect-alpha \
-               says what the colour and alpha folds produced, and scene-effects \
-               says what the map placed there.",
+        name: "Scene",
+        help: "The map and the frame around the effect: the world.ecwld records, \
+               what reached the GPU, the model queue and every non-fatal failure.",
         all: false,
-        channels: &[
-            Channel::SceneEffects,
-            Channel::EffectRoots,
-            Channel::EffectCards,
-            Channel::EffectTextures,
-            Channel::EffectAlpha,
-            Channel::EffectCulling,
-            Channel::EffectClock,
-        ],
-    },
-    Preset {
-        name: "Trails and rings",
-        help: "Ribbons, fractals, waves and spinning rings: the trail geometry, \
-               the UV window that has to scroll along it, and the clock that turns \
-               it. Generous and cheap, so it is the first thing to try on any \
-               effect that moves when it should not.",
-        all: false,
-        channels: &[
-            Channel::EffectRoots,
-            Channel::EffectElements,
-            Channel::EffectTrails,
-            Channel::EffectUv,
-            Channel::EffectClock,
-            Channel::EffectCards,
-        ],
+        channels: SCENE,
     },
     Preset {
         name: "Everything",
-        help: "Every channel at once, for a report that has not been narrowed down \
-               yet. Heavy: expect hundreds of megabytes on a long walk.",
+        help: "Every channel that can write, for a report that has not been \
+               narrowed down yet. Heavy: expect hundreds of megabytes on a long walk.",
         all: true,
         channels: &[],
     },
@@ -809,6 +804,15 @@ pub const TAIL_LINES: usize = 200;
 /// disk with one channel.
 const MAX_FILE_BYTES: u64 = 8 << 20;
 
+/// Lines per second one channel may write before its budget stops it. The
+/// throttle already slows the per-frame channels down; this is the backstop that
+/// makes "the log flooded" impossible rather than unlikely, whatever a call site
+/// in a loop decides to do.
+const BUDGET_PER_SECOND: f32 = 200.;
+/// How much the budget may hold, so a single load can still dump a whole census
+/// (the map's effect records are 2,275 lines) and still be the whole census.
+const BUDGET_BURST: f32 = 4000.;
+
 struct Inner {
     dir: Option<PathBuf>,
     files: Vec<Option<File>>,
@@ -816,6 +820,13 @@ struct Inner {
     counts: Vec<u64>,
     suppressed: Vec<u64>,
     last: Vec<Option<Instant>>,
+    /// The body of the last line written per channel, without its stamp, so an
+    /// identical line can be counted instead of written again: an unchanged card
+    /// sampled four times a second would otherwise fill a file with itself.
+    last_body: Vec<Option<String>>,
+    repeats: Vec<u64>,
+    /// Tokens left and when they were last topped up, per channel.
+    budget: Vec<(f32, Instant)>,
     tail: VecDeque<String>,
     dropped_from_tail: u64,
     started: Instant,
@@ -831,11 +842,37 @@ impl Inner {
             counts: vec![0; CHANNELS],
             suppressed: vec![0; CHANNELS],
             last: (0..CHANNELS).map(|_| None).collect(),
+            last_body: (0..CHANNELS).map(|_| None).collect(),
+            repeats: vec![0; CHANNELS],
+            budget: vec![(BUDGET_BURST, Instant::now()); CHANNELS],
             tail: VecDeque::with_capacity(TAIL_LINES),
             dropped_from_tail: 0,
             started: Instant::now(),
             session: String::new(),
         }
+    }
+
+    /// Append one already-decided line: stamp it, count it, write it to the
+    /// channel's file and put it in the tail.
+    fn write(&mut self, channel: Channel, text: &str) {
+        let index = channel.index();
+        let stamp = self.started.elapsed().as_secs_f32();
+        let rendered = format!("[{stamp:8.3}] {text}\n");
+        self.counts[index] = self.counts[index].saturating_add(1);
+        if let Some(file) = self.file(channel) {
+            match file.write_all(rendered.as_bytes()) {
+                Ok(()) => self.written[index] += rendered.len() as u64,
+                Err(_) => {
+                    self.files[index] = None;
+                }
+            }
+        }
+        if self.tail.len() == TAIL_LINES {
+            self.tail.pop_front();
+            self.dropped_from_tail = self.dropped_from_tail.saturating_add(1);
+        }
+        self.tail
+            .push_back(format!("{}: {}", channel.key(), rendered.trim_end()));
     }
 
     /// Open the channel's file, writing a one-line header the first time so an
@@ -898,6 +935,12 @@ pub fn set_dir(dir: impl Into<PathBuf>) {
     inner.dir = Some(dir);
     inner.files.iter_mut().for_each(|f| *f = None);
     inner.written.iter_mut().for_each(|w| *w = 0);
+    inner.last_body.iter_mut().for_each(|body| *body = None);
+    inner.repeats.iter_mut().for_each(|repeats| *repeats = 0);
+    inner
+        .budget
+        .iter_mut()
+        .for_each(|budget| *budget = (BUDGET_BURST, Instant::now()));
 }
 
 pub fn dir() -> Option<PathBuf> {
@@ -1031,36 +1074,43 @@ fn push(channel: Channel, line: &str, force: bool) {
     let now = Instant::now();
     let mut inner = registry().lock().unwrap_or_else(|e| e.into_inner());
     let index = channel.index();
-    // A forced line is the user's own marker, so it is not dropped by a throttle
-    // that exists to survive the per-frame flood.
-    let throttle = if force { 0 } else { channel.throttle_ms() };
-    if throttle > 0 {
-        if let Some(last) = inner.last[index] {
-            if now.duration_since(last).as_millis() < throttle as u128 {
-                inner.suppressed[index] = inner.suppressed[index].saturating_add(1);
-                return;
+    // A forced line is the user's own marker, so nothing below drops it: not the
+    // throttle, not the budget, not the repeat collapse.
+    if !force {
+        let throttle = channel.throttle_ms();
+        if throttle > 0 {
+            if let Some(last) = inner.last[index] {
+                if now.duration_since(last).as_millis() < throttle as u128 {
+                    inner.suppressed[index] = inner.suppressed[index].saturating_add(1);
+                    return;
+                }
             }
+            inner.last[index] = Some(now);
         }
-        inner.last[index] = Some(now);
-    }
-    let stamp = now.duration_since(inner.started).as_secs_f32();
-    let rendered = format!("[{stamp:8.3}] {line}\n");
-    inner.counts[index] = inner.counts[index].saturating_add(1);
-    if let Some(file) = inner.file(channel) {
-        match file.write_all(rendered.as_bytes()) {
-            Ok(()) => inner.written[index] += rendered.len() as u64,
-            Err(_) => {
-                inner.files[index] = None;
-            }
+        // The budget: tokens come back at BUDGET_PER_SECOND and the bucket holds
+        // BUDGET_BURST, so a burst passes and a runaway loop cannot.
+        let (tokens, at) = inner.budget[index];
+        let tokens =
+            (tokens + now.duration_since(at).as_secs_f32() * BUDGET_PER_SECOND).min(BUDGET_BURST);
+        if tokens < 1. {
+            inner.budget[index] = (tokens, now);
+            inner.suppressed[index] = inner.suppressed[index].saturating_add(1);
+            return;
         }
+        inner.budget[index] = (tokens - 1., now);
+        // An unchanged line is not information. Count it, and say so once when
+        // the run of duplicates ends.
+        if inner.last_body[index].as_deref() == Some(line) {
+            inner.repeats[index] = inner.repeats[index].saturating_add(1);
+            return;
+        }
+        if inner.repeats[index] > 0 {
+            let repeats = std::mem::take(&mut inner.repeats[index]);
+            inner.write(channel, &format!("({repeats} identical lines collapsed)"));
+        }
+        inner.last_body[index] = Some(line.to_string());
     }
-    if inner.tail.len() == TAIL_LINES {
-        inner.tail.pop_front();
-        inner.dropped_from_tail = inner.dropped_from_tail.saturating_add(1);
-    }
-    inner
-        .tail
-        .push_back(format!("{}: {}", channel.key(), rendered.trim_end()));
+    inner.write(channel, line);
 }
 
 /// The rolling tail as one block of text, oldest first.
@@ -1089,6 +1139,14 @@ pub fn tail_dropped() -> u64 {
     inner.dropped_from_tail
 }
 
+/// Identical lines the repeat collapse absorbed for a channel this session. One
+/// line that said the same thing four times a second for a minute is sixty
+/// thousand lines of nothing.
+pub fn repeats(channel: Channel) -> u64 {
+    let inner = registry().lock().unwrap_or_else(|e| e.into_inner());
+    inner.repeats[channel.index()]
+}
+
 /// Lines the throttle dropped for a channel this session.
 pub fn suppressed(channel: Channel) -> u64 {
     let inner = registry().lock().unwrap_or_else(|e| e.into_inner());
@@ -1112,6 +1170,12 @@ pub fn clear() {
     inner.written.iter_mut().for_each(|w| *w = 0);
     inner.counts.iter_mut().for_each(|c| *c = 0);
     inner.suppressed.iter_mut().for_each(|c| *c = 0);
+    inner.last_body.iter_mut().for_each(|body| *body = None);
+    inner.repeats.iter_mut().for_each(|repeats| *repeats = 0);
+    inner
+        .budget
+        .iter_mut()
+        .for_each(|budget| *budget = (BUDGET_BURST, Instant::now()));
     inner.tail.clear();
     inner.dropped_from_tail = 0;
 }
@@ -1426,8 +1490,10 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
     ui.label(
         egui::RichText::new(
             "Tick a channel and it starts writing its own file while the viewer runs. \
-             A capture ticks the set one known report needs. F8 drops a MARK line with \
-             the camera pose into session.log and into every channel that is on.",
+             A group ticks a whole family at once, an unchanged line is collapsed \
+             instead of repeated, and no channel writes more than ~200 lines a second. \
+             F8 drops a MARK line with the camera pose into session.log and into every \
+             channel that is on.",
         )
         .small()
         .weak(),
@@ -1507,7 +1573,7 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
 
     // ---- captures -----------------------------------------------------------
     ui.label(
-        egui::RichText::new("CAPTURES -- one click ticks the set a report needs")
+        egui::RichText::new("GROUPS -- one click ticks a family of channels")
             .small()
             .strong(),
     );
@@ -1523,7 +1589,7 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
             if ui.button(preset.name).on_hover_text(help).clicked() {
                 *mask = preset.mask();
                 session(format!(
-                    "---- CAPTURE {} -- {} channels: {} ----",
+                    "---- GROUP {} -- {} channels: {} ----",
                     preset.name,
                     keys.len(),
                     keys.join(", ")
@@ -1681,16 +1747,22 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
                     }
                     let written = count(channel);
                     let dropped = suppressed(channel);
-                    let detail = if written == 0 && dropped == 0 {
+                    let repeats = repeats(channel);
+                    let detail = if written == 0 && dropped == 0 && repeats == 0 {
                         if ticked {
                             "on, nothing yet".to_string()
                         } else {
                             String::new()
                         }
-                    } else if channel.throttle_ms() == 0 {
-                        format!("{written} lines")
                     } else {
-                        format!("{written} lines, {dropped} throttled")
+                        let mut detail = format!("{written} lines");
+                        if dropped > 0 {
+                            detail.push_str(&format!(", {dropped} budgeted"));
+                        }
+                        if repeats > 0 {
+                            detail.push_str(&format!(", {repeats} repeats collapsed"));
+                        }
+                        detail
                     };
                     if !detail.is_empty() {
                         ui.label(egui::RichText::new(detail).small().weak());
@@ -1978,6 +2050,58 @@ mod tests {
         assert!(text.contains("effect-roots"), "{text}");
         assert!(text.contains("a root"), "{text}");
         assert!(text.contains("of 36 on"), "{text}");
+        set_mask(0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unchanged_line_is_counted_not_written() {
+        let _guard = lock();
+        let dir = std::env::temp_dir().join(format!("pwe-repeat-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        set_dir(dir.clone());
+        set_mask(1 << Channel::SceneSounds.index());
+        emit(Channel::SceneSounds, "the same card");
+        emit(Channel::SceneSounds, "the same card");
+        emit(Channel::SceneSounds, "the same card");
+        emit(Channel::SceneSounds, "a different card");
+        let text = std::fs::read_to_string(dir.join("scene-sounds.log")).expect("log");
+        assert_eq!(
+            text.matches("the same card").count(),
+            1,
+            "the repeat has to collapse to one line: {text}"
+        );
+        assert!(
+            text.contains("(2 identical lines collapsed)"),
+            "the collapse has to be admitted: {text}"
+        );
+        assert!(text.contains("a different card"), "{text}");
+        set_mask(0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_budget_stops_a_loop_and_counts_what_it_stopped() {
+        let _guard = lock();
+        let dir = std::env::temp_dir().join(format!("pwe-budget-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        set_dir(dir.clone());
+        set_mask(1 << Channel::SceneSounds.index());
+        // Every line is different, so the repeat collapse cannot be what stops
+        // them; only the budget can.
+        let burst = BUDGET_BURST as usize;
+        for index in 0..burst + 500 {
+            emit(Channel::SceneSounds, format!("line {index}"));
+        }
+        assert!(
+            suppressed(Channel::SceneSounds) > 0,
+            "a loop past the burst has to be stopped"
+        );
+        let written = count(Channel::SceneSounds) as usize;
+        assert!(
+            (burst..burst + 100).contains(&written),
+            "the bucket holds {burst} and refills slowly, wrote {written}"
+        );
         set_mask(0);
         let _ = std::fs::remove_dir_all(&dir);
     }

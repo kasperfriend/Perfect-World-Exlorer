@@ -33,27 +33,41 @@ Two kinds of file:
   version, mask), every capture started, every folder change, every **F8** mark.
   It is the file that explains the others a week later.
 
-## One click per report
+## Groups, one click each
 
-The **CAPTURES** row ticks exactly the set a known report needs and leaves
-everything else off. A capture replaces the mask instead of adding to it, so a
-file is about one question.
+The **GROUPS** row ticks a whole family of channels and leaves everything else
+off. The names are general on purpose — they say what a line *is*, so the same
+group answers "why is this shaft the wrong way round" and "why is this sheet
+frozen", because both questions are about the same records.
 
-| Button | For |
+| Group | Ticks |
 | --- | --- |
-| **Sun rays** | `树林光束` — direction, scale, texture, blend of every shaft |
-| **Archosaur beams** | `天煞光束` — the two horizontal shafts and their timing |
-| **Waterfall** | `水门_瀑布` — UV window against the clock that should advance it |
-| **Crater colour** | the saturated disc: what the map placed, what the fold produced |
-| **Trails and rings** | Wraithgate's ring, ribbons, waves, fractals |
-| **Everything** | all 36 channels, for a report that has not been narrowed down |
+| **Placement** | roots, element table, element frames and basis, culling, clock |
+| **Cards** | card corners, UV window, decals, textures, colour and alpha folds |
+| **Sub-elements** | particles, trails, meshes, lights, ground drape |
+| **Scene** | the `world.ecwld` records, effect draws, the model queue, problems |
+| **Everything** | every channel that can write |
 
-Channels are grouped under headings that say what the line is *for* — **Where it
-is**, **Cards**, **Sub-elements**, **Diagnosis** — and each one has a tooltip
-naming its fields. Each heading carries a tick box for the whole group, and
-**All on this page** does the same for a page; both touch only the channels that
-can write, so a bulk switch never leaves empty files behind. **None on this
-page** and **Nothing** clear the ticks.
+A group **replaces** the mask instead of adding to it, so a file is about one
+question. Channels are grouped under the same four headings on the Effects page —
+**Where it is**, **Cards**, **Sub-elements**, **Diagnosis** — and each heading,
+like each page, has its own tick box. Every bulk switch touches only the channels
+that can write, so it never leaves empty files behind.
+
+## Nothing floods a file
+
+Three limits, and all of them are counted so nothing disappears quietly:
+
+* an **unchanged line is collapsed** — a card that has not moved does not write
+  itself again four times a second, and the run of duplicates ends with one line
+  saying `(240 identical lines collapsed)`;
+* a **budget of ~200 lines a second per channel**, with a burst of 4,000 so one
+  load can still dump a whole census;
+* the per-frame channels keep their own **throttle**, which the budget sits on top
+  of.
+
+The row next to each tick box shows what happened: `1,204 lines`,
+`1,204 lines, 12 budgeted, 3,880 repeats collapsed`.
 
 ## F8 marks the spot
 
@@ -70,7 +84,7 @@ with a position and a timestamp instead of a description.
 
 ## The five steps
 
-1. **Click the capture** for the report.
+1. **Click the group** that covers the question.
 2. **Fly to the spot, get the artefact on screen, press F8.**
 3. **Wait a few seconds** — two or three frames of a waterfall, one full turn of
    a ring — then **press F8 again**.
@@ -96,14 +110,14 @@ report.)
 
 ## What each open report needs
 
-| Report | Capture | What settles it |
+| Report | Group | What settles it |
 | --- | --- | --- |
-| Sun rays point at random | **Sun rays** | `effect-frames` (keypoint + basis columns) and `effect-cards` (corners) against the `dir`/`up` pair `scene-effects` prints for the same placement |
-| Archosaur beams are both horizontal | **Archosaur beams** | `effect-frames` for both bases; `effect-clock` for whether the second placement starts late |
-| Waterfall does not move | **Waterfall** | `effect-uv` against `effect-clock`: window advancing with the clock, or pinned while it runs |
-| Crater is pure blue | **Crater colour** | `scene-effects` names the placement, `effect-cards` the root, `effect-textures` whether the texture resolved, `effect-alpha` the fold |
-| Wraithgate ring spins fully | **Trails and rings** | `effect-trails` for the ribbon, `effect-uv` for the scroll, `effect-clock` for the turn |
-| Shroom lights sit too low | **Sun rays** | `effect-cards` for each card's world Y, `effect-ground` for whether a drape moved it |
+| Sun rays point at random | **Placement** | `effect-frames` (keypoint + basis columns) and `effect-cards` (corners) against the `dir`/`up` pair `scene-effects` prints for the same placement |
+| Archosaur beams are both horizontal | **Placement** | `effect-frames` for both bases; `effect-clock` for whether the second placement starts late |
+| Waterfall does not move | **Cards** | `effect-uv` against `effect-clock`: window advancing with the clock, or pinned while it runs |
+| Crater is pure blue | **Cards** | `scene-effects` names the placement, `effect-cards` the root, `effect-textures` whether the texture resolved, `effect-alpha` the fold |
+| Wraithgate ring spins fully | **Sub-elements** | `effect-trails` for the ribbon, `effect-uv` for the scroll, `effect-clock` for the turn |
+| Shroom lights sit too low | **Sub-elements** | `effect-cards` for each card's world Y, `effect-ground` for whether a drape moved it |
 
 ## If a capture is impossible
 
