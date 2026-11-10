@@ -799,6 +799,12 @@ where a report should have to be found. A folder saved by an older build that
 still points inside the client root is treated as unset, so the move needs no
 manual clearing of the box.
 
+The client install is refused rather than discouraged: a folder saved by an
+older build, a typed one, or a default that lands there all resolve to the
+explorer's own folder, and if the executable itself sits in the game folder the
+logs go to `%LOCALAPPDATA%\Perfect-World-Explorer\pwe-logs`. The page says so
+under the path instead of writing somewhere the report cannot be found.
+
 `session.log` is written whether or not a channel is ticked. It carries the run
 header (client root, explorer root, version, mask), every capture started, every
 folder change, and every mark — which is what makes a folder of channel files
@@ -809,7 +815,10 @@ The tick boxes and the folder persist in `viewer-settings.txt` (`logging_mask`,
 
 ### Captures: the five clicks that match the open reports
 
-Six buttons sit above the channel list. A capture **replaces** the mask rather
+Each group heading and each page also has a bulk tick box, and every bulk switch
+touches only the channels that can write: thirty-six ticks with nineteen hooks
+would otherwise leave seventeen empty files in the folder. Six buttons sit above
+the channel list. A capture **replaces** the mask rather
 than adding to it — a capture with a leftover channel in it reads as one long log
 with no boundary, and the point is a short file that answers one question:
 

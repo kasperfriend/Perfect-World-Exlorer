@@ -638,6 +638,14 @@ impl Channel {
     }
 }
 
+/// Every channel that has a call site in this build, as a mask.
+pub fn all_wired_mask() -> u64 {
+    Channel::ALL
+        .iter()
+        .filter(|channel| channel.wired())
+        .fold(0u64, |mask, channel| mask | 1u64 << channel.index())
+}
+
 /// One click's worth of channels: exactly the ones a particular report needs,
 /// and nothing else, so the files stay short enough to read.
 ///
@@ -744,12 +752,12 @@ pub const PRESETS: [Preset; 6] = [
 ];
 
 impl Preset {
-    /// The mask this preset means.
+    /// The mask this preset means. "Everything" means every channel that can
+    /// actually write: ticking a channel with no hook fills the folder with
+    /// empty files and tells nobody anything.
     pub fn mask(&self) -> u64 {
         if self.all {
-            return Channel::ALL
-                .iter()
-                .fold(0u64, |mask, channel| mask | 1u64 << channel.index());
+            return all_wired_mask();
         }
         self.channels
             .iter()
@@ -758,10 +766,21 @@ impl Preset {
 
     /// The files it will produce, for the tooltip and the session file.
     pub fn keys(&self) -> Vec<&'static str> {
+        self.files()
+            .iter()
+            .map(|channel| channel.key())
+            .collect()
+    }
+
+    fn files(&self) -> Vec<Channel> {
         if self.all {
-            return Channel::ALL.iter().map(|channel| channel.key()).collect();
+            return Channel::ALL
+                .iter()
+                .copied()
+                .filter(|channel| channel.wired())
+                .collect();
         }
-        self.channels.iter().map(|channel| channel.key()).collect()
+        self.channels.to_vec()
     }
 }
 
@@ -1101,13 +1120,101 @@ pub fn clear() {
 }
 
 /// The folder a blank settings box means. Set once at startup from
-/// [`explorer_root`], so the settings window never has to know that path itself.
+/// [`default_log_dir`], so the settings window never has to know that path itself.
 static DEFAULT_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// The client install being read, so "do not put the logs in there" can be
+/// enforced instead of hoped for.
+static CLIENT_ROOT: OnceLock<PathBuf> = OnceLock::new();
+
+/// A folder the user asked for was inside the client install and was refused.
+static REFUSED_CLIENT_FOLDER: AtomicBool = AtomicBool::new(false);
 
 /// Remember `<explorer folder>/pwe-logs`. First call wins: the path cannot change
 /// while a session runs.
 pub fn set_default_dir(dir: impl Into<PathBuf>) {
     let _ = DEFAULT_DIR.set(dir.into());
+}
+
+/// Remember the client root. Must be called before [`default_log_dir`] builds
+/// the default, i.e. before [`set_default_dir`].
+pub fn set_client_root(root: impl Into<PathBuf>) {
+    let _ = CLIENT_ROOT.set(root.into());
+}
+
+/// Where the logs go when nobody has said otherwise: the explorer's own folder,
+/// unless the explorer itself sits inside the client install — people do drop the
+/// executable next to `elementclient.exe` — in which case the user's data folder,
+/// which is outside the game in every case.
+pub fn default_log_dir() -> PathBuf {
+    let candidate = explorer_root().join("pwe-logs");
+    if inside_client(&candidate) {
+        return fallback_log_dir();
+    }
+    candidate
+}
+
+/// The escape hatch from [`default_log_dir`]: `%LOCALAPPDATA%` on Windows, the
+/// home folder elsewhere, the temporary folder when neither is set.
+fn fallback_log_dir() -> PathBuf {
+    #[cfg(windows)]
+    if let Some(base) = std::env::var_os("LOCALAPPDATA") {
+        return PathBuf::from(base)
+            .join("Perfect-World-Explorer")
+            .join("pwe-logs");
+    }
+    if let Some(base) = std::env::var_os("HOME") {
+        return PathBuf::from(base)
+            .join(".perfect-world-explorer")
+            .join("pwe-logs");
+    }
+    std::env::temp_dir()
+        .join("Perfect-World-Explorer")
+        .join("pwe-logs")
+}
+
+/// Whether `path` is the client install or anywhere under it.
+pub fn inside_client(path: &Path) -> bool {
+    match CLIENT_ROOT.get() {
+        Some(root) => is_under(path, root),
+        None => false,
+    }
+}
+
+/// Whether `child` is `root` or under it, compared the way a user writes paths
+/// rather than the way the filesystem stores them: separators unified, trailing
+/// separators dropped, `\\?\` prefixes removed and, on Windows, case folded.
+fn is_under(child: &Path, root: &Path) -> bool {
+    let child = comparable(child);
+    let root = comparable(root);
+    child == root || child.starts_with(&format!("{root}{SEPARATOR}"))
+}
+
+const SEPARATOR: char = if cfg!(windows) { '\\' } else { '/' };
+
+fn comparable(path: &Path) -> String {
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| absolute(path));
+    let mut text = path.to_string_lossy().into_owned();
+    if let Some(rest) = text.strip_prefix("\\\\?\\") {
+        text = rest.to_string();
+    }
+    if SEPARATOR == '\\' {
+        text = text.replace('/', "\\");
+        text = text.to_lowercase();
+    }
+    while text.len() > 1 && text.ends_with(SEPARATOR) {
+        text.pop();
+    }
+    text
+}
+
+fn absolute(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    std::env::current_dir()
+        .map(|cwd| cwd.join(path))
+        .unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// The folder the explorer itself lives in.
@@ -1224,24 +1331,34 @@ pub fn open_folder() {
 
 /// Point the logs at the directory the settings file names, or at the explorer's
 /// own folder when the box is empty, and make sure it exists.
+///
+/// A folder inside the client install is refused — a saved one from an older
+/// build, a typed one, a default that lands there — because the game folder is
+/// where a report goes to be lost, and it is what the last build did.
 pub fn apply_dir(text: &str) -> Option<PathBuf> {
     let trimmed = text.trim();
-    let dir = if trimmed.is_empty() {
+    let requested = if trimmed.is_empty() {
         DEFAULT_DIR.get().cloned()?
     } else {
         PathBuf::from(trimmed)
     };
+    let refused = inside_client(&requested);
+    let dir = if refused {
+        DEFAULT_DIR.get().cloned()?
+    } else {
+        requested
+    };
+    REFUSED_CLIENT_FOLDER.store(refused, Ordering::Relaxed);
     set_dir(dir.clone());
     std::fs::create_dir_all(&dir).ok();
     Some(dir)
 }
 
-/// Whether a saved folder is the one older builds wrote to, `<client
-/// root>/pwe-logs`, so a session that predates the move can be pointed at the
-/// new default instead of silently keeping the old place.
-pub fn is_legacy_default(text: &str, client_root: &Path) -> bool {
-    let trimmed = text.trim();
-    !trimmed.is_empty() && Path::new(trimmed) == client_root.join("pwe-logs").as_path()
+/// Whether the last folder request had to be refused because it pointed inside
+/// the client install. The settings page says so instead of silently writing
+/// somewhere else.
+pub fn refused_client_folder() -> bool {
+    REFUSED_CLIENT_FOLDER.load(Ordering::Relaxed)
 }
 
 /// Path the settings tab shows.
@@ -1378,6 +1495,17 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
             .small()
             .monospace(),
     );
+    if refused_client_folder() {
+        ui.label(
+            egui::RichText::new(
+                "That folder is inside the client install, so it was refused and the \
+                 logs stay above: the game folder is where a report gets lost.",
+            )
+            .small()
+            .weak()
+            .italics(),
+        );
+    }
     ui.separator();
 
     // ---- captures -----------------------------------------------------------
@@ -1453,8 +1581,18 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
         .weak(),
     );
     ui.horizontal(|ui| {
-        if ui.button("All on this page").clicked() {
-            for channel in Channel::ALL.iter().filter(|c| c.page() == page_option) {
+        if ui
+            .button("All on this page")
+            .on_hover_text(
+                "Tick every channel on this page that can write; the ones with no hook \
+                 stay off, because an empty file answers nothing.",
+            )
+            .clicked()
+        {
+            for channel in Channel::ALL
+                .iter()
+                .filter(|channel| channel.page() == page_option && channel.wired())
+            {
                 *mask |= 1u64 << channel.index();
             }
             changed = true;
@@ -1485,12 +1623,44 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
                     .iter()
                     .filter(|channel| *mask & (1u64 << channel.index()) != 0)
                     .count();
+                // A group's own tick box, so a report does not need eight clicks.
+                // It only touches the channels that can write: enabling a channel
+                // with no hook produces an empty file and no answer.
+                let wired: Vec<Channel> = members
+                    .iter()
+                    .copied()
+                    .filter(|channel| channel.wired())
+                    .collect();
+                let all_on = !wired.is_empty()
+                    && wired
+                        .iter()
+                        .all(|channel| *mask & (1u64 << channel.index()) != 0);
+                let blind = members.len() - wired.len();
                 ui.add_space(6.);
-                ui.label(
-                    egui::RichText::new(format!("{group}  --  {on} of {}", members.len()))
-                        .small()
-                        .strong(),
-                );
+                ui.horizontal(|ui| {
+                    let mut all = all_on;
+                    let help = if blind == 0 {
+                        format!("Tick or untick all {} channels in this group.", members.len())
+                    } else {
+                        format!(
+                            "Tick or untick the {} channels here that can write; the {blind} \
+                             with no hook stay off.",
+                            wired.len()
+                        )
+                    };
+                    if ui.checkbox(&mut all, *group).on_hover_text(help).changed() {
+                        for channel in &wired {
+                            let bit = 1u64 << channel.index();
+                            *mask = if all { *mask | bit } else { *mask & !bit };
+                        }
+                        changed = true;
+                    }
+                    ui.label(
+                        egui::RichText::new(format!("{on} of {} on", members.len()))
+                            .small()
+                            .weak(),
+                    );
+                });
                 for channel in members {
                     let bit = 1u64 << channel.index();
                     let mut ticked = *mask & bit != 0;
@@ -1664,7 +1834,12 @@ mod tests {
             let mask = preset.mask();
             assert!(mask != 0, "{} ticks nothing", preset.name);
             if preset.all {
-                assert_eq!(mask.count_ones() as usize, CHANNELS);
+                // "Everything" means everything that can write: a ticked channel
+                // with no hook is an empty file and no answer.
+                assert_eq!(
+                    mask.count_ones() as usize,
+                    Channel::ALL.iter().filter(|channel| channel.wired()).count()
+                );
                 assert!(preset.channels.is_empty(), "{} is ambiguous", preset.name);
             } else {
                 assert!(!preset.channels.is_empty());
@@ -1713,12 +1888,54 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_client_root_folder_migrates_to_the_new_default() {
-        let client = Path::new("/games/pw");
-        assert!(is_legacy_default("/games/pw/pwe-logs", client));
-        assert!(!is_legacy_default("", client));
-        assert!(!is_legacy_default("/home/me/PWE/pwe-logs", client));
-        assert!(!is_legacy_default("/games/pw/pwe-logs-old", client));
+    fn a_folder_under_the_client_root_is_recognised_in_any_spelling() {
+        // Windows and POSIX spell the same rule differently, so both are tried
+        // through the same function rather than two branches of production code.
+        let (root, inside, aside) = if cfg!(windows) {
+            ("D:\\Games\\PW", "D:/games/pw/PWE-LOGS/", "D:\\Games\\PW2")
+        } else {
+            ("/games/pw", "/games/pw/pwe-logs/", "/games/pw2")
+        };
+        let root = Path::new(root);
+        assert!(is_under(root, root));
+        assert!(is_under(Path::new(inside), root));
+        assert!(is_under(&root.join("logs").join("deep"), root));
+        // The separator matters: a sibling that merely shares the prefix is not
+        // inside.
+        assert!(!is_under(Path::new(aside), root));
+    }
+
+    #[test]
+    fn the_fallback_folder_is_usable() {
+        let dir = fallback_log_dir();
+        assert!(dir.is_absolute(), "{}", dir.display());
+        assert!(dir.ends_with("pwe-logs"));
+    }
+
+    #[test]
+    fn nothing_that_cannot_write_is_ticked_by_a_bulk_switch() {
+        let wired = all_wired_mask().count_ones() as usize;
+        assert_eq!(
+            wired,
+            Channel::ALL.iter().filter(|channel| channel.wired()).count()
+        );
+        assert!(
+            wired > 0 && wired < CHANNELS,
+            "some channels have to be unwired for this test to mean anything"
+        );
+        for preset in PRESETS.iter() {
+            let mask = preset.mask();
+            for channel in Channel::ALL {
+                if mask & (1u64 << channel.index()) != 0 {
+                    assert!(
+                        channel.wired(),
+                        "{} ticks {}, which cannot write",
+                        preset.name,
+                        channel.key()
+                    );
+                }
+            }
+        }
     }
 
     #[test]

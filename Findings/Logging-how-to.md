@@ -14,6 +14,12 @@ the client install.
 | `cargo run` / `target\debug\…` | the checkout root, `target\debug` is unwrapped |
 | Old settings that pointed inside the client | moved to the explorer root on first start |
 
+**The client install is refused outright.** A saved folder from an older build, a
+typed one, or a default that lands there all resolve to the explorer's own folder
+instead, and the page says so under the path. If the executable itself is sitting
+in the game folder, the logs go to `%LOCALAPPDATA%\Perfect-World-Explorer\pwe-logs`
+(`~/.perfect-world-explorer/pwe-logs` elsewhere) rather than into the install.
+
 The page shows the resolved path and what is in it (`7 files, 2.4 MB`) under the
 folder box. **Open** shows it in the file manager, **Explorer folder** puts the
 box back to the default, and **Clear files** deletes the `.log` files so the next
@@ -44,8 +50,10 @@ file is about one question.
 
 Channels are grouped under headings that say what the line is *for* — **Where it
 is**, **Cards**, **Sub-elements**, **Diagnosis** — and each one has a tooltip
-naming its fields. **All on this page** / **None on this page** and **Nothing**
-cover the bulk cases.
+naming its fields. Each heading carries a tick box for the whole group, and
+**All on this page** does the same for a page; both touch only the channels that
+can write, so a bulk switch never leaves empty files behind. **None on this
+page** and **Nothing** clear the ticks.
 
 ## F8 marks the spot
 

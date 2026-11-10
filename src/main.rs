@@ -846,11 +846,14 @@ fn main() {
     // logged: the folder defaults to the explorer's own `pwe-logs`, next to the
     // executable rather than inside the client install, the mask is whatever the
     // settings tab left ticked, and the session line names the run.
-    diagnostics::set_default_dir(diagnostics::explorer_root().join("pwe-logs"));
-    // A folder written by an older build points inside the client root. Treat it
-    // as never having been set, so the move to the explorer's own folder takes
-    // effect without anyone having to clear the box by hand.
-    if diagnostics::is_legacy_default(&saved.logging_dir, &path) {
+    // The client root comes first: it is what "do not write the logs in there"
+    // is measured against, both for the default and for a folder the settings
+    // file still remembers from a build that wrote next to the game.
+    diagnostics::set_client_root(&path);
+    diagnostics::set_default_dir(diagnostics::default_log_dir());
+    if !saved.logging_dir.trim().is_empty()
+        && diagnostics::inside_client(std::path::Path::new(saved.logging_dir.trim()))
+    {
         saved.logging_dir.clear();
     }
     diagnostics::apply_dir(&saved.logging_dir);
