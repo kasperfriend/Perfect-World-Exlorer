@@ -1015,7 +1015,9 @@ fn push(channel: Channel, line: &str, force: bool) {
     let now = Instant::now();
     let mut inner = registry().lock().unwrap_or_else(|e| e.into_inner());
     let index = channel.index();
-    let throttle = channel.throttle_ms();
+    // A forced line is the user's own marker, so it is not dropped by a throttle
+    // that exists to survive the per-frame flood.
+    let throttle = if force { 0 } else { channel.throttle_ms() };
     if throttle > 0 {
         if let Some(last) = inner.last[index] {
             if now.duration_since(last).as_millis() < throttle as u128 {
