@@ -133,6 +133,34 @@ jobs:
         run: |
           cargo run --locked --bin terrain-memory-check
           cargo run --locked --bin terrain-memory-check -- --full-world
+      # Formatting is checked before the Vulkan installs: rustfmt needs no GPU,
+      # and gating it behind an environment-sensitive step meant a broken
+      # software driver hid every formatting opinion behind "skipped".
+      - name: Check formatting
+        run: |
+          # `cargo fmt --check` already prints the "Diff in ..." hunks it wants;
+          # capture them because the raw step log is not always retrievable.
+          # (`rustfmt --diff` is not an option, so this is the only source.)
+          cargo fmt --all -- --check > /tmp/fmt.check 2>&1 || true
+          if [ -s /tmp/fmt.check ]; then
+            echo "::error::rustfmt wants changes; the diff is posted as a PR comment"
+            exit 1
+          fi
+      # Annotations are capped per check run and the GPU checks fill it with
+      # notices, so the diff is posted where it can actually be read.
+      - name: Post formatting diff
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          [ -n "$PR" ] || exit 0
+          # An earlier failure leaves no rustfmt diff; post nothing rather than
+          # an empty comment.
+          [ -s /tmp/fmt.check ] || exit 0
+          { echo 'rustfmt wants these changes:'; echo '```diff'; \
+            head -600 /tmp/fmt.check; echo '```'; } > /tmp/fmt.md
+          gh pr comment "$PR" --body-file /tmp/fmt.md
       - name: Install software Vulkan for Phase 1 shader checks
         run: |
           # Same flaky mirror as the build dependencies above: retry the install
@@ -164,29 +192,38 @@ jobs:
           XDG_RUNTIME_DIR: /tmp
           PW_LIBRARIAN_SYNTHETIC_GPU: "1"
         run: |
-          # The raw step log is served from blob storage and is not always
-          # retrievable through the API, so every command here is logged, and a
-          # failure repeats the tail of that log as annotations: the failing
-          # command may be the ICD probe rather than the test.
+          # The raw step log is served from blob storage and is not reachable
+          # from everywhere, so the failure is also encoded in the exit code,
+          # which the check-run annotation always reports:
+          #   41  no lavapipe ICD on the image   (probe fails, test never ran)
+          #   42  the wgpu test itself failed
           log=/tmp/srgb-window.log
           : >"$log"
-          run_and_log() {
-            "$@" >>"$log" 2>&1
-            status=$?
-            if [ "$status" -ne 0 ]; then
-              echo "::error::failed: $*"
-              tail -40 "$log" | while IFS= read -r line; do
-                [ -n "$line" ] && echo "::error::$line"
-              done
-              return "$status"
-            fi
-          }
-          ls /usr/share/vulkan/icd.d >>"$log" 2>&1 || true
-          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
-          echo "VK_ICD_FILENAMES=$VK_ICD_FILENAMES" >>"$log"
-          run_and_log test -n "$VK_ICD_FILENAMES"
-          run_and_log cargo test --locked --bin perfect-world-explorer \
-            srgb_window_uses_encoded_unorm_preview_attachment
+          # Mesa has renamed the software ICD more than once, so look for any
+          # lavapipe driver description rather than one exact file name.
+          icd=""
+          for dir in /usr/share/vulkan/icd.d /usr/local/share/vulkan/icd.d /etc/vulkan/icd.d; do
+            found="$(find "$dir" -maxdepth 1 -name '*lvp*' -print -quit 2>/dev/null || true)"
+            if [ -n "$found" ]; then icd="$found"; continue; fi
+          done
+          echo "VK_ICD_FILENAMES=$icd" >>"$log"
+          ls -l /usr/share/vulkan/icd.d >>"$log" 2>&1 || true
+          if [ -z "$icd" ]; then
+            echo "::error::no lavapipe ICD: the software Vulkan driver is missing"
+            cat "$log"
+            exit 41
+          fi
+          export VK_ICD_FILENAMES="$icd"
+          status=0
+          cargo test --locked --bin perfect-world-explorer \
+            srgb_window_uses_encoded_unorm_preview_attachment 2>&1 | tee -a "$log" || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::sRGB window test failed"
+            grep -E "panicked at|^test result:|^error(\[|:)|No suitable|RequestDevice" "$log" \
+              | head -20 | while IFS= read -r line; do echo "::error::$line"; done
+            tail -40 "$log" | while IFS= read -r line; do echo "::error::$line"; done
+            exit 42
+          fi
       - name: Run Phase 1 production shader regressions
         env:
           WGPU_BACKEND: vulkan
@@ -263,28 +300,6 @@ jobs:
 
       # Formatting is cosmetic: run it after the compile, test and shader steps
       # so a whitespace diff can never hide a real failure behind it.
-      - name: Check formatting
-        run: |
-          # `cargo fmt --check` already prints the "Diff in ..." hunks it wants;
-          # capture them because the raw step log is not always retrievable.
-          # (`rustfmt --diff` is not an option, so this is the only source.)
-          cargo fmt --all -- --check > /tmp/fmt.check 2>&1 || true
-          if [ -s /tmp/fmt.check ]; then
-            echo "::error::rustfmt wants changes; the diff is posted as a PR comment"
-            exit 1
-          fi
-      # Annotations are capped per check run and the GPU checks fill it with
-      # notices, so the diff is posted where it can actually be read.
-      - name: Post formatting diff
-        if: failure()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          [ -n "$PR" ] || exit 0
-          { echo 'rustfmt wants these changes:'; echo '```diff'; \
-            head -600 /tmp/fmt.check; echo '```'; } > /tmp/fmt.md
-          gh pr comment "$PR" --body-file /tmp/fmt.md
   windows:
     name: Windows executable (x64)
     runs-on: windows-latest
