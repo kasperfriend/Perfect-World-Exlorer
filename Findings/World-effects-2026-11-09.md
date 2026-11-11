@@ -1644,3 +1644,89 @@ client itself draws the spray for 1.75 s and then waits 28 s
 at `A3DGFXKeyPoint.cpp:1363-1382`). `element_cycle`/`element_phase` reproduce that,
 so `quads=0 particles=0` at t = 20,940 ms is the authored behaviour, not a
 regression.
+
+## 22. Lightning ribbons: two defects the class source settles
+
+`A3DGFXLightning` is element **150** (`m_nEleType = ID_ELE_TYPE_LIGHTNING`,
+`A3DGFXLightning.cpp:40`) — 734 records in the retail package, plus element 152
+(`A3DGFXLightningEx`, 156) which reuses the same strip. Two of its rules were
+wrong in the viewer, and both are readable straight out of the class.
+
+### 22.1 `Width`/`Alpha` are `[start, end, midpoint]`, not `[end, midpoint, start]`
+
+The header declares the fields in this order (`A3DGFXLightning.h:60-65`):
+
+```cpp
+float m_fWidthStart;  m_fWidthEnd;  m_fWidthMid;
+float m_fAlphaStart;  m_fAlphaEnd;  m_fAlphaMid;
+```
+
+`Load` fills them in file order (`A3DGFXLightning.cpp:467-500`): line 1 →
+`m_fWidthStart`, line 2 → `m_fWidthEnd`, the version-35 line 3 →
+`m_fWidthMid`; and `FillVertexBuffer` ramps `Start → Mid` over the first half of
+the path and `Mid → End` over the second (`:888-903`). So the **third** authored
+line is the apex. `profile_at` was reading line 2 as the midpoint, which put the
+taper of a retail record like `Width: 0 / Width: 0 / Width: 0.4`
+(`gfx/models/暗语者营地/暗语者营地.gfx`) at the far end instead of in the middle —
+every such ribbon was a wedge rather than a spindle.
+
+### 22.2 The noise stays perpendicular to the ribbon's own axis
+
+`BuildPath` (`:1005-1052`) displaces along the *perpendicular* only:
+
+```cpp
+A3DVECTOR3 vUp(CalcVertVec(vDir));
+m_pData[0][i] = j / fSegs;                             // along the path
+m_pData[1][i] = fRand[0] * A3D_2PI;                    // twist about it
+m_pData[2][i] = filter(m_nFilterType, i/fSegs, fRand[1]);
+```
+
+and `FillVertexBuffer` composes the cross-section as
+
+```cpp
+vPos = vStart + vDir*(m_pData[0][i]*fDist)
+     + RotateVec(A3DQUATERNION(vDir, m_pData[1][i]), vUp) * (m_pData[2][i] * m_fAmplitude);
+```
+
+with the two endings taken verbatim from `vStart`/`vEnd` (`nMod == 0` and
+`nMod == m_nSegs`). The viewer instead displaced every sample — endpoints
+included — along the fixed world diagonal `(1, 0.5, 0.25)` and scaled it by the
+*first* `Amplitude`. The first four keys (`BufLen`, `Amplitude`, `WaveLen`,
+`Persistence`, `OctaveNum`) belong to `m_NoiseCtrl`, which `Load` reads before
+the ribbon keys (`:421`); the second `Amplitude` is the ribbon's own excursion
+and was being dropped entirely.
+
+Consequences, in the field: a `Fractal` left its own plane, drifted the same way
+on every rebuild (so it read as a sheet sliding in one direction), and could
+reach several world units on effects whose authored excursion is one — the
+sheets hanging off trees and the blobs crossing the floating city. `emit_fractal`
+now builds the perpendicular basis, twists each sample about the axis, leaves
+both authored ends on `StartPos`/`EndPos`, and multiplies by the noise amplitude
+and the ribbon amplitude in the client's order. `lightning_filter` is the
+`filter` free function above `BuildPath` (`:983-1003`) verbatim, with the enum
+from `A3DGFXLightning.h:26-29` (`FT_TRIANGLE` 0, `FT_RECTANGLE` 1, `FT_SIN` 2,
+`FT_TRAPEZIA` 3).
+
+Two tests pin the law: `a_lightning_ribbon_is_displaced_perpendicular_to_its_own_axis`
+and `the_lightning_filter_matches_the_client_free_function`.
+
+### 22.3 What `GenDirection` actually does (checked, no change needed)
+
+`A3DParticleEmitter::GenDirection` (`:72-83`) looks like a one-sided fan but is
+not:
+
+```cpp
+vDir = (m_bBind ? _unit_z : RotateVec(m_qParentDir, _unit_z));
+float fAngle = _UnitRandom() * m_fAngle;            // tilt, drawn first
+A3DVECTOR3 vUp = (m_bBind ? _unit_x : RotateVec(m_qParentDir, _unit_x));
+A3DQUATERNION q(vDir, _UnitRandom() * A3D_2PI);     // azimuth, drawn second
+vUp = RotateVec(q, vUp);
+q.ConvertFromAxisAngle(vUp, fAngle);
+vDir = RotateVec(q, vDir);
+```
+
+`vUp` is spun about `vDir` by a uniform azimuth *before* the tilt, so the tilt
+direction covers the full circle: the distribution is a cone of half-angle
+uniform in `[0, Angle]` with uniform azimuth, which is exactly `cone_sample`.
+Draw order (angle first, azimuth second) matches `cone_direction`. The cyan
+tree lights are therefore not a direction-law bug in this path.
