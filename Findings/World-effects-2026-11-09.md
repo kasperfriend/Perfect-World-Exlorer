@@ -2521,3 +2521,54 @@ The plan once that harness renders again: give `Vertex::fog` a third state
 meshes and every other quad, and let the fragment stage `select` between
 `fog_color.rgb` and zero. The §32 assertion that "a quad must ignore the model
 fog" then has to be replaced by that law.
+
+## 36. Quad fog implemented; §35's harness verdict was wrong
+
+**Correction first.** §35 said the effect pass's raster tests "return the cleared
+backbuffer for every draw" and that the harness was broken locally. That was
+wrong, and the evidence was in the numbers: the failing pixel was
+`[0.25098, 0.25098, 0.25098, 0.749]`, not the clear value. The draws were
+rendering. Three assertions were stale:
+
+* `gpu_effect_batches_honour_blend_mode_layer_and_depth_test` expected
+  `1*0.5 + 0.25*0.5 = 0.625` for the alpha pair, but the fragment stage multiplies
+  the sampled texel by the quad colour, so the source is the 64-grey map
+  (0.25098) and the result is `0.25098*0.5 + 0.25*0.5 = 0.25049`.
+* `gpu_effect_fogs_a_model_mesh_but_not_a_quad` asserted `quad[2] <= 0.02`, which
+  a grey sheet can never satisfy: its blue channel is 0.25098 before any fog.
+* `gpu_effect_rejects_non_unorm_targets_and_reports_missing_textures` expected the
+  missing-texture group to vanish, while `Draw::update` deliberately keeps it on
+  the fully transparent fallback ("Returning here instead would delete the
+  bucket"), so the group and its six vertices are still there.
+
+The lesson for the next session is the one that cost the most time here: read the
+failing *value*, not the test's name. A clear-colour readback and a
+texture-multiplied quad look like the same failure until the numbers are printed.
+
+**The rule, implemented.** `A3DGFXRenderSlot.cpp:341` initialises every slot to
+`m_enumFogFlag = GFX_FOG_CURRENT`; `:349-352` replaces it with `GFX_FOG_ZERO`
+only when `sh.DestBlend == A3DBLEND_ONE`; and both consumers
+(`:565-573` in `PreRender` for quads, `:774-782` in `RenderSkinModel`) call
+`SetFogEnable(m_bCurFogEnabled)` first and then choose the fog *colour* —
+`m_clCurFog` for `CURRENT`, `0` for `ZERO`. Fog is therefore on for every slot
+while the device's fog is on, and the flag only decides what it fades towards.
+
+The viewer now carries that as three states in `Vertex::fog` instead of a
+boolean: `1` = current fog colour, `2` = black, and `0` reserved for unfogged.
+`Draw::update` picks `2` when `quad.destination_blend == A3DBLEND_ONE` (code `2`,
+`model_queue.rs:152` maps it to `Factor::One`) and `1` otherwise; every
+element-160 mesh stays `1`, which is correct because `A3DGFXModel::Play`
+registers its slot with a fixed SRCALPHA/INVSRCALPHA pair, never `ONE`. The
+fragment stage selects `fog_color.rgb` or zero and mixes by the same
+`(end - depth) / span` fraction §32 established.
+
+This **supersedes the §32 sentence** "a quad leaves the flag at zero: its slot
+carries `m_enumFogFlag`, which this pass does not model, so it keeps the colour
+the element authored", and §35's claim that the law could not be verified.
+
+The test that pinned the old behaviour is now
+`gpu_effect_fogs_every_slot_towards_its_own_fog_colour`: the additive sheet must
+land on `0.1255` in all three channels (half of 0.25098 towards black) and the
+SrcAlpha/InvSrcAlpha sheet on `(0.625, 0.125)` towards the red fog. Both run on
+this machine's adapter, so unlike §35's note the assertion is measured, not
+merely compiled.

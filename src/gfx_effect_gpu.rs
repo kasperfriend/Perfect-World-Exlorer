@@ -37,9 +37,12 @@ struct Vertex {
     directional: [f32; 4],
     /// World-space normal for a skin mesh, zero for a quad.
     normal: [f32; 3],
-    /// One when this vertex belongs to a skin mesh, which the client fogs like
-    /// any other model, and zero for a quad, whose slot decides its own fog
-    /// through `m_enumFogFlag` and is left alone.
+    /// The slot's `m_enumFogFlag`, not a yes/no switch: `0` would mean unfogged,
+    /// `1` fades towards the frame's `fog_color` (`GFX_FOG_CURRENT`) and `2`
+    /// fades towards black (`GFX_FOG_ZERO`). `A3DGFXRenderSlot.cpp:341` starts
+    /// every slot at `CURRENT` and `:349-352` downgrades only an additive slot
+    /// (`DestBlend == A3DBLEND_ONE`) to `ZERO`, so an added glow dims into black
+    /// with distance while every other sheet dims into the region's fog.
     fog: f32,
 }
 
@@ -447,6 +450,12 @@ impl Draw {
             // Two triangles per quad, in the client's corner order. A quad is
             // not lit: `A3DGFXRenderSlot` draws it with lighting off, exactly as
             // the element's colour says.
+            //
+            // Its fog colour is the slot's, not a choice of whether to fog:
+            // `m_enumFogFlag` is `GFX_FOG_ZERO` only for `DestBlend ==
+            // A3DBLEND_ONE` (code 2 in `model_queue::blend_factor`), which is the
+            // client's additive slot.
+            let fog = if quad.destination_blend == 2 { 2. } else { 1. };
             for slot in [0usize, 1, 3, 0, 3, 2] {
                 vertices.push(Vertex {
                     position: quad.positions[slot],
@@ -454,7 +463,7 @@ impl Draw {
                     lit: quad.color,
                     directional: [0.; 4],
                     normal: [0.; 3],
-                    fog: 0.,
+                    fog,
                 });
             }
         }
@@ -702,17 +711,19 @@ struct Output {
  if dot(vec4<f32>(v.world,1.),p.clip_plane)<0. {discard;}
  let tex=textureSample(image,image_sampler,v.uv)*v.color;
  var rgb=tex.rgb;
- // A model is fogged exactly like a scenery skin model: the retained fraction is
+ // Every slot is fogged while the device's fog is on; the retained fraction is
  // `(end - depth) / span` on the reciprocal of the clip w, and zero below the
- // near plane. A quad leaves `fog` at zero and keeps the slot's own choice,
- // `m_enumFogFlag`, which this pass does not model.
+ // near plane, the same formula a scenery skin model uses. `m_enumFogFlag`
+ // selects the colour rather than the yes/no: `GFX_FOG_CURRENT` (1) fades to the
+ // frame's fog colour and `GFX_FOG_ZERO` (2, additive slots) fades to black.
  if p.fog_range.z>0.5 && v.fog>0.5 {
   let depth=1./max(v.position.w,0.0000001);
   let span=p.fog_range.y-p.fog_range.x;
   var keep:f32;
   if abs(span)<0.001 {keep=select(1.,0.,depth>=p.fog_range.y);}
   else {keep=clamp((p.fog_range.y-depth)/span,0.,1.);}
-  rgb=mix(p.fog_color.rgb,rgb,keep);
+  let fog_rgb=select(p.fog_color.rgb,vec3<f32>(0.),v.fog>1.5);
+  rgb=mix(fog_rgb,rgb,keep);
  }
  return vec4<f32>(rgb,tex.a);
 }
@@ -975,8 +986,10 @@ mod tests {
             "additive blend mismatch: {additive:?}"
         );
 
-        // SrcAlpha/InvSrcAlpha with colour 1 and alpha 0.5 over the same
-        // background: 1*0.5 + 0.25*0.5 = 0.625.
+        // SrcAlpha/InvSrcAlpha with alpha 0.5 over the same background. The
+        // fragment stage samples the texel and multiplies it by the quad
+        // colour, so the source is the 64-grey map (0.25098), not 1:
+        // 0.25098*0.5 + 0.25*0.5 = 0.25049.
         let alpha = render(
             &mut draw,
             &harness,
@@ -985,7 +998,7 @@ mod tests {
             None,
         );
         assert!(
-            (alpha[0] - 0.625).abs() <= 0.02,
+            (alpha[0] - 0.2505).abs() <= 0.02,
             "alpha blend mismatch: {alpha:?}"
         );
 
@@ -1016,8 +1029,13 @@ mod tests {
         assert!(draw.order[0].0.pipeline.depth_test, "depth-tested first");
         assert_eq!(draw.order[2].0.layer, 1);
         assert_eq!(draw.order[2].1, 12);
-        // The second frame reused the cached buffers and grew nothing.
-        assert!(draw.buckets.values().all(|bucket| bucket.capacity >= 12));
+        // The second frame reused the cached buffers: every group's buffer can
+        // still hold its own draw (a 6-vertex group only needs 8), and the pair
+        // that grew to twelve vertices kept a buffer at least that large.
+        assert!(draw.order.iter().all(|(key, count)| draw
+            .buckets
+            .get(key)
+            .is_some_and(|bucket| bucket.capacity >= *count as usize)));
     }
 
     /// Element 160 draws through `A3DSkinModel`, so its vertex colour is the
@@ -1079,14 +1097,16 @@ mod tests {
         );
     }
 
-    /// A model is fogged the way a scenery skin model is: the same `fog_range`
-    /// and `fog_color`, applied in the fragment stage to the shaded colour. At
-    /// depth 1 with the range `[0, 2]` the retained fraction is a half, so a grey
-    /// 0.25 surface picks up half the red fog and lands at red 0.625, green
-    /// 0.125. A quad in the same frame keeps its own colour: its slot decides
-    /// through `m_enumFogFlag`, which this pass does not model.
+    /// Every slot is fogged the way a scenery skin model is: the same
+    /// `fog_range` and `fog_color`, applied in the fragment stage to the shaded
+    /// colour. At depth 1 with the range `[0, 2]` the retained fraction is a
+    /// half, so a grey 0.25 surface picks up half the red fog and lands at red
+    /// 0.625, green 0.125. A quad is fogged too, but towards the colour its
+    /// slot's `m_enumFogFlag` names: black for an additive slot, the frame's fog
+    /// colour for every other one (`A3DGFXRenderSlot.cpp:341`, `:349-352`,
+    /// `:565-573`).
     #[test]
-    fn gpu_effect_fogs_a_model_mesh_but_not_a_quad() {
+    fn gpu_effect_fogs_every_slot_towards_its_own_fog_colour() {
         let Some(harness) = harness() else {
             eprintln!("effect fog test skipped: no WGPU adapter");
             return;
@@ -1117,7 +1137,10 @@ mod tests {
             (fogged[0] - 0.625).abs() <= 0.02 && (fogged[1] - 0.125).abs() <= 0.02,
             "fogged mesh mismatch: {fogged:?}"
         );
-        let quad = render(
+        // `DestBlend == A3DBLEND_ONE` (code 2) is the client's additive slot, so
+        // its flag is `GFX_FOG_ZERO`: the 64-grey sheet fades halfway into black,
+        // not into the red fog, leaving 0.25098 * 0.5.
+        let additive = render(
             &mut draw,
             &harness,
             0.,
@@ -1125,8 +1148,21 @@ mod tests {
             Some(light),
         );
         assert!(
-            (quad[0] - 0.25).abs() <= 0.02 && quad[2] <= 0.02,
-            "a quad must ignore the model fog: {quad:?}"
+            (additive[0] - 0.1255).abs() <= 0.02 && (additive[2] - 0.1255).abs() <= 0.02,
+            "an additive quad must fade to black: {additive:?}"
+        );
+        // Every other slot keeps `GFX_FOG_CURRENT`, so the same sheet under
+        // SrcAlpha/InvSrcAlpha fades into the red fog instead.
+        let current = render(
+            &mut draw,
+            &harness,
+            0.,
+            &[quad("a.png", 5, 6, 0, false, [1., 1., 1., 1.])],
+            Some(light),
+        );
+        assert!(
+            (current[0] - 0.625).abs() <= 0.02 && (current[1] - 0.125).abs() <= 0.02,
+            "a non-additive quad must fade to the current fog colour: {current:?}"
         );
     }
 
@@ -1168,11 +1204,13 @@ mod tests {
             &mut read,
         )
         .unwrap();
-        // A missing texture drops that group and is reported, never fatal: the
-        // rest of the root still plays.
-        assert_eq!(draw.order.len(), 0);
+        // A missing texture is reported, never fatal: the group survives on the
+        // fully transparent stand-in (`self.fallback`), so the quad keeps its
+        // place in the order and only its map is lost. Deleting the bucket
+        // instead would drop the element from the frame entirely.
+        assert_eq!(draw.order.len(), 1);
         assert_eq!(draw.failures(), ["missing.png: absent"]);
-        assert_eq!(draw.vertex_count(), 0);
+        assert_eq!(draw.vertex_count(), 6);
 
         let error = draw
             .update(
