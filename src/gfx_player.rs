@@ -3694,9 +3694,20 @@ fn posed_model_meshes(
         // `血鲷封印台罩子`), and they still carry real geometry — 33 vertices
         // and 108 indices for the claw mark. Dropping them lost the whole model
         // for the roots that name them.
+        // A skin names its maps without a folder, and the archive keeps them in
+        // one of two places: `textures/` beside the skin (2,409 members of the
+        // shipped `gfx.pck`) or a `tex_<stem>/` folder (29 members). Which one a
+        // model uses is per model, so the path has to be probed rather than
+        // assumed: taking the first candidate unconditionally pointed every
+        // `textures/` model at a member that does not exist, and the GPU pass
+        // draws an unreadable texture as a flat white stand-in — the potted
+        // crystal, `盆景火` and their neighbours were white.
         let texture = if mesh.texture >= 0 {
             match skin.texture_paths(mesh.texture as usize) {
-                Ok(paths) => paths[0].clone(),
+                Ok(paths) => paths
+                    .into_iter()
+                    .find(|path| read(path).is_ok())
+                    .unwrap_or_else(|| fallback_texture.to_string()),
                 Err(_) => fallback_texture.to_string(),
             }
         } else {
@@ -10539,6 +10550,16 @@ mod tests {
             .flatten()
             .map(|mesh| mesh.vertices.len())
             .sum();
+        let textures: Vec<&str> = models
+            .iter()
+            .flatten()
+            .map(|mesh| mesh.texture.as_str())
+            .collect();
+        assert_eq!(
+            textures.first().copied(),
+            Some("gfx/models/盆景/textures/邢盆景水晶.dds"),
+            "the skin's one map lives under `textures/`, not `tex_<stem>/`: {textures:?}"
+        );
         assert!(
             meshes >= 8 && vertices > 100,
             "the potted crystal posed {meshes} meshes and {vertices} vertices; \
