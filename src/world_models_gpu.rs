@@ -773,15 +773,28 @@ impl World {
         } = self;
         *effect_quads = quads;
         if effects.is_none() {
-            // The same reverse-Z depth the world's models use, so an effect in
-            // front of a wall is occluded by nothing and one behind it is hidden.
+            // The same reverse-Z depth buffer the world's models use, so an
+            // effect in front of a wall is occluded by nothing and one behind it
+            // is hidden — but with `LESSEQUAL`'s tie rule, not `LESS`.
+            //
+            // The client's effect path never writes `D3DRS_ZFUNC`: the slot
+            // record in `A3DGFXRenderSlot.h` carries `m_bZTestEnable` (the
+            // ZENABLE byte) and no Z-func field, so every effect slot runs on the
+            // D3D8 device default, `D3DCMP_LESSEQUAL`. Under the reversed
+            // projection that is `GreaterEqual`. The strict `Greater` this pass
+            // used to ask for dropped every sheet drawn at the same depth as one
+            // before it — a decal and its overlay glow, the two halves of a card
+            // pair, the coplanar layers of a portal — and because those depths
+            // are computed per vertex in floating point, the loser swapped with
+            // each hair of camera movement: the flicker. Two blended draws at
+            // equal depth both pass in the client, and both must pass here.
             match gfx_effect_gpu::Draw::new(
                 device,
                 queue,
                 *format,
                 Some((
                     wgpu::TextureFormat::Depth32Float,
-                    wgpu::CompareFunction::Greater,
+                    wgpu::CompareFunction::GreaterEqual,
                 )),
             ) {
                 Ok(draw) => *effects = Some(draw),
