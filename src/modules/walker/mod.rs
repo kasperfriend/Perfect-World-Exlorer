@@ -1281,6 +1281,8 @@ impl Walker {
                     let light = gfx_effect_gpu::EffectLight {
                         lighting: frame.lighting,
                         direction: frame.direction,
+                        fog_range: frame.fog_range,
+                        fog_color: frame.fog_color,
                     };
                     gpu.effects.update(
                         device,

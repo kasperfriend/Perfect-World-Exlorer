@@ -37,6 +37,10 @@ struct Vertex {
     directional: [f32; 4],
     /// World-space normal for a skin mesh, zero for a quad.
     normal: [f32; 3],
+    /// One when this vertex belongs to a skin mesh, which the client fogs like
+    /// any other model, and zero for a quad, whose slot decides its own fog
+    /// through `m_enumFogFlag` and is left alone.
+    fog: f32,
 }
 
 /// The light an element-160 mesh is shaded with, in the client's own terms.
@@ -50,6 +54,10 @@ struct Vertex {
 pub struct EffectLight {
     pub lighting: crate::model_material::Lighting,
     pub direction: [f32; 3],
+    /// The frame's `fog_range`: `x` starts, `y` ends, `z` enables.
+    pub fog_range: [f32; 4],
+    /// Linear fog colour, `rgb` only.
+    pub fog_color: [f32; 4],
 }
 
 #[repr(C)]
@@ -66,6 +74,10 @@ struct Params {
     /// model's `LIGHTINFO`. Quads ignore it; a skin mesh needs it for the
     /// Lambert term its material constants are multiplied by.
     light: [f32; 4],
+    /// `x` starts the fog, `y` ends it and `z` enables it, the same
+    /// `fog_range` the scenery model shader reads.
+    fog_range: [f32; 4],
+    fog_color: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -225,6 +237,8 @@ impl Draw {
                 clip_plane: [0.; 4],
                 camera: [0.; 4],
                 light: [0.; 4],
+                fog_range: [0.; 4],
+                fog_color: [0.; 4],
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -372,6 +386,10 @@ impl Draw {
         if direction.iter().any(|value| !value.is_finite()) {
             return Err("non-finite GFX effect light direction".into());
         }
+        // No light means no fog either: both come from the same frame.
+        let (fog_range, fog_color) = light.map_or(([0.; 4], [0.; 4]), |light| {
+            (light.fog_range, light.fog_color)
+        });
         queue.write_buffer(
             &self.uniform,
             0,
@@ -380,6 +398,8 @@ impl Draw {
                 clip_plane,
                 camera,
                 light: [direction[0], direction[1], direction[2], 0.],
+                fog_range,
+                fog_color,
             }),
         );
 
@@ -419,6 +439,7 @@ impl Draw {
                         lit,
                         directional,
                         normal: vertex.normal,
+                        fog: 1.,
                     });
                 }
                 continue;
@@ -433,6 +454,7 @@ impl Draw {
                     lit: quad.color,
                     directional: [0.; 4],
                     normal: [0.; 3],
+                    fog: 0.,
                 });
             }
         }
@@ -586,7 +608,7 @@ impl Draw {
         // at zero, a skin mesh fills them from its material and its pose.
         let attributes = wgpu::vertex_attr_array![
             0=>Float32x3,1=>Float32x2,2=>Float32x4,
-            3=>Float32x4,4=>Float32x3
+            3=>Float32x4,4=>Float32x3,5=>Float32
         ];
         let buffers = [wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as u64,
@@ -641,7 +663,7 @@ impl Draw {
 }
 
 const WGSL: &str = r#"
-struct Params { matrix:mat4x4<f32>, clip_plane:vec4<f32>, camera:vec4<f32>, light:vec4<f32> };
+struct Params { matrix:mat4x4<f32>, clip_plane:vec4<f32>, camera:vec4<f32>, light:vec4<f32>, fog_range:vec4<f32>, fog_color:vec4<f32> };
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var image_sampler:sampler;
@@ -651,18 +673,21 @@ struct Input {
  @location(2) lit:vec4<f32>,
  @location(3) directional:vec4<f32>,
  @location(4) normal:vec3<f32>,
+ @location(5) fog:f32,
 };
 struct Output {
  @builtin(position) position:vec4<f32>,
  @location(0) uv:vec2<f32>,
  @location(1) color:vec4<f32>,
  @location(2) world:vec3<f32>,
+ @location(3) fog:f32,
 };
 @vertex fn vs(v:Input)->Output {
  var o:Output;
  o.position=p.matrix*vec4<f32>(v.position,1.);
  o.world=v.position;
  o.uv=v.uv;
+ o.fog=v.fog;
  // `model_light::vertex_light`: the shading sum is ambient plus the directional
  // term times the clamped Lambert, then clamped to one per channel. A quad
  // carries a zero normal and a zero directional constant, so this reduces to its
@@ -675,7 +700,21 @@ struct Output {
 }
 @fragment fn fs(v:Output)->@location(0) vec4<f32> {
  if dot(vec4<f32>(v.world,1.),p.clip_plane)<0. {discard;}
- return textureSample(image,image_sampler,v.uv)*v.color;
+ let tex=textureSample(image,image_sampler,v.uv)*v.color;
+ var rgb=tex.rgb;
+ // A model is fogged exactly like a scenery skin model: the retained fraction is
+ // `(end - depth) / span` on the reciprocal of the clip w, and zero below the
+ // near plane. A quad leaves `fog` at zero and keeps the slot's own choice,
+ // `m_enumFogFlag`, which this pass does not model.
+ if p.fog_range.z>0.5 && v.fog>0.5 {
+  let depth=1./max(v.position.w,0.0000001);
+  let span=p.fog_range.y-p.fog_range.x;
+  var keep:f32;
+  if abs(span)<0.001 {keep=select(1.,0.,depth>=p.fog_range.y);}
+  else {keep=clamp((p.fog_range.y-depth)/span,0.,1.);}
+  rgb=mix(p.fog_color.rgb,rgb,keep);
+ }
+ return vec4<f32>(rgb,tex.a);
 }
 "#;
 
@@ -751,6 +790,9 @@ mod tests {
                 point_enabled: true,
             },
             direction: [0., 0., -1.],
+            // Fog off, so the shading assertions read the light alone.
+            fog_range: [0.; 4],
+            fog_color: [0.; 4],
         }
     }
 
@@ -1034,6 +1076,57 @@ mod tests {
         assert!(
             (flat[0] - 0.25).abs() <= 0.02,
             "a material-less mesh keeps its flat colour: {flat:?}"
+        );
+    }
+
+    /// A model is fogged the way a scenery skin model is: the same `fog_range`
+    /// and `fog_color`, applied in the fragment stage to the shaded colour. At
+    /// depth 1 with the range `[0, 2]` the retained fraction is a half, so a grey
+    /// 0.25 surface picks up half the red fog and lands at red 0.625, green
+    /// 0.125. A quad in the same frame keeps its own colour: its slot decides
+    /// through `m_enumFogFlag`, which this pass does not model.
+    #[test]
+    fn gpu_effect_fogs_a_model_mesh_but_not_a_quad() {
+        let Some(harness) = harness() else {
+            eprintln!("effect fog test skipped: no WGPU adapter");
+            return;
+        };
+        let mut draw = Draw::new(
+            &harness.device,
+            &harness.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+        )
+        .unwrap();
+        let mut light = effect_light();
+        light.fog_range = [0., 2., 1., 0.];
+        light.fog_color = [1., 0., 0., 1.];
+        let material = crate::gfx_player::MeshMaterial {
+            ambient: [0.; 4],
+            diffuse: [1.; 4],
+            emissive: [0.; 4],
+        };
+        let fogged = render(
+            &mut draw,
+            &harness,
+            0.,
+            &[mesh_quad(material, [0., 0., 1.])],
+            Some(light),
+        );
+        assert!(
+            (fogged[0] - 0.625).abs() <= 0.02 && (fogged[1] - 0.125).abs() <= 0.02,
+            "fogged mesh mismatch: {fogged:?}"
+        );
+        let quad = render(
+            &mut draw,
+            &harness,
+            0.,
+            &[quad("a.png", 5, 2, 0, false, [1., 1., 1., 1.])],
+            Some(light),
+        );
+        assert!(
+            (quad[0] - 0.25).abs() <= 0.02 && quad[2] <= 0.02,
+            "a quad must ignore the model fog: {quad:?}"
         );
     }
 
