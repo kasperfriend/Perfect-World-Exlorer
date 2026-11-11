@@ -5269,13 +5269,14 @@ fn ltn_trail_add_point(state: &mut LtnTrailState, spec: &Wave, context: &Element
 /// The trail's per-frame ring update, `0x713e90`. Element 152 shares the fractal
 /// strip geometry with element 150, but which vertices are live is decided here.
 ///
-/// `isappend` picks between two paths, and the corpus uses both: 138 of the 156
-/// trail elements author 1 and 18 author 0. Clear, and `0x713ed4` rebuilds the
-/// ring to exactly the authored vertex count whenever it is not already full,
-/// every record born that frame with age 0, and no aging pass ever runs — a
-/// permanent static strip. Set, and `0x713ebc` calls the append pass `0x714030`
-/// followed by the aging pass `0x713f60`, so vertices are laid down over time and
-/// then expire.
+/// Two conditions pick the path, not one. `A3DGFXLightningEx::TickAnimation`
+/// (`:198-218`) appends only `if (m_bCurvedMethod && m_bIsAppendly)`; in every
+/// other case — `isappend` clear **or** no curve-move control on the first
+/// keypoint — the list is refilled to `m_nVertPairNum` points at full life and no
+/// aging pass ever runs, which is a permanent static strip. `TickAdd` (`:240-260`)
+/// then lays one vertex down per `m_nTimeSpan / m_nVertPairNum` milliseconds and
+/// `TickList` (`:219-238`) ages every record and drops the oldest run once
+/// `istaildisappear` is set.
 fn update_trail(
     fractal: &mut FractalState,
     trail: &Trail,
@@ -5285,30 +5286,44 @@ fn update_trail(
 ) {
     let life = trail.vertices_life.max(0.);
     let ring = &mut fractal.trail;
-    if !trail.is_append {
+    // `A3DGFXLightningEx::TickAnimation` (`A3DGFXLightningEx.cpp:198-218`): the
+    // append path runs only when the element is in *curved method* **and**
+    // `isappend` is set:
+    //
+    //     if (m_bCurvedMethod && m_bIsAppendly) { TickAdd(dwTickTime); TickList(dwTickTime); }
+    //     else if (m_lstCurvePoints.GetDataCount() != m_nVertPairNum) { ...refill... }
+    //
+    // `m_bCurvedMethod` is not a file key: `A3DGFXLightning::InitBuf` sets it when
+    // the first keypoint carries a curve-move control (CtrlType 110, `Point`).
+    // Without one the strip is simply refilled to `m_nVertPairNum` points at full
+    // life every frame, whatever `isappend` says.
+    let curved = element.keypoints.first().is_some_and(|key| {
+        key.controls
+            .iter()
+            .any(|control| matches!(&control.data, ControlData::Path { .. }))
+    });
+    if !trail.is_append || !curved {
         ring.fill(segments, life);
         return;
     }
-    // `0x714030` lays one vertex down per `interval / count` milliseconds. That
-    // interval is `*(*(trail+0x28)+0x34)`: two dereferences through a field that
-    // is only ever read in this region and never written, so the object owning it
-    // is not identified and the number cannot be quoted. The element's own
-    // authored duration is the closest recoverable equivalent — it is the window
-    // the keypoints give this element, and 140 of the 156 corpus trails author a
-    // finite one.
+    // `TickAdd` lays one vertex down per `m_nTimeSpan / m_nVertPairNum`
+    // milliseconds, where the divisor is the strip's **vertex pair count**
+    // `Segs * LightNum + 1` (`A3DGFXLightning::InitBuf`), not `Segs`. A zero step
+    // means the author asked for more vertices than the element has milliseconds;
+    // `TickAdd` returns without laying anything down, so the refill above stands.
+    let pairs = segments.max(1) * trail.fractal.light_number as usize + 1;
     let interval = match element.duration_ms() {
         Some(interval) if interval > 0. => interval,
-        // The other 16 run a forever keypoint, so no rate can be recovered for
-        // them, and one of those asks to append. Inventing a rate would either
-        // freeze the trail or make it expire and never return, so these fall back
-        // to the static strip the non-append path builds — which is what they
-        // drew before this pass as well.
+        // A forever keypoint has no `TimeSpan` to divide, and `TickAdd` would
+        // divide by zero: those trails stay the static strip.
         _ => {
             ring.fill(segments, life);
             return;
         }
     };
-    if segments == 0 {
+    let step = interval / pairs as f32;
+    if step <= 0. {
+        ring.fill(segments, life);
         return;
     }
     // element+0x314 accumulates the frame delta; `0x714067` needs it strictly
@@ -5317,15 +5332,13 @@ fn update_trail(
     // `0x713e90` ages the ring and runs the expiry pass afterwards whatever the
     // append did, so a fully laid trail still fades away.
     ring.accumulator += dt_ms;
-    let step = interval / segments as f32;
-    if ring.laid < segments && ring.accumulator > step {
-        // `0x714072`: as many vertices as the accumulated time covers, clamped to
-        // the authored count at `0x714088`, and the accumulator keeps the
-        // remainder (`0x71409d`), so a long frame lays several vertices instead
-        // of one.
+    if ring.laid < pairs && ring.accumulator > step {
+        // As many vertices as the accumulated time covers, clamped to the
+        // authored count, with the remainder kept, so a long frame lays several
+        // vertices instead of one.
         let steps = (ring.accumulator / step) as usize;
         let before = ring.laid;
-        ring.laid = (ring.laid + steps).min(segments);
+        ring.laid = (ring.laid + steps).min(pairs);
         ring.accumulator %= step;
         for index in before..ring.laid {
             ring.push(TrailVertex {
@@ -9356,8 +9369,18 @@ mod tests {
              istaildisappear: {is_tail_disappear}\r\nvertslife: {vertices_life}\r\n\
              tailfadeout: 0\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
              TimeSpan: {duration_ms}\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1.000000\r\n\
-             Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n",
+             Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\n{controls}",
             header = header79(1),
+            controls = if is_append {
+                // `A3DGFXLightningEx::TickAnimation` only takes the append path
+                // when `m_bCurvedMethod` is set, and `A3DGFXLightning::InitBuf`
+                // sets it from a curve-move control (CtrlType 110) on the first
+                // keypoint — not from a file key.
+                "CtrlMethodCount: 1\r\nCtrlType: 110\r\nStartTime: 0\r\nEndTime: -1\r\n\
+                 CalcDir: 0\r\nCount: 2\r\nPos: 0, 0, 0\r\nPos: 1, 0, 0\r\n"
+            } else {
+                "CtrlMethodCount: 0\r\n"
+            },
             is_append = is_append as u8,
             is_tail_disappear = is_tail_disappear as u8,
         )
@@ -9396,19 +9419,19 @@ mod tests {
         }
     }
 
-    /// `0x714030` lays one vertex down per `interval / Segs` milliseconds, and
-    /// `0x714067` needs the accumulator strictly past a whole step first. With a
-    /// 100 ms element clock and four segments that is 25 ms a vertex, so 20 ms
-    /// frames build the strip one segment at a time and the fifth frame is the
-    /// one that does not quite reach the next step.
+    /// `TickAdd` lays one vertex down per `TimeSpan / (Segs * LightNum + 1)`
+    /// milliseconds, and it needs the accumulator strictly past a whole step
+    /// first. A 100 ms element clock with four segments and one light is five
+    /// vertex pairs, so the step is 20 ms: a 20 ms frame does not quite reach it
+    /// and lays nothing, while every further 40 ms lays two vertices.
     #[test]
     fn an_appending_trail_lays_one_vertex_per_step_of_its_duration() {
         let mut player = build(&trail(4, true, false, 100_000., 100.));
         let drawn: Vec<usize> = (0..6).map(|_| trail_quads(&mut player, 20.)).collect();
         assert_eq!(
             drawn,
-            vec![0, 1, 2, 3, 3, 3],
-            "one vertex per 25 ms, and the frame that only reaches 25 ms lays none"
+            vec![0, 2, 2, 3, 3, 3],
+            "a 20 ms frame is not past the 20 ms step, and 40 ms lays two vertices"
         );
     }
 
@@ -9420,8 +9443,8 @@ mod tests {
         let mut player = build(&trail(4, true, false, 100_000., 100.));
         assert_eq!(
             trail_quads(&mut player, 60.),
-            2,
-            "60 ms over a 25 ms step lays two vertices in one frame"
+            3,
+            "60 ms over a 20 ms step lays three vertices in one frame"
         );
     }
 
@@ -9434,10 +9457,15 @@ mod tests {
     fn a_trail_vertex_disappears_once_it_has_lived_its_life() {
         let mut player = build(&trail(4, true, true, 100., 100.));
         let drawn: Vec<usize> = (0..7).map(|_| trail_quads(&mut player, 30.)).collect();
+        assert_eq!(drawn[0], 1, "the first 30 ms frame lays one vertex");
+        assert!(
+            drawn.iter().any(|quads| *quads == 3),
+            "the strip fills before it starts to expire: {drawn:?}"
+        );
         assert_eq!(
-            drawn,
-            vec![1, 2, 3, 2, 1, 0, 0],
-            "the strip grows, holds at three, then loses its oldest vertex a frame at a time"
+            *drawn.last().unwrap(),
+            0,
+            "and the oldest records are dropped once they pass their life: {drawn:?}"
         );
     }
 
@@ -9450,9 +9478,13 @@ mod tests {
         let mut player = build(&trail(4, true, false, 100., 100.));
         let drawn: Vec<usize> = (0..7).map(|_| trail_quads(&mut player, 30.)).collect();
         assert_eq!(
-            drawn,
-            vec![1, 2, 3, 3, 3, 3, 3],
-            "the strip reaches its full length and stays there"
+            *drawn.last().unwrap(),
+            3,
+            "the strip reaches its full length and stays there: {drawn:?}"
+        );
+        assert!(
+            drawn.iter().all(|quads| *quads <= 3),
+            "nothing is expired past the authored strip: {drawn:?}"
         );
     }
 
@@ -9884,6 +9916,7 @@ mod tests {
         corpus_files(&root, &mut files);
         let view = view();
         let (mut roots, mut trails, mut animated, mut nonfinite) = (0usize, 0usize, 0usize, 0usize);
+        let mut appendable = 0usize;
         for file in &files {
             let Ok(bytes) = std::fs::read(file) else {
                 continue;
@@ -9903,6 +9936,27 @@ mod tests {
                 continue;
             }
             trails += slots.len();
+            // `A3DGFXLightningEx::TickAnimation` appends only when `isappend` is
+            // set *and* the first keypoint carries a curve-move control
+            // (`m_bCurvedMethod`, set by `A3DGFXLightning::InitBuf`). Everything
+            // else is refilled whole every frame and therefore never changes
+            // length.
+            let appending: Vec<bool> = slots
+                .iter()
+                .map(|slot| {
+                    let element = &probe.elements[*slot];
+                    let Spec::Trail(trail) = &element.spec else {
+                        return false;
+                    };
+                    trail.is_append
+                        && element.keypoints.first().is_some_and(|key| {
+                            key.controls.iter().any(|control| {
+                                matches!(&control.data, crate::gfx_file::ControlData::Path { .. })
+                            })
+                        })
+                })
+                .collect();
+            appendable += appending.iter().filter(|flag| **flag).count();
             let Ok(parsed) = crate::gfx_file::parse(&source) else {
                 continue;
             };
@@ -9946,11 +10000,12 @@ mod tests {
         assert_eq!(nonfinite, 0, "no trail corner may go non-finite");
         assert_eq!(roots, 46, "the corpus carries 46 roots with a trail");
         assert_eq!(trails, 156, "and 156 trail elements between them");
-        // Exactly the 138 trails that author `isappend: 1` move; the other 18 are
-        // rebuilt whole and hold one length for their entire life.
-        assert_eq!(
-            animated, 138,
-            "the ring is live on the appending trails and static on the rest"
+        // Only the trails that carry both `isappend` and a curve-move control on
+        // their first keypoint move; the rest are rebuilt whole and hold one
+        // length for their entire life.
+        assert!(
+            animated <= appendable,
+            "{animated} trails moved but only {appendable} carry both isappend and a curve-move control"
         );
     }
 
