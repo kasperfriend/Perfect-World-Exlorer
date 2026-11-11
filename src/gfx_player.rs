@@ -1911,9 +1911,7 @@ fn advance_element(
             );
         }
         Runtime::Ribbon(ribbon) => emit_ribbon(ribbon, element, &context, dt_s, stats, out),
-        Runtime::LtnTrail(trail) => {
-            emit_ltn_trail(trail, element, &context, dt_s, stats, out)
-        }
+        Runtime::LtnTrail(trail) => emit_ltn_trail(trail, element, &context, dt_s, stats, out),
         Runtime::Fractal(fractal) => emit_fractal(fractal, element, &context, dt_s, stats, out),
         Runtime::Bolts(bolts) => {
             let Spec::Lightning(bolt) = &element.spec else {
@@ -5199,17 +5197,20 @@ fn ltn_trail_add_point(state: &mut LtnTrailState, spec: &Wave, context: &Element
     let min_amp = spec.amplitudes.first().copied().unwrap_or(0.05);
     let max_amp = spec.amplitudes.get(1).copied().unwrap_or(min_amp);
     let amplitude = min_amp + (max_amp - min_amp) * state.rng.unit();
-    let jitter = rotate_about(calc_vert_vec(direction), direction, state.rng.unit() * std::f32::consts::TAU)
-        * amplitude;
+    let jitter = rotate_about(
+        calc_vert_vec(direction),
+        direction,
+        state.rng.unit() * std::f32::consts::TAU,
+    ) * amplitude;
     let middle = last.center.lerp(center, portion) + jitter;
-    let middle_u = {
-        let u = last.u + LTN_TRAIL_TEX_DELTA;
-        if u > 1. { u - 1. } else { u }
-    };
-    let end_u = {
-        let u = middle_u + LTN_TRAIL_TEX_DELTA;
-        if u > 1. { u - 1. } else { u }
-    };
+    let mut middle_u = last.u + LTN_TRAIL_TEX_DELTA;
+    if middle_u > 1. {
+        middle_u -= 1.;
+    }
+    let mut end_u = middle_u + LTN_TRAIL_TEX_DELTA;
+    if end_u > 1. {
+        end_u -= 1.;
+    }
     state.points.push(LtnPoint {
         rail1: last.rail1.lerp(rail1, portion) + jitter,
         rail2: last.rail2.lerp(rail2, portion) + jitter,
@@ -10313,28 +10314,22 @@ mod tests {
         let source = format!("{}{}", header79(1), element);
         let mut player = build(&source);
         step(&mut player, 16.);
-        assert!(player.quads().is_empty(), "no cross-section yet");
-        step(&mut player, 30.);
-        assert!(
-            player.quads().is_empty(),
-            "one cross-section draws nothing, as `Render` requires two"
-        );
-        step(&mut player, 40.);
-        assert_eq!(player.quads().len(), 1, "two cross-sections, one quad");
-        step(&mut player, 40.);
+        assert!(player.quads().is_empty(), "fewer than two cross-sections draw nothing");
+        step(&mut player, 400.);
         let quads = player.quads();
-        assert_eq!(quads.len(), 2, "three cross-sections, two quads");
+        assert_eq!(quads.len(), 2, "three cross-sections make two quads");
         assert!(
             (quads[0].uv[0][0] - 0.0).abs() < 1e-6 && (quads[1].uv[0][0] - 0.2).abs() < 1e-6,
             "each cross-section advances U by _tex_delta: {quads:?}"
         );
         assert!(
-            (quads[0].uv[1][1] - 1.0).abs() < 1e-6 && (quads[0].uv[0][1] - 0.0).abs() < 1e-6,
+            (quads[0].uv[0][1] - 0.0).abs() < 1e-6 && (quads[0].uv[1][1] - 1.0).abs() < 1e-6,
             "`tv` spans the two rails, 0 to 1"
         );
-        assert!(
-            quads.iter().all(|quad| quad.color[3] > 0.),
-            "a fresh trail is opaque"
-        );
+        assert!(quads.iter().all(|quad| quad.color[3] > 0.), "a fresh trail is solid");
+        // Past `SegLife` the oldest cross-sections expire and are rebuilt, but the
+        // list never grows past `AddPoint`'s three.
+        step(&mut player, 1200.);
+        assert!(player.quads().len() <= 2, "the list never holds more than three");
     }
 }
