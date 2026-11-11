@@ -2912,3 +2912,158 @@ it a session later.
 the viewer *looks* like the client, and it cannot be run here — this sandbox has no
 archive and no route to one. The numbers in §39-§41 remain hand-checked arithmetic
 against a pack that was read, not a test run.
+
+## 44. The decal cartel: three builders, one root frame, and the sunray's missing sign
+
+**The element id picks the vertex builder, and nothing else does.** `A3DDecalEx::Update`
+(A3DDecalEx.cpp:301-321) is a switch on `m_nEleType`:
+
+```cpp
+switch (m_nEleType) {
+case ID_ELE_TYPE_DECAL_3D:        return Update_3D(kp, pView, pVerts, nMatrixIndex);
+case ID_ELE_TYPE_DECAL_2D:        return Update_2D(kp, pView, pVerts, nMatrixIndex);
+case ID_ELE_TYPE_DECAL_BILLBOARD: return Update_Billboard(kp, pView, pVerts, nMatrixIndex);
+}
+```
+
+and all three ids construct the *same* class — `CreateEmptyElement`
+(A3DGFXElement.cpp:605-612) maps `DECAL_3D`, `DECAL_2D` and `DECAL_BILLBOARD` to
+`new A3DDecalEx(pGfx, nEleId)` — so the class cannot dispatch on anything but the id it
+was handed. The three builders are three different pieces of maths, and each reads a
+different set of keys: `RotFromView` is read in `Fill_Verts_3D` only, `ZOffset` in
+`Fill_Verts_2D` only, and `OrgPt` is honoured by 3D and 2D but ignored by
+`Update_Billboard`.
+
+Against the staged pack (`google_drive/gfx.pck`, 97.7 MB, `0x20002`, 10,104 entries,
+5,459 `.gfx` roots) the three ids split **3,542 / 5,244 / 83**, with the 83 billboard
+records spread over 33 roots. Until this change `emit_sprite` sent every one of them
+down the 3D builder and let `RotFromView` be the only branch, which is how the corpus's
+larger half — the 5,244 element-101 cards, the ones every hit effect is made of — ended
+up drawn as world-oriented quads.
+
+**101 is drawn in screen space, at world size.** `Fill_Verts_2D`
+(A3DDecalEx.cpp:640-760) projects the card's centre through `GetVPTM() * GetViewScale()`,
+measures how many pixels one world unit of `camera->GetRight()` covers at that depth
+(`fScale`), and emits four **pre-transformed** vertices:
+
+```cpp
+A3DVECTOR3 vCenterWorld = GetParentTM() * kp.m_vPos;
+A3DVECTOR3 vZCenter = vCenterWorld - pView->GetCamera()->GetDir() * (m_fZOffset * m_pGfx->GetActualScale());
+// project vZCenter, derive fScale from the projected camera right ...
+verts[0] = A3DVECTOR3(-fWidth1,  fHeight2, vCenter.z);
+verts[1] = A3DVECTOR3( fWidth2,  fHeight2, vCenter.z);
+verts[2] = A3DVECTOR3(-fWidth1, -fHeight1, vCenter.z);
+verts[3] = A3DVECTOR3( fWidth2, -fHeight1, vCenter.z);
+```
+
+with `fWidth1/2 = m_fWidth1/2 * kp.m_fScale` unless `NoWidthScale` (same for the
+heights) and `m_pGfx->GetActualScale()` folded into `fScale` separately. Two things
+follow that the viewer did not have: the card faces the camera **because it is built in
+screen space**, not because a flag said so, and `ZOffset` is a push *toward the camera*
+along `camera->GetDir()`, not an offset along the element's own Z. The board's 42
+element-100 records that author a `ZOffset` get nothing from it — the client reads the
+key in the 2D builder only — and the 694 element-101 records that author one get the
+camera-space push.
+
+**102 is two crossed quads, and this is where §41's "scheduled separately" divergence
+was.** `Update_Billboard` (A3DDecalEx.cpp:1062-1170) is entered with `m_nRectNum = 2`
+(set at :288) and writes eight vertices:
+
+```cpp
+float fWidth  = kp.m_fScale * m_fWidth;      // half sizes, no OrgPt split
+float fHeight = kp.m_fScale * m_fHeight;
+A3DMATRIX4 matWorld = GetTranMatrix(kp) * GetParentTM();
+if (A3DCOLOR_GETALPHA(diffuse) < 5) return false;
+pVerts[0..3] = (±fWidth, ±fHeight, 0);
+pVerts[4..7] = (0, ±fHeight, ±fWidth);
+```
+
+one card in the element's XY plane and one in its ZY plane sharing the height axis, both
+with the same UV rect and the same world matrix. The vertex order is
+(top-left, top-right, bottom-left, bottom-right) for each card, which is the order
+`push_quad` already takes. `FaceToViewer` and this id never meet: **0 of the 24**
+`FaceToViewer` roots contain an element 102.
+
+**`FaceToViewer` is the root's frame, rebuilt every tick — not a per-element billboard.**
+`A3DGFXEx::Tick` (A3DGFXEx.cpp:1245-1258):
+
+```cpp
+A3DVECTOR3 vView = pCamera->GetPos() - GetPos();
+m_fDistToCam = vView.Normalize();
+if (m_bFaceToViewer) {
+    m_matNoScale = _build_matrix(vView, m_vPos);
+    m_qDir.ConvertFromMatrix(m_matNoScale);
+    m_bTransDirty = true;
+}
+```
+
+and `_build_matrix` (`a3dgfxkeypoint.h:396-416`) is a left-handed look-at with the world
+up lane kept horizontal:
+
+```cpp
+if (fabs(vDir.y) > .999f) { vY = Normalize(vDir % _unit_x); vX = vY % vDir; }
+else                     { vX = Normalize(_unit_y % vDir); vY = vDir % vX; }
+Fill_TranMatrix(matTran, vX, vY, vDir, vPos);   // axes become matrix ROWS, pos row 3
+```
+
+so the effect's Z axis runs from the effect to the camera, its Y axis stays as close to
+world up as the look-at allows, and `m_qDir` is re-derived from that matrix — the
+authored orientation is **discarded every tick**, above every element of the root. That
+is why the flag belongs in `advance_with_terrain`'s `base` (where it now rebuilds the
+frame through `face_viewer_basis`) and not in the sprite path, where it used to select a
+per-card billboard basis and conflated the root frame with element 101's shape.
+
+The shipped census, over the same 5,459 roots: **24 roots set `FaceToViewer: 1`**,
+carrying elements `{100: 23, 101: 198, 123: 11, 124: 74, 130: 4, 170: 10, 121: 3}`,
+with **zero** `MatchGrnd`, `Warp` or `RotFromView` lines between them and **zero**
+element 102. None of them is a scene root: they are the monster hit flashes
+(`策划联入/怪物技能/击中/*`, `鳐鱼精*`, `深海纳加鱼人*`), `秋普攻_1`, the wizard rune
+sub-effects, and three status effects (`光芒之盾`, `冻结`, `魔气吞山河`). Every
+`gfx/场景/` beam root — `树林光束`, `天煞光束`, `树林日光一道/多道` — is version 30-73
+with the flag at 0. **So none of the three scene reports of this task can have been the
+billboard path**, and this change is scoped to say so rather than to claim a fix.
+
+**The sunray corner order: §41's residual.** `Fill_Verts_3D`'s `m_bRotFromView` branch
+(A3DDecalEx.cpp:357-413) is exact in the viewer's axis, but two details of the *extents*
+were not:
+
+```cpp
+A3DVECTOR3 vView = vPos - pView->GetCamera()->GetPos();   // camera -> card
+A3DVECTOR3 vUp   = CrossProduct(vView, vDir);
+verts[0] = vPos - vDir * fHeight1 + vUp * fWidth2;   // (u, v) = (0, 1)
+verts[1] = vPos + vDir * fHeight2 + vUp * fWidth2;   // (0, 0)
+verts[2] = vPos - vDir * fHeight1 - vUp * fWidth1;   // (1, 1)
+verts[3] = vPos + vDir * fHeight2 - vUp * fWidth1;   // (1, 0)
+```
+
+The width axis is `cross(world - camera, dir)`; the viewer used
+`cross(camera - world, dir)`, the negation. And the `u = 0` edge takes `fWidth2` — the
+**complement** of the `OrgPt` split — whereas the element-space branch twenty lines
+earlier (A3DDecalEx.cpp:596-614) puts `-fWidth1` on the left. Reusing that split put
+`fWidth1` where the client puts `fWidth2`: invisible on a centred card (the rectangle is
+symmetric, so only the texture mirrored), and a real displacement on the 704 corpus
+`OrgPt` lines whose pivot is off centre. `QuadBasis::Axial` now writes the four vertices
+in the client's own terms with the client's sign, so both cases agree with the source
+instead of approximately agreeing with it.
+
+**What is pinned now.** Three unit tests join §41's corpus sweep:
+
+* `a_billboard_decal_is_two_crossed_cards` — element 102 draws **two** quads of
+  `2 * Width * scale * DedaultScale` by `2 * Height * …`, both centred on the element
+  position, sharing the world Y as their height axis and perpendicular in X and Z.
+* `a_two_d_decal_faces_the_camera_and_offsets_toward_it` — a 101 under a pitched camera
+  puts its width on `view.right` and its height on `view.up`, keeps the world extents, and
+  moves its centre by `-view.forward * ZOffset * actualScale`.
+* `a_face_to_viewer_root_turns_its_own_frame` — a `FaceToViewer: 1` root placed with a
+  quarter turn about X still draws its 100 card with the plane normal on the
+  effect-to-camera vector and its height on world up, i.e. the authored placement
+  orientation is gone.
+
+The 树林光束 sweep of §41 is untouched by the sign fix because it asserts the *line* of
+each shaft's height against the two keypoint axes, not the sign of the width.
+
+**What is still unproven.** This sandbox has no Rust toolchain (`cargo` and `rustc` are
+both absent), so none of this was compiled or run here: the verdict is CI's `cargo check
+--bins`, the unit suite and `cargo fmt --check`. The four corpus assertions still need
+an archive set this machine does not have beyond `gfx.pck` — and the arithmetic in
+§39-§44 remains hand-checked against sources that were read, not a green run.

@@ -6,8 +6,8 @@
 //!
 //! Every rule with a disassembly citation was read out of `elementclient.exe`
 //! and is reproduced instruction for instruction. Where the binary could not be
-//! followed — the emitter shape classes, the noise table generator and the
-//! billboard basis — the comment says so instead of hiding it.
+//! followed — the emitter shape classes and the noise table generator — the
+//! comment says so instead of hiding it.
 //!
 //! * Clocks. The tick receives an integer millisecond delta and the particle
 //!   system converts it at `0x71a1f1` (`fild dt; fmul 0.001`), then scales it by
@@ -1789,9 +1789,17 @@ impl Player {
         let mut out = Vec::new();
 
         // The parent basis is normalized exactly like the verified static decal
-        // path, so a non-uniform placement cannot shear the billboards.
-        let base = normalize_basis(transform)
-            * Mat4::from_scale(Vec3::splat(self.root.default_scale * scale));
+        // path, so a non-uniform placement cannot shear the billboards. A
+        // `FaceToViewer` root throws its authored orientation away instead and
+        // faces the camera — per tick, above every element, which is why the flag
+        // is handled here rather than in the sprite path.
+        let origin = transform.w_axis.truncate();
+        let orientation = if self.root.face_to_viewer {
+            face_viewer_basis(view.position - origin, origin)
+        } else {
+            normalize_basis(transform)
+        };
+        let base = orientation * Mat4::from_scale(Vec3::splat(self.root.default_scale * scale));
         // The owner's ground pass runs once per frame, before any element asks
         // for a frame (`0x6e53f0` is the owner's tick, `0x6fa7c0` is called from
         // the corner builder later in the same frame).
@@ -1819,7 +1827,6 @@ impl Player {
         let root_name = self.name.as_str();
         let play_speed = self.root.play_speed;
         let version = self.root.version;
-        let face_to_viewer = self.root.face_to_viewer;
 
         // The controllers integrate in seconds of scaled time: the same
         // millisecond delta the root clock used, times the root `PlaySpeed`
@@ -1873,7 +1880,6 @@ impl Player {
                 dt_s,
                 play_speed,
                 version,
-                face_to_viewer,
                 view,
                 parent,
                 color_scale,
@@ -2032,7 +2038,6 @@ fn advance_element(
     dt_s: f32,
     play_speed: f32,
     version: u32,
-    face_to_viewer: bool,
     view: &View,
     base: Mat4,
     color_scale: f32,
@@ -2171,7 +2176,7 @@ fn advance_element(
     }
     match &mut runtime.runtime {
         Runtime::Clock => {
-            emit_clock(element, &context, face_to_viewer, stats, out, drape);
+            emit_clock(element, &context, stats, out, drape);
             if let Spec::Model(spec) = &element.spec {
                 // `A3DGFXModel::UpdateModel` ticks the skin model with the
                 // element's own scaled delta, so the clip advances on the frames
@@ -2676,6 +2681,47 @@ fn noise_at(seed: u32, index: i64, length: i64, octave: usize) -> f32 {
     x = x.wrapping_mul(0x2c1b_3c6d);
     x ^= x >> 12;
     (x & 0xffff) as f32 / 32_768. - 1.
+}
+
+/// `A3DGFXEx::Tick`'s `FaceToViewer` frame (`A3DGFXEx.cpp:1245-1258`) and the
+/// `_build_matrix` it calls (`a3dgfxkeypoint.h:396-416`):
+///
+/// ```cpp
+/// A3DVECTOR3 vView = pCamera->GetPos() - GetPos();
+/// m_fDistToCam = vView.Normalize();
+/// if (m_bFaceToViewer) {
+///     m_matNoScale = _build_matrix(vView, m_vPos);
+///     m_qDir.ConvertFromMatrix(m_matNoScale);
+///     m_bTransDirty = true;
+/// }
+/// ```
+///
+/// so the flag does not bend individual cards: it **rebuilds the root frame** so
+/// that its Z axis runs from the effect to the camera, with the world up lane
+/// kept horizontal:
+///
+/// ```cpp
+/// if (fabs(vDir.y) > .999f) { vY = Normalize(vDir % _unit_x); vX = vY % vDir; }
+/// else { vX = Normalize(_unit_y % vDir); vY = vDir % vX; }
+/// Fill_TranMatrix(matTran, vX, vY, vDir, vPos);
+/// ```
+///
+/// `Fill_TranMatrix` writes the three axes as matrix **rows** and the position as
+/// row 3 (`a3dgfxkeypoint.h:381-393`), the same row-major convention
+/// `SetDirAndUp` uses, so the glam columns here are the client's rows.
+fn face_viewer_basis(direction: Vec3, position: Vec3) -> Mat4 {
+    let dir = direction.normalize_or_zero();
+    if dir == Vec3::ZERO {
+        return Mat4::IDENTITY;
+    }
+    let (x, y) = if dir.y.abs() > 0.999 {
+        let y = dir.cross(Vec3::X).normalize_or_zero();
+        (y.cross(dir), y)
+    } else {
+        let x = Vec3::Y.cross(dir).normalize_or_zero();
+        (x, dir.cross(x))
+    };
+    Mat4::from_cols(x.extend(0.), y.extend(0.), dir.extend(0.), position.extend(1.))
 }
 
 /// Normalize a placement basis, exactly as the verified static decal path does,
@@ -3276,13 +3322,12 @@ const DEFAULT_RING_SECTIONS: usize = 36;
 fn emit_clock(
     element: &Element,
     context: &ElementContext,
-    face_to_viewer: bool,
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
     drape: Option<GroundSampler<'_>>,
 ) {
     match &element.spec {
-        Spec::Sprite(sprite) => emit_sprite(sprite, context, face_to_viewer, stats, out, drape),
+        Spec::Sprite(sprite) => emit_sprite(sprite, context, stats, out, drape),
         Spec::Cylinder(cylinder) => emit_cylinder(cylinder, context, out),
         Spec::Grid(grid) => emit_grid(grid, context, out),
         Spec::Light(_) => {
@@ -3322,7 +3367,6 @@ fn emit_clock(
 fn emit_sprite(
     sprite: &Sprite,
     context: &ElementContext,
-    face_to_viewer: bool,
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
     drape: Option<GroundSampler<'_>>,
@@ -3392,27 +3436,52 @@ fn emit_sprite(
         );
         return;
     };
-    // `RotFromView` decides where the orientation comes from: 598 retail sprites
-    // set it, the other 8,271 keep the authored keypoint direction, which is what
-    // the verified static path does. The root's `FaceToViewer` faces a whole root
-    // at the camera.
+    // The element id picks the vertex builder, and the three decal types are
+    // three different builders. `A3DDecalEx::Update` (A3DDecalEx.cpp:309-321) is
+    // a switch on `m_nEleType` and nothing else:
     //
-    // A `RotFromView` card is *not* screen-facing. `A3DDecalEx::Fill_Verts_3D`
+    //     case ID_ELE_TYPE_DECAL_3D:        Update_3D(...)        // 100
+    //     case ID_ELE_TYPE_DECAL_2D:        Update_2D(...)        // 101
+    //     case ID_ELE_TYPE_DECAL_BILLBOARD: Update_Billboard(...) // 102
+    //
+    // so `RotFromView` says nothing about a 101 and `ZOffset` says nothing about
+    // a 100: each key is read by one builder only. The corpus splits 3,542
+    // element-100, 5,244 element-101 and 83 element-102 records, and until now
+    // all three went through the 3D builder.
+    //
+    // 101 is drawn in screen space. `Fill_Verts_2D` (A3DDecalEx.cpp:640-760)
+    // projects the element position, takes the pixel size of one world unit along
+    // the camera's right axis at that depth, and writes those extents straight
+    // into pre-transformed vertices — so the card faces the camera and keeps the
+    // size it would have had in world space. `QuadBasis::Billboard` is that card:
+    // camera right and up, the placement's scale put back on the extents.
+    //
+    // A `RotFromView` card is *not* screen-facing. `Fill_Verts_3D`
     // (A3DDecalEx.cpp:357-413) keeps its height on the element's own direction
     // and takes only the width from the view, so a 0.5 x 10 shaft is a thin
-    // streak lying the way the map turned it, not a screen-tall wall.
-    let basis = if sprite.rotate_from_view {
-        QuadBasis::Axial
-    } else if face_to_viewer {
+    // streak lying the way the map turned it, not a screen-tall wall. The client
+    // reads the key in the 3D builder only, so a 101 that authors it (55 do) is
+    // still a screen card.
+    // A 102 is the fourth shape and it is built below, not by `quad_corners`:
+    // the name is resolved here so the decal channel still says which builder a
+    // card came from.
+    let basis = if context.id == 101 {
         QuadBasis::Billboard {
             right: context.view.right,
             up: context.view.up,
             forward: context.view.forward,
         }
+    } else if sprite.rotate_from_view {
+        QuadBasis::Axial
     } else {
         QuadBasis::Element
     };
-    // Which of the three branches built the card is exactly what the Logging
+    let basis_name = if context.id == 102 {
+        "crossed"
+    } else {
+        basis.name()
+    };
+    // Which of the four branches built the card is exactly what the Logging
     // tab's decal channel is for: an axial card that should have been a billboard
     // and a billboard card that should never have been one look the same in a
     // size.
@@ -3420,14 +3489,13 @@ fn emit_sprite(
         EffectDecals,
         at(context),
         2000,
-        "{} id={} basis={} shaft={} rot_from_view={} face_to_viewer={} texture={} \
+        "{} id={} basis={} shaft={} rot_from_view={} texture={} \
          origin={:?} z_offset={:.3} clock={:.0}ms",
         context.root,
         context.id,
-        basis.name(),
+        basis_name,
         shaft_mode().token(),
         sprite.rotate_from_view,
-        face_to_viewer,
         texture,
         sprite.origin,
         sprite.z_offset,
@@ -3450,6 +3518,40 @@ fn emit_sprite(
         context.common.priority,
         context.common.depth_test
     );
+    // 102 is two crossed quads (`Update_Billboard`, A3DDecalEx.cpp:1059-1170):
+    // `m_nRectNum = 2` at :288, and the eight vertices are (±W, ±H, 0) and
+    // (0, ±H, ±W) — one card in the element's XY plane and one in its ZY plane,
+    // sharing the height axis. Extents are `kp.m_fScale * m_fWidth/m_fHeight`,
+    // half sizes with no `OrgPt` split, and both cards take the same UV rect.
+    if context.id == 102 {
+        let width = context.scale * sprite.width;
+        let height = context.scale * sprite.height;
+        let uv = flipbook_uv(context.common, context.clock);
+        let cards = [
+            [
+                [-width, height, 0.],
+                [width, height, 0.],
+                [-width, -height, 0.],
+                [width, -height, 0.],
+            ],
+            [
+                [0., height, width],
+                [0., height, -width],
+                [0., -height, width],
+                [0., -height, -width],
+            ],
+        ];
+        for corners in cards {
+            let positions = [
+                context.placement.transform_point3(corners[0].into()).to_array(),
+                context.placement.transform_point3(corners[1].into()).to_array(),
+                context.placement.transform_point3(corners[2].into()).to_array(),
+                context.placement.transform_point3(corners[3].into()).to_array(),
+            ];
+            push_quad(out, context, &texture, positions, uv, color);
+        }
+        return;
+    }
     // A ground sheet is not a card. `Fill_Verts_3D` cuts it into two-unit cells
     // and asks the terrain for each vertex's own height; everything below is the
     // flat fallback for the sheets that cannot be draped.
@@ -3473,7 +3575,7 @@ fn emit_sprite(
     // (A3DGFXEx.cpp:1589-1595). The placement here already carries
     // `DedaultScale * record scale` (see `advance_with_terrain`'s `base`), which
     // is exactly `GetActualScale()`, so the extents take no further factor.
-    let positions = quad_corners(
+    let mut positions = quad_corners(
         context,
         basis,
         Vec3::new(0., 0., sprite.z_offset),
@@ -3484,6 +3586,17 @@ fn emit_sprite(
         context.rotation,
         1.,
     );
+    // `ZOffset` is a 2D-decal key: `m_fZOffset` appears only in `Fill_Verts_2D`
+    // (A3DDecalEx.cpp:728-735), which pushes the centre *toward the camera* along
+    // `camera->GetDir()` before projecting, scaled by the actual scale. Neither
+    // the 3D builder nor `Update_Billboard` reads it, so a 100 or a 102 keeps its
+    // authored `ZOffset` ignored — 42 element-100 records author one and the
+    // client does nothing with it.
+    let scale = context.placement.x_axis.truncate().length();
+    if context.id == 101 && sprite.z_offset != 0. {
+        let offset = -context.view.forward * (sprite.z_offset * scale);
+        positions = positions.map(|corner| (Vec3::from_array(corner) + offset).to_array());
+    }
     let uv = flipbook_uv(context.common, context.clock);
     push_quad(out, context, &texture, positions, uv, color);
 }
@@ -3700,7 +3813,9 @@ impl EffectShaft {
 #[derive(Clone, Copy)]
 enum QuadBasis {
     /// Camera-facing: the quad spans the given view axes and its 2D spin is
-    /// about the view forward, so it never leaves the screen plane.
+    /// about the view forward, so it never leaves the screen plane. This is the
+    /// element-101 shape — `A3DDecalEx::Fill_Verts_2D` writes pre-transformed
+    /// screen-space vertices, so the card has no world orientation to keep.
     Billboard {
         right: Vec3,
         up: Vec3,
@@ -3842,8 +3957,13 @@ fn quad_corners(
                     }
                 }
             };
-            let to_eye = context.view.position - world;
-            let right = to_eye.cross(dir).normalize_or_zero();
+            // `vView` runs from the camera *to* the card, so `vUp` points along
+            // `+cross(vView, vDir)`. The sign is not cosmetic: the four corners
+            // below put `fWidth2` on the `+vUp` side, and `fWidth2` is the
+            // *complement* of the `OrgPt` split, so the wrong sign mirrors the
+            // sheet and swaps the two extents on every card whose pivot is off
+            // centre.
+            let right = (world - context.view.position).cross(dir).normalize_or_zero();
             if !dir.is_finite() || dir == Vec3::ZERO || right == Vec3::ZERO {
                 return local.map(|_| [0.; 3]);
             }
@@ -3853,10 +3973,22 @@ fn quad_corners(
                 let spin = Quat::from_axis_angle(dir, rotation);
                 (spin * right, dir)
             };
-            local.map(|corner| {
-                (world - right * (corner.x * basis_scale) + up * (corner.y * basis_scale))
-                    .to_array()
-            })
+            // `A3DDecalEx::Fill_Verts_3D`'s four vertices, mapped onto the
+            // client's (u, v) grid: verts[1] is (0, 0) and verts[3] is (1, 0), so
+            // the `u = 0` edge is the `+vUp` one and it takes `fWidth2`, while the
+            // `u = 1` edge takes `fWidth1`. That is the opposite of the element
+            // space branch at :596, where `-fWidth1` is the left edge, which is
+            // why the extents are swapped here rather than reused from `local`.
+            let plus = width * 2. * (1. - origin[0]) * scale_x * basis_scale;
+            let minus = width * 2. * origin[0] * scale_x * basis_scale;
+            let top = height * 2. * (1. - origin[1]) * scale_y * basis_scale;
+            let bottom = height * 2. * origin[1] * scale_y * basis_scale;
+            [
+                (world + right * plus + up * top).to_array(),
+                (world - right * minus + up * top).to_array(),
+                (world + right * plus - up * bottom).to_array(),
+                (world - right * minus - up * bottom).to_array(),
+            ]
         }
         QuadBasis::Billboard { right, up, forward } => {
             let basis_scale = context.placement.x_axis.truncate().length();
@@ -9529,6 +9661,143 @@ mod tests {
         assert!(
             spread[0] > 0.5 && spread[1] > 0.5,
             "the element's X and Y carry the quad: {spread:?}"
+        );
+    }
+
+    /// A billboard decal (102) is two crossed cards, not one: `m_nRectNum = 2`
+    /// (A3DDecalEx.cpp:288) and `Update_Billboard` writes eight vertices, the
+    /// second four in the element's ZY plane. Extents are half sizes and the
+    /// `OrgPt` split does not apply — `Update_Billboard` never reads it.
+    #[test]
+    fn a_billboard_decal_is_two_crossed_cards() {
+        let source = header37(1) + &SPRITE.replace("GFXELEMENTID: 100", "GFXELEMENTID: 102");
+        let mut player = build(&source);
+        player
+            .advance(0., &view(), Mat4::IDENTITY, 1., 1.)
+            .unwrap();
+        let quads = player.quads();
+        assert_eq!(quads.len(), 2, "one card per rect: {:?}", quads.len());
+        let corner = |quad: &EffectQuad, index: usize| Vec3::from_array(quad.positions[index]);
+        // `DedaultScale: 2` and the fixture keypoint's `Scale: 2`, so the card is
+        // 2 * 0.25 * 2 half wide and 2 * 0.5 * 2 half tall.
+        for (slot, quad) in quads.iter().enumerate() {
+            let width = corner(quad, 1) - corner(quad, 0);
+            let height = corner(quad, 2) - corner(quad, 0);
+            assert!(
+                (width.length() - 2.).abs() < 1e-4,
+                "card {slot} is 2 units wide: {}",
+                width.length()
+            );
+            assert!(
+                (height.length() - 4.).abs() < 1e-4,
+                "card {slot} is 4 units tall: {}",
+                height.length()
+            );
+            assert!(
+                (height.normalize().dot(Vec3::Y).abs() - 1.).abs() < 1e-4,
+                "both cards share the element Y as their height: {height:?}"
+            );
+            let centre = (0..4).fold(Vec3::ZERO, |sum, i| sum + corner(quad, i)) / 4.;
+            assert!(
+                (centre - Vec3::new(2., 4., 6.)).length() < 1e-4,
+                "card {slot} is centred on the element position: {centre:?}"
+            );
+        }
+        // The two cards are perpendicular, one on X and one on Z.
+        let first = (corner(&quads[0], 1) - corner(&quads[0], 0)).normalize();
+        let second = (corner(&quads[1], 1) - corner(&quads[1], 0)).normalize();
+        assert!(
+            first.dot(second).abs() < 1e-4,
+            "the crossed cards are perpendicular: {first:?} {second:?}"
+        );
+    }
+
+    /// The 2D decal (101) is drawn in screen space: `Fill_Verts_2D`
+    /// (A3DDecalEx.cpp:640-760) takes the extents from the camera's right and up
+    /// axes and pushes the centre along the camera direction by `ZOffset`.
+    #[test]
+    fn a_two_d_decal_faces_the_camera_and_offsets_toward_it() {
+        let camera = View {
+            position: Vec3::ZERO,
+            right: Vec3::X,
+            up: Vec3::new(0., 0.866_025, -0.5),
+            forward: Vec3::new(0., -0.5, -0.866_025),
+        };
+        let header = header37(1).replace("MOXTVersion: 37", "MOXTVersion: 42");
+        let element = SPRITE
+            .replace("GFXELEMENTID: 100", "GFXELEMENTID: 101")
+            .replace("Height: 0.5\r\n", "Height: 0.5\r\nZOffset: 2.000000\r\n");
+        let mut player = build(&format!("{header}{element}"));
+        player
+            .advance(0., &camera, Mat4::IDENTITY, 1., 1.)
+            .unwrap();
+        let quad = player.quads().first().expect("the card draws");
+        let corner = |index: usize| Vec3::from_array(quad.positions[index]);
+        let width = corner(1) - corner(0);
+        let height = corner(2) - corner(0);
+        assert!(
+            (width.normalize().dot(camera.right).abs() - 1.).abs() < 1e-4,
+            "the width lies on the camera's right: {width:?}"
+        );
+        assert!(
+            (height.normalize().dot(camera.up).abs() - 1.).abs() < 1e-4,
+            "the height lies on the camera's up: {height:?}"
+        );
+        assert!(
+            (width.length() - 2.).abs() < 1e-4 && (height.length() - 4.).abs() < 1e-4,
+            "screen extents keep the world size: {} {}",
+            width.length(),
+            height.length()
+        );
+        // `Fill_Verts_2D` shifts the centre by `-camera->GetDir() * ZOffset *
+        // actualScale`, with the actual scale the root's 2 times the placement's 1.
+        let centre = (0..4).fold(Vec3::ZERO, |sum, i| sum + corner(i)) / 4.;
+        let expected = Vec3::new(2., 4., 6.) - camera.forward * 4.;
+        assert!(
+            (centre - expected).length() < 1e-3,
+            "the card is pushed toward the camera: {centre:?} vs {expected:?}"
+        );
+    }
+
+    /// `FaceToViewer` is the root's frame, not a per-element billboard:
+    /// `A3DGFXEx::Tick` (A3DGFXEx.cpp:1245-1258) rebuilds the matrix from the
+    /// vector to the camera every tick, so the authored placement orientation is
+    /// replaced — here a placement turned 90 degrees about X, whose own Z axis
+    /// points at -Y, still ends up facing the camera.
+    #[test]
+    fn a_face_to_viewer_root_turns_its_own_frame() {
+        let camera = View {
+            position: Vec3::new(0., 0., 10.),
+            right: Vec3::X,
+            up: Vec3::Y,
+            forward: -Vec3::Z,
+        };
+        let header = header37(1)
+            .replace("MOXTVersion: 37", "MOXTVersion: 39")
+            .replace("Raytrace: 0\r\n", "Raytrace: 0\r\nFaceToViewer: 1\r\n");
+        let mut player = build(&(header + SPRITE));
+        player
+            .advance(
+                0.,
+                &camera,
+                Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                1.,
+                1.,
+            )
+            .unwrap();
+        let quad = player.quads().first().expect("the card draws");
+        let corner = |index: usize| Vec3::from_array(quad.positions[index]);
+        let width = corner(1) - corner(0);
+        let height = corner(2) - corner(0);
+        let normal = width.cross(height).normalize();
+        let to_camera = (camera.position - Vec3::ZERO).normalize();
+        assert!(
+            (normal.dot(to_camera).abs() - 1.).abs() < 1e-4,
+            "the card faces the camera, not the authored -Y: {normal:?}"
+        );
+        assert!(
+            (height.normalize().dot(Vec3::Y).abs() - 1.).abs() < 1e-4,
+            "the up lane stays the world up: {height:?}"
         );
     }
 
