@@ -11414,11 +11414,18 @@ mod tests {
             .elements
             .iter()
             .flat_map(|element| element.keypoints.iter())
-            .map(|key| placement.transform_vector3(key.direction * Vec3::Z).normalize())
+            .map(|key| {
+                placement
+                    .transform_vector3(key.direction * Vec3::Z)
+                    .normalize()
+            })
             .collect();
         assert_eq!(axes.len(), 16, "two keypoints per shaft");
         assert!(
-            axes.iter().filter(|axis| axis.dot(expected).abs() > 0.999).count() > 0,
+            axes.iter()
+                .filter(|axis| axis.dot(expected).abs() > 0.999)
+                .count()
+                > 0,
             "one of the two is the plain placement axis"
         );
         let mut distinct: Vec<Vec3> = Vec::new();

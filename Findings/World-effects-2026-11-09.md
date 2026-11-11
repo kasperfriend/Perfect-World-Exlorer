@@ -2699,3 +2699,137 @@ goes to one argument per line whatever the total width. Commit `e7f2fcf` had
 collapsed them onto single lines by guessing at the width instead of reading the
 diff the comment carried; hand-formatting is not a substitute for the formatter's
 own opinion, and the check is now ahead of the steps that can fail.
+
+## 39. `Warp: 1` is a distortion source, not a card: 979 shipped elements were being drawn
+
+The key had been parsed since the beginning (`gfx_file.rs:300`, read from version
+13 on into element+0x…, `lookup.flag("Warp", false)`) and nothing read it. The
+client does: `A3DDecalEx::Update` ends with
+
+```cpp
+if (m_bWarp) { AfxGetGFXExMan()->AddWarpEle(this); return false; }   // A3DDecalEx.cpp:1330-1336
+```
+
+so an element with the key is handed to the *distortion* pass and never enters the
+normal render list. The viewer has no distortion pass, which means the client's own
+answer is "draw no card here" — and it was drawing them.
+
+**The census** (2019 pack, 5,459 roots): 979 elements in 708 roots set the key, by
+element id `{123: 319, 100: 305, 101: 195, 124: 63, 120: 48, 121: 16, 125: 13,
+110: 13, 210: 5, 140: 1, 200: 1}`. The decal classes are the bulk of it — 305
+element-100 and 195 element-101 — and the `123`/`124`/`125`/`120`/`121` entries are
+emitters and trails, which this viewer does not draw as cards in the first place,
+or draws as particles (`120`-`125`) whose own warp handling is not yet touched.
+
+**Implemented.** `Player::emit_sprite` now takes the frame's `Stats` and returns
+before any geometry when `context.common.warp`, counting the element and logging it
+on the decal channel with the `A3DDecalEx.cpp:1332` citation. The status line gained
+`warp=` beside `dummies=` so a root that now draws nothing says why instead of
+looking like a parse failure: `绿色传送门.gfx` is exactly that root — five elements,
+three emitters, one trail, and a gate that is a warp element.
+
+**What this retires.** Two of the three open reports were partly this key:
+
+* the water gate `水门_瀑布.gfx` carries one warp card, a 0.85 x 0.85
+  `normalmap\gas.dds` sheet with the 2/4 premultiplied blend, listed *third* of
+  seven, sitting on top of the four real water cards. A grey `gas.dds` card over a
+  scrolling curtain reads exactly as "a frozen white sheet" — §40 shows the curtain
+  itself was scrolling the whole time;
+* the portal `绿色传送门.gfx` reads as "the ring is missing, only particles" — and in
+  retail there is no ring card either, because the gate is warp. The `123` element in
+  that root, which an earlier note called the ring, reads `Warp: 0` on a per-element
+  rescan and is `轨迹\风.dds`, a trail;
+
+and in the new-race map set the warp elements are consistently *ripple* rings over
+water rather than visible geometry — `水片长.gfx` is 6 scrolling `210` surface sheets
+plus 7 warp `normalmap\水漩涡.dds` cards at 3–4 units, `水片圆.gfx` is 5 sheets plus 2.
+Those rings were being painted over the water as opaque-ish grey discs.
+
+## 40. The waterfall draws four scrolling cards and one warp veil, and the sheet's alpha was never the problem
+
+`场景/新种族地图/水门_瀑布.gfx`, read out of the pack rather than assumed:
+
+| # | id | texture | size | blend | tile | warp |
+|---|----|---------|------|-------|------|------|
+| 1 | 100 | `纹理\气连续03.tga` | 0.9 x 1.25 | 2/4 | 1, `TexRow 2 / TexCol 3`, `TexSpeed (0, -1.5)` | no |
+| 2 | 100 | `纹理\流动（通道）.dds` | — | 2/4 | yes | no |
+| 3 | 100 | `normalmap\gas.dds` | 0.85 x 0.85 | 2/4 | — | **yes** |
+| 4 | 100 | `物体\humianbowen.dds` | — | 2/4 | — | no |
+| 5,6 | 124 | `多个粒子\shuizhu01.dds`, `烟火\Effects_Textures_1184-1.bmp` | — | emitters | — | no |
+| 7 | 100 | `烟火\沙.tga` | — | — | yes, V -1.8 | no |
+
+The sheet the first card samples is `gfx/textures/纹理/气连续03.tga` in the same
+archive: 223 x 512, TGA type 2, 32 bits per pixel, 8 alpha bits, **221 distinct
+alpha values** spanning below 96 and above 160. It is a real alpha sheet with grey
+RGB, and the `2/4` blend (One / OneMinusSrcColor) is the grey-premultiplied pair the
+client authors for it. Nothing was dropped at load time; §15's "did the loader lose
+the alpha" question is answered by the file, not by inference.
+
+What the report saw was therefore (a) the warp `gas.dds` card of §39 and (b) the
+fact that `TileMode` sheets scroll instead of stepping (§10.3) — and the scrolling is
+now pinned against the shipped file, not against a fixture: V advances by
+`TexSpeed.y * dt` = -0.75 per 500 ms, and the UV window is `TexCol x TexRow` = 3 x 2
+texture widths.
+
+## 41. The sun beams: the shipped shafts are axial, and the scene corpus has no billboards at all
+
+`场景/树林光束.gfx` is eight element-100 cards of 0.5 x 10 under `DedaultScale: 0.7`,
+every one `RotFromView: 1`, staggered by their own `StartTime`s (0, 500, 875, 1000,
+1500, 1750, 2025, 2450 ms) and each holding **two keypoints with
+`InterpolateMode: 0`**: the first tilted — `(-0.5, -0.5, -0.5, 0.5)`, a 120 degree turn
+about (1,1,1), for the first pair; `(-0.707, 0, 0, 0.707)`, a quarter turn about X, for
+the rest — and the second the identity. So a shaft is the placement's Z axis carried
+through one of the placement's own three columns, and which one it is depends on the
+element's clock. The new corpus test builds those axes from the parsed keypoints and
+finds exactly three distinct ones, then requires every card's height (corner 2 minus
+corner 0) to be parallel to one of them and its width square to it. A transposed
+parent — the bug §-level "sun rays point in random directions" turned out to be —
+puts all three somewhere else and fails.
+
+**The pending billboard fix is not on this path, and barely on any path.**
+`FaceToViewer` is a version-39+ root key and only **24 of 5,459 roots** set it to 1;
+none of them is a scene root — they are hit effects (`策划联入/怪物技能/击中/*`,
+`09人鱼击中`) and status effects (`光芒之盾`, `冻结`, `魔气吞山河`). The whole
+new-race map set (179 roots under `gfx/场景/新种族地图/`) sets it **zero** times, and
+`树林光束`/`天煞光束` are versions 30 and 32, so their shafts never take the billboard
+branch either. `QuadBasis::Billboard` staying screen-aligned while the client's
+`Update_Billboard` builds an axial card is a real divergence, but it is a 24-root
+divergence in combat effects — it is not the cause of any of the three scene reports,
+and it is scheduled separately rather than mixed into this change.
+
+## 42. City of Raging Tides: what the effect pack can and cannot enumerate
+
+`怒潮` does not appear in a single archive path. `gfx.pck` holds effect roots and
+their textures, not world placement: the map's per-object list lives in the world
+data (`.ecwld` and the model/surface packs), which is not in this archive, so the
+city cannot be enumerated object by object from here. What the pack does hold is the
+map's effect set, and it is unambiguous: `gfx/场景/新种族地图/` with 179 roots,
+including the water gate of §40, `树林光束`'s sibling `树林日光一道.gfx`, the
+`能量喷泉{,3,4,5}` family, `主城光球大/小`, `完美塔*`, `云*`, `场景鱼群*`,
+`塞亚岛传送门`, and the underwater families the city shares with the rest of
+`gfx/场景/` (`瀑布水花*`, `海底*`, `泉水高亮*`, `水柱`, `海洋光束`, `龙宫入口`,
+`喷泉{,水花2}`).
+
+Counts over those 179 roots, which is the useful part — it says how much of the city
+each of this task's fixes touches:
+
+| class | roots |
+|---|---|
+| `FaceToViewer: 1` | 0 |
+| `RotFromView: 1` on at least one element | 27 |
+| `TileMode: 1` on at least one element | 41 |
+| `Warp: 1` on at least one element (30 elements total) | 14 |
+
+the 14 warp roots being `主城光球小` (4), `水片长` (8), `能量喷泉3` (3), `水片圆` (2),
+`能量喷泉` (2), `能量喷泉4` (2), `能量喷泉5` (2), and one each in `塞亚岛传送门`,
+`水门_瀑布`, `白兰树`, `赤水窄巷洞穴海螺岩_瀑布`, `远完美浮空城1_上边旋转`,
+`远完美浮空城1_旋转涡轮`, `雨子效果`.
+
+**One CI ordering point, in the opposite direction from §38.** §38 moved the
+formatting check ahead of the Vulkan installs so a broken driver could not hide
+rustfmt's opinion. That put it ahead of the *unit tests* too, and the first run of
+this change proved the cost: `Check formatting` failed on four of the new asserts and
+steps 10-17 were skipped, so a change whose tests had never compiled came back as a
+formatting note. The check now sits after *Run viewer unit tests* and before the
+Vulkan installs: still un-gated by the GPU, but no longer able to hide a compile or a
+test failure behind a line break.
