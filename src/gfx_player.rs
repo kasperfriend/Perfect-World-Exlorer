@@ -10321,7 +10321,10 @@ mod tests {
         let source = format!("{}{}", header79(1), element);
         let mut player = build(&source);
         step(&mut player, 16.);
-        assert!(player.quads().is_empty(), "fewer than two cross-sections draw nothing");
+        assert!(
+            player.quads().is_empty(),
+            "fewer than two cross-sections draw nothing"
+        );
         step(&mut player, 400.);
         let quads = player.quads();
         assert_eq!(quads.len(), 2, "three cross-sections make two quads");
@@ -10338,10 +10341,16 @@ mod tests {
             (quads[0].uv[0][1] - 0.0).abs() < 1e-6 && (quads[0].uv[1][1] - 1.0).abs() < 1e-6,
             "`tv` spans the two rails, 0 to 1"
         );
-        assert!(quads.iter().all(|quad| quad.color[3] > 0.), "a fresh trail is solid");
+        assert!(
+            quads.iter().all(|quad| quad.color[3] > 0.),
+            "a fresh trail is solid"
+        );
         // Past `SegLife` the oldest cross-sections expire and are rebuilt, but the
         // list never grows past `AddPoint`'s three.
         step(&mut player, 1200.);
-        assert!(player.quads().len() <= 2, "the list never holds more than three");
+        assert!(
+            player.quads().len() <= 2,
+            "the list never holds more than three"
+        );
     }
 }
