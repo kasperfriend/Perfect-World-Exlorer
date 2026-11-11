@@ -1583,3 +1583,64 @@ three places, and the record is tilted 34° about X — the authored tilt of tha
 = the third row of the row-vector basis. If the picture still reads as random,
 the next datum is one screenshot per `effect_shaft` row at the same spot; the
 decal line already prints which row produced it.
+
+## 21. Sweep of the retail package (`gfx.pck`, pw142)
+
+The packaged effects, not the editor samples, are the specification. The PW 1.4.2
+`gfx.pck` on the Drive (`1lDQSlXt78bPq5QaayQ5S8m6r0Yp0PQ_e`, 97,723,094 bytes,
+`MOXTVersion 0x20002`, 10,104 entries) holds **5,459 `.gfx` roots**. Reading every
+one of them with `tools/pck_lib.py` gives the element and controller census the
+parser has to cover:
+
+| element id | class (`A3DGFXElement.h:26-51`) | records |
+|---|---|---|
+| 123 | `PARTICLE_CYLINDER` | 9,870 |
+| 101 | `DECAL_2D` | 5,244 |
+| 100 | `DECAL_3D` | 3,542 |
+| 110 | `TRAIL` | 2,956 |
+| 124 | `PARTICLE_ELLIPSOID` | 1,748 |
+| 200 | `CONTAINER` | 1,530 |
+| 120 | `PARTICLE_POINT` | 1,315 |
+| 140 | `RING` | 1,116 |
+| 150 | `LIGHTNING` | 734 |
+| 130 | `LIGHT` | 546 |
+| 170 | `SOUND` | 491 |
+| 160 | `MODEL` | 447 |
+| 125 | `PARTICLE_CURVE` | 382 |
+| 121 | `PARTICLE_BOX` | 320 |
+| 210 | `GRID_DECAL` | 215 |
+| 190 | `PARABOLOID` | 208 |
+| 152 | `LIGHTNING_EX` | 156 |
+| 102 | `DECAL_BILLBOARD` | 83 |
+| 180 | `LTNTRAIL` | 79 |
+| 122 | `PARTICLE_MULTIPLANE` | 40 |
+
+Controller census: 105 ColorChange 16,125 · 106 ScaleChange 15,592 · 104
+CentriMove 9,463 · 102 RotAxis 6,720 · 108 ClTrans 6,594 · 101 CtrlRot 6,453 ·
+100 Move 6,375 · 109 ScaleNoise 3,818 · 110 CurveMove 1,918 · 111 ScaleTrans
+1,858 · 107 ClNoise 1,137 · 112 NoiseBase 241 · 103 Revol 225.
+
+Two results worth recording:
+
+* **Nothing in the package is outside the parser.** Every one of the twenty
+  element ids above and all thirteen controller types are dispatched in
+  `src/gfx_file.rs`; a scan for the keys the parser marks *required*
+  (`GfxPath`, `ColorMin`, `Width`/`Height`, `Segs`/`LightNum`/`Interval`,
+  `wNumber`/`hNumber`/`fGridSize`) finds no missing key on any of the 5,459
+  roots. The lightning family writes its three widths as three separate `Width`
+  lines, in file order start, end, mid — the order `Fractal::widths` keeps.
+* **`水门_瀑布.gfx` is a tile sheet, not a flipbook**: `TileMode 1`, `TexCol 3`,
+  `TexRow 2`, `TexSpeed (0, -1.5)`, `OrgPt (0.5, 0)`, `SrcBlend 2`/`DestBlend 4`,
+  cards `0.90 x 1.25`. `flipbook_uv`'s tile branch already slides that window and
+  `a_tiled_sheet_repeats_and_scrolls_where_a_flipbook_steps_cells` runs on these
+  exact numbers, so the effect side of the waterfall is faithful. A waterfall
+  that still looks frozen is therefore the terrain-water mesh (§18/§19), not a
+  texture animation.
+
+And one that explains a blank rather than a bug: `gfx/场景/水柱.gfx` is
+`RepeatCount -1` with `RepeatDelay 30000` and a single 1,750 ms keypoint, so the
+client itself draws the spray for 1.75 s and then waits 28 s
+(`A3DGFXKeyPointSet::TickAnimation`, `if (m_bInDelay) { m_dwCurDelay += dwTickTime; ... }`
+at `A3DGFXKeyPoint.cpp:1363-1382`). `element_cycle`/`element_phase` reproduce that,
+so `quads=0 particles=0` at t = 20,940 ms is the authored behaviour, not a
+regression.

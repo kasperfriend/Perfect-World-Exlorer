@@ -2681,11 +2681,11 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
     //     else { ...step m_nCurTexCol/m_nCurTexRow...; m_fTexU = m_fTexWid * col; }
     //
     // and the tile branch above has already returned. Scrolling here as well
-    // meant a flipbook added `TexSpeed * time` on top of its cell: `水门_瀑布`
-    // authors `TexSpeed (0, -1.5)` with `TileMode 0` and a `3x2` atlas, so after
-    // twenty seconds its window sat thirty texture heights below the sheet and
-    // the card sampled nothing but the edge — the flat white sheet in the
-    // report. The atlas was stepping underneath the whole time.
+    // would add `TexSpeed * time` on top of a flipbook's cell, which is what
+    // put `水门_瀑布`'s window thirty texture heights below its sheet in the
+    // first report: that record is `TileMode 1` (so the tile branch takes it and
+    // slides `TexSpeed (0, -1.5)`), and the bug was this second scroll running
+    // on top of the step for the records that are *not* tiled.
     apply_uv_flips(&mut uv, common);
     uv
 }
