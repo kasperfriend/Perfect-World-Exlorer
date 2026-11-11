@@ -179,11 +179,7 @@ fn shade(
     lighting.point_enabled = false;
     // The client's `_white_alpha` test: an alpha of 255 leaves the material
     // alpha alone (`m_fTransparent` stays -1), anything else overrides `c8.a`.
-    lighting.transparency = if color[3] < 1. {
-        1. - color[3]
-    } else {
-        -1.
-    };
+    lighting.transparency = if color[3] < 1. { 1. - color[3] } else { -1. };
     let scaled = crate::model_material::Material {
         ambient: crate::model_material::scale_rgba(material.ambient, scale),
         diffuse: crate::model_material::scale_rgba(material.diffuse, scale),
