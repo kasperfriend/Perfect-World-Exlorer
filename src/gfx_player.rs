@@ -604,6 +604,9 @@ pub struct Stats {
     pub unrendered: usize,
     /// Elements that declare `DummyEle`: helpers the client never submits.
     pub dummies: usize,
+    /// Elements that author `Warp: 1`: `AddWarpEle` hands them to the
+    /// distortion pass, so they never enter the normal render list.
+    pub warp: usize,
 }
 
 impl Stats {
@@ -618,6 +621,7 @@ impl Stats {
         self.lights += other.lights;
         self.unrendered += other.unrendered;
         self.dummies += other.dummies;
+        self.warp += other.warp;
     }
 }
 
@@ -1909,7 +1913,7 @@ impl Player {
             1000,
             "{} t={:.1}ms dt={:.1}ms play_speed={:.3} finished={} loops={loops} \
              elements={} quads={} particles={} emitters={} ribbons={} models={} \
-             lights={} sounds={} dummies={} unrendered={} alpha={:.3} scale={:.3} \
+             lights={} sounds={} dummies={} warp={} unrendered={} alpha={:.3} scale={:.3} \
              drape={} ground={}",
             root_name,
             self.time,
@@ -1925,6 +1929,7 @@ impl Player {
             stats.lights,
             stats.sounds,
             stats.dummies,
+            stats.warp,
             stats.unrendered,
             color_scale,
             scale,
@@ -3277,7 +3282,7 @@ fn emit_clock(
     drape: Option<GroundSampler<'_>>,
 ) {
     match &element.spec {
-        Spec::Sprite(sprite) => emit_sprite(sprite, context, face_to_viewer, out, drape),
+        Spec::Sprite(sprite) => emit_sprite(sprite, context, face_to_viewer, stats, out, drape),
         Spec::Cylinder(cylinder) => emit_cylinder(cylinder, context, out),
         Spec::Grid(grid) => emit_grid(grid, context, out),
         Spec::Light(_) => {
@@ -3318,9 +3323,40 @@ fn emit_sprite(
     sprite: &Sprite,
     context: &ElementContext,
     face_to_viewer: bool,
+    stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
     drape: Option<GroundSampler<'_>>,
 ) {
+    // A `Warp: 1` decal is not a card. `A3DDecalEx::Update` (A3DDecalEx.cpp:1332-1336)
+    // ends with
+    //
+    //     if (m_bWarp) { AfxGetGFXExMan()->AddWarpEle(this); return false; }
+    //
+    // so the element is registered with the distortion pass and never enters the
+    // normal render list. 979 shipped elements in 708 roots set the key, 500 of
+    // them on decals (305 element-100, 195 element-101). Drawing them here put a
+    // card on screen where retail only ever bends what is behind it: the gate of
+    // `绿色传送门.gfx` is one of them, a `Warp: 1` element-101 sheet of
+    // `normalmap\gas.dds` at 2.5 x 2.5 units over the portal mouth.
+    //
+    // The viewer has no warp pass, so the honest result is the client's own: no
+    // normal-pipeline card. It is counted rather than silently dropped, because a
+    // root whose only visible part was a warp element now draws nothing and that
+    // has to be readable from the status line.
+    if context.common.warp {
+        stats.warp += 1;
+        crate::diag_keyed!(
+            EffectDecals,
+            at(context),
+            2000,
+            "{} id={} warp card: AddWarpEle, no normal card (A3DDecalEx.cpp:1332) \
+             texture={}",
+            context.root,
+            context.id,
+            context.common.texture
+        );
+        return;
+    }
     let color = context.rgba();
     crate::diag_keyed!(
         EffectAlpha,
@@ -11121,5 +11157,280 @@ mod tests {
              warnings: {:?}",
             player.warnings()
         );
+    }
+
+    /// `Warp: 1` is not a card. `A3DDecalEx::Update` (A3DDecalEx.cpp:1332-1336)
+    /// ends with
+    ///
+    ///     if (m_bWarp) { AfxGetGFXExMan()->AddWarpEle(this); return false; }
+    ///
+    /// so a warp decal is registered with the distortion pass and never reaches
+    /// the normal render list. 979 elements in 708 shipped roots author it, 500 of
+    /// them on decals; drawing them as ordinary cards paints a slab over whatever
+    /// the client only ever bends.
+    #[test]
+    fn a_warp_decal_is_distorted_not_drawn() {
+        let warp = (header37(1) + SPRITE).replace("Warp: 0", "Warp: 1");
+        let mut player = build(&warp);
+        step(&mut player, 16.);
+        assert!(
+            player.quads().is_empty(),
+            "a warp element never enters the render list: {:?}",
+            player.quads()
+        );
+        assert_eq!(player.stats().warp, 1, "and it is counted, not silently lost");
+        // The same record without the key still draws, so the gate is the key and
+        // not some other property of the fixture.
+        let mut plain = build(&(header37(1) + SPRITE));
+        step(&mut plain, 16.);
+        assert_eq!(plain.quads().len(), 1);
+        assert_eq!(plain.stats().warp, 0);
+    }
+
+    /// The retail archive, when this machine has it. The corpus tests below print
+    /// the same skip line the other archive tests do and return `None` when
+    /// `google_drive/gfx.pck` is absent, which is the case on CI.
+    fn open_pack() -> Option<(std::fs::File, Vec<crate::pck::Entry>)> {
+        let pack = std::path::PathBuf::from("google_drive/gfx.pck");
+        if !pack.is_file() {
+            eprintln!(
+                "SKIPPED: no `google_drive/gfx.pck` on this machine; this test \
+                 proves nothing about the shipped archive"
+            );
+            return None;
+        }
+        let mut file = std::fs::File::open(&pack).expect("open gfx.pck");
+        let entries = crate::pck::directory(&mut file).expect("read the gfx.pck directory");
+        Some((file, entries))
+    }
+
+    /// One root of the pack, decoded and parsed, without building a player.
+    fn shipped_root(
+        file: &mut std::fs::File,
+        entries: &[crate::pck::Entry],
+        name: &str,
+    ) -> gfx_file::Root {
+        let index = entries
+            .iter()
+            .position(|entry| entry.name.eq_ignore_ascii_case(name))
+            .unwrap_or_else(|| panic!("{name} is not in gfx.pck"));
+        let raw = crate::pck::read_entry(file, &entries[index]).expect("read the root");
+        let (text, bad) = gfx_file::decode(&raw);
+        assert!(!bad, "{name} is not valid GBK text");
+        gfx_file::parse(&text).unwrap_or_else(|error| panic!("{name}: {error}"))
+    }
+
+    /// One root of the pack, built into a player whose children all fail to load
+    /// — none of the roots below has a `200` element.
+    fn shipped_player(
+        file: &mut std::fs::File,
+        entries: &[crate::pck::Entry],
+        name: &str,
+    ) -> Player {
+        let root = shipped_root(file, entries, name);
+        Player::new(root, 7, &mut |_| Err("this root has no children".into()))
+            .unwrap_or_else(|error| panic!("{name}: {error}"))
+    }
+
+    /// `纹理/气连续03.tga` is the sheet the water gate's first card samples, and
+    /// it is not a white slab: 32 bits per pixel with eight alpha bits and 221
+    /// distinct alpha values. The §15 question — "did the loader drop the alpha"
+    /// — is answered by the file, so it is read here rather than assumed.
+    #[test]
+    fn the_shipped_waterfall_sheet_keeps_its_alpha() {
+        let Some((mut file, entries)) = open_pack() else {
+            return;
+        };
+        let name = "gfx/textures/纹理/气连续03.tga";
+        let index = entries
+            .iter()
+            .position(|entry| entry.name.eq_ignore_ascii_case(name))
+            .unwrap_or_else(|| panic!("{name} is not in gfx.pck"));
+        let tga = crate::pck::read_entry(&mut file, &entries[index]).expect("read the sheet");
+        assert_eq!(tga[2], 2, "uncompressed true-colour TGA");
+        assert_eq!(tga[16], 32, "32 bits per pixel");
+        assert_eq!(tga[17] & 0xf, 8, "eight alpha bits, so the sheet has an alpha channel");
+        let pixels = &tga[18 + tga[0] as usize..];
+        let alpha: Vec<u8> = pixels.chunks_exact(4).map(|px| px[3]).collect();
+        let distinct: std::collections::BTreeSet<u8> = alpha.iter().copied().collect();
+        assert!(
+            distinct.len() > 32,
+            "the sheet's alpha is varied, not a filled 255: {} values",
+            distinct.len()
+        );
+        assert!(
+            alpha.iter().any(|&a| a < 96) && alpha.iter().any(|&a| a > 160),
+            "and it spans transparent to nearly solid"
+        );
+    }
+
+    /// The water gate the reports call a frozen white sheet:
+    /// `场景/新种族地图/水门_瀑布.gfx`. Its four drawn cards are `TileMode: 1`
+    /// sheets scrolling V at -1.0..-2.0 units per second, so the gate has to move
+    /// every second it plays; its third card is `Warp: 1` (`normalmap\gas.dds`)
+    /// and is therefore a distortion source, not a veil over the other four.
+    #[test]
+    fn the_shipped_waterfall_scrolls_and_hides_its_warp_veil() {
+        let Some((mut file, entries)) = open_pack() else {
+            return;
+        };
+        let name = "gfx/场景/新种族地图/水门_瀑布.gfx";
+        let root = shipped_root(&mut file, &entries, name);
+        let ids: Vec<u32> = root.elements.iter().map(|element| element.id).collect();
+        assert_eq!(ids, vec![100, 100, 100, 100, 124, 124, 100], "the gate's seven elements");
+        let warp: Vec<&str> = root
+            .elements
+            .iter()
+            .filter(|element| element.common.warp)
+            .map(|element| element.common.texture.as_str())
+            .collect();
+        assert_eq!(warp, vec!["normalmap\\gas.dds"], "only the gas card is warp");
+        let first = match &root.elements[0].spec {
+            Spec::Sprite(sprite) => sprite,
+            other => panic!("the first card is not a sprite: {other:?}"),
+        };
+        assert!((first.width - 0.9).abs() < 1e-6 && (first.height - 1.25).abs() < 1e-6);
+        assert_eq!(root.elements[0].common.tile_mode, 1);
+        assert_eq!(root.elements[0].common.tex_row, 2);
+        assert_eq!(root.elements[0].common.tex_col, 3);
+        assert_eq!(root.elements[0].common.tex_speed, [0., -1.5]);
+
+        let mut player = shipped_player(&mut file, &entries, name);
+        step(&mut player, 500.);
+        let at = |quads: &[EffectQuad]| -> [f32; 2] {
+            quads
+                .iter()
+                .find(|quad| quad.texture.ends_with("气连续03.tga"))
+                .map(|quad| quad.uv[0])
+                .unwrap_or_else(|| panic!("the smoke sheet is drawn: {quads:?}"))
+        };
+        let first_uv = at(player.quads());
+        let window = player
+            .quads()
+            .iter()
+            .find(|quad| quad.texture.ends_with("气连续03.tga"))
+            .map(|quad| [quad.uv[3][0] - quad.uv[0][0], quad.uv[3][1] - quad.uv[0][1]])
+            .unwrap();
+        assert!(
+            (window[0] - 3.).abs() < 1e-6 && (window[1] - 2.).abs() < 1e-6,
+            "a tiled window is TexCol x TexRow texture widths, got {window:?}"
+        );
+        step(&mut player, 500.);
+        let second_uv = at(player.quads());
+        assert!(
+            (second_uv[1] - first_uv[1] + 0.75).abs() < 1e-3,
+            "the sheet scrolls V by TexSpeed: {} -> {}",
+            first_uv[1],
+            second_uv[1]
+        );
+        // And the warp card is nowhere in the built geometry.
+        assert!(
+            !player.quads().iter().any(|quad| quad.texture.ends_with("gas.dds")),
+            "the warp card is a distortion source, not a card"
+        );
+        assert_eq!(player.stats().warp, 1);
+    }
+
+    /// The forest's sun shafts, `场景/树林光束.gfx`: eight element-100 cards of
+    /// 0.5 x 10 under a `DedaultScale` of 0.7, every one `RotFromView: 1`. Their
+    /// height therefore runs along the placement's Z axis and only their width
+    /// turns to the camera (`A3DDecalEx.cpp:365-409`), which is what
+    /// `a_rot_from_view_shaft_follows_the_row_major_basis` pins in isolation and
+    /// this pins against the shipped file.
+    #[test]
+    fn the_shipped_forest_beams_are_axial_cards() {
+        let Some((mut file, entries)) = open_pack() else {
+            return;
+        };
+        let name = "gfx/场景/树林光束.gfx";
+        let root = shipped_root(&mut file, &entries, name);
+        assert!(
+            (root.default_scale - 0.7).abs() < 1e-6,
+            "the root's own scale is 0.7: {}",
+            root.default_scale
+        );
+        assert_eq!(root.elements.len(), 8, "eight shafts");
+        for element in &root.elements {
+            assert_eq!(element.id, 100, "every shaft is a decal");
+            let Spec::Sprite(sprite) = &element.spec else {
+                panic!("element {} is not a sprite", element.id);
+            };
+            assert!(sprite.rotate_from_view, "every shaft is `RotFromView: 1`");
+            assert!(
+                (sprite.width - 0.5).abs() < 1e-6 && (sprite.height - 10.).abs() < 1e-6,
+                "a shaft is 0.5 x 10 half extents, got {} x {}",
+                sprite.width,
+                sprite.height
+            );
+        }
+        let mut player = shipped_player(&mut file, &entries, name);
+        // The placement this map uses for one of its shafts, read from
+        // `world.ecwld`: `direction` (0, 0.565, 0.825), `up` (0, 0.825, -0.565).
+        // The client writes those as matrix *rows* (`A3DGFXEx.cpp:1574-1585`), so
+        // the shaft — the third column — is (0, -0.565, 0.825): 34 degrees down.
+        let dir = Vec3::new(0., 0.565, 0.825).normalize();
+        let up = Vec3::new(0., 0.825, -0.565).normalize();
+        let right = up.cross(dir).normalize();
+        let placement = Mat4::from_cols(
+            right.extend(0.),
+            up.extend(0.),
+            dir.extend(0.),
+            Vec3::ZERO.extend(1.),
+        );
+        let expected = Vec3::new(right.z, up.z, dir.z).normalize();
+        assert!(
+            expected.dot(Vec3::new(0., -0.565, 0.825).normalize()).abs() > 0.999,
+            "the third column is the client's shaft axis, got {expected:?}"
+        );
+        player
+            .advance(16., &view(), placement, 1., 1.)
+            .expect("advance the beams");
+        let quads = player.quads();
+        assert_eq!(quads.len(), 8, "one card per shaft: {quads:?}");
+        for quad in quads {
+            let along = Vec3::from_array(quad.positions[1]) - Vec3::from_array(quad.positions[0]);
+            assert!(
+                along.normalize_or_zero().dot(expected).abs() > 0.999,
+                "the card's height runs along the placement's third column, got {along:?}"
+            );
+            let across = Vec3::from_array(quad.positions[2]) - Vec3::from_array(quad.positions[0]);
+            assert!(
+                across.normalize_or_zero().dot(expected).abs() < 0.01,
+                "and its width is square to it, got {across:?}"
+            );
+        }
+    }
+
+    /// The gate of `场景/绿色传送门.gfx` — the City of Raging Tides portal — is
+    /// the only card in a root of five elements, and it is `Warp: 1`: a 2.5 x 2.5
+    /// `normalmap\gas.dds` sheet the client hands to the distortion pass instead
+    /// of drawing. That is the "portal has no ring" report read the other way
+    /// round: retail shows no card there either.
+    #[test]
+    fn the_shipped_portal_gate_is_a_warp_element() {
+        let Some((mut file, entries)) = open_pack() else {
+            return;
+        };
+        let name = "gfx/场景/绿色传送门.gfx";
+        let root = shipped_root(&mut file, &entries, name);
+        let ids: Vec<u32> = root.elements.iter().map(|element| element.id).collect();
+        assert_eq!(ids, vec![123, 124, 124, 124, 101], "the portal's five elements");
+        let gate = root.elements.last().expect("the gate element");
+        assert_eq!(gate.id, 101, "the gate is a 2D decal");
+        assert!(gate.common.warp, "and it is a warp element");
+        let Spec::Sprite(sprite) = &gate.spec else {
+            panic!("the gate is not a sprite");
+        };
+        assert!((sprite.width - 2.5).abs() < 1e-6 && (sprite.height - 2.5).abs() < 1e-6);
+        assert!(gate.common.texture.ends_with("gas.dds"));
+
+        let mut player = shipped_player(&mut file, &entries, name);
+        step(&mut player, 16.);
+        assert!(
+            !player.quads().iter().any(|quad| quad.texture.ends_with("gas.dds")),
+            "the gate draws no card: {:?}",
+            player.quads()
+        );
+        assert_eq!(player.stats().warp, 1);
     }
 }
