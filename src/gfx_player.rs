@@ -6426,7 +6426,10 @@ mod tests {
                 "axis {axis} is {drawn}, but the root's own Vec: box is {authored}"
             );
         }
-        assert!((hi[2] - lo[2]).abs() < 1e-5, "the card lies in its element plane");
+        assert!(
+            (hi[2] - lo[2]).abs() < 1e-5,
+            "the card lies in its element plane"
+        );
     }
 
     fn build(source: &str) -> Player {
