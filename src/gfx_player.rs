@@ -852,6 +852,32 @@ impl ElementContext<'_> {
 /// per-vertex `D3DCOLOR` packing) — a sprite at `DefaultAlpha: 0.5` is 127/255,
 /// not 127.5/255, and the animated player has to land on the same byte or the
 /// two readers would disagree on every half-transparent effect.
+/// Compose one lattice vertex the way `A3DGridDecalEx::_setColorComposed`
+/// does (`GfxCommon/A3DGridDecalEx.h`): the colour saved next to the vertex is
+/// multiplied channel by channel with the keypoint colour, and the result is
+/// the colour the lattice draws with.
+///
+/// The client writes that multiply as `(vertex * key) & 0xff00` then `>> 8`, so
+/// full white against full white lands on 254 rather than 255. Copying the
+/// off-by-one is deliberate: the animated reader has to agree byte for byte
+/// with the static one, and a keypoint the artist tinted — `瀑布.gfx` tints its
+/// curtain `0xff35a5ff`, `冷凝术_冰块.gfx` tints its slabs `0xff5580aa` — has
+/// to reach the sheet, not just its alpha.
+fn grid_rgba(vertex: u32, key: u32, scale: f32) -> [f32; 4] {
+    let channel = |shift: u32| {
+        let vertex = (vertex >> shift) & 0xff;
+        let key = (key >> shift) & 0xff;
+        ((vertex * key) & 0xff00) >> 8
+    };
+    let alpha = (channel(24) as f32 * scale).trunc().clamp(0., 255.);
+    [
+        channel(16) as f32 / 255.,
+        channel(8) as f32 / 255.,
+        channel(0) as f32 / 255.,
+        alpha / 255.,
+    ]
+}
+
 fn rgba(color: u32, scale: f32) -> [f32; 4] {
     let alpha = (((color >> 24) & 0xff) as f32 * scale)
         .trunc()
@@ -4012,8 +4038,12 @@ fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
             // One flat colour per quad: the corner with the lowest index wins.
             // A vertex that fades to transparent therefore still draws while
             // any of its neighbours is opaque, which keeps the top of a curtain
-            // solid and stops only the fully transparent foot.
-            let color = rgba(*value, context.color_scale);
+            // solid and stops only the fully transparent foot. The quad colour
+            // is the vertex colour *times* the keypoint colour, exactly as
+            // `_setColorComposed` composes it; using the vertex colour alone
+            // dropped the tint every artist applies through the keypoint and
+            // left white sheets where the client draws cyan water.
+            let color = grid_rgba(*value, context.color, context.color_scale);
             if color[3] < ALPHA_CUTOFF {
                 continue;
             }
@@ -5878,6 +5908,52 @@ mod tests {
             "the curtain stopped scrolling {stalled} times over twenty seconds; \
              a waterfall that stalls is the static sheet the report describes"
         );
+    }
+
+    /// `A3DGridDecalEx::_setColorComposed` multiplies every lattice vertex's
+    /// saved colour by the keypoint colour, channel by channel, and that is the
+    /// colour the sheet draws with. It matters because artists tint slabs and
+    /// curtains through the keypoint: the retail waterfall authors **white**
+    /// vertices and a keypoint of `0xff35a5ff`, and `冷凝术_冰块.gfx` authors
+    /// white vertices and `0xff5580aa`. A reader that keeps only the vertex
+    /// colour draws those white — the pale sheet the report calls a white blob —
+    /// where the client draws cyan water and blue ice.
+    #[test]
+    fn a_grid_multiplies_each_vertex_by_the_keypoint_colour() {
+        // Grey vertices (`ff808080`) against a `ff ff8080` keypoint: the client's
+        // `(a * b) & 0xff00 >> 8` gives 127, 64, 64 and 254.
+        let grid = "GFXELEMENTID: 210\nName: tinted\nSrcBlend: 5\nDestBlend: 2\n\
+                    TexFile: 物体\\\\waterfall.dds\nTexRow: 1\nTexCol: 1\n\
+                    TexSpeed: 0.000000\nTileMode: 1\nwNumber: 2\nhNumber: 2\n\
+                    0.000000 10.000000 0.000000\ndwColor: ff808080\n\
+                    2.000000 10.000000 0.000000\ndwColor: ff808080\n\
+                    0.000000 0.000000 0.000000\ndwColor: ff808080\n\
+                    2.000000 0.000000 0.000000\ndwColor: ff808080\n\
+                    fGridSize: 0.500000\nfZOffset: 0.000000\n\
+                    StartTime: 0\nKEYPOINTCOUNT: 1\nInterpolateMode: 0\n\
+                    TimeSpan: -1\nPosition: 0.000000, 0.000000, 0.000000\n\
+                    Color: -32640\nScale: 1.000000\n\
+                    Direction: 0.000000, 0.000000, 0.000000, 1.000000\n\
+                    Rad_2D: 0.000000\nCtrlMethodCount: 0\n";
+        // `DefaultAlpha: 1` so the fold the test measures is the colour product
+        // and not the fixture's half alpha.
+        let header = header37(1).replace("DefaultAlpha: 0.5", "DefaultAlpha: 1.000000");
+        let mut player = build(&(header + grid));
+        step(&mut player, 0.);
+        let quads = player.quads().to_vec();
+        assert_eq!(quads.len(), 1, "a 2x2 lattice is one quad");
+        let color = quads[0].color;
+        let want = [127. / 255., 64. / 255., 64. / 255., 254. / 255.];
+        for (index, (got, want)) in color.iter().zip(want).enumerate() {
+            assert!(
+                (got - want).abs() < 1e-6,
+                "channel {index} is {got}, not the client's {want}: \
+                 vertex colour alone would leave {color:?}"
+            );
+        }
+        // The tint has to be visibly darker than the vertex colour, otherwise
+        // this test would pass on a reader that still drops the keypoint.
+        assert!(color[1] < 0.3, "the keypoint tint never reached the sheet");
     }
 
     /// `A3DGridDecalEx::_setUVCoord` spreads **one** texture rect across the
