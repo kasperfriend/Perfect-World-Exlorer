@@ -2640,3 +2640,62 @@ libxcursor-dev libxrandr-dev libxkbcommon-dev`) before any Rust step runs; the
 same step passed at `64e947b` earlier the same day. The Windows x64 job builds the
 release binary green on the same commit, so this is the runner's package mirror,
 not the change. The unit and GPU tests above were not executed by CI in this run.
+
+## 38. The CI that §37 could not reach: repaired, and both jobs are green
+
+§37 ended with "the unit and GPU tests above were not executed by CI", because the
+Linux job died in step 5 (*Install Linux build dependencies*) and every later step
+was skipped. That is not a property of the change and it is now fixed, so the
+evidence is finally real rather than local.
+
+**Why the job died.** `sudo apt-get update && sudo apt-get install -y libx11-dev
+…` is one step with no retry, and the runner's package mirror fails transiently:
+`apt-get` exits 100 or stalls on the index fetch. Because every later step of the
+job depends on it, one flaky mirror fetch skipped `cargo check`, both test steps
+and `cargo fmt --check`, and left *Post formatting diff* failing as a curl-down
+effect. `gh run rerun` is refused on a run whose workflow file has moved on, and
+the REST rerun endpoint answers 403 for this token, so the only way out was to
+make the step survive the flake:
+
+* skip the install entirely when `dpkg -s` says the five headers are already on
+  the image;
+* otherwise bound each attempt with `timeout 240`, retry three times, and still
+  fail the step if all three fail;
+* repeat apt's own output as annotations on failure, because the raw step log is
+  served from blob storage and is not reachable from every client (`gh run view
+  --log` returns `EOF` here).
+
+The same treatment was given to the `mesa-vulkan-drivers` install in the Vulkan
+step, which failed for the same reason on the next run after step 5 was fixed.
+
+**Two ordering fixes, both earned by a failure.** The formatting check was moved
+ahead of the Vulkan installs: `cargo fmt --check` needs no GPU, and gating it
+behind an environment-sensitive step meant a broken software driver hid every
+rustfmt opinion behind "skipped". *Post formatting diff* now also refuses to post
+an empty comment when an earlier failure left `/tmp/fmt.check` empty.
+
+The sRGB window step now also encodes its failure in the exit code — `41` when no
+lavapipe ICD is on the image (the probe fails and the test never ran), `42` when
+the wgpu test itself failed — because check-run annotations are capped and the
+step's own `::error::` lines were being dropped in favour of the runner's notices.
+It also probes for any `*lvp*` driver description rather than one exact file name,
+since Mesa has renamed that file more than once.
+
+**What the first green run proves** (`43063516095`, both jobs):
+`cargo check --locked --bins` type-checks the specular and transparency changes
+of §37 — `Vertex.specular`, `Params.eye`, attribute location 6, the
+`format!("{}\n{}", crate::model_light::WGSL, WGSL)` composition and both new
+tests compile; the viewer unit tests and the GFX light audit pass; and the four
+GPU steps (sRGB window, the 22 Phase 1 shader regressions, the terrain per-view
+check) pass on lavapipe. The Windows job builds the portable viewer, the audio
+and survey tools and stages the artifact green.
+
+**rustfmt wanted the asserts split, and had said so before.** The first readable
+formatting comment named three hunks in `gfx_effect_gpu.rs`, all of them mine:
+`assert!((half[0] - 0.1255).abs() <= 0.01, "…")` and its two neighbours. They are
+93 columns, well under the 100-column limit, but rustfmt wraps *call arguments*
+at `fn_call_width` (60 by default), so a two-argument macro with a message string
+goes to one argument per line whatever the total width. Commit `e7f2fcf` had
+collapsed them onto single lines by guessing at the width instead of reading the
+diff the comment carried; `f1c25a5`-style hand-formatting is not a substitute for
+the formatter's own opinion, and the check is now ahead of the steps that can fail.
