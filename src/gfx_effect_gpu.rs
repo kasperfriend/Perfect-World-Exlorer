@@ -228,6 +228,7 @@ impl Draw {
                 matrix: glam::Mat4::IDENTITY.to_cols_array_2d(),
                 clip_plane: [0.; 4],
                 camera: [0.; 4],
+                light: [0.; 4],
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
