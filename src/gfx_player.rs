@@ -10490,4 +10490,61 @@ mod tests {
             "the list never holds more than three"
         );
     }
+
+    /// The retail package, when it is on this machine: `盆景水晶.gfx` names its
+    /// model `盆景\盆景水晶.SMD`, and the archive stores it as
+    /// `gfx/models/盆景/盆景水晶.smd` — a different case in the extension, which
+    /// the reader has to fold. The skin beside it is a version-9 `MOXBIKSA` with
+    /// four rigid meshes and no bones, so the bind pose is the whole model.
+    #[test]
+    fn the_real_potted_crystal_poses_its_model() {
+        let pack = std::path::PathBuf::from("google_drive/gfx.pck");
+        if !pack.is_file() {
+            eprintln!(
+                "SKIPPED: no `google_drive/gfx.pck` on this machine; this test \
+                 proves nothing about the shipped model"
+            );
+            return;
+        }
+        let mut file = std::fs::File::open(&pack).expect("open gfx.pck");
+        let entries = crate::pck::directory(&mut file).expect("read the gfx.pck directory");
+        let find = |name: &str| {
+            entries
+                .iter()
+                .position(|entry| entry.name.eq_ignore_ascii_case(name))
+        };
+        let index =
+            find("gfx/场景/新种族地图/盆景水晶.gfx").expect("the root is in the pack");
+        let raw = crate::pck::read_entry(&mut file, &entries[index]).expect("read the root");
+        let (text, bad) = crate::gfx_file::decode(&raw);
+        assert!(!bad, "the root is not valid GBK text");
+        let parsed = crate::gfx_file::parse(&text).expect("parse the root");
+        let mut player =
+            Player::new(parsed, 7, &mut |_| Err("no children".into())).expect("build the root");
+        let mut read = |name: &str| -> Result<Vec<u8>, String> {
+            let index = find(name).ok_or_else(|| format!("{name}: not in gfx.pck"))?;
+            crate::pck::read_entry(&mut file, &entries[index])
+        };
+        player
+            .load_models("gfx/场景/新种族地图/盆景水晶.gfx", &mut read)
+            .expect("load models");
+        let models = player.models();
+        assert!(
+            models.len() >= 2,
+            "the root has two element-160 records, got {}",
+            models.len()
+        );
+        let meshes: usize = models.iter().map(|element| element.len()).sum();
+        let vertices: usize = models
+            .iter()
+            .flatten()
+            .map(|mesh| mesh.vertices.len())
+            .sum();
+        assert!(
+            meshes >= 8 && vertices > 100,
+            "the potted crystal posed {meshes} meshes and {vertices} vertices; \
+             warnings: {:?}",
+            player.warnings()
+        );
+    }
 }
