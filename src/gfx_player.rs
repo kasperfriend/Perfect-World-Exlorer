@@ -10513,8 +10513,7 @@ mod tests {
                 .iter()
                 .position(|entry| entry.name.eq_ignore_ascii_case(name))
         };
-        let index =
-            find("gfx/场景/新种族地图/盆景水晶.gfx").expect("the root is in the pack");
+        let index = find("gfx/场景/新种族地图/盆景水晶.gfx").expect("the root is in the pack");
         let raw = crate::pck::read_entry(&mut file, &entries[index]).expect("read the root");
         let (text, bad) = crate::gfx_file::decode(&raw);
         assert!(!bad, "the root is not valid GBK text");
