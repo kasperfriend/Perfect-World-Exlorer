@@ -3575,10 +3575,15 @@ fn emit_sprite(
     // (A3DGFXEx.cpp:1589-1595). The placement here already carries
     // `DedaultScale * record scale` (see `advance_with_terrain`'s `base`), which
     // is exactly `GetActualScale()`, so the extents take no further factor.
+    // The centre is the element origin for every builder: `ZOffset` is a
+    // 2D-decal key, and `Fill_Verts_3D` never reads it (`m_fZOffset` appears only
+    // in `Fill_Verts_2D`, A3DDecalEx.cpp:728-735), so pushing the card along the
+    // element's own Z would be an invented offset. The camera-space push below is
+    // the client's.
     let mut positions = quad_corners(
         context,
         basis,
-        Vec3::new(0., 0., sprite.z_offset),
+        Vec3::ZERO,
         sprite.width,
         sprite.height,
         sprite.origin,
@@ -3586,12 +3591,10 @@ fn emit_sprite(
         context.rotation,
         1.,
     );
-    // `ZOffset` is a 2D-decal key: `m_fZOffset` appears only in `Fill_Verts_2D`
-    // (A3DDecalEx.cpp:728-735), which pushes the centre *toward the camera* along
+    // `Fill_Verts_2D` pushes the centre *toward the camera* along
     // `camera->GetDir()` before projecting, scaled by the actual scale. Neither
-    // the 3D builder nor `Update_Billboard` reads it, so a 100 or a 102 keeps its
-    // authored `ZOffset` ignored — 42 element-100 records author one and the
-    // client does nothing with it.
+    // the 3D builder nor `Update_Billboard` reads the key, so the 42 element-100
+    // records that author a `ZOffset` keep it ignored, exactly as in the client.
     let scale = context.placement.x_axis.truncate().length();
     if context.id == 101 && sprite.z_offset != 0. {
         let offset = -context.view.forward * (sprite.z_offset * scale);
