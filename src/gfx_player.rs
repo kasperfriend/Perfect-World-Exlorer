@@ -5468,9 +5468,11 @@ fn emit_fractal(
             // the ribbon's own displacement.
             let amount =
                 lightning_filter(spec.filter, t, shape) * spec.noise_amplitude * spec.amplitude;
-            let offset = rotate_about(up, axis, twist * std::f32::consts::TAU)
-                * (amount * context.scale);
-            fractal.offsets.push(context.placement.transform_vector3(offset));
+            let offset =
+                rotate_about(up, axis, twist * std::f32::consts::TAU) * (amount * context.scale);
+            fractal
+                .offsets
+                .push(context.placement.transform_vector3(offset));
         }
     }
     if let Some(trail) = trail {
@@ -10248,7 +10250,12 @@ mod tests {
     /// that law rests on are pinned here.
     #[test]
     fn a_lightning_ribbon_is_displaced_perpendicular_to_its_own_axis() {
-        for axis in [Vec3::X, Vec3::Y, Vec3::Z, Vec3::new(1., 2., -3.).normalize()] {
+        for axis in [
+            Vec3::X,
+            Vec3::Y,
+            Vec3::Z,
+            Vec3::new(1., 2., -3.).normalize(),
+        ] {
             let up = calc_vert_vec(axis);
             assert!(
                 (up.length() - 1.).abs() < 1e-5,
@@ -10318,9 +10325,14 @@ mod tests {
         step(&mut player, 400.);
         let quads = player.quads();
         assert_eq!(quads.len(), 2, "three cross-sections make two quads");
+        let first = quads[0].uv[0][0];
         assert!(
-            (quads[0].uv[0][0] - 0.0).abs() < 1e-6 && (quads[1].uv[0][0] - 0.2).abs() < 1e-6,
+            (quads[1].uv[0][0] - first - 0.2).abs() < 1e-6,
             "each cross-section advances U by _tex_delta: {quads:?}"
+        );
+        assert!(
+            (quads[0].uv[1][0] - first - 0.2).abs() < 1e-6,
+            "and the two rails of one cross-section share its U"
         );
         assert!(
             (quads[0].uv[0][1] - 0.0).abs() < 1e-6 && (quads[0].uv[1][1] - 1.0).abs() < 1e-6,
