@@ -1290,8 +1290,8 @@ impl Player {
         crate::diag!(
             EffectElements,
             "{} version={} default_scale={:.3} play_speed={:.3} default_alpha={:.3} \
-             raytrace={} face_to_viewer={} use_aabb={} shake={} elements={} textures={} \
-             warnings={} models={}",
+             raytrace={} face_to_viewer={} no_change_dir={} use_aabb={} shake={} elements={} \
+             textures={} warnings={} models={}",
             self.name,
             self.root.version,
             self.root.default_scale,
@@ -1299,6 +1299,7 @@ impl Player {
             self.root.default_alpha,
             self.root.raytrace,
             self.root.face_to_viewer,
+            self.root.no_change_dir,
             self.root.use_aabb,
             self.root.shake_cam,
             self.root.elements.len(),
@@ -1793,9 +1794,23 @@ impl Player {
         // `FaceToViewer` root throws its authored orientation away instead and
         // faces the camera — per tick, above every element, which is why the flag
         // is handled here rather than in the sprite path.
+        //
+        // `NoChangeDir` keeps the identity frame the constructor installed
+        // (`m_matNoScale.Identity()`, `A3DGFXEx.cpp:332`): `SetParentTM` copies
+        // only row 3 and leaves the three basis rows alone
+        // (`A3DGFXEx.cpp:1592-1598`), and `SetDirAndUp` returns before touching
+        // them (`A3DGFXEx.cpp:1576`). The placement's rotation is therefore never
+        // applied; only its translation survives.
         let origin = transform.w_axis.truncate();
         let orientation = if self.root.face_to_viewer {
             face_viewer_basis(view.position - origin, origin)
+        } else if self.root.no_change_dir {
+            Mat4::from_cols_array_2d(&[
+                [1., 0., 0., 0.],
+                [0., 1., 0., 0.],
+                [0., 0., 1., 0.],
+                [origin.x, origin.y, origin.z, 1.],
+            ])
         } else {
             normalize_basis(transform)
         };
@@ -9920,6 +9935,41 @@ mod tests {
         assert!(
             (normal.dot(to_camera).abs() - 1.).abs() < 1e-4,
             "the card faces the camera, not the authored -Y: {normal:?}"
+        );
+        assert!(
+            (height.normalize().dot(Vec3::Y).abs() - 1.).abs() < 1e-4,
+            "the up lane stays the world up: {height:?}"
+        );
+    }
+
+    /// `NoChangeDir` keeps the identity frame the root is constructed with:
+    /// `SetParentTM` copies only the translation row and skips the basis
+    /// (`A3DGFXEx.cpp:1592-1598`), while `SetDirAndUp` returns before touching it
+    /// (`A3DGFXEx.cpp:1576`), so a placement turned 90 degrees about X must leave
+    /// the card in the world XY plane.
+    #[test]
+    fn a_no_change_dir_root_ignores_the_placement_rotation() {
+        let camera = view();
+        let header = header37(1)
+            .replace("Raytrace: 0\r\n", "Raytrace: 0\r\nNoChangeDir: 1\r\n");
+        let mut player = build(&(header + SPRITE));
+        player
+            .advance(
+                0.,
+                &camera,
+                Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2),
+                1.,
+                1.,
+            )
+            .unwrap();
+        let quad = player.quads().first().expect("the card draws");
+        let corner = |index: usize| Vec3::from_array(quad.positions[index]);
+        let width = corner(1) - corner(0);
+        let height = corner(2) - corner(0);
+        let normal = width.cross(height).normalize();
+        assert!(
+            (normal.dot(Vec3::Z).abs() - 1.).abs() < 1e-4,
+            "the placement rotation is dropped: {normal:?}"
         );
         assert!(
             (height.normalize().dot(Vec3::Y).abs() - 1.).abs() < 1e-4,

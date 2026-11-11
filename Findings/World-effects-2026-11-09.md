@@ -3187,3 +3187,40 @@ element-100 `ZOffset`s, 83 billboards, the 906 `MatchGrnd` elements) come from
 `gfx.pck` when it is staged and are re-derivable with `tools/pck_lib.py`; this session's
 snapshot dropped the staging directory, so they are the numbers measured when it was
 present rather than a fresh count.
+
+## 46. `NoChangeDir` keeps the frame the root was built with, and the corpus agrees it is 81 roots
+
+`NoChangeDir` was parsed from the first audit and never read. The client's rule is
+three lines long and settles what the flag means:
+
+* the constructor and `Reset` leave `m_matNoScale` at identity and
+  `m_qDir` at `_unit_dir` (`A3DGFXEx.cpp:332`, `:26`);
+* `SetParentTM` copies **only** the translation row and skips the three basis rows
+  when the flag is set (`A3DGFXEx.cpp:1592-1598`);
+* `SetDirAndUp` returns before touching the basis at all (`A3DGFXEx.cpp:1576`).
+
+So a `NoChangeDir` root ignores the placement's rotation entirely and keeps the
+world axes; only the position comes from the placement. `advance_with_terrain`
+now builds that frame (`Mat4::from_cols_array_2d` with an identity basis and the
+placement's translation) between the `FaceToViewer` branch and the normal
+`normalize_basis` path, so the precedence matches the client: the parent frame is
+built first, then a `FaceToViewer` element rotates against the camera, and a root
+with both ends up facing the viewer either way. The status line reports the flag
+next to `face_to_viewer`.
+
+`a_no_change_dir_root_ignores_the_placement_rotation` pins it: a sprite placed
+under a quarter turn about X keeps its card in the world XY plane, normal on Z.
+
+**The count.** 81 of 5,456 roots author `NoChangeDir: 1`; `UseAABB` 3,490,
+`ShakeCam` 241, `Raytrace` 109, `FadeByDist` 58, `FaceToViewer` 24,
+`2DBackLayer` 12, `2DRender` 3, `PhysExist` 0. `FadeByDist`, `ShakeCam` and
+`FaceToViewer` are read; the remaining two root flags are the 2D pass and neither
+root count reaches five.
+
+**The estimate it sits in.** This pass also finished the corpus-wide coverage
+census that the earlier sections kept quoting in pieces: see
+`Gfx-effects-parity-estimate-2026-11-09.md`, which measures 5,456 non-empty roots
+and **31,034 elements** (not the 76,278 that §45's parenthetical quotes — that
+figure is the 76,519 controller records) and puts class coverage at 99.2% of
+roots and visual-key coverage at 86.0%. Its head item, `DummyEle` on 399 roots,
+is the next thing to read.
