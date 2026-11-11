@@ -3176,7 +3176,14 @@ atlas, cell 0, with `UReverse`/`VReverse`), `a_yaw_effect_sheet_lies_in_the_elem
 its long axis onto world Z with it), and the drape suite covers the near-ground change
 through `match_ground_alone_needs_the_root_on_the_ground`.
 
-**Still unproven, as before**: this sandbox has no Rust toolchain, so the verdict is CI's
-`cargo check --bins` and the unit suite; the corpus counts quoted above (24
-`FaceToViewer` roots, 42 element-100 `ZOffset`s, 83 billboards, the 906 `MatchGrnd`
-elements) come from `gfx.pck` when it is staged and are re-derivable with `tools/pck_lib.py`.
+**Verdict.** `26fafff` — the commit after one rustfmt hunk, which the check posted as a
+PR comment — is green on both jobs: `Rust checks and tests (Linux)` and `Windows
+executable (x64)`. The first run of this change failed only on rustfmt, so the three
+tests did compile and pass on the run before it, and the near-ground change did not
+break the existing drape suite.
+
+**Still unproven**: the corpus counts quoted above (24 `FaceToViewer` roots, 42
+element-100 `ZOffset`s, 83 billboards, the 906 `MatchGrnd` elements) come from
+`gfx.pck` when it is staged and are re-derivable with `tools/pck_lib.py`; this session's
+snapshot dropped the staging directory, so they are the numbers measured when it was
+present rather than a fresh count.
