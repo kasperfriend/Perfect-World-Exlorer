@@ -27,21 +27,31 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install Linux build dependencies
         run: |
-          # The runner's package mirror fails intermittently: `apt-get install`
-          # exits 100, and because every later step depends on this one the whole
-          # Rust job is skipped (unit tests, type check and rustfmt never run) on
-          # a change that builds fine elsewhere. Retry the index fetch and the
-          # install, and still fail the step if all attempts do.
+          # The runner's package mirror fails intermittently: `apt-get` exits 100
+          # or stalls on the index fetch, and because every later step depends on
+          # this one the whole Rust job is skipped (unit tests, type check and
+          # rustfmt never run) on a change that builds fine elsewhere. So: skip
+          # apt when the headers are already installed, bound every attempt with
+          # `timeout`, retry, and still fail the step if all attempts fail.
+          packages="libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev"
+          missing=""
+          for package in $packages; do
+            dpkg -s "$package" >/dev/null 2>&1 || missing="$missing $package"
+          done
+          if [ -z "$missing" ]; then
+            echo "Linux build dependencies already installed"
+            exit 0
+          fi
+          echo "installing:$missing"
           status=1
           for attempt in 1 2 3; do
-            if sudo apt-get -o Acquire::Retries=3 update &&
-              sudo apt-get install -y --no-install-recommends \
-                libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev; then
+            if timeout 240 sudo apt-get -o Acquire::Retries=2 update &&
+              timeout 240 sudo apt-get install -y --no-install-recommends $missing; then
               status=0
               break
             fi
             echo "apt attempt ${attempt} failed; retrying" >&2
-            sleep 15
+            sleep 10
           done
           [ "$status" -eq 0 ]
       - name: Verify recovered regional arithmetic on x87
