@@ -816,6 +816,11 @@ impl World {
             direction: frame.direction,
             fog_range: frame.fog_range,
             fog_color: frame.fog_color,
+            // `A3DGFXModel::ChangeModel` enables specular on every effect model,
+            // so the pass needs the light's specular colour and the eye the
+            // Blinn half-vector is built from.
+            directional_specular: frame.directional_specular,
+            eye_direction: frame.eye_direction,
         };
         if let Err(error) = draw.update(
             device,

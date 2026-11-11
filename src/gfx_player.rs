@@ -191,6 +191,14 @@ pub struct MeshMaterial {
     pub ambient: [f32; 4],
     pub diffuse: [f32; 4],
     pub emissive: [f32; 4],
+    /// The specular colour, bound against the frame's directional specular light
+    /// as `c9` (`model_material::bind_specular`). `A3DGFXModel::ChangeModel`
+    /// calls `A3DSkinModel::EnableSpecular(true)` for every effect model, so the
+    /// specular shader split is always on for one of these.
+    pub specular: [f32; 4],
+    /// The material power fed to the Blinn exponent, clamped to -128..128 by the
+    /// client's `model_directional_specular`.
+    pub power: f32,
 }
 
 /// A posed model vertex: position in world space, its authored UV and its
@@ -4043,6 +4051,8 @@ fn posed_model_instance(
                 ambient: material.ambient,
                 diffuse: material.diffuse,
                 emissive: material.emissive,
+                specular: material.specular,
+                power: material.power,
             });
         // The drawn vertex order with each entry's bind-pose UV. An animated
         // frame reuses it, so a pose cannot reorder or re-texture the mesh.

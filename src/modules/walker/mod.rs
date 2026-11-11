@@ -1283,6 +1283,8 @@ impl Walker {
                         direction: frame.direction,
                         fog_range: frame.fog_range,
                         fog_color: frame.fog_color,
+                        directional_specular: frame.directional_specular,
+                        eye_direction: frame.eye_direction,
                     };
                     gpu.effects.update(
                         device,

@@ -37,6 +37,10 @@ struct Vertex {
     directional: [f32; 4],
     /// World-space normal for a skin mesh, zero for a quad.
     normal: [f32; 3],
+    /// `c9` and the Blinn exponent: `xyz` is the material specular colour bound
+    /// against the frame's directional specular light, `w` the material power.
+    /// Zero for a quad, which the client never shades specularly.
+    specular: [f32; 4],
     /// The slot's `m_enumFogFlag`, not a yes/no switch: `0` would mean unfogged,
     /// `1` fades towards the frame's `fog_color` (`GFX_FOG_CURRENT`) and `2`
     /// fades towards black (`GFX_FOG_ZERO`). `A3DGFXRenderSlot.cpp:341` starts
@@ -61,6 +65,12 @@ pub struct EffectLight {
     pub fog_range: [f32; 4],
     /// Linear fog colour, `rgb` only.
     pub fog_color: [f32; 4],
+    /// The frame's `directional_specular`: the light's specular colour, which
+    /// `bind_specular` binds against each material's own specular colour.
+    pub directional_specular: [f32; 4],
+    /// The camera's forward direction, which is what the client's Blinn term
+    /// takes as its eye input (not a per-vertex vector to the eye).
+    pub eye_direction: [f32; 3],
 }
 
 #[repr(C)]
@@ -81,6 +91,8 @@ struct Params {
     /// `fog_range` the scenery model shader reads.
     fog_range: [f32; 4],
     fog_color: [f32; 4],
+    /// `xyz` is the camera's forward direction for the model Blinn term.
+    eye: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -183,9 +195,9 @@ fn shade(
     mesh: &crate::gfx_player::EffectMesh,
     color: [f32; 4],
     light: Option<EffectLight>,
-) -> ([f32; 4], [f32; 4]) {
+) -> ([f32; 4], [f32; 4], [f32; 4]) {
     let (Some(material), Some(light)) = (mesh.material, light) else {
-        return (color, [0.; 4]);
+        return (color, [0.; 4], [0.; 4]);
     };
     let scale = [color[0], color[1], color[2], 1.];
     let mut lighting = light.lighting;
@@ -193,14 +205,26 @@ fn shade(
     // model element never takes the dynamic point light.
     lighting.point_enabled = false;
     // The client's `_white_alpha` test: an alpha of 255 leaves the material
-    // alpha alone (`m_fTransparent` stays -1), anything else overrides `c8.a`.    lighting.transparency = if color[3] < 1. { 1. - color[3] } else { -1. };
+    // alpha alone (`m_fTransparent` stays -1), anything else overrides `c8.a`.
+    lighting.transparency = if color[3] < 1. { 1. - color[3] } else { -1. };
     let scaled = crate::model_material::Material {
         ambient: crate::model_material::scale_rgba(material.ambient, scale),
         diffuse: crate::model_material::scale_rgba(material.diffuse, scale),
         emissive: crate::model_material::scale_rgba(material.emissive, scale),
     };
     let constants = crate::model_material::bind(scaled, lighting);
-    (constants.ambient, constants.directional_diffuse)
+    // `c9`: the material's specular colour bound against the directional light's
+    // specular colour, with the same `MTL_SCALED` factor the other coefficients
+    // take. The exponent rides in `w`.
+    let specular = crate::model_material::bind_specular(
+        crate::model_material::scale_rgba(material.specular, scale),
+        light.directional_specular,
+    );
+    (
+        constants.ambient,
+        constants.directional_diffuse,
+        [specular[0], specular[1], specular[2], material.power],
+    )
 }
 
 impl Draw {
@@ -241,6 +265,7 @@ impl Draw {
                 light: [0.; 4],
                 fog_range: [0.; 4],
                 fog_color: [0.; 4],
+                eye: [0.; 4],
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -280,9 +305,14 @@ impl Draw {
             bind_group_layouts: &[&binding_layout],
             push_constant_ranges: &[],
         });
+        // `model_light::WGSL` is the ported skin-model vertex lighting
+        // (`model_specular_variant_diffuse`, `model_directional_specular`) with
+        // no bindings of its own, so the effect shader composes it in rather
+        // than carrying a second copy of the maths.
+        let source = format!("{}\n{}", crate::model_light::WGSL, WGSL);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("native GFX effect shader"),
-            source: wgpu::ShaderSource::Wgsl(WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         let fallback = {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -392,6 +422,10 @@ impl Draw {
         let (fog_range, fog_color) = light.map_or(([0.; 4], [0.; 4]), |light| {
             (light.fog_range, light.fog_color)
         });
+        let eye = light.map_or([0.; 3], |light| light.eye_direction);
+        if eye.iter().any(|value| !value.is_finite()) {
+            return Err("non-finite GFX effect eye direction".into());
+        }
         queue.write_buffer(
             &self.uniform,
             0,
@@ -402,6 +436,7 @@ impl Draw {
                 light: [direction[0], direction[1], direction[2], 0.],
                 fog_range,
                 fog_color,
+                eye: [eye[0], eye[1], eye[2], 0.],
             }),
         );
 
@@ -433,7 +468,7 @@ impl Draw {
             if let Some(mesh) = &quad.mesh {
                 // A model element arrives as a triangle soup already in world
                 // space, so it needs no corner expansion and no winding order.
-                let (lit, directional) = shade(mesh, quad.color, light);
+                let (lit, directional, specular) = shade(mesh, quad.color, light);
                 for vertex in &mesh.vertices {
                     vertices.push(Vertex {
                         position: vertex.position,
@@ -441,6 +476,7 @@ impl Draw {
                         lit,
                         directional,
                         normal: vertex.normal,
+                        specular,
                         fog: 1.,
                     });
                 }
@@ -462,6 +498,7 @@ impl Draw {
                     lit: quad.color,
                     directional: [0.; 4],
                     normal: [0.; 3],
+                    specular: [0.; 4],
                     fog,
                 });
             }
@@ -616,7 +653,8 @@ impl Draw {
         // at zero, a skin mesh fills them from its material and its pose.
         let attributes = wgpu::vertex_attr_array![
             0=>Float32x3,1=>Float32x2,2=>Float32x4,
-            3=>Float32x4,4=>Float32x3,5=>Float32
+            3=>Float32x4,4=>Float32x3,5=>Float32,
+            6=>Float32x4
         ];
         let buffers = [wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as u64,
@@ -671,7 +709,7 @@ impl Draw {
 }
 
 const WGSL: &str = r#"
-struct Params { matrix:mat4x4<f32>, clip_plane:vec4<f32>, camera:vec4<f32>, light:vec4<f32>, fog_range:vec4<f32>, fog_color:vec4<f32> };
+struct Params { matrix:mat4x4<f32>, clip_plane:vec4<f32>, camera:vec4<f32>, light:vec4<f32>, fog_range:vec4<f32>, fog_color:vec4<f32>, eye:vec4<f32> };
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var image_sampler:sampler;
@@ -682,6 +720,7 @@ struct Input {
  @location(3) directional:vec4<f32>,
  @location(4) normal:vec3<f32>,
  @location(5) fog:f32,
+ @location(6) specular:vec4<f32>,
 };
 struct Output {
  @builtin(position) position:vec4<f32>,
@@ -689,6 +728,7 @@ struct Output {
  @location(1) color:vec4<f32>,
  @location(2) world:vec3<f32>,
  @location(3) fog:f32,
+ @location(4) specular:vec3<f32>,
 };
 @vertex fn vs(v:Input)->Output {
  var o:Output;
@@ -696,20 +736,27 @@ struct Output {
  o.world=v.position;
  o.uv=v.uv;
  o.fog=v.fog;
- // `model_light::vertex_light`: the shading sum is ambient plus the directional
- // term times the clamped Lambert, then clamped to one per channel. A quad
- // carries a zero normal and a zero directional constant, so this reduces to its
- // element colour and the pass keeps drawing it unlit.
- let nl=length(v.normal);
- let n=select(vec3<f32>(0.),v.normal/max(nl,0.000001),nl>0.000001);
- let lambert=max(dot(n,-p.light.xyz),0.);
- o.color=min(v.lit+v.directional*lambert,vec4<f32>(1.));
+ // The shading sum is the ported skin-model function itself, called with the
+ // point light off: `ambient + directional * lambert` clamped to one per channel,
+ // and an alpha of `ambient.a + directional.a` that is NOT scaled by the Lambert
+ // term (only the point-light variant multiplies alpha by it). A quad carries a
+ // zero normal and a zero directional constant, so this reduces to its element
+ // colour and the pass keeps drawing it unlit.
+ o.color=model_specular_variant_diffuse(v.position,v.normal,p.light.xyz,vec3<f32>(0.),vec3<f32>(1.,0.,0.),v.lit,v.directional,vec4<f32>(0.),vec4<f32>(0.),0.);
+ // `model_directional_specular`: `A3DGFXModel::ChangeModel` calls
+ // `EnableSpecular(true)` on every effect model, so the Blinn term is always
+ // evaluated; a quad's `specular` is zero and its normal is zero, which the
+ // function rejects with a zero result.
+ o.specular=model_directional_specular(v.normal,p.light.xyz,p.eye.xyz,v.specular.w,v.specular.rgb);
  return o;
 }
 @fragment fn fs(v:Output)->@location(0) vec4<f32> {
  if dot(vec4<f32>(v.world,1.),p.clip_plane)<0. {discard;}
- let tex=textureSample(image,image_sampler,v.uv)*v.color;
- var rgb=tex.rgb;
+ let tex=textureSample(image,image_sampler,v.uv);
+ // The client's fragment stage is `clamp(texel.rgb * diffuse.rgb + specular)`,
+ // and its opacity is the vertex alpha times the texture alpha.
+ var rgb=clamp(tex.rgb*v.color.rgb+v.specular,vec3<f32>(0.),vec3<f32>(1.));
+ let opacity=clamp(tex.a*v.color.a,0.,1.);
  // Every slot is fogged while the device's fog is on; the retained fraction is
  // `(end - depth) / span` on the reciprocal of the clip w, and zero below the
  // near plane, the same formula a scenery skin model uses. `m_enumFogFlag`
@@ -724,7 +771,7 @@ struct Output {
   let fog_rgb=select(p.fog_color.rgb,vec3<f32>(0.),v.fog>1.5);
   rgb=mix(fog_rgb,rgb,keep);
  }
- return vec4<f32>(rgb,tex.a);
+ return vec4<f32>(rgb,opacity);
 }
 "#;
 
@@ -803,6 +850,10 @@ mod tests {
             // Fog off, so the shading assertions read the light alone.
             fog_range: [0.; 4],
             fog_color: [0.; 4],
+            // No specular light, so the diffuse assertions stay exact; the
+            // specular test raises this itself.
+            directional_specular: [0.; 4],
+            eye_direction: [0., 0., -1.],
         }
     }
 
@@ -1062,6 +1113,8 @@ mod tests {
             ambient: [0.; 4],
             diffuse: [1.; 4],
             emissive: [0.; 4],
+            specular: [0.; 4],
+            power: 1.,
         };
         // Grey 64/255 = 0.25 of texture times a full Lambert, over black.
         let facing = render(
@@ -1124,6 +1177,8 @@ mod tests {
             ambient: [0.; 4],
             diffuse: [1.; 4],
             emissive: [0.; 4],
+            specular: [0.; 4],
+            power: 1.,
         };
         let fogged = render(
             &mut draw,
@@ -1162,6 +1217,100 @@ mod tests {
         assert!(
             (current[0] - 0.625).abs() <= 0.02 && (current[1] - 0.125).abs() <= 0.02,
             "a non-additive quad must fade to the current fog colour: {current:?}"
+        );
+    }
+
+    /// The element's alpha reaches the material as `m_fTransparent = 1 - a/255`
+    /// and therefore as `c8.a`, so a model authored at 0.5 opacity must compose as
+    /// half coverage. This pins a regression that the compiler could not: the
+    /// assignment below the `_white_alpha` comment had been swallowed by the
+    /// comment itself, leaving `transparency` at the frame's value and every
+    /// element-160 model fully opaque.
+    #[test]
+    fn gpu_effect_applies_the_element_alpha_as_material_transparency() {
+        let Some(harness) = harness() else {
+            eprintln!("effect transparency test skipped: no WGPU adapter");
+            return;
+        };
+        let mut draw = Draw::new(
+            &harness.device,
+            &harness.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+        )
+        .unwrap();
+        let material = crate::gfx_player::MeshMaterial {
+            ambient: [0.; 4],
+            diffuse: [1.; 4],
+            emissive: [0.; 4],
+            specular: [0.; 4],
+            power: 1.,
+        };
+        let mut half = mesh_quad(material, [0., 0., 1.]);
+        half.color = [1., 1., 1., 0.5];
+        half.source_blend = 5;
+        half.destination_blend = 6;
+        let half = render(&mut draw, &harness, 0., &[half], Some(effect_light()));
+        // 0.25098 of texture times material diffuse 1, then SrcAlpha over black
+        // with the element's 0.5 opacity.
+        assert!(
+            (half[0] - 0.1255).abs() <= 0.01,
+            "half-opacity model mismatch: {half:?}"
+        );
+    }
+
+    /// `A3DGFXModel::ChangeModel` calls `A3DSkinModel::EnableSpecular(true)`, so
+    /// an element-160 mesh carries the Blinn term: `c9` is the material specular
+    /// colour bound against the direction light's specular colour, and the
+    /// fragment stage adds it after the texture multiply. With the light and the
+    /// material both white, a facet facing the half-vector saturates.
+    #[test]
+    fn gpu_effect_adds_the_model_blinn_term() {
+        let Some(harness) = harness() else {
+            eprintln!("effect specular test skipped: no WGPU adapter");
+            return;
+        };
+        let mut draw = Draw::new(
+            &harness.device,
+            &harness.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+        )
+        .unwrap();
+        let material = crate::gfx_player::MeshMaterial {
+            ambient: [0.; 4],
+            diffuse: [1.; 4],
+            emissive: [0.; 4],
+            specular: [1.; 4],
+            power: 8.,
+        };
+        let mut light = effect_light();
+        light.directional_specular = [1.; 4];
+        // Direction and eye both along -Z: the half-vector is +Z, the facet's
+        // normal, so the Blinn exponent is 1 and the coefficient is c9 itself.
+        let lit = render(
+            &mut draw,
+            &harness,
+            0.,
+            &[mesh_quad(material, [0., 0., 1.])],
+            Some(light),
+        );
+        assert!(
+            lit[0] >= 0.99,
+            "a white specular term must saturate: {lit:?}"
+        );
+        // The same material with no specular light keeps the diffuse-only value,
+        // which is what the pass drew before this.
+        let plain = render(
+            &mut draw,
+            &harness,
+            0.,
+            &[mesh_quad(material, [0., 0., 1.])],
+            Some(effect_light()),
+        );
+        assert!(
+            (plain[0] - 0.25).abs() <= 0.02,
+            "diffuse-only mismatch: {plain:?}"
         );
     }
 
