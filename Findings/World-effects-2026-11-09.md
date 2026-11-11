@@ -2697,5 +2697,5 @@ formatting comment named three hunks in `gfx_effect_gpu.rs`, all of them mine:
 at `fn_call_width` (60 by default), so a two-argument macro with a message string
 goes to one argument per line whatever the total width. Commit `e7f2fcf` had
 collapsed them onto single lines by guessing at the width instead of reading the
-diff the comment carried; `f1c25a5`-style hand-formatting is not a substitute for
-the formatter's own opinion, and the check is now ahead of the steps that can fail.
+diff the comment carried; hand-formatting is not a substitute for the formatter's
+own opinion, and the check is now ahead of the steps that can fail.
