@@ -3217,6 +3217,16 @@ under a quarter turn about X keeps its card in the world XY plane, normal on Z.
 `FaceToViewer` are read; the remaining two root flags are the 2D pass and neither
 root count reaches five.
 
+**Verdict.** Run
+[`43112394747`](https://github.com/kasperfriend/Perfect-World-Explorer/actions/runs/43112394747)
+is green on both jobs at `2a06d26`: `Rust checks and tests (Linux)` (1,088 tests,
+the new one included) and `Windows executable (x64)`. The first run of the change
+failed the new test on its own fixture rather than on the rule — the root reader
+takes `NoChangeDir`, `2DRender` and `2DBackLayer` as one group after the
+controllers and before the element count (`src/gfx_file.rs:1276-1280`), so writing
+`NoChangeDir` beside `Raytrace` produced *"expected FadeByDist, found
+NoChangeDir"*. The group now goes where the serialiser puts it.
+
 **The estimate it sits in.** This pass also finished the corpus-wide coverage
 census that the earlier sections kept quoting in pieces: see
 `Gfx-effects-parity-estimate-2026-11-09.md`, which measures 5,456 non-empty roots
