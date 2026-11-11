@@ -7012,7 +7012,8 @@ mod tests {
         let view = view();
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
-        context.id = 123;
+        // Id 122 shares the ball volume sampler; 123 overrides it with a cylinder.
+        context.id = 122;
         // Keypoint `Scale` 2 under a root `PlaySpeed` of 3.
         context.emission_scale = 6.;
         let mut particle = Particle::default();
@@ -7039,7 +7040,7 @@ mod tests {
         let view = view();
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
-        context.id = 123;
+        context.id = 122;
         context.emission_scale = 6.;
         let mut particle = Particle::default();
         particle.is_bind = true;
@@ -7100,7 +7101,7 @@ mod tests {
         }
     }
 
-    /// Id 124's surface sampler reads the same nine floats the volume sampler
+    /// Id 123's surface sampler reads the same nine floats the volume sampler
     /// does, so its cylinder is scaled by the same factor: the cross section
     /// moves out to `Scale * PlaySpeed * AreaSize * 0.5`.
     #[test]
@@ -7108,7 +7109,7 @@ mod tests {
         let view = view();
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
-        context.id = 124;
+        context.id = 123;
         context.emission_scale = 4.;
         let mut particle = Particle::default();
         particle.is_surface = true;
@@ -7558,17 +7559,17 @@ mod tests {
         assert_eq!(p, Vec3::ZERO);
     }
 
-    /// Id 124's surface sample is the lateral surface of a cylinder, not an
-    /// ellipsoid: `0x729be0` takes its first two coefficients from a full turn
-    /// about `0x9c0338` and its third from an independent uniform in `[-1, 1]`.
-    /// The cross-section therefore sits exactly on the ellipse while the height
-    /// covers the whole extent, which no sphere sample does.
+    /// `A3DCylinderEmitter::GenSurface` (id 123) is the lateral surface of a
+    /// cylinder, not an ellipsoid: `q` turns `_unit_x` about `_unit_z` by a full
+    /// turn and `z` is an independent symmetric draw, so the cross-section sits
+    /// exactly on the ellipse while the height covers the whole extent — which no
+    /// sphere sample does.
     #[test]
-    fn id_124_surface_emission_is_a_cylinder() {
+    fn id_123_surface_emission_is_a_cylinder() {
         let view = view();
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
-        context.id = 124;
+        context.id = 123;
         let mut particle = Particle::default();
         particle.is_surface = true;
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
