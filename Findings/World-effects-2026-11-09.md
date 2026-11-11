@@ -1977,3 +1977,116 @@ package proves the shipped model.
 The skin itself is the shape the loader supports: `MOXBIKSA` v9, four rigid
 meshes, one texture, one material, **zero bones**, no morph/supple/muscle skin —
 the bind pose is the whole model.
+
+## 27. `A3DGridDecalEx`: the class behind every waterfall, and the tint it applies
+
+Elements 210/211 were the last big class handled on inference. The real source is
+in `GfxCommon` on the Drive and is now recovered: `A3DGridDecalEx.h` (8,073 bytes)
+and `A3DGridDecalEx.cpp` (37,996 bytes, binary MIME — the header carries the two
+inline functions that matter).
+
+### 27.1 What the header states
+
+```cpp
+typedef struct GRID_VERTEX_DATA { A3DVECTOR3 m_vPos; A3DCOLOR m_dwColor; } GridData;
+inline int _calcCurRectNum() { return (m_nHeightVertNum - 1) * (m_nWidthVertNum - 1); }
+```
+
+* a lattice is `m_nWidthVertNum * m_nHeightVertNum` **vertices** holding a position
+  and a colour each — one quad per `(w-1)*(h-1)` cell, which is the arithmetic the
+  reader already uses;
+* `_setInitVertPos()` synthesises the un-authored lattice in the **XY plane**
+  (`z = 0`), `fHalfWid = max((w-1)/2, 1) * m_fGridSize` split around the origin and
+  `Y` running from `+fHalfHei/2` **down** to `-fHalfHei/2`, so the default step is
+  `fGridSize/2`, not `fGridSize`;
+* `_setColorComposed(diffuse, nVertNum)` multiplies every vertex colour by the
+  keypoint colour, channel by channel, written as `(vertex * key) & 0xff00` then
+  `>> 8` — full white on full white therefore lands on 254;
+* `getVertRotFromView` builds `m_vPos - v.y*m_vDir + v.x*m_vUp + v.z*m_vView` for a
+  `RotFromView` lattice, and `_fillGfxVertexMatchGround` re-samples terrain height
+  per vertex for `GroundHeight`;
+* the class owns an `A3DGfxGridAnimation*`, i.e. a second, per-vertex animation
+  channel on top of the UV scroll.
+
+### 27.2 The waterfall, exactly as shipped
+
+`gfx/场景/新种族地图/瀑布.gfx` (version 73, 52 elements) is the retail waterfall:
+
+| part | count | detail |
+|---|---|---|
+| element 210 curtains | 4 | `物体\waterfall.dds`, 2×4 lattice, `TileMode: 1`, `TexSpeed (0, -0.4)` |
+| element 124 emitters | 48 | `烟火\Dust.tga`, `多个粒子\waterfalldrops.tga`, `多个粒子\shuizhu.dds` |
+
+One curtain, verbatim:
+
+```text
+-58.299149 35.844849 9.029253   dwColor: ffffffff
+-34.900089 35.844849 9.029253   dwColor: ffffffff
+...
+-58.299149 -0.006341 9.029253   dwColor: 88caff
+-34.900089 -0.006341 9.029253   dwColor: 88caff
+fGridSize: 0.500000   Color: -32640 (this one: -13261313)
+```
+
+23.399 units wide, 35.851 tall, in the XY plane at z = 9.029, foot row `88caff`
+with alpha 0 — the sheet dissolves at its foot because that row's alpha is zero,
+not because of a gradient. `CtrlMethodCount: 0`: the curtain has **no** grid
+animation, so all of its motion is the `TexSpeed` V scroll the player already
+reproduces.
+
+### 27.3 The bug: the keypoint tint never reached the sheet
+
+`emit_grid` coloured each quad from the file's vertex colour alone:
+
+```rust
+let color = rgba(*value, context.color_scale);   // vertex RGB, alpha only scaled
+```
+
+`_setColorComposed` multiplies the vertex colour by the keypoint colour, and 179 of
+the pack's 216 grid elements carry a keypoint that is **not** white:
+
+| keypoint colour | grids | example |
+|---|---|---|
+| `c800805c` | 21 | |
+| `ffffffff` | 18 | the only untinted group |
+| `64ffffff` | 12 | |
+| `c800b9ff` | 8 | `暗语者营地.gfx` |
+| `6400e6ff` | 8 | `暗语者营地.gfx` |
+| `ff00805c` | 8 | |
+| `ff57507c` | 5 | |
+| `ff35a5ff` | — | `瀑布.gfx`, the curtain above |
+
+So the waterfall's white vertices are drawn white here and cyan-blue in the
+client, and `冷凝术_冰块.gfx` (`ff5580aa`, `ff79abc6`, `ff5555aa`) draws pale
+slabs where the client draws blue ice. That is the "white blob" class: the geometry
+and the blend were right, the colour multiply was missing.
+
+`emit_grid` now composes `grid_rgba(vertex, key, color_scale)`, which reproduces
+the client's `& 0xff00 >> 8` multiply byte for byte and folds the root alpha in the
+same place `rgba` does. New test
+`a_grid_multiplies_each_vertex_by_the_keypoint_colour` builds a 2×2 lattice of
+`ff808080` against a `ffff8080` keypoint and requires exactly 127, 64, 64, 254 —
+the values the client's expression produces.
+
+### 27.4 Three audits that came back clean
+
+Run over all 5,459 roots of the shipped `gfx.pck`, and recorded so nobody repeats
+them:
+
+* **Grids**: 216 elements, and every one writes exactly `wNumber * hNumber` vertex
+  rows — none empty, none short. The authored path is the only live one, so the
+  `_setInitVertPos` fallback stays damage tolerance rather than a rendering path.
+* **Textures**: 1,610 distinct `TexFile` values, 27,575 references; 1,606 resolve
+  under `gfx/textures/`. The four that exist nowhere in the pack are
+  `序列/闪电竖.tga` (14 references), `序列/闪电.tga`, `图案/155.dds` and
+  `图案/场景3紫.dds` — a lightning sheet and two decals, not a systematic gap.
+* **Hard requirements**: the parser rejects a root only for a missing `GfxPath`
+  (elements 200–204) or a missing `ColorMin` (particles 120–125). Neither occurs
+  once in the corpus, so no shipped root is turned away by them.
+
+`A3DGFXEx.h` also came back with the root-level properties, which is where the next
+gap is: `m_bFaceToViewer`, `m_bNoChangeDir`, `m_b2DRender` (whose setter forces
+`m_bZTestEnable = !b`), `m_b2DBackLayer`, `m_bUseOuterColor`/`m_OuterColor`,
+`m_bFadeByDist` with its start/end pair, `DeriveParentProperty` for children, and
+`SetAlphaTransition`. The reader already parses `NoChangeDir`, `2DRender` and
+`2DBackLayer`, but nothing in the player reads them yet.
