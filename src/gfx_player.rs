@@ -10331,7 +10331,7 @@ mod tests {
             "each cross-section advances U by _tex_delta: {quads:?}"
         );
         assert!(
-            (quads[0].uv[1][0] - first - 0.2).abs() < 1e-6,
+            (quads[0].uv[1][0] - first).abs() < 1e-6,
             "and the two rails of one cross-section share its U"
         );
         assert!(
