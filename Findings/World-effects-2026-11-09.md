@@ -2572,3 +2572,71 @@ land on `0.1255` in all three channels (half of 0.25098 towards black) and the
 SrcAlpha/InvSrcAlpha sheet on `(0.625, 0.125)` towards the red fog. Both run on
 this machine's adapter, so unlike §35's note the assertion is measured, not
 merely compiled.
+
+## 37. The transparency law was dead, the vertex alpha was clamped by the wrong term, and specular arrives
+
+Three things came out of giving element-160 meshes the Blinn term, and the first
+two were defects the compiler could not see.
+
+**A comment had swallowed `m_fTransparent`.** In `gfx_effect_gpu::shade` the
+assignment
+
+```
+lighting.transparency = if color[3] < 1. { 1. - color[3] } else { -1. };
+```
+
+sat at the end of the line that opens with `// ... anything else overrides
+`c8.a`.` — inside the comment. It compiled, it looked right in the diff, and it
+never ran: `transparency` kept the frame's value, so §32's law was inert and every
+element-160 model drew fully opaque whatever its keypoint alpha said. The line is
+its own statement again, and `gpu_effect_applies_the_element_alpha_as_material_transparency`
+now pins a half-opacity model to 0.1255 (half of the 64-grey texel) so the
+regression cannot come back silently.
+
+**The vertex alpha must not take the Lambert term.** §32 wrote the shaded colour
+as `min(c7 + c8 * lambert, 1)` for all four channels, which also scales `c8.a` by
+the Lambert. The client does not: `model_vertex_light_rgba` computes
+`a = ambient.a + dir_diff.a` when the point light is off — the directional alpha
+is added whole — and only the point-light branch multiplies alpha by the Lambert
+(`a = ambient.a + lambert*dir_diff.a + …`). The specular variant does the same,
+`min(ambient.a + dir_diff.a, 1)`. `bPtLight` is always false here, so a model's
+opacity is `c8.a` regardless of which way its facets face.
+
+The effect shader now calls the ported function itself,
+`model_specular_variant_diffuse(...)`, with the point light off, instead of
+re-deriving the sum — so the alpha and the RGB clamp come from the same code the
+scenery path uses. For a quad the normal is zero, the Lambert is zero and the
+directional constant is zero, so the call still reduces to the element colour.
+
+**Specular.** `A3DGFXModel::ChangeModel` calls
+`A3DSkinModel::EnableSpecular(true)` on every effect model, so the specular shader
+split is on for all of them and §32's omission was a real gap on crystals and ice:
+
+* `c9` is `model_material::bind_specular` of the material's specular colour (with
+  the same `MTL_SCALED` factor the other coefficients take) against the frame's
+  `directional_specular`;
+* the Blinn term is `model_light::directional_specular(normal, direction, eye,
+  power, c9)`, whose eye input is the camera's forward direction, not a vector to
+  the eye;
+* the fragment stage combines them exactly as `model_receiver_gpu` does —
+  `clamp(texel.rgb * diffuse.rgb + specular, 0, 1)` — and the opacity is the
+  vertex alpha times the texture alpha.
+
+`gfx_effect_gpu` composes `model_light::WGSL` into its shader source instead of
+carrying a second copy of those functions. `gpu_effect_adds_the_model_blinn_term`
+checks both ends: with a white material specular and a white specular light the
+facet facing the half-vector saturates, and with the specular light off the same
+facet is back to the diffuse-only 0.25098.
+
+One detail of the client's fragment stage is still not modelled: `opacity =
+v.diffuse.a * mix(1, t.a, material_alpha_flag)`. The pass always multiplies the
+texture alpha, which is the flag-set case; a material that disables texture alpha
+would be drawn more transparent here than in the client. Nothing in this corpus
+was measured to distinguish the two, so it stays as it is and is recorded here.
+
+**CI note.** The Linux job of PR #35 currently dies in "Install Linux build
+dependencies" (`apt-get update && apt-get install libx11-dev libxi-dev
+libxcursor-dev libxrandr-dev libxkbcommon-dev`) before any Rust step runs; the
+same step passed at `64e947b` earlier the same day. The Windows x64 job builds the
+release binary green on the same commit, so this is the runner's package mirror,
+not the change. The unit and GPU tests above were not executed by CI in this run.
