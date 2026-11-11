@@ -100,7 +100,7 @@ use crate::{
     gfx_color_track::ColorTrack,
     gfx_file::{
         Child, Common, Control, ControlData, Curve, Cylinder, Element, Grid, KeyPoint, Lightning,
-        Particle, Root, Spec, Sprite, Trail,
+        Particle, Root, Spec, Sprite, Trail, Wave,
     },
 };
 use glam::{Mat4, Quat, Vec3, Vec4};
@@ -599,8 +599,11 @@ enum Runtime {
     /// Stateless: the clock alone decides the geometry.
     Clock,
     Particles(Emitter),
-    /// Elements 110 and 180: a strip through the element's own motion history.
+    /// Element 110: a strip through the element's own motion history.
     Ribbon(RibbonState),
+    /// Element 180 (`A3DLtnTrail`): at most three cross-sections, refreshed
+    /// every 40 ms with a jittered midpoint between the last two.
+    LtnTrail(LtnTrailState),
     /// Elements 150 and 152: an authored strip from `StartPos` to `EndPos`,
     /// rebuilt and re-deformed every `Interval` milliseconds.
     Fractal(FractalState),
@@ -1180,9 +1183,14 @@ impl Player {
                         })
                         .collect(),
                 }),
-                Spec::Ribbon(_) | Spec::Wave(_) => Runtime::Ribbon(RibbonState {
+                Spec::Ribbon(_) => Runtime::Ribbon(RibbonState {
                     vertices: Vec::new(),
                     carry: 0.,
+                }),
+                Spec::Wave(_) => Runtime::LtnTrail(LtnTrailState {
+                    points: Vec::new(),
+                    carry: 0.,
+                    rng: Rng::new(rng.next_u32()),
                 }),
                 Spec::Fractal(_) | Spec::Trail(_) => Runtime::Fractal(FractalState {
                     timer: f32::INFINITY,
@@ -1903,6 +1911,9 @@ fn advance_element(
             );
         }
         Runtime::Ribbon(ribbon) => emit_ribbon(ribbon, element, &context, dt_s, stats, out),
+        Runtime::LtnTrail(trail) => {
+            emit_ltn_trail(trail, element, &context, dt_s, stats, out)
+        }
         Runtime::Fractal(fractal) => emit_fractal(fractal, element, &context, dt_s, stats, out),
         Runtime::Bolts(bolts) => {
             let Spec::Lightning(bolt) = &element.spec else {
@@ -5048,6 +5059,175 @@ fn emit_ribbon(
             strip,
             [color[0], color[1], color[2], alpha],
         );
+    }
+}
+
+/// `_inner_tick` and `_tex_delta` from `A3DLtnTrail.cpp:13-14`.
+const LTN_TRAIL_TICK_MS: f32 = 40.;
+const LTN_TRAIL_TEX_DELTA: f32 = 0.2;
+/// `AddPoint` never lets the list grow past three cross-sections: it drops the
+/// head whenever more than one is stored, then pushes a midpoint and an end.
+const LTN_TRAIL_POINTS: usize = 3;
+
+/// One `LTNTRAIL_DATA` of `A3DLtnTrail`: the two authored rail positions, the
+/// centre they were interpolated from, the remaining life and the texture `U`.
+#[derive(Clone, Copy, Debug)]
+struct LtnPoint {
+    rail1: Vec3,
+    rail2: Vec3,
+    center: Vec3,
+    life: f32,
+    u: f32,
+}
+
+#[derive(Clone, Debug)]
+struct LtnTrailState {
+    points: Vec<LtnPoint>,
+    carry: f32,
+    rng: Rng,
+}
+
+/// Element 180, `A3DLtnTrail`. This is *not* the accumulating ribbon element 110
+/// draws: it keeps at most three cross-sections and rebuilds them every 40 ms,
+/// inserting a midpoint between the last centre and the current one that is
+/// pushed off the travel direction by a random amount in `[MinAmp, MaxAmp]`
+/// (`A3DLtnTrail::AddPoint`, `A3DLtnTrail.cpp:264-333`):
+///
+///     vAmp = RotateVec(A3DQUATERNION(vDir, _UnitRandom()*A3D_2PI), CalcVertVec(vDir));
+///     vAmp *= m_fMinAmp + (m_fMaxAmp - m_fMinAmp) * _UnitRandom();
+///     vInter += vAmp;
+///
+/// The `U` of each cross-section advances by `_tex_delta` (0.2) and wraps, and
+/// `FillVertexBuffer` (`:336-410`) writes `tu = ld.m_fU` on both rails with
+/// `tv` 0 and 1 — so the texture runs *along* the trail and across the rails,
+/// the opposite way round from element 110. Alpha is the keypoint alpha times
+/// `m_nSegLife / SegLife`, which is the age fade.
+fn emit_ltn_trail(
+    state: &mut LtnTrailState,
+    element: &Element,
+    context: &ElementContext,
+    dt: f32,
+    stats: &mut Stats,
+    out: &mut Vec<EffectQuad>,
+) {
+    stats.ribbons += 1;
+    let Spec::Wave(spec) = &element.spec else {
+        return;
+    };
+    let color = context.rgba();
+    if color[3] < ALPHA_CUTOFF {
+        return;
+    }
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
+    };
+    let life = spec.segment_life.max(1.);
+    let dt_ms = dt * 1000.;
+    // `TickAnimation`: every stored cross-section loses the frame delta, and the
+    // oldest run of expired entries is dropped in one go (`:177-192`).
+    for point in &mut state.points {
+        point.life -= dt_ms;
+    }
+    if let Some(index) = state.points.iter().position(|point| point.life <= 0.) {
+        state.points.drain(0..=index);
+    }
+    // `while (dwTickTime > _inner_tick) InnerTick(_inner_tick)`, then the
+    // remainder — so a 16 ms frame adds nothing and a 100 ms frame adds two.
+    state.carry += dt_ms;
+    let mut guard = 0;
+    while state.carry >= LTN_TRAIL_TICK_MS && guard < 64 {
+        state.carry -= LTN_TRAIL_TICK_MS;
+        guard += 1;
+        ltn_trail_add_point(state, spec, context);
+    }
+    if state.points.len() < 2 {
+        return;
+    }
+    let mut positions = [[0f32; 3]; 4];
+    for index in 0..state.points.len() - 1 {
+        let a = state.points[index];
+        let b = state.points[index + 1];
+        let alpha = color[3] * (a.life / life).clamp(0., 1.);
+        if alpha < ALPHA_CUTOFF {
+            continue;
+        }
+        for (slot, point) in [a.rail1, a.rail2, b.rail2, b.rail1].into_iter().enumerate() {
+            positions[slot] = point.to_array();
+        }
+        // `tu` is the cross-section's own `U` on both rails; `tv` spans them.
+        let strip = [[a.u, 0.], [a.u, 1.], [b.u, 1.], [b.u, 0.]];
+        push_quad(
+            out,
+            context,
+            &texture,
+            positions,
+            strip,
+            [color[0], color[1], color[2], alpha],
+        );
+    }
+}
+
+/// `A3DLtnTrail::AddPoint`. The client slerps a rotation and applies it to the
+/// authored rails; this interpolates the rails themselves, which is the same
+/// motion for the rigid placements the corpus authors and keeps the jitter in
+/// one shared offset. Everything else — the head drop, the midpoint, the
+/// amplitude draw and the wrapped `U` — is the client's order of operations.
+fn ltn_trail_add_point(state: &mut LtnTrailState, spec: &Wave, context: &ElementContext) {
+    let placement = context.placement;
+    let rail1 = placement.transform_point3(spec.positions.first().copied().unwrap_or(Vec3::ZERO));
+    let rail2 = placement.transform_point3(spec.positions.get(1).copied().unwrap_or(Vec3::ZERO));
+    let center = placement.transform_point3(Vec3::ZERO);
+    let life = spec.segment_life.max(0.);
+    if state.points.is_empty() {
+        state.points.push(LtnPoint {
+            rail1,
+            rail2,
+            center,
+            life,
+            u: 0.,
+        });
+        return;
+    }
+    if state.points.len() > 1 {
+        state.points.remove(0);
+    }
+    let Some(last) = state.points.last().copied() else {
+        return;
+    };
+    let portion = state.rng.unit();
+    let direction = (center - last.center).normalize_or_zero();
+    let min_amp = spec.amplitudes.first().copied().unwrap_or(0.05);
+    let max_amp = spec.amplitudes.get(1).copied().unwrap_or(min_amp);
+    let amplitude = min_amp + (max_amp - min_amp) * state.rng.unit();
+    let jitter = rotate_about(calc_vert_vec(direction), direction, state.rng.unit() * std::f32::consts::TAU)
+        * amplitude;
+    let middle = last.center.lerp(center, portion) + jitter;
+    let middle_u = {
+        let u = last.u + LTN_TRAIL_TEX_DELTA;
+        if u > 1. { u - 1. } else { u }
+    };
+    let end_u = {
+        let u = middle_u + LTN_TRAIL_TEX_DELTA;
+        if u > 1. { u - 1. } else { u }
+    };
+    state.points.push(LtnPoint {
+        rail1: last.rail1.lerp(rail1, portion) + jitter,
+        rail2: last.rail2.lerp(rail2, portion) + jitter,
+        center: middle,
+        life,
+        u: middle_u,
+    });
+    state.points.push(LtnPoint {
+        rail1,
+        rail2,
+        center,
+        life,
+        u: end_u,
+    });
+    // `AddPoint` can leave one extra entry behind on the frame it drops the head;
+    // `Render` only ever sees `GetRenderCount()` of them, and three is the cap.
+    while state.points.len() > LTN_TRAIL_POINTS {
+        state.points.remove(0);
     }
 }
 
@@ -10111,5 +10291,50 @@ mod tests {
         // `fDist > 1` wraps, and a negative distance passes the value through.
         assert!((lightning_filter(1, 1.25, 0.3) - 0.3).abs() < 1e-6);
         assert!((lightning_filter(1, -0.5, 0.3) - 0.3).abs() < 1e-6);
+    }
+
+    /// Element 180 is `A3DLtnTrail`, not the accumulating ribbon element 110
+    /// draws: `AddPoint` keeps three cross-sections, adds one every 40 ms
+    /// (`_inner_tick`), and advances each cross-section's `U` by `_tex_delta`
+    /// (0.2) with a wrap at 1.
+    #[test]
+    fn an_ltn_trail_keeps_three_cross_sections_and_scrolls_its_u() {
+        let element = "GFXELEMENTID: 180\r\nName: t\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+             RepeatCount: -1\r\nRepeatDelay: 0\r\nTexFile: 粒子\\strip.dds\r\nBindEle: \r\n\
+             ZEnable: 1\r\nMatchGrnd: 0\r\nTexRow: 1\r\nTexCol: 1\r\nTexInterval: 50\r\n\
+             Priority: 0\r\nIsDummy: 0\r\nDummyEle: \r\nWarp: 0\r\nTileMode: 0\r\n\
+             TexSpeed: 0\r\nTexSpeed: 0\r\nUReverse: 0\r\nVReverse: 0\r\nUVExchg: 0\r\n\
+             RenderLayer: 0\r\nNoDownSample: 0\r\nPos: 0, 0.200000, 0\r\n\
+             Pos: 0, -0.200000, 0\r\nSegLife: 1000\r\nAmp: 0.000000\r\nAmp: 0.000000\r\n\
+             Bind: 0\r\nEnableMat: 0\r\nEnablePos: 0\r\nEnablePos: 0\r\n\
+             StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
+             Position: 0, 0, 0\r\nColor: -1\r\nScale: 1.000000\r\n\
+             Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
+        let source = format!("{}{}", header79(1), element);
+        let mut player = build(&source);
+        step(&mut player, 16.);
+        assert!(player.quads().is_empty(), "no cross-section yet");
+        step(&mut player, 30.);
+        assert!(
+            player.quads().is_empty(),
+            "one cross-section draws nothing, as `Render` requires two"
+        );
+        step(&mut player, 40.);
+        assert_eq!(player.quads().len(), 1, "two cross-sections, one quad");
+        step(&mut player, 40.);
+        let quads = player.quads();
+        assert_eq!(quads.len(), 2, "three cross-sections, two quads");
+        assert!(
+            (quads[0].uv[0][0] - 0.0).abs() < 1e-6 && (quads[1].uv[0][0] - 0.2).abs() < 1e-6,
+            "each cross-section advances U by _tex_delta: {quads:?}"
+        );
+        assert!(
+            (quads[0].uv[1][1] - 1.0).abs() < 1e-6 && (quads[0].uv[0][1] - 0.0).abs() < 1e-6,
+            "`tv` spans the two rails, 0 to 1"
+        );
+        assert!(
+            quads.iter().all(|quad| quad.color[3] > 0.),
+            "a fresh trail is opaque"
+        );
     }
 }
