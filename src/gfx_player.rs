@@ -2284,6 +2284,55 @@ fn sample_path(points: &[Vec3], distance: f32) -> (Vec3, Vec3) {
 
 /// fBm value noise over a permutation of `buffer_length` entries with the
 /// authored wavelength, persistence and octave count.
+/// `CalcVertVec`: any unit vector perpendicular to `axis`, which is what
+/// `A3DGFXLightning::BuildPath` rotates the noise around.
+fn calc_vert_vec(axis: Vec3) -> Vec3 {
+    let other = if axis.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
+    axis.cross(other).normalize_or_zero()
+}
+
+/// `RotateVec(A3DQUATERNION(axis, angle), v)` for a unit `axis`.
+fn rotate_about(v: Vec3, axis: Vec3, angle: f32) -> Vec3 {
+    if !angle.is_finite() || axis.length_squared() < 1e-12 {
+        return v;
+    }
+    Quat::from_axis_angle(axis.normalize(), angle) * v
+}
+
+/// The free function `filter` above `A3DGFXLightning::BuildPath`
+/// (`A3DGFXLightning.cpp:983-1003`). `FT_TRIANGLE` deliberately drops `value`:
+///
+///     case FT_TRIANGLE: return 2 * (fDist > 0.5 ? 1 - fDist : fDist);
+///     case FT_RECTANGLE: return fValue;
+///     case FT_TRAPEZIA: return fValue * (fDist < 0.2 ? fDist*5 : fDist > 0.8 ? (1-fDist)*5 : 1);
+///     case FT_SIN: return fValue * sinf(fDist * A3D_PI);
+fn lightning_filter(kind: u32, dist: f32, value: f32) -> f32 {
+    if dist < 0. {
+        return value;
+    }
+    let dist = if dist > 1. { dist - dist.floor() } else { dist };
+    match kind {
+        // FT_TRIANGLE
+        0 => 2. * if dist > 0.5 { 1. - dist } else { dist },
+        // FT_RECTANGLE
+        1 => value,
+        // FT_SIN
+        2 => value * (dist * std::f32::consts::PI).sin(),
+        // FT_TRAPEZIA
+        3 => {
+            value
+                * if dist < 0.2 {
+                    dist * 5.
+                } else if dist > 0.8 {
+                    (1. - dist) * 5.
+                } else {
+                    1.
+                }
+        }
+        _ => value,
+    }
+}
+
 fn fbm(
     seed: u32,
     x: f32,
@@ -5173,21 +5222,74 @@ fn emit_fractal(
     if fractal.timer >= interval || fractal.offsets.len() != segments + 1 {
         fractal.timer = 0.;
         fractal.offsets.clear();
+        // `A3DGFXLightning::BuildPath` puts the noise on the **perpendicular**
+        // of the path and nowhere else (`A3DGFXLightning.cpp:1005-1052`):
+        //
+        //     A3DVECTOR3 vUp(CalcVertVec(vDir));
+        //     m_pData[0][i] = j / fSegs;                        // along the path
+        //     m_pData[1][i] = fRand[0] * A3D_2PI;               // twist about it
+        //     m_pData[2][i] = filter(m_nFilterType, i/fSegs, fRand[1]);
+        //
+        // and `FillVertexBuffer` (`:888-905`) places the cross-section at
+        //
+        //     vPos = vStart + vDir*(m_pData[0][i]*fDist)
+        //           + RotateVec(A3DQUATERNION(vDir, m_pData[1][i]), vUp)
+        //             * (m_pData[2][i] * m_fAmplitude);
+        //
+        // The two authored ends take the `nMod == 0` / `nMod == m_nSegs`
+        // branches, which use `vStart` and `vEnd` verbatim, so a lightning
+        // ribbon starts and stops exactly on `StartPos`/`EndPos`.
+        //
+        // This used to displace every cross-section — ends included — along the
+        // fixed world diagonal `(1, 0.5, 0.25)` and scale it by the *first*
+        // `Amplitude` (the Perlin's own amplitude, 2 in the corpus) instead of
+        // the second one (`Amplitude`, the ribbon displacement). A `Fractal`
+        // therefore left its own plane, drifted the same way on every rebuild,
+        // and reached several world units on effects whose authored excursion is
+        // one: the sheets hanging off trees and the blobs drifting across the
+        // floating city.
+        let axis = {
+            let delta = spec.end_position - spec.start_position;
+            if delta.length_squared() > 1e-12 {
+                delta.normalize()
+            } else {
+                Vec3::Z
+            }
+        };
+        let up = calc_vert_vec(axis);
+        let seed = fractal.rng.next_u32();
         for index in 0..=segments {
+            if index == 0 || index == segments {
+                fractal.offsets.push(Vec3::ZERO);
+                continue;
+            }
             let t = index as f32 / segments as f32;
-            let sample = fbm(
-                fractal.rng.next_u32(),
-                t * spec.wave_length.max(1e-3),
-                spec.noise_wave_length.max(1e-3),
+            let shape = fbm(
+                seed,
+                t * spec.noise_wave_length.max(1e-3),
+                spec.wave_length.max(1e-3),
                 spec.persistence,
                 spec.octaves.max(1) as usize,
                 spec.buffer_length,
             );
-            fractal.offsets.push(
-                Vec3::new(sample, sample * 0.5, sample * 0.25)
-                    * spec.noise_amplitude
-                    * context.scale,
+            let twist = fbm(
+                seed ^ 0x9e37_79b9,
+                t * spec.noise_wave_length.max(1e-3),
+                spec.wave_length.max(1e-3),
+                spec.persistence,
+                spec.octaves.max(1) as usize,
+                spec.buffer_length,
             );
+            // The first four keys of a 150 record (`BufLen`, `Amplitude`,
+            // `WaveLen`, `Persistence`, `OctaveNum`) belong to `m_NoiseCtrl`,
+            // which `Load` reads before the ribbon keys (`:421`), so the noise
+            // value already carries the *first* `Amplitude`; the second one is
+            // the ribbon's own displacement.
+            let amount =
+                lightning_filter(spec.filter, t, shape) * spec.noise_amplitude * spec.amplitude;
+            let offset = rotate_about(up, axis, twist * std::f32::consts::TAU)
+                * (amount * context.scale);
+            fractal.offsets.push(context.placement.transform_vector3(offset));
         }
     }
     if let Some(trail) = trail {
@@ -5985,38 +6087,36 @@ mod tests {
         )
     }
 
-    /// The three authored `Width` lines are `[end, midpoint, start]`, not
-    /// `[head, mid, tail]`. The client's strip builder interpolates
-    /// `Width[1] -> Width[0]` over the first half of the axis and
-    /// `Width[2] -> Width[0]` over the second (disassembly `0x709a58`..`0x709aeb`),
-    /// so a profile whose middle line is its widest draws a strip that pinches at
-    /// both ends. Reading only the first two lines — which is what the emitter
-    /// did before this was measured — loses the apex and 17.5% of the strip's
-    /// area across the corpus.
+    /// The three authored `Width` lines are `[start, end, midpoint]`, the order
+    /// `A3DGFXLightning::Load` reads them in, and the strip builder ramps
+    /// `Start -> Mid` over the first half and `Mid -> End` over the second. A
+    /// profile whose *third* line is its widest therefore pinches at both ends
+    /// and peaks in the middle, which is what the retail records look like
+    /// (`Width: 0, Width: 0, Width: 0.4` in `gfx/models/暗语者营地/暗语者营地.gfx`).
     #[test]
     fn a_three_point_width_profile_peaks_in_the_middle_of_the_strip() {
         let mut spec = gfx_file::Fractal::default();
-        spec.widths = vec![0.2, 1.0, 0.2];
+        spec.widths = vec![0.2, 0.2, 1.0];
         let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
-        assert!(near(spec.width_at(0.0), 0.2), "the first line is one end");
-        assert!(near(spec.width_at(1.0), 0.2), "the third line is the other");
+        assert!(near(spec.width_at(0.0), 0.2), "the first line is the start");
+        assert!(near(spec.width_at(1.0), 0.2), "the second line is the end");
         assert!(
             near(spec.width_at(0.5), 1.0),
-            "the second line is the midpoint"
+            "the third line is the midpoint"
         );
         assert!(
             near(spec.width_at(0.25), 0.6),
-            "first half ramps end -> midpoint"
+            "first half ramps start -> midpoint"
         );
         assert!(
             near(spec.width_at(0.75), 0.6),
-            "second half midpoint -> start"
+            "second half midpoint -> end"
         );
         // A single authored line repeats, which collapses to a constant strip;
         // 356 corpus fractals author one width and read the same either way.
         spec.widths = vec![0.4];
         assert!(near(spec.width_at(0.75), 0.4));
-        // Two lines interpolate end to start with no midpoint.
+        // Two lines interpolate start to end with no midpoint.
         spec.widths = vec![0.0, 2.0];
         assert!(near(spec.width_at(0.5), 1.0));
     }
@@ -6029,7 +6129,7 @@ mod tests {
     /// placements are installed in the world.
     #[test]
     fn a_fractal_with_coincident_ends_still_draws_its_tapers() {
-        let strip = fractal("0, 0, 0", "0, 0, 0", [0.0, 1.0, 0.0], [0.5, 1.0, 0.5]);
+        let strip = fractal("0, 0, 0", "0, 0, 0", [0.0, 0.0, 1.0], [0.5, 0.5, 1.0]);
         let mut player = build(&strip);
         step(&mut player, 16.);
         let quads = player.quads();
@@ -9960,4 +10060,56 @@ mod tests {
         StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
         Position: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\n\
         CtrlMethodCount: 0\r\n";
+
+    /// `A3DGFXLightning::BuildPath`/`FillVertexBuffer` displace a ribbon
+    /// **only** perpendicular to its own axis, by the *second* `Amplitude`, and
+    /// leave the two authored ends on `StartPos`/`EndPos`. The three helpers
+    /// that law rests on are pinned here.
+    #[test]
+    fn a_lightning_ribbon_is_displaced_perpendicular_to_its_own_axis() {
+        for axis in [Vec3::X, Vec3::Y, Vec3::Z, Vec3::new(1., 2., -3.).normalize()] {
+            let up = calc_vert_vec(axis);
+            assert!(
+                (up.length() - 1.).abs() < 1e-5,
+                "CalcVertVec must be unit length: {up:?}"
+            );
+            assert!(
+                up.dot(axis).abs() < 1e-5,
+                "CalcVertVec must be perpendicular to {axis:?}, got {up:?}"
+            );
+            // A full turn of the twist stays in that perpendicular plane, which
+            // is what keeps a ribbon from drifting out of it.
+            for step in 0..8 {
+                let angle = step as f32 * std::f32::consts::TAU / 8.;
+                let turned = rotate_about(up, axis, angle);
+                assert!(
+                    turned.dot(axis).abs() < 1e-4,
+                    "a twisted offset left the perpendicular plane: {turned:?}"
+                );
+                assert!(
+                    (turned.length() - 1.).abs() < 1e-4,
+                    "a twist must not change the length: {turned:?}"
+                );
+            }
+        }
+    }
+
+    /// The `filter` free function above `A3DGFXLightning::BuildPath`, verbatim:
+    /// `FT_TRIANGLE` ignores the noise value, `FT_RECTANGLE` passes it through,
+    /// `FT_SIN` is a half sine and `FT_TRAPEZIA` ramps the outer fifths.
+    #[test]
+    fn the_lightning_filter_matches_the_client_free_function() {
+        assert!((lightning_filter(0, 0.25, 0.9) - 0.5).abs() < 1e-6);
+        assert!((lightning_filter(0, 0.75, -0.9) - 0.5).abs() < 1e-6);
+        assert!((lightning_filter(1, 0.3, 0.4) - 0.4).abs() < 1e-6);
+        // `FT_SIN` at the quarter point is a half sine, so a full amplitude.
+        assert!((lightning_filter(2, 0.5, 0.4) - 0.4).abs() < 1e-6);
+        assert!((lightning_filter(2, 0.25, 1.0) - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-6);
+        assert!((lightning_filter(3, 0.1, 1.0) - 0.5).abs() < 1e-6);
+        assert!((lightning_filter(3, 0.5, 1.0) - 1.0).abs() < 1e-6);
+        assert!((lightning_filter(3, 0.9, 1.0) - 0.5).abs() < 1e-6);
+        // `fDist > 1` wraps, and a negative distance passes the value through.
+        assert!((lightning_filter(1, 1.25, 0.3) - 0.3).abs() < 1e-6);
+        assert!((lightning_filter(1, -0.5, 0.3) - 0.3).abs() < 1e-6);
+    }
 }

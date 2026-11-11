@@ -818,9 +818,9 @@ impl Fractal {
     }
 
     /// The authored alpha at fraction `t` of the strip, on the same three-point
-    /// profile and with the same `[end, midpoint, start]` order as
-    /// [`Fractal::width_at`]: the client reads `+0x2cc`/`+0x2d0`/`+0x2d4`,
-    /// which the loader fills from the three `Alpha` lines in file order.
+    /// profile and in the same `[start, end, midpoint]` file order as
+    /// [`Fractal::width_at`]: the loader fills `+0x2cc`/`+0x2d0`/`+0x2d4` from
+    /// the three `Alpha` lines in file order.
     pub fn alpha_at(&self, t: f32) -> f32 {
         profile_at(&self.alphas, t)
     }
@@ -828,20 +828,29 @@ impl Fractal {
 
 /// Sample a three-point authored profile.
 ///
-/// Order is `[end, midpoint, start]`. One value is constant, two interpolate
-/// end to start with no midpoint, three use the midpoint as the apex of a
-/// two-segment ramp.
+/// Order is the file's own: `[start, end, midpoint]`. `A3DGFXLightning::Load`
+/// reads the lines in exactly that order (`A3DGFXLightning.cpp:467-500`):
+///
+///     Width -> m_fWidthStart   // line 1
+///     Width -> m_fWidthEnd     // line 2
+///     ... (version >= 7) Alpha -> m_fAlphaStart, Alpha -> m_fAlphaEnd
+///     ... (version >= 35) Width -> m_fWidthMid, Alpha -> m_fAlphaMid   // line 3
+///
+/// and `FillVertexBuffer` ramps `Start -> Mid` over the first half of the path
+/// and `Mid -> End` over the second (`:888-903`). So the third line is the
+/// apex, not the second. One value is constant, two interpolate start to end
+/// with no midpoint.
 fn profile_at(values: &[f32], t: f32) -> f32 {
     let t = t.clamp(0., 1.);
     match values {
         [] => 0.,
         [only] => *only,
-        [end, start] => end + (start - end) * t,
-        [end, mid, start, ..] => {
+        [start, end] => start + (end - start) * t,
+        [start, end, mid, ..] => {
             if t <= 0.5 {
-                end + (mid - end) * (t / 0.5)
+                start + (mid - start) * (t / 0.5)
             } else {
-                mid + (start - mid) * ((t - 0.5) / 0.5)
+                mid + (end - mid) * ((t - 0.5) / 0.5)
             }
         }
     }
