@@ -174,13 +174,34 @@ pub struct EffectMesh {
     /// so a crystal that authors `WriteZ: 1` occludes the sheet behind it and
     /// every other model stays read-only.
     pub write_depth: bool,
+    /// The skin material this mesh draws with, or `None` when the mesh names no
+    /// material. `A3DGFXModel` hands the skin model a `LIGHTINFO` built form
+    /// `AfxGetLightparam()` and the skin shades itself from these coefficients,
+    /// so a mesh without them falls back to the flat element colour.
+    pub material: Option<MeshMaterial>,
 }
 
-/// A posed model vertex: position in world space and its authored UV.
+/// The three material coefficients a skin mesh shades with, straight out of the
+/// SKI. `A3DSkinModel::SetMaterialMethod(MTL_SCALED)` multiplies them by the
+/// element's diffuse before they reach the vertex shader (`model_material`),
+/// which is why they travel unmodified and the quad's colour does the scaling.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MeshMaterial {
+    pub ambient: [f32; 4],
+    pub diffuse: [f32; 4],
+    pub emissive: [f32; 4],
+}
+
+/// A posed model vertex: position in world space, its authored UV and its
+/// shaded normal. `model_light::vertex_light` needs the normal to build the
+/// directional Lambert term `A3DSkinModel` applies, so it has to survive the
+/// pose and the placement instead of being dropped with the rest of the skin
+/// vertex.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EffectVertex {
     pub position: [f32; 3],
     pub uv: [f32; 2],
+    pub normal: [f32; 3],
 }
 
 /// Camera basis handed to the player so billboards face the viewer.
@@ -3639,9 +3660,19 @@ fn emit_model(
                 let position = context
                     .placement
                     .transform_point3(Vec3::from_array(vertex.position));
+                // The placement carries the keypoint scale, which is uniform, so
+                // transforming the normal as a vector and renormalising is the
+                // client's `matScale * tran * parent` applied to it. A zero
+                // normal (`model_asset` writes one for a rigid vertex with no
+                // authored normal) stays zero and keeps the flat element colour.
+                let normal = context
+                    .placement
+                    .transform_vector3(Vec3::from_array(vertex.normal))
+                    .normalize_or_zero();
                 EffectVertex {
                     position: position.to_array(),
                     uv: vertex.uv,
+                    normal: normal.to_array(),
                 }
             })
             .filter(|vertex| vertex.position.iter().all(|value| value.is_finite()))
@@ -3663,6 +3694,7 @@ fn emit_model(
                 texture: mesh.texture.clone(),
                 vertices: placed,
                 write_depth,
+                material: mesh.material,
             }),
         });
     }
@@ -3774,16 +3806,27 @@ fn posed_model_meshes(
             vertices.push(EffectVertex {
                 position: vertex.position,
                 uv: source.uv,
+                normal: vertex.normal,
             });
         }
         if vertices.len() >= 3 {
             // `WriteZ` belongs to the element that draws the mesh, not to the
             // load-time pose, so it is filled in when `emit_model` wraps these
-            // vertices into quads.
+            // vertices into quads. The material, by contrast, belongs to the
+            // skin and is fixed here: `A3DSkinModel` shades with the mesh's own
+            // coefficients, scaled by the element diffuse at draw time.
             meshes.push(EffectMesh {
                 texture,
                 vertices,
                 write_depth: false,
+                material: usize::try_from(mesh.material)
+                    .ok()
+                    .and_then(|index| skin.data.materials.get(index))
+                    .map(|material| MeshMaterial {
+                        ambient: material.ambient,
+                        diffuse: material.diffuse,
+                        emissive: material.emissive,
+                    }),
             });
         }
     }

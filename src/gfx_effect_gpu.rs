@@ -27,7 +27,29 @@ use wgpu::util::DeviceExt;
 struct Vertex {
     position: [f32; 3],
     uv: [f32; 2],
-    color: [f32; 4],
+    /// The shaded colour. For a quad this is the element colour; for a skin mesh
+    /// it is the lighting constant `c7` — `material ambient * environment
+    /// ambient + emissive + extra ambient` — because `A3DGFXModel` spends the
+    /// element diffuse on the *material*, not on a vertex tint.
+    lit: [f32; 4],
+    /// `c8`, the directional diffuse constant: `material diffuse * light
+    /// diffuse`, scaled by the Lambert term in the shader. Zero for a quad.
+    directional: [f32; 4],
+    /// World-space normal for a skin mesh, zero for a quad.
+    normal: [f32; 3],
+}
+
+/// The light an element-160 mesh is shaded with, in the client's own terms.
+///
+/// `A3DGFXModel::UpdateModel` builds an `A3DSkinModel::LIGHTINFO` from
+/// `AfxGetLightparam()`: device ambient, the directional light's direction and
+/// its diffuse and specular colours, with `bPtLight = false` — a model never
+/// takes the dynamic point light. The same `LIGHTINFO` reaches both a scenery
+/// skin model and an effect model, because they are the same class.
+#[derive(Clone, Copy, Debug)]
+pub struct EffectLight {
+    pub lighting: crate::model_material::Lighting,
+    pub direction: [f32; 3],
 }
 
 #[repr(C)]
@@ -40,6 +62,10 @@ struct Params {
     /// so the shader does not read this field; it is uploaded because the
     /// client's GFX constants carry the eye position alongside the matrix.
     camera: [f32; 4],
+    /// `xyz` is the directional light's direction, the `vLightDir` of the
+    /// model's `LIGHTINFO`. Quads ignore it; a skin mesh needs it for the
+    /// Lambert term its material constants are multiplied by.
+    light: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -125,6 +151,46 @@ fn blend_factor(code: u32) -> Result<wgpu::BlendFactor, String> {
         model_queue::Factor::DestColor => wgpu::BlendFactor::Dst,
         model_queue::Factor::InvDestColor => wgpu::BlendFactor::OneMinusDst,
     })
+}
+
+/// The material constants one element-160 mesh draws with, in `A3DSkinModel`'s
+/// own arithmetic.
+///
+/// `A3DGFXModel::UpdateModel` spends the element diffuse — keypoint colour times
+/// the root's actual alpha — on the *material*: when its RGB is not white it
+/// switches the skin model to `MTL_SCALED` and multiplies each material colour by
+/// `diffuse.rgb / 255`, clamped; when its alpha is not 255 it passes
+/// `m_fTransparent = 1 - a/255` instead. `model_material::bind` then produces
+/// `c7` (ambient) and `c8` (directional diffuse) from the scaled material and the
+/// frame's light. A mesh with no material keeps the element colour and takes no
+/// light, which is the flat look the pass had before this.
+fn shade(
+    mesh: &crate::gfx_player::EffectMesh,
+    color: [f32; 4],
+    light: Option<EffectLight>,
+) -> ([f32; 4], [f32; 4]) {
+    let (Some(material), Some(light)) = (mesh.material, light) else {
+        return (color, [0.; 4]);
+    };
+    let scale = [color[0], color[1], color[2], 1.];
+    let mut lighting = light.lighting;
+    // `A3DGFXModel` sets `bPtLight = false` in every `LIGHTINFO` it builds, so a
+    // model element never takes the dynamic point light.
+    lighting.point_enabled = false;
+    // The client's `_white_alpha` test: an alpha of 255 leaves the material
+    // alpha alone (`m_fTransparent` stays -1), anything else overrides `c8.a`.
+    lighting.transparency = if color[3] < 1. {
+        1. - color[3]
+    } else {
+        -1.
+    };
+    let scaled = crate::model_material::Material {
+        ambient: crate::model_material::scale_rgba(material.ambient, scale),
+        diffuse: crate::model_material::scale_rgba(material.diffuse, scale),
+        emissive: crate::model_material::scale_rgba(material.emissive, scale),
+    };
+    let constants = crate::model_material::bind(scaled, lighting);
+    (constants.ambient, constants.directional_diffuse)
 }
 
 impl Draw {
@@ -293,6 +359,7 @@ impl Draw {
         matrix: [[f32; 4]; 4],
         clip_plane: [f32; 4],
         camera: [f32; 4],
+        light: Option<EffectLight>,
         read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<(), String> {
         if matrix
@@ -304,6 +371,10 @@ impl Draw {
         {
             return Err("non-finite GFX effect frame constants".into());
         }
+        let direction = light.map_or([0.; 3], |light| light.direction);
+        if direction.iter().any(|value| !value.is_finite()) {
+            return Err("non-finite GFX effect light direction".into());
+        }
         queue.write_buffer(
             &self.uniform,
             0,
@@ -311,6 +382,7 @@ impl Draw {
                 matrix,
                 clip_plane,
                 camera,
+                light: [direction[0], direction[1], direction[2], 0.],
             }),
         );
 
@@ -339,25 +411,31 @@ impl Draw {
                 }
             };
             let vertices = &mut groups[position].1;
-            let color = quad.color;
             if let Some(mesh) = &quad.mesh {
                 // A model element arrives as a triangle soup already in world
                 // space, so it needs no corner expansion and no winding order.
+                let (lit, directional) = shade(mesh, quad.color, light);
                 for vertex in &mesh.vertices {
                     vertices.push(Vertex {
                         position: vertex.position,
                         uv: vertex.uv,
-                        color,
+                        lit,
+                        directional,
+                        normal: vertex.normal,
                     });
                 }
                 continue;
             }
-            // Two triangles per quad, in the client's corner order.
+            // Two triangles per quad, in the client's corner order. A quad is
+            // not lit: `A3DGFXRenderSlot` draws it with lighting off, exactly as
+            // the element's colour says.
             for slot in [0usize, 1, 3, 0, 3, 2] {
                 vertices.push(Vertex {
                     position: quad.positions[slot],
                     uv: quad.uv[slot],
-                    color,
+                    lit: quad.color,
+                    directional: [0.; 4],
+                    normal: [0.; 3],
                 });
             }
         }
@@ -507,7 +585,12 @@ impl Draw {
             dst_factor: blend_factor(key.destination)?,
             operation: wgpu::BlendOperation::Add,
         };
-        let attributes = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x2,2=>Float32x4];
+        // position, uv, lit, directional, normal: a quad leaves the last three
+        // at zero, a skin mesh fills them from its material and its pose.
+        let attributes = wgpu::vertex_attr_array![
+            0=>Float32x3,1=>Float32x2,2=>Float32x4,
+            3=>Float32x4,4=>Float32x3
+        ];
         let buffers = [wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
@@ -561,14 +644,16 @@ impl Draw {
 }
 
 const WGSL: &str = r#"
-struct Params { matrix:mat4x4<f32>, clip_plane:vec4<f32>, camera:vec4<f32> };
+struct Params { matrix:mat4x4<f32>, clip_plane:vec4<f32>, camera:vec4<f32>, light:vec4<f32> };
 @group(0) @binding(0) var<uniform> p:Params;
 @group(0) @binding(1) var image:texture_2d<f32>;
 @group(0) @binding(2) var image_sampler:sampler;
 struct Input {
  @location(0) position:vec3<f32>,
  @location(1) uv:vec2<f32>,
- @location(2) color:vec4<f32>,
+ @location(2) lit:vec4<f32>,
+ @location(3) directional:vec4<f32>,
+ @location(4) normal:vec3<f32>,
 };
 struct Output {
  @builtin(position) position:vec4<f32>,
@@ -581,7 +666,14 @@ struct Output {
  o.position=p.matrix*vec4<f32>(v.position,1.);
  o.world=v.position;
  o.uv=v.uv;
- o.color=v.color;
+ // `model_light::vertex_light`: the shading sum is ambient plus the directional
+ // term times the clamped Lambert, then clamped to one per channel. A quad
+ // carries a zero normal and a zero directional constant, so this reduces to its
+ // element colour and the pass keeps drawing it unlit.
+ let nl=length(v.normal);
+ let n=select(vec3<f32>(0.),v.normal/max(nl,0.000001),nl>0.000001);
+ let lambert=max(dot(n,-p.light.xyz),0.);
+ o.color=min(v.lit+v.directional*lambert,vec4<f32>(1.));
  return o;
 }
 @fragment fn fs(v:Output)->@location(0) vec4<f32> {
@@ -613,6 +705,55 @@ mod tests {
             uv: [[0., 0.], [1., 0.], [0., 1.], [1., 1.]],
             color,
             mesh: None,
+        }
+    }
+
+    /// A single screen-covering triangle of an element-160 mesh, shaded with
+    /// `material` and the given world normal.
+    fn mesh_quad(material: crate::gfx_player::MeshMaterial, normal: [f32; 3]) -> EffectQuad {
+        let vertex = |position: [f32; 3]| crate::gfx_player::EffectVertex {
+            position,
+            uv: [0., 0.],
+            normal,
+        };
+        EffectQuad {
+            texture: "a.png".into(),
+            source_blend: 5,
+            destination_blend: 2,
+            depth_test: false,
+            layer: 0,
+            priority: 0,
+            positions: [[0.; 3]; 4],
+            uv: [[0.; 2]; 4],
+            color: [1.; 4],
+            mesh: Some(crate::gfx_player::EffectMesh {
+                texture: "a.png".into(),
+                vertices: vec![
+                    vertex([-1., -1., 0.]),
+                    vertex([3., -1., 0.]),
+                    vertex([-1., 3., 0.]),
+                ],
+                write_depth: false,
+                material: Some(material),
+            }),
+        }
+    }
+
+    /// The source's own lighting, plus point-light colours that must be ignored:
+    /// `A3DGFXModel::UpdateModel` fills `LIGHTINFO` with `bPtLight = false` for
+    /// every model it builds, so no model element takes the dynamic point light.
+    fn effect_light() -> EffectLight {
+        EffectLight {
+            lighting: crate::model_material::Lighting {
+                environment_ambient: [0.; 4],
+                additional_ambient: [0.; 4],
+                directional_diffuse: [1.; 4],
+                point_ambient: [1.; 4],
+                point_diffuse: [1.; 4],
+                transparency: -1.,
+                point_enabled: true,
+            },
+            direction: [0., 0., -1.],
         }
     }
 
@@ -685,6 +826,7 @@ mod tests {
         harness: &Harness,
         background: f64,
         quads: &[EffectQuad],
+        light: Option<EffectLight>,
     ) -> [f32; 4] {
         let png = grey_png();
         let mut read = |_: &str| Ok(png.clone());
@@ -695,6 +837,7 @@ mod tests {
             glam::Mat4::IDENTITY.to_cols_array_2d(),
             [0.; 4],
             [0., 0., 0., 100.],
+            light,
             &mut read,
         )
         .unwrap();
@@ -786,6 +929,7 @@ mod tests {
             &harness,
             0.25,
             &[quad("a.png", 5, 2, 0, false, [1., 1., 1., 1.])],
+            None,
         );
         assert!(
             (additive[0] - 0.5).abs() <= 0.02,
@@ -799,6 +943,7 @@ mod tests {
             &harness,
             0.25,
             &[quad("a.png", 5, 6, 0, false, [1., 1., 1., 0.5])],
+            None,
         );
         assert!(
             (alpha[0] - 0.625).abs() <= 0.02,
@@ -821,6 +966,7 @@ mod tests {
             glam::Mat4::IDENTITY.to_cols_array_2d(),
             [0.; 4],
             [0., 0., 0., 100.],
+            None,
             &mut read,
         )
         .unwrap();
@@ -833,6 +979,65 @@ mod tests {
         assert_eq!(draw.order[2].1, 12);
         // The second frame reused the cached buffers and grew nothing.
         assert!(draw.buckets.values().all(|bucket| bucket.capacity >= 12));
+    }
+
+    /// Element 160 draws through `A3DSkinModel`, so its vertex colour is the
+    /// lighting sum `A3DGFXModel` feeds it — `c7 + c8 * lambert`, clamped — and
+    /// the element diffuse scales the *material*, not a tint. With a material
+    /// ambient of zero and a directional diffuse of one, a facet turned towards
+    /// the light renders at the texture's brightness and the same facet turned
+    /// away renders black; the pass used to paint both with the flat element
+    /// colour. The point-light colours in the fixture prove `bPtLight = false`
+    /// is honoured: were they used, the away-facing facet could not be black.
+    #[test]
+    fn gpu_effect_shades_a_model_mesh_against_the_directional_light() {
+        let Some(harness) = harness() else {
+            eprintln!("effect shading test skipped: no WGPU adapter");
+            return;
+        };
+        let mut draw = Draw::new(
+            &harness.device,
+            &harness.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+            None,
+        )
+        .unwrap();
+        let material = crate::gfx_player::MeshMaterial {
+            ambient: [0.; 4],
+            diffuse: [1.; 4],
+            emissive: [0.; 4],
+        };
+        // Grey 64/255 = 0.25 of texture times a full Lambert, over black.
+        let facing = render(
+            &mut draw,
+            &harness,
+            0.,
+            &[mesh_quad(material, [0., 0., 1.])],
+            Some(effect_light()),
+        );
+        assert!(
+            (facing[0] - 0.25).abs() <= 0.02,
+            "lit facet mismatch: {facing:?}"
+        );
+        let away = render(
+            &mut draw,
+            &harness,
+            0.,
+            &[mesh_quad(material, [0., 0., -1.])],
+            Some(effect_light()),
+        );
+        assert!(away[0] <= 0.02, "unlit facet must be black: {away:?}");
+        // A mesh with no material keeps the flat element colour, and a quad is
+        // never shaded: both still render the texture times that colour.
+        let mut flat = mesh_quad(material, [0., 0., -1.]);
+        if let Some(mesh) = &mut flat.mesh {
+            mesh.material = None;
+        }
+        let flat = render(&mut draw, &harness, 0., &[flat], Some(effect_light()));
+        assert!(
+            (flat[0] - 0.25).abs() <= 0.02,
+            "a material-less mesh keeps its flat colour: {flat:?}"
+        );
     }
 
     #[test]
@@ -869,6 +1074,7 @@ mod tests {
             glam::Mat4::IDENTITY.to_cols_array_2d(),
             [0., 0., 0., 1.],
             [0., 0., 0., 100.],
+            None,
             &mut read,
         )
         .unwrap();
@@ -886,6 +1092,7 @@ mod tests {
                 [[f32::NAN; 4]; 4],
                 [0., 0., 0., 1.],
                 [0., 0., 0., 100.],
+                None,
                 &mut read,
             )
             .unwrap_err();
@@ -915,6 +1122,7 @@ mod tests {
             projection,
             [0.; 4],
             [0.; 4],
+            None,
             &mut read,
         )
         .unwrap();
@@ -929,6 +1137,7 @@ mod tests {
             projection,
             [0.; 4],
             [0.; 4],
+            None,
             &mut read,
         )
         .unwrap();
@@ -943,6 +1152,7 @@ mod tests {
             projection,
             [0.; 4],
             [0.; 4],
+            None,
             &mut read,
         )
         .unwrap();

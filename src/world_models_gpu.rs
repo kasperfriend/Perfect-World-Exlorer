@@ -807,6 +807,14 @@ impl World {
         let Some(draw) = effects.as_mut() else {
             return;
         };
+        // Element 160 is the same `A3DSkinModel` a scenery model is, so it takes
+        // the same `LIGHTINFO`: this frame's ambient and directional colour, and
+        // its direction. `bPtLight` is forced off inside the pass, as
+        // `A3DGFXModel::UpdateModel` does for every model it builds.
+        let light = gfx_effect_gpu::EffectLight {
+            lighting: frame.lighting,
+            direction: frame.direction,
+        };
         if let Err(error) = draw.update(
             device,
             queue,
@@ -814,6 +822,7 @@ impl World {
             frame.matrix,
             frame.clip_plane,
             [view.position.x, view.position.y, view.position.z, 0.],
+            Some(light),
             &mut **read,
         ) {
             reported.push(format!("world effects: {error}"));
