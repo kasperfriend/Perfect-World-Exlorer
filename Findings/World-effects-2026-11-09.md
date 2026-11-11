@@ -2389,3 +2389,135 @@ does not model, so it keeps the colour the element authored.
   playing an action means re-posing per frame against each element's own clock,
   with a cache in front of the asset load. Recorded here with that plan rather
   than half-built.
+
+## 33. Element-160 actions: the census, the loop rule, and the clock that was missing
+
+§31 left `ModelActName` + `Loops` as the last unimplemented model feature, with a
+note that it should only be built if the shipped models actually carry actions.
+They do, and this is the count that decides it.
+
+**Census of the 447 element-160 blocks in the retail `gfx.pck`** (every `^Key:
+value$` line before `StartTime`, resolved against the `.SMD` each block names
+under `gfx/models/`):
+
+| measurement | count |
+| --- | --- |
+| blocks naming an action (`ModelActName` non-empty) | 245 |
+| blocks leaving it empty | 202 |
+| `Loops: 1` / `-1` / absent | 269 / 175 / 3 |
+| model has **no** action list at all | 171 |
+| model has actions, and the named one is among them | **234** |
+| model has actions, but not the named one | 2 |
+| model has actions, block names none | 9 |
+| block has no `ModelPath` / the `.SMD` is not in the pack | 6 / 27 |
+
+So 234 blocks draw a rig whose action really exists: an animated effect model is
+the normal case, not an edge case, and the earlier "if most do not, downgrade the
+item" test comes out the other way. The 171 action-less models are genuinely
+static props.
+
+This also **supersedes the `Loops` row of §31**, which listed `1`: 72, `-1`: 174,
+absent: 201. The 201 there is the `WriteZ`-absent column; the real split is 269 / 175
+/ 3, and 269 is consistent with the constructor default of 1 plus the authored
+ones. §31's other rows re-measure identically (`WriteZ` 115/131/201, `AlphaCmp`
+1: 9, `ModelActName` named 245 / empty 202).
+
+**The client's rule, line by line.** `A3DGFXModel::UpdateModel` starts the action
+exactly once per `Play()`:
+
+* `A3DGFXModel.cpp:239-240` — `if (!m_strActName.IsEmpty())
+  pSkinModel->PlayActionByNameDC(m_strActName, m_nLoops, 0);`, inside the
+  `if (!m_bStart)` block that also resets `m_iMatMethod`, `m_MatScale` and
+  `m_fTransparent`.
+* `A3DGFXModel.cpp:314-330` — `A3DGFXModel::Play()` ends with `m_bStart = false;`,
+  so a restarted root replays the action from its first frame.
+* `A3DGFXModel.cpp:285` and `:346` — `pSkinModel->Update(m_dwTickTime)`, where
+  `m_dwTickTime` is the element's own scaled tick delta.
+
+The loop counter is `A3DSkinModelAction`'s:
+
+* `A3DSkinModelAct.cpp:517` — `if (!pChannel || !iNumLoop || ...) return;`: a zero
+  loop count plays nothing at all.
+* `A3DSkinModelAct.cpp:532-533` — `m_iLoopTime = iNumLoop; m_iLoopCnt = iNumLoop;`.
+* `A3DSkinModelAct.cpp:565-567` — `m_fDeltaTime += 1.0f * iDeltaTime;
+  iDeltaTime = (int)m_fDeltaTime; m_fDeltaTime -= (float)iDeltaTime;`. The
+  sub-millisecond remainder is kept across ticks, unlike `CECModel::Tick`.
+* `A3DSkinModelAct.cpp:588-596` — each wrap decrements `m_iLoopCnt`, and when it
+  reaches zero the action sets `m_bStopNextTick` and clamps
+  `dwAbsTime = GetEndTime()`: the last frame is held, not looped again.
+* `A3DSkinModelAct.cpp:602-606` — with `m_iLoopCnt < 0` a zero-length action
+  breaks out immediately; `-1` never counts down.
+
+**What the viewer does now.** `gfx_player::ModelInstance` owns one rig pointer,
+the drawn topology (texture, triangle-soup order with bind-pose UVs, material),
+the bind pose, and a `model_playback::Playback` built by the new
+`Playback::from_action` with the element's `Loops`. `frame()` advances the clip by
+the element's scaled delta with the client's fractional carry and re-poses only
+when the clip moved; a model with no resolvable action keeps the bind pose and
+never deforms. A rig that cannot be sampled falls back to the bind pose once with
+a diagnostic, which is the client's `BindTrackSet()` failure path.
+
+The structural pieces §32 predicted are all here: a per-element clock, per-frame
+re-posing, and a cache in front of the asset load. `load_models` parses each
+`.SMD`/`.BON`/`.SKI` once per root tree (113 distinct models behind 447 blocks),
+and `ModelAsset::load_static_smd_with` keeps the `.SMD`'s action list and track
+sets that `load_static_skins_with` still drops for `CECFace`. `Player::reset`
+restarts every clip, mirroring `A3DGFXModel::Play`'s `m_bStart = false`.
+
+The old justification in this file — "the skins are rigid, so the bind pose is the
+only pose they need" — was wrong and is corrected in the code comment: a rigid
+skin binds each vertex to 0 or 1 bones, and the *bones* still move. 234 blocks
+show the difference.
+
+## 34. `AlphaCmp` only toggles the device alpha test; its comparison is never written
+
+`A3DSkinRender.cpp:1746` is the whole use of the flag:
+
+```
+if( pModel->GetAlphaCompFlag() )
+    m_pA3DDevice->SetAlphaTestEnable(true);
+```
+
+`A3DDevice::SetAlphaTestEnable` (`A3DDevice.cpp:981-987`) writes
+`D3DRS_ALPHATESTENABLE` and nothing else. The matching setters exist —
+`SetAlphaFunction` at `A3DDevice.cpp:999-1002` (`D3DRS_ALPHAFUNC`) and
+`SetAlphaRef` at `:1013-1018` (`D3DRS_ALPHAREF`) — but no caller on the model path
+uses them, and `A3DSkinRenderWithEffect.cpp:1743` has even the enable commented
+out. Nine shipped element-160 blocks author `AlphaCmp: 1`.
+
+So the comparison function and reference are whatever the device defaults to, and
+this corpus does not state them. Emitting a viewer-side `discard` threshold now
+would be an invented constant, so the key stays parsed and unread. To implement
+it later, the D3D8 defaults for `D3DRS_ALPHAFUNC` / `D3DRS_ALPHAREF` must be
+established from a device reference rather than guessed.
+
+## 35. Quad fog: `m_enumFogFlag` is recovered, and quads are fogged after all
+
+§32 said a quad stays unfogged "because `m_enumFogFlag` is still unmodelled". The
+flag is now read out of `A3DGFXRenderSlot.cpp`, and it says the opposite:
+
+* `A3DGFXRenderSlot.cpp:341` — every new slot gets `m_enumFogFlag = GFX_FOG_CURRENT`.
+* `A3DGFXRenderSlot.cpp:349-352` — only an *additive* slot is downgraded:
+  `if (sh.DestBlend == A3DBLEND_ONE) { ... m_enumFogFlag = GFX_FOG_ZERO; }`.
+* `A3DGFXRenderSlot.cpp:565-573` (`PreRender`, the quad path) and `:774-782`
+  (`RenderSkinModel`) do the same thing with it: `SetFogEnable(m_bCurFogEnabled)`,
+  and when fog is enabled `SetFogColor(m_clCurFog)` for `GFX_FOG_CURRENT` versus
+  `SetFogColor(0)` for `GFX_FOG_ZERO`.
+
+Fog is therefore **on for every slot whenever the device's current fog is on**;
+the flag selects the colour it fades to, not whether it fades. An additive sheet
+fades to black, everything else to the current fog colour. The viewer leaves the
+per-vertex fog weight at zero for every quad, which is wrong in both directions.
+
+This is not implemented in this commit, and the reason is verification rather than
+the rule: on this machine the effect pass's raster tests return the cleared
+backbuffer for every draw. Three of them (`gpu_effect_batches_honour_blend_mode_layer_and_depth_test`,
+`gpu_effect_fogs_a_model_mesh_but_not_a_quad`,
+`gpu_effect_rejects_non_unorm_targets_and_reports_missing_textures`) fail
+identically at `64e947b` with the working tree stashed, so the harness, not this
+change, is what is broken locally, and a shader edit could not be measured at all.
+The plan once that harness renders again: give `Vertex::fog` a third state
+(`2.0` = fade to black) chosen from the authored `DestBlend == 1`, keep `1.0` for
+meshes and every other quad, and let the fragment stage `select` between
+`fog_color.rgb` and zero. The §32 assertion that "a quad must ignore the model
+fog" then has to be replaced by that law.

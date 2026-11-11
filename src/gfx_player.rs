@@ -158,8 +158,9 @@ pub struct EffectQuad {
 /// One drawable piece of a model element, posed into world space.
 ///
 /// Element 160 names `.SMD`/`.SKI` models from the effect archive. Those are
-/// rigid — 0 or 1 bones per shipped skin — so the bind pose is the only pose
-/// they need, and the result is a triangle list with per-vertex UV. It does not
+/// rigidly bound — 0 or 1 bones per shipped vertex — which limits how a vertex
+/// deforms but not whether it moves: the bones are animated by the action the
+/// element names. The result is a triangle list with per-vertex UV. It does not
 /// fit `EffectQuad`'s four corners, so it travels beside them and the GPU pass
 /// draws it with a triangle-list pipeline instead of the quad one.
 #[derive(Clone, Debug, PartialEq)]
@@ -202,6 +203,187 @@ pub struct EffectVertex {
     pub position: [f32; 3],
     pub uv: [f32; 2],
     pub normal: [f32; 3],
+}
+
+/// One element-160 model and the clock its action runs on.
+///
+/// The client loads the `.SMD`/`.BON`/`.SKI` rig once, then plays the action the
+/// element names: `A3DGFXModel::UpdateModel` calls
+/// `pSkinModel->PlayActionByNameDC(m_strActName, m_nLoops, 0)` on the first tick
+/// after `Play()`, and `pSkinModel->Update(m_dwTickTime)` on every tick after
+/// that. A model that names no action — 171 of the 447 shipped element-160
+/// blocks, whose models carry no action list at all — is drawn in the bind pose,
+/// exactly as before.
+pub struct ModelInstance {
+    /// The parsed rig, shared by every element that names the same `.SMD`: the
+    /// 447 shipped blocks name 113 distinct models.
+    asset: Option<std::sync::Arc<crate::model_asset::ModelAsset>>,
+    /// The drawn meshes' fixed data: texture, triangle-soup order with the UV
+    /// each entry had at bind time, and the skin material.
+    topology: Vec<ModelMeshTopology>,
+    /// The bind pose, built once, and the fallback for any frame the clip cannot
+    /// pose for this skeleton.
+    bind: Vec<EffectMesh>,
+    /// `ModelActName` resolved against the model's own action list, carrying the
+    /// element's `Loops`. `None` for an unnamed action, `Loops: 0` (which
+    /// `A3DSkinModelAction::Play` refuses), or a name the model does not carry.
+    playback: Option<crate::model_playback::Playback>,
+    /// `A3DSkinModelAction::Update` keeps the sub-millisecond remainder:
+    /// `m_fDeltaTime += iDeltaTime; iDeltaTime = (int)m_fDeltaTime;
+    /// m_fDeltaTime -= iDeltaTime;`. The fraction therefore survives into the
+    /// next tick, unlike `CECModel::Tick`'s per-tick truncation.
+    carry_ms: f32,
+    /// The current frame, rebuilt only when the clip moved or `reset` ran.
+    posed: Vec<EffectMesh>,
+    dirty: bool,
+    /// A clip that cannot be sampled for this rig is reported once and the model
+    /// keeps its bind pose, which is what the client draws when `BindTrackSet`
+    /// fails and `PlayActionByName` returns without playing.
+    pose_error: bool,
+}
+
+/// One drawn piece of a model: the mesh it came from and the vertex order it is
+/// submitted in.
+struct ModelMeshTopology {
+    /// Index into `ModelAsset::meshes_from_pose`, which walks skins then meshes.
+    piece: usize,
+    texture: String,
+    /// `(skin vertex index, uv)` in drawn triangle order.
+    order: Vec<(u16, [f32; 2])>,
+    material: Option<MeshMaterial>,
+}
+
+impl ModelInstance {
+    fn empty() -> Self {
+        Self {
+            asset: None,
+            topology: Vec::new(),
+            bind: Vec::new(),
+            playback: None,
+            carry_ms: 0.,
+            posed: Vec::new(),
+            dirty: false,
+            pose_error: false,
+        }
+    }
+
+    /// The bind-pose meshes this element draws when it names no action, and the
+    /// frame it falls back to when a clip cannot be sampled.
+    pub fn meshes(&self) -> &[EffectMesh] {
+        &self.bind
+    }
+
+    /// The clip currently playing and its absolute track time, for the
+    /// diagnostics and the tests. `None` means the bind pose is what is drawn.
+    pub fn action(&self) -> Option<(usize, f32)> {
+        self.playback
+            .as_ref()
+            .and_then(|playback| playback.sample())
+    }
+
+    /// True once the authored loop budget has run out and the last frame is
+    /// being held.
+    pub fn action_stopped(&self) -> bool {
+        self.playback
+            .as_ref()
+            .is_some_and(|playback| playback.stopped())
+    }
+
+    /// `A3DGFXModel::Play` clears `m_bStart`, which makes the next tick replay
+    /// the action from its first frame.
+    fn reset(&mut self) {
+        self.carry_ms = 0.;
+        self.dirty = true;
+        self.posed.clear();
+        if let Some(playback) = &mut self.playback {
+            playback.restart();
+        }
+    }
+
+    /// Advance the clip by one frame's scaled delta and return the meshes to
+    /// draw. `dt_ms` is the element's tick delta, the same integer millisecond
+    /// delta `A3DSkinModel::Update` receives.
+    fn frame(&mut self, dt_ms: f32) -> &[EffectMesh] {
+        if self.playback.is_none() || self.pose_error {
+            return &self.bind;
+        }
+        self.carry_ms += dt_ms.max(0.);
+        let whole = self.carry_ms.floor().max(0.);
+        self.carry_ms -= whole;
+        if whole >= 1. {
+            if let Some(playback) = self.playback.as_mut() {
+                if playback.tick(whole as u32).is_ok() {
+                    self.dirty = true;
+                }
+            }
+        }
+        let Some((action, seconds)) = self.playback.as_ref().and_then(|p| p.sample()) else {
+            return &self.bind;
+        };
+        if !self.dirty {
+            return &self.posed;
+        }
+        let Some(asset) = self.asset.as_ref() else {
+            return &self.bind;
+        };
+        let pieces = match asset.pose_action_at_time(action, seconds, Mat4::IDENTITY) {
+            Ok(pieces) => pieces,
+            Err(error) => {
+                self.pose_error = true;
+                crate::diag!(
+                    EffectModels,
+                    "model action {action} at {seconds:.3}s would not pose: {error}"
+                );
+                return &self.bind;
+            }
+        };
+        self.posed = build_model_meshes(&self.topology, &pieces);
+        self.dirty = false;
+        &self.posed
+    }
+}
+
+/// Build one frame's triangle lists from the fixed topology and a pose.
+///
+/// `meshes_from_pose` returns one piece per skin mesh in a stable order, so the
+/// topology remembers which piece each drawn mesh came from; a piece that went
+/// missing would leave that mesh out rather than shift the rest.
+fn build_model_meshes(
+    topology: &[ModelMeshTopology],
+    pieces: &[crate::model_asset::PosedMesh],
+) -> Vec<EffectMesh> {
+    let mut meshes = Vec::with_capacity(topology.len());
+    for mesh in topology {
+        let Some(piece) = pieces.get(mesh.piece) else {
+            continue;
+        };
+        let vertices: Vec<EffectVertex> = mesh
+            .order
+            .iter()
+            .filter_map(|(index, uv)| {
+                let vertex = piece.vertices.get(*index as usize)?;
+                vertex
+                    .position
+                    .iter()
+                    .all(|value| value.is_finite())
+                    .then_some(EffectVertex {
+                        position: vertex.position,
+                        uv: *uv,
+                        normal: vertex.normal,
+                    })
+            })
+            .collect();
+        if vertices.len() < 3 {
+            continue;
+        }
+        meshes.push(EffectMesh {
+            texture: mesh.texture.clone(),
+            vertices,
+            write_depth: false,
+            material: mesh.material,
+        });
+    }
+    meshes
 }
 
 /// Camera basis handed to the player so billboards face the viewer.
@@ -1060,9 +1242,10 @@ pub struct Player {
     /// files that do not ship, so a missing child is a named warning and the rest
     /// of the root still plays rather than the whole effect being dropped.
     warnings: Vec<String>,
-    /// Effect-archive models named by element 160, already posed and turned into
-    /// triangle lists. Empty when the host supplied no model reader.
-    models: Vec<Vec<EffectMesh>>,
+    /// Effect-archive models named by element 160, each with the action clock
+    /// its `ModelActName`/`Loops` start. Empty when the host supplied no model
+    /// reader.
+    models: Vec<ModelInstance>,
     /// Archive path of the root, for the log lines. The player cannot read it out
     /// of `Root` because the text does not carry its own name, so the host hands
     /// it over; empty until then, and in tests.
@@ -1197,8 +1380,10 @@ impl Player {
         &self.warnings
     }
 
-    /// The posed meshes of this root's model elements, in element order.
-    pub fn models(&self) -> &[Vec<EffectMesh>] {
+    /// The model elements of this root, in element order. Each one exposes its
+    /// bind-pose meshes through [`ModelInstance::meshes`]; the frame it draws
+    /// additionally follows its action clock.
+    pub fn models(&self) -> &[ModelInstance] {
         &self.models
     }
 
@@ -1336,7 +1521,7 @@ impl Player {
     }
 
     /// Resolve every element-160 model in this root and its already-loaded
-    /// children into posed triangle lists, once, at load time.
+    /// children, and give each one the action clock its element asks for.
     ///
     /// The effect archive keeps models in the same package as the roots, and a
     /// model element names its `.SMD` relative to the GFX file's own folder
@@ -1345,11 +1530,14 @@ impl Player {
     /// directory, which is why the reader is called with those names joined to
     /// the SMD's parent rather than the archive root.
     ///
-    /// These models are static: measured across the 141 shipped `.SKI` files,
-    /// every skin is bound by 0 or 1 bones, so the bind pose is the only pose
-    /// the archive can express. A model whose skeleton carries a scale or
-    /// constraint controller is refused by `skeleton_pose` rather than drawn in
-    /// the wrong pose, and the refusal is reported once through `warnings`.
+    /// A skin is bound rigidly — 0 or 1 bones per vertex across the 141 shipped
+    /// `.SKI` files — but that does not make the model static: each vertex
+    /// follows its bone, and the bones themselves are driven by the action's
+    /// track set. The bind pose is only the still frame of a model that names no
+    /// action (171 of the 447 shipped element-160 blocks). A model whose
+    /// skeleton carries a scale or constraint controller is refused by
+    /// `skeleton_pose` rather than drawn in the wrong pose, and the refusal is
+    /// reported once through `warnings`.
     pub fn load_models(
         &mut self,
         root_path: &str,
@@ -1362,17 +1550,25 @@ impl Player {
         // name, and the join below tolerates a path that already starts there.
         let _ = root_path;
         let parent = "gfx/models";
-        self.collect_models(&mut models, &parent, read, 0);
+        // One parsed rig per `.SMD` for this load: the 447 shipped blocks name
+        // 113 distinct models and a root may name the same one twice, so the
+        // cache sits in front of the SMD/SKI/BON parse for the whole root tree.
+        let mut assets = std::collections::HashMap::new();
+        self.collect_models(&mut models, &parent, read, 0, &mut assets);
         self.models = models;
         Ok(())
     }
 
     fn collect_models(
         &mut self,
-        out: &mut Vec<Vec<EffectMesh>>,
+        out: &mut Vec<ModelInstance>,
         parent: &str,
         read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
         depth: usize,
+        assets: &mut std::collections::HashMap<
+            String,
+            std::sync::Arc<crate::model_asset::ModelAsset>,
+        >,
     ) {
         for (index, element) in self.root.elements.iter().enumerate() {
             let Spec::Model(model) = &element.spec else {
@@ -1383,14 +1579,22 @@ impl Player {
                 Err(_) => String::new(),
             };
             out.push(
-                match posed_model_meshes(&model.path, parent, &fallback, read) {
-                    Ok(meshes) => meshes,
+                match posed_model_meshes(
+                    &model.path,
+                    parent,
+                    &fallback,
+                    &model.action,
+                    model.loops,
+                    read,
+                    assets,
+                ) {
+                    Ok(instance) => instance,
                     Err(error) => {
                         let line = format!("element {index} model {}: {error}", model.path);
                         if !self.warnings.contains(&line) {
                             self.warnings.push(line);
                         }
-                        Vec::new()
+                        ModelInstance::empty()
                     }
                 },
             );
@@ -1402,7 +1606,9 @@ impl Player {
         }
         for element in &mut self.elements {
             if let Runtime::Child(child) = &mut element.runtime {
-                child.player.collect_models(out, parent, read, depth + 1);
+                child
+                    .player
+                    .collect_models(out, parent, read, depth + 1, assets);
             }
         }
     }
@@ -1463,6 +1669,12 @@ impl Player {
     pub fn reset(&mut self) {
         self.time = 0.;
         self.finished = false;
+        // `A3DGFXModel::Play` sets `m_bStart = false`, so the next
+        // `UpdateModel` replays `PlayActionByNameDC` from the action's first
+        // frame instead of continuing where the model stopped.
+        for model in &mut self.models {
+            model.reset();
+        }
         for element in &mut self.elements {
             element.seeded = -1;
             element.state = CtrlState::new();
@@ -1635,9 +1847,11 @@ impl Player {
                 .iter()
                 .filter(|element| matches!(element.spec, Spec::Model(_)))
                 .count();
-            let element_meshes: Vec<EffectMesh> = match self.root.elements[index].spec {
-                Spec::Model(_) => self.models.get(model_slot).cloned().unwrap_or_default(),
-                _ => Vec::new(),
+            // The instance owns this element's action clock, so the frame is
+            // posed per tick instead of once at load.
+            let model_instance = match self.root.elements[index].spec {
+                Spec::Model(_) => self.models.get_mut(model_slot),
+                _ => None,
             };
             let runtime = &mut self.elements[slot];
             let done = advance_element(
@@ -1655,7 +1869,7 @@ impl Player {
                 &mut rng,
                 &mut stats,
                 &mut out,
-                &element_meshes,
+                model_instance,
                 drape,
                 root_name,
             )?;
@@ -1814,9 +2028,10 @@ fn advance_element(
     rng: &mut Rng,
     stats: &mut Stats,
     out: &mut Vec<EffectQuad>,
-    // Models already posed at load time, in element order. Empty when the host
-    // supplied no model reader, in which case model elements keep counting.
-    meshes: &[EffectMesh],
+    // This element's model instance, when it is an element-160 record. It owns
+    // the action clock `PlayActionByNameDC` starts, so the frame is posed here
+    // rather than at load time.
+    mut model_instance: Option<&mut ModelInstance>,
     // The owner's surface, for the ground-draped sprite path. Copy, so every
     // element of the root can take its own.
     drape: Option<GroundSampler<'_>>,
@@ -1944,8 +2159,15 @@ fn advance_element(
     match &mut runtime.runtime {
         Runtime::Clock => {
             emit_clock(element, &context, face_to_viewer, stats, out, drape);
-            if let Spec::Model(model) = &element.spec {
-                emit_model(meshes, model.write_z, &context, out);
+            if let Spec::Model(spec) = &element.spec {
+                // `A3DGFXModel::UpdateModel` ticks the skin model with the
+                // element's own scaled delta, so the clip advances on the frames
+                // the element actually draws and the pose is sampled before the
+                // placement is applied.
+                let frame = model_instance
+                    .as_deref_mut()
+                    .map_or(&[][..], |instance| instance.frame(dt_s * 1000.));
+                emit_model(frame, spec.write_z, &context, out);
             }
         }
         Runtime::Particles(emitter) => {
@@ -3700,18 +3922,20 @@ fn emit_model(
     }
 }
 
-/// Load one element-160 model and return its posed meshes as triangle lists.
+/// Load one element-160 model and return the instance that draws it.
 ///
-/// This is the same chain the ECM path uses (`ModelAsset::load_static_skins_with`
-/// then `pose_bind`), driven by the three relative names a `.SMD` carries. It is
-/// deliberately static: the effect archive's skins are bound to 0 or 1 bones, so
-/// there is no animation to sample, and inventing one would be a guess.
+/// This is the same chain the ECM path uses (`load_static_smd_with` then
+/// `pose_bind`), driven by the three relative names a `.SMD` carries, and it now
+/// keeps the action list so the element's `ModelActName` has something to play.
 fn posed_model_meshes(
     path: &str,
     parent: &str,
     fallback_texture: &str,
+    action: &str,
+    loops: i32,
     read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
-) -> Result<Vec<EffectMesh>, String> {
+    assets: &mut std::collections::HashMap<String, std::sync::Arc<crate::model_asset::ModelAsset>>,
+) -> Result<ModelInstance, String> {
     // `ModelPath` already carries the model's own folder and is relative to the
     // archive's `gfx/models/` root, *not* to the GFX file that names it:
     // `gfx/场景/新种族地图/暗语者营地.gfx` authoring `暗语者营地\水晶.SMD`
@@ -3724,6 +3948,9 @@ fn posed_model_meshes(
     } else {
         format!("{parent}/{}", crate::ecmodel::normalize(path))
     };
+    if let Some(asset) = assets.get(&smd_path) {
+        return posed_model_instance(asset.clone(), fallback_texture, action, loops, read);
+    }
     let smd_bytes = read(&smd_path).map_err(|error| format!("{smd_path}: {error}"))?;
     let model = crate::ecmodel::parse_smd(&smd_bytes).map_err(|e| format!("{smd_path}: {e}"))?;
     // `skeleton` and `skins` are bare names relative to the SMD's own folder,
@@ -3742,13 +3969,30 @@ fn posed_model_meshes(
     };
     let skeleton_path = join(&model.skeleton);
     let skins: Vec<String> = model.skins.iter().map(|skin| join(skin)).collect();
-    let asset =
-        crate::model_asset::ModelAsset::load_static_skins_with(&skeleton_path, &skins, |name| {
-            read(name)
-        })?;
+    let asset = std::sync::Arc::new(crate::model_asset::ModelAsset::load_static_smd_with(
+        &smd_path,
+        model,
+        &skeleton_path,
+        &skins,
+        |name| read(name),
+    )?);
+    assets.insert(smd_path.clone(), asset.clone());
+    posed_model_instance(asset, fallback_texture, action, loops, read)
+}
+
+/// The part of [`posed_model_meshes`] a cached rig skips: bind pose, texture
+/// topology and the action clock.
+fn posed_model_instance(
+    asset: std::sync::Arc<crate::model_asset::ModelAsset>,
+    fallback_texture: &str,
+    action: &str,
+    loops: i32,
+    read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
+) -> Result<ModelInstance, String> {
     let posed = asset.pose_bind(Mat4::IDENTITY)?;
+    let mut topology = Vec::with_capacity(posed.len());
     let mut meshes = Vec::with_capacity(posed.len());
-    for piece in posed {
+    for (piece_index, piece) in posed.iter().enumerate() {
         let skin = asset
             .skins
             .get(piece.skin)
@@ -3792,6 +4036,37 @@ fn posed_model_meshes(
         } else {
             texture
         };
+        let material = usize::try_from(mesh.material)
+            .ok()
+            .and_then(|index| skin.data.materials.get(index))
+            .map(|material| MeshMaterial {
+                ambient: material.ambient,
+                diffuse: material.diffuse,
+                emissive: material.emissive,
+            });
+        // The drawn vertex order with each entry's bind-pose UV. An animated
+        // frame reuses it, so a pose cannot reorder or re-texture the mesh.
+        let order: Vec<(u16, [f32; 2])> = mesh
+            .indices
+            .iter()
+            .filter_map(|index| {
+                let vertex = piece.vertices.get(*index as usize)?;
+                let source = mesh.vertices.get(*index as usize)?;
+                vertex
+                    .position
+                    .iter()
+                    .all(|value| value.is_finite())
+                    .then_some((*index, source.uv))
+            })
+            .collect();
+        if order.len() >= 3 {
+            topology.push(ModelMeshTopology {
+                piece: piece_index,
+                texture: texture.clone(),
+                order,
+                material,
+            });
+        }
         let mut vertices = Vec::with_capacity(mesh.indices.len());
         for index in &mesh.indices {
             let Some(vertex) = piece.vertices.get(*index as usize) else {
@@ -3819,18 +4094,36 @@ fn posed_model_meshes(
                 texture,
                 vertices,
                 write_depth: false,
-                material: usize::try_from(mesh.material)
-                    .ok()
-                    .and_then(|index| skin.data.materials.get(index))
-                    .map(|material| MeshMaterial {
-                        ambient: material.ambient,
-                        diffuse: material.diffuse,
-                        emissive: material.emissive,
-                    }),
+                material,
             });
         }
     }
-    Ok(meshes)
+    // `A3DGFXModel::UpdateModel` starts the named action on its first tick:
+    // `pSkinModel->PlayActionByNameDC(m_strActName, m_nLoops, 0)`. `Loops: 0`
+    // makes `A3DSkinModelAction::Play` return at its `!iNumLoop` guard, so such
+    // a model keeps the bind pose it was loaded in.
+    let playback = if action.is_empty() || loops == 0 {
+        None
+    } else {
+        asset
+            .model
+            .actions
+            .iter()
+            .position(|clip| clip.name == action)
+            .and_then(|index| {
+                crate::model_playback::Playback::from_action(&asset, index, loops, 1.).ok()
+            })
+    };
+    Ok(ModelInstance {
+        asset: Some(asset),
+        topology,
+        bind: meshes,
+        playback,
+        carry_ms: 0.,
+        posed: Vec::new(),
+        dirty: false,
+        pose_error: false,
+    })
 }
 
 /// `A3DParaboloid::Build`'s three build constants (A3DParaboloid.cpp:20-24).
@@ -6664,6 +6957,51 @@ mod tests {
             player.quads().iter().any(|quad| quad.mesh.is_some()),
             "and the quad array carries it"
         );
+    }
+
+    /// The two gates `A3DSkinModelAction::Play` applies before anything moves:
+    /// the model must carry an action of that name (`GetAction` returns null
+    /// otherwise) and the loop count must be non-zero (`!iNumLoop` returns on
+    /// the first line). Either failure leaves the bind pose on screen, and no
+    /// clip is invented.
+    #[test]
+    fn a_model_action_starts_only_when_the_rig_carries_it() {
+        let archive = one_triangle_model();
+        let mut cache = std::collections::HashMap::new();
+        let mut read = |path: &str| -> Result<Vec<u8>, String> {
+            let name = crate::ecmodel::normalize(path);
+            archive
+                .iter()
+                .find(|(key, _)| *key == name)
+                .map(|(_, bytes)| bytes.clone())
+                .ok_or_else(|| format!("{name} is not in the test archive"))
+        };
+        let instance = posed_model_meshes(
+            "测试\\三角形.SMD",
+            "gfx/models",
+            "",
+            "飘浮",
+            1,
+            &mut read,
+            &mut cache,
+        )
+        .expect("the rig loads");
+        assert!(instance.action().is_none(), "the rig has no such action");
+        assert_eq!(instance.meshes().len(), 1, "the bind pose still draws");
+        // The same `.SMD` is parsed once per load, not once per element.
+        let again = posed_model_meshes(
+            "测试\\三角形.SMD",
+            "gfx/models",
+            "",
+            "",
+            1,
+            &mut read,
+            &mut cache,
+        )
+        .expect("the cached rig loads");
+        assert_eq!(cache.len(), 1, "the second element reused the rig");
+        assert!(again.action().is_none());
+        assert_eq!(again.meshes().len(), 1);
     }
 
     /// The smallest archive that goes through the whole model chain: an `.smd`
@@ -10751,15 +11089,15 @@ mod tests {
             "the root has two element-160 records, got {}",
             models.len()
         );
-        let meshes: usize = models.iter().map(|element| element.len()).sum();
+        let meshes: usize = models.iter().map(|element| element.meshes().len()).sum();
         let vertices: usize = models
             .iter()
-            .flatten()
+            .flat_map(|element| element.meshes())
             .map(|mesh| mesh.vertices.len())
             .sum();
         let textures: Vec<&str> = models
             .iter()
-            .flatten()
+            .flat_map(|element| element.meshes())
             .map(|mesh| mesh.texture.as_str())
             .collect();
         assert_eq!(
