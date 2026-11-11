@@ -4291,10 +4291,20 @@ fn spawn(
     let (offset, inward) = if particle.is_surface {
         match context.id {
             123 => {
+                // `A3DCylinderEmitter::GenSurface`: a point of the unit circle in
+                // XY with a symmetric Z, scaled componentwise by the ranges —
+                // `(cos, sin, z)`, not a sphere point.
+                (cylinder_sample(rng) * half, None)
+            }
+            124 => {
+                // `A3DEllipsoidEmitter::GenSurface` samples the unit sphere and
+                // then sets `m_vMoveDir = -v`. The ellipsoid is the class that
+                // emits inward; the cylinder leaves the direction to
+                // `GenDirection`, which `A3DCylinderEmitter::InitParticle` calls
+                // for both of its branches.
                 let sample = surface_direction(rng);
                 (sample * half, Some(-sample))
             }
-            124 => (cylinder_sample(rng) * half, None),
             121 => (box_surface_sample(rng, half), None),
             120 => {
                 // One draw, and the direction is the position: the client builds
@@ -4305,6 +4315,16 @@ fn spawn(
             }
             _ => (volume_offset(particle, rng, basis_scale), None),
         }
+    } else if context.id == 123 {
+        // `A3DCylinderEmitter::GenTotal` rejects until `x*x + y*y <= 1` and keeps
+        // a symmetric Z, so its volume is a cylinder; the shared ball sampler
+        // would spill particles outside the authored radius.
+        (cylinder_volume_sample(rng) * half, None)
+    } else if context.id == 124 {
+        // `A3DEllipsoidEmitter::GenTotal` never calls `GenDirection`, and the base
+        // `InitParticle` (`A3DParticleEmitter.h:145-155`) leaves `m_vMoveDir`
+        // alone: a volume ellipsoid emits particles that stay where they are born.
+        (volume_offset(particle, rng, basis_scale), Some(Vec3::ZERO))
     } else {
         (volume_offset(particle, rng, basis_scale), None)
     };
@@ -4502,6 +4522,20 @@ fn cylinder_sample(rng: &mut Rng) -> Vec3 {
     let tau = std::f32::consts::TAU;
     let turned = Quat::from_axis_angle(Vec3::Z, rng.unit() * tau) * Vec3::X;
     turned.with_z(rng.signed())
+}
+
+/// `A3DCylinderEmitter::GenTotal`: three symmetric draws per attempt, rejected
+/// until the XY pair lands inside the unit disc. `z` is drawn before the test in
+/// the client too, so the draw order is x, y, z per attempt.
+fn cylinder_volume_sample(rng: &mut Rng) -> Vec3 {
+    loop {
+        let x = rng.signed();
+        let y = rng.signed();
+        let z = rng.signed();
+        if x * x + y * y <= 1. {
+            return Vec3::new(x, y, z);
+        }
+    }
 }
 
 /// Id 120's surface direction, in the emitter's frame, from a single draw.
@@ -6941,11 +6975,16 @@ mod tests {
     /// multiplies a unit-ball sample by the result before adding the emitter
     /// position. A box of the same extents would put particles at its corners,
     /// where the ellipsoid inequality fails by a factor of three.
+    ///
+    /// Id 122 stands in for the shared path here: ids 123 and 124 override it
+    /// with a cylinder and an ellipsoid respectively (`A3DCylinderEmitter.cpp`
+    /// `GenTotal`, `A3DEllipsoidEmitter.cpp` `GenTotal`).
     #[test]
     fn area_size_spawns_inside_its_ellipsoid() {
         let view = view();
         let common = Common::default();
-        let context = spawn_context(&view, &common);
+        let mut context = spawn_context(&view, &common);
+        context.id = 122;
         let mut particle = Particle::default();
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
         let mut rng = Rng::new(31);
@@ -7143,17 +7182,26 @@ mod tests {
                 for _ in 0..8 {
                     let offset = spawn(particle, None, &mut rng, &context).position;
                     assert!(offset.is_finite(), "{} spawned {offset}", file.display());
-                    if particle.is_surface && element.id == 124 {
-                        // A cylinder sample reaches sqrt(2) half-extents, so the
-                        // ellipsoid inequality does not describe it: its cross
-                        // section sits on the ellipse and its height stays inside.
+                    if element.id == 123 {
+                        // `A3DCylinderEmitter` is a disc in XY plus a symmetric Z,
+                        // so it reaches sqrt(2) half-extents and the ellipsoid
+                        // inequality does not describe it: the cross-section sits
+                        // on the ellipse when the flag is set and inside it when it
+                        // is not, and the height always stays within `ZRange`.
                         if half.x != 0. && half.y != 0. {
                             let cross = (offset.x / half.x).powi(2) + (offset.y / half.y).powi(2);
                             assert!(
-                                (cross - 1.).abs() < 1e-3,
-                                "{}: {offset} is off the ellipse {half}",
+                                cross <= 1. + 1e-3,
+                                "{}: {offset} is outside the ellipse {half}",
                                 file.display()
                             );
+                            if particle.is_surface {
+                                assert!(
+                                    (cross - 1.).abs() < 1e-3,
+                                    "{}: {offset} is off the ellipse {half}",
+                                    file.display()
+                                );
+                            }
                         }
                         assert!(
                             offset.z.abs() <= half.z.abs() + 1e-6,
@@ -7183,16 +7231,17 @@ mod tests {
         assert!(reach > 0.9, "nothing reached the boundary: {reach}");
     }
 
-    /// Id 123's surface sampler `0x727f00` puts the particle *on* the ellipsoid
-    /// rather than inside it: the position is `D.x*basis0 + D.y*basis1 + D.z*basis2`
-    /// for a unit direction `D`, and the basis is the same `AreaSize * 0.5` the
-    /// volume path uses. Every sample therefore satisfies the ellipsoid equation
-    /// with equality, where the volume path satisfies it strictly.
+    /// `A3DEllipsoidEmitter::GenSurface` (id 124) puts the particle *on* the
+    /// ellipsoid rather than inside it: `v` is a unit sphere point and the
+    /// position is `v.x*XRange + v.y*YRange + v.z*ZRange`, so every sample
+    /// satisfies the ellipsoid equation with equality where the volume path
+    /// satisfies it strictly.
     #[test]
     fn surface_emission_lands_on_the_ellipsoid() {
         let view = view();
         let common = Common::default();
-        let context = spawn_context(&view, &common);
+        let mut context = spawn_context(&view, &common);
+        context.id = 124;
         let mut particle = Particle::default();
         particle.is_surface = true;
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
@@ -7214,31 +7263,91 @@ mod tests {
         );
     }
 
-    /// The surface sampler writes the negated sample to node+0x44 (`0x7281ad`
-    /// through `0x7281b3`, storing the vector built by the `fchs` chain at
-    /// `0x72816a`) and, unlike ids 121 and 124, the birth flow does not call the
-    /// direction slot afterwards. A cone angle authored on the element is
-    /// therefore ignored: the direction is exactly `-D`, anti-parallel to the
-    /// position measured in semi-axis units.
+    /// The two surface classes differ in both the sample and the direction:
+    ///
+    /// * `A3DCylinderEmitter::GenSurface` (123) samples `(cos, sin, z)` — a unit
+    ///   circle in XY with a symmetric Z — and `InitParticle` then calls
+    ///   `GenDirection` for both branches, so the direction is the emitter axis
+    ///   whatever the sample was.
+    /// * `A3DEllipsoidEmitter::GenSurface` (124) samples the unit sphere and
+    ///   writes `m_vMoveDir = -v`, and its `InitParticle` never calls
+    ///   `GenDirection`, so the direction is exactly `-D`.
     #[test]
-    fn surface_direction_is_the_negated_sample() {
+    fn a_cylinder_does_not_steer_by_its_sample_and_an_ellipsoid_negates_it() {
         let view = view();
         let common = Common::default();
-        let context = spawn_context(&view, &common);
+        let semi = Vec3::new(1., 0.5, 0.25);
         let mut particle = Particle::default();
         particle.is_surface = true;
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
-        // A wide cone, which would bend every direction if it were consulted.
+
+        let mut cylinder = spawn_context(&view, &common);
+        cylinder.id = 123;
+        let mut rng = Rng::new(43);
+        let first = spawn(&particle, None, &mut rng, &cylinder).direction;
+        for _ in 0..500 {
+            let state = spawn(&particle, None, &mut rng, &cylinder);
+            assert!(
+                (state.direction - first).length() < 1e-5,
+                "id 123 follows GenDirection, not its sample: {}",
+                state.direction
+            );
+            let radial = state.position / semi;
+            assert!(
+                radial.x * radial.x + radial.y * radial.y <= 1. + 1e-5
+                    && radial.z.abs() <= 1. + 1e-5,
+                "the cylinder sample leaves the unit disc: {radial}"
+            );
+        }
+
+        let mut ellipsoid = spawn_context(&view, &common);
+        ellipsoid.id = 124;
+        // A wide cone would bend every direction if `GenDirection` were consulted.
         particle.angle = std::f32::consts::FRAC_PI_2;
         let mut rng = Rng::new(43);
         for _ in 0..500 {
-            let state = spawn(&particle, None, &mut rng, &context);
-            let radial = state.position / Vec3::new(1., 0.5, 0.25);
+            let state = spawn(&particle, None, &mut rng, &ellipsoid);
+            let radial = state.position / semi;
             assert!(
                 (state.direction + radial).length() < 1e-4,
                 "direction {} should negate the sample behind position {}",
                 state.direction,
                 state.position
+            );
+        }
+    }
+
+    /// `A3DEllipsoidEmitter::GenTotal` never calls `GenDirection` and the base
+    /// `InitParticle` leaves `m_vMoveDir` alone, so a volume ellipsoid emits
+    /// particles with no self motion — while a volume cylinder still takes the
+    /// cone direction and stays inside its disc.
+    #[test]
+    fn a_volume_ellipsoid_is_born_still_and_a_volume_cylinder_is_not() {
+        let view = view();
+        let common = Common::default();
+        let semi = Vec3::new(1., 0.5, 0.25);
+        let mut particle = Particle::default();
+        particle.area_size = Some(Vec3::new(2., 1., 0.5));
+
+        let mut ellipsoid = spawn_context(&view, &common);
+        ellipsoid.id = 124;
+        let mut rng = Rng::new(59);
+        for _ in 0..200 {
+            let state = spawn(&particle, None, &mut rng, &ellipsoid);
+            assert_eq!(state.direction, Vec3::ZERO, "124 volume has no direction");
+        }
+
+        let mut cylinder = spawn_context(&view, &common);
+        cylinder.id = 123;
+        let mut rng = Rng::new(59);
+        let first = spawn(&particle, None, &mut rng, &cylinder).direction;
+        for _ in 0..200 {
+            let state = spawn(&particle, None, &mut rng, &cylinder);
+            assert!((state.direction - first).length() < 1e-5);
+            let radial = state.position / semi;
+            assert!(
+                radial.x * radial.x + radial.y * radial.y <= 1. + 1e-5,
+                "the cylinder volume is a disc in XY, not a ball: {radial}"
             );
         }
     }
@@ -7481,36 +7590,6 @@ mod tests {
         // The height is uniform, so it reaches both ends; a sphere sample would
         // trade height for cross-section radius and never pin the radius at 1.
         assert!(height > 0.24, "the height only reached {height}");
-    }
-
-    /// Id 124's sampler writes no direction, and its birth flow calls the
-    /// direction slot after both samplers (`0x729bc1`), so the emission cone still
-    /// applies there — unlike id 123, whose flow goes straight to the TTL slot.
-    /// With no cone angle the direction is the emission axis and costs no draws, so
-    /// the same element with the flag cleared must produce exactly the same one.
-    #[test]
-    fn id_124_surface_emission_keeps_the_cone_direction() {
-        let view = view();
-        let common = Common::default();
-        let mut context = spawn_context(&view, &common);
-        context.id = 124;
-        let mut particle = Particle::default();
-        particle.is_surface = true;
-        particle.area_size = Some(Vec3::new(2., 1., 0.5));
-        let mut plain = Particle::default();
-        plain.area_size = particle.area_size;
-        let mut rng = Rng::new(67);
-        let surface = spawn(&particle, None, &mut rng, &context);
-        let volume = spawn(&plain, None, &mut rng, &context);
-        assert_eq!(surface.direction, volume.direction);
-        // And it is not id 123's negated sample.
-        let radial = surface.position / Vec3::new(1., 0.5, 0.25);
-        assert!(
-            (surface.direction + radial).length() > 1e-3,
-            "id 124 should not negate its sample; direction {} for position {}",
-            surface.direction,
-            surface.position
-        );
     }
 
     /// The cylinder sample spends the client's two draws, one for the turn and one
