@@ -1475,3 +1475,54 @@ there a static mesh carrying the water material at the fall? The loader has no
 static-mesh water record at all today, so the work is to read
 `A3DTerrainWaterRender.cpp`'s static-mesh submission (69 KB, on the Drive) and
 add that path — not to touch the effect again.
+
+## 19. What the 1.4.2 data on the Drive can and cannot answer
+
+Read this round, from the Drive itself:
+
+* `world.ecwld` (2,454,726 bytes, the map our captures come from) — decoded its
+  GBK strings: **501 CJK names mention water, and every one of them is an effect
+  root** (`瀑布水花`, `瀑布水花底`, `海底水泡`). No scenery or model path in the
+  file names a fall.
+* No water file exists in the tree: `name contains '.wtr'` returns 0 files.
+  `A3DWaterArea` is not a separate asset — `src/water.rs` reads it from each
+  **block** (`block.water`), so it ships inside the map data, always as
+  `height + grid_size + columns + rows + centre + mask + shore_waves`, i.e. a
+  horizontal grid at one height.
+
+So the Drive answers the question in the negative only: the map data it holds
+contains no record that could describe a vertical water fall. `A3DTerrainWater`'s
+static-mesh path takes its geometry from somewhere this data set does not carry,
+which is exactly why the viewer draws nothing there and why the effect sheet is
+the only thing left in our frame.
+
+### The channels that would have said so were never wired
+
+`SceneWater` and `RenderWater` were declared in the Logging tab and **emitted
+nowhere** (`grep SceneWater|RenderWater src --include=*.rs` outside
+`diagnostics.rs` returned no hits before this commit). A capture could not say
+whether a water area exists at a spot, so the question stayed open for rounds.
+`RenderWater` now prints one line per uploaded area:
+
+```text
+export=41 colour=0xff336699 simple=false height=201.500 grid=8.000 cells=16x16
+wet=143 of 256 centre=(361.00,201.50,3176.00) shore_waves=0
+```
+
+That is the number that settles §18 without another guess: **no line within a
+hundred units of a fall, while the game shows water there, means the surface is
+the static-mesh water**, and the loader needs `A3DTerrainWaterRender.cpp`'s
+static-mesh submission next.
+
+### How to capture it
+
+1. Build and stand in the viewer at the fall, within about 50 units, facing it —
+   the same spot the field report names, e.g. `(361.4, 200.6, 3175.8)` in the
+   PK-arena map.
+2. Logging tab: tick **Water** (group *Terrain, sky and water*) and
+   **Batches ▸ RenderWater**, plus **Scene ▸ SceneEffects** and
+   **Effects ▸ Effect elements** if the sheet is also in question.
+3. Let the world finish loading (the water upload happens once per world build),
+   then move the camera once so a fresh frame is drawn.
+4. Send `summary.log` — it stamps the binary that wrote it (§15), so a stale
+   executable cannot be mistaken for a missing record.

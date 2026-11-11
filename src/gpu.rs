@@ -1054,6 +1054,34 @@ fn build(
     let mut water_batches: Vec<WaterBatch> = Vec::new();
     let mut areas: Vec<_> = t.water.iter().collect();
     areas.sort_by(|a, b| a.height.total_cmp(&b.height));
+    // The water records had no channel of their own: `SceneWater` and
+    // `RenderWater` were declared in the Logging tab and emitted nowhere, so a
+    // report could not say whether the map carries a water surface where the
+    // field saw one. `A3DWaterArea` is a horizontal grid at one `height`
+    // (`src/water.rs`), so a fall cannot be one of these: an empty list around
+    // the fall proves the surface is the static-mesh water of
+    // A3DTerrainWater.cpp:67-84, which this loader does not read yet.
+    for a in &areas {
+        let cells = a.mask.iter().filter(|&&m| m != 0).count();
+        crate::diag!(
+            RenderWater,
+            "export={} colour=0x{:08x} simple={} height={:.3} grid={:.3} cells={}x{} \
+             wet={} of {} centre=({:.2},{:.2},{:.2}) shore_waves={}",
+            a.export_id,
+            a.color,
+            a.simple,
+            a.height,
+            a.grid_size,
+            a.columns,
+            a.rows,
+            cells,
+            a.mask.len(),
+            a.center[0],
+            a.center[1],
+            a.center[2],
+            a.shore_waves.len()
+        );
+    }
     for a in areas {
         let start = indices.len() as u32;
         let mut bounds = [
