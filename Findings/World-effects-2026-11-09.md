@@ -1848,3 +1848,66 @@ that skew (and the sign draw before the two in-face draws), so nothing changed.
 The corpus test `corpus_unbound_emission_carries_the_basis_scalar` now asserts the
 cylinder's shape for id 123 and the ellipsoid inequality for the classes that
 share the ball, which is the check that would have caught the swap.
+
+## 25. Element 152: the append step and its second condition
+
+`A3DGFXLightningEx` derives from `A3DGFXLightning` (element 150) and adds the ring
+— which is what the viewer's `Trail` spec modelled from the binary. Two of its
+rules were wrong, and both are one screen of source.
+
+### 25.1 Appending needs `m_bCurvedMethod`, not just `isappend`
+
+`A3DGFXLightningEx::TickAnimation` (`A3DGFXLightningEx.cpp:198-218`):
+
+```cpp
+if (m_bCurvedMethod && m_bIsAppendly) { TickAdd(dwTickTime); TickList(dwTickTime); }
+else if (m_lstCurvePoints.GetDataCount() != m_nVertPairNum)
+{
+    m_lstCurvePoints.RemoveAll();
+    for (int nIndex = 0; nIndex < m_nVertPairNum; ++nIndex)
+        m_lstCurvePoints.AddData(LnCurvePoint(nIndex, m_nVertsLife));
+}
+```
+
+`m_bCurvedMethod` is **not a file key**: `A3DGFXLightning::InitBuf` sets it when
+the first keypoint carries a curve-move control (CtrlType 110). So an `isappend: 1`
+trail whose keypoint has no 110 control is rebuilt whole every frame and never
+animates — the viewer animated every `isappend` record, 138 of 156 in the corpus.
+`update_trail` now requires both, and the corpus test asserts that only trails
+with both flags can change length.
+
+### 25.2 The step is `TimeSpan / (Segs * LightNum + 1)`
+
+`TickAdd` (`:240-260`):
+
+```cpp
+m_nTimeStep += dwTickTime;
+int nTimePerVertAdd = m_nTimeSpan / m_nVertPairNum;
+if (nTimePerVertAdd == 0) return;
+if (m_nCurrentIndex < m_nVertPairNum && m_nTimeStep > nTimePerVertAdd)
+{
+    int nNewAddedNum = m_nTimeStep / nTimePerVertAdd;
+    m_nCurrentIndex += nNewAddedNum;  a_ClampRoof(m_nCurrentIndex, m_nVertPairNum);
+    m_nTimeStep %= nTimePerVertAdd;
+    ...
+}
+```
+
+`m_nVertPairNum` is `m_nSegs * m_nLightNum + 1` (`A3DGFXLightning::InitBuf`), so
+the divisor is the strip's cross-section count plus one — not `Segs`, which is what
+the viewer divided by. A `Segs: 10, LightNum: 1` trail therefore steps every
+`TimeSpan/11` rather than `TimeSpan/10`, and a `TimeSpan` shorter than the pair
+count lays nothing at all (`nTimePerVertAdd == 0`), where the viewer would still
+have animated it. The old code recorded the interval as unquotable — "two
+dereferences through a field that is ... never written" — because the disassembly
+was reading a member the source names plainly.
+
+`TickList` (`:219-238`) is what the viewer already had: age every record, and with
+`istaildisappear` set drop the oldest run from the first record that reached its
+life.
+
+The timing tests were rewritten on the recovered step (a 100 ms clock over four
+segments and one light is five pairs, so 20 ms a vertex): a 20 ms frame is not
+past a step because the comparison is strict, 40 ms lays two, 60 ms lays three,
+and the reset test now accounts for the 16 ms frame still sitting in the
+accumulator when the ring is emptied.
