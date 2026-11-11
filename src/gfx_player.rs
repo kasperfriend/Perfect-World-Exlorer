@@ -11178,7 +11178,11 @@ mod tests {
             "a warp element never enters the render list: {:?}",
             player.quads()
         );
-        assert_eq!(player.stats().warp, 1, "and it is counted, not silently lost");
+        assert_eq!(
+            player.stats().warp,
+            1,
+            "and it is counted, not silently lost"
+        );
         // The same record without the key still draws, so the gate is the key and
         // not some other property of the fixture.
         let mut plain = build(&(header37(1) + SPRITE));
@@ -11249,7 +11253,11 @@ mod tests {
         let tga = crate::pck::read_entry(&mut file, &entries[index]).expect("read the sheet");
         assert_eq!(tga[2], 2, "uncompressed true-colour TGA");
         assert_eq!(tga[16], 32, "32 bits per pixel");
-        assert_eq!(tga[17] & 0xf, 8, "eight alpha bits, so the sheet has an alpha channel");
+        assert_eq!(
+            tga[17] & 0xf,
+            8,
+            "eight alpha bits, so the sheet has an alpha channel"
+        );
         let pixels = &tga[18 + tga[0] as usize..];
         let alpha: Vec<u8> = pixels.chunks_exact(4).map(|px| px[3]).collect();
         let distinct: std::collections::BTreeSet<u8> = alpha.iter().copied().collect();
@@ -11277,14 +11285,22 @@ mod tests {
         let name = "gfx/场景/新种族地图/水门_瀑布.gfx";
         let root = shipped_root(&mut file, &entries, name);
         let ids: Vec<u32> = root.elements.iter().map(|element| element.id).collect();
-        assert_eq!(ids, vec![100, 100, 100, 100, 124, 124, 100], "the gate's seven elements");
+        assert_eq!(
+            ids,
+            vec![100, 100, 100, 100, 124, 124, 100],
+            "the gate's seven elements"
+        );
         let warp: Vec<&str> = root
             .elements
             .iter()
             .filter(|element| element.common.warp)
             .map(|element| element.common.texture.as_str())
             .collect();
-        assert_eq!(warp, vec!["normalmap\\gas.dds"], "only the gas card is warp");
+        assert_eq!(
+            warp,
+            vec!["normalmap\\gas.dds"],
+            "only the gas card is warp"
+        );
         let first = match &root.elements[0].spec {
             Spec::Sprite(sprite) => sprite,
             other => panic!("the first card is not a sprite: {other:?}"),
@@ -11325,7 +11341,10 @@ mod tests {
         );
         // And the warp card is nowhere in the built geometry.
         assert!(
-            !player.quads().iter().any(|quad| quad.texture.ends_with("gas.dds")),
+            !player
+                .quads()
+                .iter()
+                .any(|quad| quad.texture.ends_with("gas.dds")),
             "the warp card is a distortion source, not a card"
         );
         assert_eq!(player.stats().warp, 1);
@@ -11414,7 +11433,11 @@ mod tests {
         let name = "gfx/场景/绿色传送门.gfx";
         let root = shipped_root(&mut file, &entries, name);
         let ids: Vec<u32> = root.elements.iter().map(|element| element.id).collect();
-        assert_eq!(ids, vec![123, 124, 124, 124, 101], "the portal's five elements");
+        assert_eq!(
+            ids,
+            vec![123, 124, 124, 124, 101],
+            "the portal's five elements"
+        );
         let gate = root.elements.last().expect("the gate element");
         assert_eq!(gate.id, 101, "the gate is a 2D decal");
         assert!(gate.common.warp, "and it is a warp element");
@@ -11427,7 +11450,10 @@ mod tests {
         let mut player = shipped_player(&mut file, &entries, name);
         step(&mut player, 16.);
         assert!(
-            !player.quads().iter().any(|quad| quad.texture.ends_with("gas.dds")),
+            !player
+                .quads()
+                .iter()
+                .any(|quad| quad.texture.ends_with("gas.dds")),
             "the gate draws no card: {:?}",
             player.quads()
         );

@@ -129,13 +129,11 @@ jobs:
               | while IFS= read -r line; do [ -n "$line" ] && echo "::error::$line"; done
           fi
           exit "$status"
-      - name: Verify bounded lossless terrain RAM residency
-        run: |
-          cargo run --locked --bin terrain-memory-check
-          cargo run --locked --bin terrain-memory-check -- --full-world
-      # Formatting is checked before the Vulkan installs: rustfmt needs no GPU,
-      # and gating it behind an environment-sensitive step meant a broken
-      # software driver hid every formatting opinion behind "skipped".
+      # Formatting is checked after the unit tests and before the Vulkan
+      # installs: rustfmt needs no GPU, so it must not sit behind an
+      # environment-sensitive step, but it must not run *before* the tests
+      # either — a formatting nit would then skip them, which is how three
+      # assertions went unverified for a day.
       - name: Check formatting
         run: |
           # `cargo fmt --check` already prints the "Diff in ..." hunks it wants;
@@ -161,6 +159,10 @@ jobs:
           { echo 'rustfmt wants these changes:'; echo '```diff'; \
             head -600 /tmp/fmt.check; echo '```'; } > /tmp/fmt.md
           gh pr comment "$PR" --body-file /tmp/fmt.md
+      - name: Verify bounded lossless terrain RAM residency
+        run: |
+          cargo run --locked --bin terrain-memory-check
+          cargo run --locked --bin terrain-memory-check -- --full-world
       - name: Install software Vulkan for Phase 1 shader checks
         run: |
           # Same flaky mirror as the build dependencies above: retry the install
