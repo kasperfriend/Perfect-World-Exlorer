@@ -34,8 +34,13 @@ RENDERED = {
     180,                       # wave
     190,                       # curve
     200, 201, 202, 203, 204,   # child
+    # Grids are a class of their own: `emit_clock` routes `Spec::Grid` to
+    # `emit_grid`, which builds one quad per lattice cell. Listing 210/211 as
+    # parsed-only under-counted coverage in this census for as long as it was
+    # there; the player has drawn them since the waterfall fix.
+    210, 211,                  # grid decal
 }
-PARSED_ONLY = {210, 211}
+PARSED_ONLY = set()
 
 # Keys the player never reads, with the literal that means "not authored".
 # `None` counts any value other than the default literal;

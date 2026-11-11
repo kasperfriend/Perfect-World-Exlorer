@@ -63,14 +63,14 @@ viewer's internal name differs it is given in parentheses. Counts are this pass'
 | 160 | `A3DGFXModel` | 447 | 231 | draws |
 | 125 | `A3DParticleSystemEx`, sphere emitter | 382 | 139 | draws |
 | 121 | `A3DParticleSystemEx`, cone emitter | 320 | 177 | draws |
-| 210 | `A3DGridDecalEx` 3D (grid) | 215 | 42 | parsed only |
+| 210 | `A3DGridDecalEx` 3D (grid) | 215 | 42 | draws |
 | 190 | `A3DParaboloid` (curve) | 208 | 62 | draws |
 | 152 | `A3DGFXLightningEx` (trail) | 156 | 46 | draws |
 | 102 | `A3DDecalEx`, billboard (crossed pair) | 83 | 33 | draws |
 | 180 | `A3DLtnTrail` (wave) | 79 | 51 | draws |
 | 122 | `A3DParticleSystemEx` | 40 | 40 | draws |
 | 151 | `A3DGFXLtnBolt` (lightning) | 11 | 7 | draws |
-| 211 | `A3DGridDecalEx` 2D (grid) | 1 | 1 | parsed only |
+| 211 | `A3DGridDecalEx` 2D (grid) | 1 | 1 | draws |
 
 The counts differ by a handful of records from the 2026-11-05 table in
 `Gfx-effects-parity-assessment-2026-11-05.md` (element 100: 3,542 here, 3,537
@@ -78,19 +78,23 @@ there; 124: 1,748 and 1,739) because that census was built by an earlier reader;
 this one re-derives the histogram and sums it to the 31,034 elements above.
 
 No id in the corpus falls outside the decoded set: there is no element class the
-loader refuses, and the 43 roots that hold a 210/211 grid are the only roots
-whose geometry the player knowingly does not draw.
+loader refuses, and **no** class is parsed without being drawn. This table said
+"parsed only" for 210/211 until §47 of the sweep: `emit_clock` routes
+`Spec::Grid` to `emit_grid`, which has built one quad per lattice cell since the
+waterfall fix, so the census's `PARSED_ONLY` set was stale and the class rows of
+this section under-counted coverage by 43 roots and 500 elements.
 
 ## 2. Layer one: classes
 
 | | roots | elements |
 |---|---|---|
-| every element's class is drawn | 5,413 (99.2%) | 30,534 (98.4%) |
-| needs a 210/211 grid | 43 (0.8%) | 500 (1.6%) |
+| every element's class is drawn | 5,456 (100%) | 31,034 (100%) |
+| needs a 210/211 grid | 0 | 0 |
 | holds an undecoded id | 0 | 0 |
 
-Elements of a class we never draw are the smallest of the three problems,
-because a root that mixes classes still draws everything except the grid.
+No class is left undrawn. The grids this section used to deduct — 215 element
+210s and one 211 across 43 roots — are drawn by `emit_grid`, and the census
+counts them that way from §47 on.
 
 The controller layer is complete in the same sense: all 13 kinds the corpus uses
 (`100..112`, including the `112` shake controller) are parsed by
@@ -211,7 +215,7 @@ the player is already pinned by the sweep in
 
 ## 6. Where the number stands
 
-* Element classes: **99.2% of roots**, no unknown id anywhere.
+* Element classes: **100% of roots and of elements**, no unknown id anywhere.
 * Controllers: **all 13 kinds, 76,519 instances**.
 * Keys: **86.0% of roots** have every visual key read; **46.8%** if audio,
   culling extent, mip policy and the light parameters that the consumer discards
@@ -221,6 +225,6 @@ the player is already pinned by the sweep in
 * Distance to the class ceiling: **eight rules** (§4's greedy table), of which the
   first three are worth 677 roots and the rest fewer than a dozen each.
 
-The honest headline is the pair, 99.2% / 86.0%: the loader understands every
-record in the archive, and the renderer is missing one rule that reaches four
-roots in ten.
+The honest headline is the pair, 100% / 86.0%: the loader understands every
+record in the archive and every class reaches a draw call, and the renderer is
+missing one rule — `DummyEle` — that reaches four roots in ten.

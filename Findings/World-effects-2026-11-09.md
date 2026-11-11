@@ -3234,3 +3234,157 @@ and **31,034 elements** (not the 76,278 that §45's parenthetical quotes — tha
 figure is the 76,519 controller records) and puts class coverage at 99.2% of
 roots and visual-key coverage at 86.0%. Its head item, `DummyEle` on 399 roots,
 is the next thing to read.
+
+## 47. The grid scroll was counted twice, and the city's water is mostly refraction
+
+Three reports are still open — sunbeams with arbitrary orientation, still
+waterfalls, effects too large in the City of Raging Tides — and §41 closed the
+third of them on reasoning rather than on the renderer. This section reopens all
+three against the files. One real bug fell out; two of the reports now have a
+precise answer about what is authored and what the viewer refuses to draw.
+
+### 47.1 The 210/211 grid is drawn, and the census said it was not
+
+`emit_clock` routes `Spec::Grid` straight to `emit_grid` (`src/gfx_player.rs:3379`),
+and `emit_grid` has built one quad per lattice cell since the waterfall fix. The
+census nevertheless listed 210/211 under `PARSED_ONLY`, and the estimate in
+`Gfx-effects-parity-estimate-2026-11-09.md` deducted 43 roots and 500 elements
+because of it. That set was stale: `tools/gfx-parity-census.py` now has 210/211 in
+`RENDERED` and an empty `PARSED_ONLY`, and the re-run measures
+
+| | roots | elements |
+|---|---|---|
+| class reaches a draw call | **5,456 (100%)** | **31,034 (100%)** |
+| faithful: every visual key read | 2,565 | 10,710 |
+| visual: everything that shows on screen | 4,716 | 26,459 |
+
+so the class layer has no hole at all, and the only open rule that still moves
+the needle is `DummyEle` (399 roots) in the greedy table.
+
+### 47.2 What a grid actually authors
+
+The lattice is `wNumber` x `hNumber`, not `TexRow` x `TexCol`. The first element
+of `场景/新种族地图/水片长.gfx`, read out of `gfx.pck`:
+
+```
+GFXELEMENTID: 210     TexFile: 粒子\通道粒子2.tga
+TexRow: 1  TexCol: 1  TileMode: 1  TexSpeed: 0.000000 0.000000
+wNumber: 5  hNumber: 6
+```
+
+Five by six *vertices* — four by five cells — with a 1x1 atlas. Earlier sections
+quoted this record as "`TexRow 5/6 x TexCol 2`"; the 5 and the 6 are the lattice
+counts and the atlas is not tiled at all. `src/gfx_file.rs:2012-2013` reads
+`wNumber`/`hNumber` into `Grid::columns`/`rows`, and `emit_grid` spreads one
+texture rect across that lattice exactly as `A3DGridDecalEx::_setUVCoord` does.
+`TexRow`/`TexCol` keep their tile meaning (`m_fTexWid = (float)m_nTexCol`), which
+is why the sheet is a repeat count and not a frame grid.
+
+### 47.3 The bug: `TexSpeed` was applied twice to every tiled grid
+
+`flipbook_uv`'s tile branch is the owner of the scroll — it is
+`A3DGFXElement::TexAnimation`'s `if (m_bTileMode)` arm, `m_fTexU += m_fTexSpeed *
+dt` — and it returns the *already scrolled* window. `emit_grid` then added
+`tex_speed * clock` to that window a second time, so every grid that both tiles
+and scrolls ran at exactly **twice** its authored rate. The corpus is almost
+entirely that case:
+
+| `TileMode` | authors `TexSpeed` | grids |
+|---|---|---|
+| 0 | no | 49 |
+| 1 | no | 4 |
+| 1 | **yes** | **163** |
+
+163 of 216 grids. That is every curtain, every water sheet and every `云` lattice
+in the game — the city's `水片圆`/`水片长` sheets included — flowing double speed.
+The second scroll is gone (`emit_grid` now uses `flipbook_uv`'s rect as it is),
+and no grid loses motion by the change: the 49 `TileMode: 0` grids author no
+`TexSpeed`, and the client's `else` arm moves cells by `TexInterval`, never by
+`TexSpeed`.
+
+The test that covered this was itself part of the problem. Its fixture copied
+`瀑布.gfx`'s 2x4 curtain but dropped `TileMode`, so the sheet only moved because
+of the duplicate scroll, and a parser test that never writes the flag can only
+confirm the wrong law. `gfx/场景/瀑布.gfx` authors `TileMode: 1`, `TexRow: 1`,
+`TexCol: 1`, `TexSpeed: 0 / -0.4`, and the fixture now says so and asserts the
+rate: one second of clock is `V = -0.4`, not `-0.8`.
+
+### 47.4 What the city is actually made of
+
+Every `.gfx` under `gfx/场景/新种族地图/` — 179 roots, 1,293 elements:
+
+| id | class | elements | | id | class | elements |
+|---|---|---|---|---|---|---|
+| 123 | particle | 235 | | 124 | particle | 110 |
+| 100 | decal | 220 | | 200 | child | 95 |
+| 150 | fractal | 146 | | 160 | model | 54 |
+| 210 | **grid** | 126 | | 125 | particle | 49 |
+| 101 | decal (2D) | 120 | | 140 | cylinder | 41 |
+| 110 | ribbon | 33 | | 120 | particle | 22 |
+| 121 | particle | 19 | | 152 | trail | 12 |
+| 190 | paraboloid | 10 | | 130 | light | 1 |
+
+Of the 126 grids, **116 author a scroll and 10 author `TexSpeed 0`** — those ten
+are static by authorship, not by omission. 30 elements across the map carry
+`Warp: 1`.
+
+### 47.5 Why the water can still read as still
+
+`水片长.gfx` is 13 elements: **7 of them are `Warp: 1`** (`normalmap\水漩涡.dds`,
+`Width`/`Height` 3-4, one authored 90 degrees off the others) and 6 are grids.
+`水片圆.gfx` is 7 elements, **2 of them warp** (`normalmap\水波.dds`, 4 and 5
+units). `水门_瀑布.gfx` is four decal cards plus one warp veil.
+
+A warp element is a refraction source, not a card: the client registers it with
+`AddWarpEle` and the distortion pass consumes it (`A3DDecalEx.cpp:1332`), which is
+why the player counts it in `stats.warp` and draws nothing
+(`src/gfx_player.rs:3431-3441`). The viewer has no distortion pass, so on these
+roots the surface you see is the *grid lattice alone* — a still, evenly lit sheet
+stretched over the authored vertices, with no animated veil moving over it. That
+is the honest reason the city's water looks frozen even once the grid scroll is
+correct: the motion the artists put on the surface lives in the seven warp
+elements per long sheet that no pass samples.
+
+Closing it is a distortion pass — sample the warp sheet's normal map, offset the
+scene colour behind it by the animated amount, keep the depth — not a draw call
+for the card. Drawing the warp element as an ordinary quad would put a grey
+normal map on screen, which is why §41's decision to drop it stands.
+
+### 47.6 New evidence: the placement files are in the archive
+
+The `.ecwld` files that hold the actual effect placements are downloadable from
+the same Drive folder (`a01`..`a17`, one per region block), and they parse with
+the record layout `src/scene.rs` already implements — 60 bytes of id, scale,
+position, direction, up, speed, valid time, alpha and attenuation, then a
+length-prefixed GBK path. `tools/ecwld-effects.py` scans one:
+
+```
+   $ tools/ecwld-effects.py google_drive/a16.ecwld
+   579 scale = 4.230 pos = (-192.77, 266.42, -464.33)
+       dir = (0.841, 0.000, 0.540) up = (0.000, 1.000, 0.000)  场景\天空之城光束.gfx
+```
+
+Two things this settles for the open reports:
+
+* the shaft's axis is the placement's Z, and the map author wrote it **horizontal**
+  for `天空之城光束` (`0.841, 0, 0.540`) with world up as `up`. A beam card built
+  along that Z is what the client draws too — the orientation is authored, not
+  randomised by the viewer. Where the sunbeams still look wrong, the next test is
+  the *card* basis (`RotFromView` / `GetParentDir`) against a placement like this
+  one, not the placement reader.
+* the authored scales are large and deliberately so: 4.23 for that beam, 11.6 for
+  `灯台火_火焰`, 9.6 for `灯台冰_火焰`, 0.5-1.9 for candles and poison glows. An
+  effect that looks oversized is most likely wearing one of these; the scale law
+  itself is `DedaultScale x placement scale`, applied once (`A3DGFXEx.h:194-211`),
+  and it is not doubled anywhere in the path.
+
+### Verdict
+
+One code change: a tiled grid now scrolls at the rate it authors, which is every
+water sheet, curtain and cloud lattice in the pack. One census correction: class
+coverage is 100% of 5,456 roots and 31,034 elements, not 99.2%, because the grid
+class has been drawn all along. The two remaining reports are now narrower than
+they were: "static water" in the city is the missing distortion pass over 30 warp
+elements plus 10 grids that author no speed, and "random sunray direction" needs a
+placement-level comparison of the card basis, which the `.ecwld` files now make
+possible without the shipped `world.ecwld`.

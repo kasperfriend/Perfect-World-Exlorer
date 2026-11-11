@@ -4622,16 +4622,18 @@ fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
     // A grid decal is a class of its own (`A3DGridDecalEx`, ids 210/211) and it
     // scrolls its sheet from `TexSpeed` whatever `TexRow`/`TexCol` say: the
     // curtain fixtures author `TexRow: 1`, `TexCol: 1`, `TexSpeed: -0.4`, and a
-    // 1x1 sheet has no cells to step. `A3DGFXElement::TexAnimation`'s tile rule
-    // therefore cannot be the one that moves it, so the scroll this viewer
-    // removed from the decal path is kept here, where it belongs.
-    let mut rect = flipbook_uv(context.common, context.clock);
-    let scroll_u = context.common.tex_speed[0] * context.clock / 1000.;
-    let scroll_v = context.common.tex_speed[1] * context.clock / 1000.;
-    for point in &mut rect {
-        point[0] += scroll_u;
-        point[1] += scroll_v;
-    }
+    // 1x1 sheet has no cells to step. `flipbook_uv`'s tile branch is already
+    // that rule — `A3DGFXElement::TexAnimation`'s `if (m_bTileMode)` arm steps
+    // `m_fTexU`/`m_fTexV` by `TexSpeed * dt` — so the rect it returns is the
+    // scrolled window and this function must not add the offset again. Adding
+    // it did: 163 of the 216 corpus grids author both `TileMode: 1` and a
+    // `TexSpeed`, and every one of them flowed at exactly twice its authored
+    // rate (the city's `水片*` water sheets, the `云` lattices, every curtain).
+    //
+    // The offset is a tile-only quantity, so a `TileMode: 0` grid takes none:
+    // the 49 such grids in the corpus author no `TexSpeed` either, and the
+    // client's `else` arm moves cells by `TexInterval`, never by `TexSpeed`.
+    let rect = flipbook_uv(context.common, context.clock);
     let mut positions = [[0f32; 3]; 4];
 
     // A grid is a lattice of `columns * rows` **vertices**, not cells: all 216
@@ -6462,8 +6464,11 @@ mod tests {
     /// move every frame.
     #[test]
     fn a_grid_builds_its_authored_sheet_and_scrolls_it() {
+        // `gfx/场景/瀑布.gfx` authors `TileMode: 1` beside the 1x1 atlas and the
+        // -0.4 scroll; the fixture omitted it, which is what made the sheet look
+        // like a grid that needs its own scroll.
         let grid = "GFXELEMENTID: 210\nName: curtain\nSrcBlend: 5\nDestBlend: 2\n\
-                   TexFile: 物体\\waterfall.dds\nTexRow: 1\nTexCol: 1\n\
+                   TexFile: 物体\\waterfall.dds\nTileMode: 1\nTexRow: 1\nTexCol: 1\n\
                    TexSpeed: -0.400000\nwNumber: 2\nhNumber: 4\n\
                    -58.299149 35.844849 9.029253\ndwColor: ffffffff\n\
                    -34.900089 35.844849 9.029253\ndwColor: ffffffff\n\
@@ -6543,6 +6548,22 @@ mod tests {
             stalled, 0,
             "the curtain stopped scrolling {stalled} times over twenty seconds; \
              a waterfall that stalls is the static sheet the report describes"
+        );
+
+        // One clock second at `TexSpeed: (0, -0.4)` is a V of exactly -0.4. The
+        // tile offset belongs to `flipbook_uv` alone — `A3DGFXElement::
+        // TexAnimation` steps `m_fTexV` by `TexSpeed * dt` in its `m_bTileMode`
+        // arm — so a grid that adds the same offset on top scrolls at twice the
+        // authored rate. 163 of the 216 corpus grids author both a tile and a
+        // speed, so double is what every curtain, water sheet and cloud lattice
+        // in the game did.
+        let mut fresh = build(&(header37(1) + grid));
+        step(&mut fresh, 1000.);
+        let v = fresh.quads()[0].uv[0][1];
+        assert!(
+            (v + 0.4).abs() < 1e-4,
+            "a tiled grid must scroll at its authored rate: one second of a \
+             -0.4 sheet is V = -0.4, not {v}"
         );
     }
 
