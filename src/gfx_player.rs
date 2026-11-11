@@ -10926,10 +10926,8 @@ mod tests {
             (world.0 - 4.).abs() < 1e-4 && (world.1 - 1.).abs() < 1e-4,
             "without the key the lattice is world aligned: {world:?}"
         );
-        let yawed = footprint(&sheet.replace(
-            "GrndNormOnly: 0\r\n",
-            "GrndNormOnly: 0\r\nYawEffect: 1\r\n",
-        ));
+        let yawed =
+            footprint(&sheet.replace("GrndNormOnly: 0\r\n", "GrndNormOnly: 0\r\nYawEffect: 1\r\n"));
         assert!(
             (yawed.0 - 1.).abs() < 1e-4 && (yawed.1 - 4.).abs() < 1e-4,
             "the quarter turn about Y puts the long axis on world Z: {yawed:?}"
