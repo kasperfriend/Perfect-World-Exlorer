@@ -6464,12 +6464,13 @@ mod tests {
     /// move every frame.
     #[test]
     fn a_grid_builds_its_authored_sheet_and_scrolls_it() {
-        // `gfx/场景/瀑布.gfx` authors `TileMode: 1` beside the 1x1 atlas and the
-        // -0.4 scroll; the fixture omitted it, which is what made the sheet look
-        // like a grid that needs its own scroll.
+        // `gfx/场景/瀑布.gfx` authors `TileMode: 1` beside the 1x1 atlas, and it
+        // writes both scroll lines — U 0, then V -0.4. The fixture omitted the
+        // flag and kept only one line, which `common()` reads as the U half, so
+        // the sheet looked like a grid that needs a scroll of its own.
         let grid = "GFXELEMENTID: 210\nName: curtain\nSrcBlend: 5\nDestBlend: 2\n\
                    TexFile: 物体\\waterfall.dds\nTileMode: 1\nTexRow: 1\nTexCol: 1\n\
-                   TexSpeed: -0.400000\nwNumber: 2\nhNumber: 4\n\
+                   TexSpeed: 0.000000\nTexSpeed: -0.400000\nwNumber: 2\nhNumber: 4\n\
                    -58.299149 35.844849 9.029253\ndwColor: ffffffff\n\
                    -34.900089 35.844849 9.029253\ndwColor: ffffffff\n\
                    -58.299149 22.257586 9.029253\ndwColor: ffffffff\n\
