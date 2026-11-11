@@ -6363,6 +6363,72 @@ mod tests {
         }
     }
 
+    /// The file's `Width`/`Height` are **half** sizes, and the shipped roots
+    /// prove it: `A3DDecalEx.h` declares `float m_fWidth; // Half width`, and
+    /// `SetSize` doubles the argument before splitting it at `OrgPt`
+    /// (`m_fWidth1 = m_fOrgPtWidth * fWidth` with `fWidth *= 2.0f`), while
+    /// `GetProperty(ID_GFXOP_DECAL_WIDTH)` hands the editor `m_fWidth * 2.0f`.
+    /// So a `Width: 0.25` card is 0.5 units across, not 0.25.
+    ///
+    /// The authored `Vec:` box in the same root confirms it without the header:
+    /// in the twelve single-sprite roots that carry no rotation, no offset and
+    /// scale 1, the box's half-extent equals `Width` and `Height` exactly — the
+    /// ratio is 1.000 on every clean sample (`绿色剑光.gfx`, `蓝色剑光.gfx`,
+    /// `黄色剑光.gfx`, `18品双剑_剑柄.gfx`, `水族箱玻璃.gfx`, ...). A card
+    /// half that size would leave the tool padding every one of those boxes by
+    /// exactly two on both axes, which no editor does.
+    ///
+    /// This test pins the sizes the report called oversized so a future
+    /// "correction" cannot quietly halve every card in the game.
+    #[test]
+    fn a_sprite_spans_twice_its_authored_width_and_height() {
+        // `gfx/人物/通用/武器/武器效果/绿色剑光.gfx`, verbatim: a 0.25 x 0.5 card
+        // centred on its origin, identity direction, at the element origin, with
+        // the tool's own `Vec: -0.25,-0.5,0` / `Vec: 0.25,0.5,0` box.
+        let root = "MOXTVersion: 41\nDedaultScale: 1.000000\nPlaySpeed: 1.000000\n\
+                    DefaultAlpha: 1.000000\nRaytrace: 0\nFaceToViewer: 0\n\
+                    FadeByDist: 0\nFadeStart: 0.000000\nFadeEnd: 0.000000\n\
+                    Vec: -0.250000, -0.500000, 0.000000\n\
+                    Vec: 0.250000, 0.500000, 0.000000\nShakeCam: 0\n\
+                    GFXELEMENTCOUNT: 1\nGFXELEMENTID: 100\nName: Unnamed2\n\
+                    SrcBlend: 5\nDestBlend: 2\nRepeatCount: 1\nRepeatDelay: 0\n\
+                    TexFile: 粒子\\\\jianguang绿.dds\nBindEle: \nZEnable: 1\n\
+                    MatchGrnd: 0\nTexRow: 1\nTexCol: 1\nTexInterval: 50\n\
+                    Priority: 2\nIsDummy: 0\nDummyEle: \nWarp: 0\nTileMode: 0\n\
+                    TexSpeed: 0.000000\nTexSpeed: 0.000000\nUReverse: 0\n\
+                    VReverse: 0\nUVExchg: 0\nRenderLayer: 0\nNoDownSample: 0\n\
+                    Width: 0.250000\nHeight: 0.500000\nRotFromView: 0\n\
+                    GrndNormOnly: 0\nNoScale: 0\nNoScale: 0\nOrgPt: 0.500000\n\
+                    OrgPt: 0.500000\nStartTime: 0\nKEYPOINTCOUNT: 1\n\
+                    InterpolateMode: 0\nTimeSpan: -1\n\
+                    Position: 0.000000, 0.000000, 0.000000\nColor: -8323328\n\
+                    Scale: 1.000000\n\
+                    Direction: 0.000000, 0.000000, 0.000000, 1.000000\n\
+                    Rad_2D: 0.000000\nCtrlMethodCount: 0\n";
+        let mut player = build(root);
+        step(&mut player, 0.);
+        let quads = player.quads().to_vec();
+        assert_eq!(quads.len(), 1);
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for point in &quads[0].positions {
+            for axis in 0..3 {
+                lo[axis] = lo[axis].min(point[axis]);
+                hi[axis] = hi[axis].max(point[axis]);
+            }
+        }
+        // Half extents of the drawn card, and the tool's own box for comparison.
+        for (axis, (drawn, authored)) in [((hi[0] - lo[0]) / 2., 0.25), ((hi[1] - lo[1]) / 2., 0.5)]
+            .into_iter()
+            .enumerate()
+        {
+            assert!(
+                (drawn - authored).abs() < 1e-5,
+                "axis {axis} is {drawn}, but the root's own Vec: box is {authored}"
+            );
+        }
+        assert!((hi[2] - lo[2]).abs() < 1e-5, "the card lies in its element plane");
+    }
+
     fn build(source: &str) -> Player {
         let root = gfx_file::parse(source).unwrap_or_else(|error| panic!("{error}"));
         Player::new(root, 7, &mut |_| Err("this root has no children".into()))
