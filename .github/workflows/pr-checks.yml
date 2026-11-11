@@ -134,7 +134,30 @@ jobs:
           cargo run --locked --bin terrain-memory-check
           cargo run --locked --bin terrain-memory-check -- --full-world
       - name: Install software Vulkan for Phase 1 shader checks
-        run: sudo apt-get install -y mesa-vulkan-drivers
+        run: |
+          # Same flaky mirror as the build dependencies above: retry the install
+          # instead of failing the three Vulkan checks behind it, and print apt's
+          # own diagnosis as annotations if every attempt fails.
+          if dpkg -s mesa-vulkan-drivers >/dev/null 2>&1; then
+            echo "mesa-vulkan-drivers already installed"
+            exit 0
+          fi
+          status=1
+          for attempt in 1 2 3; do
+            if timeout 240 sudo apt-get install -y --no-install-recommends \
+              mesa-vulkan-drivers 2>&1 | tee /tmp/vulkan-apt.log; then
+              status=0
+              break
+            fi
+            echo "apt attempt ${attempt} failed; retrying" >&2
+            sleep 10
+          done
+          if [ "$status" -ne 0 ]; then
+            grep -v '^$' /tmp/vulkan-apt.log | tail -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit 1
+          fi
       - name: Test Librarian preview with an sRGB window
         env:
           WGPU_BACKEND: vulkan
