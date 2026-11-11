@@ -3067,3 +3067,25 @@ both absent), so none of this was compiled or run here: the verdict is CI's `car
 --bins`, the unit suite and `cargo fmt --check`. The four corpus assertions still need
 an archive set this machine does not have beyond `gfx.pck` — and the arithmetic in
 §39-§44 remains hand-checked against sources that were read, not a green run.
+
+**The first run of this change caught one of its own errors, which is the argument for
+writing the test first.** The 101 test failed with
+
+```
+the card is pushed toward the camera: Vec3(2.0, 6.0, 13.4641) vs Vec3(2.0, 6.0, 9.4641)
+```
+
+— four units of `Z` past where the camera-space push should have put it. `quad_corners`
+was still being handed `(0, 0, ZOffset)` as the card's centre, so a 2D card took the
+client's push **and** an invented element-space one, and the discrepancy was exactly
+`ZOffset * actualScale` along the world axis. The centre is the element origin for every
+builder now: no builder in the client pushes a card along the element's own Z. The first
+run compiled and ran 1,085 other tests green, which also confirms the `FaceToViewer`
+frame, the crossed cards and the axial corner order compile and behave; `48ad6ee` is the
+run where both jobs — `Rust checks and tests (Linux)` and `Windows executable (x64)` —
+finish green.
+
+§41's closing paragraph said the billboard divergence was "scheduled separately". This
+section is that change: it is closed against the same census, with the two mechanisms
+kept apart — element 102 is `Update_Billboard`'s crossed pair, and root `FaceToViewer` is
+`A3DGFXEx::Tick`'s rebuilt frame.
