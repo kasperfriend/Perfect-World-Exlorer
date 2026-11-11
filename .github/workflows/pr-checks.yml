@@ -166,7 +166,19 @@ jobs:
         run: |
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
           test -n "$VK_ICD_FILENAMES"
-          cargo test --locked --bin perfect-world-explorer srgb_window_uses_encoded_unorm_preview_attachment
+          # The raw step log is served from blob storage and is not always
+          # retrievable through the API, so repeat the test's own output as
+          # annotations when it fails.
+          cargo test --locked --bin perfect-world-explorer \
+            srgb_window_uses_encoded_unorm_preview_attachment 2>&1 | tee /tmp/srgb-window.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "^(error|test |thread |failures:)|panicked at|left:|right:|assertion" \
+              /tmp/srgb-window.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit "$status"
+          fi
       - name: Run Phase 1 production shader regressions
         env:
           WGPU_BACKEND: vulkan
