@@ -45,15 +45,23 @@ jobs:
           echo "installing:$missing"
           status=1
           for attempt in 1 2 3; do
-            if timeout 240 sudo apt-get -o Acquire::Retries=2 update &&
-              timeout 240 sudo apt-get install -y --no-install-recommends $missing; then
+            if { timeout 240 sudo apt-get -o Acquire::Retries=2 update &&
+              timeout 240 sudo apt-get install -y --no-install-recommends $missing; } 2>&1 | tee /tmp/apt.log; then
               status=0
               break
             fi
             echo "apt attempt ${attempt} failed; retrying" >&2
             sleep 10
           done
-          [ "$status" -eq 0 ]
+          if [ "$status" -ne 0 ]; then
+            # The raw step log is served from blob storage and is not always
+            # retrievable through the API, so repeat apt's own diagnosis as
+            # annotations, the way the cargo steps below do.
+            grep -v '^$' /tmp/apt.log | tail -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+            exit 1
+          fi
       - name: Verify recovered regional arithmetic on x87
         run: |
           cc -O0 tools/check-native-region-reference.c -o /tmp/native-region-reference
