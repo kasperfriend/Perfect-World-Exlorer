@@ -540,9 +540,10 @@ impl Draw {
                 },
                 depth_stencil: self.depth.map(|(format, compare)| wgpu::DepthStencilState {
                     format,
-                    // No depth attachment, no writes: a mesh whose element asks
-                    // for `WriteZ` still has to stay read-only here.
-                    depth_write_enabled: key.pipeline.write_depth,
+                    // Only a mesh whose element asks for `WriteZ` writes; a
+                    // quad slot never does (A3DGFXRenderSlot has no Z-write
+                    // field) and a missing depth attachment suppresses it.
+                    depth_write_enabled: key.write_depth,
                     depth_compare: if key.depth_test {
                         compare
                     } else {
