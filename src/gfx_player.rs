@@ -1807,17 +1807,23 @@ impl Player {
         // `A3DDecalEx::Fill_Verts_3D` takes its ground branch only for an owner
         // that was placed with ground data and sits within
         // `GROUND_NEAR_DISTANCE` of the surface (`m_pGfx->IsCloseToGrnd() &&
-        // m_pGfx->MatchGrnd()`). The client measures that at `0x6e54a1` as the
-        // owner's y minus the raycast height, signed, so an owner below the
-        // surface counts as near it too; the sampler answers the same question
-        // here, since it is the only ground data this path is given.
+        // m_pGfx->MatchGrnd()`); the sampler answers the same question here,
+        // since it is the only ground data this path is given.
         let drape = terrain.map(|height| {
             let origin = transform.w_axis.truncate();
             GroundSampler {
                 height,
+                // `CalcParentTM` (A3DGFXEx.cpp:1617-1622):
+                //
+                //     if (fabs(m_vPos.y - m_fGroundHeight) < _match_grnd_max_delta)
+                //         m_bCloseToGrnd = true;
+                //
+                // It is an **absolute** difference, so an owner more than 0.2
+                // below the surface is not close to it either; the signed test
+                // this used to be drew a draped sheet under the terrain.
                 near_ground: matches!(
                     height(origin.x, origin.z),
-                    Some(surface) if origin.y - surface < GROUND_NEAR_DISTANCE
+                    Some(surface) if (origin.y - surface).abs() < GROUND_NEAR_DISTANCE
                 ),
             }
         });
@@ -1966,9 +1972,10 @@ impl Player {
             return None;
         }
         let origin = transform.w_axis.truncate();
-        // 0x6e54a1/0x6e54ac: the owner's y against the raycast height, with the
-        // 0.2 at 0x8eb828.
-        let near_ground = origin.y - hit.height < GROUND_NEAR_DISTANCE;
+        // `CalcParentTM` (A3DGFXEx.cpp:1617-1622): `fabs(m_vPos.y -
+        // m_fGroundHeight) < _match_grnd_max_delta`, the 0.2 at :254. Absolute,
+        // so an owner far below the surface is not close to it either.
+        let near_ground = (origin.y - hit.height).abs() < GROUND_NEAR_DISTANCE;
         let own = Quat::from_mat4(&normalize_basis(transform));
         let scale = Mat4::from_scale(Vec3::splat(base.x_axis.length()));
         // 0x6e5540..0x6e556e: the ground frame's translation is (pos.x, the
@@ -3089,16 +3096,34 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
 
 /// `UReverse`, `VReverse` and `UVExchg`, the three mirrors `A3DGFXElement`
 /// applies to the sampled window.
+///
+/// All three are **endpoint swaps on the quad**, not reflections in texture
+/// space. `Fill_Verts_3D` (A3DDecalEx.cpp:556-576), `Update_Billboard`
+/// (:1110-1130) and the flat branch of `Fill_Verts_2D` all spell them out the
+/// same way:
+///
+/// ```cpp
+/// if (m_bUReverse) { gfx_swap(fU[0], fU[1]); gfx_swap(fU[2], fU[3]); }
+/// if (m_bVReverse) { gfx_swap(fV[0], fV[2]); gfx_swap(fV[1], fV[3]); }
+/// if (m_bUVInterchange) { gfx_swap(fU[0], fV[0]); ... }
+/// ```
+///
+/// The corners here are (top-left, top-right, bottom-left, bottom-right), so the
+/// first two are `uv[0] <-> uv[1]` with `uv[2] <-> uv[3]`. Writing them as
+/// `1 - u` agrees only when the window is the whole texture, which is why the
+/// difference was invisible until a flipbook: on a `TexCol: 2` sheet the cell in
+/// column 0 is `u` in `0..0.5`, and `1 - u` sends the *left* corner to `u = 1`,
+/// i.e. the mirrored cell of the atlas rather than a mirrored card. The ground
+/// branch spells the same rule as an index reversal (`nCol - j`), which is also
+/// what a swap produces once the lattice is interpolated.
 fn apply_uv_flips(uv: &mut [[f32; 2]; 4], common: &Common) {
     if common.reverse_u {
-        for point in uv.iter_mut() {
-            point[0] = 1. - point[0];
-        }
+        uv.swap(0, 1);
+        uv.swap(2, 3);
     }
     if common.reverse_v {
-        for point in uv.iter_mut() {
-            point[1] = 1. - point[1];
-        }
+        uv.swap(0, 2);
+        uv.swap(1, 3);
     }
     if common.exchange_uv {
         for point in uv.iter_mut() {
@@ -3632,10 +3657,11 @@ fn emit_sprite(
 /// world Z, the cell count is the parent-scaled extent over `GROUND_GRID_CELL`
 /// truncated and clamped to `GROUND_MAX_ROW_OR_COL`, and every vertex takes its
 /// own height from the terrain plus the 0.2 lift. The flipbook rect is spread
-/// over the whole lattice rather than repeated per cell, and the element's
-/// pitch, yaw and 2D spin are all dropped — only `YawEffect` puts them back and
-/// that routine is not implemented, which leaves 19 of the 906 ground-matched
-/// corpus elements axis-aligned.
+/// over the whole lattice rather than repeated per cell. The world X/Z layout is
+/// the `YawEffect 0` case: a sheet that sets the key is built in the element's
+/// own XY plane instead, rotated so its normal lands on world up, and only the
+/// x and z of each vertex are kept — which is the client's `matTran` branch,
+/// reproduced below.
 ///
 /// Returns false when the sprite has to stay the flat quad: a sampler that
 /// misses under any lattice point leaves the whole sheet alone, because half a
@@ -3707,10 +3733,50 @@ fn drape_sprite(
     // The query is a field, not a method: `sampler.height(..)` would look for a
     // method on the struct, so it is bound first.
     let height_at = sampler.height;
+    // `m_bYawEffectOnGrndNorm` (A3DDecalEx.cpp:460-486):
+    //
+    //     A3DQUATERNION quad = GetParentDir() * kp.m_vDir;
+    //     A3DVECTOR3 vNewNorm = quad * _unit_z;
+    //     float fAngle = DotProduct(vNewNorm, _unit_y);
+    //     if (fabs(fAngle) <= _grnd_delta) {
+    //         AxisAngleToQuad(CrossProduct(vNewNorm, _unit_y), acosf(fAngle), quad2);
+    //         quad_mix = quad2 * quad;
+    //     } else quad_mix = quad;
+    //     quad_mix.Normalize(); quad_mix.ConvertToMatrix(matTran);
+    //     matTran.SetRow(3, vCenter);
+    //     ...
+    //     A3DVECTOR3 vPos = matTran * A3DVECTOR3(fCol, fRow, 0);
+    //     vert.x = vPos.x; vert.z = vPos.z;
+    //
+    // so with the key the lattice is not world aligned: it is the element's own
+    // XY plane, turned until the sheet's normal (its Z axis) points up, and only
+    // x and z are read back. `AxisAngleToQuad` (A3DQuaternion.cpp:168-181) is the
+    // shortest arc from that normal to +Y built by hand — it does not normalise
+    // the axis, which is why the client gates the branch on the normal being off
+    // the Y axis at all (a quaternion with a zero axis and `cos(0) = 1` is fine,
+    // but the antiparallel case would normalise zero).
+    let yaw = if sprite.yaw_effect {
+        let normal = context.placement.z_axis.truncate().normalize_or_zero();
+        let rotation = Quat::from_mat4(&normalize_basis(context.placement));
+        if normal == Vec3::ZERO {
+            Some(rotation)
+        } else {
+            Some(Quat::from_rotation_arc(normal, Vec3::Y) * rotation)
+        }
+    } else {
+        None
+    };
     let uv = flipbook_uv(context.common, context.clock);
     let sample = |i: usize, j: usize| -> Option<([f32; 3], [f32; 2])> {
-        let x = centre.x - width1 + j as f32 * cell_w;
-        let z = centre.z + height2 - i as f32 * cell_h;
+        let col = j as f32 * cell_w - width1;
+        let row = height2 - i as f32 * cell_h;
+        let (x, z) = match yaw {
+            Some(rotation) => {
+                let point = rotation * Vec3::new(col, row, 0.);
+                (centre.x + point.x, centre.z + point.z)
+            }
+            None => (centre.x + col, centre.z + row),
+        };
         let y = height_at(x, z)? + GROUND_DRAPE_LIFT;
         let fi = i as f32 / rows as f32;
         let fj = j as f32 / cols as f32;
@@ -9435,6 +9501,48 @@ mod tests {
         }
     }
 
+    /// `UReverse`, `VReverse` and `UVExchg` are endpoint swaps on the quad, not
+    /// `1 - u` reflections: `Fill_Verts_3D` (A3DDecalEx.cpp:556-576) writes
+    ///
+    /// ```cpp
+    /// if (m_bUReverse) { gfx_swap(fU[0], fU[1]); gfx_swap(fU[2], fU[3]); }
+    /// if (m_bVReverse) { gfx_swap(fV[0], fV[2]); gfx_swap(fV[1], fV[3]); }
+    /// ```
+    ///
+    /// so a mirrored card keeps its own flipbook cell and only trades its left
+    /// edge for its right one. Reflecting in texture space moved it to the cell
+    /// mirrored across the whole atlas instead, which on a two-cell sheet put
+    /// `u = 1` on the corner that has to read `u = 0.5`.
+    #[test]
+    fn reverse_keys_swap_the_cell_they_are_on() {
+        let source = header37(1)
+            + &SPRITE
+                .replace("TexRow: 1\r\n", "TexRow: 2\r\n")
+                .replace("TexCol: 1\r\n", "TexCol: 2\r\n")
+                .replace("TexInterval: 50\r\n", "TexInterval: 1000\r\n");
+        let mut player = build(&source);
+        step(&mut player, 0.);
+        assert_eq!(
+            player.quads()[0].uv,
+            [[0., 0.], [0.5, 0.], [0., 0.5], [0.5, 0.5]],
+            "cell 0 of a 2x2 atlas"
+        );
+
+        let flipped = source
+            .replace("RotFromView: 0\r\n", "RotFromView: 0\r\nUReverse: 1\r\n")
+            .replace(
+                "GrndNormOnly: 0\r\n",
+                "GrndNormOnly: 0\r\nVReverse: 1\r\nUVExchg: 0\r\n",
+            );
+        let mut player = build(&flipped);
+        step(&mut player, 0.);
+        assert_eq!(
+            player.quads()[0].uv,
+            [[0.5, 0.5], [0., 0.5], [0.5, 0.], [0., 0.]],
+            "the same cell, mirrored inside itself"
+        );
+    }
+
     /// `水门_瀑布` is a 3x2 atlas with `TileMode 0` and `TexSpeed (0, -1.5)`.
     ///
     /// The viewer used to scroll those speeds on top of stepping the cells, and
@@ -10763,6 +10871,69 @@ mod tests {
             "a spread rect has three coordinates an axis, a repeated one has two: {us:?} {vs:?}"
         );
         assert!(player.warnings().is_empty(), "{:?}", player.warnings());
+    }
+
+    /// `YawEffect 1` lays the ground sheet in the element's own XY plane turned
+    /// until that plane's normal is world up (`A3DDecalEx.cpp:460-486`):
+    ///
+    /// ```cpp
+    /// A3DQUATERNION quad = GetParentDir() * kp.m_vDir;
+    /// A3DVECTOR3 vNewNorm = quad * _unit_z;
+    /// if (fabs(DotProduct(vNewNorm, _unit_y)) <= _grnd_delta) {
+    ///     AxisAngleToQuad(CrossProduct(vNewNorm, _unit_y), acosf(fAngle), quad2);
+    ///     quad_mix = quad2 * quad;
+    /// }
+    /// ...
+    /// A3DVECTOR3 vPos = matTran * A3DVECTOR3(fCol, fRow, 0);
+    /// vert.x = vPos.x; vert.z = vPos.z;
+    /// ```
+    ///
+    /// so a quarter turn about Y takes a sheet that is long on its own X and
+    /// short on its own Y from long-on-world-X to long-on-world-Z. Without the
+    /// key the lattice ignores the placement's rotation entirely.
+    #[test]
+    fn a_yaw_effect_sheet_lies_in_the_elements_own_plane() {
+        // Half extents 1 and 0.25 with the keypoint scale pinned to one, so the
+        // sheet is 2 by 0.5 before the root's `DedaultScale: 2` puts it at 4 by 1.
+        let sheet = header79(1)
+            + &ground_sprite(true, false)
+                .replace("Width: 0.25", "Width: 1")
+                .replace("Height: 0.5", "Height: 0.25")
+                .replace("Scale: 2", "Scale: 1");
+        let flat = |_x: f32, _z: f32| Some(0f32);
+        let terrain: GroundHeightQuery<'_> = &flat;
+        let footprint = |source: &str| -> (f32, f32) {
+            let mut player = build(source);
+            step_draped(
+                &mut player,
+                Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2),
+                Some(terrain),
+            );
+            let (mut min_x, mut max_x) = (f32::MAX, f32::MIN);
+            let (mut min_z, mut max_z) = (f32::MAX, f32::MIN);
+            for quad in player.quads() {
+                for corner in quad.positions {
+                    min_x = min_x.min(corner[0]);
+                    max_x = max_x.max(corner[0]);
+                    min_z = min_z.min(corner[2]);
+                    max_z = max_z.max(corner[2]);
+                }
+            }
+            (max_x - min_x, max_z - min_z)
+        };
+        let world = footprint(&sheet);
+        assert!(
+            (world.0 - 4.).abs() < 1e-4 && (world.1 - 1.).abs() < 1e-4,
+            "without the key the lattice is world aligned: {world:?}"
+        );
+        let yawed = footprint(&sheet.replace(
+            "GrndNormOnly: 0\r\n",
+            "GrndNormOnly: 0\r\nYawEffect: 1\r\n",
+        ));
+        assert!(
+            (yawed.0 - 1.).abs() < 1e-4 && (yawed.1 - 4.).abs() < 1e-4,
+            "the quarter turn about Y puts the long axis on world Z: {yawed:?}"
+        );
     }
 
     /// The branches that keep the flat quad: a terrain that misses under the

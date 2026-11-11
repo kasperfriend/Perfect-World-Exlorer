@@ -3089,3 +3089,94 @@ finish green.
 section is that change: it is closed against the same census, with the two mechanisms
 kept apart — element 102 is `Update_Billboard`'s crossed pair, and root `FaceToViewer` is
 `A3DGFXEx::Tick`'s rebuilt frame.
+
+## 45. A key-by-key audit against the client's own serialisers, and three rules it turned up
+
+**Method.** The three classes whose source is staged (`A3DGFXEx.cpp`, `A3DGFXElement.cpp`,
+`A3DDecalEx.cpp`) each declare their `.gfx` line formats as `_format_*` / `_gfx_*` string
+constants and read them back with `sscanf`. Extracting those literals gives the complete
+key set each class can write, which is the only census that does not depend on the
+corpus: **22 root keys, 58 element keys, 15 decal keys**. Diffing them against the 205
+key literals `gfx_file.rs` looks up leaves **23 keys we never read** (and 146 literals we
+read that these three serialisers do not write, which belong to the element classes whose
+source is not staged — emitters, trails, models).
+
+The 23 sort into four groups, and only one of them is a render rule:
+
+| group | keys | why it is not a geometry divergence |
+|---|---|---|
+| audio | `AbsoluteVolume`, `Volume`, `VolMin`, `VolMax`, `SoundVer`, `SilentHeader`, `CanDoFadeOut`, `IsLoop`, `FixSpeed`, `PSInterval`, `PSLoopCount` | `A3DGFXSoundEx`'s job; the viewer plays no effect audio at all |
+| shader | `ShaderFile`, `ShaderTex`, `PSConstCount`, `PSConstIndex`, `PSConstValue`, `PSFileVersion`, `PSTargetCount` | a custom pixel shader and its constants; no shader source is staged and the viewer draws with one fixed blend |
+| editor / AABB | `IsAngelica3`, `Version`, `AccurateAABB` | editor metadata and the precise-AABB cull, which the viewer's frustum test already answers |
+| camera shake / emitters | `ShakeDamp`, `ShakeDir`, `PitchMin`, `PitchMax` | the shake *type* is implemented (`GenerateDirection`, the attenuation and the two-frame flip of `A3DGFXEx.cpp:1427-1450`); damp and direction refine the amplitude and are open, as are the emitters' pitch limits |
+
+`MatchSurface` and `SurfaceUseParentDir` deserve their own line because they are not a
+card at all. `A3DDecalEx::Update` (A3DDecalEx.cpp:1215-1300) sends a `MatchSurface: 1`
+element down `AfxGetGFXExMan()->GetSurfaceRender().Render(...)`, which stamps the texture
+onto the **world geometry** with a radius clamped to 15 units — it needs the collision
+surface, not the effect pack. The viewer draws such an element as a flat card, which is a
+known divergence rather than an unread key.
+
+**The rule that was parsed and unused: `YawEffect`.** It is read from version 61
+(`gfx_file.rs` keeps it as `Sprite::yaw_effect`) and nothing consumed it. The ground
+branch spells out what it does (A3DDecalEx.cpp:460-486):
+
+```cpp
+A3DQUATERNION quad = GetParentDir() * kp.m_vDir;
+A3DVECTOR3 vNewNorm = quad * _unit_z;          // the sheet's own normal
+float fAngle = DotProduct(vNewNorm, _unit_y);
+if (fabs(fAngle) <= _grnd_delta) {
+    AxisAngleToQuad(CrossProduct(vNewNorm, _unit_y), acosf(fAngle), quad2);
+    quad_mix = quad2 * quad;                   // normal onto world up
+} else quad_mix = quad;
+quad_mix.Normalize(); quad_mix.ConvertToMatrix(matTran);
+matTran.SetRow(3, vCenter);
+...
+A3DVECTOR3 vPos = matTran * A3DVECTOR3(fCol, fRow, 0);
+vert.x = vPos.x; vert.z = vPos.z;
+```
+
+so with the key the lattice is the **element's own XY plane**, turned until its normal
+points up, with only x and z read back — the sheet's yaw on the ground is the element's.
+Without it the lattice is world aligned and the placement's rotation is thrown away.
+`AxisAngleToQuad` (A3DQuaternion.cpp:168-181) is the shortest arc built by hand and does
+**not** normalise its axis, which is why the branch is gated on the normal being off the Y
+axis: a parallel normal gives a zero axis and `cos(0) = 1` (harmless), the antiparallel
+one would normalise zero. `drape_sprite` now applies `Quat::from_rotation_arc(normal,
+Y) * placement_rotation` and lays `(fCol, fRow, 0)` through it, which is the same rotation
+wherever the client's quirk is numerically defined.
+
+**`UReverse`, `VReverse` and `UVExchg` are endpoint swaps, not reflections.** All three
+builders spell them out identically (A3DDecalEx.cpp:556-576, :1110-1130, and the 2D
+branch's `fU`/`fV` arrays):
+
+```cpp
+if (m_bUReverse) { gfx_swap(fU[0], fU[1]); gfx_swap(fU[2], fU[3]); }
+if (m_bVReverse) { gfx_swap(fV[0], fV[2]); gfx_swap(fV[1], fV[3]); }
+if (m_bUVInterchange) { gfx_swap(fU[0], fV[0]); ... }
+```
+
+The viewer wrote `u = 1 - u`, which is the same thing **only when the window is the whole
+texture**. On a flipbook the window is a cell, so the two disagree about which cell the
+card is in: `TexCol: 2` at clock 0 has its left corners on `u = 0` and `u = 0.5`, and
+`1 - u` sent them to `1` and `0.5` — the cell in the other half of the atlas, mirrored.
+`apply_uv_flips` now swaps the corners instead, which also keeps the terrain drape's
+interpolated lattice identical to the client's `nCol - j` index reversal.
+
+**`IsCloseToGrnd()` is an absolute distance.** `CalcParentTM` (A3DGFXEx.cpp:1617-1622)
+tests `fabs(m_vPos.y - m_fGroundHeight) < _match_grnd_max_delta` with the 0.2 at :254; the
+viewer had `origin.y - surface < 0.2`, so an owner more than 0.2 *below* the terrain
+counted as lying on it and its sheet was draped under the ground instead of keeping the
+flat card. Both call sites (`advance_with_terrain`'s sampler and `ground_frames`) take the
+absolute value now.
+
+**Three tests pin the three rules**: `reverse_keys_swap_the_cell_they_are_on` (a 2x2
+atlas, cell 0, with `UReverse`/`VReverse`), `a_yaw_effect_sheet_lies_in_the_elements_own_plane`
+(a 4x1 sheet under a quarter turn about Y keeps world alignment without the key and turns
+its long axis onto world Z with it), and the drape suite covers the near-ground change
+through `match_ground_alone_needs_the_root_on_the_ground`.
+
+**Still unproven, as before**: this sandbox has no Rust toolchain, so the verdict is CI's
+`cargo check --bins` and the unit suite; the corpus counts quoted above (24
+`FaceToViewer` roots, 42 element-100 `ZOffset`s, 83 billboards, the 906 `MatchGrnd`
+elements) come from `gfx.pck` when it is staged and are re-derivable with `tools/pck_lib.py`.
