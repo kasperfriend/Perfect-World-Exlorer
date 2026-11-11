@@ -2329,3 +2329,63 @@ so it is left undone rather than approximated.
 `return false/*m_bIsUse3DCamera*/;`, `SetProperty` has the assignment commented
 out and `GetProperty` returns a literal `false`. The viewer parses the key for
 completeness; nothing may act on it, and the doc comment on the field says so.
+
+## 32. Element 160 is lit and fogged like the skin model it is
+
+§31 left the effect model path unlit and unfogged: `EffectVertex` carried position
+and UV only, so the normals `pose_bind` computes were discarded, and the pass had
+no light or fog constants at all. A crystal rendered at full texture brightness
+whatever the region's light, and stayed bright at any distance. Both are now done
+with the client's own arithmetic rather than a new one.
+
+**The vertex now carries what the skin shader reads.** `EffectVertex` gained
+`normal`; `EffectMesh` gained the mesh's `MeshMaterial` (`ambient`, `diffuse`,
+`emissive`) taken from `skin.data.materials[mesh.material]`. The placement
+transforms the normal as a vector and renormalises it — the placement's scale is
+the keypoint scale, which is uniform, so that is the client's
+`matScale * GetTranMatrix(kp) * GetParentTM()` applied to a normal. A posed vertex
+with no authored normal stays zero and keeps the flat colour.
+
+**The colour law is `A3DGFXModel::UpdateModel`'s.** The element diffuse
+(keypoint colour times the root's actual alpha) is spent on the *material*, not on
+a vertex tint: `MTL_SCALED` multiplies each material colour by `diffuse.rgb/255`
+with a clamp (`model_material::scale_rgba`), and an alpha below 255 becomes
+`m_fTransparent = 1 - a/255`, which binds as `c8.a`. `model_material::bind` then
+produces `c7` (ambient) and `c8` (directional diffuse), and the vertex shader
+computes `min(c7 + c8 * lambert, 1)` with `lambert = max(dot(n, -L), 0)` — the
+same `model_light::vertex_light` the repo already ported. `bPtLight` is forced
+off, exactly as every `LIGHTINFO` `A3DGFXModel` builds sets it, so no model
+element ever takes the dynamic point light.
+
+**The light comes from the frame the models already use.** `gfx_effect_gpu::Draw::update`
+takes an `EffectLight { lighting, direction, fog_range, fog_color }`, built by the
+caller from the same `model_draw_gpu::Frame` the scenery skin models are drawn
+with — `world_models_gpu` for the world and the walker pass for character add-on
+effects. That is `AfxGetLightparam()` in the client: one directional light, the
+device ambient, and the same fog.
+
+**Fog is applied to meshes only.** `A3DSkinModel` is fogged like any model, so a
+vertex belonging to a mesh sets the per-vertex `fog` flag and the fragment stage
+computes the retained fraction `(end - depth) / span` on the reciprocal of `w`,
+mixing towards `fog_color.rgb` — the formula `model_receiver_gpu` already uses. A
+*quad* leaves the flag at zero: its slot carries `m_enumFogFlag`, which this pass
+does not model, so it keeps the colour the element authored.
+
+**What is still not implemented here:**
+
+* Specular. The client calls `EnableSpecular(true)` and the skin shader writes a
+  separate Blinn term (`model_light::directional_specular`, and
+  `model_material::bind_specular` for `c9`). The scenery path models it through
+  `model_receiver_gpu`; the batched effect pass has one colour stream, so adding
+  specular means deciding how it combines with the authored blend pair, and the
+  module that owns the maths still says "not yet wired to world model drawing".
+  Left out rather than guessed.
+* `AlphaCmp`. `A3DSkinModel::EnableAlphaComp(bool)` — nine shipped models. The
+  comparison function and reference value live in `A3DSkinModel`, not in
+  `A3DGFXModel.cpp`, so no threshold is invented.
+* Action playback. `PlayActionByNameDC(m_strActName, m_nLoops, 0)` runs on the
+  first tick; the viewer poses the bind pose. This is a structural change, not a
+  formula: `collect_models` runs once per player and caches the posed meshes, so
+  playing an action means re-posing per frame against each element's own clock,
+  with a cache in front of the asset load. Recorded here with that plan rather
+  than half-built.
