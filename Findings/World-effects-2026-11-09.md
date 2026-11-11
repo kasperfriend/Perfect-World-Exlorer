@@ -2215,3 +2215,39 @@ Still unmodelled from the same disassembly note: the `ZBIAS` 2 / 0 pair. It bias
 effect depth for a reason (almost certainly to lift a coplanar layer above the
 surface it decorates), but the unit of a D3D8 `ZBIAS` of 2 does not map onto a
 `DepthBiasState` constant without measurement, so no bias is invented here.
+
+## 30. Element 160 draws through a skin, not through a quad slot: `WriteZ` was ignored
+
+§29 established that a *quad* slot carries no depth-function and never writes
+depth. A model element is not a quad slot. `A3DGFXECModel.h` (element 230) shows
+the shape of that family — the element owns an `m_pECModel` and an
+`UpdateECModel(A3DMATRIX4, DWORD dwDiffuse, DWORD dwTickTime)` that takes the
+element's transform and *diffuse*, then overrides `Render`, `TickAnimation` and
+`PrepareRenderSkinModel`; it renders an `A3DSkinModel`, not a vertex buffer of
+its own. Element 160 (`A3DGFXModel`) is the same idea for an `.SMD`.
+
+That matters because the element saves its own `ZWRITEENABLE` state: the corpus
+authors `WriteZ` on `160` blocks — `WriteZ: 1` on 246 of the 447 in the shipped
+`gfx.pck`, the rest below the version that introduced the key, where the loader's
+default is also 1 (`gfx_file.rs` already parses it as `write_z: bool`). The
+viewer parsed `WriteZ`, `AlphaCmp` and `Use3DCam` and then never read any of them
+(`grep` over `src/` found no consumer), so a crystal, an ice block or a stone
+model went through the batched effect path with `depth_write_enabled: false`.
+
+In a blended pass that never writes depth, a model cannot occlude anything drawn
+after it: the waterfall sheet behind a crystal still passes the depth test (the
+buffer holds only the terrain's depth) and is painted over the model. The fix
+uses the authored state instead of a constant:
+
+* `EffectMesh` carries `write_depth`, filled from `ModelRef::write_z` when
+  `emit_model` wraps the posed vertices into quads (the load-time pose has no
+  element yet, so its value is `false`).
+* `PipelineKey` gains `write_depth`, so a writer and a non-writer in the same
+  layer, blend pair and texture do not share a pipeline.
+* Inside a `RenderLayer` a depth writer now sorts *before* the blended sheets,
+  ahead of `Priority`: the writer has to establish the buffer the sheets are
+  tested against, or a model drawn last would still be painted over.
+* Quad slots keep `depth_write_enabled: false`, as §29 requires.
+
+`AlphaCmp` and `Use3DCam` remain parsed and unread — the alpha test of a model
+draw and the camera choice need `A3DGFXModel.cpp`, which is not in hand yet.
