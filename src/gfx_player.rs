@@ -11507,7 +11507,10 @@ mod tests {
                 }
             }
         }
-        assert!(frames >= 8, "the shafts keep drawing: {frames} of 64 frames");
+        assert!(
+            frames >= 8,
+            "the shafts keep drawing: {frames} of 64 frames"
+        );
         assert!(cards > 0, "and the sweep saw at least one card");
         assert!(
             centres.len() >= 8,
