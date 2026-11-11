@@ -2227,9 +2227,10 @@ element's transform and *diffuse*, then overrides `Render`, `TickAnimation` and
 its own. Element 160 (`A3DGFXModel`) is the same idea for an `.SMD`.
 
 That matters because the element saves its own `ZWRITEENABLE` state: the corpus
-authors `WriteZ` on `160` blocks — `WriteZ: 1` on 246 of the 447 in the shipped
-`gfx.pck`, the rest below the version that introduced the key, where the loader's
-default is also 1 (`gfx_file.rs` already parses it as `write_z: bool`). The
+authors `WriteZ` on `160` blocks. §31, written once `A3DGFXModel.cpp` arrived,
+corrects the arithmetic guessed here: 115 of the 447 shipped models author
+`WriteZ: 1`, 131 author `0`, and 201 predate the version-49 key, whose
+constructor value is **false** — see §31. The
 viewer parsed `WriteZ`, `AlphaCmp` and `Use3DCam` and then never read any of them
 (`grep` over `src/` found no consumer), so a crystal, an ice block or a stone
 model went through the batched effect path with `depth_write_enabled: false`.
@@ -2251,3 +2252,80 @@ uses the authored state instead of a constant:
 
 `AlphaCmp` and `Use3DCam` remain parsed and unread — the alpha test of a model
 draw and the camera choice need `A3DGFXModel.cpp`, which is not in hand yet.
+
+## 31. `A3DGFXModel.cpp`: what a model element actually is, in the client's words
+
+The source for element 160 arrived in `pw152source` as `A3DGFXModel.cpp`
+(13,274 B, Drive id `1ggPY4Gk2BSb2O7yfGnQX8PWmQ87PT_VX`). It settles everything
+§30 had to infer, and corrects one number in it.
+
+**Constructor values, which are the meaning of an absent key.** `A3DGFXModel::A3DGFXModel`
+initialises `m_nLoops(1)`, `m_bAlphaCmp(false)`, **`m_bZWriteEnable(false)`**,
+`m_bStart(false)`, `m_bIsUse3DCamera(false)`, `m_bIsFacingDir(false)`,
+`m_iMatMethod(MTL_ORIGINAL)`, `m_MatScale(1,1,1,1)`, `m_fTransparent(-1)`.
+
+**Load gates**, all of them text lines on `dwVersion`: `ModelActName` ≥ 19,
+`AlphaCmp` ≥ 29 (read as `int`, `!= 0`), `Loops` ≥ 31, `WriteZ` ≥ 49,
+`Use3DCam` ≥ 77, `FacingDir` ≥ 99. The shipped corpus (versions 33 – 79) can
+therefore carry `FacingDir` in no file, and a census of `160` blocks agrees: no
+`FacingDir` key exists in `gfx.pck`.
+
+**Census of the 447 element-160 blocks in `gfx.pck`:**
+
+| key | values |
+| --- | --- |
+| `WriteZ` | `1`: 115, `0`: 131, absent: 201 |
+| `AlphaCmp` | `1`: 9, `0`: 438 |
+| `Loops` | `-1`: 174, `1`: 72, absent: 201 |
+| `Use3DCam` | `0`: 133, absent: 314 |
+| `SrcBlend`/`DestBlend` | 5/2: 253, 5/6: 179, 2/4: 6, 2/2: 9 |
+
+So §30's rule was right and its default was wrong: `write_z` must default to
+**false**, and only those 115 authored models write depth. `gfx_file.rs` now takes
+the constructor value, and `model_defaults_do_not_write_depth` pins the three
+defaults a `160` block can omit.
+
+**Blend state.** `Play()` registers the slot with a *fixed*
+`SRCALPHA`/`INVSRCALPHA`, but that is the slot's own prim state; the skin model is
+given the authored pair at load (`ChangeModel` → `SetSrcBlend(m_Shader.SrcBlend)`)
+and again every tick for a shared model (`PrepareRenderSkinModel`). The authored
+pair therefore drives the model's draws, which is what the viewer already does.
+`WriteZ` is different: `PrepareRenderSkinModel` ends with an unconditional
+`m_pDevice->SetZWriteEnable(m_bZWriteEnable)` for every model, so it applies to
+shared and private models alike.
+
+**Colour and lighting.** `TickAnimation` builds
+`diffuse = kp.MultiplyAlpha(m_pGfx->GetActualAlpha())` — keypoint colour times the
+root's actual alpha — then multiplies by the root's outer colour when
+`IsUsingOuterColor()`. That diffuse becomes `MTL_SCALED` material scale
+(`rgb/255`) and, when its alpha is not 255, `m_fTransparent = 1 - a/255`. The skin
+model is then given `SetLightInfo` from `AfxGetLightparam()`: device ambient,
+the directional light's direction, diffuse and specular, with point lights off,
+and `ChangeModel` calls `EnableSpecular(true)` and
+`SetAutoAABBType(AUTOAABB_INITMESH)`.
+
+The viewer's model path is **unlit**: `EffectVertex` carries position and UV only,
+so the posed normals `pose_bind` already computes are dropped, and no light
+uniform reaches the effect pass. A model is therefore drawn at full texture
+brightness with no directional shading and no specular, whatever the region's
+light is. That is a real difference, but the fix needs the light snapshot the
+scenery shader uses (`gpu.rs` `region_ambient`/`region_diffuse`/`region_direction`
+are a *regional* grid, not the single `A3DLIGHTPARAM` the client hands the model),
+so it is left undone rather than approximated.
+
+**Still not implemented, all now with a named client entry point:**
+
+* `ModelActName` + `Loops` — `PlayActionByNameDC(action, loops, 0)` on the first
+  tick after `Play()`. The viewer poses the bind pose (`pose_bind`), so an
+  animated effect model is frozen. `model_playback.rs` already samples actions for
+  scenery, so this is plumbing rather than new maths.
+* `AlphaCmp` — `A3DSkinModel::EnableAlphaComp(bool)`. Nine elements. The
+  comparison function and reference value live in that class, not in this file,
+  so no threshold is invented here.
+* `FacingDir` (≥ 99) — orientation from the frame's movement with 0.2/0.8
+  smoothing. Not reachable from this pack.
+
+**`Use3DCam` is dead in the client.** `IsForceUse3DCamera()` is
+`return false/*m_bIsUse3DCamera*/;`, `SetProperty` has the assignment commented
+out and `GetProperty` returns a literal `false`. The viewer parses the key for
+completeness; nothing may act on it, and the doc comment on the field says so.
