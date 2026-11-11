@@ -1730,3 +1730,62 @@ direction covers the full circle: the distribution is a cone of half-angle
 uniform in `[0, Angle]` with uniform azimuth, which is exactly `cone_sample`.
 Draw order (angle first, azimuth second) matches `cone_direction`. The cyan
 tree lights are therefore not a direction-law bug in this path.
+
+## 23. Element 180 is `A3DLtnTrail`, and element 110 checked against `A3DTrail`
+
+### 23.1 180 was drawing element 110's ribbon
+
+`A3DLtnTrail` (`A3DLtnTrail.cpp`) is not an accumulating strip. Its whole state is
+at most three cross-sections:
+
+```cpp
+// AddPoint, :264-333
+if (nCount > 1) { m_TrailLst.RemoveHead(); nCount--; }        // never more than two
+A3DVECTOR3 vInter = ldStart.m_vCenter * fR + vCenter * fPortion;   // midpoint
+A3DVECTOR3 vAmp = RotateVec(A3DQUATERNION(vDir, _UnitRandom()*A3D_2PI), CalcVertVec(vDir));
+vAmp *= m_fMinAmp + (m_fMaxAmp - m_fMinAmp) * _UnitRandom();       // perpendicular jitter
+vInter += vAmp;
+...
+ldCenter.m_fU = ldStart.m_fU + _tex_delta;                        // 0.2, wraps at 1
+```
+
+so each tick inserts a **jittered midpoint** between the last centre and the
+current one, then the current one: three rows, two quads, refreshed every
+`_inner_tick = 40` ms, each row's `U` advancing by `_tex_delta = 0.2`.
+`FillVertexBuffer` (`:336-410`) writes `tu = ld.m_fU` on **both rails** with
+`tv` 0 and 1 — the texture runs along the trail, across the rails, the opposite
+way round from element 110 — and the alpha is the keypoint alpha times
+`m_nSegLife / SegLife`.
+
+The viewer routed 180 through element 110's emitter: an unbounded history of
+cross-sections laid on a 30 Hz clock, no jitter, and the age fraction in `V`.
+That is the difference between a 1-second zigzag trail and a long smooth sheet,
+and it is what `gfx/人物/技能/妖兽/巨浪释放2.gfx` and the other 78 element-180
+records were drawn as.
+
+There is now a `Runtime::LtnTrail` with its own state and `emit_ltn_trail`
+implementing the client's order of operations — age and expiry first, then one
+`AddPoint` per 40 ms of accumulated time, then the head-drop and the three-row
+cap. One viewer-only adaptation is marked in the code: the client slerps a
+rotation between samples and applies it to the authored rails, while the viewer
+interpolates the rails themselves; for the rigid placements the corpus authors
+that is the same motion, and it keeps one shared jitter offset.
+`an_ltn_trail_keeps_three_cross_sections_and_scrolls_its_u` pins the three-row
+cap, the 0.2 step in `U`, both rails sharing one `U` per row, and `tv` spanning
+0..1.
+
+### 23.2 110 and 140 verified, no change
+
+`A3DTrail` (element 110, 2,956 records) stores one cross-section per frame built
+from `OrgPos1`/`OrgPos2` — `vCenterOrg = (p1+p2)*.5`, `vHalf = (p2-p1)*(fScale/2)`
+(`:147-155`) — with `SegLife` as the per-segment age, `tv` keyed to the remaining
+life fraction and `tu` spanning `m_fTexU .. m_fTexU + m_fTexWid`
+(`FillVertexBuffer:700-740`). `emit_ribbon` already matches all of that (rails
+from the two `OrgPos` points, linear age fade, `U` across the rails, `V` along
+the length). `SegLife` in the retail package is authored 200–2000 ms on every
+record, so the zero-life guard never swallows a real trail.
+
+`A3DGFXRing` (element 140, 1,116 records) matches too: `Sects: 0` → 36
+(`_default_sects`), the pitch shifting into the two radii, `NoRadScale`/
+`NoHeiScale` bypassing the keypoint scale, `tu` running around the
+circumference (`:291`). Nothing to change.
