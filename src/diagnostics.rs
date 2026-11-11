@@ -607,6 +607,7 @@ impl Channel {
                 | Self::SceneEffects
                 | Self::ModelQueue
                 | Self::RenderEffects
+                | Self::RenderWater
         )
     }
 
@@ -2122,7 +2123,13 @@ pub fn ui(ui: &mut egui::Ui, mask: &mut u64, directory: &mut String) -> bool {
                         )
                     };
                     if ui.checkbox(&mut all, *group).on_hover_text(help).changed() {
-                        for channel in &wired {
+                        // Every member, wired or not. Ticking only the wired
+                        // ones made a group with no hook at all — the water
+                        // group was one — flip itself back the instant it was
+                        // clicked, because the recomputed `all_on` could never
+                        // become true. The mask is the user's setting; a channel
+                        // that cannot write yet simply writes nothing.
+                        for channel in &members {
                             let bit = 1u64 << channel.index();
                             *mask = if all { *mask | bit } else { *mask & !bit };
                         }

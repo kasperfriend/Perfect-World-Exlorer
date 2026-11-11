@@ -1526,3 +1526,60 @@ static-mesh submission next.
    then move the camera once so a fresh frame is drawn.
 4. Send `summary.log` — it stamps the binary that wrote it (§15), so a stale
    executable cannot be mistaken for a missing record.
+
+## 20. The water group could not be ticked, and element 190 is a bowl
+
+### Why "Terrain, sky and water" flipped itself back
+
+The group tick box only touched members whose channel `wired()`; a group where
+*no* member has an emitter could therefore never become "all on", so the box
+unticked itself on the next frame. The water group was exactly that: `SceneWater`
+and `SceneSky` have no emitters and `RenderWater` was not in `wired()` either.
+The box now writes the whole member set, and `RenderWater` is wired — it prints
+one line per uploaded `A3DWaterArea` (`export`, colour, `simple`, `height`,
+`grid`, `cells`, `wet of`, `centre`, `shore_waves`), which is the line §19 asked
+for.
+
+### Element 190 is `A3DParaboloid`, and its geometry is 40 lines
+
+`A3DParaboloid.cpp` was on the Drive after all (`fullText contains
+'A3DParaboloid'`, 6,742 bytes). `Build`:
+
+```cpp
+m_nCircles = int(m_fHeight / _grid_sz);          // _grid_sz = .1, capped at 8
+float fGrdSz = m_fHeight / m_nCircles;
+float fRadius = (float)sqrt(m_fCoefficient * i * fGrdSz);
+ver.x = fRadius * fCos[j]; ver.y = fRadius * fSin[j]; ver.z = fGrdSz * i;
+ver.tu = fUC + fTexX * fCos[j];  ver.tv = fVC - fTexY * fSin[j];
+```
+
+`_segs = 360 / 15 = 24`, the UV centre is the middle of the current window, and
+the keypoint scale is applied by `FillVertexBuffer`'s
+`matWorld = mat.Scale(kp.m_fScale) * GetTranMatrix(kp) * GetParentTM()` — once,
+to the finished point.
+
+The viewer had been building element 190 from the **root's `Vec:` pair**, which
+element 190 does not own: a 0.5-wide ribbon along a chord that most files do not
+author. `emit_paraboloid` now builds the bowl exactly as above, so
+`水柱.gfx` — `elements=3 quads=0` in `StrayLights.log` — has geometry for the
+first time, and the floating city's sheets stop being an unrelated smear.
+`an_element_190_is_a_paraboloid_bowl_of_the_authored_height` pins the ring count
+(3 rings × 24 segments for 0.3 units) and the shape (widest radius / height =
+√0.3 / 0.3, a scale-free ratio).
+
+### The sun-ray log says the axis *is* the record's direction
+
+`Sunrays.log`, one placement:
+
+```text
+basis right=(3.48,0.00,0.00) up=(0.00,2.90,-1.94) dir=(0.00,1.94,2.90)
+card  3.48x69.78  p0=(949.32,253.43,3310.89)  p2=(949.32,214.66,3252.98)
+decal basis=axial shaft=client rot_from_view=true
+```
+
+`p2 - p0` normalises to `(0, 0.556, 0.831)`, which is the record's `dir` row to
+three places, and the record is tilted 34° about X — the authored tilt of that
+`树林光束` placement. So the shaft follows `GetParentDir() * kp.m_vDir * _unit_z`
+= the third row of the row-vector basis. If the picture still reads as random,
+the next datum is one screenshot per `effect_shaft` row at the same spot; the
+decal line already prints which row produced it.

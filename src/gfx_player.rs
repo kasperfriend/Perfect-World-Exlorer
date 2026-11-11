@@ -2960,7 +2960,7 @@ fn emit_clock(
         }
         Spec::Sound(_) => stats.sounds += 1,
         Spec::Model(_) => stats.models += 1,
-        Spec::Curve(curve) => emit_curve(curve, context, out),
+        Spec::Curve(curve) => emit_paraboloid(curve, context, out),
         Spec::Unknown { .. } => stats.unrendered += 1,
         // These classes carry their own runtime and never reach this function.
         Spec::Ribbon(_)
@@ -3676,6 +3676,12 @@ fn posed_model_meshes(
     Ok(meshes)
 }
 
+/// `A3DParaboloid::Build`'s three build constants (A3DParaboloid.cpp:20-24).
+const PARABOLOID_GRID: f32 = 0.1;
+const PARABOLOID_MAX_CIRCLES: usize = 8;
+/// `_segs = 360 / 15`, the ring resolution of the surface of revolution.
+const PARABOLOID_SEGMENTS: usize = 24;
+
 fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<EffectQuad>) {
     let color = context.rgba();
     if color[3] < ALPHA_CUTOFF {
@@ -3800,89 +3806,85 @@ fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<Ef
 /// cross product the builder takes are chosen inside the routine, and this
 /// viewer orients the ribbon across the chord by the view instead. The segment
 /// count and both endpoints are the recovered values.
-fn emit_curve(curve: &Curve, context: &ElementContext, out: &mut Vec<EffectQuad>) {
-    let Ok(texture) = texture_path(&context.common.texture) else {
-        return;
-    };
-    let [first, second] = context.span;
-    let start = context.placement.transform_point3(first);
-    let end = context.placement.transform_point3(second);
-    let chord = end - start;
-    let length = chord.length();
-    if !length.is_finite() || length <= 1e-6 {
-        return;
-    }
-    // Segment count for a constant stretch per segment.
+fn emit_paraboloid(curve: &Curve, context: &ElementContext, out: &mut Vec<EffectQuad>) {
+    // Element 190 is `A3DParaboloid` (A3DGFXElement.cpp:632-633), and its
+    // geometry is a surface of revolution, not a ribbon along the root's `Vec`
+    // pair. `A3DParaboloid::Build` (A3DParaboloid.cpp:113-186, fetched from the
+    // pw152 `GfxCommon` tree) is short enough to reproduce whole:
     //
-    // The count was `(1.0 / length) * coefficient`, which is inverted: it gave
-    // a *longer* chord fewer segments. Its own comment states the invariant it
-    // is meant to hold -- "keeps the stretch per segment constant" -- and
-    // `stretch = length / segments` is `length^2 / coefficient` under that
-    // formula, so it holds for nothing. Any chord longer than the coefficient
-    // collapsed to the one-segment floor and drew the whole beam or trail as a
-    // single billboard stretched across its span, which is the flat smear this
-    // element is visible as. `length / coefficient` makes `stretch` the
-    // coefficient exactly, which is the constant the comment names.
+    //     m_nCircles = int(m_fHeight / _grid_sz);            // _grid_sz = .1
+    //     if (m_nCircles < 1) m_nCircles = 1;
+    //     else if (m_nCircles > _max_circles) m_nCircles = 8;
+    //     float fGrdSz = m_fHeight / m_nCircles;
+    //     float fRadius = sqrt(m_fCoefficient * i * fGrdSz);
+    //     ver.x = fRadius * fCos[j];  ver.y = fRadius * fSin[j];  ver.z = fGrdSz * i;
+    //     ver.tu = fUC + fTexX * fCos[j];   ver.tv = fVC - fTexY * fSin[j];
     //
-    // `Coeff` is authored 1.0 on every corpus element 190 (the parser defaults
-    // it there), so a 10-unit beam is ten quads and a 40-unit beam forty, and
-    // the 256 cap still bounds the worst case. The count remains an inference:
-    // the client's builder at the element-190 routine was never read, only the
-    // endpoints and the degenerate-chord gate.
-    let segments = (length / curve.coefficient.max(1e-3)).clamp(1.0, 256.0) as usize;
-    let segments = segments.max(1);
-    crate::diag_keyed!(
-        EffectTrails,
-        at(context),
-        1000,
-        "{} id={} curve length={:.2} coefficient={:.3} segments={} half_width={:.3} \
-         from=({:.2},{:.2},{:.2}) to=({:.2},{:.2},{:.2})",
-        context.root,
-        context.id,
-        length,
-        curve.coefficient,
-        segments,
-        curve.height * 0.5 * context.scale,
-        start.x,
-        start.y,
-        start.z,
-        end.x,
-        end.y,
-        end.z
-    );
-    let uv = flipbook_uv(context.common, context.clock);
-    let color = rgba(context.color, context.color_scale);
+    // with `_segs = 360 / 15 = 24` and the UVs measured from the *centre* of the
+    // window (`fUC = m_fTexWid * .5`, `fVC = m_fTexHei * .5`) stepping by
+    // `m_fTexWid * .5 / m_nCircles` per circle. So the sheet is a bowl whose
+    // radius grows as the square root of the height above its foot, its axis is
+    // the element's local **Z**, and its texture is a disc wrapped around that
+    // axis.
+    //
+    // The old branch here built a 0.5-wide strip from the *root's* `Vec:` pair —
+    // data element 190 does not own — which is why the floating city's bowls
+    // were either an unrelated smear or, with no `Vec` pair in the file, nothing
+    // at all: `水柱.gfx` reports `elements=3 quads=0`.
+    let color = context.rgba();
     if color[3] < ALPHA_CUTOFF {
         return;
     }
-    // Half-width across the chord, in the plane the camera sees.
-    let across = {
-        let side = chord.cross(context.view.forward);
-        if side.length_squared() > 1e-9 {
-            side.normalize()
-        } else {
-            chord.cross(context.view.up).normalize_or_zero()
-        }
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
     };
-    let half = (curve.height.max(0.) * 0.5) * context.scale;
-    let mut positions = [[0f32; 3]; 4];
-    for step in 0..segments {
-        let a = step as f32 / segments as f32;
-        let b = (step + 1) as f32 / segments as f32;
-        let (p0, p1) = (start + chord * a, start + chord * b);
-        let corners = [
-            p0 - across * half,
-            p1 - across * half,
-            p0 + across * half,
-            p1 + across * half,
+    // `Build` works in the element's own units and only `FillVertexBuffer`'s
+    // `matWorld = mat.Scale(kp.m_fScale) * ...` applies the keypoint scale, so
+    // the circle count and the radii are computed from the authored values and
+    // the finished point is scaled once.
+    let (height, coefficient) = (curve.height, curve.coefficient);
+    if !(height.is_finite() && coefficient.is_finite()) || height <= 0. || coefficient <= 0. {
+        return;
+    }
+    let circles = (height / PARABOLOID_GRID).floor().clamp(1., PARABOLOID_MAX_CIRCLES as f32);
+    let circles = circles as usize;
+    let grid = height / circles as f32;
+    let local_scale = context.scale;
+    if !local_scale.is_finite() || local_scale <= 0. {
+        return;
+    }
+    let uv = flipbook_uv(context.common, context.clock);
+    let (u_base, u_span) = (uv[0][0], uv[1][0] - uv[0][0]);
+    let (v_base, v_span) = (uv[0][1], uv[2][1] - uv[0][1]);
+    let tex_x_step = u_span * 0.5 / circles as f32;
+    let tex_y_step = v_span * 0.5 / circles as f32;
+    let matrix = context.placement;
+    let vertex = |ring: usize, seg: usize| -> (Vec3, [f32; 2]) {
+        let angle = std::f32::consts::TAU / PARABOLOID_SEGMENTS as f32 * seg as f32;
+        let radius = (coefficient * ring as f32 * grid).max(0.).sqrt();
+        let height = grid * ring as f32;
+        let point = Vec3::new(
+            radius * angle.cos(),
+            radius * angle.sin(),
+            height,
+        ) * local_scale;
+        let uv = [
+            u_base + u_span * 0.5 + tex_x_step * ring as f32 * angle.cos(),
+            v_base + v_span * 0.5 - tex_y_step * ring as f32 * angle.sin(),
         ];
-        for (slot, corner) in corners.into_iter().enumerate() {
-            positions[slot] = corner.to_array();
+        (point, uv)
+    };
+    for ring in 0..circles {
+        for seg in 0..PARABOLOID_SEGMENTS {
+            let (a, ua) = vertex(ring, seg);
+            let (b, ub) = vertex(ring, seg + 1);
+            let (c, uc) = vertex(ring + 1, seg);
+            let (d, ud) = vertex(ring + 1, seg + 1);
+            let positions = [a, b, c, d].map(|point| matrix.transform_point3(point).to_array());
+            push_quad(out, context, &texture, positions, [ua, ub, uc, ud], color);
         }
-        push_quad(out, context, &texture, positions, uv, color);
     }
 }
-
 fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
     let Ok(texture) = texture_path(&context.common.texture) else {
         return;
@@ -7452,6 +7454,47 @@ mod tests {
                 "curve texture {wanted} never reached the quad list"
             );
         }
+    }
+
+    /// Element 190 is a paraboloid: `A3DParaboloid::Build` (A3DParaboloid.cpp:113-186)
+    /// revolves a semicircle of `_segs = 24` segments around the element's local
+    /// Z axis, `m_nCircles = clamp(int(height / .1), 1, 8)` rings tall, with
+    /// `radius = sqrt(Coeff * ring * grid)`. So a 0.3-tall unit-coefficient bowl
+    /// is three rings of 24 quads, and its widest ring is `sqrt(0.3)` times its
+    /// height — a *bowl*, which is what the floating city's sheets and `水柱`
+    /// are. The old branch built a ribbon along the root's `Vec:` pair instead
+    /// and produced nothing at all when the file had no pair.
+    #[test]
+    fn an_element_190_is_a_paraboloid_bowl_of_the_authored_height() {
+        let bowl = "GFXELEMENTID: 190\r\nName: bowl\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+                    TexFile: 物体\\water.dds\r\nTexRow: 1\r\nTexCol: 1\r\n\
+                    TexInterval: 50\r\nPriority: 2\r\nCoeff: 1\r\nheight: 0.3\r\n\
+                    StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\n\
+                    TimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 2\r\n\
+                    Direction: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n";
+        let mut player = build(&(header37(1) + bowl));
+        step(&mut player, 0.);
+        let quads = player.quads().to_vec();
+        assert_eq!(
+            quads.len(),
+            3 * 24,
+            "0.3 units of height is three rings of 24 segments"
+        );
+        let (mut widest, mut tallest) = (0f32, 0f32);
+        for quad in &quads {
+            for point in &quad.positions {
+                widest = widest.max((point[0] * point[0] + point[1] * point[1]).sqrt());
+                tallest = tallest.max(point[2]);
+            }
+        }
+        // sqrt(0.3) / 0.3: the widest ring against the authored height. The
+        // ratio is scale free, so it holds whatever the keypoint scale does.
+        let ratio = widest / tallest;
+        assert!(
+            (ratio - 0.3f32.sqrt() / 0.3).abs() < 0.01,
+            "the bowl is {ratio} radii per height, not {}",
+            0.3f32.sqrt() / 0.3
+        );
     }
 
     /// Every texture the shipped effect roots name must resolve to a decoded
