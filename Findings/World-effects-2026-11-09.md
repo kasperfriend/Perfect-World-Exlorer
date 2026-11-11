@@ -1789,3 +1789,62 @@ record, so the zero-life guard never swallows a real trail.
 (`_default_sects`), the pitch shifting into the two radii, `NoRadScale`/
 `NoHeiScale` bypassing the keypoint scale, `tu` running around the
 circumference (`:291`). Nothing to change.
+
+## 24. The particle classes, read from the four emitter sources
+
+The four area emitters cover 13,253 of the package's particle records (123 alone
+is 9,870). Read against the classes, the viewer had **ids 123 and 124 swapped**:
+the class that samples a cylinder was drawing an ellipsoid and vice versa, and
+both direction rules travelled with the wrong id.
+
+| id | class | surface sample | volume sample | direction |
+|---|---|---|---|---|
+| 120 | `A3DPointEmitter` | cone at exactly `Angle`, one draw | `GenDirection` | `m_vMoveDir` = the cone, `m_vPos = m_vMoveDir * 0.001` |
+| 121 | `A3DBoxEmitter` | face chosen by `fRand < fS1`, else `fRand < fS2` (non-cumulative) | box | `GenDirection` |
+| 123 | `A3DCylinderEmitter` | `(cos θ, sin θ, z)` | disc in XY, `z` symmetric | `GenDirection` |
+| 124 | `A3DEllipsoidEmitter` | unit **sphere** point | unit ball | `-v` for surface, **none** in volume |
+
+### 24.1 123 is the cylinder, 124 the ellipsoid
+
+`A3DCylinderEmitter::GenSurface` (`:32-48`) turns `_unit_x` about `_unit_z` by a
+full random turn and takes `z = _SymmetricRandom()`:
+
+```cpp
+A3DQUATERNION q(_unit_z, _UnitRandom() * A3D_2PI);
+A3DVECTOR3 v = RotateVec(q, _unit_x);
+float z = _SymmetricRandom();
+pParticle->m_vPos = v.x * m_vXRange + v.y * m_vYRange + z * m_vZRange;
+```
+
+and its `InitParticle` calls `GenDirection` for both branches, so the emission
+cone still applies. `A3DEllipsoidEmitter::GenSurface` (`:94-107`) spins `_unit_x`
+about `_unit_y`, then `_unit_y` about that, and writes `m_vMoveDir = -v`; its
+`InitParticle` never calls `GenDirection`, and the base
+`A3DParticleEmitter::InitParticle` (`A3DParticleEmitter.h:145-155`) leaves
+`m_vMoveDir` alone — so a volume ellipsoid emits particles that do not move at
+all.
+
+The viewer had `123` sampling the sphere and negating it, and `124` sampling the
+cylinder and keeping the cone: both shapes and both directions inverted. They are
+now the right way round, `cylinder_volume_sample` reproduces `GenTotal`'s
+rejection loop (three symmetric draws per attempt, rejected until
+`x*x + y*y <= 1`), and a volume ellipsoid is born with a zero direction.
+
+### 24.2 120 and 121 checked, unchanged
+
+`A3DPointEmitter::InitParticle` is its own override: the surface branch builds
+`q1 = axis_angle(vUp, π/2 - Angle)` and stores the *product* `q1 * q`, then
+`m_vMoveDir = RotateVec(q1 * q, _unit_y)` — one draw, exactly `surface_cone`,
+which `surface_cone_spends_one_draw` and `id_120_surface_emission_is_a_cone_one_unit_out`
+already pin. The only difference left is the `_init_delta = .001` nudge that
+pushes a 120 particle one thousandth of a unit along its own direction; it is
+smaller than a texel at every world scale and is not modelled.
+
+`A3DBoxEmitter::GenSurface` selects a face with `fRand < fS1` and then
+`fRand < fS2`, where `fS2` is already normalised by the sum — *not* cumulative,
+so the X faces are reachable only when `YZ > XY`. `box_surface_sample` reproduces
+that skew (and the sign draw before the two in-face draws), so nothing changed.
+
+The corpus test `corpus_unbound_emission_carries_the_basis_scalar` now asserts the
+cylinder's shape for id 123 and the ellipsoid inequality for the classes that
+share the ball, which is the check that would have caught the swap.
