@@ -7012,8 +7012,9 @@ mod tests {
         let view = view();
         let common = Common::default();
         let mut context = spawn_context(&view, &common);
-        // Id 122 shares the ball volume sampler; 123 overrides it with a cylinder.
-        context.id = 122;
+        // Id 124 shares the ball volume sampler and is one of the three classes
+        // that folds the scalar into the basis; 123 replaces the ball with a disc.
+        context.id = 124;
         // Keypoint `Scale` 2 under a root `PlaySpeed` of 3.
         context.emission_scale = 6.;
         let mut particle = Particle::default();
