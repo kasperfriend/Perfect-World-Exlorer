@@ -48,10 +48,11 @@ struct PipelineKey {
     destination: u32,
     depth_test: bool,
     /// Element 160's `WriteZ`. The slot manager never writes depth for a
-    /// *quad*, but a model slot is a skin draw, and the model element saves the
-    /// ZWRITEENABLE state it wants (`WriteZ: 1` on 246 of the 447 models in the
-    /// shipped `gfx.pck`, defaulting to 1 when the key is absent). Without it a
-    /// crystal or an ice block cannot occlude the sheet drawn after it.
+    /// *quad*, but a model slot is a skin draw: `A3DGFXModel::PrepareRenderSkinModel`
+    /// ends with `SetZWriteEnable(m_bZWriteEnable)`, a member whose constructor
+    /// value is false and which only the version-49 `WriteZ` key turns on — 115
+    /// of the shipped 447 models author `1`, 131 author `0`, 201 predate the key.
+    /// Without it a crystal cannot occlude the sheet drawn after it.
     write_depth: bool,
 }
 
@@ -1061,9 +1062,10 @@ mod tests {
 
     /// A model slot is a skin draw, not a quad slot, so element 160's `WriteZ`
     /// decides whether it writes depth — and a writer has to draw before the
-    /// blended sheets it should occlude, whatever `Priority` it carries. 246 of
-    /// the shipped `gfx.pck` models author `WriteZ: 1`; the rest take the
-    /// loader default of 1 when the key is absent.
+    /// blended sheets it should occlude, whatever `Priority` it carries. 115 of
+    /// the shipped `gfx.pck` models author `WriteZ: 1`; the other 332 (131
+    /// authored `0`, 201 older than the key) keep `A3DGFXModel`'s constructor
+    /// value of false and write nothing.
     #[test]
     fn a_model_that_writes_depth_draws_before_the_sheets_in_its_layer() {
         let model = PipelineKey {

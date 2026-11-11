@@ -168,9 +168,11 @@ pub struct EffectMesh {
     pub texture: String,
     /// World-space triangle soup: three consecutive vertices per triangle.
     pub vertices: Vec<EffectVertex>,
-    /// Element 160's `WriteZ`: whether this mesh writes depth as it draws. The
-    /// client stores it on the model element and sets `ZWRITEENABLE` from it, so
-    /// a crystal occludes the waterfall drawn behind it.
+    /// Element 160's `WriteZ`: whether this mesh writes depth as it draws.
+    /// `A3DGFXModel::PrepareRenderSkinModel` sets `ZWRITEENABLE` from
+    /// `m_bZWriteEnable`, which starts false and only the version-49 key raises,
+    /// so a crystal that authors `WriteZ: 1` occludes the sheet behind it and
+    /// every other model stays read-only.
     pub write_depth: bool,
 }
 
