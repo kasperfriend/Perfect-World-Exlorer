@@ -9950,8 +9950,12 @@ mod tests {
     #[test]
     fn a_no_change_dir_root_ignores_the_placement_rotation() {
         let camera = view();
-        let header = header37(1)
-            .replace("Raytrace: 0\r\n", "Raytrace: 0\r\nNoChangeDir: 1\r\n");
+        // The root serialiser writes `NoChangeDir` with the two 2D flags after the
+        // controllers and before the element count, so the group goes there.
+        let header = header37(1).replace(
+            "GFXELEMENTCOUNT",
+            "NoChangeDir: 1\r\n2DRender: 0\r\n2DBackLayer: 0\r\nGFXELEMENTCOUNT",
+        );
         let mut player = build(&(header + SPRITE));
         player
             .advance(
