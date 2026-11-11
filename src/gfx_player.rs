@@ -11401,21 +11401,79 @@ mod tests {
             expected.dot(Vec3::new(0., -0.565, 0.825).normalize()).abs() > 0.999,
             "the third column is the client's shaft axis, got {expected:?}"
         );
+        // Each shaft holds two keypoints, both `InterpolateMode: 0` (step, not
+        // slerp): the first is tilted — `(-0.5, -0.5, -0.5, 0.5)` for the first
+        // pair, a quarter turn about X for the rest — and the second is the
+        // identity. So a card's shaft is the placement's Z axis carried through
+        // one of those two, and which one it is depends on the element's own
+        // `StartTime`, not on anything this test knows. Reading both from the
+        // parsed file keeps the expectation free of hard-coded quaternions while
+        // still failing on the transposed-parent bug, whose axis is the *inverse*
+        // rotation and matches neither.
+        let axes: Vec<Vec3> = root
+            .elements
+            .iter()
+            .flat_map(|element| element.keypoints.iter())
+            .map(|key| placement.transform_vector3(key.direction * Vec3::Z).normalize())
+            .collect();
+        assert_eq!(axes.len(), 16, "two keypoints per shaft");
+        assert!(
+            axes.iter().filter(|axis| axis.dot(expected).abs() > 0.999).count() > 0,
+            "one of the two is the plain placement axis"
+        );
+        let mut distinct: Vec<Vec3> = Vec::new();
+        for axis in &axes {
+            if !distinct.iter().any(|seen| seen.dot(*axis) > 0.999) {
+                distinct.push(*axis);
+            }
+        }
+        // Three of them: the quarter turn about X, the 120 degree turn about
+        // (1, 1, 1), and the identity. They are the placement's three columns,
+        // which is the whole point — a shaft may lie on any of them, and a
+        // transposed parent would put all three somewhere else.
+        assert_eq!(
+            distinct.len(),
+            3,
+            "the placement's three axes, from the shipped keypoints: {distinct:?}"
+        );
+        // The eight shafts are staggered by their own `StartTime`s — 0, 500, 875,
+        // 1000, 1500, 1750, 2025 and 2450 ms — so all eight are alive only after
+        // the last one has begun.
         player
-            .advance(16., &view(), placement, 1., 1.)
+            .advance(2600., &view(), placement, 1., 1.)
             .expect("advance the beams");
         let quads = player.quads();
         assert_eq!(quads.len(), 8, "one card per shaft: {quads:?}");
         for quad in quads {
-            let along = Vec3::from_array(quad.positions[1]) - Vec3::from_array(quad.positions[0]);
+            // Corner order is `quad_corners`': 0 is top-left, 1 top-right, 2
+            // bottom-left, 3 bottom-right, so 2-0 is the height and 1-0 the width.
+            let along = Vec3::from_array(quad.positions[2]) - Vec3::from_array(quad.positions[0]);
+            let across = Vec3::from_array(quad.positions[1]) - Vec3::from_array(quad.positions[0]);
+            let direction = along.normalize_or_zero();
+            let axis = axes
+                .iter()
+                .copied()
+                .max_by(|left, right| {
+                    direction
+                        .dot(*left)
+                        .abs()
+                        .partial_cmp(&direction.dot(*right).abs())
+                        .expect("finite dots")
+                })
+                .expect("a shaft axis");
             assert!(
-                along.normalize_or_zero().dot(expected).abs() > 0.999,
-                "the card's height runs along the placement's third column, got {along:?}"
+                direction.dot(axis).abs() > 0.999,
+                "the card's height runs along the placement axis through its keypoint, \
+                 got {along:?} against {axis:?}"
             );
-            let across = Vec3::from_array(quad.positions[2]) - Vec3::from_array(quad.positions[0]);
             assert!(
-                across.normalize_or_zero().dot(expected).abs() < 0.01,
+                across.normalize_or_zero().dot(axis).abs() < 0.01,
                 "and its width is square to it, got {across:?}"
+            );
+            assert!(
+                (along.length() - 20. * 0.7).abs() < 0.05,
+                "a 0.5 x 10 shaft is 20 units tall at the root's 0.7 scale, got {}",
+                along.length()
             );
         }
     }
