@@ -8314,7 +8314,7 @@ mod tests {
             // wrong fixes came to look verified: the checks that would have
             // contradicted them never ran. `crate::corpus` is the one place that
             // decision is made, so `PWE_CORPUS=require` can make it a failure.
-            crate::corpus::absent("`google_drive/x`");
+            crate::pck::corpus_absent("`google_drive/x`");
             return None;
         }
         Some(root)
@@ -11101,7 +11101,7 @@ mod tests {
     fn the_real_potted_crystal_poses_its_model() {
         let pack = std::path::PathBuf::from("google_drive/gfx.pck");
         if !pack.is_file() {
-            crate::corpus::absent("`google_drive/gfx.pck`");
+            crate::pck::corpus_absent("`google_drive/gfx.pck`");
             return;
         }
         let mut file = std::fs::File::open(&pack).expect("open gfx.pck");
@@ -11194,7 +11194,7 @@ mod tests {
     fn open_pack() -> Option<(std::fs::File, Vec<crate::pck::Entry>)> {
         let pack = std::path::PathBuf::from("google_drive/gfx.pck");
         if !pack.is_file() {
-            crate::corpus::absent("`google_drive/gfx.pck`");
+            crate::pck::corpus_absent("`google_drive/gfx.pck`");
             return None;
         }
         let mut file = std::fs::File::open(&pack).expect("open gfx.pck");

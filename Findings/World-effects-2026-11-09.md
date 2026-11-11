@@ -2843,3 +2843,72 @@ steps 10-17 were skipped, so a change whose tests had never compiled came back a
 formatting note. The check now sits after *Run viewer unit tests* and before the
 Vulkan installs: still un-gated by the GPU, but no longer able to hide a compile or a
 test failure behind a line break.
+
+## 43. The corpus tests get a gate, so a skip stops looking like a pass
+
+Sections 39-42 added four tests that read the retail archive: the waterfall sheet's
+alpha, the water gate's scroll and its warp veil, the forest's beam axes, and the
+portal gate. None of them has been executed. They cannot be: CI stages no
+`gfx.pck`, and the archive is 97 MB, so it is not in the repository. Every run of
+this suite therefore prints four `SKIPPED` lines and passes, which is
+indistinguishable from four passing assertions — the exact failure mode the helper
+in `gfx_player` already warned about in a comment ("a corpus test that silently skips
+is indistinguishable from one that passes, and in this session that is exactly how
+two wrong fixes came to look verified").
+
+That has been true of seven tests in six modules for as long as the archives have
+been out of the repository, and it is why this change is a mechanism rather than a
+paragraph. `src/pck.rs` is now the single place where a corpus test decides it
+cannot run:
+
+```rust
+pub const CORPUS_ENV: &str = "PWE_CORPUS";            // `require` is the gate
+pub fn corpus_required() -> bool;                     // over the process env
+pub fn corpus_required_with(Option<&str>) -> bool;    // the same rule, testable
+pub fn corpus_absent(what: &str);                     // skip line, or panic
+pub fn corpus_absent_with(required: bool, what: &str); // with the decision made
+```
+
+It lives beside the archive reader rather than in a module of its own for a
+mechanical reason worth recording: those seven tests sit in `gfx_catalog`,
+`gfx_decal`, `gfx_owner`, `gfx_player` and `scene`, and 28 of the 69 development
+binaries include one of those files with `#[path = "../scene.rs"] mod scene;` — a
+whole second source tree per binary, each with its own crate root. A new module would
+have had to be declared in every one of those crates; `pck` is the one module that
+26 of the 28 already include, so the gate needs two new declarations in total
+(`grass-type-survey` and `scene-model-light-survey`, which include `scene` but not
+`pck`). Every item in the gate is `#[cfg(test)]`, so no release build or
+`cargo check --bins` carries any of it.
+
+The seven skip sites were `gfx_catalog::presets_resolve_in_the_archive`,
+`gfx_decal::authentic_static_weapon_decals_cover_the_audited_root_set`,
+`gfx_owner::corpus_waterfall_plays_from_its_authored_placement`,
+`scene::corpus_effect_records_agree_on_one_layout`, and three in `gfx_player`
+(`corpus_root`, the potted crystal, and this task's own `open_pack` helper, which
+carries the four new tests). All seven now call `crate::corpus::absent(...)` and so
+all seven honour the switch. The module is `#[cfg(test)]`, so a release build carries
+none of it.
+
+**The switch is all-or-nothing on purpose.** `PWE_CORPUS=require cargo test --bin
+perfect-world-explorer` fails on the first archive it cannot find and names it
+(``PWE_CORPUS=require, but this machine has no `google_drive/gfx.pck` ``). A
+per-archive opt-in would let a machine claim the gate while silently testing a
+fraction of the corpus, which is the same confusion at a smaller scale. The value is
+read case-insensitively and only `require` turns it on; anything else, including
+nothing, keeps today's behaviour so CI stays green. Three unit tests cover the rule
+itself: only `require` turns it on, the gate panics with the path in the message, and
+the ordinary configuration prints and returns.
+
+**What it is for.** The four assertions of §39-§41 rest on hand computation against
+the archive — the alpha histogram of `气连续03.tga`, `TexSpeed`'s −0.75 per 500 ms,
+the two keypoint axes of `树林光束`, the 2.5-unit warp gate of `绿色传送门` — and
+one of them, "eight quads at 2600 ms", was already wrong when it was written and was
+caught only because the fade had to be computed by hand. A machine that stages
+`google_drive/` can now settle all four in one command instead of trusting the
+prose; and a future change that breaks one of them fails there instead of discovering
+it a session later.
+
+**What is still not proven.** The gate proves the assertions run; it does not prove
+the viewer *looks* like the client, and it cannot be run here — this sandbox has no
+archive and no route to one. The numbers in §39-§41 remain hand-checked arithmetic
+against a pack that was read, not a test run.
