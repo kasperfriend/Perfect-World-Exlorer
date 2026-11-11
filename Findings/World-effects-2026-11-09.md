@@ -2178,3 +2178,40 @@ that direction and takes only its width from the view
   is the client's, and the new test pins it to the root's own `Vec:` box.
 * Still unread from `A3DGFXEx.h`: `NoChangeDir`, `2DRender` (whose setter also
   clears the Z test) and `2DBackLayer` are parsed but consumed by nothing.
+
+## 29. `ZFUNC`: the effect pass was using `LESS` where the client uses `LESSEQUAL`
+
+Flicker is a depth question before it is a blending question, and the client answers
+it with a device default.
+
+* `A3DGFXRenderSlot.h` shows what a slot carries: `m_nRenderLayer`, `m_VertSize`,
+  `m_PrimType`, `m_strTexPath`, `m_Shader`, `m_bTileMode`, **`m_bZTestEnable`**,
+  `m_nRef`, `m_TotalVertCount`, the element array, the texture, the pixel shader
+  and `m_enumFogFlag`. There is a ZENABLE byte and **no Z-function field**, so
+  every effect slot runs on whatever `D3DRS_ZFUNC` the device holds — the D3D8
+  default, `D3DCMP_LESSEQUAL`. (The repo already records the only depth-state
+  writes the effect path makes: the `ZBIAS` 2 / 0 pair at `0x417453`/`0x417471`;
+  `ZFUNC` is never written.)
+* The viewer's world-effect pass asked for `wgpu::CompareFunction::Greater`
+  (`world_models_gpu.rs`, the reverse-Z equivalent of `LESS`). Under reverse-Z,
+  `LESSEQUAL` is `GreaterEqual`.
+
+What `LESS` costs, in a blended pass where nothing writes depth: a sheet drawn at
+the same depth as one already there is **dropped**. Decals and their overlay glows,
+paired cards, the coplanar layers of a portal, a curtain and its spray all sit at
+identical or near-identical depth, so the loser disappeared — and because the depth
+is computed per vertex in floating point, one hair of camera movement swaps the
+comparison and the sheet blinks back. That is the flicker, and it is exactly the
+tie rule the repo had already spelled out for baked scenery
+(`gpu.rs`: "a duplicate baked triangle submitted after an identical one must win,
+exactly as a second draw at equal depth passes `LESSEQUAL`") but had not applied to
+the blended pass, where a lost tie is a vanished sheet rather than an identical one
+underneath.
+
+The effect pass now compares `GreaterEqual`. Two blended draws at equal depth both
+pass, which is what the client does.
+
+Still unmodelled from the same disassembly note: the `ZBIAS` 2 / 0 pair. It biases
+effect depth for a reason (almost certainly to lift a coplanar layer above the
+surface it decorates), but the unit of a D3D8 `ZBIAS` of 2 does not map onto a
+`DepthBiasState` constant without measurement, so no bias is invented here.
