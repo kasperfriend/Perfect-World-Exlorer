@@ -2090,3 +2090,91 @@ gap is: `m_bFaceToViewer`, `m_bNoChangeDir`, `m_b2DRender` (whose setter forces
 `m_bFadeByDist` with its start/end pair, `DeriveParentProperty` for children, and
 `SetAlphaTransition`. The reader already parses `NoChangeDir`, `2DRender` and
 `2DBackLayer`, but nothing in the player reads them yet.
+
+## 28. Sizes: the file's `Width`/`Height` are half extents, and the tool's own box says so
+
+The report's "many oversized effects" is a question about one convention, so it is
+worth settling with data rather than taste. `A3DDecalEx.h` (5,005 bytes, recovered
+from `GfxCommon` on the Drive) states it twice:
+
+```cpp
+float m_fWidth;      //  Half width
+float m_fHeight;     //  Half height
+
+void SetSize(float fWidth, float fHeight)
+{
+    m_fWidth = fWidth;  m_fHeight = fHeight;
+    fWidth  *= 2.0f;    fHeight  *= 2.0f;      //  -> the full card
+    m_fWidth1 = m_fOrgPtWidth  * fWidth;  m_fWidth2  = fWidth  - m_fWidth1;
+    m_fHeight1 = m_fOrgPtHeight * fHeight; m_fHeight2 = fHeight - m_fHeight1;
+}
+```
+
+and `GetProperty(ID_GFXOP_DECAL_WIDTH)` returns `m_fWidth * 2.0f`, so the editor's
+"width" is the card and the file's `Width` is the member — the **half** extent. A
+`Width: 0.25` card is therefore 0.5 units across; the shipped waterfall emitters
+(`ParticleWidth` is a different key, unaffected) and every beam and slash card in
+the game are twice their authored number.
+
+### 28.1 The `Vec:` box agrees, root by root
+
+Every root ships the AABB its own editor measured. In the twelve roots whose only
+geometry is one sprite with an identity `Direction`, position zero, `Scale: 1`,
+`DedaultScale: 1`, `OrgPt: 0.5` and no `RotFromView`, the box's half extents equal
+`Width` and `Height` exactly:
+
+| root | Width × Height | half extents |
+|---|---|---|
+| `18品双剑_剑柄.gfx` | 0.130 × 0.500 | 0.130, 0.500, 0.000 |
+| `18品双剑_剑身高光.gfx` | 0.035 × 0.750 | 0.035, 0.750, 0.000 |
+| `紫色剑光长.gfx` | 0.130 × 1.000 | 0.130, 1.000, 0.000 |
+| `绿色剑光.gfx` | 0.250 × 0.500 | 0.250, 0.500, 0.000 |
+| `蓝色剑光{,长}.gfx` | 0.250 / 0.130 × 0.500 / 1.000 | same, same, 0.000 |
+| `黄色剑光.gfx` | 0.300 × 0.600 | 0.300, 0.600, 0.000 |
+| `水族箱玻璃.gfx` | 3.200 × 2.150 | 3.200, 2.150, 0.000 |
+| `炼狱凶神_眼神片.gfx` | 0.020 × 0.010 | 0.020, 0.010, 0.000 |
+
+If a card were `Width` wide, the tool would have to pad every one of those boxes by
+exactly two on both axes and leave Z at zero; it pads nothing else anywhere. So the
+card is `2 × Width` by `2 × Height`, which is what `quad_corners` and the static
+reader both draw. New test `a_sprite_spans_twice_its_authored_width_and_height`
+runs `绿色剑光.gfx` verbatim and requires the drawn half extents to equal that
+root's own `Vec:` half extents, so a later "correction" cannot halve the game.
+
+### 28.2 The sunbeams: the scatter is authored, the aiming is not
+
+`gfx/场景/新种族地图/树林日光一道.gfx` (version 73, 4 elements) is the forest
+sunlight: three element-100 cards of `圆环光\光束13.dds`, `Height: 7.5`,
+`MaxExtent: 11.25`, **`RotFromView: 1`**, plus one element-121 dust emitter. Each
+card carries its own keypoint quaternion:
+
+| element | `Direction` | card |
+|---|---|---|
+| `Unnamed16` | `-0.707107, 0.000000, 0.000000, 0.707107` | 0.5 × 7.5 |
+| `Unnamed6` | `-0.560986, -0.430459, -0.430459, 0.560986` | 0.25 × 7.5 |
+| `Unnamed19` | `-0.701057, -0.092296, -0.092296, 0.701057` | 0.5 × 7.5 |
+
+So the shafts *are* meant to fan, but each one fans by an authored quaternion, not
+by chance: `Unnamed16` is a ninety degree turn about X (the shaft lies along Z),
+and the other two are small tilts. A viewer that drops those quaternions — or that
+forces every shaft to face the camera — turns three deliberate angles into what
+reads as random aiming. With `RotFromView` the client keeps the shaft's height on
+that direction and takes only its width from the view
+(`A3DDecalEx.cpp:357-413`), which is the rule `emit_sprite` implements.
+
+`MaxExtent: 11.25` is `1.5 × 7.5`, i.e. the loader's default for an authored zero
+(`0x71e121`), not a size — it is the cull/LOD radius. Half of the 15-unit shaft is
+7.5, so the extent covers it.
+
+### 28.3 Where the current tree stands on the three reported symptoms
+
+* **Static waterfall** — the curtain is element 210 and its motion is the
+  `TexSpeed` V scroll; `a_grid_builds_its_authored_sheet_and_scrolls_it` runs 600
+  frames and fails on any frame that repeats the previous UV. The colour multiply
+  added in §27 was the other half of that report.
+* **Random sunrays** — the aiming above; the four shaft modes are still selectable
+  so the faithful `client` rule can be compared against the alternatives.
+* **Oversized effects** — the sizing above is confirmed, not changed: the doubling
+  is the client's, and the new test pins it to the root's own `Vec:` box.
+* Still unread from `A3DGFXEx.h`: `NoChangeDir`, `2DRender` (whose setter also
+  clears the Z test) and `2DBackLayer` are parsed but consumed by nothing.
