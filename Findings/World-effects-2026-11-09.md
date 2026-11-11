@@ -3388,3 +3388,80 @@ they were: "static water" in the city is the missing distortion pass over 30 war
 elements plus 10 grids that author no speed, and "random sunray direction" needs a
 placement-level comparison of the card basis, which the `.ecwld` files now make
 possible without the shipped `world.ecwld`.
+
+## 48. The placements are on disk: shaft directions and effect sizes are authored numbers
+
+§47.6 left one question open — whether the beam orientation and the "too large"
+effects come from the map or from the viewer. Seven region placement files
+(`a01`, `a11`, `a12`, `a14`, `a15`, `a16`, `a17`, 731 effect records in total)
+answer it.
+
+### 48.1 Every beam in those files points where its record points
+
+| file | root | scale | position | direction | up |
+|---|---|---|---|---|---|
+| a01 | `场景\蓝色光束.gfx` | 1.882 | (-284.1, 10.4, 376.0) | (-0.238, 0, 0.971) | (0, 1, 0) |
+| a01 | `场景\蓝色光束.gfx` | 1.882 | (241.4, 10.4, 376.0) | (-0.238, 0, 0.971) | (0, 1, 0) |
+| a01 | `场景\蓝色光束.gfx` | 1.882 | (-272.5, 10.4, -86.7) | (-0.238, 0, 0.971) | (0, 1, 0) |
+| a01 | `场景\蓝色光束.gfx` | 1.882 | (241.4, 10.4, -86.7) | (-0.238, 0, 0.971) | (0, 1, 0) |
+| a14 | `场景\蓝色光束.gfx` | 3.091 | (-268.4, 320.9, 215.7) | (0, 0, 1) | (0, 1, 0) |
+| a16 | `场景\天空之城光束.gfx` | 4.230 | (-192.8, 266.4, -464.3) | (0.841, 0, 0.540) | (0, 1, 0) |
+
+The four a01 beams are the same asset at the four corners of a courtyard, written
+with one identical direction; a14's stands straight along +Z; a16's leans 33
+degrees in the ground plane, because the sky-city artist wrote it that way. A
+`RotFromView` shaft runs along the placement's Z axis carried through the
+keypoint's quaternion, so these cards lean exactly as the map says — the viewer
+is not scattering them.
+
+That law is now checked against the client's own arithmetic rather than its
+prose. `A3DDecalEx.cpp:357-380` builds the card from
+
+```c
+vDir  = RotateVec(GetParentDir() * kp.m_vDir, _unit_z);
+vView = vPos - camera->GetPos();
+vUp   = CrossProduct(vView, vDir).Normalize();
+verts[0] = vPos - vDir * fHeight1 + vUp * fWidth2;
+verts[1] = vPos + vDir * fHeight2 + vUp * fWidth2;
+verts[2] = vPos - vDir * fHeight1 - vUp * fWidth1;
+verts[3] = vPos + vDir * fHeight2 - vUp * fWidth1;
+```
+
+and `QuadBasis::Axial` (`src/gfx_player.rs:4017-4096`) reproduces it term for
+term: `(world - view.position).cross(dir)` is `vUp`, `plus`/`minus` are
+`fWidth2`/`fWidth1` from the `OrgPt` split, `top`/`bottom` are `fHeight2`/
+`fHeight1`, and the four corners are `verts[1]`, `verts[3]`, `verts[0]`,
+`verts[2]` in that order — the commission of which matters because the client's
+`u` runs backwards along `vUp`. Nothing in the branch normalises `vDir` (a
+rotation preserves length) and nothing flips the cross product.
+
+### 48.2 The sizes are authored too, and they are large
+
+| statistic | value |
+|---|---|
+| placements | 731 |
+| scale, minimum / median / maximum | 0.164 / **2.358** / 17.359 |
+| scale >= 2 | 460 (63%) |
+| scale >= 3 | 232 (32%) |
+| scale >= 5 | 90 (12%) |
+| scale >= 10 | 14 (2%) |
+| `speed` values in use | 0.1 … 1.0 in ten steps |
+| `alpha` below 1 | 68 |
+| `valid_time` values | 0, 1, 2 |
+
+A median placement runs an effect at **2.36x** its authored geometry and one in
+eight at more than 5x, so a water sheet or a flame that looks oversized is
+usually wearing the number the map wrote — `灯台火_火焰` at 11.6, `灯台冰_火焰`
+at 9.6, `天空之城光束` at 4.2. The scale law itself is `DedaultScale x placement
+scale`, applied once (`A3DGFXEx.h:197-211`), and §47 confirmed nothing doubles it.
+Where an effect is oversized relative to its *neighbours*, the next check is the
+record's own `scale` field, not the renderer — which is why
+`tools/ecwld-effects.py` prints it next to position, direction and `up`.
+
+### Verdict
+
+Both remaining reports are now decisions the data makes, not gaps in the code:
+the beams point where the map points them, and the effects are as large as the
+map sizes them. What is left open in the city is the distortion pass over its 30
+warp elements (§47.5), which is the one visible difference the renderer still
+knows it has.
