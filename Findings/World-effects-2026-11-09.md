@@ -2787,6 +2787,15 @@ card's height (corner 2 minus corner 0) to be parallel to one of them and its wi
 square to it. A transposed parent — the bug "sun rays point in random directions"
 turned out to be — puts both somewhere else and fails.
 
+The test sweeps 3.2 s in 50 ms steps rather than sampling one instant, and that is
+not caution for its own sake: ctrl 105 on every shaft is a `ColorDelta` of ±150 per
+second on the keypoint alpha (`A3DGFXElement`'s colour offset, folded into the
+rendered alpha), the eight `StartTime`s span 2.45 s and each element loops every
+2.875 s, so *no* single frame has all eight cards with any margin — a first version
+that asserted "eight quads at 2600 ms" was one fade rate away from being wrong. The
+sweep checks the axis law on every card the root ever draws and proves all eight shafts
+rendered at least once by their centres.
+
 **The pending billboard fix is not on this path, and barely on any path.**
 `FaceToViewer` is a version-39+ root key and only **24 of 5,459 roots** set it to 1;
 none of them is a scene root — they are hit effects (`策划联入/怪物技能/击中/*`,

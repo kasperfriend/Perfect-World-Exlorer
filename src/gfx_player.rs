@@ -11446,45 +11446,74 @@ mod tests {
             "the placement's Y and Z columns, from the shipped keypoints: {distinct:?}"
         );
         // The eight shafts are staggered by their own `StartTime`s — 0, 500, 875,
-        // 1000, 1500, 1750, 2025 and 2450 ms — so all eight are alive only after
-        // the last one has begun.
-        player
-            .advance(2600., &view(), placement, 1., 1.)
-            .expect("advance the beams");
-        let quads = player.quads();
-        assert_eq!(quads.len(), 8, "one card per shaft: {quads:?}");
-        for quad in quads {
-            // Corner order is `quad_corners`': 0 is top-left, 1 top-right, 2
-            // bottom-left, 3 bottom-right, so 2-0 is the height and 1-0 the width.
-            let along = Vec3::from_array(quad.positions[2]) - Vec3::from_array(quad.positions[0]);
-            let across = Vec3::from_array(quad.positions[1]) - Vec3::from_array(quad.positions[0]);
-            let direction = along.normalize_or_zero();
-            let axis = axes
-                .iter()
-                .copied()
-                .max_by(|left, right| {
-                    direction
-                        .dot(*left)
-                        .abs()
-                        .partial_cmp(&direction.dot(*right).abs())
-                        .expect("finite dots")
-                })
-                .expect("a shaft axis");
-            assert!(
-                direction.dot(axis).abs() > 0.999,
-                "the card's height runs along the placement axis through its keypoint, \
-                 got {along:?} against {axis:?}"
-            );
-            assert!(
-                across.normalize_or_zero().dot(axis).abs() < 0.01,
-                "and its width is square to it, got {across:?}"
-            );
-            assert!(
-                (along.length() - 20. * 0.7).abs() < 0.05,
-                "a 0.5 x 10 shaft is 20 units tall at the root's 0.7 scale, got {}",
-                along.length()
-            );
+        // 1000, 1500, 1750, 2025 and 2450 ms — every one of them loops with
+        // `RepeatCount: -1`, and ctrl 105 fades the alpha of whatever keypoint is
+        // active, so no single instant has all eight on screen with any margin.
+        // The sweep instead checks the law on *every* card the root ever draws,
+        // and proves every shaft drew at least once by its centre.
+        let mut frames = 0;
+        let mut cards = 0;
+        let mut centres: Vec<Vec3> = Vec::new();
+        for _ in 0..64 {
+            player
+                .advance(50., &view(), placement, 1., 1.)
+                .expect("advance the beams");
+            let quads = player.quads();
+            if !quads.is_empty() {
+                frames += 1;
+            }
+            for quad in quads {
+                cards += 1;
+                // Corner order is `quad_corners`': 0 is top-left, 1 top-right, 2
+                // bottom-left, 3 bottom-right, so 2-0 is the height and 1-0 the
+                // width.
+                let along =
+                    Vec3::from_array(quad.positions[2]) - Vec3::from_array(quad.positions[0]);
+                let across =
+                    Vec3::from_array(quad.positions[1]) - Vec3::from_array(quad.positions[0]);
+                let direction = along.normalize_or_zero();
+                let axis = axes
+                    .iter()
+                    .copied()
+                    .max_by(|left, right| {
+                        direction
+                            .dot(*left)
+                            .abs()
+                            .partial_cmp(&direction.dot(*right).abs())
+                            .expect("finite dots")
+                    })
+                    .expect("a shaft axis");
+                assert!(
+                    direction.dot(axis).abs() > 0.999,
+                    "the card's height runs along the placement axis through its keypoint, \
+                     got {along:?} against {axis:?}"
+                );
+                assert!(
+                    across.normalize_or_zero().dot(axis).abs() < 0.01,
+                    "and its width is square to it, got {across:?}"
+                );
+                assert!(
+                    (along.length() - 20. * 0.7).abs() < 0.05,
+                    "a 0.5 x 10 shaft is 20 units tall at the root's 0.7 scale, got {}",
+                    along.length()
+                );
+                let centre = quad
+                    .positions
+                    .iter()
+                    .fold(Vec3::ZERO, |sum, corner| sum + Vec3::from_array(*corner))
+                    / 4.;
+                if !centres.iter().any(|seen| seen.distance(centre) < 1e-3) {
+                    centres.push(centre);
+                }
+            }
         }
+        assert!(frames >= 8, "the shafts keep drawing: {frames} of 64 frames");
+        assert!(cards > 0, "and the sweep saw at least one card");
+        assert!(
+            centres.len() >= 8,
+            "every shaft is drawn at some point; only {} centres appeared",
+            centres.len()
+        );
     }
 
     /// The gate of `场景/绿色传送门.gfx` — the City of Raging Tides portal — is
