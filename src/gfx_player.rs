@@ -9562,8 +9562,9 @@ mod tests {
         );
         assert_eq!(
             trail_quads(&mut player, 30.),
-            1,
-            "and the strip is laid down again from its first vertex"
+            2,
+            "and the strip is laid down again: the 16 ms frame before this one is \
+             still in the accumulator, so 46 ms of a 20 ms step is two vertices"
         );
     }
 
