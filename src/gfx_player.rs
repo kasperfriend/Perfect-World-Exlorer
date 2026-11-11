@@ -8300,7 +8300,8 @@ mod tests {
     }
 
     /// The retail archive, when `tools/pck_lib.py` has extracted it beside the
-    /// checkout. CI has no archive, so the corpus tests skip instead of failing.
+    /// checkout. CI has no archive, so the corpus tests skip instead of failing —
+    /// unless `PWE_CORPUS=require` says the suite is being run as a gate.
     /// Member names have to be decoded GBK: anything else silently breaks child
     /// reference resolution, which surfaces as warnings and never as an error, so
     /// the resolved count is the thing worth reading.
@@ -8311,11 +8312,9 @@ mod tests {
             // quiet `ok`. A corpus test that silently skips is indistinguishable
             // from one that passes, and in this session that is exactly how two
             // wrong fixes came to look verified: the checks that would have
-            // contradicted them never ran.
-            eprintln!(
-                "SKIPPED: no `google_drive/x` corpus on this machine; this test \
-                 proves nothing about shipped assets"
-            );
+            // contradicted them never ran. `crate::corpus` is the one place that
+            // decision is made, so `PWE_CORPUS=require` can make it a failure.
+            crate::corpus::absent("`google_drive/x`");
             return None;
         }
         Some(root)
@@ -11102,10 +11101,7 @@ mod tests {
     fn the_real_potted_crystal_poses_its_model() {
         let pack = std::path::PathBuf::from("google_drive/gfx.pck");
         if !pack.is_file() {
-            eprintln!(
-                "SKIPPED: no `google_drive/gfx.pck` on this machine; this test \
-                 proves nothing about the shipped model"
-            );
+            crate::corpus::absent("`google_drive/gfx.pck`");
             return;
         }
         let mut file = std::fs::File::open(&pack).expect("open gfx.pck");
@@ -11191,16 +11187,14 @@ mod tests {
         assert_eq!(plain.stats().warp, 0);
     }
 
-    /// The retail archive, when this machine has it. The corpus tests below print
-    /// the same skip line the other archive tests do and return `None` when
+    /// The retail archive, when this machine has it. The corpus tests below skip
+    /// the way every other archive test does — through `crate::corpus`, so
+    /// `PWE_CORPUS=require` turns the skip into a failure — and return `None` when
     /// `google_drive/gfx.pck` is absent, which is the case on CI.
     fn open_pack() -> Option<(std::fs::File, Vec<crate::pck::Entry>)> {
         let pack = std::path::PathBuf::from("google_drive/gfx.pck");
         if !pack.is_file() {
-            eprintln!(
-                "SKIPPED: no `google_drive/gfx.pck` on this machine; this test \
-                 proves nothing about the shipped archive"
-            );
+            crate::corpus::absent("`google_drive/gfx.pck`");
             return None;
         }
         let mut file = std::fs::File::open(&pack).expect("open gfx.pck");

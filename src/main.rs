@@ -36,6 +36,10 @@ mod cloud_gpu;
 #[allow(dead_code)]
 mod cloud_surface;
 mod color_chain;
+/// The shipped-corpus tests' single skip point, so `PWE_CORPUS=require` can
+/// turn every one of them into a failure on a machine that stages the archives.
+#[cfg(test)]
+mod corpus;
 mod diagnostics;
 mod display_gamma;
 mod dxt;
