@@ -3846,7 +3846,9 @@ fn emit_paraboloid(curve: &Curve, context: &ElementContext, out: &mut Vec<Effect
     if !(height.is_finite() && coefficient.is_finite()) || height <= 0. || coefficient <= 0. {
         return;
     }
-    let circles = (height / PARABOLOID_GRID).floor().clamp(1., PARABOLOID_MAX_CIRCLES as f32);
+    let circles = (height / PARABOLOID_GRID)
+        .floor()
+        .clamp(1., PARABOLOID_MAX_CIRCLES as f32);
     let circles = circles as usize;
     let grid = height / circles as f32;
     let local_scale = context.scale;
@@ -3863,11 +3865,7 @@ fn emit_paraboloid(curve: &Curve, context: &ElementContext, out: &mut Vec<Effect
         let angle = std::f32::consts::TAU / PARABOLOID_SEGMENTS as f32 * seg as f32;
         let radius = (coefficient * ring as f32 * grid).max(0.).sqrt();
         let height = grid * ring as f32;
-        let point = Vec3::new(
-            radius * angle.cos(),
-            radius * angle.sin(),
-            height,
-        ) * local_scale;
+        let point = Vec3::new(radius * angle.cos(), radius * angle.sin(), height) * local_scale;
         let uv = [
             u_base + u_span * 0.5 + tex_x_step * ring as f32 * angle.cos(),
             v_base + v_span * 0.5 - tex_y_step * ring as f32 * angle.sin(),
