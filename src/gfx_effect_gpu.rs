@@ -5,12 +5,15 @@
 //! wrong for a particle system: a single retail torch root can hold three
 //! emitters at a quota of a hundred particles each, and a scene block can hold
 //! dozens of those roots. This pass therefore groups the frame's quads by
-//! `(RenderLayer, depth test, blend pair, texture)` and draws one buffer per
-//! group, growing the buffers instead of reallocating them.
+//! `(RenderLayer, depth test, depth write, blend pair, texture)` and draws one
+//! buffer per group, growing the buffers instead of reallocating them.
 //!
 //! Render state follows `A3DGFXRenderSlotMan`, the same manager the verified
 //! static path reproduces: colour and alpha modulate, lighting off, culling off,
-//! depth writes off, and the authored D3D8 blend pair selected per element. The
+//! the authored D3D8 blend pair selected per element, and depth writes off —
+//! except on a skin draw, where element 160's own `WriteZ` decides, because the
+//! slot manager hands a model to `A3DSkinModel::RenderAtOnce` rather than to a
+//! quad slot. The
 //! element's `RenderLayer` decides the draw order, which is what the field is
 //! for; within a layer, depth-tested quads go first so the additive ones blend
 //! against settled geometry.
@@ -44,6 +47,12 @@ struct PipelineKey {
     source: u32,
     destination: u32,
     depth_test: bool,
+    /// Element 160's `WriteZ`. The slot manager never writes depth for a
+    /// *quad*, but a model slot is a skin draw, and the model element saves the
+    /// ZWRITEENABLE state it wants (`WriteZ: 1` on 246 of the 447 models in the
+    /// shipped `gfx.pck`, defaulting to 1 when the key is absent). Without it a
+    /// crystal or an ice block cannot occlude the sheet drawn after it.
+    write_depth: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -315,6 +324,7 @@ impl Draw {
                     source: quad.source_blend,
                     destination: quad.destination_blend,
                     depth_test: quad.depth_test,
+                    write_depth: quad.mesh.as_ref().is_some_and(|mesh| mesh.write_depth),
                 },
                 priority: quad.priority,
                 texture: quad.texture.clone(),
@@ -353,6 +363,11 @@ impl Draw {
         groups.sort_by(|(a, _), (b, _)| {
             a.layer
                 .cmp(&b.layer)
+                // Depth writers establish the buffer the blended sheets are
+                // tested against, so within a layer they go first whatever the
+                // authored `Priority` says: a model drawn after the sheet it
+                // stands in front of would otherwise be painted over.
+                .then_with(|| b.pipeline.write_depth.cmp(&a.pipeline.write_depth))
                 // `Priority` orders the elements inside one `RenderLayer`: the
                 // client authors it 1..5 on every element (7,820 are a 4 and
                 // 5,586 a 2) and nothing read it, so a background dust sheet
@@ -525,8 +540,9 @@ impl Draw {
                 },
                 depth_stencil: self.depth.map(|(format, compare)| wgpu::DepthStencilState {
                     format,
-                    // The slot manager never writes depth for an effect quad.
-                    depth_write_enabled: false,
+                    // No depth attachment, no writes: a mesh whose element asks
+                    // for `WriteZ` still has to stay read-only here.
+                    depth_write_enabled: key.pipeline.write_depth,
                     depth_compare: if key.depth_test {
                         compare
                     } else {
@@ -939,6 +955,7 @@ mod tests {
             source,
             destination,
             depth_test,
+            write_depth: false,
         };
         let mut sorted = vec![
             BucketKey {
@@ -963,6 +980,11 @@ mod tests {
         sorted.sort_by(|a, b| {
             a.layer
                 .cmp(&b.layer)
+                // Depth writers establish the buffer the blended sheets are
+                // tested against, so within a layer they go first whatever the
+                // authored `Priority` says: a model drawn after the sheet it
+                // stands in front of would otherwise be painted over.
+                .then_with(|| b.pipeline.write_depth.cmp(&a.pipeline.write_depth))
                 // `Priority` orders the elements inside one `RenderLayer`: the
                 // client authors it 1..5 on every element (7,820 are a 4 and
                 // 5,586 a 2) and nothing read it, so a background dust sheet
@@ -991,6 +1013,7 @@ mod tests {
             source,
             destination,
             depth_test,
+            write_depth: false,
         };
         let mut sorted = vec![
             BucketKey {
@@ -1015,6 +1038,11 @@ mod tests {
         sorted.sort_by(|a, b| {
             a.layer
                 .cmp(&b.layer)
+                // Depth writers establish the buffer the blended sheets are
+                // tested against, so within a layer they go first whatever the
+                // authored `Priority` says: a model drawn after the sheet it
+                // stands in front of would otherwise be painted over.
+                .then_with(|| b.pipeline.write_depth.cmp(&a.pipeline.write_depth))
                 .then_with(|| a.priority.cmp(&b.priority))
                 .then_with(|| a.pipeline.depth_test.cmp(&b.pipeline.depth_test).reverse())
                 .then_with(|| a.pipeline.source.cmp(&b.pipeline.source))
@@ -1028,5 +1056,64 @@ mod tests {
         assert_eq!(sorted[1].texture, "flash");
         // Layer still dominates: a priority-1 element in layer 1 comes last.
         assert_eq!(sorted[2].texture, "later-layer");
+    }
+
+    /// A model slot is a skin draw, not a quad slot, so element 160's `WriteZ`
+    /// decides whether it writes depth — and a writer has to draw before the
+    /// blended sheets it should occlude, whatever `Priority` it carries. 246 of
+    /// the shipped `gfx.pck` models author `WriteZ: 1`; the rest take the
+    /// loader default of 1 when the key is absent.
+    #[test]
+    fn a_model_that_writes_depth_draws_before_the_sheets_in_its_layer() {
+        let model = PipelineKey {
+            source: 5,
+            destination: 2,
+            depth_test: true,
+            write_depth: true,
+        };
+        let sheet = PipelineKey {
+            source: 5,
+            destination: 2,
+            depth_test: true,
+            write_depth: false,
+        };
+        let mut sorted = vec![
+            BucketKey {
+                layer: 0,
+                priority: 1,
+                pipeline: sheet,
+                texture: "sheet".into(),
+            },
+            BucketKey {
+                layer: 0,
+                priority: 4,
+                pipeline: model,
+                texture: "model".into(),
+            },
+            BucketKey {
+                layer: 1,
+                priority: 1,
+                pipeline: model,
+                texture: "later-layer-model".into(),
+            },
+        ];
+        sorted.sort_by(|a, b| {
+            a.layer
+                .cmp(&b.layer)
+                .then_with(|| b.pipeline.write_depth.cmp(&a.pipeline.write_depth))
+                .then_with(|| a.priority.cmp(&b.priority))
+                .then_with(|| a.pipeline.depth_test.cmp(&b.pipeline.depth_test).reverse())
+                .then_with(|| a.pipeline.source.cmp(&b.pipeline.source))
+                .then_with(|| a.pipeline.destination.cmp(&b.pipeline.destination))
+                .then_with(|| a.texture.cmp(&b.texture))
+        });
+        assert_eq!(
+            sorted[0].texture, "model",
+            "the depth writer goes first even at priority 4"
+        );
+        assert_eq!(sorted[1].texture, "sheet");
+        assert_eq!(sorted[2].texture, "later-layer-model");
+        // A writer and a non-writer must not share a pipeline: the state differs.
+        assert_ne!(sorted[0].pipeline, sorted[1].pipeline);
     }
 }

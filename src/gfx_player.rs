@@ -168,6 +168,10 @@ pub struct EffectMesh {
     pub texture: String,
     /// World-space triangle soup: three consecutive vertices per triangle.
     pub vertices: Vec<EffectVertex>,
+    /// Element 160's `WriteZ`: whether this mesh writes depth as it draws. The
+    /// client stores it on the model element and sets `ZWRITEENABLE` from it, so
+    /// a crystal occludes the waterfall drawn behind it.
+    pub write_depth: bool,
 }
 
 /// A posed model vertex: position in world space and its authored UV.
@@ -1917,8 +1921,8 @@ fn advance_element(
     match &mut runtime.runtime {
         Runtime::Clock => {
             emit_clock(element, &context, face_to_viewer, stats, out, drape);
-            if matches!(element.spec, Spec::Model(_)) {
-                emit_model(meshes, &context, out);
+            if let Spec::Model(model) = &element.spec {
+                emit_model(meshes, model.write_z, &context, out);
             }
         }
         Runtime::Particles(emitter) => {
@@ -3589,7 +3593,12 @@ fn quad_corners(
 /// the owner's position and orientation and the keypoint scale, which is what
 /// the client multiplies a model's vertices by. Model colour is taken from the
 /// element's keypoint like any other class, through `context.rgba()`.
-fn emit_model(meshes: &[EffectMesh], context: &ElementContext, out: &mut Vec<EffectQuad>) {
+fn emit_model(
+    meshes: &[EffectMesh],
+    write_depth: bool,
+    context: &ElementContext,
+    out: &mut Vec<EffectQuad>,
+) {
     crate::diag_keyed!(
         EffectModels,
         format!(
@@ -3651,6 +3660,7 @@ fn emit_model(meshes: &[EffectMesh], context: &ElementContext, out: &mut Vec<Eff
             mesh: Some(EffectMesh {
                 texture: mesh.texture.clone(),
                 vertices: placed,
+                write_depth,
             }),
         });
     }
@@ -3765,7 +3775,14 @@ fn posed_model_meshes(
             });
         }
         if vertices.len() >= 3 {
-            meshes.push(EffectMesh { texture, vertices });
+            // `WriteZ` belongs to the element that draws the mesh, not to the
+            // load-time pose, so it is filled in when `emit_model` wraps these
+            // vertices into quads.
+            meshes.push(EffectMesh {
+                texture,
+                vertices,
+                write_depth: false,
+            });
         }
     }
     Ok(meshes)
