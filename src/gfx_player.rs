@@ -2721,7 +2721,12 @@ fn face_viewer_basis(direction: Vec3, position: Vec3) -> Mat4 {
         let x = Vec3::Y.cross(dir).normalize_or_zero();
         (x, dir.cross(x))
     };
-    Mat4::from_cols(x.extend(0.), y.extend(0.), dir.extend(0.), position.extend(1.))
+    Mat4::from_cols(
+        x.extend(0.),
+        y.extend(0.),
+        dir.extend(0.),
+        position.extend(1.),
+    )
 }
 
 /// Normalize a placement basis, exactly as the verified static decal path does,
@@ -3543,10 +3548,22 @@ fn emit_sprite(
         ];
         for corners in cards {
             let positions = [
-                context.placement.transform_point3(corners[0].into()).to_array(),
-                context.placement.transform_point3(corners[1].into()).to_array(),
-                context.placement.transform_point3(corners[2].into()).to_array(),
-                context.placement.transform_point3(corners[3].into()).to_array(),
+                context
+                    .placement
+                    .transform_point3(corners[0].into())
+                    .to_array(),
+                context
+                    .placement
+                    .transform_point3(corners[1].into())
+                    .to_array(),
+                context
+                    .placement
+                    .transform_point3(corners[2].into())
+                    .to_array(),
+                context
+                    .placement
+                    .transform_point3(corners[3].into())
+                    .to_array(),
             ];
             push_quad(out, context, &texture, positions, uv, color);
         }
@@ -3966,7 +3983,9 @@ fn quad_corners(
             // *complement* of the `OrgPt` split, so the wrong sign mirrors the
             // sheet and swaps the two extents on every card whose pivot is off
             // centre.
-            let right = (world - context.view.position).cross(dir).normalize_or_zero();
+            let right = (world - context.view.position)
+                .cross(dir)
+                .normalize_or_zero();
             if !dir.is_finite() || dir == Vec3::ZERO || right == Vec3::ZERO {
                 return local.map(|_| [0.; 3]);
             }
@@ -9675,9 +9694,7 @@ mod tests {
     fn a_billboard_decal_is_two_crossed_cards() {
         let source = header37(1) + &SPRITE.replace("GFXELEMENTID: 100", "GFXELEMENTID: 102");
         let mut player = build(&source);
-        player
-            .advance(0., &view(), Mat4::IDENTITY, 1., 1.)
-            .unwrap();
+        player.advance(0., &view(), Mat4::IDENTITY, 1., 1.).unwrap();
         let quads = player.quads();
         assert_eq!(quads.len(), 2, "one card per rect: {:?}", quads.len());
         let corner = |quad: &EffectQuad, index: usize| Vec3::from_array(quad.positions[index]);
@@ -9731,9 +9748,7 @@ mod tests {
             .replace("GFXELEMENTID: 100", "GFXELEMENTID: 101")
             .replace("Height: 0.5\r\n", "Height: 0.5\r\nZOffset: 2.000000\r\n");
         let mut player = build(&format!("{header}{element}"));
-        player
-            .advance(0., &camera, Mat4::IDENTITY, 1., 1.)
-            .unwrap();
+        player.advance(0., &camera, Mat4::IDENTITY, 1., 1.).unwrap();
         let quad = player.quads().first().expect("the card draws");
         let corner = |index: usize| Vec3::from_array(quad.positions[index]);
         let width = corner(1) - corner(0);
