@@ -2777,14 +2777,15 @@ texture widths.
 every one `RotFromView: 1`, staggered by their own `StartTime`s (0, 500, 875, 1000,
 1500, 1750, 2025, 2450 ms) and each holding **two keypoints with
 `InterpolateMode: 0`**: the first tilted — `(-0.5, -0.5, -0.5, 0.5)`, a 120 degree turn
-about (1,1,1), for the first pair; `(-0.707, 0, 0, 0.707)`, a quarter turn about X, for
-the rest — and the second the identity. So a shaft is the placement's Z axis carried
-through one of the placement's own three columns, and which one it is depends on the
-element's clock. The new corpus test builds those axes from the parsed keypoints and
-finds exactly three distinct ones, then requires every card's height (corner 2 minus
-corner 0) to be parallel to one of them and its width square to it. A transposed
-parent — the bug §-level "sun rays point in random directions" turned out to be —
-puts all three somewhere else and fails.
+about -(1,1,1), for the first pair; `(-0.707, 0, 0, 0.707)`, a quarter turn about -X, for
+the rest — and the second the identity. Both of those turns carry `_unit_z` onto **Y**,
+so a shaft is the placement's Y column while its element is in the tilted keypoint and
+its Z column once the identity takes over; which one it is depends on the element's own
+`StartTime` and 875 ms span. The new corpus test builds both axes from the parsed
+keypoints, checks they are exactly **two** distinct directions, then requires every
+card's height (corner 2 minus corner 0) to be parallel to one of them and its width
+square to it. A transposed parent — the bug "sun rays point in random directions"
+turned out to be — puts both somewhere else and fails.
 
 **The pending billboard fix is not on this path, and barely on any path.**
 `FaceToViewer` is a version-39+ root key and only **24 of 5,459 roots** set it to 1;

@@ -11434,14 +11434,16 @@ mod tests {
                 distinct.push(*axis);
             }
         }
-        // Three of them: the quarter turn about X, the 120 degree turn about
-        // (1, 1, 1), and the identity. They are the placement's three columns,
-        // which is the whole point — a shaft may lie on any of them, and a
-        // transposed parent would put all three somewhere else.
+        // Two of them, and the arithmetic is worth writing down because it is
+        // not the obvious split: the 120 degree turn about -(1, 1, 1) and the
+        // quarter turn about -X both carry `_unit_z` onto **Y**, while the
+        // identity leaves it on Z. So the eight shafts lie on two of the
+        // placement's three columns — and a transposed parent, which is what
+        // drew them mirrored, would put both somewhere else.
         assert_eq!(
             distinct.len(),
-            3,
-            "the placement's three axes, from the shipped keypoints: {distinct:?}"
+            2,
+            "the placement's Y and Z columns, from the shipped keypoints: {distinct:?}"
         );
         // The eight shafts are staggered by their own `StartTime`s — 0, 500, 875,
         // 1000, 1500, 1750, 2025 and 2450 ms — so all eight are alive only after
