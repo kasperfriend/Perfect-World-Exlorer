@@ -27,8 +27,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev
+          # The runner's package mirror fails intermittently: `apt-get install`
+          # exits 100, and because every later step depends on this one the whole
+          # Rust job is skipped (unit tests, type check and rustfmt never run) on
+          # a change that builds fine elsewhere. Retry the index fetch and the
+          # install, and still fail the step if all attempts do.
+          status=1
+          for attempt in 1 2 3; do
+            if sudo apt-get -o Acquire::Retries=3 update &&
+              sudo apt-get install -y --no-install-recommends \
+                libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxkbcommon-dev; then
+              status=0
+              break
+            fi
+            echo "apt attempt ${attempt} failed; retrying" >&2
+            sleep 15
+          done
+          [ "$status" -eq 0 ]
       - name: Verify recovered regional arithmetic on x87
         run: |
           cc -O0 tools/check-native-region-reference.c -o /tmp/native-region-reference
