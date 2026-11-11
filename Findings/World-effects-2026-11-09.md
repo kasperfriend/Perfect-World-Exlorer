@@ -1393,3 +1393,85 @@ Still open, in this order: `A3DParaboloid` (element 190 — our `Spec::Curve`
 retains the authored `coefficient` and `height`, so the data is there but the
 surface topology needs `A3DParaboloid.cpp`), the 230 `ECModel` and 220/221
 physics emitters, and `盆景水晶.gfx`'s `meshes=0`.
+
+## 18. What the client can draw *on top of* a fall
+
+The theory to test was that the sheet is drawn internally and the game paints
+something over it. Two client paths can do that, and the sources separate them.
+
+### The effect-side overlay: a projected screen-space pass
+
+`A3DGFXSurfaceRender::Render` (pw152 `GfxCommon`, fetched this round) takes an
+element's own vertices and re-draws them as a **screen-space projected** card:
+
+```cpp
+m_pCamera->SetProjectionParam(-fHalfWidth, fHalfWidth, -fHalfHeight, fHalfHeight, -100.0f, 100.0f);
+m_pCamera->SetPos(vCenter + A3DVECTOR3(0, fRadius * 2.0f, 0));
+pA3DDevice->SetZWriteEnable(false);
+pA3DDevice->SetTextureCoordIndex(0, D3DTSS_TCI_CAMERASPACEPOSITION);
+pA3DDevice->SetTextureTransformFlags(0, A3DTTFF_COUNT4 | A3DTTFF_PROJECTED);
+pA3DDevice->SetTextureAddress(0, A3DTADDR_BORDER, A3DTADDR_BORDER);
+matProjectedView = InverseTM(pHostCamera->GetViewTM()) * m_pCamera->GetVPTM() * matScale;
+```
+
+A card drawn through that path has no world orientation at all: its texture is
+projected onto the view, so it reads as a flat picture pasted over the scene.
+It is the `SetupSteam` path — the client's water-steam/水花 overlay.
+It is **not** the decal path: `A3DGFXElement` (base class, downloaded and
+grepped this round) names neither `SurfaceRender` nor `Steam` nor `MatchSurface`
+anywhere, so no element flag reaches it from the sprite record. Whatever uses it
+is a class of its own, and it is not what draws `水门_瀑布`.
+
+### The world-side path: water drawn on static meshes
+
+The terrain-water renderer has a static-mesh mode, and that is the one that can
+paint a fall:
+
+```cpp
+// A3DTerrainWater.cpp:67-84
+bool A3DTerrainWater::InternalInit(..., bool bStaticMesh) {
+    if (!m_pWaterRender->Init(this, pA3DDevice, pHostViewport, pHostCamera, nMaxVerts, nMaxFaces, bStaticMesh))
+        return false;
+    // Set static mesh flag only if water render really support it
+    m_bStaticMesh = m_pWaterRender->m_pWaterStaticVertexShader ? true : false;
+}
+```
+
+and the shader it uses, `water_static_mesh_vs.txt`, is fed the mesh's own
+vertices and texcoords (2 KB, fetched this round):
+
+```asm
+; v0 = position in world space   v1 = normal   v2 = texture coordinates for base layer
+mov r0, v0
+mad r0.x, r0.x, c34.w, c34.x     ; redesign the position into the water block's cuboid
+mov r0.y, c34.y
+mad r0.z, r0.z, c34.w, c34.z
+m4x4 oPos, r0, c0
+mov r0, v2                       ; the mesh's own texcoords …
+m3x2 oT0, r0, c6                 ; … through layer-0's transform matrix
+m3x2 oT1, r0, c10                ; … and layer-1's
+```
+
+Six layer matrices (`c6`..`c29`) are available and two are used; the pixel
+shader `water_cheap_scroll.txt` adds the fresnel term and takes its alpha from
+the reflect map's edge channel. Water is therefore **geometry with a scrolling
+water material**, not only the flat grid our loader knows: `src/water.rs` reads
+`A3DWaterArea` records as `height, grid_size, columns, rows, center, mask,
+shore_waves` — a horizontal grid at one height, with no static-mesh input at
+all.
+
+### Consequence
+
+A waterfall built as water-on-a-static-mesh is invisible in the viewer: no
+`A3DWaterArea` covers it, so the only thing left on screen at that spot is
+whatever `gfx` root the map also placed — the animated sheet, or nothing at all
+(`WaterfallAndSunrays` §14 found only spray). What the game shows there is the
+water material, sampled from the mesh's own UVs through a scrolling layer
+transform, and it *looks* static because a layer transform that neither loader
+nor renderer applies leaves one fixed image on the geometry.
+
+Decisive next check, which needs the 1.4.2 map data rather than more source: is
+there a static mesh carrying the water material at the fall? The loader has no
+static-mesh water record at all today, so the work is to read
+`A3DTerrainWaterRender.cpp`'s static-mesh submission (69 KB, on the Drive) and
+add that path — not to touch the effect again.
