@@ -11314,6 +11314,10 @@ mod tests {
                 .map(|quad| quad.uv[0])
                 .unwrap_or_else(|| panic!("the smoke sheet is drawn: {quads:?}"))
         };
+        // Both expectations are derived from the parsed element rather than
+        // restated as numbers: the point of the test is the runtime law, and the
+        // authored values it obeys were asserted three lines above.
+        let common = &root.elements[0].common;
         let first_uv = at(player.quads());
         let window = player
             .quads()
@@ -11322,14 +11326,16 @@ mod tests {
             .map(|quad| [quad.uv[3][0] - quad.uv[0][0], quad.uv[3][1] - quad.uv[0][1]])
             .unwrap();
         assert!(
-            (window[0] - 3.).abs() < 1e-6 && (window[1] - 2.).abs() < 1e-6,
+            (window[0] - common.tex_col as f32).abs() < 1e-6
+                && (window[1] - common.tex_row as f32).abs() < 1e-6,
             "a tiled window is TexCol x TexRow texture widths, got {window:?}"
         );
         step(&mut player, 500.);
         let second_uv = at(player.quads());
+        let expected = common.tex_speed[1] * 0.5;
         assert!(
-            (second_uv[1] - first_uv[1] + 0.75).abs() < 1e-3,
-            "the sheet scrolls V by TexSpeed: {} -> {}",
+            (second_uv[1] - first_uv[1] - expected).abs() < 1e-3,
+            "the sheet scrolls V by TexSpeed over 500 ms ({expected}): {} -> {}",
             first_uv[1],
             second_uv[1]
         );
