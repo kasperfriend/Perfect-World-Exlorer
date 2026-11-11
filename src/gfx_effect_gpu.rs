@@ -1253,10 +1253,7 @@ mod tests {
         let half = render(&mut draw, &harness, 0., &[half], Some(effect_light()));
         // 0.25098 of texture times material diffuse 1, then SrcAlpha over black
         // with the element's 0.5 opacity.
-        assert!(
-            (half[0] - 0.1255).abs() <= 0.01,
-            "half-opacity model mismatch: {half:?}"
-        );
+        assert!((half[0] - 0.1255).abs() <= 0.01, "half-opacity model mismatch: {half:?}");
     }
 
     /// `A3DGFXModel::ChangeModel` calls `A3DSkinModel::EnableSpecular(true)`, so
@@ -1295,10 +1292,7 @@ mod tests {
             &[mesh_quad(material, [0., 0., 1.])],
             Some(light),
         );
-        assert!(
-            lit[0] >= 0.99,
-            "a white specular term must saturate: {lit:?}"
-        );
+        assert!(lit[0] >= 0.99, "a white specular term must saturate: {lit:?}");
         // The same material with no specular light keeps the diffuse-only value,
         // which is what the pass drew before this.
         let plain = render(
@@ -1308,10 +1302,7 @@ mod tests {
             &[mesh_quad(material, [0., 0., 1.])],
             Some(effect_light()),
         );
-        assert!(
-            (plain[0] - 0.25).abs() <= 0.02,
-            "diffuse-only mismatch: {plain:?}"
-        );
+        assert!((plain[0] - 0.25).abs() <= 0.02, "diffuse-only mismatch: {plain:?}");
     }
 
     #[test]
