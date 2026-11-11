@@ -1911,3 +1911,69 @@ segments and one light is five pairs, so 20 ms a vertex): a 20 ms frame is not
 past a step because the comparison is strict, 40 ms lays two, 60 ms lays three,
 and the reset test now accounts for the 16 ms frame still sitting in the
 accumulator when the ring is emptied.
+
+## 26. `盆景水晶` from the shipped package: the map is under `textures/`
+
+The potted-crystal root is `gfx/场景/新种族地图/盆景水晶.gfx` (25 elements: sheets,
+trails, rings and two element-160 records). Both model elements are identical in
+the fields that matter:
+
+```text
+GFXELEMENTID: 160   TexFile:            ModelPath: 盆景\盆景水晶.SMD
+                                   ModelActName:   (empty)   WriteZ: 0 / 1
+```
+
+and the archive stores the model beside the root in the same package:
+
+| member | size | header |
+|---|---|---|
+| `gfx/models/盆景/盆景水晶.smd` | 140 | `MOXBDMSA` v8 |
+| `gfx/models/盆景/盆景水晶.bon` | 880 | `MOXBEKSA` v6 |
+| `gfx/models/盆景/盆景水晶.ski` | 5,966 | `MOXBIKSA` v9 |
+| `gfx/models/盆景/textures/邢盆景水晶.dds` | — | the only map |
+
+Two details of that listing are worth stating because both are silent failures:
+the effect writes `.SMD` in upper case while the member is `.smd`, and the map is
+**not** in the model's own folder but in `textures/` below it. The first is
+handled (`gfx_catalog::find` folds case); the second was not.
+
+### 26.1 `texture_paths()[0]` pointed at a member that does not exist
+
+`ModelSkin::texture_paths` returns two candidates for a skin map:
+
+```rust
+ecmodel::normalize(&format!("{parent}/tex_{stem}/{texture}"))   // [0]
+ecmodel::normalize(&format!("{parent}/textures/{texture}"))     // [1]
+```
+
+`posed_model_meshes` took `paths[0]` unconditionally. In the shipped `gfx.pck` the
+`tex_<stem>/` layout exists for 21 folders (29 files: `交叉的剑`, `冰刺`, `冰晶`,
+`凌杀`, `天师大冰块`, `泰山`, `火鸟`, `飞剑`, …), while **77 model folders keep
+their maps in `textures/`** — 2,409 files, the potted crystal among them. So every
+one of those models asked the archive for `gfx/models/盆景/tex_盆景水晶/邢盆景水晶.dds`,
+got nothing, and the effect pass drew its flat white stand-in for an unreadable
+texture: a white crystal, a white `盆景火`, and so on for the bulk of the skinned
+effect models.
+
+The path is now probed through the same reader that loads the skins — the first
+candidate the archive actually contains wins, and the element's own `TexFile` is
+still the fallback for a mesh with no texture index at all.
+
+### 26.2 The check runs on the real file
+
+`the_real_potted_crystal_poses_its_model` opens `google_drive/gfx.pck`, reads the
+root, builds the player, resolves the models through the pack and asserts
+
+* two element-160 records were collected,
+* at least eight posed meshes (the skin is four rigid meshes on each of the two
+  elements) with vertices,
+* and the resolved map is `gfx/models/盆景/textures/邢盆景水晶.dds`.
+
+Without the package on the machine the test says so and skips — the same rule the
+corpus tests follow — so CI (which has no `gfx.pck`) still runs the synthetic
+`one_triangle_model` chain unchanged, and only a machine holding the retail
+package proves the shipped model.
+
+The skin itself is the shape the loader supports: `MOXBIKSA` v9, four rigid
+meshes, one texture, one material, **zero bones**, no morph/supple/muscle skin —
+the bind pose is the whole model.
