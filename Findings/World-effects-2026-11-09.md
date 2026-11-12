@@ -3619,3 +3619,150 @@ the fade/scale/offset saturation that made city effects look misplaced, oversize
 and stuck. The remaining reports are now specific: the beams' angles and lengths are
 the map's numbers, and the waterfall's motion lives in a model material this viewer
 does not animate yet.
+
+## 50. What the client source settles, and what it does not
+
+This pass went back to the 1.5.2 sources that were used for §47–§49 with the six open
+field reports in hand, and read each one to its own line of code. Four of the six now
+have a definite answer from the sources or from the archive; two do not, and this
+section says exactly which artefact would decide them rather than pretending
+otherwise.
+
+### 50.1 Loops reset the controllers — confirmed, not inferred
+
+`A3DGFXKeyPointSet::TickAnimation` (`A3DGFXKeyPoint.cpp:1362-1446`) and
+`Resume(bool)` (`a3dgfxkeypoint.h:2085-2114`) are now read in full:
+
+```c
+m_dwTimeSpan += dwTickTime;
+if (m_dwTimeSpan < m_dwTimeStart) return;
+DWORD dwSpan = m_dwTimeSpan - m_dwTimeStart, dwTotal = 0;
+for (i = 0; i < m_KeyPointArray.size(); i++) {
+    if (m_KeyPointArray[i]->IsInfinite()) break;          // never wraps
+    DWORD dwCur = m_KeyPointArray[i]->m_dwTimeSpan;
+    if (dwSpan < dwCur) break;
+    dwSpan -= dwCur; dwTotal += dwCur;                     // spans are cumulative
+}
+if (i == m_KeyPointArray.size()) {
+    Resume(true);                                          // resets the node
+    m_pEle->ResumeLoop();
+    if (dwTotal) TickAnimation(dwSpan % dwTotal);          // carry the remainder
+    return;
+}
+```
+
+and inside `Resume(true)` the five things that matter:
+
+```c
+m_nActKeyPoint = -1;
+m_dwTimeSpan   = m_dwTimeStart;              // the clock restarts at TimeStart
+m_ProcData.m_KPProcess = m_KeyPointArray[0]->m_KPOrg;   // position/scale/colour
+m_ProcData.m_vAxisOff.Clear();               // the accumulated motion offset
+for (i) m_KeyPointArray[i]->Resume();        // every controller's own reset
+```
+
+Three consequences worth stating plainly, because they are what the viewer now does:
+
+- a **loop** restarts the element's motion offset, rotation, colour delta, path time
+  and scale — §49's fix is the client's own behaviour, and the 292-unit drift in the
+  upper city was simply seventy seconds of a sweep that never restarted;
+- a keypoint with `TimeSpan: -1` (`IsInfinite`) **never** wraps, so its controllers
+  integrate for the element's whole life. That is why `主城光球大` element 200 (a
+  2 s loop) drifted and `树林光束` (infinite) does not;
+- the loop length is the **sum** of the keypoint spans, plus `RepeatDelay` while
+  `m_bInDelay` holds. 782 of 31,034 elements author a non-zero `RepeatDelay`
+  (334 of them `1` ms, then 500, 1000, 300, 2000). `element_cycle` already adds it.
+
+`A3DGFXCtrlMove::Process` is the trapezoid this player implements:
+
+```c
+if (!Tick(ProcData.m_fTimeSpan)) return;                 // StartTime/EndTime window
+float fDist = CalcDist(m_fVelOrg, m_fAcc, ProcData.m_fTimeSpan, fTimeSpan);
+ProcData.m_KPProcess.m_vPos += m_vMoveDir * fDist;
+ProcData.m_vAxisOff         += m_vMoveDir * fDist;
+```
+
+with `CalcDist(v, a, t0, dt) = 0.5 * (v0 + v0 + a*dt) * dt`, `v0 = v + a*t0`
+(`A3DGFXKeyPoint.cpp:48-53`). Nothing integrates "the element's age"; every controller
+integrates the interval it was handed, which is why the reset is the whole story.
+
+### 50.2 The card size was never the card size
+
+`effect-cards` printed its height as `|p3 - p0|`. The four corners are written in the
+client's order — top-left, top-right, bottom-left, bottom-right — so `p3 - p0` is a
+**diagonal**, and every card in every log has read `sqrt(2)` too tall whenever it is
+square. `彩虹.gfx` shows the arithmetic: authored `Width 17.5`, `Height 8.0`, root
+scale 6.69 → 234.15 x 107.04 world units; the channel printed `234.13x257.43`, i.e.
+the diagonal of that rectangle.
+
+That single character is where "square city cards draw at 0.707 while 2:1 cards draw
+at 0.447" came from in the 9 November notes. It is not an aspect defect: `A3DDecalEx::
+Fill_Verts_3D` writes `(-W1, +H2, 0) (+W2, +H2, 0) (-W1, -H1, 0) (+W2, -H1, 0)` with
+`W1 = OrgPt.x * 2W`, `W2 = 2W - W1`, `H1 = OrgPt.y * 2H`, `H2 = 2H - H1`, and
+`quad_corners` reproduces that expression exactly, pivot included. The channel now
+prints `|p2 - p0|`, the true height.
+
+### 50.3 `Width`/`Height` are half extents, and `DedaultScale` is not the dog
+
+`A3DDecalEx::SetSize`/`ID_GFXOP_DECAL_WIDTH` (`A3DDecalEx.h:167-177`, `:125`) double
+the authored number, so a `0.5 x 10` shaft is `1 x 20` before any scale. Checked over
+the archive: `DedaultScale` has median **1.000**, and **3,881 of 5,457 roots write
+exactly 1.0** (99th percentile 3.0, 574 above 1, 1,002 below). So however the world
+loader applies a placement — `SetDefScale(s)` replacing the file's default or
+`SetScale(s)` multiplying it — the two readings can differ by at most the root's own
+`DedaultScale`, which is 1.0 for seventy-one percent of the archive. **A wrong reading
+there cannot produce "every effect in every map is too big"**; the only multiplier
+that varies per placement is the `world.ecwld` scale itself.
+
+### 50.4 Element 101 is a screen-space slot, and its size still agrees
+
+`A3DDecalEx::Play` registers a `ID_ELE_TYPE_DECAL_2D` element with
+`A3DFVF_A3DTLVERTEX` (`A3DDecalEx.cpp:1355-1370`) — a transformed-vertex slot, so a
+101 is drawn in pixels, not metres. `Fill_Verts_2D` (`:714-760`) multiplies the
+extents by `fScale`, the pixel height of one world unit at that depth:
+
+```c
+A3DVECTOR3 vExts = vCenterWorld + pCamera->GetRight();
+vExts = matVPS * vExts;
+float fScale = (vExts.x - vCenter.x) * m_pGfx->GetActualScale();
+fWidth1 = m_fWidth1 * kp.m_fScale * fScale;
+```
+
+Because `fScale` cancels between the two representations, a 101 covers the **same
+world footprint** as the 3D card of the same extents would. A 101 is not "a pixel
+size read as metres": `白兰树.gfx`'s `Width 60 / Height 50` flare is a 120 x 100 unit
+card in retail too. What is 2D-only about it is the depth handling — `ZOffset` moves
+it `m_fZOffset * actualScale` along the camera's own direction before projecting, and
+`rhw` carries the projected depth. `gfx_player` already does the first
+(`gfx_player.rs:3697`); the second is what a world billboard gives for free.
+
+`TileMode` is likewise a slot flag, not a flipbook:
+`RegisterSlot(..., m_bTileMode, m_bTexNoDownSample, ...)`, and
+`A3DGFXElement::CalcTexAnimation` sets `m_fTexWid = TexCol`, `m_fTexHei = TexRow`
+for it, i.e. a wrap-addressed window of `TexCol x TexRow` repeats. 197 roots and 579
+elements set it, and the effect pass samples with `AddressMode::Repeat`
+(`gfx_effect_gpu.rs:252`), so the water-gate sheets do tile and scroll.
+
+### 50.5 Still open, with the artefact that would close each
+
+- **Sunbeam direction.** `树林光束.gfx` has `RotFromView: 1`, so the shaft axis is
+  `RotateVec(GetParentDir() * kp.m_vDir, _unit_z)` — the placement's Z after the
+  keypoint quaternion. The first keypoint's quaternion is `(-0.5, -0.5, -0.5, 0.5)`,
+  a 120-degree turn, held for 875 ms of a 2,875 ms loop, and `InterpolateMode: 0`
+  means it *snaps* rather than turning. The `Shaft` selector in `quad_corners` is a
+  debug knob over that one line and must be read only in the `EffectShaft::Client`
+  setting. What is *not* yet established is whether the map's `direction` reaches the
+  client as `GetParentDir()` unchanged or is re-orthogonalised against `up` first;
+  `A3DGFXEx.h` (`SetDefScale`/`SetDir`) plus the scene loader's call site would
+  decide it, and neither is in the supplied sources.
+- **Effect scale.** Same artefact, same question: whether the ecwld record's scale
+  arrives through `SetScale` or `SetDefScale`. The archive cannot decide it, because
+  the two differ only where a root writes a `DedaultScale` other than 1 (`50.3`).
+- **The waterfall sheet.** `瀑布.gfx` and `水门_瀑布.gfx` are byte-identical 8,034-byte
+  files: five element-100 cards of `0.9 x 1.25` and `0.85 x 1.25` half extents with
+  `TexRow 2`/`TexCol 3`, `TileMode: 1` and `TexSpeed` V of -1.0 to -2.0, plus two
+  element-124 droplet emitters. They are 1.8-2.5 units wide, so they are the gate's
+  water, not the curtain in the report. The curtain is scenery — `瀑布.smd`, whose
+  `SKI` material carries no UV speed and whose ECM has no animation — so a static
+  sheet is what the *files* describe. Whether retail scrolls it in a pixel shader is
+  the one question here that needs a shader dump rather than a data file.

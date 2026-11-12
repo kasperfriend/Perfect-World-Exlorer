@@ -3329,8 +3329,18 @@ fn log_card(
             context.common.render_layer,
             context.common.priority,
             color[3],
+            // The four corners arrive in the client's own order — top-left,
+            // top-right, bottom-left, bottom-right (`quad_corners`) — so the
+            // width is the top edge and the height the *left* edge, `p2 - p0`.
+            // Measuring `p3 - p0` instead reports the diagonal: every card came
+            // out `sqrt(2)` too tall in this channel, which is how a perfectly
+            // square 2 x 2 `主城鱼缸` card was read as "drawn at 0.707, so the
+            // viewer is stretching square cards" in the 9 November notes. It is
+            // not; the log was. `彩虹.gfx` shows it plainly: 234.13 x 107.03
+            // world units, and its authored `17.5 x 8` half extents scaled by
+            // 6.69 are 234.15 x 107.04. The old line printed 140.38.
             span(positions[0], positions[1]),
-            span(positions[0], positions[3]),
+            span(positions[0], positions[2]),
             centre[0],
             centre[1],
             centre[2],
