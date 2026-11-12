@@ -3465,3 +3465,157 @@ the beams point where the map points them, and the effects are as large as the
 map sizes them. What is left open in the city is the distortion pass over its 30
 warp elements (§47.5), which is the one visible difference the renderer still
 knows it has.
+
+## 49. The controllers never restarted, and that is where the city's lost effects went
+
+The reports that came with this pass — effects piled up in the upper city, oversized
+effects everywhere, sunbeams at odd angles — arrived with live logs from four maps
+(`Sunrays-2.log`, `Waterfall-2.log`, `CityOfRagingTides-3.log`, and the older
+`Archosaur`/`RagingTides` captures). Those logs name the roots, the element ids and
+the world-space quads, which is what finally made the first of them falsifiable.
+
+### 49.1 The symptom, in numbers
+
+`CityOfRagingTides-3.log`, `effect-frames`:
+
+```
+主城光球大.gfx id=123 ... origin=(2641.8,253.9,-4073.5)
+主城光球大.gfx id=101 ... origin=(2641.8,258.6,-4073.5)
+主城光球大.gfx id=100 ... origin=(2641.8,264.0,-4073.5)
+主城光球大.gfx id=200 ... origin=(2641.8,550.6,-4073.5)
+主城光球大_闪电紫.gfx id=150 ... origin=(2641.2,550.6,-4073.7)
+主城光球大_闪电蓝.gfx id=150 ... origin=(2642.0,509.6,-4073.7)
+```
+
+Same x and z as the orb, 292 units above it. `主城光球大.gfx` puts that child at
+`Position: 0, -0.740011, 0` with `GfxPath: 场景\新种族地图\主城光球大_闪电紫.gfx`,
+so it belongs 4.4 units *below* the orb's centre, not 292 above it.
+
+The element's controllers explain the number:
+
+```
+GFXELEMENTID: 200 ... RepeatCount: -1 ... TimeSpan: 2000
+CtrlType: 100   StartTime 0  EndTime -1   Dir: 0, 1, 0   Vel: 0.700000   Acc: 0
+```
+
+`CtrlType: 100` sweeps the element along +Y at 0.7 units per second inside a
+two-second loop. The orb's root clock at capture was 70,960 ms; 0.7 x 70.96 = 49.7
+local units, and the root's `DedaultScale` of 6.0 puts that at 298 world units —
+the 292 measured. The sibling with `Vel: 0.6`-class sweep sits at the same kind of
+height. Nothing was mis-placed: the sweep had simply been running for seventy
+seconds without ever restarting.
+
+### 49.2 The rule the player was missing
+
+Controllers integrate against the *node age*, and the client restarts that age —
+and every controller with it — on each `RepeatCount` loop. `A3DGFXKeyPointSet::
+TickAnimation` reaches the end of its keypoint list and does
+(`A3DGFXKeyPoint.cpp:1403-1410`)
+
+```c
+Resume(true);
+m_pEle->ResumeLoop();
+if (dwTotal) TickAnimation(dwSpan % dwTotal);
+```
+
+and `Resume` (`a3dgfxkeypoint.h:2085-2114`) clears exactly the state this player
+was keeping:
+
+```c
+m_nActKeyPoint = -1;
+m_ProcData.m_KPProcess = m_KeyPointArray[0]->m_KPOrg;
+m_ProcData.m_vAxisOff.Clear();     // the accumulated offset
+m_ProcData.m_fTimeSpan = 0;
+m_ProcData.m_fScaleNoise = 0;
+for (i...) m_KeyPointArray[i]->Resume();   // every controller's Resume()
+```
+
+`advance_element` seeded `CtrlState` only when the *keypoint index* changed. A
+single-keypoint element whose `RepeatCount` is -1 or N therefore never reseeded,
+and every integrator in `apply_controls` walked away from its authored value:
+
+| controller | what accumulated |
+|---|---|
+| 100 motion | `state.offset` — the element drifts |
+| 101 rotation | `state.rotation` — the element keeps spinning |
+| 105 colour | `state.color_offset` — fades saturate and stay saturated |
+| 106 path | `state.path_time` — the element leaves its path |
+| 111 scale | `state.scale_extra` — the element grows to its clamp and stays |
+
+**493 roots and 1,956 elements** hold a looping element with an integrating
+controller (105: 1,346, 106: 1,236, 100: 915, 109: 435, 101: 368, 111: 132). Every
+one of them had been drifting since the root spawned, which is what "misplaced
+effects in the upper city" and "many oversized effects all over the world"
+describe: the same root looks right for the first loop and wrong for every loop
+after it, and how wrong depends only on how long the map has been loaded.
+
+The fix tracks which *play* of the clock the state belongs to and reseeds on a
+change, so a loop restarts its controllers exactly where the client's `Resume`
+does. `a_looping_element_restarts_its_motion_controller` runs ten plays of a
+half-second cycle and requires the sweep to stay inside one play's travel; before
+the change the card walked 10 units off its start and kept going.
+
+### 49.3 A second, smaller keypoint rule
+
+The same read of `TickAnimation` settles how `InterpolateMode` gates controllers:
+
+```c
+if (m_KeyPointArray[i]->m_enumMode != A3DGFXKeyPoint::enumInterpNone) {
+    ... Interpolate(dwSpan / m_KeyPointArray[i]->m_dwTimeSpan);
+} else {
+    m_KeyPointArray[i]->Process(m_ProcData, dwTickTime);   // runs m_CtrlLst
+}
+```
+
+A keypoint's controllers are walked by `Process`, which only the `enumInterpNone`
+(mode 0) branch calls; an interpolating keypoint goes through `Interpolate`, which
+touches position, colour, scale, `Rad_2D` and — for mode 1 only — the direction via
+`SLERPQuad`. The player ran `apply_controls` for every keypoint. The corpus writes
+only modes 0 (36,456 keypoints) and 1 (141), never 2, and 39 of the mode-1
+elements carry controllers, so the fix is small: controllers now run only where the
+client runs them. The rest of `sample_keypoints` already matches this law, including
+the fact that mode 2 would *not* slerp (that mode is unread by every shipped file,
+so it stays as written).
+
+### 49.4 The sunbeams: authored numbers, and why they look wrong
+
+`树林光束.gfx` is eight cards of `Width: 0.500000` / `Height: 10.000000` half
+extents under `DedaultScale: 0.700000`, each with a `RepeatCount: -1`, two
+keypoints (`TimeSpan: 875` then `2000`) and `InterpolateMode: 0`. The two keypoint
+directions are `(-0.5, -0.5, -0.5, 0.5)` and identity, so a beam spends 875 ms of
+every 2,875 ms rotated by that quaternion and then snaps straight — a snapped
+pose, not a turned one, because the authored mode is `enumInterpNone`. The log
+shows the result: `basis dir=(0.00,1.94,2.90)` on one card and a different pose on
+its neighbour, which reads as "random direction" when eight of them share a tree.
+
+The sizes are the placement's: `Sunrays-2.log` measures that card at
+`3.48 x 69.78` units with its corners printed, i.e. exactly `0.5 x 20` doubled by
+the root's 3.49 (0.7 x 4.98 placement) — the scale law of §47.2, applied once.
+Across the captured maps the same root renders at 22.6, 40.0, 69.8, 87.0, 91.5,
+114.1, 123.0 and 147.4 units long, one per placement scale: the map, not the
+renderer, chooses. What the viewer *did* get wrong on those beams is alpha: their
+only controller is `CtrlType: 105 ColorDelta`, so §49.1's missing restart left the
+fade saturated — `color=0x07ffffff` in the frame log is a beam whose alpha had
+decayed to 7/255 and stuck there instead of fading back each loop.
+
+### 49.5 The waterfall is not an effect at all
+
+`Waterfall-2.log` loads 39 subjects around the waterfall and not one is the sheet
+you see falling: the roots are `瀑布水花`, `瀑布水花中间`, `瀑布水花底`,
+`瀑布水花湍急` (spray), plus `树林光束`, `彩虹`, `烟1`, `海底飘尘2`, `树叶雨` and
+`花瓣分飞`. The white curtain in the capture is scenery, not a `gfx` root — its
+motion in retail comes from the material on the model, and this viewer's model path
+has no animated UVs at all (`src/model_material.rs` carries no scroll term). That is
+a modelling-source question — `models.pck` and the material format — not an effect
+one, and it is the honest reason the waterfall still looks like a still image after
+the grid scroll was corrected in §47.
+
+### Verdict
+
+One rule, two changes: a looping element restarts its controller state (and its
+keypoint binding) on every play, and controllers run only on the step keypoints the
+client runs them on. That is 493 roots and 1,956 elements no longer drifting, plus
+the fade/scale/offset saturation that made city effects look misplaced, oversized
+and stuck. The remaining reports are now specific: the beams' angles and lengths are
+the map's numbers, and the waterfall's motion lives in a model material this viewer
+does not animate yet.

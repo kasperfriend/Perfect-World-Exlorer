@@ -984,6 +984,13 @@ struct ElementRuntime {
     index: usize,
     /// The keypoint the controller state was seeded from; -1 reseeds.
     seeded: isize,
+    /// Which play of the element's clock `state` belongs to. A controller
+    /// integrates its displacement from the *node age* — `A3DGFXCtrlMotion`
+    /// reads the age at `0x6eaf60` — and the client restarts that age with the
+    /// element on every `RepeatCount` loop, so a `CtrlType: 100` sweep runs from
+    /// zero each time round. Seeding only on a keypoint change left the state
+    /// alive across loops and the offset integrated without bound.
+    play: f32,
     state: CtrlState,
     runtime: Runtime,
     /// The sibling this element's `BindEle` resolved to, as a slot in
@@ -1492,6 +1499,7 @@ impl Player {
             elements.push(ElementRuntime {
                 index,
                 seeded: -1,
+                play: 0.,
                 state,
                 runtime,
                 bind_target: None,
@@ -1690,6 +1698,7 @@ impl Player {
         }
         for element in &mut self.elements {
             element.seeded = -1;
+            element.play = 0.;
             element.state = CtrlState::new();
             // A restart gives every element its clock back, so the binding
             // dependency has to be re-armed as well: a dependent whose target
@@ -2094,12 +2103,44 @@ fn advance_element(
         // `done` above when the play count ran out.
         return Ok(false);
     };
-    if runtime.seeded != index as isize {
+    // The controller state belongs to one *play* of the element's clock, not to
+    // its lifetime. Every controller integrates against the node age
+    // (`A3DGFXCtrlMotion::Process` reads it at `0x6eaf60`), and the client
+    // restarts that age — and the controllers with it — on each `RepeatCount`
+    // loop, so a motion sweep begins at zero every time round. Reseeding only on
+    // a keypoint change kept the state alive across loops, and an integrator
+    // like `CtrlType: 100` then walked away from its authored position for as
+    // long as the root played: `主城光球大` element 200 sweeps `Vel: 0.7` along
+    // +Y in a 2 s loop, and after seventy seconds of play its lightning children
+    // sat 292 world units above their orb — the "misplaced effects in the upper
+    // city" report, which is not a placement error at all.
+    let play = if cycle.is_finite() && cycle > 0. && element.common.repeat_count != 1 {
+        (local / cycle).floor()
+    } else {
+        0.
+    };
+    if runtime.seeded != index as isize || runtime.play != play {
         runtime.seeded = index as isize;
+        runtime.play = play;
         runtime.state = CtrlState::new();
         runtime.state.bind(key);
     }
-    apply_controls(&mut runtime.state, key, &sampled, dt_s, rng);
+    // A keypoint's controllers run only on the *step* path: the client's
+    // `A3DGFXKeyPointSet::TickAnimation` calls `m_KeyPointArray[i]->Process`,
+    // which is what walks `m_CtrlLst`, and it does so inside the
+    // `m_enumMode == enumInterpNone` branch alone — an interpolating keypoint
+    // goes through `Interpolate`, which touches no controller
+    // (A3DGFXKeyPoint.cpp:1424-1462). 141 corpus elements author mode 1 and 39
+    // of them also carry controllers, so running those against a keypoint the
+    // client leaves alone was a small, one-sided difference.
+    let key_span = if key.time_span < 0. {
+        f32::INFINITY
+    } else {
+        key.time_span
+    };
+    if key.interpolate_mode == 0 || key_span.is_infinite() {
+        apply_controls(&mut runtime.state, key, &sampled, dt_s, rng);
+    }
 
     let scale = runtime
         .state
@@ -7651,6 +7692,49 @@ mod tests {
         step(&mut player, 100.);
         let centre = quad_centre(&player.quads()[0]);
         assert!((centre.x - 2. * 1.28).abs() <= 1e-5, "{centre}");
+    }
+
+    /// A looping element restarts its controllers with its clock.
+    ///
+    /// Every controller integrates against the node age (`0x6eaf60`), and the
+    /// client restarts that age on each `RepeatCount` loop, so a `CtrlType: 100`
+    /// sweep runs from zero each time round. Reseeding the state only when the
+    /// *keypoint* changed left it alive across loops, and the offset then grew
+    /// for as long as the root played: `主城光球大` element 200 sweeps `Vel: 0.7`
+    /// along +Y in a 2 s loop, and seventy seconds of play left its lightning
+    /// children 292 units above the orb — the city's "misplaced effects" report.
+    #[test]
+    fn a_looping_element_restarts_its_motion_controller() {
+        let source = header37(1)
+            + &SPRITE
+                .replace("RepeatCount: 1\r\n", "RepeatCount: -1\r\n")
+                .replace("TimeSpan: -1\r\n", "TimeSpan: 500\r\n")
+                .replace(
+                    "CtrlMethodCount: 0\r\n",
+                    "CtrlMethodCount: 1\r\nCtrlType: 100\r\nStartTime: 0.000000\r\n\
+                     EndTime: -1.000000\r\nDir: 0.000000, 1.000000, 0.000000\r\n\
+                     Vel: 1.000000\r\nAcc: 0.000000\r\n",
+                );
+        let mut player = build(&source);
+        step(&mut player, 0.);
+        let start = quad_centre(&player.quads()[0]);
+        let mut worst = 0f32;
+        // Five seconds is ten plays of a half-second cycle. One play sweeps half
+        // a unit along +Y, which the root scale of 2 doubles.
+        for _ in 0..312 {
+            step(&mut player, 16.);
+            let centre = quad_centre(&player.quads()[0]);
+            worst = worst.max((centre.y - start.y).abs());
+        }
+        assert!(
+            worst > 0.5,
+            "the motion controller has to move the card: {worst}"
+        );
+        assert!(
+            worst < 1.6,
+            "a looping element restarts its motion controller each play; this \
+             one drifted {worst} units from where it started"
+        );
     }
 
     /// `EndTime` is compared against 0.0 at `0x8d58a0`, so a controller stops
