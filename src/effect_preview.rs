@@ -520,6 +520,21 @@ const FAKE_ROOT: &str = "MOXTVersion: 37\r\nDedaultScale: 1\r\nPlaySpeed: 1\r\nD
      TimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\n\
      Rad_2D: 0\r\nCtrlMethodCount: 0\r\n";
 
+/// A 4x4 opaque white TGA, built here rather than shipped: the smoke test has
+/// to have a decodable map and takes no client file.
+fn white_tga() -> Vec<u8> {
+    let mut bytes = vec![0u8; 18];
+    bytes[2] = 2; // uncompressed true-colour
+    bytes[12] = 4; // width, little endian
+    bytes[14] = 4; // height
+    bytes[16] = 32; // bits per pixel
+    bytes[17] = 8 | 0x20; // eight alpha bits, top-left origin
+    for _ in 0..16 {
+        bytes.extend_from_slice(&[0xff, 0xff, 0xff, 0xff]);
+    }
+    bytes
+}
+
 fn fake_record() -> Effect {
     Effect {
         index: 0,
@@ -552,11 +567,17 @@ mod tests {
             crate::pck::corpus_absent("Vulkan adapter");
             return;
         };
-        // Roots are decoded text, so the smoke archive is a text reader. Textures
-        // are deliberately absent: a missing texture falls back to the draw's
-        // white texel, which keeps the smoke test free of any client file.
+        // Roots are decoded text, so the smoke archive is a text reader. Its
+        // texture reader answers every name with one 4x4 white TGA: a bucket
+        // whose map will not load is painted with a *transparent* stand-in, so
+        // a preview with no texture archive draws nothing at all -- the first
+        // version of this test proved exactly that (quads=1 pixels=0).
         let root = FAKE_ROOT.to_string();
-        let mut world = World::without_models(&device, PREVIEW_FORMAT);
+        let texture = white_tga();
+        let read = move |_path: &str| Ok(texture.clone());
+        let assets = crate::world_models::Assets::default();
+        let mut world = World::with_reader(&device, PREVIEW_FORMAT, assets, read)
+            .expect("a world with no models");
         world.attach_gfx_reader(move |path: &str| {
             if path.ends_with("preview卡.gfx") {
                 Ok(root.clone())
