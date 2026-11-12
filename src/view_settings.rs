@@ -735,9 +735,6 @@ mod tests {
         assert_eq!(s, ViewSettings::decode(&s.encode()));
         assert!(!ViewSettings::decode("vegetation_authored_mips=invalid").vegetation_authored_mips);
     }
-    /// The world's own effects draw unless the explorer switches them off, and a
-    /// settings file written before the switch existed keeps them on.
-    #[test]
     /// The fade radius is an explorer setting, not an authored one: it starts at
     /// 0 (off), survives a save/load pair, and refuses nonsense.
     #[test]
@@ -747,14 +744,17 @@ mod tests {
         let decoded = ViewSettings::decode("effect_distance=60");
         assert_eq!(decoded.effect_distance, 60.);
         assert!(decoded.encode().contains("effect_distance=60"));
-        assert_eq!(ViewSettings::decode("effect_distance=-5").effect_distance, 0.);
-        assert_eq!(ViewSettings::decode("effect_distance=nan").effect_distance, 0.);
-        assert_eq!(
-            ViewSettings::decode("effect_distance=10000").effect_distance,
-            1000.
-        );
+        let negative = ViewSettings::decode("effect_distance=-5");
+        assert_eq!(negative.effect_distance, 0.);
+        let undefined = ViewSettings::decode("effect_distance=nan");
+        assert_eq!(undefined.effect_distance, 0.);
+        let absurd = ViewSettings::decode("effect_distance=10000");
+        assert_eq!(absurd.effect_distance, 1000.);
     }
 
+    /// The world's own effects draw unless the explorer switches them off, and a
+    /// settings file written before the switch existed keeps them on.
+    #[test]
     fn world_effects_default_on_and_round_trip() {
         assert!(ViewSettings::default().world_effects);
         assert!(ViewSettings::decode("unknown=ignored").world_effects);

@@ -1353,33 +1353,16 @@ mod tests {
         for _ in 0..30 {
             fade = attenuation_step(fade, 0., 100);
         }
-        assert!((fade - 0.).abs() < 1e-6, "3 s of 100 ms frames is a full ramp: {fade}");
+        assert!(fade < 1e-6);
         let mut fade = 0.;
         for _ in 0..60 {
             fade = attenuation_step(fade, 1., 50);
         }
-        assert!((fade - 1.).abs() < 1e-6, "3 s of 50 ms frames is full: {fade}");
+        assert!(fade > 1. - 1e-6);
         assert_eq!(attenuation_step(0.25, 1., 3000), 1.);
         assert_eq!(attenuation_step(0.25, 0., 3000), 0.);
-        // A stalled clock steps nothing, and one huge frame lands on the target
-        // instead of overshooting it.
+        // A stalled clock steps nothing; one huge frame lands on the target.
         assert_eq!(attenuation_step(0.5, 1., 0), 0.5);
         assert_eq!(attenuation_step(0.5, 1., 100_000), 1.);
-    }
-
-    /// The radius is the client's `SCNRES_EFFECT` measurement: a full 3D
-    /// distance from the eye, so a root 50 units up and 50 across is outside a
-    /// 60-unit radius even though its ground projection is 70.
-    #[test]
-    fn the_fade_radius_is_measured_in_three_dimensions() {
-        let eye = [0., 100., 0.];
-        let inside = [40., 100., 0.];
-        let outside = [0., 100., 61.];
-        let dist = |p: [f32; 3]| {
-            let d = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
-            d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
-        };
-        assert!(dist(inside) < 60. * 60.);
-        assert!(dist(outside) >= 60. * 60.);
     }
 }

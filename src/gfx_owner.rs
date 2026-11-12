@@ -1327,14 +1327,15 @@ mod tests {
     fn set_attenuation_clamps_and_only_touches_known_owners() {
         let mut manager = Manager::with_reader(root("gfx/scene/lamp.gfx", &light_file()));
         manager.insert(request(1, true)).unwrap();
-        assert!(!manager.set_attenuation(999, 0.5), "unknown identities are refused");
+        assert!(!manager.set_attenuation(999, 0.5));
         assert!(manager.set_attenuation(1, 0.25));
-        assert!(!manager.set_attenuation(1, 0.25), "an unchanged fade is not a change");
+        assert!(!manager.set_attenuation(1, 0.25));
+        // 4.0 and NaN both land on full alpha, which is then no change.
         assert!(manager.set_attenuation(1, 4.0));
-        assert!(!manager.set_attenuation(1, 1.0), "4.0 clamps to 1.0");
+        assert!(!manager.set_attenuation(1, 1.0));
         assert!(manager.set_attenuation(1, 0.5));
         assert!(manager.set_attenuation(1, f32::NAN));
-        assert!(!manager.set_attenuation(1, 1.0), "a NaN fade falls back to full alpha");
+        assert!(!manager.set_attenuation(1, 1.0));
         assert!(manager.set_attenuation(1, 0.0));
     }
 
