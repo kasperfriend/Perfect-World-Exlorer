@@ -3903,7 +3903,7 @@ the field reads.
   decides a uniform factor of two on every card. The viewer doubles, on the strength of the
   static-decal path (`gfx_decal.rs`, verified natively, `width = [w0, 2w - w0]`), and the
   table in 51.3 is consistent either way because the factor cancels. **The artefact that
-  would close it is `A3DDecalEx.h`.**
+  would close it is `A3DDecalEx.h`** — found, and it closes it: see §52.1.
 - **Day/night and distance are modelled but not paired.** `iValidTime` reaches
   `effect_visible` (`scene.rs:114`) and the viewer has a time of day, but the 60/120 unit
   `bAttenuation` radius is not applied at all, and there is no `FadeGFX` cross-fade.
@@ -3914,3 +3914,75 @@ the field reads.
   `quad_corners` (`gfx_player.rs:4068`) computes exactly these four corners from exactly
   those two axes, so a shaft's width never foreshortens and its length does. The vertical
   beam left in Archosaur is therefore a keypoint direction, not a basis error: see §50.5.
+
+## 52. `SetSize` closes the last arithmetic question, and the distance fade is now drawn
+
+### 52.1 The factor of two is the client's
+
+51.6 ended on the one thing the archive could not settle: whether
+`m_fWidth1 + m_fWidth2` is `Width` or `2 x Width`. `A3DDecalEx.h` was found and it settles
+it in six lines (`A3DDecalEx.h:167-177`):
+
+```c
+void SetSize(float fWidth, float fHeight)
+{
+    m_fWidth = fWidth;  m_fHeight = fHeight;
+    fWidth  *= 2.0f;    fHeight  *= 2.0f;
+    m_fWidth1  = m_fOrgPtWidth  * fWidth;   m_fWidth2  = fWidth  - m_fWidth1;
+    m_fHeight1 = m_fOrgPtHeight * fHeight;  m_fHeight2 = fHeight - m_fHeight1;
+}
+```
+
+The `2.0f` is the client's, the `OrgPt` fraction splits the doubled extent, and
+`GetProperty(ID_GFXOP_DECAL_WIDTH)` hands the editor `m_fWidth * 2.0f` again (`:124-125`).
+So a card's world extent really is `2 x Width x kpScale x DedaultScale x fScale`, which is
+what `quad_corners` builds (`gfx_player.rs:4026-4029`) and what the table in 51.3 assumed.
+
+**The size pipeline is therefore closed end to end**: authored `Width`/`Height` halved into
+the file's `DedaultScale`, multiplied by the map's `fScale`, doubled here. Every value in
+the three rows of 51.3 is now derived rather than fitted, and there is no remaining
+candidate for the field reports' "oversized" that is not the numbers those files carry.
+
+### 52.2 `bAttenuation` is implemented, off by default
+
+`CECOrnamentMan::Update` is the only consumer of the flag, and it is a fade, not a cull
+(`EC_ManOrnament.cpp:274-292`): inside `SCNRES_EFFECT` → `FadeGFX(node, true)`, outside →
+`FadeGFX(node, false)`, each a 3,000 ms `SetAlphaTransition` to `max_alpha * fAlpha` with
+`max_alpha` pinned to `1.0f` (`:957`, `:966`). The node is **not** released while faded out;
+only the time-of-day branch releases.
+
+The viewer now carries that law:
+
+- `world_models_gpu::Producer` keeps the record's flag and a `fade` value; a fresh root
+  starts at 0 when it attenuates, which is where `LoadGFXFromFile` + `FadeGFX(true)` leave
+  it, and at 1 otherwise.
+- `apply_attenuation` walks the producers every tick, measures a **full 3D** distance from
+  the eye (the client measures `a3d_Magnitude(vPos - vHostPos)`, not a ground distance),
+  and steps `fade` toward 0 or 1 linearly at `delta_ms / 3000`, which is what
+  `SetAlphaTransition` interpolates.
+- `gfx_owner::Manager::set_attenuation` clamps and stores the number, and the root alpha
+  becomes `record fAlpha * fade` at emit time. The owner stays loaded throughout.
+- `View settings → World → Effect fade distance` (`effect_distance=`, 0..120 m, default
+  **0 = off**) sets the radius. 60 is the client's near scheme
+  (`EC_SceneBlock.cpp:1109`), 120 its far one (`:1133`).
+
+The default is off on purpose: the client measures from a player standing in the map, and a
+camera that flies over a whole zone is not that player — at 60 units, the ground under a
+high camera is outside the radius and the map would look empty. With the slider at 60 the
+picture is the one retail draws from a player's eye, including the 3-second fade as effects
+enter and leave the radius.
+
+### 52.3 What this changes for the six reports
+
+Nothing moves, resizes or re-orients because of 52.1-52.2 — that is the point. The remaining
+reports are about *which* roots a place draws and *how a class draws them*, not about the
+placement contract:
+
+| report | where the answer now sits |
+|---|---|
+| forest sunbeams | 8 staggered elements, one holding a 120-degree keypoint for 875 ms of a 2,875 ms loop (§50.5); sizes are the map's `fScale ~ 5` |
+| Archosaur's vertical beam | the same keypoint rule; the horizontal pair is the elements whose keypoint leaves the shaft along `direction` |
+| Wraithgate cyan fires | the `CtrlState` reseed skip when `repeat_count == 1` (§49) |
+| Raging Tides kelp, white blobs | per-class drawing and blend, not placement |
+| waterfalls | authored static sheet (§50.5); needs a shader dump |
+| Nightfire craters | glow element size and blend |

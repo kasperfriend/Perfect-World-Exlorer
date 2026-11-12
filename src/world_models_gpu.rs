@@ -28,6 +28,24 @@ struct Producer {
     position: [f32; 3],
     /// Skeleton hook this root is attached to (ECM `HookName`).
     hook: Option<HookBinding>,
+    /// The record's `bAttenuation` byte (`ECWDFILEEFFECT12.bAttenuation`,
+    /// EC_WorldFile.h:248). ECM model events carry no such record and stay at
+    /// full alpha.
+    attenuation: bool,
+    /// Current distance fade, 0..1, ramped toward the target at 1/3000 per ms.
+    fade: f32,
+}
+
+/// `FadeGFX`'s transition length: `SetAlphaTransition(max_alpha * fAlpha, 3000)`
+/// over three seconds, `EC_ManOrnament.cpp:961-966`.
+const FADE_MS: f32 = 3000.;
+
+/// One frame of a `FadeGFX` transition: linear in elapsed time, so a full
+/// 0 -> 1 ramp takes exactly `FADE_MS` no matter the frame rate, and a shorter
+/// frame never overshoots the target.
+fn attenuation_step(fade: f32, target: f32, delta_ms: u32) -> f32 {
+    let step = (delta_ms as f32 / FADE_MS).clamp(0., 1.);
+    (fade + (target - fade).clamp(-step, step)).clamp(0., 1.)
 }
 
 /// A root bound to a hook of one of this world's models.
@@ -111,6 +129,9 @@ pub struct World {
     catalog_spawns: u64,
     /// Explorer position and effect activation radius in world units.
     view: Option<(f32, f32, f32)>,
+    /// Retail `SCNRES_EFFECT` distance in world units; 0 disables the fade and
+    /// leaves every root at its authored alpha (the explorer default).
+    effect_distance: f32,
     resident_bounds: Option<[f32; 4]>,
     /// Retail alpha insertion order as (slot, mesh) pairs.
     alpha: Vec<model_queue::AlphaCandidate>,
@@ -202,6 +223,7 @@ impl World {
             catalog: crate::gfx_catalog::Catalog::default(),
             catalog_spawns: 0,
             view: None,
+            effect_distance: 0.,
             resident_bounds: None,
             alpha: Vec::new(),
             reported: Vec::new(),
@@ -391,11 +413,16 @@ impl World {
                     self.reported.push(format!("{origin}: {error}"));
                     continue;
                 }
+                // A fresh root starts where `LoadGFXFromFile` + `FadeGFX(true)`
+                // leave it: at zero alpha, three seconds from full, or at full
+                // alpha when the record says it never attenuates.
                 self.producers.push(Producer {
                     identity,
                     valid_time: Some(effect.valid_time),
                     position: effect.position,
                     hook: None,
+                    attenuation: effect.attenuation,
+                    fade: if effect.attenuation { 0. } else { 1. },
                 });
                 installed += 1;
             }
@@ -488,6 +515,8 @@ impl World {
                     identity,
                     valid_time: None,
                     position: instance.placement.position,
+                    attenuation: false,
+                    fade: 1.,
                     hook: record.map(|record| HookBinding {
                         instance: index,
                         record,
@@ -524,6 +553,22 @@ impl World {
     /// Effect activation radius (independent of resident geometry bounds).
     pub fn set_view_center(&mut self, x: f32, z: f32, radius: f32) {
         self.view = Some((x, z, radius.max(0.)));
+    }
+    /// Radius of the client's effect distance fade, in world units.
+    ///
+    /// `CECSceneBlock::SetResLoadDists` sets `SCNRES_EFFECT` to 60 units in its
+    /// near scheme and 120 in its far one (`EC_SceneBlock.cpp:1109`, `:1133`),
+    /// and `CECOrnamentMan::Update` fades any `bAttenuation` node outside that
+    /// radius of the host player to zero over three seconds. The explorer has no
+    /// player, so the eye is the closest equivalent: the same distance from the
+    /// camera. `0` keeps the viewer's old behaviour — every root at full alpha,
+    /// which is what a free camera flying over the whole map wants to see.
+    pub fn set_effect_distance(&mut self, distance: f32) {
+        self.effect_distance = if distance.is_finite() {
+            distance.max(0.)
+        } else {
+            0.
+        };
     }
     /// Manager light-priority limit (native `[[0x9b3eec]+0x28]+0x134`, written
     /// from an authored scene/environment byte at `0x40dc97`/`0x40e394`).
@@ -582,7 +627,7 @@ impl World {
         failures.extend(self.reported.iter().cloned());
         failures
     }
-    fn apply_activation(&mut self, night: f32) {
+    fn apply_activation(&mut self, night: f32, delta_ms: u32, eye: [f32; 3]) {
         if self.producers.is_empty() {
             return;
         }
@@ -604,6 +649,42 @@ impl World {
             .collect();
         for (identity, active) in updates {
             self.owners.set_active(identity, active);
+        }
+        self.apply_attenuation(delta_ms, eye);
+    }
+    /// Ramp every attenuating root's alpha toward "visible inside the retail
+    /// effect distance, transparent outside it".
+    ///
+    /// `CECOrnamentMan::Update` (EC_ManOrnament.cpp:279-292) tests
+    /// `a3d_Magnitude(pNode->vPos - vHostPos) >= SCNRES_EFFECT` and calls
+    /// `FadeGFX(node, true/false)` accordingly; the transition is 3,000 ms
+    /// either way, so a root crossing the radius takes three seconds to appear
+    /// or vanish instead of popping. The step is linear in elapsed time, which
+    /// is what `SetAlphaTransition` interpolates.
+    fn apply_attenuation(&mut self, delta_ms: u32, eye: [f32; 3]) {
+        if self.effect_distance <= 0. {
+            return;
+        }
+        let radius2 = self.effect_distance * self.effect_distance;
+        let updates: Vec<(u64, f32)> = self
+            .producers
+            .iter_mut()
+            .filter(|producer| producer.attenuation)
+            .map(|producer| {
+                let dx = producer.position[0] - eye[0];
+                let dy = producer.position[1] - eye[1];
+                let dz = producer.position[2] - eye[2];
+                let target = if dx * dx + dy * dy + dz * dz >= radius2 {
+                    0.
+                } else {
+                    1.
+                };
+                producer.fade = attenuation_step(producer.fade, target, delta_ms);
+                (producer.identity, producer.fade)
+            })
+            .collect();
+        for (identity, fade) in updates {
+            self.owners.set_attenuation(identity, fade);
         }
     }
     pub fn update(
@@ -640,7 +721,7 @@ impl World {
             //    (0x7b2520), then publish before the grid consumes, so a light
             //    created or moved on this tick already lights this frame.
             self.resolve_attachments();
-            self.apply_activation(night);
+            self.apply_activation(night, delta_ms, center);
             self.owners.update(delta_ms, &mut self.publications);
             self.update_effects(device, queue, frame, delta_ms);
             self.grid.update(lights, center);
@@ -1258,4 +1339,47 @@ fn event_milliseconds(event: &crate::ecmodel::EcmEvent, key: &str) -> Result<f32
         return Err(format!("nonfinite GFX event {key}"));
     }
     Ok(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `FadeGFX` is `SetAlphaTransition(alpha, 3000)`: a full ramp takes three
+    /// seconds at any frame rate, and the step never overshoots.
+    #[test]
+    fn the_distance_fade_takes_three_seconds_either_way() {
+        let mut fade = 1.;
+        for _ in 0..30 {
+            fade = attenuation_step(fade, 0., 100);
+        }
+        assert!((fade - 0.).abs() < 1e-6, "3 s of 100 ms frames is a full ramp: {fade}");
+        let mut fade = 0.;
+        for _ in 0..60 {
+            fade = attenuation_step(fade, 1., 50);
+        }
+        assert!((fade - 1.).abs() < 1e-6, "3 s of 50 ms frames is full: {fade}");
+        assert_eq!(attenuation_step(0.25, 1., 3000), 1.);
+        assert_eq!(attenuation_step(0.25, 0., 3000), 0.);
+        // A stalled clock steps nothing, and one huge frame lands on the target
+        // instead of overshooting it.
+        assert_eq!(attenuation_step(0.5, 1., 0), 0.5);
+        assert_eq!(attenuation_step(0.5, 1., 100_000), 1.);
+    }
+
+    /// The radius is the client's `SCNRES_EFFECT` measurement: a full 3D
+    /// distance from the eye, so a root 50 units up and 50 across is outside a
+    /// 60-unit radius even though its ground projection is 70.
+    #[test]
+    fn the_fade_radius_is_measured_in_three_dimensions() {
+        let eye = [0., 100., 0.];
+        let inside = [40., 100., 0.];
+        let outside = [0., 100., 61.];
+        let dist = |p: [f32; 3]| {
+            let d = [p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]];
+            d[0] * d[0] + d[1] * d[1] + d[2] * d[2]
+        };
+        assert!(dist(inside) < 60. * 60.);
+        assert!(dist(outside) >= 60. * 60.);
+    }
 }

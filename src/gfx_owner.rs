@@ -26,11 +26,17 @@
 //! and lights do not, and [`Manager::set_effects_enabled`] gates it, so a host
 //! can turn world effects off without losing its light producers.
 //!
-//! Explicitly NOT implemented: the visual effect's alpha/attenuation fade over
-//! distance, and a ground sample for `MatchGrnd`/`GroundHeight` — world owners
-//! advance with no ground, so those two keys stay inert here exactly as they do
-//! for an owner whose +0x1f4 byte is clear. Those remain in
-//! Findings/Unsupported-client-paths.md; they do not fake light producers.
+//! The distance fade is carried here as [`Manager::set_attenuation`]: the
+//! ornament manager computes it (`CECOrnamentMan::Update` compares the record's
+//! position with the host player against `SCNRES_EFFECT` and calls `FadeGFX`,
+//! EC_ManOrnament.cpp:279-292), and the owner only multiplies it into the root
+//! alpha. The owner stays loaded through the fade, exactly as the client leaves
+//! it loaded after `SetAlphaTransition`.
+//!
+//! Explicitly NOT implemented: a ground sample for `MatchGrnd`/`GroundHeight` —
+//! world owners advance with no ground, so those two keys stay inert here
+//! exactly as they do for an owner whose +0x1f4 byte is clear. That remains in
+//! Findings/Unsupported-client-paths.md; it does not fake light producers.
 
 #![allow(dead_code)]
 
@@ -270,6 +276,17 @@ struct Owner {
     /// owner keeps publishing its lights, which is what it did before the graph
     /// was implemented at all.
     player_failed: bool,
+    /// Distance fade, 0..1, multiplied into the root alpha every tick.
+    ///
+    /// The client fades a placed effect rather than popping it:
+    /// `CECOrnamentMan::Update` calls `FadeGFX(node, near)` whenever a node with
+    /// `bAttenuation` is further from the host player than
+    /// `CECSceneBlock::GetResLoadDists(SCNRES_EFFECT)` (EC_ManOrnament.cpp:279),
+    /// and `FadeGFX` is a 3,000 ms `SetAlphaTransition(max_alpha * fAlpha)`
+    /// (`:961-966`) with `max_alpha` pinned to `1.0f` at load (`:957`). The owner
+    /// stays *loaded* through the fade — `Release()` runs only in the
+    /// time-of-day branch — so this is an alpha ramp, not activation.
+    attenuation: f32,
 }
 
 /// Publication identity: owner serial in the high half, element index in the
@@ -577,6 +594,7 @@ impl Manager {
             state: State::Pending,
             player: None,
             player_failed: false,
+            attenuation: 1.,
         });
         Ok(())
     }
@@ -614,6 +632,30 @@ impl Manager {
             }
             None => false,
         }
+    }
+
+    /// Fade one owner's root to `fade` (0..1) without unloading it.
+    ///
+    /// Called once per frame for owners whose ECWLD record sets `bAttenuation`;
+    /// the manager only carries the number, `CECOrnamentMan` owns the ramp.
+    /// Returns false when the identity is not owned, so a stale producer can
+    /// never dim somebody else's root.
+    pub fn set_attenuation(&mut self, identity: u64, fade: f32) -> bool {
+        let Some(owner) = self
+            .owners
+            .iter_mut()
+            .find(|o| o.request.identity == identity)
+        else {
+            return false;
+        };
+        let fade = if fade.is_finite() {
+            fade.clamp(0., 1.)
+        } else {
+            1.
+        };
+        let changed = (owner.attenuation - fade).abs() > f32::EPSILON;
+        owner.attenuation = fade;
+        changed
     }
 
     /// Install or replace the live parent transform of an attached owner.
@@ -858,7 +900,12 @@ impl Manager {
                 continue;
             }
             let scaled = (delta_ms as f32 * owner.request.speed).max(0.);
-            let alpha = owner.request.outer.map_or(1., |outer| outer[3]);
+            // The record's alpha is the *target* of the client's distance fade,
+            // not a second factor beside it: `FadeGFX` ramps the root to
+            // `max_alpha * fAlpha` and then holds it there, so the drawn alpha is
+            // `fAlpha * fade`. An owner with no `outer` colour draws at the
+            // fade alone (full alpha when nothing attenuates it).
+            let alpha = owner.request.outer.map_or(1., |outer| outer[3]) * owner.attenuation;
             let world = match owner.request.world_transform() {
                 Ok(columns) => columns,
                 Err(error) => {
@@ -1272,6 +1319,23 @@ mod tests {
         assert!(placement_transform([0.; 3], [0., 0., 1.], [0., 1., 0.], f32::NAN).is_err());
         assert_eq!(root_path("scene\\lamp.gfx"), "gfx/scene/lamp.gfx");
         assert_eq!(root_path("GFX/Scene/Lamp.GFX"), "gfx/scene/lamp.gfx");
+    }
+
+    /// The distance fade is a number the ornament manager owns, so the owner
+    /// manager's job is to hold it, clamp it and refuse strangers.
+    #[test]
+    fn set_attenuation_clamps_and_only_touches_known_owners() {
+        let mut manager = Manager::with_reader(root("gfx/scene/lamp.gfx", &light_file()));
+        manager.insert(request(1, true)).unwrap();
+        assert!(!manager.set_attenuation(999, 0.5), "unknown identities are refused");
+        assert!(manager.set_attenuation(1, 0.25));
+        assert!(!manager.set_attenuation(1, 0.25), "an unchanged fade is not a change");
+        assert!(manager.set_attenuation(1, 4.0));
+        assert!(!manager.set_attenuation(1, 1.0), "4.0 clamps to 1.0");
+        assert!(manager.set_attenuation(1, 0.5));
+        assert!(manager.set_attenuation(1, f32::NAN));
+        assert!(!manager.set_attenuation(1, 1.0), "a NaN fade falls back to full alpha");
+        assert!(manager.set_attenuation(1, 0.0));
     }
 
     #[test]
