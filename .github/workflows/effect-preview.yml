@@ -32,7 +32,11 @@ on:
       limit:
         description: "how many placements to render"
         required: false
-        default: "6"
+        default: "9"
+      per_root:
+        description: "at most this many placements per effect root, so one root cannot spend the whole limit"
+        required: false
+        default: "3"
       frames:
         description: "comma separated shot times, in milliseconds"
         required: false
@@ -145,7 +149,8 @@ jobs:
           PWE_PREVIEW_ELEMENT: client
           PWE_PREVIEW_WORLD: client/world.ecwld
           PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;树林光束;圣城之光' }}
-          PWE_PREVIEW_MAX: ${{ inputs.limit || '6' }}
+          PWE_PREVIEW_MAX: ${{ inputs.limit || '9' }}
+          PWE_PREVIEW_PER_ROOT: ${{ inputs.per_root || '3' }}
           PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,900,3000' }}
           PWE_PREVIEW_ZOOMS: ${{ inputs.zooms || '1' }}
           PWE_PREVIEW_ANGLES: ${{ inputs.angles || '35:20,0:80' }}

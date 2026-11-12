@@ -1115,6 +1115,13 @@ mod tests {
         let out = env_path("PWE_PREVIEW_OUT").unwrap_or(default_out);
         let size = env_u32("PWE_PREVIEW_SIZE", 384);
         let limit = env_u32("PWE_PREVIEW_MAX", 8) as usize;
+        // The map's blocks are walked in file order, so a per-placement limit
+        // alone spends every shot on whichever root happens to come first: the
+        // first run with three roots rendered forty-nine `树林光束` placements and
+        // no waterfall at all. This caps each root on its own, so `--roots a;b;c`
+        // with `per_root 3` renders three of each.
+        let per_root = env_u32("PWE_PREVIEW_PER_ROOT", limit as u32) as usize;
+        let mut taken: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
         let fade = env_f32("PWE_PREVIEW_FADE", 0.);
         let mut frames = Vec::new();
         for value in env_list("PWE_PREVIEW_FRAMES", ',', "900") {
@@ -1230,6 +1237,11 @@ mod tests {
                     eprintln!("preview: stopping at the {limit} placement limit");
                     break 'placements;
                 }
+                let seen = taken.entry(record.path.as_str()).or_insert(0);
+                if *seen >= per_root {
+                    continue;
+                }
+                *seen += 1;
                 shots += 1;
                 let centre = if rebase {
                     [0., 0., 0.]
