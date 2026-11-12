@@ -351,6 +351,7 @@ struct Out { @builtin(position) position:vec4<f32>, @location(0) color:vec3<f32>
 @fragment fn fs(v:Out)->@location(0) vec4<f32> { return vec4<f32>(v.color,1.); }
 "#;
 
+#[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct LineVertex {
     position: [f32; 3],
