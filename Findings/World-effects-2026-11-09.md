@@ -3766,3 +3766,146 @@ elements set it, and the effect pass samples with `AddressMode::Repeat`
   `SKI` material carries no UV speed and whose ECM has no animation — so a static
   sheet is what the *files* describe. Whether retail scrolls it in a pixel shader is
   the one question here that needs a shader dump rather than a data file.
+
+## 51. The placement contract is closed: the client's own basis builder, record and setters
+
+§50 left two questions open because the artefacts behind them were not in the supplied
+tree — whether the ecwld `direction` reaches `GetParentDir()` unchanged, and whether the
+record's scale arrives through `SetScale` or `SetDefScale`. Both are now answered from the
+client's own code, and the answer closes the *whole* placement pipeline, not just those two
+lines. Four files were needed: `A3DFuncs.h`/`A3DFuncs.cpp` for the basis builder,
+`A3DMatrix.cpp` for the multiply convention, and `EC_WorldFile.h` for the record. Each is
+quoted verbatim below. (`A3DGFXElement.h` was fetched for `SetSize` as well and does not
+have it — see 51.6.)
+
+### 51.1 `a3d_TransformMatrix` builds the frame, and the frame is `(up x dir, up, dir)`
+
+`A3DFuncs.h:61` declares it; the body is `A3DFuncs.cpp:299-327`:
+
+```c
+A3DMATRIX4 a3d_TransformMatrix(const A3DVECTOR3& vecDir, const A3DVECTOR3& vecUp, const A3DVECTOR3& vecPos)
+{
+    vecZAxis = Normalize(vecDir);
+    vecYAxis = Normalize(vecUp);
+    vecXAxis = Normalize(CrossProduct(vecYAxis, vecZAxis));
+    ...
+    mat.m[0][0..2] = vecXAxis;      mat.m[1][0..2] = vecYAxis;
+    mat.m[2][0..2] = vecZAxis;      mat.m[3][0..2] = vecPos;   mat.m[3][3] = 1;
+}
+```
+
+That is `src/gfx_owner.rs::placement_transform` line for line, including the detail that
+`vecUp` is **normalized and not orthogonalised against `dir`** — so a record whose `up` is
+not perpendicular to its `direction` produces a sheared, non-orthonormal basis, and the viewer reproduces that
+shear rather than inventing a Gram-Schmidt step.
+
+The rows are the axes and the third row is the position, which is only true under the
+row-vector convention. `A3DMatrix.cpp:68-80` settles that too: **both** `v * mat` and
+`mat * v` for `A3DMATRIX3` are the same expression, and both `A3DMATRIX4` operators
+(`:121-146`) delegate to `D3DXVec3TransformCoord`, whose row-vector form is
+`out = v.x*row0 + v.y*row1 + v.z*row2 + row3`. So `world = local * M` with the axes on the
+rows — which is exactly a column-major `Mat4` whose columns are `(right, up, forward)` and
+whose `w` column is the position, i.e. `placement.transform_point3(local)`.
+
+Consequence for §50.5's first bullet: `SetParentTM` reads rows 0/1/2, normalizes each and
+converts the result to `m_qDir` (`A3DGFXEx.cpp:1587-1602`), and no code in that path ever
+re-derives `up` from a world up vector. **The ecwld `direction` reaches `GetParentDir()`
+unchanged**, and the 120-degree keypoint in `树林光束.gfx` is applied to it as authored.
+
+### 51.2 The record, verbatim, and the two setters that read it
+
+`EC_WorldFile.h:238-249` (the `>= 12` layout every shipped world uses):
+
+```c
+struct ECWDFILEEFFECT12 {
+    DWORD dwExportID;      // 0
+    float fScale;          // 4
+    float vPos[3];         // 8
+    float vDir[3];         // 20
+    float vUp[3];          // 32
+    float fSpeed;          // 44
+    int   iValidTime;      // 48  0 daylight, 1 night, 2 both
+    float fAlpha;          // 52
+    bool  bAttenuation;    // 56  -> padded to 60
+};
+```
+
+`src/scene.rs:100` reads `valid_time` at 48 and alpha at 52 off a 60-byte record: correct
+for this layout. `EC_ManOrnament.cpp:844-960` then does, in this order,
+`pNode->fScale = Data.fScale` → `pGFX->SetScale(pNode->fScale)`,
+`pNode->fSpeed = Data.fSpeed` → `pGFX->SetPlaySpeed(...)`,
+`a3d_TransformMatrix(pNode->vDir, pNode->vUp, pNode->vPos)` → `pGFX->SetParentTM(mat)`.
+With `CalcActualScale` (`A3DGFXEx.h:197-211`) the card therefore carries
+**`Width x Height x kpScale x DedaultScale x record fScale`** — a plain product, with no
+replacement path anywhere, which is what `gfx_decal.rs:268` already computes
+(`actual_scale = default_scale * event_scale`).
+
+### 51.3 The arithmetic agrees on every axis of every field report
+
+The log's `w`/`h` are `|p1-p0|` and `|p2-p0|`, i.e. full extents, and the card is built from
+half extents split at `OrgPt` (all three reported roots sit at the default 0.5), so
+`extent = authored x DedaultScale x fScale x 2`. Solving for one unknown per root — the
+map's `fScale` — from **both** axes independently:
+
+| root | authored W x H | DedaultScale | drawn w x h | fScale from w | fScale from h |
+|---|---|---|---|---|---|
+| `场景/彩虹.gfx` | 17.5 x 8.0 | 3.0 | 127.67 x 58.4 | 1.2159 | 1.2167 |
+| `场景/树林光束.gfx` | 0.5 x 10.0 | 0.7 | 3.48 x 69.7 | 4.971 | 4.979 |
+| `新种族地图/白兰树.gfx` (101) | 60 x 50 | 1.0 | 93.34 x 77.7 | 0.778 | 0.777 |
+
+Six axes, three roots, one scale each, agreeing to better than 0.2%. The composition
+`Width x DedaultScale x fScale` therefore reproduces the geometry the viewer is drawing,
+and **the "7.3x oversized" figure in §50.6 is not a viewer factor at all**: for the rainbow
+it is `DedaultScale 3.0` times a map that placed the root at `fScale ~ 2.43`, and for the
+forest shaft it is a map that placed a `0.5 x 10` sheet at `fScale ~ 5.0`. Those numbers are
+what the `.ecwld` says, and retail multiplies them the same way.
+
+### 51.4 Alpha and speed, in the same pass
+
+`DefaultAlpha` is a multiplier, not a target: `gfx_decal.rs:269`'s
+`actual_alpha = default_alpha * event_alpha`, matching the record's `fAlpha` reaching
+`SetAlphaTransition(max_alpha * fAlpha)` with `max_alpha` forced to `1.0f`
+(`EC_ManOrnament.cpp:957-966`). `树林光束.gfx` writes `DefaultAlpha: 0.5` — the forest
+shafts are half-alpha additive cards, and the rainbow writes `PlaySpeed: 0.5`, which is the
+file's default that `SetPlaySpeed(Data.fSpeed)` overrides per placement.
+
+### 51.5 The one structural thing the client does that the viewer does not: it draws far less
+
+`bAttenuation` is not cosmetic (`EC_ManOrnament.cpp:250-300`): each frame, a node whose
+`bAttenuation` is set and whose distance to the **host player** exceeds
+`CECSceneBlock::GetResLoadDists(SCNRES_EFFECT)` is faded out (`FadeGFX(node, false)`, a
+3,000 ms alpha transition) and faded back in when the player returns. The distances are
+`EC_SceneBlock.cpp:1109` — **60 units** in scheme 1 ("in game - near") and `:1133`
+**120 units** in scheme 2. `ECWDFILEEFFECT`'s default for the flag is `true`
+(`EC_ManOrnament.cpp:860`), and the same loop loads at most **one gfx per frame**
+(`break` at `:275`), so a teleport streams effects in one per frame, each cross-fading.
+
+The viewer draws every one of the map's roots at every distance. That is the largest
+remaining difference in *what appears* (as opposed to where or how large): a grove that
+retail shows as the two or three shafts standing within 60 units of the player is, in the
+viewer, twenty-two shafts at once — including the ones the map placed at `fScale ~ 5` for
+the far side of the valley. It does not change any single card's size, but it changes how
+the field reads.
+
+### 51.6 Still open
+
+- **`SetSize`, and with it the absolute factor of two.** `m_fWidth1/m_fWidth2` are never
+  computed in the client's `A3DDecalEx.cpp` — they are copied in the copy constructor and read
+  in the vertex builders, and the only derivation is `SetSize(m_fWidth, m_fHeight)` in the
+  constructor, a member of `A3DDecalEx` declared in `A3DDecalEx.h`, which is not in the
+  archive. `Fill_Verts_3D` places the corners at `-fWidth1` / `+fWidth2`, so the card's
+  total extent is `m_fWidth1 + m_fWidth2`; whether that sum is `Width` or `2 x Width`
+  decides a uniform factor of two on every card. The viewer doubles, on the strength of the
+  static-decal path (`gfx_decal.rs`, verified natively, `width = [w0, 2w - w0]`), and the
+  table in 51.3 is consistent either way because the factor cancels. **The artefact that
+  would close it is `A3DDecalEx.h`.**
+- **Day/night and distance are modelled but not paired.** `iValidTime` reaches
+  `effect_visible` (`scene.rs:114`) and the viewer has a time of day, but the 60/120 unit
+  `bAttenuation` radius is not applied at all, and there is no `FadeGFX` cross-fade.
+- **The `RotFromView` width axis is already the client's.** `Fill_Verts_3D`'s `m_bRotFromView`
+  branch (`A3DDecalEx.cpp:357-413`) is `vDir = RotateVec(GetParentDir() * kp.m_vDir, _unit_z)`,
+  `vUp = normalize(CrossProduct(vPos - camera.Pos, vDir))`, height along `vDir`,
+  `verts[0..3] = vPos -/+ vDir*fHeight +- vUp*fWidth` — the `QuadBasis::Axial` arm of
+  `quad_corners` (`gfx_player.rs:4068`) computes exactly these four corners from exactly
+  those two axes, so a shaft's width never foreshortens and its length does. The vertical
+  beam left in Archosaur is therefore a keypoint direction, not a basis error: see §50.5.
