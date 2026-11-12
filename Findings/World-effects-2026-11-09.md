@@ -4463,9 +4463,29 @@ not show — it is not in the build, the doubling, the keypoint scale or the
 placement scale, because each of those is now measured against the authored
 value at two placements and matches.
 
-The rest of the root draws with it: a `图案\greenring.dds` quad of 404 x 571 at
-the base and `粒子\particle006.dds` sparks of 2.98 to 6.91 units; the picture is
-a ring with a hair-thin pillar over it, which is what a 35:1 card looks like.
+The cards themselves, largest first, from the per-quad dump:
+
+| card | centre | axis | texture |
+| --- | --- | --- | --- |
+| 71.83 x 2515.07 | (−2782.5, 1275.3, 3097.1) | (−0.02, **−1.00**, 0.02) | `圆环光\circle0333.dds` |
+| 71.83 x 2515.07 | (−2770.6, 1275.3, 3091.7) | (−0.02, **−1.00**, 0.02) | `圆环光\circle0333.dds` |
+| 71.83 x 1797.18 | (−2756.3, 591.1, 3098.2) | (−0.03, **−1.00**, 0.02) | `圆环光\circle0333.dds` |
+| 71.83 x 1797.18 | (−2770.6, 1041.8, 3093.6) | (−0.03, **−1.00**, 0.02) | `闪电\lightning007.dds` |
+| 404.04 x 571.40 | (−2770.6, 605.4, 3093.6) | (0.71, **0.00**, 0.71) | `图案\greenring.dds` |
+| 206.51 x 292.05 | (−2770.6, 605.4, 3093.6) | (0.85, **0.00**, 0.53) | `图案\火环2.dds` |
+
+`2 x 25 x 0.4 x 89.79 = 1795.8` is the pair of shorter shafts to a tenth of a
+unit, so the root's `1.0 x 35` and `1.0 x 25` cards are both drawn at the
+authored size. **Every shaft card's axis is vertical** (the three authored
+keypoint quaternions each map +Z to +Y), and the two rings are flat, as a ring
+should be.
+
+**This corrects §53.6.** That section read the report as "one vertical beam left
+of three", i.e. two shafts lying flat. Measured, all of them stand up; the
+pillar reads as one because the shafts coincide at the placement's centre, not
+because two are missing. The report's other half — the size — is the map's own
+number (§56.3 above), so what is left of the Archosaur item is the texture's own
+alpha profile, not the build.
 
 ### 56.4 What the lab still cannot answer
 
