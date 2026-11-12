@@ -4280,7 +4280,7 @@ producer's fate every frame from three gates — the activation radius around th
 camera, `cutoff_residency::contains` against the resident terrain window, and
 `scene::effect_visible(mode, night)` against the record's `iValidTime` — but it
 reduced them to one boolean and threw the reasons away. It now counts them, and
-`World::effect_census` hands the three numbers to that line. The counts overlap
+`World::activation_census` hands the three numbers to that line. The counts overlap
 (they are not a partition), and they are what a zone that still draws nothing
 should be read against: 295 for the city in §54.1 means the radius, not the
 loader.

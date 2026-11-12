@@ -578,7 +578,7 @@ impl World {
     /// Producers the last activation pass left out, by reason: beyond the
     /// activation radius, outside the resident terrain window, outside their
     /// day/night window. The three overlap, so they are not a partition.
-    pub fn effect_census(&self) -> [usize; 3] {
+    pub fn activation_census(&self) -> [usize; 3] {
         self.census
     }
     /// Radius of the client's effect distance fade, in world units.
