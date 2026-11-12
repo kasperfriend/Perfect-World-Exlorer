@@ -4494,3 +4494,122 @@ the shaft texture's own alpha profile, and the answer is in `circle0333.dds`, no
 in the geometry. The lane is open and the tool for it now exists: the same shot
 with `PWE_PREVIEW_QUADS=1` names the map each card uses, and a decoded texture
 next to it would end the argument.
+
+## 57. The card is not its diagonal, the sheets scroll at exactly `TexSpeed`, and the rings are flat
+
+The lab gained three things in one pass, and each of them settles a question the
+last report could only guess at: the printed card is the card rather than its
+diagonal, every shot quotes the clock the *player* reached and the speed the
+placement put on it, and every card line carries its UV window. With those, the
+waterfall, the rings and the sunbeams are measurable from `metrics.md` alone.
+
+### 57.1 `card=` was the diagonal, and so was the viewer's own census
+
+`EffectQuad::positions` is in the client's corner order — top-left, top-right,
+bottom-left, bottom-right — so the height is corner **2** minus corner **0**.
+The lab took corner **3** (bottom-right), which is the *diagonal*, and the viewer's
+`effect-census.txt` did the same. A square card is the clearest case: its diagonal
+is exactly `sqrt 2` times its side, and every ring in the corpus reported one.
+
+| root | card before | card now | what it is |
+| --- | --- | --- | --- |
+| `图案/greenring.dds` (scale 89.79) | 404.04 x 571.40 | **404.04 x 404.04** | a square, `571.40 / 404.04 = 1.4142` |
+| `图案/火环2.dds` | 206.51 x 292.05 | **206.51 x 206.51** | `292.05 / 206.51 = 1.4143` |
+| `纹理/气连续03.tga` (waterfall) | 4.92 x 8.43 | **4.92 x 6.84** | `2 x 0.9 x 2.736` by `2 x 1.25 x 2.736` |
+| `圆环光/circle0333.dds` (shaft) | 71.83 x 2515.07 | **71.83 x 2514.04** | `2 x 0.4 x 89.79` by `70 x 0.4 x 89.79` |
+
+The shafts hid the bug — 2515.07 against 2514.04 is a tenth of a percent — which
+is why §56.3's table looked healthy while the rings did not. Both the lab and
+`gfx_owner::census_row` now read corner 2.
+
+### 57.2 The waterfall's sheets scroll at exactly the authored `TexSpeed`
+
+`水门_瀑布.gfx` is `TileMode 1`, so `A3DGFXElement::TexAnimation` adds
+`m_fUOffsetSpeed * dt` to the window instead of stepping an atlas cell. Three
+shots of the same placement, one world each, `PWE_PREVIEW_PER_ROOT=3`:
+
+| clock | `气连续03` (speed −1.5) v | `流动（通道）` (−1.8) v | `humianbowen` (−1.0) v |
+| --- | --- | --- | --- |
+| 792 ms | −1.188 | −1.426 | −0.792 |
+| 1,716 ms | −2.574 | −3.089 | −1.716 |
+| 3,795 ms | −5.693 | −6.831 | −3.795 |
+
+Every entry is `speed x clock / 1000` to three decimals, and the window stays
+`TexCol x TexRow = 3 x 2` at every clock — it never leaves its sheet. The played
+clock is the player's own, printed as `player clock 792 ms play 1.000 (file
+1.000)`, and it equals the requested time because this record and this file both
+run at 1.0.
+
+The PNGs agree that something moves — 21.2 % of the pixels differ by more than
+8/255 between 792 ms and 1,716 ms, 18.1 % between 792 and 3,795 — but not with a
+coherent vertical shift (best 1 px), and that is the sheet's own nature: `气连续03`
+is a smoke sequence whose rows are near-copies, so a 1.4-texture-height scroll
+changes the picture without translating it. The UV column, not a shift search, is
+the measurement.
+
+### 57.3 The `图案` rings are flat, square and on the ground
+
+| card | size | axis | reading |
+| --- | --- | --- | --- |
+| `图案/greenring.dds` | 404.04 x 404.04 | (0.00, 0.00, 1.00) | flat: the height runs along Z, `Y = 0` |
+| `图案/火环2.dds` | 206.51 x 206.51 | (0.22, 0.00, 0.98) | flat, turned 12.7 degrees |
+| `图案/火环2.dds` | 206.51 x 206.51 | (−0.22, 0.00, 0.98) | flat, turned the other way |
+| `图案/yuanhuanhuang.dds` | 157.69 x 163.13 .. 539.20 x 557.79 | (0.00, −1.00, 0.00) | **vertical**, 99 units above the two flat rings |
+
+So the two rings at the placement's own height are lying in the ground plane, at
+the placement origin (the same point the map puts the effect), and the "vertical
+rings" in the frame are the five `yuanhuanhuang` cards a hundred units above them
+— a second set, standing up, which is what a picture-read of §53.6 mistook for the
+rings themselves. §56.3's `(0.71, 0.00, 0.71)` was the *diagonal* of the flat
+square, not a lean: a card lying in the ground plane and turned 45 degrees reports
+exactly that.
+
+### 57.4 `圣城之光` is placed at `fSpeed` 0.8, not at the file's 1.0
+
+`player clock 634 ms play 0.800 (file 1.000)` for a shot that asked for 792 ms:
+the record's `fSpeed` is 0.8 and the file's `PlaySpeed` is 1.0. `CECOrnamentMan`
+does not multiply the two — it *sets* the play speed from the record
+(`pGFX->SetPlaySpeed(pNode->fSpeed)`, `EC_ManOrnament.cpp:950`), so the file's
+value is replaced. The viewer used to scale its delta by `fSpeed` and then let
+`A3DGFXEx` multiply by `PlaySpeed` as well; `Player::set_play_speed` now carries
+the placement's value and the pass hands the player the raw frame delta. A root
+whose file authors `PlaySpeed: 0` used to play at `0 x fSpeed` however fast the
+frame ran, which is one way to get a frozen sheet with live geometry.
+
+### 57.5 The forest sunbeams are the authored size, in two different planes
+
+`场景/树林光束.gfx` at scale 9.36 gives cards of **6.55 x 130.98**, i.e.
+`2 x 0.5 x 0.7 x 9.36` by `2 x 10 x 0.7 x 9.36`, and the number of them follows
+the element schedule (2 at 792 ms, 5 at 1,716, 7 at 3,795, out of eight elements
+at `StartTime` 0, 500, 875, 1,000, 1,500). Two axes appear:
+
+* `(0.69, −0.72, 0.00)` — the placement's `up`, i.e. the element-plane card, a
+  44-degree slant. These are the streaks the PNG shows.
+* `(0.00, 0.00, −1.00)` — the placement's `dir`, i.e. the `RotFromView` axial
+  card, whose height sits on the record's `Direction: (0,0,1)`. In this
+  placement that direction is horizontal, so those cards lie in a horizontal
+  plane at the placement origin.
+
+Which of the two the client draws for a given element is settled by that
+element's `RotFromView` and keypoint `Direction`; the open question left here is
+whether the axial set should really be horizontal for *this* record or whether
+the keypoint quaternion of those elements is being dropped. The lab can answer it
+directly once the root's element table is dumped next to these lines
+(`PWE_LOG=EffectElements` prints it).
+
+### 57.6 What is still open: the viewer's own clock
+
+Everything above is measured inside one process that builds the world, ticks it
+and draws it. The field report that started this — the waterfall standing still in
+the *viewer* — cannot be reproduced here, because the lab's clock advances at every
+tick and the sheets scroll by exactly `TexSpeed`. Two readouts now exist for the
+viewer's side of it, neither of which needs a debugger:
+
+* the World tab prints **`World effect clocks: <low>..<high> ms across N playing
+  roots`**, read from the players themselves. A number that keeps rising means the
+  delta reaches the effects and a motionless sheet is a texture/blend problem; a
+  number that stands still means no delta reaches them.
+* `PWE_EFFECT_CENSUS=1` writes `effect-census.txt` next to the executable every
+  two seconds, and every row now carries `clock=` and `dclock=` — the second one
+  is the change since the previous report, so `dclock=+2001ms` is a running root
+  and `dclock=+0ms` is a frozen one, with no arithmetic for the reader.
