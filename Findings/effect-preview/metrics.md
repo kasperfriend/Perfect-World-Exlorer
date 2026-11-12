@@ -11,315 +11,208 @@ it to the image.
 - census: 2275 effect records, scale min 0.164 p10 0.812 median 1.799 p90 6.816 max 380.953
 - census:    2 x 场景/圣城之光.gfx scale 17.701..89.787
 - census:    4 x 场景/新种族地图/水门_瀑布.gfx scale 2.736..2.736
-- `01-03142-0000ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 500.00 u, 8.888 m/px: quads=82 pixels=5866 size=557.30x2839.10x567.54 card=71.83x2515.07 diagonal=2948.41 box=(-3049.35,-306.81,2809.52)..(-2492.04,2532.28,3377.05)
-- card 71.83 x 2515.07 at (-2782.5, 1275.3, 3097.1) axis (-0.02, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 71.83 x 2515.07 at (-2770.6, 1275.3, 3091.7) axis (-0.02, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 71.83 x 1797.18 at (-2756.3, 591.1, 3098.2) axis (-0.03, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 71.83 x 1797.18 at (-2770.6, 1041.8, 3093.6) axis (-0.03, -1.00, 0.02) tex gfx/textures/闪电/lightning007.dds blend 5/2 depth true
-- card 404.04 x 571.40 at (-2770.6, 605.4, 3093.6) axis (0.71, 0.00, 0.71) tex gfx/textures/图案/greenring.dds blend 5/2 depth true
-- card 206.51 x 292.05 at (-2770.6, 605.4, 3093.6) axis (0.85, 0.00, 0.53) tex gfx/textures/图案/火环2.dds blend 5/2 depth true
-- card 206.51 x 292.05 at (-2770.6, 605.4, 3093.6) axis (0.53, 0.00, 0.85) tex gfx/textures/图案/火环2.dds blend 5/2 depth true
-- card 209.35 x 291.17 at (-2770.6, 704.2, 3093.6) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 163.13 x 226.88 at (-2770.6, 704.2, 3093.6) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 148.90 x 207.10 at (-2770.6, 704.2, 3093.6) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 73.61 x 103.85 at (-2832.6, 1229.9, 3088.4) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 39.48 x 55.69 at (-2823.2, 1238.0, 3080.0) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 28.82 x 40.66 at (-2784.5, 1246.5, 3115.2) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 26.03 x 36.72 at (-2793.1, 628.5, 3080.9) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 25.57 x 36.07 at (-2788.3, 1366.9, 3057.2) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 25.01 x 35.29 at (-2773.4, 1468.0, 3067.3) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 24.23 x 34.19 at (-2754.0, 538.6, 3093.3) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 24.04 x 33.92 at (-2758.9, 814.8, 3048.8) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 19.97 x 28.18 at (-2735.9, 1591.5, 3098.3) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 19.12 x 26.98 at (-2763.3, 1592.3, 3071.8) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 17.18 x 24.24 at (-2788.3, 1028.4, 3098.7) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 13.28 x 18.74 at (-2735.3, 1532.0, 3114.4) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 10.27 x 14.49 at (-2757.5, 882.2, 3109.9) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 9.81 x 13.84 at (-2727.0, 1204.5, 3117.0) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- `01-03142-0900ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 500.00 u, 8.888 m/px: quads=106 pixels=6823 size=609.13x2839.10x612.33 card=71.83x2515.07 diagonal=2967.57 box=(-3076.39,-306.81,2787.55)..(-2467.27,2532.28,3399.87)
-- card 71.83 x 2515.07 at (-2782.5, 1275.3, 3097.1) axis (-0.02, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 71.83 x 2515.07 at (-2770.6, 1275.3, 3091.7) axis (-0.02, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 71.83 x 1797.18 at (-2756.3, 591.1, 3098.2) axis (-0.03, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 71.83 x 1797.18 at (-2770.6, 1041.8, 3093.6) axis (-0.03, -1.00, 0.02) tex gfx/textures/闪电/lightning007.dds blend 5/2 depth true
-- card 557.79 x 775.81 at (-2770.6, 704.2, 3093.6) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 404.04 x 571.40 at (-2770.6, 605.4, 3093.6) axis (0.71, 0.00, 0.71) tex gfx/textures/图案/greenring.dds blend 5/2 depth true
-- card 362.24 x 503.82 at (-2770.6, 704.2, 3093.6) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 348.02 x 484.04 at (-2770.6, 704.2, 3093.6) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 206.51 x 292.05 at (-2770.6, 605.4, 3093.6) axis (0.95, 0.00, 0.30) tex gfx/textures/图案/火环2.dds blend 5/2 depth true
-- card 206.51 x 292.05 at (-2770.6, 605.4, 3093.6) axis (0.30, 0.00, 0.95) tex gfx/textures/图案/火环2.dds blend 5/2 depth true
-- card 96.37 x 135.95 at (-2819.5, 1758.1, 3092.5) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 62.23 x 87.80 at (-2812.7, 1755.6, 3107.5) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 33.96 x 47.90 at (-2753.2, 1512.9, 3119.4) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 26.72 x 37.70 at (-2786.3, 1472.5, 3098.4) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 24.51 x 34.58 at (-2799.9, 842.7, 3062.5) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 22.41 x 31.62 at (-2821.3, 1772.1, 3083.2) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 22.26 x 31.40 at (-2787.0, 1321.8, 3078.1) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 21.46 x 30.28 at (-2756.7, 710.8, 3102.3) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 20.21 x 28.51 at (-2776.3, 1268.9, 3117.0) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 18.36 x 25.90 at (-2786.8, 1706.2, 3124.3) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 16.98 x 23.95 at (-2755.4, 1527.2, 3119.1) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 15.49 x 21.85 at (-2756.7, 1614.9, 3089.2) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 14.59 x 20.58 at (-2751.5, 752.9, 3132.3) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 13.77 x 19.42 at (-2771.7, 711.1, 3086.0) axis (0.72, -0.67, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- `01-03142-0000ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 500.00 u, 4.000 m/px: quads=82 pixels=12153 size=557.31x2839.10x567.53 card=71.83x2515.07 diagonal=2948.41 box=(-3049.33,-306.81,2809.53)..(-2492.02,2532.28,3377.06)
-- `01-03142-0900ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 500.00 u, 4.000 m/px: quads=106 pixels=16046 size=609.14x2839.10x612.33 card=71.83x2515.07 diagonal=2967.57 box=(-3076.38,-306.81,2787.55)..(-2467.24,2532.28,3399.88)
-- `02-17422-0000ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 100.00 u, 1.769 m/px: quads=87 pixels=5943 size=112.29x559.71x113.66 card=14.16x495.83 diagonal=582.07 box=(1473.34,131.56,975.41)..(1585.63,691.27,1089.06)
-- card 14.16 x 495.83 at (1527.1, 443.5, 1033.0) axis (-0.02, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 14.16 x 495.83 at (1529.5, 443.5, 1031.9) axis (-0.02, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 14.16 x 354.31 at (1532.3, 308.6, 1033.2) axis (-0.03, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 14.16 x 354.31 at (1529.5, 397.4, 1032.3) axis (-0.03, -1.00, 0.02) tex gfx/textures/闪电/lightning007.dds blend 5/2 depth true
-- card 79.66 x 112.65 at (1529.5, 311.4, 1032.3) axis (0.71, 0.00, 0.71) tex gfx/textures/图案/greenring.dds blend 5/2 depth true
-- card 54.15 x 75.32 at (1529.5, 330.9, 1032.3) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 40.71 x 57.58 at (1529.5, 311.4, 1032.3) axis (0.87, 0.00, 0.49) tex gfx/textures/图案/火环2.dds blend 5/2 depth true
-- card 40.71 x 57.58 at (1529.5, 311.4, 1032.3) axis (0.49, 0.00, 0.87) tex gfx/textures/图案/火环2.dds blend 5/2 depth true
-- card 40.57 x 56.43 at (1529.5, 330.9, 1032.3) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 37.07 x 51.55 at (1529.5, 330.9, 1032.3) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 15.63 x 22.11 at (1517.5, 454.1, 1030.6) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 8.62 x 12.19 at (1517.0, 457.7, 1033.8) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 6.53 x 9.23 at (1526.3, 518.0, 1038.3) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 5.82 x 8.23 at (1533.2, 330.0, 1039.9) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 5.00 x 7.06 at (1526.7, 440.2, 1036.5) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 4.38 x 6.19 at (1525.0, 318.6, 1029.8) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 4.29 x 6.06 at (1526.0, 464.2, 1025.1) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 4.21 x 5.96 at (1528.9, 484.0, 1027.1) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 3.99 x 5.65 at (1532.7, 301.0, 1032.2) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 3.95 x 5.59 at (1531.8, 355.5, 1023.5) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 3.91 x 5.52 at (1524.5, 321.1, 1024.5) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 3.22 x 4.55 at (1536.3, 508.4, 1033.2) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 2.98 x 4.22 at (1530.9, 508.8, 1028.0) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 2.83 x 4.01 at (1533.1, 345.5, 1029.9) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- `02-17422-0900ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 100.00 u, 1.769 m/px: quads=116 pixels=7689 size=140.02x559.71x125.01 card=14.16x495.83 diagonal=590.35 box=(1459.45,131.56,969.95)..(1599.47,691.27,1094.96)
-- card 14.16 x 495.83 at (1527.1, 443.5, 1033.0) axis (-0.02, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 14.16 x 495.83 at (1529.5, 443.5, 1031.9) axis (-0.02, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 14.16 x 354.31 at (1532.3, 308.6, 1033.2) axis (-0.03, -1.00, 0.02) tex gfx/textures/圆环光/circle0333.dds blend 5/2 depth true
-- card 14.16 x 354.31 at (1529.5, 397.4, 1032.3) axis (-0.03, -1.00, 0.02) tex gfx/textures/闪电/lightning007.dds blend 5/2 depth true
-- card 140.02 x 194.75 at (1529.5, 330.9, 1032.3) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 89.64 x 124.67 at (1529.5, 330.9, 1032.3) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 86.13 x 119.80 at (1529.5, 330.9, 1032.3) axis (0.72, -0.70, 0.00) tex gfx/textures/图案/yuanhuanhuang.dds blend 5/2 depth true
-- card 79.66 x 112.65 at (1529.5, 311.4, 1032.3) axis (0.71, 0.00, 0.71) tex gfx/textures/图案/greenring.dds blend 5/2 depth true
-- card 40.71 x 57.58 at (1529.5, 311.4, 1032.3) axis (0.19, 0.00, 0.98) tex gfx/textures/图案/火环2.dds blend 5/2 depth true
-- card 40.71 x 57.58 at (1529.5, 311.4, 1032.3) axis (0.98, 0.00, 0.19) tex gfx/textures/图案/火环2.dds blend 5/2 depth true
-- card 18.44 x 26.07 at (1520.5, 587.7, 1034.4) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 11.43 x 16.16 at (1522.1, 585.2, 1034.7) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 5.87 x 8.30 at (1525.7, 489.6, 1034.4) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 5.52 x 7.80 at (1535.3, 489.6, 1035.0) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 5.08 x 7.18 at (1524.4, 349.7, 1027.1) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 4.99 x 7.06 at (1532.9, 496.4, 1037.4) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 4.88 x 6.90 at (1535.8, 379.1, 1031.3) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 4.46 x 6.31 at (1533.5, 356.5, 1031.4) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 4.42 x 6.25 at (1519.6, 589.7, 1032.6) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 3.72 x 5.27 at (1528.5, 300.4, 1026.8) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 3.63 x 5.14 at (1526.4, 488.2, 1033.2) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 3.16 x 4.47 at (1523.7, 364.1, 1026.2) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 2.69 x 3.80 at (1526.2, 458.7, 1029.2) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- card 2.60 x 3.67 at (1532.2, 338.0, 1034.0) axis (0.72, -0.66, -0.21) tex gfx/textures/粒子/particle014.dds blend 5/2 depth true
-- `02-17422-0000ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 100.00 u, 0.796 m/px: quads=87 pixels=12350 size=112.29x559.71x113.66 card=14.16x495.83 diagonal=582.07 box=(1473.34,131.56,975.41)..(1585.63,691.27,1089.07)
-- `02-17422-0900ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 100.00 u, 0.796 m/px: quads=116 pixels=19927 size=140.02x559.71x125.03 card=14.16x495.83 diagonal=590.35 box=(1459.45,131.56,969.94)..(1599.47,691.27,1094.97)
-- `03-42347-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31254 size=5.89x8.74x7.05 card=5.47x8.76 diagonal=12.68 box=(2615.95,237.43,-4123.29)..(2621.84,246.17,-4116.24)
-- card 5.47 x 8.76 at (2618.9, 242.8, -4119.7) axis (0.24, -0.78, -0.58) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true
-- card 4.92 x 8.43 at (2618.9, 242.8, -4119.7) axis (0.23, -0.81, -0.54) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true
-- card 4.92 x 8.43 at (2618.9, 242.8, -4119.7) axis (0.23, -0.81, -0.54) tex gfx/textures/烟火/沙.tga blend 2/4 depth true
-- card 4.65 x 8.27 at (2618.9, 242.8, -4119.7) axis (0.22, -0.83, -0.52) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true
-- card 2.71 x 3.83 at (2618.1, 239.7, -4119.3) axis (0.83, -0.37, -0.41) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.53 x 3.58 at (2618.9, 239.7, -4119.6) axis (0.77, 0.19, -0.61) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.47 x 3.49 at (2619.3, 240.0, -4120.5) axis (-0.00, 0.92, -0.40) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.45 at (2618.6, 239.5, -4119.8) axis (-0.53, 0.85, -0.00) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.43 at (2619.5, 239.7, -4120.3) axis (-0.25, 0.94, -0.24) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.42 at (2619.4, 240.2, -4120.1) axis (-0.45, 0.89, -0.08) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.39 x 3.39 at (2618.3, 239.1, -4119.1) axis (-0.65, 0.75, 0.12) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.37 x 3.36 at (2619.2, 238.9, -4119.0) axis (0.16, 0.86, -0.49) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.33 x 3.30 at (2618.6, 239.4, -4120.4) axis (0.45, 0.66, -0.60) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.31 x 3.27 at (2619.0, 239.8, -4120.1) axis (0.76, 0.21, -0.62) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.21 x 3.13 at (2619.0, 239.7, -4120.0) axis (-0.38, -0.71, 0.59) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.16 x 3.06 at (2619.1, 240.1, -4120.5) axis (-0.83, 0.09, 0.54) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.15 x 3.04 at (2618.1, 239.4, -4117.5) axis (-0.25, 0.94, -0.24) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.11 x 2.99 at (2619.0, 239.6, -4119.9) axis (-0.78, -0.13, 0.61) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.10 x 2.98 at (2618.3, 239.5, -4119.4) axis (0.56, 0.55, -0.62) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.08 x 2.95 at (2619.9, 239.4, -4120.9) axis (-0.60, -0.48, 0.64) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.08 x 2.94 at (2619.4, 240.2, -4120.1) axis (0.83, -0.02, -0.56) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.07 x 2.94 at (2619.2, 239.0, -4118.9) axis (0.76, -0.59, -0.26) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.07 x 2.93 at (2619.1, 239.6, -4120.5) axis (0.56, -0.83, -0.02) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.06 x 2.92 at (2619.7, 239.5, -4120.7) axis (-0.06, 0.93, -0.36) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- `03-42347-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31406 size=5.62x8.73x6.55 card=5.47x8.76 diagonal=12.28 box=(2616.16,237.44,-4123.31)..(2621.78,246.17,-4116.76)
-- card 5.47 x 8.76 at (2618.9, 242.8, -4119.7) axis (0.24, -0.78, -0.58) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true
-- card 4.92 x 8.43 at (2618.9, 242.8, -4119.7) axis (0.23, -0.81, -0.54) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true
-- card 4.92 x 8.43 at (2618.9, 242.8, -4119.7) axis (0.23, -0.81, -0.54) tex gfx/textures/烟火/沙.tga blend 2/4 depth true
-- card 4.65 x 8.27 at (2618.9, 242.8, -4119.7) axis (0.22, -0.83, -0.52) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true
-- card 2.70 x 3.83 at (2618.8, 239.5, -4118.9) axis (0.66, 0.41, -0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.65 x 3.76 at (2618.6, 239.2, -4119.0) axis (-0.06, 0.93, -0.36) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.60 x 3.68 at (2619.0, 239.8, -4119.0) axis (-0.81, -0.03, 0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.59 x 3.67 at (2619.1, 239.6, -4120.1) axis (-0.54, -0.56, 0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.59 x 3.67 at (2618.6, 239.9, -4119.0) axis (0.74, -0.63, -0.23) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.57 x 3.64 at (2619.4, 240.0, -4120.0) axis (-0.84, 0.16, 0.52) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.56 x 3.63 at (2618.9, 240.2, -4119.1) axis (-0.73, -0.26, 0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.50 x 3.54 at (2618.9, 239.5, -4119.3) axis (0.38, 0.72, -0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.45 x 3.47 at (2618.9, 239.8, -4119.8) axis (0.33, -0.93, 0.19) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.44 at (2618.7, 240.3, -4119.3) axis (-0.76, -0.19, 0.62) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.44 at (2618.6, 239.7, -4119.5) axis (0.04, 0.90, -0.43) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.43 at (2619.6, 239.4, -4120.1) axis (0.84, -0.11, -0.53) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.36 x 3.34 at (2618.5, 239.3, -4120.3) axis (0.64, -0.76, -0.10) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.35 x 3.33 at (2618.8, 239.7, -4119.7) axis (0.55, -0.83, -0.01) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.18 x 3.09 at (2618.5, 239.1, -4120.5) axis (0.38, 0.72, -0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.16 x 3.06 at (2618.5, 239.6, -4119.2) axis (-0.47, -0.63, 0.61) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.15 x 3.05 at (2620.7, 239.1, -4121.0) axis (0.48, -0.88, 0.06) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.12 x 3.00 at (2619.4, 238.8, -4122.4) axis (-0.35, -0.74, 0.58) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.11 x 2.99 at (2618.9, 238.9, -4119.2) axis (-0.70, -0.32, 0.64) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.06 x 2.92 at (2618.7, 239.8, -4118.8) axis (0.84, -0.09, -0.54) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- `03-42347-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109705 size=5.88x8.74x7.06 card=5.47x8.76 diagonal=12.68 box=(2615.95,237.43,-4123.29)..(2621.84,246.17,-4116.24)
-- `03-42347-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112177 size=5.61x8.73x6.57 card=5.47x8.76 diagonal=12.28 box=(2616.16,237.44,-4123.32)..(2621.77,246.17,-4116.75)
-- `04-42348-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31286 size=5.90x8.75x7.04 card=5.47x8.76 diagonal=12.68 box=(2590.00,237.43,-4136.09)..(2595.90,246.17,-4129.05)
-- card 5.47 x 8.76 at (2592.9, 242.8, -4132.5) axis (0.24, -0.78, -0.58) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true
-- card 4.92 x 8.43 at (2592.9, 242.8, -4132.5) axis (0.23, -0.81, -0.54) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true
-- card 4.92 x 8.43 at (2592.9, 242.8, -4132.5) axis (0.23, -0.81, -0.54) tex gfx/textures/烟火/沙.tga blend 2/4 depth true
-- card 4.65 x 8.27 at (2592.9, 242.8, -4132.5) axis (0.22, -0.83, -0.52) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true
-- card 2.70 x 3.83 at (2592.2, 239.7, -4132.1) axis (0.83, -0.37, -0.41) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.53 x 3.58 at (2592.9, 239.7, -4132.4) axis (0.77, 0.19, -0.61) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.47 x 3.49 at (2593.3, 240.0, -4133.3) axis (0.00, 0.92, -0.40) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.45 at (2592.7, 239.5, -4132.6) axis (-0.53, 0.85, 0.00) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.43 at (2593.5, 239.7, -4133.1) axis (-0.25, 0.94, -0.23) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.42 at (2593.5, 240.2, -4132.9) axis (-0.45, 0.89, -0.07) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.39 x 3.39 at (2592.3, 239.1, -4131.9) axis (-0.65, 0.75, 0.13) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.37 x 3.36 at (2593.3, 238.9, -4131.8) axis (0.16, 0.86, -0.48) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.33 x 3.30 at (2592.6, 239.4, -4133.2) axis (0.45, 0.66, -0.60) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.31 x 3.27 at (2593.0, 239.8, -4132.9) axis (0.76, 0.21, -0.61) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.21 x 3.13 at (2593.1, 239.7, -4132.8) axis (-0.38, -0.72, 0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.16 x 3.06 at (2593.2, 240.1, -4133.3) axis (-0.83, 0.09, 0.54) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.15 x 3.04 at (2592.1, 239.4, -4130.3) axis (-0.25, 0.94, -0.23) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.11 x 2.99 at (2593.1, 239.6, -4132.7) axis (-0.78, -0.13, 0.61) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.10 x 2.98 at (2592.4, 239.5, -4132.2) axis (0.56, 0.55, -0.62) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.08 x 2.95 at (2594.0, 239.4, -4133.7) axis (-0.60, -0.48, 0.64) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.08 x 2.94 at (2593.5, 240.2, -4132.9) axis (0.83, -0.02, -0.56) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.07 x 2.94 at (2593.3, 239.0, -4131.7) axis (0.76, -0.59, -0.26) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.07 x 2.93 at (2593.1, 239.6, -4133.3) axis (0.56, -0.83, -0.02) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.06 x 2.92 at (2593.7, 239.5, -4133.5) axis (-0.06, 0.93, -0.36) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- `04-42348-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31411 size=5.61x8.73x6.55 card=5.47x8.76 diagonal=12.28 box=(2590.21,237.44,-4136.11)..(2595.83,246.17,-4129.56)
-- card 5.47 x 8.76 at (2592.9, 242.8, -4132.5) axis (0.24, -0.78, -0.58) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true
-- card 4.92 x 8.43 at (2592.9, 242.8, -4132.5) axis (0.23, -0.81, -0.54) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true
-- card 4.92 x 8.43 at (2592.9, 242.8, -4132.5) axis (0.23, -0.81, -0.54) tex gfx/textures/烟火/沙.tga blend 2/4 depth true
-- card 4.65 x 8.27 at (2592.9, 242.8, -4132.5) axis (0.22, -0.83, -0.52) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true
-- card 2.70 x 3.83 at (2592.9, 239.5, -4131.7) axis (0.66, 0.41, -0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.65 x 3.76 at (2592.6, 239.2, -4131.8) axis (-0.06, 0.93, -0.36) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.60 x 3.68 at (2593.1, 239.8, -4131.8) axis (-0.81, -0.03, 0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.59 x 3.67 at (2593.1, 239.6, -4132.9) axis (-0.54, -0.56, 0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.59 x 3.67 at (2592.7, 239.9, -4131.8) axis (0.74, -0.63, -0.23) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.57 x 3.64 at (2593.5, 240.0, -4132.8) axis (-0.84, 0.16, 0.52) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.56 x 3.63 at (2593.0, 240.2, -4131.9) axis (-0.73, -0.26, 0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.50 x 3.54 at (2592.9, 239.5, -4132.1) axis (0.39, 0.72, -0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.45 x 3.47 at (2593.0, 239.8, -4132.7) axis (0.33, -0.93, 0.19) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.44 at (2592.7, 240.3, -4132.1) axis (-0.76, -0.19, 0.62) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.44 at (2592.7, 239.7, -4132.3) axis (0.04, 0.91, -0.42) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.43 at (2593.7, 239.4, -4132.9) axis (0.84, -0.11, -0.53) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.36 x 3.34 at (2592.6, 239.3, -4133.1) axis (0.64, -0.76, -0.10) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.35 x 3.33 at (2592.9, 239.7, -4132.5) axis (0.55, -0.83, -0.01) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.18 x 3.09 at (2592.6, 239.1, -4133.3) axis (0.39, 0.72, -0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.16 x 3.06 at (2592.6, 239.6, -4132.0) axis (-0.47, -0.63, 0.61) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.15 x 3.05 at (2594.8, 239.1, -4133.8) axis (0.48, -0.88, 0.06) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.12 x 3.00 at (2593.5, 238.8, -4135.3) axis (-0.35, -0.74, 0.57) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.11 x 2.98 at (2593.0, 238.9, -4132.0) axis (-0.70, -0.32, 0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.06 x 2.92 at (2592.8, 239.8, -4131.6) axis (0.84, -0.09, -0.53) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- `04-42348-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109698 size=5.87x8.74x7.06 card=5.47x8.76 diagonal=12.68 box=(2590.01,237.43,-4136.10)..(2595.88,246.17,-4129.04)
-- `04-42348-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112201 size=5.61x8.73x6.58 card=5.47x8.76 diagonal=12.29 box=(2590.22,237.44,-4136.14)..(2595.83,246.17,-4129.56)
-- `05-42349-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31241 size=5.90x8.74x7.05 card=5.47x8.76 diagonal=12.69 box=(2604.03,237.43,-4161.88)..(2609.92,246.17,-4154.83)
-- card 5.47 x 8.76 at (2607.0, 242.8, -4158.3) axis (0.24, -0.78, -0.58) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true
-- card 4.92 x 8.43 at (2607.0, 242.8, -4158.3) axis (0.23, -0.81, -0.54) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true
-- card 4.92 x 8.43 at (2607.0, 242.8, -4158.3) axis (0.23, -0.81, -0.54) tex gfx/textures/烟火/沙.tga blend 2/4 depth true
-- card 4.65 x 8.27 at (2607.0, 242.8, -4158.3) axis (0.22, -0.83, -0.52) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true
-- card 2.71 x 3.83 at (2606.2, 239.7, -4157.9) axis (0.83, -0.37, -0.41) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.53 x 3.57 at (2607.0, 239.7, -4158.2) axis (0.77, 0.19, -0.61) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.47 x 3.49 at (2607.4, 240.0, -4159.1) axis (-0.00, 0.92, -0.40) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.44 at (2606.7, 239.5, -4158.4) axis (-0.53, 0.85, -0.00) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.42 at (2607.5, 239.7, -4158.9) axis (-0.25, 0.94, -0.24) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.42 at (2607.5, 240.2, -4158.7) axis (-0.45, 0.89, -0.08) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.39 x 3.38 at (2606.4, 239.1, -4157.7) axis (-0.65, 0.75, 0.12) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.37 x 3.35 at (2607.3, 238.9, -4157.6) axis (0.16, 0.86, -0.49) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.33 x 3.30 at (2606.7, 239.4, -4159.0) axis (0.45, 0.66, -0.60) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.31 x 3.27 at (2607.1, 239.8, -4158.7) axis (0.76, 0.21, -0.62) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.21 x 3.13 at (2607.1, 239.7, -4158.6) axis (-0.38, -0.72, 0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.16 x 3.06 at (2607.2, 240.1, -4159.1) axis (-0.84, 0.09, 0.54) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.15 x 3.04 at (2606.2, 239.4, -4156.1) axis (-0.25, 0.94, -0.24) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.11 x 2.99 at (2607.1, 239.6, -4158.5) axis (-0.78, -0.13, 0.61) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.10 x 2.97 at (2606.4, 239.5, -4158.0) axis (0.56, 0.55, -0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.08 x 2.94 at (2608.0, 239.4, -4159.5) axis (-0.60, -0.48, 0.63) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.08 x 2.94 at (2607.5, 240.2, -4158.7) axis (0.83, -0.02, -0.56) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.07 x 2.93 at (2607.3, 239.0, -4157.5) axis (0.76, -0.59, -0.26) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.07 x 2.92 at (2607.2, 239.6, -4159.1) axis (0.56, -0.83, -0.02) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.06 x 2.92 at (2607.7, 239.5, -4159.3) axis (-0.06, 0.93, -0.36) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- `05-42349-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31435 size=5.61x8.73x6.55 card=5.47x8.76 diagonal=12.27 box=(2604.24,237.45,-4161.90)..(2609.85,246.17,-4155.35)
-- card 5.47 x 8.76 at (2607.0, 242.8, -4158.3) axis (0.24, -0.78, -0.58) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true
-- card 4.92 x 8.43 at (2607.0, 242.8, -4158.3) axis (0.23, -0.81, -0.54) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true
-- card 4.92 x 8.43 at (2607.0, 242.8, -4158.3) axis (0.23, -0.81, -0.54) tex gfx/textures/烟火/沙.tga blend 2/4 depth true
-- card 4.65 x 8.27 at (2607.0, 242.8, -4158.3) axis (0.22, -0.83, -0.52) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true
-- card 2.70 x 3.82 at (2606.9, 239.5, -4157.5) axis (0.66, 0.41, -0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.65 x 3.75 at (2606.6, 239.2, -4157.6) axis (-0.06, 0.93, -0.36) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.60 x 3.68 at (2607.1, 239.8, -4157.6) axis (-0.81, -0.04, 0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.59 x 3.67 at (2607.1, 239.6, -4158.7) axis (-0.54, -0.56, 0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.59 x 3.66 at (2606.7, 239.9, -4157.6) axis (0.74, -0.63, -0.23) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.57 x 3.63 at (2607.5, 240.0, -4158.6) axis (-0.84, 0.16, 0.52) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.56 x 3.63 at (2607.0, 240.2, -4157.7) axis (-0.73, -0.26, 0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.50 x 3.53 at (2606.9, 239.5, -4157.9) axis (0.38, 0.72, -0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.45 x 3.47 at (2607.0, 239.8, -4158.4) axis (0.33, -0.93, 0.19) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.44 at (2606.8, 240.3, -4157.9) axis (-0.76, -0.19, 0.62) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.43 at (2606.7, 239.7, -4158.1) axis (0.04, 0.90, -0.43) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.42 at (2607.7, 239.4, -4158.6) axis (0.84, -0.11, -0.53) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.36 x 3.34 at (2606.6, 239.3, -4158.9) axis (0.64, -0.76, -0.10) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.35 x 3.33 at (2606.9, 239.7, -4158.3) axis (0.55, -0.84, -0.01) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.18 x 3.09 at (2606.6, 239.1, -4159.1) axis (0.38, 0.72, -0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.16 x 3.05 at (2606.6, 239.6, -4157.8) axis (-0.47, -0.64, 0.61) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.15 x 3.05 at (2608.8, 239.1, -4159.6) axis (0.48, -0.88, 0.06) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.12 x 3.00 at (2607.5, 238.8, -4161.0) axis (-0.35, -0.74, 0.57) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.11 x 2.98 at (2607.0, 238.9, -4157.8) axis (-0.70, -0.33, 0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.06 x 2.92 at (2606.8, 239.8, -4157.4) axis (0.84, -0.09, -0.54) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- `05-42349-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109728 size=5.90x8.75x7.04 card=5.47x8.76 diagonal=12.68 box=(2604.02,237.43,-4161.88)..(2609.92,246.17,-4154.84)
-- `05-42349-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112191 size=5.62x8.73x6.55 card=5.47x8.76 diagonal=12.27 box=(2604.24,237.44,-4161.90)..(2609.86,246.17,-4155.35)
-- `06-42346-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31253 size=5.89x8.75x7.05 card=5.47x8.76 diagonal=12.68 box=(2629.76,237.43,-4148.80)..(2635.65,246.17,-4141.75)
-- card 5.47 x 8.76 at (2632.7, 242.8, -4145.2) axis (0.24, -0.78, -0.58) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true
-- card 4.92 x 8.43 at (2632.7, 242.8, -4145.2) axis (0.23, -0.81, -0.54) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true
-- card 4.92 x 8.43 at (2632.7, 242.8, -4145.2) axis (0.23, -0.81, -0.54) tex gfx/textures/烟火/沙.tga blend 2/4 depth true
-- card 4.65 x 8.27 at (2632.7, 242.8, -4145.2) axis (0.22, -0.83, -0.52) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true
-- card 2.71 x 3.83 at (2631.9, 239.7, -4144.8) axis (0.83, -0.37, -0.41) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.53 x 3.58 at (2632.7, 239.7, -4145.1) axis (0.77, 0.19, -0.61) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.47 x 3.49 at (2633.1, 240.0, -4146.0) axis (-0.00, 0.92, -0.40) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.45 at (2632.4, 239.5, -4145.3) axis (-0.53, 0.85, 0.00) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.43 at (2633.3, 239.7, -4145.8) axis (-0.25, 0.94, -0.23) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.42 at (2633.3, 240.2, -4145.6) axis (-0.45, 0.89, -0.07) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.39 x 3.39 at (2632.1, 239.1, -4144.6) axis (-0.65, 0.75, 0.13) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.37 x 3.36 at (2633.0, 238.9, -4144.5) axis (0.16, 0.86, -0.49) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.33 x 3.30 at (2632.4, 239.4, -4146.0) axis (0.45, 0.66, -0.60) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.31 x 3.27 at (2632.8, 239.8, -4145.7) axis (0.76, 0.21, -0.62) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.21 x 3.13 at (2632.9, 239.7, -4145.5) axis (-0.38, -0.71, 0.59) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.16 x 3.06 at (2632.9, 240.1, -4146.0) axis (-0.83, 0.09, 0.55) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.15 x 3.04 at (2631.9, 239.4, -4143.0) axis (-0.25, 0.94, -0.23) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.11 x 2.99 at (2632.9, 239.6, -4145.4) axis (-0.78, -0.13, 0.61) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.10 x 2.98 at (2632.1, 239.5, -4144.9) axis (0.56, 0.55, -0.62) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.08 x 2.95 at (2633.8, 239.4, -4146.4) axis (-0.60, -0.48, 0.64) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.08 x 2.94 at (2633.2, 240.2, -4145.6) axis (0.83, -0.03, -0.56) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.07 x 2.94 at (2633.0, 239.0, -4144.4) axis (0.76, -0.59, -0.26) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.07 x 2.93 at (2632.9, 239.6, -4146.0) axis (0.56, -0.83, -0.02) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.06 x 2.92 at (2633.5, 239.5, -4146.2) axis (-0.06, 0.93, -0.36) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- `06-42346-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31399 size=5.61x8.73x6.56 card=5.47x8.76 diagonal=12.28 box=(2629.98,237.44,-4148.83)..(2635.59,246.17,-4142.27)
-- card 5.47 x 8.76 at (2632.7, 242.8, -4145.2) axis (0.24, -0.78, -0.58) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true
-- card 4.92 x 8.43 at (2632.7, 242.8, -4145.2) axis (0.23, -0.81, -0.54) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true
-- card 4.92 x 8.43 at (2632.7, 242.8, -4145.2) axis (0.23, -0.81, -0.54) tex gfx/textures/烟火/沙.tga blend 2/4 depth true
-- card 4.65 x 8.27 at (2632.7, 242.8, -4145.2) axis (0.22, -0.83, -0.52) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true
-- card 2.70 x 3.83 at (2632.6, 239.5, -4144.4) axis (0.66, 0.41, -0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.65 x 3.76 at (2632.4, 239.2, -4144.5) axis (-0.06, 0.93, -0.36) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.60 x 3.68 at (2632.9, 239.8, -4144.5) axis (-0.81, -0.03, 0.59) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.59 x 3.67 at (2632.9, 239.6, -4145.6) axis (-0.54, -0.55, 0.63) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.59 x 3.67 at (2632.4, 239.9, -4144.5) axis (0.74, -0.63, -0.23) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.57 x 3.64 at (2633.3, 240.0, -4145.5) axis (-0.84, 0.16, 0.52) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.56 x 3.63 at (2632.8, 240.2, -4144.6) axis (-0.73, -0.26, 0.64) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.50 x 3.54 at (2632.7, 239.5, -4144.8) axis (0.38, 0.72, -0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.45 x 3.47 at (2632.7, 239.8, -4145.4) axis (0.33, -0.93, 0.19) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.44 at (2632.5, 240.3, -4144.8) axis (-0.76, -0.19, 0.62) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.43 x 3.44 at (2632.5, 239.7, -4145.0) axis (0.04, 0.91, -0.42) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.42 x 3.43 at (2633.5, 239.4, -4145.6) axis (0.84, -0.11, -0.53) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.36 x 3.34 at (2632.4, 239.3, -4145.8) axis (0.64, -0.76, -0.10) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.35 x 3.33 at (2632.6, 239.7, -4145.2) axis (0.55, -0.83, -0.01) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.18 x 3.09 at (2632.4, 239.1, -4146.0) axis (0.39, 0.72, -0.58) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.16 x 3.06 at (2632.3, 239.6, -4144.7) axis (-0.47, -0.63, 0.62) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.15 x 3.05 at (2634.5, 239.1, -4146.5) axis (0.48, -0.88, 0.06) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.12 x 3.00 at (2633.2, 238.8, -4148.0) axis (-0.35, -0.74, 0.58) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true
-- card 2.11 x 2.98 at (2632.7, 238.9, -4144.7) axis (-0.70, -0.32, 0.64) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- card 2.06 x 2.92 at (2632.5, 239.8, -4144.3) axis (0.84, -0.09, -0.54) tex gfx/textures/烟火/effects_textures_1184-1.bmp blend 2/4 depth true
-- `06-42346-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109722 size=5.89x8.74x7.06 card=5.47x8.76 diagonal=12.68 box=(2629.76,237.43,-4148.80)..(2635.65,246.17,-4141.75)
-- `06-42346-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112185 size=5.61x8.73x6.56 card=5.47x8.76 diagonal=12.28 box=(2629.98,237.44,-4148.83)..(2635.59,246.17,-4142.27)
+- census:   49 x 场景/树林光束.gfx scale 1.174..15.086
+- `01-02652-0000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2278.9, 143.0, 4515.0) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=7461 size=95.55x100.15x8.28 card=6.55x130.98 box=(2210.71,114.41,4510.34)..(2306.26,214.57,4518.63)
+- card 6.55 x 130.98 at (2257.7, 165.4, 4516.5) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2259.3, 163.6, 4512.4) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `01-02652-0900ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2278.9, 143.0, 4515.0) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=9082 size=96.00x101.81x130.98 card=6.55x130.98 box=(2210.44,113.18,4449.49)..(2306.44,214.99,4580.46)
+- card 6.55 x 130.98 at (2259.5, 164.6, 4515.5) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2259.4, 165.8, 4516.5) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2257.4, 162.4, 4513.5) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `01-02652-3000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2278.9, 143.0, 4515.0) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=8551 size=94.12x99.37x130.98 card=6.55x130.98 box=(2212.32,114.41,4449.49)..(2306.44,213.78,4580.46)
+- card 6.55 x 130.98 at (2259.5, 164.6, 4515.5) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2259.3, 163.6, 4512.4) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `01-02652-0000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2278.9, 143.0, 4515.0) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 792 ms (shot 0), view az 0/el 80 zoom 1.00, grid 10.00 u, 0.567 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=8759 size=93.05x97.78x10.49 card=6.55x130.98 box=(2211.97,115.58,4509.24)..(2305.03,213.37,4519.73)
+- card 6.55 x 130.98 at (2257.7, 165.4, 4516.5) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2259.3, 163.6, 4512.4) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `01-02652-0900ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2278.9, 143.0, 4515.0) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 1716 ms (shot 900), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=11728 size=93.50x99.43x130.98 card=6.55x130.98 box=(2211.68,114.35,4449.49)..(2305.18,213.79,4580.46)
+- card 6.55 x 130.98 at (2259.5, 164.6, 4515.5) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2259.4, 165.8, 4516.5) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2257.4, 162.4, 4513.5) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `01-02652-3000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2278.9, 143.0, 4515.0) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 3795 ms (shot 3000), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=11603 size=91.63x97.00x130.98 card=6.55x130.98 box=(2213.56,115.58,4449.49)..(2305.18,212.59,4580.46)
+- card 6.55 x 130.98 at (2259.5, 164.6, 4515.5) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2259.3, 163.6, 4512.4) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.9, 143.0, 4515.0) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `02-02740-0000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2298.1, 143.0, 4498.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=7459 size=95.55x100.15x8.28 card=6.55x130.98 box=(2229.99,114.41,4494.08)..(2325.54,214.57,4502.37)
+- card 6.55 x 130.98 at (2276.9, 165.4, 4500.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.6, 163.6, 4496.1) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `02-02740-0900ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2298.1, 143.0, 4498.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=9082 size=96.00x101.81x130.98 card=6.55x130.98 box=(2229.73,113.18,4433.22)..(2325.72,214.99,4564.20)
+- card 6.55 x 130.98 at (2278.8, 164.6, 4499.2) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.7, 165.8, 4500.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2276.7, 162.4, 4497.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `02-02740-3000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2298.1, 143.0, 4498.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=8551 size=94.12x99.37x130.98 card=6.55x130.98 box=(2231.61,114.41,4433.22)..(2325.72,213.78,4564.20)
+- card 6.55 x 130.98 at (2278.8, 164.6, 4499.2) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.6, 163.6, 4496.1) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `02-02740-0000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2298.1, 143.0, 4498.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 792 ms (shot 0), view az 0/el 80 zoom 1.00, grid 10.00 u, 0.567 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=8759 size=93.05x97.78x10.49 card=6.55x130.98 box=(2231.26,115.58,4492.98)..(2324.31,213.37,4503.47)
+- card 6.55 x 130.98 at (2276.9, 165.4, 4500.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.6, 163.6, 4496.1) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `02-02740-0900ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2298.1, 143.0, 4498.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 1716 ms (shot 900), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=11728 size=93.50x99.43x130.98 card=6.55x130.98 box=(2230.96,114.35,4433.22)..(2324.47,213.79,4564.20)
+- card 6.55 x 130.98 at (2278.8, 164.6, 4499.2) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.7, 165.8, 4500.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2276.7, 162.4, 4497.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `02-02740-3000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2298.1, 143.0, 4498.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 3795 ms (shot 3000), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=11602 size=91.63x97.00x130.98 card=6.55x130.98 box=(2232.84,115.58,4433.22)..(2324.47,212.59,4564.20)
+- card 6.55 x 130.98 at (2278.8, 164.6, 4499.2) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2278.6, 163.6, 4496.1) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2298.1, 143.0, 4498.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `03-02654-0000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2141.1, 143.0, 4358.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=7459 size=95.55x100.15x8.28 card=6.55x130.98 box=(2072.97,114.41,4354.11)..(2168.52,214.57,4362.39)
+- card 6.55 x 130.98 at (2119.9, 165.4, 4360.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2121.5, 163.6, 4356.2) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `03-02654-0900ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2141.1, 143.0, 4358.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=9081 size=96.00x101.81x130.98 card=6.55x130.98 box=(2072.70,113.18,4293.25)..(2168.70,214.99,4424.23)
+- card 6.55 x 130.98 at (2121.7, 164.6, 4359.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2121.7, 165.8, 4360.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2119.7, 162.4, 4357.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `03-02654-3000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2141.1, 143.0, 4358.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=8553 size=94.12x99.37x130.98 card=6.55x130.98 box=(2074.58,114.41,4293.25)..(2168.70,213.78,4424.23)
+- card 6.55 x 130.98 at (2121.7, 164.6, 4359.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2121.5, 163.6, 4356.2) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `03-02654-0000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2141.1, 143.0, 4358.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 792 ms (shot 0), view az 0/el 80 zoom 1.00, grid 10.00 u, 0.567 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=8759 size=93.05x97.78x10.49 card=6.55x130.98 box=(2074.23,115.58,4353.00)..(2167.28,213.37,4363.49)
+- card 6.55 x 130.98 at (2119.9, 165.4, 4360.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2121.5, 163.6, 4356.2) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `03-02654-0900ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2141.1, 143.0, 4358.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 1716 ms (shot 900), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=11730 size=93.50x99.43x130.98 card=6.55x130.98 box=(2073.94,114.35,4293.25)..(2167.44,213.79,4424.23)
+- card 6.55 x 130.98 at (2121.7, 164.6, 4359.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2121.7, 165.8, 4360.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2119.7, 162.4, 4357.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `03-02654-3000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2141.1, 143.0, 4358.7) dir (0.00, 0.00, 1.00) up (-0.69, 0.72, 0.00) night 2 scale 9.36 alpha 1.00, asked 3795 ms (shot 3000), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=11602 size=91.63x97.00x130.98 card=6.55x130.98 box=(2075.81,115.58,4293.25)..(2167.44,212.59,4424.23)
+- card 6.55 x 130.98 at (2121.7, 164.6, 4359.3) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2121.5, 163.6, 4356.2) axis (0.69, -0.72, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2141.1, 143.0, 4358.7) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `04-02704-0000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2902.4, 122.8, 4049.7) dir (0.60, -0.04, 0.80) up (-0.41, 0.84, 0.35) night 2 scale 9.36 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.535 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=6231 size=58.69x115.64x54.28 card=6.55x130.98 box=(2860.65,89.94,4032.51)..(2919.33,205.58,4086.79)
+- card 6.55 x 130.98 at (2890.8, 148.7, 4061.7) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2889.2, 146.8, 4057.6) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `04-02704-0900ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2902.4, 122.8, 4049.7) dir (0.60, -0.04, 0.80) up (-0.41, 0.84, 0.35) night 2 scale 9.36 alpha 1.00, asked 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.535 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=8186 size=84.82x116.62x108.39 card=6.55x130.98 box=(2859.66,89.03,3995.51)..(2944.48,205.66,4103.90)
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2891.4, 147.6, 4059.9) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2892.2, 148.8, 4060.6) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2888.2, 145.9, 4059.7) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `04-02704-3000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2902.4, 122.8, 4049.7) dir (0.60, -0.04, 0.80) up (-0.41, 0.84, 0.35) night 2 scale 9.36 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.535 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=7465 size=84.08x114.56x108.39 card=6.55x130.98 box=(2860.40,89.94,3995.51)..(2944.48,204.50,4103.90)
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2891.4, 147.6, 4059.9) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2889.2, 146.8, 4057.6) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `04-02704-0000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2902.4, 122.8, 4049.7) dir (0.60, -0.04, 0.80) up (-0.41, 0.84, 0.35) night 2 scale 9.36 alpha 1.00, asked 792 ms (shot 0), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.535 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=6840 size=58.25x113.10x55.66 card=6.55x130.98 box=(2860.91,91.18,4031.80)..(2919.16,204.28,4087.46)
+- card 6.55 x 130.98 at (2890.8, 148.7, 4061.7) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2889.2, 146.8, 4057.6) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `04-02704-0900ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2902.4, 122.8, 4049.7) dir (0.60, -0.04, 0.80) up (-0.41, 0.84, 0.35) night 2 scale 9.36 alpha 1.00, asked 1716 ms (shot 900), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.535 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=10877 size=84.62x114.06x108.37 card=6.55x130.98 box=(2859.86,90.30,3995.52)..(2944.48,204.36,4103.89)
+- card 6.55 x 130.98 at (2891.4, 147.6, 4059.9) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2892.2, 148.8, 4060.6) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2888.2, 145.9, 4059.7) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `04-02704-3000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2902.4, 122.8, 4049.7) dir (0.60, -0.04, 0.80) up (-0.41, 0.84, 0.35) night 2 scale 9.36 alpha 1.00, asked 3795 ms (shot 3000), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.535 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=10607 size=84.07x112.03x108.37 card=6.55x130.98 box=(2860.41,91.18,3995.52)..(2944.48,203.21,4103.89)
+- card 6.55 x 130.98 at (2891.4, 147.6, 4059.9) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2889.2, 146.8, 4057.6) axis (0.41, -0.84, -0.35) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2902.4, 122.8, 4049.7) axis (-0.60, 0.04, -0.80) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `05-02702-0000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2568.1, 153.0, 3774.5) dir (0.00, 0.00, 1.00) up (-0.78, 0.63, 0.00) night 0 scale 9.36 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=7680 size=106.86x87.93x8.20 card=6.55x130.98 box=(2491.66,127.67,3769.93)..(2598.52,215.60,3778.12)
+- card 6.55 x 130.98 at (2544.2, 172.4, 3776.1) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2546.0, 170.9, 3771.9) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `05-02702-0900ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2568.1, 153.0, 3774.5) dir (0.00, 0.00, 1.00) up (-0.78, 0.63, 0.00) night 0 scale 9.36 alpha 1.00, asked 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=9187 size=106.80x90.05x130.98 card=6.55x130.98 box=(2491.78,126.20,3709.03)..(2598.58,216.26,3840.01)
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2546.1, 171.8, 3775.0) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2545.9, 173.0, 3776.1) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2544.3, 169.4, 3773.1) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `05-02702-3000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (2568.1, 153.0, 3774.5) dir (0.00, 0.00, 1.00) up (-0.78, 0.63, 0.00) night 0 scale 9.36 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=8631 size=105.10x87.39x130.98 card=6.55x130.98 box=(2493.48,127.67,3709.03)..(2598.58,215.06,3840.01)
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2546.1, 171.8, 3775.0) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2546.0, 170.9, 3771.9) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `05-02702-0000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2568.1, 153.0, 3774.5) dir (0.00, 0.00, 1.00) up (-0.78, 0.63, 0.00) night 0 scale 9.36 alpha 1.00, asked 792 ms (shot 0), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=9815 size=104.54x85.07x10.53 card=6.55x130.98 box=(2492.83,129.09,3768.75)..(2597.37,214.15,3779.29)
+- card 6.55 x 130.98 at (2544.2, 172.4, 3776.1) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2546.0, 170.9, 3771.9) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `05-02702-0900ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2568.1, 153.0, 3774.5) dir (0.00, 0.00, 1.00) up (-0.78, 0.63, 0.00) night 0 scale 9.36 alpha 1.00, asked 1716 ms (shot 900), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=12060 size=104.48x87.18x130.98 card=6.55x130.98 box=(2492.93,127.62,3709.03)..(2597.41,214.80,3840.01)
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2545.9, 173.0, 3776.1) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2546.1, 171.8, 3775.0) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2544.3, 169.4, 3773.1) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `05-02702-3000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (2568.1, 153.0, 3774.5) dir (0.00, 0.00, 1.00) up (-0.78, 0.63, 0.00) night 0 scale 9.36 alpha 1.00, asked 3795 ms (shot 3000), view az 0/el 80 zoom 1.00, grid 20.00 u, 0.567 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=11904 size=102.78x84.53x130.98 card=6.55x130.98 box=(2494.63,129.09,3709.03)..(2597.41,213.62,3840.01)
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2568.1, 153.0, 3774.5) axis (0.00, 0.00, -1.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2546.1, 171.8, 3775.0) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 6.55 x 130.98 at (2546.0, 170.9, 3771.9) axis (0.78, -0.63, 0.00) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `06-06074-0000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (949.0, 232.6, 3282.9) dir (0.00, 0.56, 0.83) up (0.00, 0.83, -0.56) night 0 scale 4.98 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 10.00 u, 0.262 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=7470 size=2.98x61.20x41.42 card=3.48x69.69 box=(947.52,214.96,3253.20)..(950.50,276.16,3294.62)
+- card 3.48 x 69.69 at (949.0, 246.7, 3274.5) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 244.4, 3273.3) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `06-06074-0900ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (949.0, 232.6, 3282.9) dir (0.00, 0.56, 0.83) up (0.00, 0.83, -0.56) night 0 scale 4.98 alpha 1.00, asked 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 10.00 u, 0.262 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=8514 size=4.99x63.95x59.83 card=3.48x69.69 box=(946.34,211.80,3252.97)..(951.33,275.75,3312.81)
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.4, 245.6, 3274.5) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (947.8, 244.9, 3273.7) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.8, 246.3, 3274.7) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `06-06074-3000ms-az35el20-z1.00.png` — 场景/树林光束.gfx at (949.0, 232.6, 3282.9) dir (0.00, 0.56, 0.83) up (0.00, 0.83, -0.56) night 0 scale 4.98 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 10.00 u, 0.262 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=7701 size=3.39x63.24x59.83 card=3.48x69.69 box=(947.52,211.80,3252.97)..(950.90,275.03,3312.81)
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.4, 245.6, 3274.5) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 244.4, 3273.3) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `06-06074-0000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (949.0, 232.6, 3282.9) dir (0.00, 0.56, 0.83) up (0.00, 0.83, -0.56) night 0 scale 4.98 alpha 1.00, asked 792 ms (shot 0), view az 0/el 80 zoom 1.00, grid 10.00 u, 0.262 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=8119 size=3.48x60.19x39.91 card=3.48x69.69 box=(947.26,215.46,3253.95)..(950.75,275.65,3293.86)
+- card 3.48 x 69.69 at (949.0, 246.7, 3274.5) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 244.4, 3273.3) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- `06-06074-0900ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (949.0, 232.6, 3282.9) dir (0.00, 0.56, 0.83) up (0.00, 0.83, -0.56) night 0 scale 4.98 alpha 1.00, asked 1716 ms (shot 900), view az 0/el 80 zoom 1.00, grid 10.00 u, 0.262 m/px: player clock 1716 ms play 1.000 (file 1.000), quads=5 pixels=11184 size=5.51x62.02x57.91 card=3.48x69.69 box=(946.08,213.23,3253.93)..(951.59,275.25,3311.85)
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.4, 245.6, 3274.5) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.8, 246.3, 3274.7) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (947.8, 244.9, 3273.7) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- `06-06074-3000ms-az0el80-z1.00.png` — 场景/树林光束.gfx at (949.0, 232.6, 3282.9) dir (0.00, 0.56, 0.83) up (0.00, 0.83, -0.56) night 0 scale 4.98 alpha 1.00, asked 3795 ms (shot 3000), view az 0/el 80 zoom 1.00, grid 10.00 u, 0.262 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=7 pixels=10455 size=3.90x61.30x57.91 card=3.48x69.69 box=(947.26,213.23,3253.93)..(951.16,274.53,3311.85)
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 232.6, 3282.9) axis (0.00, -0.56, -0.83) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle019.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.4, 245.6, 3274.5) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle004.dds blend 5/2 depth true
+- card 3.48 x 69.69 at (949.0, 244.4, 3273.3) axis (0.00, -0.83, 0.56) uv (0.000, 0.000) + (1.000, 1.000) tex gfx/textures/圆环光/circle013.dds blend 5/2 depth true
