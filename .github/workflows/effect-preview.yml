@@ -214,7 +214,21 @@ jobs:
             exit 0
           fi
           git commit -m "Effect preview frames [skip ci]"
-          git push || (git pull --rebase && git push)
+          # The branch may have moved while the frames rendered — a code commit
+          # landing during the run used to leave the frames uncommitted, which is
+          # how a run can be green and still publish nothing. Rebase onto the
+          # branch and try again instead.
+          pushed=0
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD; then pushed=1; break; fi
+            sleep 5
+            git fetch origin "$GITHUB_REF_NAME"
+            git rebase "origin/$GITHUB_REF_NAME" || git rebase --abort || true
+          done
+          if [ "$pushed" -ne 1 ]; then
+            echo "::error::the frames could not be pushed after five attempts"
+            exit 1
+          fi
 
       - name: Keep the frames and the measured sizes
         if: always()

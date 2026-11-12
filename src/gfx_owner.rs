@@ -477,7 +477,9 @@ fn census_report(
     previous: &mut std::collections::HashMap<String, f32>,
 ) -> String {
     for row in rows.iter_mut() {
-        row.since_last = previous.insert(row.path.clone(), row.clock).map(|last| row.clock - last);
+        row.since_last = previous
+            .insert(row.path.clone(), row.clock)
+            .map(|last| row.clock - last);
     }
     rows.sort_by(|a, b| census_width(b).total_cmp(&census_width(a)));
     let mut report = format!(
