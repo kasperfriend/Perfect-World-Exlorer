@@ -982,6 +982,13 @@ impl World {
         self.effect_quads.len()
     }
 
+    /// This frame's submitted effect quads. The headless preview in
+    /// `effect_preview` frames its shot from these, and a test can measure what
+    /// a root actually draws instead of trusting its authored numbers.
+    pub fn effect_quads(&self) -> &[crate::gfx_player::EffectQuad] {
+        &self.effect_quads
+    }
+
     /// Roots whose animated graph would not build, as `origin: error`. Their
     /// lights still run, so these are kept apart from [`Self::gfx_failures`].
     pub fn effect_failures(&self) -> Vec<String> {

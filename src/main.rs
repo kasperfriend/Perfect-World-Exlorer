@@ -37,6 +37,12 @@ mod cloud_gpu;
 mod cloud_surface;
 mod color_chain;
 mod diagnostics;
+// A preview is a test-only harness. The skip is on the module: its literals
+// are authored GFX text and its tables are read top to bottom, neither of
+// which formatting improves, and every other module stays checked.
+#[cfg(test)]
+#[rustfmt::skip]
+mod effect_preview;
 mod display_gamma;
 mod dxt;
 mod ecmodel;
