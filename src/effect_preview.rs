@@ -234,6 +234,9 @@ struct Stats {
     spacing: f32,
     /// The root's own clock when the frame was taken, in milliseconds.
     clock: u32,
+    /// The shortest and longest edge of any submitted quad: a shaft card is a
+    /// long thin rectangle, and this is what says so without a picture.
+    card: (f32, f32),
 }
 
 impl Stats {
@@ -256,12 +259,14 @@ impl Stats {
     /// quads occupy, in the map's own units, printed as width x height x depth.
     fn describe(&self) -> String {
         format!(
-            "quads={} pixels={} size={:.2}x{:.2}x{:.2} diagonal={:.2} box=({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2})",
+            "quads={} pixels={} size={:.2}x{:.2}x{:.2} card={:.2}x{:.2} diagonal={:.2} box=({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2})",
             self.quads,
             self.covered,
             self.max[0] - self.min[0],
             self.max[1] - self.min[1],
             self.max[2] - self.min[2],
+            self.card.0,
+            self.card.1,
             self.radius() * 2.,
             self.min[0],
             self.min[1],
@@ -615,6 +620,7 @@ fn capture(
         stats.max = max;
     }
     stats.quads = world.effect_quad_count();
+    stats.card = quad_edges(world.effect_quads());
     let extent = wgpu::Extent3d {
         width: shot.width,
         height: shot.height,
@@ -739,6 +745,32 @@ fn capture(
     write_png(path, shot.width, shot.height, &pixels)?;
     stats.spacing = spacing;
     Ok(stats)
+}
+
+/// The shortest and longest edge over every submitted quad. A card the file
+/// authors as `0.5 x 10` must come out with those two numbers in that ratio,
+/// whatever the framing does to the picture.
+fn quad_edges(quads: &[crate::gfx_player::EffectQuad]) -> (f32, f32) {
+    let mut shortest = f32::MAX;
+    let mut longest = 0f32;
+    for quad in quads {
+        let corners = quad.positions;
+        let pairs = [(0usize, 1usize), (1, 2), (2, 3), (3, 0)];
+        for (a, b) in pairs {
+            let from = glam::Vec3::from_array(corners[a]);
+            let to = glam::Vec3::from_array(corners[b]);
+            let length = (to - from).length();
+            if length.is_finite() {
+                shortest = shortest.min(length);
+                longest = longest.max(length);
+            }
+        }
+    }
+    if shortest == f32::MAX {
+        (0., 0.)
+    } else {
+        (shortest, longest)
+    }
 }
 
 /// Advance the world and then capture it: the one call a caller needs.
@@ -1023,7 +1055,7 @@ mod tests {
                     scales[(((total - 1) as f32) * q) as usize]
                 }
             };
-            eprintln!(
+            let summary = format!(
                 "census: {total} effect records, scale min {:.3} p10 {:.3} median {:.3} p90 {:.3} max {:.3}",
                 pick(0.),
                 pick(0.1),
@@ -1031,6 +1063,8 @@ mod tests {
                 pick(0.9),
                 pick(1.)
             );
+            eprintln!("{summary}");
+            report.push_str(&format!("\n## Placement scales\n\n- {summary}\n"));
             let mut by_root: std::collections::BTreeMap<&str, (usize, f32, f32)> =
                 std::collections::BTreeMap::new();
             for block in &scene.blocks {
@@ -1045,7 +1079,10 @@ mod tests {
             }
             for (path, (count, low, high)) in &by_root {
                 if wanted.is_empty() || wanted.iter().any(|key| path.contains(key)) {
-                    eprintln!("census: {count:4} x {path} scale {low:.3}..{high:.3}");
+                    let line = format!("- census: {count:4} x {path} scale {low:.3}..{high:.3}");
+                    eprintln!("{line}");
+                    report.push_str(&line);
+                    report.push('\n');
                 }
             }
         }
@@ -1137,11 +1174,18 @@ mod tests {
                                         None => String::new(),
                                     };
                                     let line = format!(
-                                        "- `{name}` — {} at ({:.1}, {:.1}, {:.1}) scale {:.2} alpha {:.2}, clock {} ms (shot {}) , view az {:.0}/el {:.0} zoom {:.2}, grid {:.2} u, {:.3} m/px: {}{note}",
+                                        "- `{name}` — {} at ({:.1}, {:.1}, {:.1}) dir ({:.2}, {:.2}, {:.2}) up ({:.2}, {:.2}, {:.2}) night {} scale {:.2} alpha {:.2}, clock {} ms (shot {}), view az {:.0}/el {:.0} zoom {:.2}, grid {:.2} u, {:.3} m/px: {}{note}",
                                         record.path,
                                         record.position[0],
                                         record.position[1],
                                         record.position[2],
+                                        record.direction[0],
+                                        record.direction[1],
+                                        record.direction[2],
+                                        record.up[0],
+                                        record.up[1],
+                                        record.up[2],
+                                        record.valid_time,
                                         record.scale,
                                         record.alpha,
                                         stats.clock,
