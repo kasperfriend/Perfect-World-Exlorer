@@ -977,6 +977,14 @@ impl World {
         self.owners.effects_enabled()
     }
 
+    /// `(path, clock ms, live play speed, authored PlaySpeed)` for every root this
+    /// world has admitted. The headless preview prints it so a "900 ms" shot can
+    /// quote the clock the effect actually reached, and a report can say whether
+    /// the map's `fSpeed` overrode the file's `PlaySpeed`.
+    pub fn effect_clocks(&self) -> Vec<(String, f32, f32, f32)> {
+        self.owners.player_clocks()
+    }
+
     /// Quads the world's animated effects produced this frame.
     pub fn effect_quad_count(&self) -> usize {
         self.effect_quads.len()

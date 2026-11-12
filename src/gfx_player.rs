@@ -1237,8 +1237,19 @@ struct GroundFrames {
 /// One live root instance.
 pub struct Player {
     root: Root,
-    /// Milliseconds on the root clock, already scaled by `PlaySpeed`.
+    /// Milliseconds on the root clock, already scaled by the live play speed.
     time: f32,
+    /// The play speed a placement put on this root, replacing the file's own
+    /// `PlaySpeed`.
+    ///
+    /// `CECOrnamentMan::Update` calls `pGFX->SetPlaySpeed(pNode->fSpeed)` right
+    /// after it sets the scale (`EC_ManOrnament.cpp:844-960`, quoted in
+    /// `Findings/World-effects-2026-11-09.md` section 51.2), so a placed root
+    /// plays at the *record's* `fSpeed` and its authored `PlaySpeed` is
+    /// discarded. Multiplying both — which the world pass used to do by scaling
+    /// the delta itself — freezes every root whose file authors `PlaySpeed: 0`
+    /// and doubles the speed of a root that authors 0.5.
+    play_speed_override: Option<f32>,
     finished: bool,
     elements: Vec<ElementRuntime>,
     quads: Vec<EffectQuad>,
@@ -1281,6 +1292,47 @@ impl Player {
         load_child: &mut dyn FnMut(&str) -> Result<Root, String>,
     ) -> Result<Self, String> {
         Self::with_depth(root, seed, load_child, 0, &mut Vec::new())
+    }
+
+    /// Play this root at `speed` on the root clock, replacing the file's
+    /// `PlaySpeed` the way `A3DGFXEx::SetPlaySpeed` does when a map record
+    /// carries an `fSpeed`.
+    ///
+    /// The host hands [`Self::advance`] the *unscaled* frame delta once this is
+    /// set: the placement's speed lives here rather than in the caller's delta,
+    /// so the element clocks, the controllers and the particles are scaled once
+    /// instead of twice. That double scaling is what froze `水门_瀑布`: a record
+    /// whose file authors `PlaySpeed: 0` played at `0 x fSpeed`, and no frame
+    /// delta could start it.
+    pub fn set_play_speed(&mut self, speed: f32) {
+        if speed.is_finite() && speed >= 0. {
+            self.play_speed_override = Some(speed);
+        }
+    }
+
+    /// Drop the placement's speed and play at the file's own `PlaySpeed` again.
+    pub fn clear_play_speed(&mut self) {
+        self.play_speed_override = None;
+    }
+
+    /// The rate the root clock advances at: the placement's `fSpeed` when one was
+    /// set, the file's `PlaySpeed` otherwise (`A3DGFXEx::SetPlaySpeed`).
+    pub fn play_speed(&self) -> f32 {
+        self.play_speed_override.unwrap_or(self.root.play_speed)
+    }
+
+    /// The `PlaySpeed` the file authors, whatever a placement did to it. Printing
+    /// both is what says whether a map overrode the asset or the asset disabled
+    /// itself.
+    pub fn authored_play_speed(&self) -> f32 {
+        self.root.play_speed
+    }
+
+    /// Milliseconds on the root clock, already scaled by [`Self::play_speed`].
+    /// The flipbook and `TexSpeed` branches read this clock, so it is the number
+    /// a "does the sheet move" report has to quote rather than a tick count.
+    pub fn clock_ms(&self) -> f32 {
+        self.time
     }
 
     /// Name the root for the log lines, and write its element table once.
@@ -1524,6 +1576,7 @@ impl Player {
         Ok(Self {
             root,
             time: 0.,
+            play_speed_override: None,
             finished: false,
             elements,
             quads: Vec::new(),
@@ -1792,7 +1845,7 @@ impl Player {
         if !transform.is_finite() {
             return Err("non-finite effect transform".into());
         }
-        self.time += dt_ms * self.root.play_speed;
+        self.time += dt_ms * self.play_speed();
         let mut rng = self.rng;
         rng.next_u32();
         let mut stats = Stats::default();
@@ -1855,7 +1908,7 @@ impl Player {
             self.root.default_alpha * alpha * distance_fade(&self.root, view.position, base);
         let time = self.time;
         let root_name = self.name.as_str();
-        let play_speed = self.root.play_speed;
+        let play_speed = self.play_speed();
         let version = self.root.version;
 
         // The controllers integrate in seconds of scaled time: the same

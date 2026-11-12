@@ -232,8 +232,18 @@ struct Stats {
     max: [f32; 3],
     /// The ruler's grid step, in world units, that the PNG was drawn with.
     spacing: f32,
-    /// The root's own clock when the frame was taken, in milliseconds.
+    /// The clock the shot asked for, in milliseconds of wall time.
     clock: u32,
+    /// What the admitted root's own clock had reached, in milliseconds. This is
+    /// the number the tile/`TexSpeed` branch reads, so it is the one that says
+    /// whether the sheet moved; `clock` above is only what the harness asked for.
+    player_clock: f32,
+    /// The speed the root is playing at, and the `PlaySpeed` its file authors.
+    /// A placement replaces the second with the first (`SetPlaySpeed`), so a pair
+    /// that differs is a map overriding an asset — and a live speed of zero is a
+    /// frozen effect however many frames are ticked.
+    play_speed: f32,
+    authored_speed: f32,
     /// The shortest and longest edge of any submitted quad: a shaft card is a
     /// long thin rectangle, and this is what says so without a picture.
     card: (f32, f32),
@@ -259,7 +269,10 @@ impl Stats {
     /// quads occupy, in the map's own units, printed as width x height x depth.
     fn describe(&self) -> String {
         format!(
-            "quads={} pixels={} size={:.2}x{:.2}x{:.2} card={:.2}x{:.2} diagonal={:.2} box=({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2})",
+            "player clock {:.0} ms play {:.3} (file {:.3}), quads={} pixels={} size={:.2}x{:.2}x{:.2} card={:.2}x{:.2} box=({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2})",
+            self.player_clock,
+            self.play_speed,
+            self.authored_speed,
             self.quads,
             self.covered,
             self.max[0] - self.min[0],
@@ -267,7 +280,6 @@ impl Stats {
             self.max[2] - self.min[2],
             self.card.0,
             self.card.1,
-            self.radius() * 2.,
             self.min[0],
             self.min[1],
             self.min[2],
@@ -761,8 +773,13 @@ fn quad_edges(quads: &[crate::gfx_player::EffectQuad]) -> (f32, f32) {
             continue;
         }
         let corners = quad.positions;
+        // Corner order is (top-left, top-right, bottom-left, bottom-right): the
+        // height is corner 2 and corner 0. Corner 3 is the diagonal, and reading
+        // it reported a square 404-unit ring as `404 x 571` and a 71.83 x 2514
+        // shaft as `71.83 x 2515.07` — which is exactly the signature of the
+        // diagonal (x sqrt 2 for a square).
         let width = (glam::Vec3::from_array(corners[1]) - glam::Vec3::from_array(corners[0])).length();
-        let height = (glam::Vec3::from_array(corners[3]) - glam::Vec3::from_array(corners[0])).length();
+        let height = (glam::Vec3::from_array(corners[2]) - glam::Vec3::from_array(corners[0])).length();
         if !width.is_finite() || !height.is_finite() {
             continue;
         }
@@ -786,6 +803,14 @@ struct Card {
     source: u32,
     destination: u32,
     depth: bool,
+    /// The card's top-left texture coordinate and the window it spans.
+    ///
+    /// A tiled sheet writes `TexSpeed * seconds` here, so two shots of the same
+    /// card at two clocks differ in `uv` by exactly the authored speed even when
+    /// the picture is too washed out to see it. A flipbook card steps a cell out
+    /// of an atlas instead, and its window never leaves its grid.
+    uv0: [f32; 2],
+    uv_span: [f32; 2],
 }
 
 impl Card {
@@ -794,10 +819,16 @@ impl Card {
             return None;
         }
         let corners = quad.positions;
+        // Height is corner 2 (bottom-left), not corner 3: the corner order is
+        // (top-left, top-right, bottom-left, bottom-right), so corner 3 minus
+        // corner 0 is the *diagonal*. The difference is invisible on a 35:1
+        // shaft (2515.07 against 2514.04) and glaring on a square ring, whose
+        // diagonal is exactly sqrt(2) times its side: `404.04 x 571.40` is a
+        // 404-unit square, and `206.51 x 292.05` is a 206.51-unit square.
         let width =
             (glam::Vec3::from_array(corners[1]) - glam::Vec3::from_array(corners[0])).length();
         let height =
-            (glam::Vec3::from_array(corners[3]) - glam::Vec3::from_array(corners[0])).length();
+            (glam::Vec3::from_array(corners[2]) - glam::Vec3::from_array(corners[0])).length();
         if !width.is_finite() || !height.is_finite() {
             return None;
         }
@@ -806,7 +837,7 @@ impl Card {
             + glam::Vec3::from_array(corners[2])
             + glam::Vec3::from_array(corners[3]))
             * 0.25;
-        let axis = glam::Vec3::from_array(corners[3]) - glam::Vec3::from_array(corners[0]);
+        let axis = glam::Vec3::from_array(corners[2]) - glam::Vec3::from_array(corners[0]);
         let axis = if axis.length_squared() > 1e-9 {
             axis.normalize()
         } else {
@@ -821,6 +852,11 @@ impl Card {
             source: quad.source_blend,
             destination: quad.destination_blend,
             depth: quad.depth_test,
+            uv0: quad.uv[0],
+            uv_span: [
+                quad.uv[1][0] - quad.uv[0][0],
+                quad.uv[2][1] - quad.uv[0][1],
+            ],
         })
     }
 }
@@ -836,7 +872,8 @@ fn dump_quads(quads: &[crate::gfx_player::EffectQuad], limit: usize) -> Vec<Stri
         .take(limit)
         .map(|card| {
             format!(
-                "- card {:.2} x {:.2} at ({:.1}, {:.1}, {:.1}) axis ({:.2}, {:.2}, {:.2}) tex {} blend {}/{} depth {}",
+                "- card {:.2} x {:.2} at ({:.1}, {:.1}, {:.1}) axis ({:.2}, {:.2}, {:.2}) \
+                 uv ({:.3}, {:.3}) + ({:.3}, {:.3}) tex {} blend {}/{} depth {}",
                 card.short,
                 card.long,
                 card.centre.x,
@@ -845,6 +882,10 @@ fn dump_quads(quads: &[crate::gfx_player::EffectQuad], limit: usize) -> Vec<Stri
                 card.axis.x,
                 card.axis.y,
                 card.axis.z,
+                card.uv0[0],
+                card.uv0[1],
+                card.uv_span[0],
+                card.uv_span[1],
                 card.texture,
                 card.source,
                 card.destination,
@@ -866,6 +907,17 @@ fn render_shot(
     let clock = advance(world, device, queue, shot, ticks);
     let mut stats = capture(world, device, queue, shot, path)?;
     stats.clock = clock;
+    // What the root itself reached, not what the harness asked for: a warm-up run
+    // of `ticks` frames only lands on the requested time when the placement plays
+    // at speed 1, and the whole point of quoting a clock is that it is read out of
+    // the player that scrolled the sheet.
+    if let Some((_, player_clock, play_speed, authored_speed)) =
+        world.effect_clocks().into_iter().next()
+    {
+        stats.player_clock = player_clock;
+        stats.play_speed = play_speed;
+        stats.authored_speed = authored_speed;
+    }
     Ok(stats)
 }
 
@@ -1255,7 +1307,7 @@ mod tests {
                                         None => String::new(),
                                     };
                                     let line = format!(
-                                        "- `{name}` — {} at ({:.1}, {:.1}, {:.1}) dir ({:.2}, {:.2}, {:.2}) up ({:.2}, {:.2}, {:.2}) night {} scale {:.2} alpha {:.2}, clock {} ms (shot {}), view az {:.0}/el {:.0} zoom {:.2}, grid {:.2} u, {:.3} m/px: {}{note}",
+                                        "- `{name}` — {} at ({:.1}, {:.1}, {:.1}) dir ({:.2}, {:.2}, {:.2}) up ({:.2}, {:.2}, {:.2}) night {} scale {:.2} alpha {:.2}, asked {} ms (shot {}), view az {:.0}/el {:.0} zoom {:.2}, grid {:.2} u, {:.3} m/px: {}{note}",
                                         record.path,
                                         record.position[0],
                                         record.position[1],

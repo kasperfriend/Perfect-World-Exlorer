@@ -28,7 +28,7 @@ on:
       roots:
         description: "; separated substrings of the effect paths to render (empty renders everything)"
         required: false
-        default: "水门_瀑布;圣城之光"
+        default: "水门_瀑布;圣城之光;树林光束"
       limit:
         description: "how many placements to render"
         required: false
@@ -144,7 +144,7 @@ jobs:
           XDG_RUNTIME_DIR: /tmp
           PWE_PREVIEW_ELEMENT: client
           PWE_PREVIEW_WORLD: client/world.ecwld
-          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;圣城之光' }}
+          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;圣城之光;树林光束' }}
           PWE_PREVIEW_MAX: ${{ inputs.limit || '8' }}
           PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,900' }}
           PWE_PREVIEW_ZOOMS: ${{ inputs.zooms || '1,0.45' }}

@@ -374,6 +374,9 @@ pub struct Manager {
     /// screenshot can say "white blob at the altar" but not which of the 2,275
     /// installed roots drew it, and the status line only counts quads.
     census: Option<Census>,
+    /// Each root's clock at the previous census report, so the next one can say
+    /// whether it moved. Keyed by path: the census is about roots, not instances.
+    census_clocks: std::collections::HashMap<String, f32>,
 }
 
 /// How often the census repeats while the variable is set. Two seconds is long
@@ -392,6 +395,15 @@ struct CensusRow {
     source: u32,
     destination: u32,
     alpha: f32,
+    /// The root clock in milliseconds when this row was taken. A row that keeps
+    /// quoting the same clock across two reports is a frozen effect, whatever its
+    /// sheet looks like.
+    clock: f32,
+    /// How far that clock moved since the previous report, or `None` on the first
+    /// one. The census repeats every two seconds, so a running root says
+    /// `+2001ms` and a frozen one `+0ms` — which is the whole question a "the
+    /// waterfall stands still" report turns on.
+    since_last: Option<f32>,
 }
 
 struct Census {
@@ -406,7 +418,7 @@ fn census_width(row: &CensusRow) -> f32 {
 /// that submitted it. `EffectQuad` carries no element id, so the texture, the
 /// blend pair and the world size are what identify it; between them and the
 /// root path a corpus search finds the element.
-fn census_row(path: &str, quads: &[EffectQuad]) -> CensusRow {
+fn census_row(path: &str, quads: &[EffectQuad], clock: f32) -> CensusRow {
     let span = |a: [f32; 3], b: [f32; 3]| {
         let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
         (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
@@ -421,12 +433,18 @@ fn census_row(path: &str, quads: &[EffectQuad]) -> CensusRow {
         source: 0,
         destination: 0,
         alpha: 0.,
+        clock,
+        since_last: None,
     };
     let mut best = 0f32;
     for quad in quads {
         let corners = quad.positions;
+        // Corner order is (top-left, top-right, bottom-left, bottom-right), so
+        // the height is corner 2 and corner 0 — not corner 3, which is the
+        // diagonal. Reading the diagonal reported a square 404-unit ring as
+        // `404 x 571` and a 71.83 x 2514 shaft as `71.83 x 2515.07`.
         let width = span(corners[0], corners[1]);
-        let height = span(corners[0], corners[3]);
+        let height = span(corners[0], corners[2]);
         let area = width * height;
         if !(area > best) {
             continue;
@@ -449,7 +467,18 @@ fn census_row(path: &str, quads: &[EffectQuad]) -> CensusRow {
 
 /// Format the census: total quads plus the roots that drew the largest single
 /// quad. Largest first, because a "blob" in a screenshot is a big quad.
-fn census_report(rows: &mut [CensusRow], total: usize) -> String {
+///
+/// `previous` carries each root's clock from the last report into this one, so a
+/// line can say `dclock=+2001ms` (the effect is running) or `dclock=+0ms` (it is
+/// frozen) rather than leaving a reader to compare two files by hand.
+fn census_report(
+    rows: &mut [CensusRow],
+    total: usize,
+    previous: &mut std::collections::HashMap<String, f32>,
+) -> String {
+    for row in rows.iter_mut() {
+        row.since_last = previous.insert(row.path.clone(), row.clock).map(|last| row.clock - last);
+    }
     rows.sort_by(|a, b| census_width(b).total_cmp(&census_width(a)));
     let mut report = format!(
         "Effect census: {total} quads from {} visible roots\n",
@@ -461,15 +490,20 @@ fn census_report(rows: &mut [CensusRow], total: usize) -> String {
         } else {
             row.texture.as_str()
         };
+        let moved = match row.since_last {
+            Some(delta) => format!("{delta:+.0}ms"),
+            None => "first".to_string(),
+        };
         report.push_str(&format!(
-            "  {:.1}x{:.1} at ({:.1},{:.1},{:.1}) quads={} tex={texture} blend={}/{} \
-             alpha={:.2} {}\n",
+            "  {:.1}x{:.1} at ({:.1},{:.1},{:.1}) quads={} clock={:.0}ms dclock={moved} \
+             tex={texture} blend={}/{} alpha={:.2} {}\n",
             row.width,
             row.height,
             row.centre[0],
             row.centre[1],
             row.centre[2],
             row.quads,
+            row.clock,
             row.source,
             row.destination,
             row.alpha,
@@ -504,6 +538,7 @@ impl Manager {
             census: std::env::var_os("PWE_EFFECT_CENSUS").map(|_| Census {
                 next: std::time::Instant::now() + CENSUS_INTERVAL,
             }),
+            census_clocks: std::collections::HashMap::new(),
         }
     }
 
@@ -899,7 +934,6 @@ impl Manager {
                 );
                 continue;
             }
-            let scaled = (delta_ms as f32 * owner.request.speed).max(0.);
             // The record's alpha is the *target* of the client's distance fade,
             // not a second factor beside it: `FadeGFX` ramps the root to
             // `max_alpha * fAlpha` and then holds it there, so the drawn alpha is
@@ -954,9 +988,14 @@ impl Manager {
                 let Some(player) = owner.player.as_mut() else {
                     continue;
                 };
+                // The player carries the placement's speed itself
+                // (`A3DGFXEx::SetPlaySpeed` is handed the record's `fSpeed`), so
+                // it is advanced by the *frame* delta. `scaled` above is for the
+                // owner clock, the lifetime window and the light emitters, all of
+                // which are in the record's own time base.
                 player
                     .advance_with_terrain(
-                        scaled,
+                        delta_ms as f32,
                         view,
                         transform,
                         authored_scale,
@@ -964,12 +1003,12 @@ impl Manager {
                         None,
                         terrain,
                     )
-                    .map(|()| player.quads().to_vec())
+                    .map(|()| (player.quads().to_vec(), player.clock_ms()))
             };
             match stepped {
-                Ok(quads) => {
+                Ok((quads, clock)) => {
                     if let Some(rows) = rows.as_mut() {
-                        rows.push(census_row(&owner.request.path, &quads));
+                        rows.push(census_row(&owner.request.path, &quads, clock));
                     }
                     out.extend(quads);
                 }
@@ -986,7 +1025,7 @@ impl Manager {
             // A file, not stderr: the shipped Windows build has no console, so a
             // report a user is asked to paste has to land somewhere they can
             // open. Overwritten every interval, so the newest view wins.
-            let report = census_report(&mut rows, out.len());
+            let report = census_report(&mut rows, out.len(), &mut self.census_clocks);
             eprint!("{report}");
             crate::diag!(RenderEffects, "{}", report.trim_end());
             if let Err(error) = std::fs::write("effect-census.txt", &report) {
@@ -1029,7 +1068,12 @@ impl Manager {
             None => Err(format!("{path}: no GFX root reader attached")),
         };
         match built {
-            Ok(player) => {
+            Ok(mut player) => {
+                // `CECOrnamentMan::Update` sets the root's scale and then its play
+                // speed from the record (`pGFX->SetPlaySpeed(pNode->fSpeed)`,
+                // `EC_ManOrnament.cpp:950-956`), so the placement's `fSpeed`
+                // replaces the file's `PlaySpeed` rather than multiplying it.
+                player.set_play_speed(self.owners[index].request.speed);
                 for warning in player.warnings() {
                     let line = format!("{path}: {warning}");
                     if !self.effect_warnings.contains(&line) {
@@ -1087,6 +1131,30 @@ impl Manager {
         // which asset a line came from, and it writes the element table once.
         player.set_name(path);
         Ok(player)
+    }
+
+    /// One row per admitted root: `(path, clock ms, live play speed, authored
+    /// PlaySpeed)`.
+    ///
+    /// Counting frames proves the host is drawing; this proves the *effect clock*
+    /// is running, which is what a scrolling sheet actually reads. A root whose
+    /// clock stands still across two samples of this list is frozen even if its
+    /// quads are on screen, and a live speed of 0 beside an authored speed of 1
+    /// says the placement did it.
+    pub fn player_clocks(&self) -> Vec<(String, f32, f32, f32)> {
+        self.owners
+            .iter()
+            .filter_map(|owner| {
+                owner.player.as_ref().map(|player| {
+                    (
+                        owner.request.path.clone(),
+                        player.clock_ms(),
+                        player.play_speed(),
+                        player.authored_play_speed(),
+                    )
+                })
+            })
+            .collect()
     }
 
     /// Lazily load exactly one pending root; 0x5b1a00 returns after a load.
