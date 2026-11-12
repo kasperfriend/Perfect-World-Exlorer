@@ -144,6 +144,16 @@ jobs:
             echo "::error::rustfmt wants changes; the diff is posted as a PR comment"
             exit 1
           fi
+      # Job logs are not always retrievable through the API, and a PR comment is
+      # not always posted either, so the diff also goes out as annotations: the
+      # annotations are what the agent can read back.
+      - name: Echo formatting diff
+        if: failure()
+        run: |
+          [ -s /tmp/fmt.check ] || exit 0
+          head -200 /tmp/fmt.check | while IFS= read -r line; do
+            echo "::error file=rustfmt::$line"
+          done
       # Annotations are capped per check run and the GPU checks fill it with
       # notices, so the diff is posted where it can actually be read.
       - name: Post formatting diff
