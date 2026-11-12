@@ -4271,7 +4271,16 @@ they are inside the 295 placements that §54.2 is about.
 
 Whether the report's zone was empty because of §54.2 or because the build queue
 never admitted those roots. The status line distinguishes them: it prints
-`world effects: N roots playing, M quads, K would not build`, and the FX line's
-tooltip lists the failures. With the fade restored, a zone that still draws
-nothing points at the queue or the loader, and the failure names will be on that
-line.
+`world effects: N roots playing, M quads, K would not build, F beyond the
+radius, R outside the resident window, T off by the day/night window`, and the
+FX line's tooltip lists the failures.
+
+The last three counts are new. `World::apply_activation` already decided each
+producer's fate every frame from three gates — the activation radius around the
+camera, `cutoff_residency::contains` against the resident terrain window, and
+`scene::effect_visible(mode, night)` against the record's `iValidTime` — but it
+reduced them to one boolean and threw the reasons away. It now counts them, and
+`World::effect_census` hands the three numbers to that line. The counts overlap
+(they are not a partition), and they are what a zone that still draws nothing
+should be read against: 295 for the city in §54.1 means the radius, not the
+loader.

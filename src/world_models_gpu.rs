@@ -148,6 +148,10 @@ pub struct World {
     /// Retail `SCNRES_EFFECT` distance in world units; 0 disables the fade and
     /// leaves every root at its authored alpha (the explorer default).
     effect_distance: f32,
+    /// Why the last activation pass left producers out, so a zone that draws
+    /// nothing can say which gate closed on it: beyond the activation radius,
+    /// outside the resident terrain window, or outside its day/night window.
+    census: [usize; 3],
     resident_bounds: Option<[f32; 4]>,
     /// Retail alpha insertion order as (slot, mesh) pairs.
     alpha: Vec<model_queue::AlphaCandidate>,
@@ -240,6 +244,7 @@ impl World {
             catalog_spawns: 0,
             view: None,
             effect_distance: 0.,
+            census: [0; 3],
             resident_bounds: None,
             alpha: Vec::new(),
             reported: Vec::new(),
@@ -570,6 +575,12 @@ impl World {
     pub fn set_view_center(&mut self, x: f32, z: f32, radius: f32) {
         self.view = Some((x, z, radius.max(0.)));
     }
+    /// Producers the last activation pass left out, by reason: beyond the
+    /// activation radius, outside the resident terrain window, outside their
+    /// day/night window. The three overlap, so they are not a partition.
+    pub fn effect_census(&self) -> [usize; 3] {
+        self.census
+    }
     /// Radius of the client's effect distance fade, in world units.
     ///
     /// `CECSceneBlock::SetResLoadDists` sets `SCNRES_EFFECT` to 60 units in its
@@ -648,21 +659,32 @@ impl World {
             return;
         }
         let (x, z, radius) = self.view.unwrap_or((0., 0., -1.));
+        let mut census = [0usize; 3];
         let updates: Vec<(u64, bool)> = self
             .producers
             .iter()
             .map(|producer| {
                 let dx = producer.position[0] - x;
                 let dz = producer.position[2] - z;
-                let inside = dx * dx + dz * dz <= radius * radius
-                    && cutoff_residency::contains(self.resident_bounds, producer.position);
+                let near = dx * dx + dz * dz <= radius * radius;
+                let resident = cutoff_residency::contains(self.resident_bounds, producer.position);
                 let visible = match producer.valid_time {
                     Some(mode) => crate::scene::effect_visible(mode, night),
                     None => true,
                 };
-                (producer.identity, inside && visible)
+                if !near {
+                    census[0] += 1;
+                }
+                if !resident {
+                    census[1] += 1;
+                }
+                if !visible {
+                    census[2] += 1;
+                }
+                (producer.identity, near && resident && visible)
             })
             .collect();
+        self.census = census;
         for (identity, active) in updates {
             self.owners.set_active(identity, active);
         }
