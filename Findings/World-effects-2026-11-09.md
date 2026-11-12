@@ -4351,3 +4351,126 @@ The frames themselves are a manual run: `.github/workflows/effect-preview.yml`
 fetches `gfx.pck` and `world.ecwld` on a runner, runs the ignored corpus test and
 commits the PNGs and `render.log` to `Findings/effect-preview/`, so the evidence
 sits next to the code instead of in an artifact nobody can read.
+
+## 56. The lab: one effect, in isolation, with a ruler
+
+§55's previews answered "did anything draw". They could not answer "how big is it",
+because the camera framed the box: a 12-unit card and a 2,800-unit shaft look the
+same once the distance follows the size. This section is the lab that fixes that,
+and what it says about the three effects the reports are about.
+
+Each shot is the real pass, one authored placement, and a yardstick drawn
+underneath it by the harness and by nothing else: a ground grid at one spacing,
+a tick ladder up the effect's own height, and the two ground axes in colour. The
+report line carries the numbers that decide a report:
+
+```text
+preview: 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00)
+  up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 792 ms (shot 0),
+  view az 35/el 20 zoom 1.00, grid 500.00 u, 8.888 m/px:
+  quads=82 pixels=5866 size=557.30x2839.10x567.54 card=71.83x2515.07
+```
+
+`size` is the world-space box of the quads that were submitted, `card` the
+**longest submitted card's own width and length**, `m/px` the world units one
+pixel covers, `clock` the root's own age (a warm-up pass admits the root, so a
+shot asked for at 900 ms is taken at 1,716 ms and the report says so).
+`PWE_PREVIEW_ZOOMS` and `PWE_PREVIEW_ANGLES` give the shape, `PWE_PREVIEW_QUADS`
+prints every card's own numbers, and `PWE_PREVIEW_CENSUS` prints the placement
+scale distribution the shots should be read against.
+
+### 56.1 Waterfalls: the gate's water is an effect, it draws, and it moves
+
+`场景/新种族地图/水门_瀑布.gfx`, placed four times around (2619, 239, −4120) at
+scale **2.736**:
+
+| | measured |
+| --- | --- |
+| cards | 79 at clock 792 ms, 77 at 1,716 ms |
+| box | 5.89 x 8.74 x 7.05 units (diagonal 12.68) |
+| longest card | 5.47 x 8.76 |
+| the three sheets | `纹理\气连续03.tga` 4.92 x 8.43, `纹理\流动（通道）.dds` 4.65 x 8.27, `物体\humianbowen.dds` 5.47 x 8.76, all centred at y 242.8 |
+| droplets | `多个粒子\shuizhu01.dds`, 1.26 x 1.79 and up, at y 238.7 |
+
+`2 x 0.9 x 2.736 = 4.92` and `2 x 1.25 x 2.736 = 6.84`: the sheets are the file's
+own numbers (§52.1's law), and the picture is a curtain of tiled water with a
+splash under it.
+
+**It moves.** Between clock 792 ms and 1,716 ms, 22 % of the frame's pixels change
+by more than 8/255, and the vertical lag that best explains the second frame as a
+shifted first is **74 px**. The sheet is 8.76 units tall, which is 230 px at
+`0.038 m/px`, and its tiles are half that (90 px) because `TexRow 2`; the
+elements scroll at `TexSpeed` V −1.0, −1.5 and −2.0 per second, so 0.924 s of
+clock moves them 83, 125 and 166 px. The measured 74 px is the −1.0 element's
+tile — the sheet scrolls at the authored speed.
+
+**This supersedes §53.3.** That section concluded the gate's water was
+`瀑布.smd` scenery and that the big curtain was a mesh. The mesh is real and is
+placed nowhere in this map (no record names `瀑布.ecm`, §54.4); what draws the
+water gate is this effect, and it draws it as falling water.
+
+### 56.2 Forest sunbeams: the size is the file's, and §53.1 was reading a different placement
+
+`场景/树林光束.gfx` at scale **9.36**:
+
+| clock | cards | box | longest card |
+| --- | --- | --- | --- |
+| 792 ms | 2 | 95.55 x 100.16 x 8.27 | (the 5 cards that have started) |
+| 1,716 ms | 5 | 96.00 x 101.82 x 130.98 | 6.55 x 131.04 |
+
+The card is `2 x Height(10) x kpScale(1) x DedaultScale(0.7) x fScale(9.36) = 131.04`
+long and `2 x Width(0.5) x 0.7 x 9.36 = 6.55` wide — the measured 131.04 and 6.55
+to two decimals. The card count follows the authored `StartTime` list exactly:
+0 and 500 ms have started at a clock of 792, and 0/500/875/1,000/1,500 at 1,716
+(the 875, 1,000 and 1,500 elements begin inside the second shot's window).
+
+So the forest's shafts are 131 units long in the client too, at this grove's
+scale of 9.36. §53.1 quoted 70 units for the same root, which is the same file at
+**4.97** — both scales are in the map. Nothing here is doubled, dropped or
+re-scaled; the two numbers differ because the placements do.
+
+### 56.3 Archosaur: a 2.8 km pillar, and the map authors that size
+
+`场景/圣城之光.gfx`, 13 elements, two placements, both `night 2`, `dir (0,0,1)`,
+`up (0,1,0)`:
+
+| placement | scale | cards | box | longest card |
+| --- | --- | --- | --- | --- |
+| (−2770.6, 605.4, 3093.6) | 89.79 | 82 (106 at 1,716 ms) | 557.30 x **2839.10** x 567.54 | 71.83 x 2515.07 |
+| (1529.5, 311.4, 1032.3) | 17.70 | 87 (116 at 1,716 ms) | 112.29 x **559.71** x 113.66 | 14.16 x 495.83 |
+
+The shafts are the file's `1.0 x 35/25` cards with `kpScale 0.4`:
+`2 x 35 x 0.4 x 89.79 = 2514.1` and `2 x 1 x 0.4 x 89.79 = 71.83`, and at the
+second placement `2 x 35 x 0.4 x 17.70 = 495.6` and `2 x 1 x 0.4 x 17.70 = 14.16`.
+Both pairs match the measurement to a tenth of a unit, and the two placements'
+sizes are in exactly the ratio of their scales (5.07).
+
+**The scale is the map's own number, not a field read wrong.** A census of all
+**2,275** effect placements in this `world.ecwld` gives a scale distribution of
+
+```text
+min 0.164   p10 0.812   median 1.799   p90 6.816   max 380.953
+```
+
+and the two `圣城之光` rows occupy 17.70 and 89.79 inside it. §48's table stopped
+at 17.359 because it counted one zone's placements, not the map.
+
+So what a player sees at Archosaur is a light pillar **2,839 units tall and 71.8
+units wide**, and a second one 560 units tall, drawn from the file's own
+arithmetic at the map's own scales. If retail looks smaller than that, the
+difference is in the map's numbers or in an element rule the archived root does
+not show — it is not in the build, the doubling, the keypoint scale or the
+placement scale, because each of those is now measured against the authored
+value at two placements and matches.
+
+The rest of the root draws with it: a `图案\greenring.dds` quad of 404 x 571 at
+the base and `粒子\particle006.dds` sparks of 2.98 to 6.91 units; the picture is
+a ring with a hair-thin pillar over it, which is what a 35:1 card looks like.
+
+### 56.4 What the lab still cannot answer
+
+Why retail's pillars read as shafts rather than hairs: that is a question about
+the shaft texture's own alpha profile, and the answer is in `circle0333.dds`, not
+in the geometry. The lane is open and the tool for it now exists: the same shot
+with `PWE_PREVIEW_QUADS=1` names the map each card uses, and a decoded texture
+next to it would end the argument.
