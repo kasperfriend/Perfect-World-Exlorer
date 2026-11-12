@@ -48,6 +48,22 @@ fn attenuation_step(fade: f32, target: f32, delta_ms: u32) -> f32 {
     (fade + (target - fade).clamp(-step, step)).clamp(0., 1.)
 }
 
+/// The fade a root asks for: full alpha when the fade is switched off, else
+/// `CECOrnamentMan::Update`'s ground-plane distance test against
+/// `SCNRES_EFFECT`. `eye` is the camera; its height is skipped on purpose.
+fn attenuation_target(effect_distance: f32, position: [f32; 3], eye: [f32; 3]) -> f32 {
+    if effect_distance <= 0. {
+        return 1.;
+    }
+    let dx = position[0] - eye[0];
+    let dz = position[2] - eye[2];
+    if dx * dx + dz * dz >= effect_distance * effect_distance {
+        0.
+    } else {
+        1.
+    }
+}
+
 /// A root bound to a hook of one of this world's models.
 struct HookBinding {
     /// Index into `assets.instances` of the parent model.
@@ -560,9 +576,9 @@ impl World {
     /// near scheme and 120 in its far one (`EC_SceneBlock.cpp:1109`, `:1133`),
     /// and `CECOrnamentMan::Update` fades any `bAttenuation` node outside that
     /// radius of the host player to zero over three seconds. The explorer has no
-    /// player, so the eye is the closest equivalent: the same distance from the
-    /// camera. `0` keeps the viewer's old behaviour — every root at full alpha,
-    /// which is what a free camera flying over the whole map wants to see.
+    /// player, so the camera stands in for one and the test is horizontal, as the
+    /// client's ground positions make it. `0` turns the fade off: every root is
+    /// restored to full alpha, including one an earlier distance had dimmed.
     pub fn set_effect_distance(&mut self, distance: f32) {
         self.effect_distance = if distance.is_finite() {
             distance.max(0.)
@@ -661,28 +677,34 @@ impl World {
     /// either way, so a root crossing the radius takes three seconds to appear
     /// or vanish instead of popping. The step is linear in elapsed time, which
     /// is what `SetAlphaTransition` interpolates.
+    ///
+    /// The test is horizontal. `vHostPos` is the character's position and both
+    /// it and `vPos` sit on the map's ground, so the recovered magnitude is a
+    /// ground-plane distance; the explorer's camera stands in for the character
+    /// and only its X and Z are used. Reading the camera's height into the
+    /// distance would empty a whole city the moment the camera rose above it,
+    /// which is not what the client's fade does to a player standing there.
+    ///
+    /// A distance of zero means the fade is off, and off must leave every root
+    /// at the alpha the map authored. That is a restore, not an early return: a
+    /// root faded out under a previous distance keeps the alpha the owner
+    /// stored, and nothing else in the frame writes it back, so returning early
+    /// here would hold that root invisible for the rest of the session.
     fn apply_attenuation(&mut self, delta_ms: u32, eye: [f32; 3]) {
-        if self.effect_distance <= 0. {
-            return;
+        let off = self.effect_distance <= 0.;
+        let mut updates: Vec<(u64, f32)> = Vec::new();
+        for producer in self.producers.iter_mut().filter(|p| p.attenuation) {
+            if off {
+                if producer.fade != 1. {
+                    producer.fade = 1.;
+                    updates.push((producer.identity, 1.));
+                }
+                continue;
+            }
+            let target = attenuation_target(self.effect_distance, producer.position, eye);
+            producer.fade = attenuation_step(producer.fade, target, delta_ms);
+            updates.push((producer.identity, producer.fade));
         }
-        let radius2 = self.effect_distance * self.effect_distance;
-        let updates: Vec<(u64, f32)> = self
-            .producers
-            .iter_mut()
-            .filter(|producer| producer.attenuation)
-            .map(|producer| {
-                let dx = producer.position[0] - eye[0];
-                let dy = producer.position[1] - eye[1];
-                let dz = producer.position[2] - eye[2];
-                let target = if dx * dx + dy * dy + dz * dz >= radius2 {
-                    0.
-                } else {
-                    1.
-                };
-                producer.fade = attenuation_step(producer.fade, target, delta_ms);
-                (producer.identity, producer.fade)
-            })
-            .collect();
         for (identity, fade) in updates {
             self.owners.set_attenuation(identity, fade);
         }
@@ -1364,5 +1386,18 @@ mod tests {
         // A stalled clock steps nothing; one huge frame lands on the target.
         assert_eq!(attenuation_step(0.5, 1., 0), 0.5);
         assert_eq!(attenuation_step(0.5, 1., 100_000), 1.);
+    }
+
+    /// The fade follows `vHostPos`, a ground position, so the camera's height is
+    /// not part of the distance, and a distance of zero is the fade switched
+    /// off: every root it had dimmed comes back to the alpha the map authored.
+    #[test]
+    fn the_fade_is_horizontal_and_zero_restores_full_alpha() {
+        let ground = [100., 200., -4000.];
+        assert_eq!(attenuation_target(60., ground, [100., 700., -4000.]), 1.);
+        assert_eq!(attenuation_target(60., ground, [1000., 200., -4000.]), 0.);
+        assert_eq!(attenuation_target(0., ground, [9000., 0., 9000.]), 1.);
+        assert_eq!(attenuation_target(60., ground, [159.9, 200., -4000.]), 1.);
+        assert_eq!(attenuation_target(60., ground, [160.1, 200., -4000.]), 0.);
     }
 }

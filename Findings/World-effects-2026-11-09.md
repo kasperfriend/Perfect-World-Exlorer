@@ -4152,3 +4152,126 @@ per card is enough to check any single beam against the file.
 3. **Particles.** Fetch `A3DGFXParticle.cpp`; `AlphaSeg`/`BetaSeg` (the fade curve) and
    `ScaleNoOff` (the size) are the two keys that decide a "white blob", and both are parsed
    and unused today.
+
+## 54. The city that lost its effects, and where the waterfall mesh actually is
+
+### 54.1 The zone, located
+
+`world.ecwld` is a version-12 ECWLD: 8192 x 11264 world units, 64-unit blocks,
+176 x 128 blocks, 22,528 block records. Every block carries its own effect
+records. Scanning the whole file for the 60-byte record plus its length-prefixed
+GBK path (the layout `src/scene.rs` reads) gives **2,346 placements** whose
+`iValidTime` is 0, 1 or 2, in the box `x -3875..3790`, `z -5462..5232`.
+
+The **City of Raging Tides and its neighbours** are the densest cluster in the
+file: a box `x 1584..3378`, `z -5274..-3821` holds **295 placements**, and
+**all 295 carry `iValidTime = 2`** — 24-hour, so no time of day hides them:
+
+| placements | root |
+| --- | --- |
+| 64 | `场景/新种族地图/光.gfx` |
+| 34 | `场景/新种族地图/蓝水晶光晕.gfx` |
+| 22 | `场景/新种族地图/主城光球小.gfx` |
+| 14 | `场景/新种族地图/路灯.gfx` |
+| 14 | `场景/新种族地图/主城光球大.gfx` |
+| 8 | `血鲷封印台发光体`, 8 `水族箱玻璃` |
+| 6 each | `沙尘`, `大坑_液体`, `帐篷火盆`, `火苗`, `蓝火`, `篝火`, `光运` |
+| 4 | `新种族地图/水门_瀑布.gfx` (the water gate) at `(2619,239,-4120)` |
+
+The names settle what this is: `新种族地图` is the new-race map family,
+`主城光球` the capital's light orbs, `血鲷封印台` the seal platform,
+`水族箱` the aquarium glass, `赛亚岛传送门` a teleport gate. Nothing else in
+the world is authored this densely. So the report is not a zone with no
+authored effects: it is a zone with 295 of them, all of them 24-hour.
+
+The records themselves are ordinary: `fAlpha` is 1.0 for 184 of the 295 (2.0,
+5.0, 0.3, 0.5 among the rest), `fScale` runs 0.2..7.2, `fSpeed` is non-zero for
+every one, and no position, direction or up vector is degenerate. There is no
+data-side reason for the zone to be empty, which leaves the gates between the
+record and the draw.
+
+### 54.2 The gate that could hold 295 roots at zero alpha
+
+The gates, in order: activation (`apply_activation`), the day/night window here
+(none — all 24-hour), the build queue (one root per frame), and the distance
+fade (`apply_attenuation`).
+
+The fade had a defect. A fresh attenuating root is installed at `fade = 0`
+(`world_models_gpu.rs`, the `Producer` literal) and reaches full alpha through
+`apply_attenuation`; the owner's alpha is `outer[3] * owner.attenuation`
+(`gfx_owner.rs:908`). `apply_attenuation` returned early whenever
+`effect_distance <= 0`:
+
+```rust
+if self.effect_distance <= 0. {
+    return;
+}
+```
+
+`0` is the default and the "off" end of the slider. So the early return was not
+"draw every root at the alpha the map authored" — it was "never write the
+owner's alpha at all". A root that had been faded out (slider above zero, camera
+further than that distance) kept `owner.attenuation = 0` after the slider
+returned to `0`, and nothing else in the frame writes that value, so **the root
+stayed invisible for the rest of the session**. Roots only ever get their alpha
+back through a rebuild.
+
+That is a state that fits the report exactly: move the slider once to compare, fly
+on, and everything the fade had dimmed at that moment is gone — the effect of a
+radius measured from a camera that has since flown 4,000 units away.
+
+Two changes:
+
+* `0` now restores: every attenuating producer whose `fade` is not 1 is set to 1
+  and pushed to its owner, so switching the fade off undoes it.
+* The distance is horizontal. `CECOrnamentMan::Update` measures
+  `a3d_Magnitude(vPos - vHostPos)`, and both are ground positions — the
+  character's feet, not its eyes. The explorer's camera stands in for the
+  character, so only its X and Z are used. Measuring to the camera's height meant
+  a camera 500 units above a city was "outside" a 60-unit fade of every light in
+  it, which is not what the client does to a player standing in that city.
+
+Unit test `the_fade_is_horizontal_and_zero_restores_full_alpha` pins both.
+
+### 54.3 Why no model waterfall can be drawn at the main map's waterfalls
+
+The report says the waterfall is a model and asks for it to be drawn from the
+model archive. The shipped map says otherwise, and the difference matters
+because drawing a mesh where the client draws none is invention.
+
+* The archive entries exist: `瀑布.ecm` is **116 bytes**, `瀑布.smd` **151**,
+  `瀑布.bon` **376**, `瀑布.ski` **933**, and the sheet `瀑布.sdr.tga` 131,116.
+  That is one small static plane (a `.smd` descriptor naming the `.bon` mesh and
+  the `.ski` material), not an animated mesh — which is what §5.1 measured.
+* **No ECWLD in the main world places it.** Every length-prefixed path string in
+  `world.ecwld` — 2,348 of them, 177 distinct — was decoded and classified:
+  **zero end in `.smd`**, and **no record names `瀑布.ecm`**. The `.ecm` records
+  that do appear are `马`, `大风车动画`, `小风车动画`, `完美吐泡植物花`,
+  `完美主城花园门水晶(1)`, `藏獒`, `浑天仪`, `海马旗子02左/右`, `远征地主建筑`,
+  `完美漂浮水晶`, `沉船破旗1`, `新手村中心台子水晶`.
+* What the map does place at a waterfall is spray and sheets: 31 records name a
+  `瀑布` file — 28 splash emitters (`瀑布水花`, `瀑布水花底`, `瀑布水花中间`,
+  `瀑布水花中间2`, `瀑布水花湍急`, scale 1.0..10.4) plus four
+  `新种族地图/水门_瀑布.gfx` tiles at the City of Raging Tides water gate.
+  Nothing places `瀑布.gfx`, `瀑布大/小/1..4/子/小慢.gfx`, though 22 archive
+  entries match `瀑布`; the client does not draw those in this map either.
+* The curtain the camera points at is therefore terrain-and-scenery geometry —
+  a `.bmd` ornament mesh — with the splash emitters in front of it, exactly as
+  the client has it. The viewer already streams and draws ornaments; a `.smd`
+  waterfall would be drawn too if a map placed one, because `Scene::block.models`
+  is loaded through `world_models::Assets` regardless of extension.
+
+So there is no code change here that would add a model the data does not place.
+What the water gate *does* have is four tile-mode sheets with a negative V
+`TexSpeed`, and those are drawn by the effect pass whose sampler is `Repeat`
+(`gfx_effect_gpu.rs:252-253`), so their scroll wraps rather than clamping — and
+they are inside the 295 placements that §54.2 is about.
+
+### 54.4 What is still unknown
+
+Whether the report's zone was empty because of §54.2 or because the build queue
+never admitted those roots. The status line distinguishes them: it prints
+`world effects: N roots playing, M quads, K would not build`, and the FX line's
+tooltip lists the failures. With the fade restored, a zone that still draws
+nothing points at the queue or the loader, and the failure names will be on that
+line.
