@@ -28,23 +28,23 @@ on:
       roots:
         description: "; separated substrings of the effect paths to render (empty renders everything)"
         required: false
-        default: "水门_瀑布;圣城之光;树林光束"
+        default: "水门_瀑布;树林光束;圣城之光"
       limit:
         description: "how many placements to render"
         required: false
-        default: "8"
+        default: "6"
       frames:
         description: "comma separated shot times, in milliseconds"
         required: false
-        default: "0,900"
+        default: "0,900,3000"
       zooms:
         description: "comma separated distances; 1 fits the measured box, 0.45 is twice as close"
         required: false
-        default: "1,0.45"
+        default: "1"
       angles:
         description: "comma separated azimuth:elevation degrees"
         required: false
-        default: "35:20"
+        default: "35:20,0:80"
       size:
         description: "PNG edge in pixels"
         required: false
@@ -144,11 +144,11 @@ jobs:
           XDG_RUNTIME_DIR: /tmp
           PWE_PREVIEW_ELEMENT: client
           PWE_PREVIEW_WORLD: client/world.ecwld
-          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;圣城之光;树林光束' }}
-          PWE_PREVIEW_MAX: ${{ inputs.limit || '8' }}
-          PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,900' }}
-          PWE_PREVIEW_ZOOMS: ${{ inputs.zooms || '1,0.45' }}
-          PWE_PREVIEW_ANGLES: ${{ inputs.angles || '35:20' }}
+          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;树林光束;圣城之光' }}
+          PWE_PREVIEW_MAX: ${{ inputs.limit || '6' }}
+          PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,900,3000' }}
+          PWE_PREVIEW_ZOOMS: ${{ inputs.zooms || '1' }}
+          PWE_PREVIEW_ANGLES: ${{ inputs.angles || '35:20,0:80' }}
           PWE_PREVIEW_CENSUS: ${{ inputs.census || '1' }}
           PWE_PREVIEW_QUADS: ${{ inputs.quads || '1' }}
           PWE_PREVIEW_SIZE: ${{ inputs.size || '384' }}
