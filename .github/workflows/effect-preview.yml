@@ -208,7 +208,11 @@ jobs:
           ls -l Findings/effect-preview | head -40
           git config user.name "effect preview"
           git config user.email "preview@users.noreply.github.com"
-          git add Findings/effect-preview
+          # `-f` because `*.log` is ignored in this repository: the channel files
+          # (`effect-elements.log`, `effect-decals.log`) are the evidence that says
+          # which element built a card, and the ignored extension is for `cargo`
+          # output rather than for what a run publishes.
+          git add -f Findings/effect-preview
           if git diff --cached --quiet; then
             echo "nothing new to commit"
             exit 0
