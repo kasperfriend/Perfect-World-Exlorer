@@ -3986,3 +3986,169 @@ placement contract:
 | Raging Tides kelp, white blobs | per-class drawing and blend, not placement |
 | waterfalls | authored static sheet (§50.5); needs a shader dump |
 | Nightfire craters | glow element size and blend |
+
+## 53. The six field reports, one at a time, against the client's own drawing code
+
+This section answers the six named issues in the order they were given. For each: the file
+or files the issue is about, the rule the client applies (with the line it lives on), what
+the viewer does, and the verdict — ours, the file's, or still unread.
+
+Five new source facts came out of this pass and they decide more than one report:
+
+| fact | source | consequence |
+|---|---|---|
+| a `MatchSurface` element is **never a card**: `Update` hands it to `AfxGetGFXExMan()->GetSurfaceRender().Render(...)` and returns `false` | `A3DDecalEx.cpp:1242-1300`, `:1329-1334` | the 16 corpus `MatchSurface:1` elements must be projected, not billboarded; none of them is a world placement |
+| a grid decal scrolls by `TexSpeed`/`TileMode` and animates only from a serialised `m_pGridAnimation` block that starts at **version 99** | `A3DGridDecalEx.cpp:176-179`, `:360-364` | **every one of the 216 grid elements in `gfx.pck` sits in a root older than 99**, so retail animates none of them either |
+| `AffByScl` exists only from version 100 and defaults false; it scales the whole grid by `kp.m_fScale` when set | `A3DGridDecalEx.cpp:183-195`, `:425` | all 216 grids in the archive have no such key, so no grid takes the keypoint scale — which is what the viewer already does |
+| quaternion product order is Hamilton (`P * Q` applies `Q` first), shown by `RotateQuat` and `GetMatchGrndQuat` pre-multiplying world-space corrections | `a3dgfxkeypoint.h:257-286` | the viewer's `placement * keypoint` is the client's `GetParentDir() * kp.m_vDir` |
+| the alpha cutoff is `< 5` of 255 before anything is built | `A3DDecalEx.cpp:1063`, `:1066` | the viewer's `ALPHA_CUTOFF = 5/255` is the same number (`gfx_player.rs:128`) |
+
+### 53.1 Sunbeams in the forest — `场景/树林光束.gfx`
+
+**The file.** Eight element-100 cards, all `Width 0.5 x Height 10`, `RotFromView: 1`,
+`SrcBlend 5 / DestBlend 2` (source-alpha, one: additive), `DedaultScale 0.7`,
+`DefaultAlpha 0.5`. `StartTime` is staggered across the loop: 0, 500, 875, 1000, 1500,
+1750, 2025, 2450 ms. Keypoint 0 holds for `TimeSpan 875` and carries the 120-degree
+quaternion `(-0.5, -0.5, -0.5, 0.5)` at `Position (0, 4.70, 0.24)`; keypoint 1 is the
+identity at the origin for 2000 ms. Both are `InterpolateMode: 0`, so the client **snaps**
+between them rather than turning. Total cycle 2,875 ms, which is why the eight starts are
+spread over 2,875.
+
+**The rule.** `Fill_Verts_3D`'s `m_bRotFromView` branch (`A3DDecalEx.cpp:357-413`): shaft
+along `RotateVec(GetParentDir() * kp.m_vDir, _unit_z)`, width along
+`normalize(cross(vPos - eye, shaft))`, half extents `m_fWidth1/2` and `m_fHeight1/2`
+(`SetSize` doubles and splits them, `A3DDecalEx.h:167-177`). A 120-degree keypoint maps
+local +Z to local +Y, so for 875 ms of every 2,875 the shaft stands along the placement's
+*up* instead of its *direction* — a 90-degree snap, authored.
+
+**Verdict: the file's, not ours.** With `fScale ~ 4.97` the sheet is 3.5 wide and 70 long,
+which is what §51.3's arithmetic derives from the map's own numbers. The viewer applies the
+snap, the stagger, the additive blend and the half alpha exactly as listed. Even the degenerate case
+agrees: `A3DVECTOR3::Normalize()` clears a vector whose magnitude is under 1e-6 and returns
+0 (`A3DVector.h:133-141`), so an eye looking straight down a shaft gives the client a zero
+`vUp`, four vertices collapsed onto the shaft line, and nothing to see — which is exactly
+what `quad_corners` does when it bails on a zero `right` (`gfx_player.rs:4121-4123`).
+
+**What would end it:** a retail capture of the same grove at the same camera. The decal
+channel already prints `shaft=client` per card, so the comparison is one log away.
+
+### 53.2 Raging Tides — seaweed, white blobs, misplaced effects
+
+Three separate mechanisms, and only one of them is a placement question.
+
+- **Ground sheets (`MatchGrnd`).** `Fill_Verts_3D`'s ground branch (`A3DDecalEx.cpp:441-542`)
+  replaces the card with a grid laid out in the **world XZ plane**, two-unit cells, at most
+  4x4, each vertex taking its own terrain height plus a 0.2 lift, and only when
+  `m_bGroundNormal && !m_bGrndNormOnly && IsCloseToGrnd() && MatchGrnd()`. The viewer
+  implements that branch (`drape_sprite`, `gfx_player.rs:3735`) with the same cell size,
+  the same clamp and the same lift, and falls back to a flat card when the surface is
+  missed so half a sheet cannot tear.
+- **`MatchSurface` sheets.** These are *not* cards: `Update` calls
+  `GetSurfaceRender().Render(pView, verts, indices, vCenter, fWidth, fHeight, fRadius, …)`
+  and returns false (`A3DDecalEx.cpp:1242-1305`), with `fRadius = max(W,H) * 1.5` clamped to
+  `0.1..15` and the patch's yaw taken from the parent direction only when
+  `SurfaceUseParentDir` is set. The viewer draws them as cards, which is wrong in principle.
+  It affects 16 elements in 8 roots and **not one of them is a world placement** — they are
+  all skill effects (`巫师/技能抑制_闪电`, `宠物技能/彩虹祝福击中`, `巫师_土崩_击中`, …), so
+  they cannot be the world sheet in the report. Recorded as an open item rather than
+  guessed at.
+- **Particles.** The six classes `A3DGFXParticle*` (ids 120-125) are still unread at the
+  source level: `AlphaSeg`, `BetaSeg`, `IsAvgGen`, `AvgGenSeg`, `IsAvgGenSeq` and
+  `ScaleNoOff` are parsed but nothing consumes them, and the census counted them as unread.
+  A "white blob" is what an additive particle looks like when its `AlphaSeg`/`BetaSeg` fade
+  curve is ignored, and a blob that is too big is what `ScaleNoOff` would fix. **This is the
+  one class in this report where the client source is genuinely missing**, and it is the
+  next file to fetch (`A3DGFXParticle.cpp` / `A3DGFXElement.h`'s particle section).
+
+### 53.3 Waterfalls — a sheet that should move
+
+**The file.** `瀑布.gfx` and `水门_瀑布.gfx` are byte-identical: five element-100 cards of
+`0.9 x 1.25` and `0.85 x 1.25` with `TexRow 2 / TexCol 3`, `TileMode: 1`, `TexSpeed` V of
+-1.0 to -2.0, plus two element-124 droplet emitters. That is the gate's water, 1.8-2.5
+units across, not the curtain in the report.
+
+**The rule for grids.** A `A3DGridDecalEx` (ids 210/211) builds its UVs once
+(`_setUVCoord`, `A3DGridDecalEx.cpp:22-52`) and moves them by `TexSpeed` through the shared
+`TexAnimation`; its *vertices* move only if `TickAnimation` gets a value from
+`m_pGridAnimation`, which is loaded only for `dwVersion >= 99`
+(`A3DGridDecalEx.cpp:176-179`).
+
+**Verdict: proven static in retail for every grid in this archive.** No root in `gfx.pck`
+that carries a 210/211 element is version 99 or newer — 0 of 43 roots. So the client has no
+vertex animation for any of them, and the only motion a grid can show is the `TexSpeed`
+scroll, which the viewer already applies (and only on `TileMode: 1`, which is the client's
+own `if (m_bTileMode)` arm). For the big curtain the answer stays what §50.5 said: it is
+`瀑布.smd` scenery with a `SKI` material that carries no UV speed, and a shader dump is the
+only thing left that could overturn it.
+
+### 53.4 Nightfire — glow craters too large, crater surface too bright
+
+The two halves have different owners and only the first is a size question.
+
+- **The glow cards** are element 100/101 decals, so their extent is
+  `2 x Width x kpScale x DedaultScale x fScale` (§52.1). Every factor is read and printed:
+  the culling channel writes `record scale {:.3}` and the frame channel writes
+  `scale={:.3}` for the same card, so the two factors are comparable in one capture.
+- **Brightness** is `kp.MultiplyAlpha(GetActualAlpha())` per element
+  (`A3DDecalEx.cpp:1061`) with a hard `< 5` cutoff, then `DefaultAlpha` x record `fAlpha` at
+  the root. The viewer folds the same three numbers (`gfx_decal.rs:268-269`,
+  `scene.rs:52-56`). The client's other per-element colour step is the outer-colour
+  multiply, `kp.m_color * GetOuterColor()` (`A3DDecalEx.cpp:303-305` for every decal element,
+  `:1267-1268` in the surface branch, `A3DGridDecalEx.cpp:394-395` for grids). **That is
+  closed for world effects rather than open**: `m_bUseOuterColor` starts false
+  (`A3DGFXEx.cpp:307`), `Reset` sets it false again (`:1137`), and no recovered source calls
+  `SetOuterColor` at all — the definition at `A3DGFXEx.h:235` has no caller. A world
+  placement is therefore never tinted by an outer colour, and the viewer's white-with-alpha
+  value is the same thing.
+- **The blue surface** is not an effect at all if it is the crater's water or ice; it goes
+  through the water/composite passes, not the effect pass.
+
+### 53.5 Wraithgate — oversized green effect, drifting cyan fires
+
+**The warp element is already excluded, and correctly.** `绿色传送门.gfx`'s gate is a
+`Warp: 1` element-101 of `normalmap\gas.dds`, and `A3DDecalEx::Update` ends with
+`if (m_bWarp) { AfxGetGFXExMan()->AddWarpEle(this); return false; }`
+(`A3DDecalEx.cpp:1329-1334`): the element never enters the normal render list, so drawing it
+as a card was the bug §45 fixed. The green the report sees comes from the other elements of
+that root, whose sizes follow 52.1 like every other card.
+
+**The drifting fires are the controller clock, and that mechanism is implemented.** The
+client restarts an element's node age on every play — `A3DGFXEx::TickAnimation`'s overrun
+path calls `Resume(true); ResumeLoop();` and re-enters — and every controller integrates
+against that age (`A3DGFXCtrlMotion::Process`, read at `0x6eaf60`). The viewer clears
+`seeded`, `play` and the whole `CtrlState` for every element in `Player::reset`
+(`gfx_player.rs:1697-1712`), which runs on each root loop, and again on a keypoint change.
+`RepeatCount: 1` elements are covered by that reset — the `!= 1` test at
+`gfx_player.rs:2117` only decides whether the *element-level* loop counter can advance,
+which for one play it cannot.
+
+**What is left is evidence, not code:** the cyan fires' root name and one EffectFrames capture
+would say whether the drift is a controller (frame lines move while `key=` stays) or a
+`CtrlMethodCount` we do not run (no controllers at all).
+
+### 53.6 Archosaur — one vertical beam left of three
+
+`圣城之光.gfx` carries 13 elements: three `circle0333.dds` shafts at `1.0 x 35/25`,
+`kpScale 0.4`, each with its own keypoint quaternion —
+`(-0.4056, 0.5792, 0.5792, 0.4056)`, `(-0.7011, -0.0923, -0.0923, 0.7011)` and
+`(-0.5610, -0.4305, -0.4305, 0.5610)`. Those three quaternions are three different
+orientations of the same sheet, authored per element; the placement's own `direction` is
+common to all three. So one shaft standing vertical and two lying flat is the file saying so,
+not a basis error — and the basis is now proven three ways (§51.1, §51.2, §52.1).
+
+**Verdict: authored.** The one test that would overturn it is retail footage; the decal
+channel's `dir=` field (the parent axis) plus the frame channel's `key=` (the keypoint axis)
+per card is enough to check any single beam against the file.
+
+### 53.7 The code items this pass produced
+
+1. **Outer colour — no work needed for the world.** `SetOuterColor` (`A3DGFXEx.h:235`) has
+   no caller in any recovered source and its flag defaults false, so no world root is ever
+   tinted and the viewer's white-with-alpha value is equivalent. Worth re-opening only if a
+   skill-side caller turns up.
+2. **`MatchSurface`.** Route the 16 elements through the surface path (or at least through
+   `drape_sprite`) instead of drawing them as cards. No world placement is affected, so it
+   cannot change any of these six reports; it is correctness for the skill roots.
+3. **Particles.** Fetch `A3DGFXParticle.cpp`; `AlphaSeg`/`BetaSeg` (the fade curve) and
+   `ScaleNoOff` (the size) are the two keys that decide a "white blob", and both are parsed
+   and unused today.
