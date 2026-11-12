@@ -1001,6 +1001,57 @@ pub fn dir() -> Option<PathBuf> {
     inner.dir.clone()
 }
 
+/// The mask `PWE_LOG` names, which is how a run that never reaches [`main`]'s
+/// settings file still turns a channel on.
+///
+/// The preview test is exactly that case: it is a `cargo test` binary, so no
+/// settings were ever loaded and the mask is zero. Keys are the ones the Logging
+/// tab prints (`EffectDecals`, `EffectElements`, …), separated by commas,
+/// semicolons or spaces; an unknown key says so on stderr and is ignored rather
+/// than aborting a run that is otherwise fine.
+pub fn mask_from_keys(keys: &str) -> u64 {
+    // A file name is `effect-elements.log` and the enum is `EffectElements`, so
+    // one spelling is not enough: compare with the separators dropped and the
+    // case folded, and `PWE_LOG=EffectElements`, `effect-elements` and
+    // `effectelements` all name the same channel.
+    let fold = |text: &str| -> String {
+        text.chars()
+            .filter(|c| *c != '-' && *c != '_')
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    keys.split([',', ';', ' '])
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .fold(0u64, |mask, key| {
+            let wanted = fold(key);
+            match Channel::ALL
+                .iter()
+                .find(|channel| fold(channel.key()) == wanted)
+            {
+                Some(channel) => mask | 1u64 << channel.index(),
+                None => {
+                    eprintln!("PWE_LOG: no logging channel is named {key}");
+                    mask
+                }
+            }
+        })
+}
+
+/// Turn on whatever `PWE_LOG` names, on top of the mask already in force. Called
+/// once at startup and by the headless preview, so one environment variable is
+/// enough to make a build say what it is doing.
+pub fn apply_env() {
+    let Some(keys) = std::env::var_os("PWE_LOG") else {
+        return;
+    };
+    let keys = keys.to_string_lossy();
+    let mask = mask_from_keys(&keys) | MASK.load(Ordering::Relaxed);
+    if mask != 0 {
+        set_mask(mask);
+    }
+}
+
 /// Turn channels on and off. Files are opened on the first line that reaches
 /// them, so ticking a channel costs nothing until it has something to say.
 pub fn set_mask(mask: u64) {

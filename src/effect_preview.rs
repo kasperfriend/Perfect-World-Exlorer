@@ -1113,6 +1113,11 @@ mod tests {
         }
         let default_out = PathBuf::from("target/effect-preview");
         let out = env_path("PWE_PREVIEW_OUT").unwrap_or(default_out);
+        // A test binary never runs `main`, so nothing has read the settings file:
+        // `PWE_LOG` is the only way to turn a channel on here, and the channel
+        // files go next to the frames so the run that prints them keeps them.
+        crate::diagnostics::set_dir(&out);
+        crate::diagnostics::apply_env();
         let size = env_u32("PWE_PREVIEW_SIZE", 384);
         let limit = env_u32("PWE_PREVIEW_MAX", 8) as usize;
         // The map's blocks are walked in file order, so a per-placement limit
