@@ -774,41 +774,84 @@ fn quad_edges(quads: &[crate::gfx_player::EffectQuad]) -> (f32, f32) {
     best
 }
 
-/// Per-quad lines, one per card the root actually submitted. `PWE_PREVIEW_QUADS`
-/// turns them on; they are what says whether a shaft is thin because the file
-/// authored it thin or because the card collapsed.
-fn dump_quads(quads: &[crate::gfx_player::EffectQuad], limit: usize) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
-    for (index, quad) in quads.iter().enumerate().take(limit) {
+/// One submitted card, measured: what a size report is actually about.
+struct Card {
+    short: f32,
+    long: f32,
+    centre: glam::Vec3,
+    /// The card's own height direction. A shaft that stands up has a vertical
+    /// axis whatever its box says.
+    axis: glam::Vec3,
+    texture: String,
+    source: u32,
+    destination: u32,
+    depth: bool,
+}
+
+impl Card {
+    fn of(quad: &crate::gfx_player::EffectQuad) -> Option<Self> {
         if quad.mesh.is_some() {
-            lines.push(format!("- quad {index}: model element, tex {}", quad.texture));
-            continue;
+            return None;
         }
         let corners = quad.positions;
         let width =
             (glam::Vec3::from_array(corners[1]) - glam::Vec3::from_array(corners[0])).length();
         let height =
             (glam::Vec3::from_array(corners[3]) - glam::Vec3::from_array(corners[0])).length();
+        if !width.is_finite() || !height.is_finite() {
+            return None;
+        }
         let centre = (glam::Vec3::from_array(corners[0])
             + glam::Vec3::from_array(corners[1])
             + glam::Vec3::from_array(corners[2])
             + glam::Vec3::from_array(corners[3]))
             * 0.25;
-        lines.push(format!(
-            "- quad {index}: {:.2} x {:.2} at ({:.1}, {:.1}, {:.1}) tex {} blend {}/{} depth {} layer {}",
-            width.min(height),
-            width.max(height),
-            centre.x,
-            centre.y,
-            centre.z,
-            quad.texture,
-            quad.source_blend,
-            quad.destination_blend,
-            quad.depth_test,
-            quad.layer
-        ));
+        let axis = glam::Vec3::from_array(corners[3]) - glam::Vec3::from_array(corners[0]);
+        let axis = if axis.length_squared() > 1e-9 {
+            axis.normalize()
+        } else {
+            glam::Vec3::ZERO
+        };
+        Some(Self {
+            short: width.min(height),
+            long: width.max(height),
+            centre,
+            axis,
+            texture: quad.texture.clone(),
+            source: quad.source_blend,
+            destination: quad.destination_blend,
+            depth: quad.depth_test,
+        })
     }
-    lines
+}
+
+/// Per-quad lines, largest card first. The biggest card is what a size report is
+/// about: a shaft next to a hundred sparks is line 90 of the raw order and line
+/// 1 of this one.
+fn dump_quads(quads: &[crate::gfx_player::EffectQuad], limit: usize) -> Vec<String> {
+    let mut cards: Vec<Card> = quads.iter().filter_map(Card::of).collect();
+    cards.sort_by(|a, b| b.long.partial_cmp(&a.long).unwrap_or(std::cmp::Ordering::Equal));
+    cards
+        .iter()
+        .take(limit)
+        .map(|card| {
+            format!(
+                "- card {:.2} x {:.2} at ({:.1}, {:.1}, {:.1}) axis ({:.2}, {:.2}, {:.2}) tex {} blend {}/{} depth {}",
+                card.short,
+                card.long,
+                card.centre.x,
+                card.centre.y,
+                card.centre.z,
+                card.axis.x,
+                card.axis.y,
+                card.axis.z,
+                card.texture,
+                card.source,
+                card.destination,
+                card.depth
+            )
+        })
+        .collect()
 }
 
 /// Advance the world and then capture it: the one call a caller needs.
