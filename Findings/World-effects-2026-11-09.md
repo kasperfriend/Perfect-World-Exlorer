@@ -3795,9 +3795,12 @@ A3DMATRIX4 a3d_TransformMatrix(const A3DVECTOR3& vecDir, const A3DVECTOR3& vecUp
 ```
 
 That is `src/gfx_owner.rs::placement_transform` line for line, including the detail that
-`vecUp` is **normalized and not orthogonalised against `dir`** — so a record whose `up` is
-not perpendicular to its `direction` produces a sheared, non-orthonormal basis, and the viewer reproduces that
-shear rather than inventing a Gram-Schmidt step.
+`vecUp` is **normalized and not orthogonalised against `dir`**: a record whose `up` is not
+perpendicular to its `direction` produces a sheared, non-orthonormal basis, and the viewer
+reproduces that reading rather than inventing a Gram-Schmidt step. The shipped corpus never
+exercises the shear — `scene.rs`'s layout test finds the two vectors unit length *and*
+perpendicular on 2,275 of 2,275 records of `world.ecwld`, which is also the strongest
+independent confirmation that the 60-byte layout in 51.2 is the right one.
 
 The rows are the axes and the third row is the position, which is only true under the
 row-vector convention. `A3DMatrix.cpp:68-80` settles that too: **both** `v * mat` and
@@ -3871,7 +3874,9 @@ file's default that `SetPlaySpeed(Data.fSpeed)` overrides per placement.
 
 ### 51.5 The one structural thing the client does that the viewer does not: it draws far less
 
-`bAttenuation` is not cosmetic (`EC_ManOrnament.cpp:250-300`): each frame, a node whose
+The flag is already parsed — `Effect` carries `attenuation: bool` off `bytes[56]`
+(`scene.rs:55`) — but nothing reads it, and `gfx_owner.rs:29` names the omission:
+"the visual effect's alpha/attenuation fade over distance". `bAttenuation` is not cosmetic (`EC_ManOrnament.cpp:250-300`): each frame, a node whose
 `bAttenuation` is set and whose distance to the **host player** exceeds
 `CECSceneBlock::GetResLoadDists(SCNRES_EFFECT)` is faded out (`FadeGFX(node, false)`, a
 3,000 ms alpha transition) and faded back in when the player returns. The distances are
