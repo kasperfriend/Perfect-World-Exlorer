@@ -4540,6 +4540,14 @@ clock is the player's own, printed as `player clock 792 ms play 1.000 (file
 1.000)`, and it equals the requested time because this record and this file both
 run at 1.0.
 
+The element table says the same thing from the asset's side
+(`Findings/effect-preview/effect-elements.log`): `version=79`, `play_speed=1.000`,
+seven elements, and the four drawn sheets are `tile=1` with
+`speed=(0,-1.5)/(0,-1.8)/(0,-2.0)/(0,-1.0)` and `grid=3x2/2x2/1x1/1x1`. The
+`normalmap\gas.dds` card is a warp source and draws no card at all — the decal
+channel says so in the native terms (`AddWarpEle, no normal card,
+A3DDecalEx.cpp:1332`).
+
 The PNGs agree that something moves — 21.2 % of the pixels differ by more than
 8/255 between 792 ms and 1,716 ms, 18.1 % between 792 and 3,795 — but not with a
 coherent vertical shift (best 1 px), and that is the sheet's own nature: `气连续03`
@@ -4563,6 +4571,22 @@ rings" in the frame are the five `yuanhuanhuang` cards a hundred units above the
 rings themselves. §56.3's `(0.71, 0.00, 0.71)` was the *diagonal* of the flat
 square, not a lean: a card lying in the ground plane and turned 45 degrees reports
 exactly that.
+
+The decal channel names the builder for each of them, and it settles the last
+doubt: every `图案` card — flat or standing — takes the **element** branch, and
+none of them is a billboard:
+
+```
+gfx/场景/圣城之光.gfx id=100 basis=element  rot_from_view=false 图案/greenring.dds
+gfx/场景/圣城之光.gfx id=100 basis=element  rot_from_view=false 图案/yuanhuanhuang.dds
+gfx/场景/圣城之光.gfx id=100 basis=axial    rot_from_view=true  圆环光/circle0333.dds
+gfx/场景/圣城之光.gfx id=100 basis=axial    rot_from_view=true  闪电/lightning007.dds
+```
+
+The two textures that end up in different planes therefore differ in the asset's
+own keypoint `Direction`, which is folded into the element frame before the card
+is built, and not in the rule that builds them. A standing `yuanhuanhuang` card
+is what the file draws; if it should lie down, the file is where to look.
 
 ### 57.4 `圣城之光` is placed at `fSpeed` 0.8, not at the file's 1.0
 
@@ -4590,12 +4614,12 @@ at `StartTime` 0, 500, 875, 1,000, 1,500). Two axes appear:
   placement that direction is horizontal, so those cards lie in a horizontal
   plane at the placement origin.
 
-Which of the two the client draws for a given element is settled by that
-element's `RotFromView` and keypoint `Direction`; the open question left here is
-whether the axial set should really be horizontal for *this* record or whether
-the keypoint quaternion of those elements is being dropped. The lab can answer it
-directly once the root's element table is dumped next to these lines
-(`PWE_LOG=EffectElements` prints it).
+Every one of the eight elements is `id=100` with `RotFromView: 1` (`basis=axial`),
+so the two axes are not two rules: each element carries its own keypoint
+`Direction`, that quaternion is part of the element frame, and the axial height
+runs along that frame's Z. The element table confirms the rest of the card:
+`size=0.500x10.000`, `grid=1x1`, `tile=0`, `speed=(0.000,0.000)`,
+`default_scale=0.700`, `default_alpha=0.500`.
 
 ### 57.6 What is still open: the viewer's own clock
 
@@ -4613,3 +4637,19 @@ viewer's side of it, neither of which needs a debugger:
   two seconds, and every row now carries `clock=` and `dclock=` — the second one
   is the change since the previous report, so `dclock=+2001ms` is a running root
   and `dclock=+0ms` is a frozen one, with no arithmetic for the reader.
+
+### 57.7 `PWE_LOG` is real now, and the logs are published with the frames
+
+The docs promised `PWE_LOG` and nothing read it. It does now: `diagnostics::apply_env`
+takes the channel keys the Logging tab prints — in any spelling, `effect-elements`,
+`EffectElements` or `effectelements` — and turns them on, on top of whatever the
+settings file had. The preview test never runs `main`, so this is also the only way
+a headless run can name a channel; the workflow sets
+`PWE_LOG=effect-elements,effect-decals` and copies the resulting files into
+`Findings/effect-preview/` with `git add -f`, because `*.log` is ignored in this
+repository and the first attempt published nothing at all.
+
+Those two files are what every claim in §57.3 and §57.5 rests on: the element table
+is the asset as authored, and the decal channel is the branch each card was built
+by, printed next to the card's texture, its `rot_from_view`, its origin and the
+clock at which it was drawn.
