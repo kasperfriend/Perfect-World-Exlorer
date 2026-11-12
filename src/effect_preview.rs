@@ -53,17 +53,19 @@ fn clear_color() -> wgpu::Color {
     }
 }
 
-fn preview_device() -> (wgpu::Device, wgpu::Queue) {
+/// A device for the preview, or `None` when this machine has no adapter at
+/// all (a test runner without a Vulkan ICD). Callers decide whether that is a
+/// skip or a failure: the smoke test skips, the corpus test refuses.
+fn preview_device() -> Option<(wgpu::Device, wgpu::Queue)> {
     let options = wgpu::RequestAdapterOptions::default();
     let instance = wgpu::Instance::default();
-    let adapter = pollster::block_on(instance.request_adapter(&options)).expect("an adapter");
+    let adapter = pollster::block_on(instance.request_adapter(&options))?;
     let descriptor = wgpu::DeviceDescriptor {
         label: Some("effect preview"),
         required_features: wgpu::Features::empty(),
         required_limits: wgpu::Limits::downlevel_defaults(),
     };
-    let device = pollster::block_on(adapter.request_device(&descriptor, None));
-    device.expect("an effect preview device")
+    pollster::block_on(adapter.request_device(&descriptor, None)).ok()
 }
 
 fn empty_scene() -> Scene {
@@ -543,7 +545,13 @@ mod tests {
     /// previews are not evidence of anything.
     #[test]
     fn effect_preview_smoke() {
-        let (device, queue) = preview_device();
+        // The plain unit-test job runs on a machine with no Vulkan ICD, and a
+        // test that needs a GPU must not turn that into a red build. The GPU
+        // job in `pr-checks.yml` is where this actually runs.
+        let Some((device, queue)) = preview_device() else {
+            crate::pck::corpus_absent("Vulkan adapter");
+            return;
+        };
         // Roots are decoded text, so the smoke archive is a text reader. Textures
         // are deliberately absent: a missing texture falls back to the draw's
         // white texel, which keeps the smoke test free of any client file.
@@ -606,7 +614,7 @@ mod tests {
             }
         }
         let wanted = env_list("PWE_PREVIEW_ROOTS", ';', "");
-        let (device, queue) = preview_device();
+        let (device, queue) = preview_device().expect("a Vulkan adapter for the previews");
         let scene = crate::scene::Scene::load(&world_path).expect("parse the world file");
         eprintln!(
             "preview: {} blocks, roots {:?}, out {}",
