@@ -1,6 +1,6 @@
 //! Headless effect previews: the production effect pass, rendered offscreen.
 //!
-//! Nothing here draws with its own code. A preview builds a [`World`] exactly
+//! The effect itself is never drawn by this module: a preview builds a [`World`] exactly
 //! as the viewer does, installs the placements the map authors, runs the frame
 //! loop so the loader queue and the activation gates do their work, and then
 //! renders the same pass the window renders — into a texture instead of the
@@ -24,11 +24,19 @@
 //! | `PWE_PREVIEW_SIZE` | PNG edge in pixels |
 //! | `PWE_PREVIEW_FADE` | the distance fade to shoot with, 0 for off |
 //! | `PWE_PREVIEW_OUT` | output directory |
+//! | `PWE_PREVIEW_REBASE` | 1 moves the placement to the origin, keeping its authored scale and direction — the single-effect lab |
+//! | `PWE_PREVIEW_ZOOMS` | `,`-separated distances, 1 fits the measured box and 0.45 is twice as close |
+//! | `PWE_PREVIEW_ANGLES` | `,`-separated `azimuth:elevation` degrees to view the effect from |
+//!
+//! Every PNG carries a **ruler**: a one-metre (or one-spacing) grid on the
+//! ground plane and a tick ladder up the effect's own height, drawn by this
+//! module and by nothing else. It is a yardstick, not a claim about the effect.
 //!
 //! The number that decides whether an effect is the size the map authored is
-//! printed beside every shot: the world-space bounding box of the quads that
-//! were submitted, and that box's diagonal. A sheet drawn at twice its authored
-//! size says so in that line whatever it looks like on screen.
+//! printed beside every shot and collected into `metrics.md`: the world-space
+//! box the quads occupy as `width x height x depth`, its diagonal, the ruler's
+//! spacing and the world units one pixel covers. A sheet drawn at twice its
+//! authored size says so in that line whatever it looks like on screen.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -101,10 +109,20 @@ fn empty_scene() -> Scene {
 /// map draws that root at noon is a different question, which the census in the
 /// findings answers.
 fn one_effect_scene(record: &Effect) -> Scene {
+    scene_with_one_effect(record, false)
+}
+
+/// `rebase` moves the placement to the origin and keeps everything else — the
+/// authored scale, direction and up. That is the lab: one effect on its own,
+/// at a known position, with the map's own numbers rather than invented ones.
+fn scene_with_one_effect(record: &Effect, rebase: bool) -> Scene {
     let mut scene = empty_scene();
     if let Some(block) = scene.blocks.first_mut() {
         let mut copy = record.clone();
         copy.valid_time = 2;
+        if rebase {
+            copy.position = [0., 0., 0.];
+        }
         block.effects.push(copy);
     }
     scene
@@ -116,6 +134,8 @@ struct Shot {
     height: u32,
     eye: [f32; 3],
     target: [f32; 3],
+    /// World units a pixel covers at the target, so a PNG reads in metres.
+    pixel_scale: f32,
 }
 
 impl Shot {
@@ -131,11 +151,22 @@ impl Shot {
 
 /// Frame a world box from one fixed direction, so two shots of two roots are
 /// comparable: the distance follows the box, not the camera.
-fn framing_shot(centre: [f32; 3], radius: f32, size: u32) -> Shot {
-    let azimuth = 35f32.to_radians();
-    let elevation = 20f32.to_radians();
+/// Frame a world box from a chosen direction: `azimuth` is degrees around the
+/// up axis, `elevation` degrees above the horizon, `zoom` multiplies the
+/// distance (1 fits the box, 0.5 is twice as close). The distance follows the
+/// box, so two shots of two roots are comparable.
+fn framing_shot_at(
+    centre: [f32; 3],
+    radius: f32,
+    size: u32,
+    azimuth_deg: f32,
+    elevation_deg: f32,
+    zoom: f32,
+) -> Shot {
+    let azimuth = azimuth_deg.to_radians();
+    let elevation = elevation_deg.clamp(-89., 89.).to_radians();
     let half_angle = 22.5f32.to_radians().tan();
-    let distance = (radius.max(0.25) / half_angle) * 1.15 + 0.5;
+    let distance = ((radius.max(0.25) / half_angle) * 1.15 + 0.5) * zoom.max(0.01);
     let direction = glam::Vec3::new(
         azimuth.sin() * elevation.cos(),
         elevation.sin(),
@@ -147,6 +178,7 @@ fn framing_shot(centre: [f32; 3], radius: f32, size: u32) -> Shot {
         height: size,
         eye: (target + direction * distance).to_array(),
         target: centre,
+        pixel_scale: distance * 2. * half_angle / size.max(1) as f32,
     }
 }
 
@@ -198,6 +230,8 @@ struct Stats {
     covered: usize,
     min: [f32; 3],
     max: [f32; 3],
+    /// The ruler's grid step, in world units, that the PNG was drawn with.
+    spacing: f32,
 }
 
 impl Stats {
@@ -216,18 +250,23 @@ impl Stats {
         ((min + max) * 0.5).to_array()
     }
 
+    /// `size=` is the one number a report can be checked against: the box the
+    /// quads occupy, in the map's own units, printed as width x height x depth.
     fn describe(&self) -> String {
         format!(
-            "quads={} pixels={} box=({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2}) diagonal={:.2}",
+            "quads={} pixels={} size={:.2}x{:.2}x{:.2} diagonal={:.2} box=({:.2},{:.2},{:.2})..({:.2},{:.2},{:.2})",
             self.quads,
             self.covered,
+            self.max[0] - self.min[0],
+            self.max[1] - self.min[1],
+            self.max[2] - self.min[2],
+            self.radius() * 2.,
             self.min[0],
             self.min[1],
             self.min[2],
             self.max[0],
             self.max[1],
-            self.max[2],
-            self.radius() * 2.
+            self.max[2]
         )
     }
 }
@@ -259,11 +298,16 @@ fn preview_world(
     element: &Path,
     record: &Effect,
     fade: f32,
+    rebase: bool,
 ) -> (World, usize) {
     let mut world = World::without_models(device, PREVIEW_FORMAT);
     world.attach_gfx_archive(element).expect("attach gfx.pck");
-    let installed = world.install_scene_effects(&one_effect_scene(record));
-    world.set_view_center(record.position[0], record.position[2], 1.0e6);
+    let installed = world.install_scene_effects(&scene_with_one_effect(record, rebase));
+    if rebase {
+        world.set_view_center(0., 0., 1.0e6);
+    } else {
+        world.set_view_center(record.position[0], record.position[2], 1.0e6);
+    }
     world.set_effects_enabled(true);
     world.set_effect_distance(fade);
     (world, installed)
@@ -284,6 +328,269 @@ fn advance(
     for _ in 0..ticks.max(1) {
         world.update(device, queue, frame, shot.target, &lights, 0., 33);
     }
+}
+
+/// A measuring stick, not an effect: a one-metre grid on the ground plane and
+/// a tick ladder up the effect's own height, drawn into the same target. Without
+/// it a PNG says "something is here" and nothing about how big it is, and a
+/// 1,200-unit beam and a 12-unit card look identical once the framing adapts.
+///
+/// The ruler is the only thing in this module that draws with its own shader.
+/// It is a yardstick drawn under the real pass, never a claim about the effect.
+const RULER_WGSL: &str = r#"
+struct Uniforms { matrix:mat4x4<f32> };
+@group(0) @binding(0) var<uniform> u:Uniforms;
+struct In { @location(0) position:vec3<f32>, @location(1) color:vec3<f32> };
+struct Out { @builtin(position) position:vec4<f32>, @location(0) color:vec3<f32> };
+@vertex fn vs(v:In)->Out {
+ var o:Out;
+ o.position=u.matrix*vec4<f32>(v.position,1.);
+ o.color=v.color;
+ return o;
+}
+@fragment fn fs(v:Out)->@location(0) vec4<f32> { return vec4<f32>(v.color,1.); }
+"#;
+
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct LineVertex {
+    position: [f32; 3],
+    color: [f32; 3],
+}
+
+struct Ruler {
+    pipeline: wgpu::RenderPipeline,
+    buffer: wgpu::Buffer,
+    bind: wgpu::BindGroup,
+    vertices: u32,
+}
+
+impl Ruler {
+    fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.bind, &[]);
+        pass.set_vertex_buffer(0, self.buffer.slice(..));
+        pass.draw(0..self.vertices, 0..1);
+    }
+}
+
+/// One grid step, chosen so a shot shows a handful of labelled decades: 1, 2 or
+/// 5 times a power of ten.
+fn nice_spacing(span: f32) -> f32 {
+    let target = (span / 10.).max(0.05);
+    let decade = 10f32.powf(target.log10().floor());
+    let step = target / decade;
+    let step = if step <= 1. {
+        1.
+    } else if step <= 2. {
+        2.
+    } else if step <= 5. {
+        5.
+    } else {
+        10.
+    };
+    decade * step
+}
+
+fn ruler_vertices(min: [f32; 3], max: [f32; 3]) -> (Vec<LineVertex>, f32) {
+    let minor = [0.26, 0.28, 0.32];
+    let major = [0.42, 0.45, 0.52];
+    let axis_x = [0.60, 0.24, 0.24];
+    let axis_z = [0.24, 0.42, 0.66];
+    let ladder = [0.28, 0.62, 0.32];
+    let mut lines: Vec<LineVertex> = Vec::new();
+    let span = ((max[0] - min[0]).max(max[1] - min[1]).max(max[2] - min[2])).max(1.);
+    let spacing = nice_spacing(span);
+    // The dashes are a measuring scale, so they live on the ground under the
+    // effect and run out far enough that the box edge is never the grid edge.
+    let floor = min[1];
+    let centre_x = (min[0] + max[0]) * 0.5;
+    let centre_z = (min[2] + max[2]) * 0.5;
+    let half = ((max[0] - min[0]).max(max[2] - min[2])) * 0.5 + spacing * 3.;
+    let count = (half / spacing).ceil() as i32;
+    let mut line = |from: [f32; 3], to: [f32; 3], color: [f32; 3]| {
+        lines.push(LineVertex {
+            position: from,
+            color,
+        });
+        lines.push(LineVertex {
+            position: to,
+            color,
+        });
+    };
+    for i in -count..=count {
+        let offset = i as f32 * spacing;
+        let color = if i == 0 {
+            major
+        } else if i % 10 == 0 {
+            major
+        } else {
+            minor
+        };
+        line(
+            [centre_x + offset, floor, centre_z - half],
+            [centre_x + offset, floor, centre_z + half],
+            color,
+        );
+        line(
+            [centre_x - half, floor, centre_z + offset],
+            [centre_x + half, floor, centre_z + offset],
+            color,
+        );
+    }
+    // The two ground axes are coloured so a shot says which way the effect faces.
+    line(
+        [centre_x - half, floor, centre_z],
+        [centre_x + half, floor, centre_z],
+        axis_x,
+    );
+    line(
+        [centre_x, floor, centre_z - half],
+        [centre_x, floor, centre_z + half],
+        axis_z,
+    );
+    // A ladder up the effect's height, ticked every step and longer every ten.
+    let height = (max[1] - floor).max(spacing);
+    let steps = (height / spacing).ceil() as i32;
+    line(
+        [centre_x, floor, centre_z],
+        [centre_x, floor + height, centre_z],
+        ladder,
+    );
+    for k in 0..=steps {
+        let y = floor + k as f32 * spacing;
+        let length = if k % 10 == 0 {
+            spacing * 0.6
+        } else {
+            spacing * 0.3
+        };
+        line(
+            [centre_x, y, centre_z],
+            [centre_x + length, y, centre_z],
+            ladder,
+        );
+    }
+    (lines, spacing)
+}
+
+fn ruler(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    shot: Shot,
+    stats: &Stats,
+) -> (Ruler, f32) {
+    let (vertices, spacing) = ruler_vertices(stats.min, stats.max);
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("effect preview ruler"),
+        source: wgpu::ShaderSource::Wgsl(RULER_WGSL.into()),
+    });
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("effect preview ruler layout"),
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    });
+    let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("effect preview ruler matrix"),
+        size: 64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let matrix = shot.matrix();
+    let mut words = [0f32; 16];
+    for (row, values) in matrix.iter().enumerate() {
+        for (column, value) in values.iter().enumerate() {
+            words[row * 4 + column] = *value;
+        }
+    }
+    queue.write_buffer(&uniform, 0, bytemuck::cast_slice(&words));
+    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("effect preview ruler binding"),
+        layout: &layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform.as_entire_binding(),
+        }],
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("effect preview ruler pipeline layout"),
+        bind_group_layouts: &[&layout],
+        push_constant_ranges: &[],
+    });
+    let attributes = [
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x3,
+            offset: 0,
+            shader_location: 0,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x3,
+            offset: 12,
+            shader_location: 1,
+        },
+    ];
+    let pipeline_descriptor = wgpu::RenderPipelineDescriptor {
+        label: Some("effect preview ruler"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: "vs",
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<LineVertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &attributes,
+            }],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: "fs",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: PREVIEW_FORMAT,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::LineList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        // The pass owns a depth attachment, so the ruler must declare one; it
+        // neither writes nor tests, which keeps it under the effect instead of
+        // punching one-pixel holes in a sheet.
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth32Float,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::Always,
+            stencil: Default::default(),
+            bias: Default::default(),
+        }),
+        multisample: Default::default(),
+        multiview: None,
+    };
+    let pipeline = device.create_render_pipeline(&pipeline_descriptor);
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("effect preview ruler vertices"),
+        size: (vertices.len() * std::mem::size_of::<LineVertex>()) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    queue.write_buffer(&buffer, 0, bytemuck::cast_slice(&vertices));
+    (
+        Ruler {
+            pipeline,
+            buffer,
+            bind,
+            vertices: vertices.len() as u32,
+        },
+        spacing,
+    )
 }
 
 /// Render the effect pass into an RGBA texture and write the frame as a PNG.
@@ -356,12 +663,16 @@ fn capture(
         occlusion_query_set: None,
         timestamp_writes: None,
     };
+    // The yardstick is built from the measured box, so it frames exactly what
+    // was submitted rather than a guess at the root's size.
+    let (yardstick, spacing) = ruler(device, queue, shot, &stats);
     let encoder_descriptor = wgpu::CommandEncoderDescriptor {
         label: Some("effect preview encoder"),
     };
     let mut encoder = device.create_command_encoder(&encoder_descriptor);
     {
         let mut pass = encoder.begin_render_pass(&pass_descriptor);
+        yardstick.draw(&mut pass);
         world.draw(&mut pass);
     }
     let padded = (shot.width * 4).div_ceil(256) * 256;
@@ -418,6 +729,7 @@ fn capture(
     }
     stats.covered = covered;
     write_png(path, shot.width, shot.height, &pixels)?;
+    stats.spacing = spacing;
     Ok(stats)
 }
 
@@ -596,6 +908,7 @@ mod tests {
             height: 128,
             eye: [0., 1.5, 9.],
             target: [0., 0., 0.],
+            pixel_scale: 9. * 2. * 22.5f32.to_radians().tan() / 128.,
         };
         let out = std::env::temp_dir().join("pwe-effect-preview-smoke.png");
         let stats =
@@ -643,17 +956,60 @@ mod tests {
             wanted,
             out.display()
         );
+        let rebase = env_u32("PWE_PREVIEW_REBASE", 0) != 0;
+        // Zooms and views are what make a PNG readable: one distance cannot show
+        // both the shape of a 1,200-unit shaft and the width of its card.
+        let mut zooms: Vec<f32> = Vec::new();
+        for value in env_list("PWE_PREVIEW_ZOOMS", ',', "1,0.45") {
+            if let Ok(parsed) = value.parse::<f32>() {
+                if parsed > 0. {
+                    zooms.push(parsed);
+                }
+            }
+        }
+        if zooms.is_empty() {
+            zooms.push(1.);
+        }
+        let mut angles: Vec<(f32, f32)> = Vec::new();
+        for value in env_list("PWE_PREVIEW_ANGLES", ',', "35:20") {
+            let mut parts = value.split(':');
+            let azimuth = parts.next().and_then(|v| v.trim().parse::<f32>().ok());
+            let elevation = parts
+                .next()
+                .and_then(|v| v.trim().parse::<f32>().ok())
+                .unwrap_or(20.);
+            if let Some(azimuth) = azimuth {
+                angles.push((azimuth, elevation));
+            }
+        }
+        if angles.is_empty() {
+            angles.push((35., 20.));
+        }
+        std::fs::create_dir_all(&out).expect("create the preview directory");
+        let mut report = String::from("# Effect preview shots\n\n");
+        report.push_str(
+            "One line per PNG. `grid` is the ruler's spacing in world units, `m/px` the world units\n\
+             one pixel covers at the targeted box, `size` the measured box of the quads that were\n\
+             submitted (the map's own units), and `quads`/`pixels` what reached the pass and made\n\
+             it to the image.\n\n",
+        );
         let mut shots = 0usize;
-        for block in &scene.blocks {
+        let mut written = 0usize;
+        'placements: for block in &scene.blocks {
             for record in &block.effects {
                 if !wanted.is_empty() && !wanted.iter().any(|key| record.path.contains(key)) {
                     continue;
                 }
                 if shots >= limit {
                     eprintln!("preview: stopping at the {limit} placement limit");
-                    return;
+                    break 'placements;
                 }
                 shots += 1;
+                let centre = if rebase {
+                    [0., 0., 0.]
+                } else {
+                    record.position
+                };
                 // A wide first shot, so the real frame can be fitted to what the
                 // root actually emits instead of to a guess at its size. The
                 // probe runs to the largest requested time, so a sheet that
@@ -662,16 +1018,14 @@ mod tests {
                 let wide = Shot {
                     width: 128,
                     height: 128,
-                    eye: [
-                        record.position[0] + 60.,
-                        record.position[1] + 30.,
-                        record.position[2] + 60.,
-                    ],
-                    target: record.position,
+                    eye: [centre[0] + 60., centre[1] + 30., centre[2] + 60.],
+                    target: centre,
+                    pixel_scale: 85. * 2. * 22.5f32.to_radians().tan() / 128.,
                 };
                 let latest = frames.iter().cloned().fold(0f32, f32::max);
                 let probe_ticks = (latest / 33.).ceil() as u32 + 24;
-                let (mut probe_world, installed) = preview_world(&device, &element, record, fade);
+                let (mut probe_world, installed) =
+                    preview_world(&device, &element, record, fade, rebase);
                 let probe = render_shot(
                     &mut probe_world,
                     &device,
@@ -683,56 +1037,90 @@ mod tests {
                 let fitted = match probe {
                     Ok(stats) if stats.quads > 0 => (stats.centre(), stats.radius()),
                     _ => {
+                        let textures = probe_world.effect_texture_failures();
                         eprintln!(
-                            "preview: {} at {:?} emitted nothing (installed {installed})",
-                            record.path, record.position
+                            "preview: {} at {:?} emitted no quads (installed {installed}, textures failed {})",
+                            record.path,
+                            record.position,
+                            textures.len()
                         );
                         continue;
                     }
                 };
-                let shot = framing_shot(fitted.0, fitted.1, size);
-                for time in &frames {
-                    let name = format!(
-                        "{:03}-{}-{:04}ms.png",
-                        record.export_id,
-                        slug(&record.path),
-                        *time as i64
-                    );
-                    let path = out.join(&name);
-                    // One world per time: the clock below then reads as the
-                    // milliseconds since the placement started.
-                    let (mut world, _) = preview_world(&device, &element, record, fade);
-                    let ticks = (*time / 33.).ceil() as u32 + 24;
-                    match render_shot(&mut world, &device, &queue, shot, &path, ticks) {
-                        Ok(stats) => {
-                            // A shot with quads but no pixels is a texture the
-                            // map reader refused, not an empty root: say which.
-                            let textures = world.effect_texture_failures();
-                            let note = match textures.first() {
-                                Some(first) => {
-                                    format!(" textures-failed={} first={first}", textures.len())
-                                }
-                                None => String::new(),
-                            };
-                            eprintln!(
-                                "preview: {} at ({:.1},{:.1},{:.1}) scale={:.2} alpha={:.2} t={}ms {}{note}",
-                                record.path,
-                                record.position[0],
-                                record.position[1],
-                                record.position[2],
-                                record.scale,
-                                record.alpha,
+                for (azimuth, elevation) in &angles {
+                    for zoom in &zooms {
+                        let shot = framing_shot_at(
+                            fitted.0, fitted.1, size, *azimuth, *elevation, *zoom,
+                        );
+                        for time in &frames {
+                            let name = format!(
+                                "{:02}-{:05}-{:04}ms-az{:.0}el{:.0}-z{:.2}.png",
+                                shots,
+                                record.export_id,
                                 *time as i64,
-                                stats.describe()
+                                *azimuth,
+                                *elevation,
+                                *zoom
                             );
-                        }
-                        Err(error) => {
-                            eprintln!("preview: {} at {}ms: {error}", record.path, *time as i64)
+                            let path = out.join(&name);
+                            // One world per time: the clock then reads as the
+                            // milliseconds since the placement started.
+                            let (mut world, _) =
+                                preview_world(&device, &element, record, fade, rebase);
+                            let ticks = (*time / 33.).ceil() as u32 + 24;
+                            match render_shot(&mut world, &device, &queue, shot, &path, ticks) {
+                                Ok(stats) => {
+                                    // A shot with quads but no pixels is a map
+                                    // the reader refused, not an empty root.
+                                    let textures = world.effect_texture_failures();
+                                    let note = match textures.first() {
+                                        Some(first) => format!(
+                                            " textures-failed={} first={first}",
+                                            textures.len()
+                                        ),
+                                        None => String::new(),
+                                    };
+                                    let line = format!(
+                                        "- `{name}` — {} at ({:.1}, {:.1}, {:.1}) scale {:.2} alpha {:.2}, t {} ms, view az {:.0}/el {:.0} zoom {:.2}, grid {:.2} u, {:.3} m/px: {}{note}",
+                                        record.path,
+                                        record.position[0],
+                                        record.position[1],
+                                        record.position[2],
+                                        record.scale,
+                                        record.alpha,
+                                        *time as i64,
+                                        *azimuth,
+                                        *elevation,
+                                        *zoom,
+                                        stats.spacing,
+                                        shot.pixel_scale,
+                                        stats.describe()
+                                    );
+                                    report.push_str(&line);
+                                    report.push('\n');
+                                    eprintln!("preview: {line}");
+                                    written += 1;
+                                }
+                                Err(error) => {
+                                    let line = format!(
+                                        "- `{name}` — {} at {} ms: {error}",
+                                        record.path, *time as i64
+                                    );
+                                    report.push_str(&line);
+                                    report.push('\n');
+                                    eprintln!("preview: {line}");
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        eprintln!("preview: {shots} placements rendered into {}", out.display());
+        let report_path = out.join("metrics.md");
+        std::fs::write(&report_path, &report).expect("write the shot report");
+        eprintln!(
+            "preview: {written} shots from {shots} placements, report {}",
+            report_path.display()
+        );
     }
 }

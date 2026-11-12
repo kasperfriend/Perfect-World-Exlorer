@@ -32,11 +32,19 @@ on:
       limit:
         description: "how many placements to render"
         required: false
-        default: "6"
+        default: "3"
       frames:
         description: "comma separated shot times, in milliseconds"
         required: false
-        default: "0,300,900"
+        default: "0,900"
+      zooms:
+        description: "comma separated distances; 1 fits the measured box, 0.45 is twice as close"
+        required: false
+        default: "1,0.45"
+      angles:
+        description: "comma separated azimuth:elevation degrees"
+        required: false
+        default: "35:20,125:20"
       size:
         description: "PNG edge in pixels"
         required: false
@@ -129,8 +137,10 @@ jobs:
           PWE_PREVIEW_ELEMENT: client
           PWE_PREVIEW_WORLD: client/world.ecwld
           PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;圣城之光;树林光束' }}
-          PWE_PREVIEW_MAX: ${{ inputs.limit || '6' }}
-          PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,300,900' }}
+          PWE_PREVIEW_MAX: ${{ inputs.limit || '3' }}
+          PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,900' }}
+          PWE_PREVIEW_ZOOMS: ${{ inputs.zooms || '1,0.45' }}
+          PWE_PREVIEW_ANGLES: ${{ inputs.angles || '35:20,125:20' }}
           PWE_PREVIEW_SIZE: ${{ inputs.size || '384' }}
         run: |
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
@@ -160,10 +170,15 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p Findings/effect-preview
+          # Frames are evidence for this run, not an archive of every past one.
+          rm -f Findings/effect-preview/*.png Findings/effect-preview/metrics.md
           if [ -f target/effect-preview/render.log ]; then
             cp target/effect-preview/render.log Findings/effect-preview/
           fi
           find target/effect-preview -name '*.png' -size -2M -exec cp {} Findings/effect-preview/ \;
+          if [ -f target/effect-preview/metrics.md ]; then
+            cp target/effect-preview/metrics.md Findings/effect-preview/
+          fi
           ls -l Findings/effect-preview | head -40
           git config user.name "effect preview"
           git config user.email "preview@users.noreply.github.com"
