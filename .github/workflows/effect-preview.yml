@@ -12,9 +12,17 @@ name: Effect previews
 #
 # Manual only. Every run uploads `target/effect-preview/*.png` plus the log that
 # carries the measured box of each effect, which is what says whether a sheet
-# was drawn at the size its root authored.
+# was drawn at the size its root authored, and commits both to
+# `Findings/effect-preview/` so a reviewer reads them without an artifact
+# download.
 
 on:
+  # `workflow_dispatch` cannot start a workflow that is not yet on the default
+  # branch, so a push to this one file is the "run it now" switch used while the
+  # workflow itself is still under review.
+  push:
+    paths:
+      - ".github/effect-preview-trigger.txt"
   workflow_dispatch:
     inputs:
       roots:
@@ -43,7 +51,7 @@ on:
         default: "1nYOesKLxtlHD6fy1M_hqBSRSNBiTLd8I"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: effect-preview
@@ -73,8 +81,8 @@ jobs:
 
       - name: Download the client effect archive
         env:
-          GFX_ID: ${{ inputs.gfx_id }}
-          WORLD_ID: ${{ inputs.world_id }}
+          GFX_ID: ${{ inputs.gfx_id || '1a_q8Xew2gDY5hlLcKxcuFnmkP_2gsfAH' }}
+          WORLD_ID: ${{ inputs.world_id || '1nYOesKLxtlHD6fy1M_hqBSRSNBiTLd8I' }}
         run: |
           set -euo pipefail
           mkdir -p client
@@ -98,10 +106,10 @@ jobs:
           XDG_RUNTIME_DIR: /tmp
           PWE_PREVIEW_ELEMENT: client
           PWE_PREVIEW_WORLD: client/world.ecwld
-          PWE_PREVIEW_ROOTS: ${{ inputs.roots }}
-          PWE_PREVIEW_MAX: ${{ inputs.limit }}
-          PWE_PREVIEW_FRAMES: ${{ inputs.frames }}
-          PWE_PREVIEW_SIZE: ${{ inputs.size }}
+          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;圣城之光;树林光束' }}
+          PWE_PREVIEW_MAX: ${{ inputs.limit || '6' }}
+          PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,300,900' }}
+          PWE_PREVIEW_SIZE: ${{ inputs.size || '384' }}
         run: |
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
           if [ -z "$VK_ICD_FILENAMES" ]; then
@@ -120,6 +128,30 @@ jobs:
               | head -20 | while IFS= read -r line; do echo "::error::$line"; done
             exit 1
           fi
+
+      # The frames and the log line that measures each effect are the evidence,
+      # so they go onto the branch where a reviewer can read them next to the
+      # code. `render.log` carries one `preview:` line per shot with the
+      # world-space box and diagonal of the quads that were submitted.
+      - name: Commit the frames and the measured sizes
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p Findings/effect-preview
+          if [ -f target/effect-preview/render.log ]; then
+            cp target/effect-preview/render.log Findings/effect-preview/
+          fi
+          find target/effect-preview -name '*.png' -size -2M -exec cp {} Findings/effect-preview/ \;
+          ls -l Findings/effect-preview | head -40
+          git config user.name "effect preview"
+          git config user.email "preview@users.noreply.github.com"
+          git add Findings/effect-preview
+          if git diff --cached --quiet; then
+            echo "nothing new to commit"
+            exit 0
+          fi
+          git commit -m "Effect preview frames [skip ci]"
+          git push || (git pull --rebase && git push)
 
       - name: Keep the frames and the measured sizes
         if: always()
