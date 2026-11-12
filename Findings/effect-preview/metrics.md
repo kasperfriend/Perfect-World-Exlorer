@@ -11,27 +11,315 @@ it to the image.
 - census: 2275 effect records, scale min 0.164 p10 0.812 median 1.799 p90 6.816 max 380.953
 - census:    2 x 场景/圣城之光.gfx scale 17.701..89.787
 - census:    4 x 场景/新种族地图/水门_瀑布.gfx scale 2.736..2.736
-- `01-03142-0000ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 500.00 u, 8.888 m/px: quads=82 pixels=5866 size=557.30x2839.10x567.54 card=2.98x2515.07 diagonal=2948.41 box=(-3049.35,-306.81,2809.52)..(-2492.04,2532.28,3377.05)
-- `01-03142-0900ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 500.00 u, 8.888 m/px: quads=106 pixels=6823 size=609.13x2839.10x612.33 card=0.36x2515.07 diagonal=2967.57 box=(-3076.39,-306.81,2787.55)..(-2467.27,2532.28,3399.87)
-- `01-03142-0000ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 500.00 u, 4.000 m/px: quads=82 pixels=12153 size=557.31x2839.10x567.53 card=2.98x2515.07 diagonal=2948.41 box=(-3049.33,-306.81,2809.53)..(-2492.02,2532.28,3377.06)
-- `01-03142-0900ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 500.00 u, 4.000 m/px: quads=106 pixels=16046 size=609.14x2839.10x612.33 card=0.36x2515.07 diagonal=2967.57 box=(-3076.38,-306.81,2787.55)..(-2467.24,2532.28,3399.88)
-- `02-17422-0000ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 100.00 u, 1.769 m/px: quads=87 pixels=5943 size=112.29x559.71x113.66 card=0.07x495.83 diagonal=582.07 box=(1473.34,131.56,975.41)..(1585.63,691.27,1089.06)
-- `02-17422-0900ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 100.00 u, 1.769 m/px: quads=116 pixels=7689 size=140.02x559.71x125.01 card=0.07x495.83 diagonal=590.35 box=(1459.45,131.56,969.95)..(1599.47,691.27,1094.96)
-- `02-17422-0000ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 100.00 u, 0.796 m/px: quads=87 pixels=12350 size=112.29x559.71x113.66 card=0.07x495.83 diagonal=582.07 box=(1473.34,131.56,975.41)..(1585.63,691.27,1089.07)
-- `02-17422-0900ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 100.00 u, 0.796 m/px: quads=116 pixels=19927 size=140.02x559.71x125.03 card=0.07x495.83 diagonal=590.35 box=(1459.45,131.56,969.94)..(1599.47,691.27,1094.97)
-- `03-42347-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31254 size=5.89x8.74x7.05 card=0.56x8.76 diagonal=12.68 box=(2615.95,237.43,-4123.29)..(2621.84,246.17,-4116.24)
-- `03-42347-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31406 size=5.62x8.73x6.55 card=0.57x8.76 diagonal=12.28 box=(2616.16,237.44,-4123.31)..(2621.78,246.17,-4116.76)
-- `03-42347-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109705 size=5.88x8.74x7.06 card=0.56x8.76 diagonal=12.68 box=(2615.95,237.43,-4123.29)..(2621.84,246.17,-4116.24)
-- `03-42347-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112177 size=5.61x8.73x6.57 card=0.57x8.76 diagonal=12.28 box=(2616.16,237.44,-4123.32)..(2621.77,246.17,-4116.75)
-- `04-42348-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31286 size=5.90x8.75x7.04 card=0.56x8.76 diagonal=12.68 box=(2590.00,237.43,-4136.09)..(2595.90,246.17,-4129.05)
-- `04-42348-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31411 size=5.61x8.73x6.55 card=0.57x8.76 diagonal=12.28 box=(2590.21,237.44,-4136.11)..(2595.83,246.17,-4129.56)
-- `04-42348-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109698 size=5.87x8.74x7.06 card=0.56x8.76 diagonal=12.68 box=(2590.01,237.43,-4136.10)..(2595.88,246.17,-4129.04)
-- `04-42348-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112201 size=5.61x8.73x6.58 card=0.57x8.76 diagonal=12.29 box=(2590.22,237.44,-4136.14)..(2595.83,246.17,-4129.56)
-- `05-42349-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31241 size=5.90x8.74x7.05 card=0.56x8.76 diagonal=12.69 box=(2604.03,237.43,-4161.88)..(2609.92,246.17,-4154.83)
-- `05-42349-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31435 size=5.61x8.73x6.55 card=0.57x8.76 diagonal=12.27 box=(2604.24,237.45,-4161.90)..(2609.85,246.17,-4155.35)
-- `05-42349-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109728 size=5.90x8.75x7.04 card=0.56x8.76 diagonal=12.68 box=(2604.02,237.43,-4161.88)..(2609.92,246.17,-4154.84)
-- `05-42349-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112191 size=5.62x8.73x6.55 card=0.57x8.76 diagonal=12.27 box=(2604.24,237.44,-4161.90)..(2609.86,246.17,-4155.35)
-- `06-42346-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31253 size=5.89x8.75x7.05 card=0.56x8.76 diagonal=12.68 box=(2629.76,237.43,-4148.80)..(2635.65,246.17,-4141.75)
-- `06-42346-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31399 size=5.61x8.73x6.56 card=0.57x8.76 diagonal=12.28 box=(2629.98,237.44,-4148.83)..(2635.59,246.17,-4142.27)
-- `06-42346-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109722 size=5.89x8.74x7.06 card=0.56x8.76 diagonal=12.68 box=(2629.76,237.43,-4148.80)..(2635.65,246.17,-4141.75)
-- `06-42346-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112185 size=5.61x8.73x6.56 card=0.57x8.76 diagonal=12.28 box=(2629.98,237.44,-4148.83)..(2635.59,246.17,-4142.27)
+- `01-03142-0000ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 500.00 u, 8.888 m/px: quads=82 pixels=5866 size=557.30x2839.10x567.54 card=71.83x2515.07 diagonal=2948.41 box=(-3049.35,-306.81,2809.52)..(-2492.04,2532.28,3377.05)
+- quad 0: 404.04 x 571.40 at (-2770.6, 605.4, 3093.6) tex gfx/textures/图案/greenring.dds blend 5/2 depth true layer 0
+- quad 1: 5.28 x 7.44 at (-2622.9, 695.0, 3021.6) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 2: 6.65 x 9.37 at (-2591.5, 702.7, 3307.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 3: 6.91 x 9.75 at (-2538.8, 709.2, 3229.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 4: 4.90 x 6.92 at (-2751.8, 714.1, 2913.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 5: 2.98 x 4.20 at (-2566.2, 693.2, 3376.0) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 6: 4.76 x 6.71 at (-2757.4, 714.2, 3050.3) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 7: 6.49 x 9.15 at (-2719.7, 711.5, 2941.0) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 8: 6.92 x 9.77 at (-3004.2, 696.4, 2841.4) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 9: 6.13 x 8.65 at (-2495.7, 698.4, 3170.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 10: 4.98 x 7.02 at (-2853.7, 697.2, 2919.4) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 11: 6.74 x 9.51 at (-2596.9, 704.2, 2812.6) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 12: 3.08 x 4.35 at (-2920.0, 711.4, 3366.7) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 13: 5.04 x 7.11 at (-2869.6, 712.8, 3286.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 14: 6.23 x 8.79 at (-2594.4, 691.2, 3166.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 15: 4.01 x 5.66 at (-2789.1, 709.4, 2914.6) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 16: 6.06 x 8.55 at (-2972.7, 697.2, 3145.7) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 17: 4.50 x 6.34 at (-2551.0, 703.5, 3049.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 18: 5.52 x 7.79 at (-2652.6, 711.8, 3246.6) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 19: 5.89 x 8.31 at (-2751.7, 716.0, 3262.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 20: 6.60 x 9.31 at (-2896.0, 706.8, 3202.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 21: 6.82 x 9.62 at (-2609.0, 710.6, 3102.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 22: 6.65 x 9.38 at (-2855.9, 703.4, 3372.0) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 23: 3.99 x 5.63 at (-2642.8, 694.5, 2900.2) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- `01-03142-0900ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 500.00 u, 8.888 m/px: quads=106 pixels=6823 size=609.13x2839.10x612.33 card=71.83x2515.07 diagonal=2967.57 box=(-3076.39,-306.81,2787.55)..(-2467.27,2532.28,3399.87)
+- quad 0: 404.04 x 571.40 at (-2770.6, 605.4, 3093.6) tex gfx/textures/图案/greenring.dds blend 5/2 depth true layer 0
+- quad 1: 5.28 x 7.44 at (-2599.3, 690.5, 3009.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 2: 6.65 x 9.37 at (-2574.6, 699.4, 3327.3) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 3: 6.91 x 9.75 at (-2515.9, 706.6, 3242.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 4: 4.90 x 6.92 at (-2749.0, 712.7, 2887.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 5: 2.98 x 4.20 at (-2551.0, 689.1, 3397.3) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 6: 4.76 x 6.71 at (-2749.3, 718.4, 3026.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 7: 6.49 x 9.15 at (-2711.2, 709.9, 2915.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 8: 6.92 x 9.77 at (-3022.6, 692.4, 2821.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 9: 6.13 x 8.65 at (-2470.5, 694.6, 3177.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 10: 4.98 x 7.02 at (-2865.2, 693.2, 2895.4) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 11: 6.74 x 9.51 at (-2583.0, 701.1, 2790.0) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 12: 3.08 x 4.35 at (-2932.9, 708.9, 3389.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 13: 5.04 x 7.11 at (-2881.9, 710.8, 3310.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 14: 6.23 x 8.79 at (-2569.8, 686.6, 3176.2) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 15: 4.01 x 5.66 at (-2792.1, 707.1, 2888.2) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 16: 6.06 x 8.55 at (-2998.6, 693.2, 3152.3) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 17: 4.50 x 6.34 at (-2525.2, 700.3, 3044.2) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 18: 5.52 x 7.79 at (-2636.7, 709.7, 3267.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 19: 5.89 x 8.31 at (-2748.9, 714.8, 3288.7) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 20: 6.60 x 9.31 at (-2916.4, 704.1, 3219.8) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 21: 6.82 x 9.62 at (-2582.7, 708.7, 3103.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 22: 6.65 x 9.38 at (-2863.5, 700.4, 3397.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 23: 3.99 x 5.63 at (-2627.8, 690.5, 2878.2) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- `01-03142-0000ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 500.00 u, 4.000 m/px: quads=82 pixels=12153 size=557.31x2839.10x567.53 card=71.83x2515.07 diagonal=2948.41 box=(-3049.33,-306.81,2809.53)..(-2492.02,2532.28,3377.06)
+- `01-03142-0900ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (-2770.6, 605.4, 3093.6) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 89.79 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 500.00 u, 4.000 m/px: quads=106 pixels=16046 size=609.14x2839.10x612.33 card=71.83x2515.07 diagonal=2967.57 box=(-3076.38,-306.81,2787.55)..(-2467.24,2532.28,3399.88)
+- `02-17422-0000ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 100.00 u, 1.769 m/px: quads=87 pixels=5943 size=112.29x559.71x113.66 card=14.16x495.83 diagonal=582.07 box=(1473.34,131.56,975.41)..(1585.63,691.27,1089.06)
+- quad 0: 79.66 x 112.65 at (1529.5, 311.4, 1032.3) tex gfx/textures/图案/greenring.dds blend 5/2 depth true layer 0
+- quad 1: 1.04 x 1.47 at (1559.5, 328.9, 1017.6) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 2: 1.31 x 1.85 at (1565.5, 330.4, 1075.2) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 3: 1.36 x 1.93 at (1576.1, 331.7, 1059.6) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 4: 0.97 x 1.37 at (1533.3, 332.8, 995.7) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 5: 0.59 x 0.83 at (1570.4, 328.5, 1088.8) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 6: 0.94 x 1.33 at (1532.4, 333.0, 1022.7) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 7: 1.28 x 1.81 at (1539.8, 332.2, 1001.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 8: 1.37 x 1.93 at (1482.4, 329.1, 981.6) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 9: 1.21 x 1.71 at (1584.9, 329.6, 1047.8) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 10: 0.98 x 1.39 at (1512.6, 329.3, 997.0) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 11: 1.33 x 1.88 at (1564.2, 330.7, 976.0) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 12: 0.61 x 0.86 at (1499.5, 332.2, 1087.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 13: 0.99 x 1.41 at (1509.4, 332.5, 1071.3) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 14: 1.23 x 1.74 at (1565.2, 328.1, 1047.0) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 15: 0.79 x 1.12 at (1525.7, 331.8, 995.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 16: 1.20 x 1.69 at (1488.4, 329.3, 1042.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 17: 0.89 x 1.25 at (1574.0, 330.6, 1023.3) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 18: 1.09 x 1.54 at (1553.5, 332.3, 1063.4) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 19: 1.16 x 1.64 at (1533.3, 333.1, 1066.8) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 20: 1.30 x 1.84 at (1504.0, 331.3, 1054.4) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 21: 1.34 x 1.90 at (1562.3, 332.1, 1034.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 22: 1.31 x 1.85 at (1512.4, 330.6, 1088.2) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 23: 0.79 x 1.11 at (1555.3, 328.8, 993.3) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- `02-17422-0900ms-az35el20-z1.00.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 100.00 u, 1.769 m/px: quads=116 pixels=7689 size=140.02x559.71x125.01 card=14.16x495.83 diagonal=590.35 box=(1459.45,131.56,969.95)..(1599.47,691.27,1094.96)
+- quad 0: 79.66 x 112.65 at (1529.5, 311.4, 1032.3) tex gfx/textures/图案/greenring.dds blend 5/2 depth true layer 0
+- quad 1: 1.04 x 1.47 at (1565.5, 327.8, 1014.7) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 2: 1.31 x 1.85 at (1569.7, 329.6, 1080.2) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 3: 1.36 x 1.93 at (1581.7, 331.1, 1062.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 4: 0.97 x 1.37 at (1533.9, 332.4, 989.2) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 5: 0.59 x 0.83 at (1574.2, 327.5, 1094.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 6: 0.94 x 1.33 at (1534.2, 334.0, 1016.7) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 7: 1.28 x 1.81 at (1541.9, 331.8, 994.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 8: 1.37 x 1.93 at (1477.9, 328.2, 976.8) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 9: 1.21 x 1.71 at (1591.1, 328.6, 1049.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 10: 0.98 x 1.39 at (1509.7, 328.3, 991.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 11: 1.33 x 1.88 at (1567.6, 330.0, 970.4) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 12: 0.61 x 0.86 at (1496.3, 331.6, 1092.8) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 13: 0.99 x 1.40 at (1506.5, 332.0, 1077.1) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 14: 1.23 x 1.74 at (1571.3, 327.0, 1049.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 15: 0.79 x 1.12 at (1524.9, 331.2, 989.4) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 16: 1.20 x 1.69 at (1482.1, 328.3, 1044.5) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 17: 0.89 x 1.25 at (1580.3, 329.8, 1022.0) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 18: 1.09 x 1.54 at (1557.4, 331.8, 1068.6) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 19: 1.16 x 1.64 at (1534.1, 332.9, 1073.3) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 20: 1.30 x 1.84 at (1498.9, 330.6, 1058.7) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 21: 1.34 x 1.90 at (1568.8, 331.6, 1034.4) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 22: 1.31 x 1.85 at (1510.4, 329.8, 1094.4) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- quad 23: 0.79 x 1.11 at (1558.8, 327.8, 987.9) tex gfx/textures/粒子/particle006.dds blend 5/2 depth true layer 0
+- `02-17422-0000ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 100.00 u, 0.796 m/px: quads=87 pixels=12350 size=112.29x559.71x113.66 card=14.16x495.83 diagonal=582.07 box=(1473.34,131.56,975.41)..(1585.63,691.27,1089.07)
+- `02-17422-0900ms-az35el20-z0.45.png` — 场景/圣城之光.gfx at (1529.5, 311.4, 1032.3) dir (0.00, 0.00, 1.00) up (0.00, 1.00, 0.00) night 2 scale 17.70 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 100.00 u, 0.796 m/px: quads=116 pixels=19927 size=140.02x559.71x125.03 card=14.16x495.83 diagonal=590.35 box=(1459.45,131.56,969.94)..(1599.47,691.27,1094.97)
+- `03-42347-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31254 size=5.89x8.74x7.05 card=5.47x8.76 diagonal=12.68 box=(2615.95,237.43,-4123.29)..(2621.84,246.17,-4116.24)
+- quad 0: 4.92 x 8.43 at (2618.9, 242.8, -4119.7) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true layer 0
+- quad 1: 4.65 x 8.27 at (2618.9, 242.8, -4119.7) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true layer 0
+- quad 2: 5.47 x 8.76 at (2618.9, 242.8, -4119.7) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true layer 0
+- quad 3: 1.26 x 1.79 at (2616.7, 238.7, -4118.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 4: 1.87 x 2.65 at (2620.1, 238.7, -4122.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 5: 1.40 x 1.99 at (2621.0, 238.7, -4120.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 6: 0.90 x 1.28 at (2617.8, 238.8, -4116.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 7: 1.84 x 2.61 at (2618.3, 238.8, -4117.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 8: 1.84 x 2.60 at (2619.5, 238.8, -4117.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 9: 2.01 x 2.85 at (2619.2, 238.8, -4117.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 10: 0.56 x 0.79 at (2617.3, 239.0, -4118.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 11: 1.20 x 1.70 at (2619.8, 239.0, -4117.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 12: 1.76 x 2.49 at (2618.7, 239.0, -4117.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 13: 0.82 x 1.16 at (2617.7, 239.1, -4117.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 14: 1.51 x 2.13 at (2618.2, 239.1, -4117.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 15: 1.50 x 2.13 at (2620.4, 239.1, -4122.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 16: 1.96 x 2.78 at (2619.1, 239.2, -4122.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 17: 1.29 x 1.82 at (2618.3, 239.2, -4117.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 18: 1.65 x 2.34 at (2619.7, 239.2, -4121.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 19: 0.88 x 1.24 at (2619.1, 239.2, -4117.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 20: 1.34 x 1.90 at (2617.7, 239.3, -4117.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 21: 0.92 x 1.30 at (2617.9, 239.3, -4117.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 22: 1.87 x 2.65 at (2618.7, 239.3, -4121.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 23: 1.29 x 1.83 at (2620.0, 239.4, -4121.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- `03-42347-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31406 size=5.62x8.73x6.55 card=5.47x8.76 diagonal=12.28 box=(2616.16,237.44,-4123.31)..(2621.78,246.17,-4116.76)
+- quad 0: 4.92 x 8.43 at (2618.9, 242.8, -4119.7) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true layer 0
+- quad 1: 4.65 x 8.27 at (2618.9, 242.8, -4119.7) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true layer 0
+- quad 2: 5.47 x 8.76 at (2618.9, 242.8, -4119.7) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true layer 0
+- quad 3: 1.44 x 2.04 at (2620.6, 238.7, -4121.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 4: 0.73 x 1.04 at (2616.6, 238.7, -4120.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 5: 1.10 x 1.56 at (2619.0, 238.7, -4122.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 6: 1.01 x 1.42 at (2620.0, 238.8, -4121.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 7: 1.93 x 2.74 at (2618.1, 238.8, -4122.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 8: 2.12 x 3.00 at (2619.4, 238.8, -4122.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 9: 1.94 x 2.74 at (2620.3, 239.0, -4122.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 10: 1.00 x 1.42 at (2620.0, 239.0, -4121.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 11: 1.19 x 1.69 at (2618.0, 239.0, -4121.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 12: 1.61 x 2.28 at (2617.3, 239.1, -4117.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 13: 1.70 x 2.40 at (2617.5, 239.1, -4117.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 14: 1.30 x 1.84 at (2619.5, 239.1, -4121.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 15: 2.15 x 3.05 at (2620.7, 239.1, -4121.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 16: 1.87 x 2.65 at (2617.8, 239.2, -4120.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 17: 0.71 x 1.01 at (2618.0, 239.2, -4118.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 18: 2.03 x 2.87 at (2619.8, 239.2, -4118.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 19: 1.80 x 2.54 at (2619.6, 239.3, -4121.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 20: 0.62 x 0.88 at (2617.8, 239.3, -4118.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 21: 1.79 x 2.54 at (2620.4, 239.3, -4120.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 22: 1.73 x 2.44 at (2617.5, 239.4, -4119.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 23: 2.05 x 2.91 at (2617.6, 239.4, -4119.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- `03-42347-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109705 size=5.88x8.74x7.06 card=5.47x8.76 diagonal=12.68 box=(2615.95,237.43,-4123.29)..(2621.84,246.17,-4116.24)
+- `03-42347-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112177 size=5.61x8.73x6.57 card=5.47x8.76 diagonal=12.28 box=(2616.16,237.44,-4123.32)..(2621.77,246.17,-4116.75)
+- `04-42348-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31286 size=5.90x8.75x7.04 card=5.47x8.76 diagonal=12.68 box=(2590.00,237.43,-4136.09)..(2595.90,246.17,-4129.05)
+- quad 0: 4.92 x 8.43 at (2592.9, 242.8, -4132.5) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true layer 0
+- quad 1: 4.65 x 8.27 at (2592.9, 242.8, -4132.5) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true layer 0
+- quad 2: 5.47 x 8.76 at (2592.9, 242.8, -4132.5) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true layer 0
+- quad 3: 1.26 x 1.79 at (2590.7, 238.7, -4131.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 4: 1.87 x 2.65 at (2594.2, 238.7, -4135.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 5: 1.40 x 1.99 at (2595.1, 238.7, -4133.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 6: 0.90 x 1.28 at (2591.9, 238.8, -4129.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 7: 1.84 x 2.61 at (2592.4, 238.8, -4130.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 8: 1.84 x 2.60 at (2593.6, 238.8, -4130.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 9: 2.01 x 2.85 at (2593.3, 238.8, -4129.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 10: 0.56 x 0.79 at (2591.4, 239.0, -4131.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 11: 1.20 x 1.70 at (2593.9, 239.0, -4130.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 12: 1.76 x 2.49 at (2592.7, 239.0, -4130.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 13: 0.82 x 1.16 at (2591.7, 239.1, -4129.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 14: 1.51 x 2.13 at (2592.3, 239.1, -4130.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 15: 1.50 x 2.13 at (2594.5, 239.1, -4134.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 16: 1.96 x 2.78 at (2593.1, 239.2, -4134.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 17: 1.29 x 1.82 at (2592.4, 239.2, -4130.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 18: 1.65 x 2.34 at (2593.8, 239.2, -4134.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 19: 0.88 x 1.24 at (2593.2, 239.2, -4130.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 20: 1.34 x 1.90 at (2591.7, 239.3, -4130.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 21: 0.92 x 1.30 at (2592.0, 239.3, -4130.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 22: 1.87 x 2.65 at (2592.7, 239.3, -4134.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 23: 1.29 x 1.83 at (2594.1, 239.4, -4134.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- `04-42348-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31411 size=5.61x8.73x6.55 card=5.47x8.76 diagonal=12.28 box=(2590.21,237.44,-4136.11)..(2595.83,246.17,-4129.56)
+- quad 0: 4.92 x 8.43 at (2592.9, 242.8, -4132.5) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true layer 0
+- quad 1: 4.65 x 8.27 at (2592.9, 242.8, -4132.5) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true layer 0
+- quad 2: 5.47 x 8.76 at (2592.9, 242.8, -4132.5) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true layer 0
+- quad 3: 1.44 x 2.04 at (2594.6, 238.7, -4133.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 4: 0.73 x 1.04 at (2590.6, 238.7, -4133.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 5: 1.10 x 1.56 at (2593.0, 238.7, -4135.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 6: 1.01 x 1.42 at (2594.0, 238.8, -4134.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 7: 1.93 x 2.74 at (2592.2, 238.8, -4134.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 8: 2.12 x 3.00 at (2593.5, 238.8, -4135.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 9: 1.94 x 2.74 at (2594.3, 239.0, -4135.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 10: 1.00 x 1.42 at (2594.1, 239.0, -4134.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 11: 1.19 x 1.69 at (2592.1, 239.0, -4134.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 12: 1.61 x 2.28 at (2591.4, 239.1, -4130.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 13: 1.70 x 2.40 at (2591.5, 239.1, -4130.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 14: 1.30 x 1.84 at (2593.5, 239.1, -4134.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 15: 2.15 x 3.05 at (2594.8, 239.1, -4133.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 16: 1.87 x 2.65 at (2591.8, 239.2, -4133.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 17: 0.71 x 1.01 at (2592.0, 239.2, -4131.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 18: 2.03 x 2.87 at (2593.8, 239.2, -4130.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 19: 1.80 x 2.54 at (2593.7, 239.3, -4134.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 20: 0.62 x 0.88 at (2591.9, 239.3, -4130.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 21: 1.79 x 2.54 at (2594.5, 239.3, -4132.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 22: 1.73 x 2.44 at (2591.5, 239.4, -4131.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 23: 2.05 x 2.91 at (2591.6, 239.4, -4131.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- `04-42348-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109698 size=5.87x8.74x7.06 card=5.47x8.76 diagonal=12.68 box=(2590.01,237.43,-4136.10)..(2595.88,246.17,-4129.04)
+- `04-42348-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2592.9, 239.3, -4132.5) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112201 size=5.61x8.73x6.58 card=5.47x8.76 diagonal=12.29 box=(2590.22,237.44,-4136.14)..(2595.83,246.17,-4129.56)
+- `05-42349-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31241 size=5.90x8.74x7.05 card=5.47x8.76 diagonal=12.69 box=(2604.03,237.43,-4161.88)..(2609.92,246.17,-4154.83)
+- quad 0: 4.92 x 8.43 at (2607.0, 242.8, -4158.3) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true layer 0
+- quad 1: 4.65 x 8.27 at (2607.0, 242.8, -4158.3) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true layer 0
+- quad 2: 5.47 x 8.76 at (2607.0, 242.8, -4158.3) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true layer 0
+- quad 3: 1.26 x 1.79 at (2604.8, 238.7, -4157.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 4: 1.87 x 2.65 at (2608.2, 238.7, -4161.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 5: 1.40 x 1.99 at (2609.1, 238.7, -4158.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 6: 0.90 x 1.28 at (2605.9, 238.8, -4155.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 7: 1.84 x 2.60 at (2606.4, 238.8, -4156.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 8: 1.84 x 2.60 at (2607.6, 238.8, -4156.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 9: 2.01 x 2.85 at (2607.3, 238.8, -4155.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 10: 0.56 x 0.79 at (2605.4, 239.0, -4156.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 11: 1.20 x 1.69 at (2607.9, 239.0, -4156.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 12: 1.76 x 2.48 at (2606.8, 239.0, -4156.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 13: 0.82 x 1.16 at (2605.8, 239.1, -4155.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 14: 1.51 x 2.13 at (2606.3, 239.1, -4156.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 15: 1.50 x 2.13 at (2608.5, 239.1, -4160.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 16: 1.96 x 2.77 at (2607.1, 239.2, -4160.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 17: 1.29 x 1.82 at (2606.4, 239.2, -4156.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 18: 1.65 x 2.33 at (2607.8, 239.2, -4159.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 19: 0.88 x 1.24 at (2607.2, 239.2, -4156.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 20: 1.34 x 1.89 at (2605.8, 239.3, -4156.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 21: 0.92 x 1.30 at (2606.0, 239.3, -4155.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 22: 1.87 x 2.65 at (2606.7, 239.3, -4160.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 23: 1.29 x 1.83 at (2608.1, 239.4, -4160.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- `05-42349-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31435 size=5.61x8.73x6.55 card=5.47x8.76 diagonal=12.27 box=(2604.24,237.45,-4161.90)..(2609.85,246.17,-4155.35)
+- quad 0: 4.92 x 8.43 at (2607.0, 242.8, -4158.3) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true layer 0
+- quad 1: 4.65 x 8.27 at (2607.0, 242.8, -4158.3) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true layer 0
+- quad 2: 5.47 x 8.76 at (2607.0, 242.8, -4158.3) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true layer 0
+- quad 3: 1.44 x 2.04 at (2608.6, 238.7, -4159.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 4: 0.73 x 1.04 at (2604.7, 238.7, -4158.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 5: 1.10 x 1.56 at (2607.1, 238.7, -4160.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 6: 1.01 x 1.42 at (2608.0, 238.8, -4160.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 7: 1.93 x 2.74 at (2606.2, 238.8, -4160.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 8: 2.12 x 3.00 at (2607.5, 238.8, -4161.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 9: 1.94 x 2.74 at (2608.4, 239.0, -4160.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 10: 1.00 x 1.42 at (2608.1, 239.0, -4160.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 11: 1.19 x 1.68 at (2606.1, 239.0, -4160.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 12: 1.61 x 2.27 at (2605.4, 239.1, -4156.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 13: 1.70 x 2.40 at (2605.6, 239.1, -4156.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 14: 1.30 x 1.84 at (2607.5, 239.1, -4160.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 15: 2.15 x 3.05 at (2608.8, 239.1, -4159.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 16: 1.87 x 2.65 at (2605.8, 239.2, -4159.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 17: 0.71 x 1.01 at (2606.1, 239.2, -4157.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 18: 2.03 x 2.87 at (2607.8, 239.2, -4156.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 19: 1.80 x 2.54 at (2607.7, 239.3, -4160.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 20: 0.62 x 0.88 at (2605.9, 239.3, -4156.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 21: 1.79 x 2.53 at (2608.5, 239.3, -4158.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 22: 1.73 x 2.44 at (2605.6, 239.4, -4157.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 23: 2.05 x 2.90 at (2605.6, 239.4, -4157.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- `05-42349-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109728 size=5.90x8.75x7.04 card=5.47x8.76 diagonal=12.68 box=(2604.02,237.43,-4161.88)..(2609.92,246.17,-4154.84)
+- `05-42349-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2607.0, 239.3, -4158.3) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112191 size=5.62x8.73x6.55 card=5.47x8.76 diagonal=12.27 box=(2604.24,237.44,-4161.90)..(2609.86,246.17,-4155.35)
+- `06-42346-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=79 pixels=31253 size=5.89x8.75x7.05 card=5.47x8.76 diagonal=12.68 box=(2629.76,237.43,-4148.80)..(2635.65,246.17,-4141.75)
+- quad 0: 4.92 x 8.43 at (2632.7, 242.8, -4145.2) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true layer 0
+- quad 1: 4.65 x 8.27 at (2632.7, 242.8, -4145.2) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true layer 0
+- quad 2: 5.47 x 8.76 at (2632.7, 242.8, -4145.2) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true layer 0
+- quad 3: 1.26 x 1.79 at (2630.5, 238.7, -4144.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 4: 1.87 x 2.65 at (2634.0, 238.7, -4148.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 5: 1.40 x 1.99 at (2634.9, 238.7, -4145.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 6: 0.90 x 1.28 at (2631.6, 238.8, -4142.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 7: 1.84 x 2.61 at (2632.2, 238.8, -4143.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 8: 1.84 x 2.60 at (2633.4, 238.8, -4143.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 9: 2.01 x 2.85 at (2633.0, 238.8, -4142.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 10: 0.56 x 0.79 at (2631.1, 239.0, -4143.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 11: 1.20 x 1.70 at (2633.6, 239.0, -4143.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 12: 1.76 x 2.49 at (2632.5, 239.0, -4143.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 13: 0.82 x 1.16 at (2631.5, 239.1, -4142.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 14: 1.51 x 2.13 at (2632.0, 239.1, -4143.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 15: 1.50 x 2.13 at (2634.2, 239.1, -4147.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 16: 1.96 x 2.78 at (2632.9, 239.2, -4147.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 17: 1.29 x 1.82 at (2632.1, 239.2, -4143.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 18: 1.65 x 2.34 at (2633.5, 239.2, -4146.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 19: 0.88 x 1.24 at (2632.9, 239.2, -4143.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 20: 1.34 x 1.90 at (2631.5, 239.3, -4142.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 21: 0.92 x 1.30 at (2631.7, 239.3, -4142.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 22: 1.87 x 2.65 at (2632.5, 239.3, -4147.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 23: 1.29 x 1.83 at (2633.8, 239.4, -4147.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- `06-42346-0900ms-az35el20-z1.00.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.038 m/px: quads=77 pixels=31399 size=5.61x8.73x6.56 card=5.47x8.76 diagonal=12.28 box=(2629.98,237.44,-4148.83)..(2635.59,246.17,-4142.27)
+- quad 0: 4.92 x 8.43 at (2632.7, 242.8, -4145.2) tex gfx/textures/纹理/气连续03.tga blend 2/4 depth true layer 0
+- quad 1: 4.65 x 8.27 at (2632.7, 242.8, -4145.2) tex gfx/textures/纹理/流动（通道）.dds blend 2/4 depth true layer 0
+- quad 2: 5.47 x 8.76 at (2632.7, 242.8, -4145.2) tex gfx/textures/物体/humianbowen.dds blend 2/4 depth true layer 0
+- quad 3: 1.44 x 2.05 at (2634.4, 238.7, -4146.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 4: 0.73 x 1.04 at (2630.4, 238.7, -4145.7) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 5: 1.10 x 1.56 at (2632.8, 238.7, -4147.8) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 6: 1.01 x 1.42 at (2633.8, 238.8, -4147.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 7: 1.93 x 2.74 at (2632.0, 238.8, -4147.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 8: 2.12 x 3.00 at (2633.2, 238.8, -4148.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 9: 1.94 x 2.74 at (2634.1, 239.0, -4147.9) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 10: 1.00 x 1.42 at (2633.8, 239.0, -4147.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 11: 1.19 x 1.68 at (2631.8, 239.0, -4147.2) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 12: 1.61 x 2.28 at (2631.1, 239.1, -4143.3) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 13: 1.70 x 2.40 at (2631.3, 239.1, -4143.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 14: 1.30 x 1.84 at (2633.3, 239.1, -4147.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 15: 2.15 x 3.05 at (2634.5, 239.1, -4146.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 16: 1.87 x 2.65 at (2631.6, 239.2, -4146.4) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 17: 0.71 x 1.01 at (2631.8, 239.2, -4144.0) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 18: 2.03 x 2.87 at (2633.6, 239.2, -4143.5) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 19: 1.80 x 2.54 at (2633.5, 239.3, -4147.1) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 20: 0.62 x 0.88 at (2631.6, 239.3, -4143.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 21: 1.79 x 2.54 at (2634.2, 239.3, -4145.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 22: 1.73 x 2.44 at (2631.3, 239.4, -4144.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- quad 23: 2.05 x 2.91 at (2631.4, 239.4, -4144.6) tex gfx/textures/多个粒子/shuizhu01.dds blend 2/4 depth true layer 0
+- `06-42346-0000ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 792 ms (shot 0), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=79 pixels=109722 size=5.89x8.74x7.06 card=5.47x8.76 diagonal=12.68 box=(2629.76,237.43,-4148.80)..(2635.65,246.17,-4141.75)
+- `06-42346-0900ms-az35el20-z0.45.png` — 场景/新种族地图/水门_瀑布.gfx at (2632.7, 239.3, -4145.2) dir (0.92, 0.00, 0.39) up (0.00, 1.00, 0.00) night 2 scale 2.74 alpha 1.00, clock 1716 ms (shot 900), view az 35/el 20 zoom 0.45, grid 1.00 u, 0.017 m/px: quads=77 pixels=112185 size=5.61x8.73x6.56 card=5.47x8.76 diagonal=12.28 box=(2629.98,237.44,-4148.83)..(2635.59,246.17,-4142.27)
