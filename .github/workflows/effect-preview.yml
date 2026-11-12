@@ -81,7 +81,12 @@ jobs:
 
       - name: Download the client effect archive
         env:
-          GFX_ID: ${{ inputs.gfx_id || '1a_q8Xew2gDY5hlLcKxcuFnmkP_2gsfAH' }}
+          # Two `gfx.pck` builds exist on the Drive folder. A pack names its own
+          # version in the guard words of the 280-byte header that ends the
+          # catalogue, and `pck::directory` only accepts 0xfdfdfeee/0xf00dbeef,
+          # so the step checks the words before the build instead of spending
+          # twenty minutes to be told "unsupported PCK guard keys".
+          GFX_IDS: ${{ inputs.gfx_id || '1a_q8Xew2gDY5hlLcKxcuFnmkP_2gsfAH,1B0QY1vwtv8G06aqUvxsFfqlGHzvuVk2i' }}
           WORLD_ID: ${{ inputs.world_id || '1nYOesKLxtlHD6fy1M_hqBSRSNBiTLd8I' }}
         run: |
           set -euo pipefail
@@ -97,8 +102,25 @@ jobs:
               exit 1
             fi
           }
-          fetch "$GFX_ID" gfx.pck
           fetch "$WORLD_ID" world.ecwld
+          IFS=',' read -r -a ids <<< "$GFX_IDS"
+          for id in "${ids[@]}"; do
+            id="${id// /}"
+            [ -n "$id" ] || continue
+            fetch "$id" gfx.pck
+            # `end` is the catalogue's end offset, little endian at file offset 4;
+            # the guard words are the first and 269th word of the header before it.
+            end=$(od -An -tu4 -j4 -N4 client/gfx.pck | tr -d ' \n')
+            head=$(od -An -tx4 -j$((end - 280)) -N4 client/gfx.pck | tr -d ' \n')
+            tail=$(od -An -tx4 -j$((end - 280 + 268)) -N4 client/gfx.pck | tr -d ' \n')
+            echo "gfx.pck id=$id end=$end guards=$head/$tail"
+            if [ "$head" = "fdfdfeee" ] && [ "$tail" = "f00dbeef" ]; then
+              echo "::notice::using gfx.pck id=$id ($(stat -c%s client/gfx.pck) bytes)"
+              exit 0
+            fi
+          done
+          echo "::error::none of the gfx.pck ids carries the guard words this reader accepts"
+          exit 1
 
       - name: Render
         env:

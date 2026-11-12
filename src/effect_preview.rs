@@ -63,7 +63,7 @@ fn preview_device() -> Option<(wgpu::Device, wgpu::Queue)> {
     let descriptor = wgpu::DeviceDescriptor {
         label: Some("effect preview"),
         required_features: wgpu::Features::empty(),
-        required_limits: wgpu::Limits::downlevel_defaults(),
+        required_limits: adapter.limits(),
     };
     pollster::block_on(adapter.request_device(&descriptor, None)).ok()
 }
@@ -704,17 +704,28 @@ mod tests {
                     let (mut world, _) = preview_world(&device, &element, record, fade);
                     let ticks = (*time / 33.).ceil() as u32 + 24;
                     match render_shot(&mut world, &device, &queue, shot, &path, ticks) {
-                        Ok(stats) => eprintln!(
-                            "preview: {} at ({:.1},{:.1},{:.1}) scale={:.2} alpha={:.2} t={}ms {}",
-                            record.path,
-                            record.position[0],
-                            record.position[1],
-                            record.position[2],
-                            record.scale,
-                            record.alpha,
-                            *time as i64,
-                            stats.describe()
-                        ),
+                        Ok(stats) => {
+                            // A shot with quads but no pixels is a texture the
+                            // map reader refused, not an empty root: say which.
+                            let textures = world.effect_texture_failures();
+                            let note = match textures.first() {
+                                Some(first) => {
+                                    format!(" textures-failed={} first={first}", textures.len())
+                                }
+                                None => String::new(),
+                            };
+                            eprintln!(
+                                "preview: {} at ({:.1},{:.1},{:.1}) scale={:.2} alpha={:.2} t={}ms {}{note}",
+                                record.path,
+                                record.position[0],
+                                record.position[1],
+                                record.position[2],
+                                record.scale,
+                                record.alpha,
+                                *time as i64,
+                                stats.describe()
+                            );
+                        }
                         Err(error) => {
                             eprintln!("preview: {} at {}ms: {error}", record.path, *time as i64)
                         }

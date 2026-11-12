@@ -982,6 +982,16 @@ impl World {
         self.effect_quads.len()
     }
 
+    /// Textures the effect pass could not decode, newest first. A bucket whose
+    /// map will not load is drawn with a transparent stand-in, so a preview that
+    /// submitted quads and covered no pixels is exactly this list being non-empty.
+    pub fn effect_texture_failures(&self) -> &[String] {
+        match &self.effects {
+            Some(draw) => draw.failures(),
+            None => &[],
+        }
+    }
+
     /// This frame's submitted effect quads. The headless preview in
     /// `effect_preview` frames its shot from these, and a test can measure what
     /// a root actually draws instead of trusting its authored numbers.
