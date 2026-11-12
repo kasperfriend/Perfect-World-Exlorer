@@ -28,11 +28,11 @@ on:
       roots:
         description: "; separated substrings of the effect paths to render (empty renders everything)"
         required: false
-        default: "水门_瀑布;树林光束;圣城之光"
+        default: "水门_瀑布;圣城之光"
       limit:
         description: "how many placements to render"
         required: false
-        default: "3"
+        default: "8"
       frames:
         description: "comma separated shot times, in milliseconds"
         required: false
@@ -44,11 +44,15 @@ on:
       angles:
         description: "comma separated azimuth:elevation degrees"
         required: false
-        default: "35:20,125:20"
+        default: "35:20"
       size:
         description: "PNG edge in pixels"
         required: false
         default: "384"
+      census:
+        description: "1 prints the scale distribution of every placement and the range each wanted root is placed with"
+        required: false
+        default: "1"
       gfx_id:
         description: "Drive id of the gfx.pck to render"
         required: false
@@ -136,11 +140,12 @@ jobs:
           XDG_RUNTIME_DIR: /tmp
           PWE_PREVIEW_ELEMENT: client
           PWE_PREVIEW_WORLD: client/world.ecwld
-          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;圣城之光;树林光束' }}
-          PWE_PREVIEW_MAX: ${{ inputs.limit || '3' }}
+          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;圣城之光' }}
+          PWE_PREVIEW_MAX: ${{ inputs.limit || '8' }}
           PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,900' }}
           PWE_PREVIEW_ZOOMS: ${{ inputs.zooms || '1,0.45' }}
-          PWE_PREVIEW_ANGLES: ${{ inputs.angles || '35:20,125:20' }}
+          PWE_PREVIEW_ANGLES: ${{ inputs.angles || '35:20' }}
+          PWE_PREVIEW_CENSUS: ${{ inputs.census || '1' }}
           PWE_PREVIEW_SIZE: ${{ inputs.size || '384' }}
         run: |
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"

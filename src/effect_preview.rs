@@ -232,6 +232,8 @@ struct Stats {
     max: [f32; 3],
     /// The ruler's grid step, in world units, that the PNG was drawn with.
     spacing: f32,
+    /// The root's own clock when the frame was taken, in milliseconds.
+    clock: u32,
 }
 
 impl Stats {
@@ -322,12 +324,17 @@ fn advance(
     queue: &wgpu::Queue,
     shot: Shot,
     ticks: u32,
-) {
+) -> u32 {
     let frame = effect_frame(shot.matrix(), shot.eye, shot.target);
     let lights = crate::scene_lights::SceneLights::default();
-    for _ in 0..ticks.max(1) {
+    let ticks = ticks.max(1);
+    for _ in 0..ticks {
         world.update(device, queue, frame, shot.target, &lights, 0., 33);
     }
+    // The root's own clock, which is what the elements schedule against. A warm
+    // up pass means this is never exactly the requested time, so the report says
+    // what the effect had actually been running.
+    ticks * 33
 }
 
 /// A measuring stick, not an effect: a one-metre grid on the ground plane and
@@ -743,8 +750,10 @@ fn render_shot(
     path: &Path,
     ticks: u32,
 ) -> Result<Stats, String> {
-    advance(world, device, queue, shot, ticks);
-    capture(world, device, queue, shot, path)
+    let clock = advance(world, device, queue, shot, ticks);
+    let mut stats = capture(world, device, queue, shot, path)?;
+    stats.clock = clock;
+    Ok(stats)
 }
 
 /// Write RGBA8 as a PNG, gamma-encoded so the file looks like the game rather
@@ -994,6 +1003,52 @@ mod tests {
              submitted (the map's own units), and `quads`/`pixels` what reached the pass and made\n\
              it to the image.\n\n",
         );
+        // `PWE_PREVIEW_CENSUS=1` answers a question no single shot can: is the
+        // scale a report is about the map's own number, or an outlier that
+        // suggests the record was read wrong? It prints the scale distribution
+        // of every placement and the range each wanted root is placed with.
+        if env_u32("PWE_PREVIEW_CENSUS", 0) != 0 {
+            let mut scales: Vec<f32> = Vec::new();
+            for block in &scene.blocks {
+                for record in &block.effects {
+                    scales.push(record.scale);
+                }
+            }
+            scales.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            let total = scales.len();
+            let pick = |q: f32| -> f32 {
+                if total == 0 {
+                    0.
+                } else {
+                    scales[(((total - 1) as f32) * q) as usize]
+                }
+            };
+            eprintln!(
+                "census: {total} effect records, scale min {:.3} p10 {:.3} median {:.3} p90 {:.3} max {:.3}",
+                pick(0.),
+                pick(0.1),
+                pick(0.5),
+                pick(0.9),
+                pick(1.)
+            );
+            let mut by_root: std::collections::BTreeMap<&str, (usize, f32, f32)> =
+                std::collections::BTreeMap::new();
+            for block in &scene.blocks {
+                for record in &block.effects {
+                    let entry = by_root
+                        .entry(record.path.as_str())
+                        .or_insert((0, f32::MAX, f32::MIN));
+                    entry.0 += 1;
+                    entry.1 = entry.1.min(record.scale);
+                    entry.2 = entry.2.max(record.scale);
+                }
+            }
+            for (path, (count, low, high)) in &by_root {
+                if wanted.is_empty() || wanted.iter().any(|key| path.contains(key)) {
+                    eprintln!("census: {count:4} x {path} scale {low:.3}..{high:.3}");
+                }
+            }
+        }
         let mut shots = 0usize;
         let mut written = 0usize;
         'placements: for block in &scene.blocks {
@@ -1082,13 +1137,14 @@ mod tests {
                                         None => String::new(),
                                     };
                                     let line = format!(
-                                        "- `{name}` — {} at ({:.1}, {:.1}, {:.1}) scale {:.2} alpha {:.2}, t {} ms, view az {:.0}/el {:.0} zoom {:.2}, grid {:.2} u, {:.3} m/px: {}{note}",
+                                        "- `{name}` — {} at ({:.1}, {:.1}, {:.1}) scale {:.2} alpha {:.2}, clock {} ms (shot {}) , view az {:.0}/el {:.0} zoom {:.2}, grid {:.2} u, {:.3} m/px: {}{note}",
                                         record.path,
                                         record.position[0],
                                         record.position[1],
                                         record.position[2],
                                         record.scale,
                                         record.alpha,
+                                        stats.clock,
                                         *time as i64,
                                         *azimuth,
                                         *elevation,
