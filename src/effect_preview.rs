@@ -751,26 +751,64 @@ fn capture(
 /// authors as `0.5 x 10` must come out with those two numbers in that ratio,
 /// whatever the framing does to the picture.
 fn quad_edges(quads: &[crate::gfx_player::EffectQuad]) -> (f32, f32) {
-    let mut shortest = f32::MAX;
-    let mut longest = 0f32;
+    // The *longest quad's* own edges, not the extremes over the whole frame: a
+    // shaft card next to a one-unit spark reports nothing useful if the two are
+    // folded together, and the shaft is the thing a size report is about.
+    let mut best = (0f32, 0f32);
     for quad in quads {
+        if quad.mesh.is_some() {
+            // A model element is a triangle soup; it has no four corners.
+            continue;
+        }
         let corners = quad.positions;
-        let pairs = [(0usize, 1usize), (1, 2), (2, 3), (3, 0)];
-        for (a, b) in pairs {
-            let from = glam::Vec3::from_array(corners[a]);
-            let to = glam::Vec3::from_array(corners[b]);
-            let length = (to - from).length();
-            if length.is_finite() {
-                shortest = shortest.min(length);
-                longest = longest.max(length);
-            }
+        let width = (glam::Vec3::from_array(corners[1]) - glam::Vec3::from_array(corners[0])).length();
+        let height = (glam::Vec3::from_array(corners[3]) - glam::Vec3::from_array(corners[0])).length();
+        if !width.is_finite() || !height.is_finite() {
+            continue;
+        }
+        let longest = width.max(height);
+        if longest > best.1 {
+            best = (width.min(height), longest);
         }
     }
-    if shortest == f32::MAX {
-        (0., 0.)
-    } else {
-        (shortest, longest)
+    best
+}
+
+/// Per-quad lines, one per card the root actually submitted. `PWE_PREVIEW_QUADS`
+/// turns them on; they are what says whether a shaft is thin because the file
+/// authored it thin or because the card collapsed.
+fn dump_quads(quads: &[crate::gfx_player::EffectQuad], limit: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for (index, quad) in quads.iter().enumerate().take(limit) {
+        if quad.mesh.is_some() {
+            lines.push(format!("- quad {index}: model element, tex {}", quad.texture));
+            continue;
+        }
+        let corners = quad.positions;
+        let width =
+            (glam::Vec3::from_array(corners[1]) - glam::Vec3::from_array(corners[0])).length();
+        let height =
+            (glam::Vec3::from_array(corners[3]) - glam::Vec3::from_array(corners[0])).length();
+        let centre = (glam::Vec3::from_array(corners[0])
+            + glam::Vec3::from_array(corners[1])
+            + glam::Vec3::from_array(corners[2])
+            + glam::Vec3::from_array(corners[3]))
+            * 0.25;
+        lines.push(format!(
+            "- quad {index}: {:.2} x {:.2} at ({:.1}, {:.1}, {:.1}) tex {} blend {}/{} depth {} layer {}",
+            width.min(height),
+            width.max(height),
+            centre.x,
+            centre.y,
+            centre.z,
+            quad.texture,
+            quad.source_blend,
+            quad.destination_blend,
+            quad.depth_test,
+            quad.layer
+        ));
     }
+    lines
 }
 
 /// Advance the world and then capture it: the one call a caller needs.
@@ -1200,6 +1238,16 @@ mod tests {
                                     report.push_str(&line);
                                     report.push('\n');
                                     eprintln!("preview: {line}");
+                                    // Only the fitted view dumps cards: the same
+                                    // quads from every zoom would be a wall of
+                                    // identical lines.
+                                    if env_u32("PWE_PREVIEW_QUADS", 0) != 0 && *zoom == zooms[0] {
+                                        for quad in dump_quads(world.effect_quads(), 24) {
+                                            report.push_str(&quad);
+                                            report.push('\n');
+                                            eprintln!("preview: {quad}");
+                                        }
+                                    }
                                     written += 1;
                                 }
                                 Err(error) => {

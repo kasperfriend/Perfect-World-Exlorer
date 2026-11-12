@@ -49,6 +49,10 @@ on:
         description: "PNG edge in pixels"
         required: false
         default: "384"
+      quads:
+        description: "1 prints every submitted card's own width, length, centre, texture and blend"
+        required: false
+        default: "1"
       census:
         description: "1 prints the scale distribution of every placement and the range each wanted root is placed with"
         required: false
@@ -146,6 +150,7 @@ jobs:
           PWE_PREVIEW_ZOOMS: ${{ inputs.zooms || '1,0.45' }}
           PWE_PREVIEW_ANGLES: ${{ inputs.angles || '35:20' }}
           PWE_PREVIEW_CENSUS: ${{ inputs.census || '1' }}
+          PWE_PREVIEW_QUADS: ${{ inputs.quads || '1' }}
           PWE_PREVIEW_SIZE: ${{ inputs.size || '384' }}
         run: |
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
