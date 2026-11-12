@@ -4284,3 +4284,70 @@ reduced them to one boolean and threw the reasons away. It now counts them, and
 (they are not a partition), and they are what a zone that still draws nothing
 should be read against: 295 for the city in §54.1 means the radius, not the
 loader.
+
+## 55. A headless preview, so an effect can be looked at without the viewer
+
+Every verdict in this file until now was read out of the code or out of a data
+census. That is how a wrong verdict survived review: §54 said the thing that
+renders as falling water is the static BMD mesh, and the report was right that
+the client draws a waterfall. Neither claim can be settled by reading, so the
+effect pass now renders offscreen and writes PNGs.
+
+`src/effect_preview.rs` draws nothing of its own. It builds a `World` exactly
+as the viewer does, installs the placement the map authors, ticks the real
+frame loop and renders the real pass into an RGBA texture:
+
+```text
+cargo test --release --bin perfect-world-explorer -- --ignored --nocapture effect_previews
+```
+
+| variable | meaning |
+| --- | --- |
+| `PWE_PREVIEW_ELEMENT` | client `element` directory holding `gfx.pck` |
+| `PWE_PREVIEW_WORLD` | an `.ecwld` to take placements from |
+| `PWE_PREVIEW_ROOTS` | `;`-separated path substrings to keep (empty: every placement) |
+| `PWE_PREVIEW_FRAMES` | `,`-separated shot times in milliseconds |
+| `PWE_PREVIEW_MAX` | how many placements to render |
+| `PWE_PREVIEW_SIZE` | PNG edge in pixels |
+| `PWE_PREVIEW_FADE` | the distance fade to shoot with, 0 for off |
+| `PWE_PREVIEW_OUT` | output directory |
+
+Each shot prints the one number that decides whether an effect is the size the
+map authored — the world-space box of the quads that were submitted and that
+box's diagonal:
+
+```text
+preview: 场景\新种族地图\水门_瀑布.gfx at (…) scale=2.74 alpha=1.00 t=900ms \
+  quads=7 pixels=… box=(…)..(…) diagonal=…
+```
+
+A sheet drawn at twice its authored size says so in that line whatever it looks
+like on screen, and it does so for every placement the map authors without any
+of them being opened by hand.
+
+### 55.1 The smoke case proves the harness, and it already caught one thing
+
+`effect_preview_smoke` needs no client file: it authors a version-37 root with
+one sprite card, serves it from a text reader, and asserts the card reaches the
+pass and covers pixels. It runs in the GPU job of `pr-checks.yml`, which is the
+only place with a Vulkan ICD (`mesa-vulkan-drivers`, lavapipe); on a machine
+with no adapter it reports `SKIPPED:` through the same gate §43 gave the corpus
+tests, because a test that needs a GPU must not redden the plain unit-test job.
+
+It failed twice before it passed, and both failures are evidence:
+
+1. `quads=1 pixels=0`. The card reached the pass and painted nothing, because a
+   bucket whose map will not load is drawn with a **transparent** stand-in
+   (`gfx_effect_gpu::Draw`'s fallback), not with white. The first version of the
+   smoke test had no texture archive and so asserted exactly the wrong thing.
+   The archive now answers every name with a 4x4 white TGA built in the test.
+   The same fallback is why an effect whose `TexFile` resolves to the wrong pack
+   is invisible rather than grey — §"the texture archive mismatch" in
+   `Gfx-effect-texture-archive-mismatch-2026-11-07.md`.
+2. `panicked at … an adapter` in the unit-test job: the module compiled, all
+   1,094 other tests passed, and the only failure was the missing Vulkan ICD.
+
+The frames themselves are a manual run: `.github/workflows/effect-preview.yml`
+fetches `gfx.pck` and `world.ecwld` on a runner, runs the ignored corpus test and
+commits the PNGs and `render.log` to `Findings/effect-preview/`, so the evidence
+sits next to the code instead of in an artifact nobody can read.
