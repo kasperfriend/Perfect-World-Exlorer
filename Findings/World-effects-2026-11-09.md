@@ -4988,3 +4988,64 @@ Two preview defects came out of the same sweep and are fixed beside it:
 The sweep list also moved out of the workflow into
 `.github/effect-preview-roots.txt`: a push to the trigger file cannot carry
 inputs, so every new sweep used to be a workflow edit.
+
+### 57.15 The sweep after 57.14: what moved, what did not, and what is still big on purpose
+
+Thirteen roots, twenty-three placements, two frames each, `play_speed` from the
+records (0.400 to 1.000). Every number below is the preview's own `size=`
+line — the box the primitive actually rasterised inside, not the values parsed
+out of the file.
+
+**Model roots (element 160) — all shrank by their keypoint scale, all now fit
+their surroundings:**
+
+| root | before | after | keypoint |
+|---|---|---|---|
+| `水族箱_水草翠绿` (2 meshes) | 42.77 x 67.47 x 47.28 | **6.12 x 5.40 x 3.78** | 0.150 / 0.080 |
+| `水族箱_水草墨绿` | 9.97 x 11.90 x 9.56 | 2.99 x 3.57 x 2.87 | 0.300 |
+| `水族箱_水草红` | 4.71 x 15.31 x 5.67 | 1.41 x 4.59 x 1.70 | 0.300 |
+| `水族箱_海星红` | 1.59 x 0.28 x 1.55 | 5.54 x 1.45 x 5.40 | (starfish, two elements) |
+| `水族箱_海星橙/黄/玫` | — | 2.19 x 0.99 x 2.44 / 3.78 x 0.55 x 3.67 / 2.90 x 1.15 x 2.55 | |
+| `蓝蘑菇2` | 2594.18 x 216.54 x 3399.64 *box*, 1.19 x 1.91 card | **1.78 x 2.31 x 1.57** box, mesh 0.96 x 1.38 x 0.95 | 1.000 |
+
+`水族箱_海星红` is the only one that grew, and it grew *into* its authored
+size: its keypoint pairs a small scale with a wide `Direction`, and the pre-fix
+box was the bind pose at the root scale, which is not the shape the file asks
+for. The mushroom's old box was the framing defect of §57.14, not a mesh at all.
+
+Every one of these now sits inside the tank: the glass root frames
+`21.19 x 14.35 x 2.59`, the lid `22.28 x 16.08 x 19.42`, the fish school
+`13.58 x 5.48 x 13.96`. Kelp at 3.5 to 5.4 units in a 21-unit tank is a plant;
+kelp at 67 was the report.
+
+**Card roots — unchanged by the fix, as they must be.** Their corners already
+took the keypoint scale at `quad_corners`:
+
+| root | size | card | verdict |
+|---|---|---|---|
+| `血鲷封印台罩子` | 70.45 x 49.15 x 64.38 | 42.84 x 57.12 | 598 quads on a boss seal; authored dome |
+| `圣城之光` | 719.40 x 2839.10 x 723.47 | 71.83 x 2514.04 | one sky column, 2.5 km; record `Height x 0.8` |
+| `天煞光束` | 26.24 x 654.33 x 21.29 | 26.17 x 654.33 | a sky beam, eye-level anchored |
+| `树林光束` | 94.12 x 99.37 x 130.98 | 6.55 x 130.98 | forest shaft, 131 tall |
+| `骷髅光柱` | 41.46 x 148.61 x 41.46 | 2.09 x 90.02 | skull pillar |
+| `绿鬼火3` | 30.74 x 34.82 x 28.59 | 28.65 x 28.65 | ghost fire, 26 quads |
+| `海底飘尘` / `海底飘尘2` | 67.26 x 25.84 x 89.81 / 45.71 x 40.62 x 51.36 | 0.58 / 0.71 | dust motes, hundreds of small cards |
+| `瀑布水花` `/ 中间` `/ 中间2` `/ 湍急` | 23 to 35 across | 2.93 to 15.86 | sheets, rising with the clock |
+| `盆景水晶` | 4.29 x 13.55 x 2.36 | 3.01 x 12.78 | a crystal cluster on a bonsai; 133 to 249 quads |
+| `水族箱` (bubbles) | 13.88 x 2.67 x 15.68 | 0.42 x 0.43 | 43 to 91 quads, growing |
+
+Two things worth keeping from this pass. `盆景水晶` at 13.55 units tall is the
+one card root the eye still calls oversized, but its record scale and keypoint
+multiply to exactly 13.55 (`Height 12.78`, keypoint 1.06) and the client's own
+composition is `DefScale x fScale` at the placement, so it is authored, not
+scaled — the bonsai is simply a tall rock. And the waterfalls' cards *grow*
+between 792 ms and 3795 ms (12.35 to 15.86, 4.01 to 4.77, 5.26 to 6.34) because
+the sheet animates, which is the answer §53.3 wanted.
+
+The particle path was re-read while looking for a second multiplier and is
+clean: `A3DParticleSystemEx::GetBindTranMat` is `m_matSelfScale * GetTranMatrix
+(kp) * GetParentTM()`, the emitter basis takes `kp.m_fScale * fParentScale`
+(`:1776`), and the viewer's `emission_scale = kp.Scale * root.PlaySpeed`
+(`src/gfx_player.rs:2267`) is that same product — the `PlaySpeed` factor is the
+client's own, recovered at `0x729670` and written up at `:5115-5122`, not a
+viewer invention.
