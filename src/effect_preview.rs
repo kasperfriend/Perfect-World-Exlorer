@@ -883,34 +883,72 @@ impl Card {
 /// about: a shaft next to a hundred sparks is line 90 of the raw order and line
 /// 1 of this one.
 fn dump_quads(quads: &[crate::gfx_player::EffectQuad], limit: usize) -> Vec<String> {
+    // A mesh element comes first: `Card::of` skips it because a triangle soup
+    // has no four corners, and its *world* extent is the number a size report
+    // about a model element is actually about. Two meshes in one root are
+    // printed separately, so a plant that is the right size next to one that is
+    // five times too big cannot hide inside a union box.
+    let mut lines: Vec<String> = Vec::new();
+    for quad in quads {
+        let Some(mesh) = &quad.mesh else { continue };
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        let mut any = false;
+        for vertex in &mesh.vertices {
+            if !vertex.position.iter().all(|value| value.is_finite()) {
+                continue;
+            }
+            any = true;
+            for axis in 0..3 {
+                min[axis] = min[axis].min(vertex.position[axis]);
+                max[axis] = max[axis].max(vertex.position[axis]);
+            }
+        }
+        if !any {
+            continue;
+        }
+        lines.push(format!(
+            "- mesh {} verts={} extent {:.2} x {:.2} x {:.2} at ({:.1}, {:.1}, {:.1}) \
+             blend {}/{} depth {}",
+            mesh.texture,
+            mesh.vertices.len(),
+            max[0] - min[0],
+            max[1] - min[1],
+            max[2] - min[2],
+            (min[0] + max[0]) * 0.5,
+            (min[1] + max[1]) * 0.5,
+            (min[2] + max[2]) * 0.5,
+            quad.source_blend,
+            quad.destination_blend,
+            quad.depth_test
+        ));
+    }
     let mut cards: Vec<Card> = quads.iter().filter_map(Card::of).collect();
     cards.sort_by(|a, b| b.long.partial_cmp(&a.long).unwrap_or(std::cmp::Ordering::Equal));
-    cards
-        .iter()
-        .take(limit)
-        .map(|card| {
-            format!(
-                "- card {:.2} x {:.2} at ({:.1}, {:.1}, {:.1}) axis ({:.2}, {:.2}, {:.2}) \
-                 uv ({:.3}, {:.3}) + ({:.3}, {:.3}) tex {} blend {}/{} depth {}",
-                card.short,
-                card.long,
-                card.centre.x,
-                card.centre.y,
-                card.centre.z,
-                card.axis.x,
-                card.axis.y,
-                card.axis.z,
-                card.uv0[0],
-                card.uv0[1],
-                card.uv_span[0],
-                card.uv_span[1],
-                card.texture,
-                card.source,
-                card.destination,
-                card.depth
-            )
-        })
-        .collect()
+    for card in cards.iter().take(limit) {
+        lines.push(format!(
+            "- card {:.2} x {:.2} at ({:.1}, {:.1}, {:.1}) axis ({:.2}, {:.2}, {:.2}) \
+             uv ({:.3}, {:.3}) + ({:.3}, {:.3}) tex {} blend {}/{} depth {}",
+            card.short,
+            card.long,
+            card.centre.x,
+            card.centre.y,
+            card.centre.z,
+            card.axis.x,
+            card.axis.y,
+            card.axis.z,
+            card.uv0[0],
+            card.uv0[1],
+            card.uv_span[0],
+            card.uv_span[1],
+            card.texture,
+            card.source,
+            card.destination,
+            card.depth
+        ));
+    }
+    lines.truncate(limit);
+    lines
 }
 
 /// Advance the world and then capture it: the one call a caller needs.

@@ -1418,6 +1418,19 @@ impl Player {
                         grid.rows, grid.columns, grid.cell_size, grid.z_offset
                     ),
                 ),
+                // A model element has no width or height of its own — its size
+                // is the `.SMD`'s — so the file it loads is the one number a
+                // size report cannot be answered without. Two roots that share
+                // a model and draw it at different sizes are a scale bug; two
+                // roots with different models are the assets.
+                Spec::Model(model) => (
+                    0.,
+                    0.,
+                    format!(
+                        "model={:?} act={:?} loops={}",
+                        model.path, model.action, model.loops
+                    ),
+                ),
                 _ => (0., 0., String::new()),
             };
             crate::diag!(
