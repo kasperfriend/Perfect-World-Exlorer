@@ -146,6 +146,31 @@ jobs:
           echo "::error::none of the gfx.pck ids carries the guard words this reader accepts"
           exit 1
 
+      # The pack-corpus tests (`the_shipped_*`, the editor-garbage scales) read
+      # `google_drive/gfx.pck` and `open_pack` turns a missing pack into a silent
+      # skip — which is how two tests asserting opposite tiled-UV laws both
+      # stayed green while the waterfalls froze (§59.2). The archive is already
+      # downloaded above, so link it where the tests look and set
+      # `PWE_CORPUS=require`: from here on, absence is a failure and a wrong
+      # assertion about a shipped root turns this job red instead of quiet.
+      - name: Shipped pack tests (cannot skip)
+        run: |
+          set -euo pipefail
+          mkdir -p google_drive target/effect-preview
+          ln -sf "$PWD/client/gfx.pck" google_drive/gfx.pck
+          CARGO_TERM_COLOR=never PWE_CORPUS=require cargo test --locked \
+            --bin perfect-world-explorer -- --nocapture \
+            the_shipped_ the_roots_with_editor_garbage \
+            2>&1 | tee target/effect-preview/pack-tests.log
+          status=${PIPESTATUS[0]}
+          grep -E "^test result:" target/effect-preview/pack-tests.log || true
+          if [ "$status" -ne 0 ]; then
+            echo "::error::a shipped-pack test failed; the corpus is present, so this is a real disagreement with the retail files"
+            grep -A3 -E "panicked at" target/effect-preview/pack-tests.log \
+              | head -20 | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          fi
+
       - name: Render
         env:
           WGPU_BACKEND: vulkan

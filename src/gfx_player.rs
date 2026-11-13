@@ -13119,6 +13119,113 @@ mod tests {
         assert_eq!(player.stats().warp, 1);
     }
 
+    /// `场景/新种族地图/瀑布大.gfx` is the waterfall class the gate root does not
+    /// cover: nine element-150 fractal sheets (`A3DGFXLightning.cpp:467-500`
+    /// width/alpha order, `Segs: 10` cross-sections) whose `TexSpeed` runs
+    /// along U at 0.30/0.35/0.45, three sheets per speed, on the two water
+    /// textures, plus three smoke cards and the element-200 binding of
+    /// `瀑布水花子.gfx`. The veil is exactly what a frozen tiled-UV branch turns
+    /// into a still image, so this pins the authored record and then the
+    /// runtime slide through the real player — with the bound child resolved
+    /// from the pack the way the owner resolves it at install time.
+    #[test]
+    fn the_shipped_waterfall_veil_fractals_scroll_their_sheets() {
+        let Some((mut file, entries)) = open_pack() else {
+            return;
+        };
+        let name = "gfx/场景/新种族地图/瀑布大.gfx";
+        let root = shipped_root(&mut file, &entries, name);
+        let ids: Vec<u32> = root.elements.iter().map(|element| element.id).collect();
+        assert_eq!(
+            ids,
+            vec![123, 123, 123, 150, 150, 150, 150, 150, 150, 150, 150, 150, 200],
+            "three smoke cards, nine fractal sheets, one bound spray"
+        );
+        let sheets: Vec<(String, [f32; 2])> = root
+            .elements
+            .iter()
+            .filter(|element| matches!(element.spec, Spec::Fractal(_)))
+            .map(|element| {
+                assert_eq!(element.common.tile_mode, 1, "a veil sheet is tiled");
+                // Compare by file name: the element authors `纹理\气连续04.tga`
+                // and the draw carries the resolved pack path.
+                let base = element
+                    .common
+                    .texture
+                    .replace('\\', "/")
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                (base, element.common.tex_speed)
+            })
+            .collect();
+        for (texture, speed) in &sheets {
+            assert!(
+                speed[0] > 0. && speed[1] == 0.,
+                "{texture} scrolls U only: {speed:?}"
+            );
+        }
+        // The root binds its spray (element 200) to `场景\新种族地图\瀑布水花子.gfx`;
+        // resolve that GfxPath through the pack exactly as `gfx_owner` does.
+        let mut load_child = |path: &str| -> Result<gfx_file::Root, String> {
+            let joined = format!("gfx/{}", path.replace('\\', "/"));
+            Ok(shipped_root(&mut file, &entries, &joined))
+        };
+        let mut player = Player::new(root, 7, &mut load_child)
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        for _ in 0..3 {
+            step(&mut player, 100.);
+        }
+        let windows = |player: &Player| -> Vec<(String, f32)> {
+            let mut seen: Vec<(String, f32)> = Vec::new();
+            for quad in player.quads() {
+                let base = quad
+                    .texture
+                    .replace('\\', "/")
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or_default()
+                    .to_string();
+                if !seen
+                    .iter()
+                    .any(|(t, u)| t == &base && (u - quad.uv[0][0]).abs() < 1e-6)
+                {
+                    seen.push((base, quad.uv[0][0]));
+                }
+            }
+            seen
+        };
+        let first = windows(&player);
+        assert!(!first.is_empty(), "the veil draws: {:?}", player.quads());
+        step(&mut player, 500.);
+        let second = windows(&player);
+        // `TexAnimation`'s tile arm slides the window by `TexSpeed * dt`
+        // (`A3DGFXElement.h:521-570`), and every quad of a strip shares its
+        // element's window, so each authored speed must be realized as a slide
+        // of `tex_speed[0] * 0.5` over the 500 ms step.
+        for (texture, speed) in &sheets {
+            let expected = speed[0] * 0.5;
+            assert!(
+                first.iter().filter(|(t, _)| t == texture).any(|(_, u0)| {
+                    second
+                        .iter()
+                        .filter(|(t, _)| t == texture)
+                        .any(|(_, u1)| ((u1 - u0) - expected).abs() < 2e-3)
+                }),
+                "{texture} slides u by {expected} over 500 ms (TexSpeed {speed:?}): \
+                 {first:?} -> {second:?}"
+            );
+        }
+        // And nothing on either texture is standing still.
+        for (texture, u0) in &first {
+            let moved = second
+                .iter()
+                .any(|(t, u1)| t == texture && (u1 - u0).abs() > 0.1);
+            assert!(moved, "a frozen sheet at {texture} u={u0}: {second:?}");
+        }
+    }
+
     /// The forest's sun shafts, `场景/树林光束.gfx`: eight element-100 cards of
     /// 0.5 x 10 under a `DedaultScale` of 0.7, every one `RotFromView: 1`. Their
     /// height therefore runs along the placement's Z axis and only their width

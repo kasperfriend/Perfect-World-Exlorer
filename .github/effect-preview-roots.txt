@@ -25,3 +25,11 @@
 # has no frame evidence at all — which is how the one-sheet window slipped
 # through (§59.2).
 水门_瀑布
+# The other two waterfall classes the gate does not cover. 瀑布1 is an
+# element-210 grid curtain (`A3DGridDecalEx`, authored lattice, `TexSpeed` V
+# -0.5 on 连续水流纹理.tga), and 瀑布大 is the element-150 fractal veil: nine
+# noise strips (Segs 10, three U speeds 0.30/0.35/0.45 on 气连续04.tga and
+# 流动01_通道.dds, blend 5/6) plus its bound spray root. Both scroll through
+# `flipbook_uv`'s tile arm, and until this line no frame proved it.
+瀑布1
+瀑布大
