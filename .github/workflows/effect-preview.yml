@@ -152,10 +152,10 @@ jobs:
           XDG_RUNTIME_DIR: /tmp
           PWE_PREVIEW_ELEMENT: client
           PWE_PREVIEW_WORLD: client/world.ecwld
-          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;树林光束;圣城之光' }}
-          PWE_PREVIEW_MAX: ${{ inputs.limit || '9' }}
-          PWE_PREVIEW_PER_ROOT: ${{ inputs.per_root || '3' }}
-          PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,900,3000' }}
+          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;树林光束;天煞光束;圣城之光;骷髅光柱;绿鬼火3' }}
+          PWE_PREVIEW_MAX: ${{ inputs.limit || '6' }}
+          PWE_PREVIEW_PER_ROOT: ${{ inputs.per_root || '1' }}
+          PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,500,3000' }}
           PWE_PREVIEW_ZOOMS: ${{ inputs.zooms || '1' }}
           PWE_PREVIEW_ANGLES: ${{ inputs.angles || '35:20,0:80' }}
           PWE_PREVIEW_CENSUS: ${{ inputs.census || '1' }}
@@ -164,7 +164,7 @@ jobs:
           # The element table and the decal channel are the two that answer "which
           # element, built by which basis"; they cost nothing until a line is
           # written and the file ride along with the frames.
-          PWE_LOG: ${{ inputs.log || 'effect-elements,effect-decals' }}
+          PWE_LOG: ${{ inputs.log || 'effect-elements,effect-cards,effect-uv,effect-clock' }}
         run: |
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
           if [ -z "$VK_ICD_FILENAMES" ]; then
@@ -201,17 +201,23 @@ jobs:
           find target/effect-preview -name '*.png' -size -2M -exec cp {} Findings/effect-preview/ \;
           # `PWE_LOG` writes the element tables and the decal channel here: the
           # per-card `basis=`/`id=` lines are what say which builder drew a ring.
-          find target/effect-preview -maxdepth 1 -name '*.log' -size -4M -exec cp {} Findings/effect-preview/ \;
+          # They are copied with a `.txt` suffix because `*.log` is ignored in
+          # this repository, and a `git add -f`ed ignored file does not survive a
+          # squash: the 12 November run published three channel files and the
+          # squashed branch kept none of them.
+          for file in target/effect-preview/*.log; do
+            [ -s "$file" ] || continue
+            [ "$(stat -c%s "$file")" -lt 4194304 ] || continue
+            cp "$file" "Findings/effect-preview/$(basename "$file").txt"
+          done
           if [ -f target/effect-preview/metrics.md ]; then
             cp target/effect-preview/metrics.md Findings/effect-preview/
           fi
           ls -l Findings/effect-preview | head -40
           git config user.name "effect preview"
           git config user.email "preview@users.noreply.github.com"
-          # `-f` because `*.log` is ignored in this repository: the channel files
-          # (`effect-elements.log`, `effect-decals.log`) are the evidence that says
-          # which element built a card, and the ignored extension is for `cargo`
-          # output rather than for what a run publishes.
+          # `-f` because the frames directory also carries `render.log`, which is
+          # ignored: the channel files themselves arrive as `.txt` above.
           git add -f Findings/effect-preview
           if git diff --cached --quiet; then
             echo "nothing new to commit"
