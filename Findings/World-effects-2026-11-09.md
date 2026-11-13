@@ -5444,17 +5444,75 @@ heaviest are all weapon effects with offsets of a few hundredths
 x25, `18品匕首_l01` 0.01 x16) — sub-millimetre in world space, so the size they
 gain is unmeasurable. The one root where the key matters is
 `gfx/models/暗语者营地/暗语者营地.gfx`: **eleven 101 records at 2.6, 2.85 and
-3.0**, with cards of `6 x 6`, `6 x 10`, `6.5 x 11.5` and `7 x 12`. At the
-sixteen-unit depth those cards are typically framed at, the old translation drew
-each one `16 / 13` — about **23 %** — too large, and the number is the same for
-all four sizes because it is a ratio. `gfx/场景/新种族地图/暗语者营地.gfx`, the
-scenery twin that is actually placed in this map, carries six of the same
+3.0**, with cards of `6 x 6`, `6 x 10`, `6.5 x 11.5` and `7 x 12`.
+
+How large the old error was depends on how far the camera is, which is why it is
+worth stating as a formula rather than a number: translating the corners 3 units
+toward the eye at `d` units drew the card `d / (d - 3)` too large, so **23 %** at
+16 units, **6 %** at 50, **3 %** at 100. The measurement below lands at 100-140
+units (a 55-unit-wide root framed by the preview's 110-unit fit), i.e. the small
+end — and a player standing in the camp is at the large end. `gfx/场景/新种族地图/暗语者营地.gfx`,
+the scenery twin that is actually placed in this map, carries six of the same
 eleven records, so the effect-preview sweep now includes it
 (`.github/effect-preview-roots.txt`) and the fix has a before-and-after
 placement rather than only a unit test.
 
 `爆弹_燃烧1` is the only root that pushes the other way (`-2.0` on five cards,
 `0.5` on four) and draws those five about 13 % *small*, at sixteen units.
+
+**Measured on a placement, not only asserted.** `暗语者营地` became part of the
+preview sweep for this, and the two runs straddle the fix. The six
+`6 x 6` cards author a half extent of 6 under a placement scale of 0.998, so
+their world width is `2 * 6 * 0.998 = 11.976`; all six author `ZOffset: 3.0`
+(and the two largest `2.6` and `2.85`).
+
+| run | card widths (`6 x 6` records) |
+|---|---|
+| before | `11.98`, `11.98`, `11.98`, `11.98` — the authored width, untouched, because the corners were *translated* |
+| after | `11.72`, `11.70`, `11.66`, `11.63` — shrunk by `offset / depth` |
+
+The after column is the client's own arithmetic: `Fill_Verts_2D` writes the
+unenlarged extents at a depth moved 3 units nearer, and a projection divides by
+depth, so the drawn card keeps its screen size while its *world* width falls by
+`1 - 3/d`. Inverting that gives the four cards' own distances from the camera —
+**103.8, 113.7, 130.2 and 140.3 units** — which is what a 110-unit fit to a
+55-unit-wide root produces for four cards a few metres apart. The two runs are
+the same camera, so this is a like-for-like measurement: the fix moves each card
+by 2.1-2.9 % of its own width, and *zero* per cent of its projected size.
+
+The first run is also how the camera bug below was found: the cards came back at
+exactly `11.98`, the authored width to the millimetre, which is what a *refused*
+push produces and what a working translation produces — so the run could not
+tell the two apart until the camera was shown to be reversed.
+
+### 59.1a The preview was rendering every billboard backwards
+
+That first run had a second defect behind it, and it was not introduced by this
+pass. `View::from_inverse_view_projection` takes its view direction as the
+near-to-far ray, which is correct only for a projection whose third row is
+`w_clip = +z_view`. Every projection the world pass builds is the opposite
+(`Mat4::perspective_rh` under a `from_scale(-1, 1, 1)` mirror), so it was right
+there; the preview builds `perspective_rh` with **no** mirror, and for that one
+the ray already points into the scene — the recovered `forward` came back exactly
+negated.
+
+The eye position does not show it, because the two conventions cancel in the
+ray/plane intersection: measured on the preview's own matrix, the recovered eye
+was exact to `7e-13` while `forward` dotted the true direction at **-1.0000**.
+So every billboard, every axial card and every particle basis in every preview
+frame faced away from the camera. The `ZOffset` push exposed it by refusing a
+negative depth and returning its input unchanged.
+
+The fix reads the sign from the matrix — the gradient of row 3 along the centre
+ray — re-orients `right`/`up` so `right x up` points back at the eye (which also
+undoes a clip-space mirror), and the existing camera test gained the preview's
+matrix as a fifth case. It had passed until now because its one unmirrored case
+looked straight down `-Z`, where a negated direction is the same axis.
+
+**One caveat, stated as such.** The recovery is not the reason the world pass
+looks right; it is the reason the preview does. Nothing in the shipped viewer
+changed behaviour from this apart from previews, since the world pass's
+convention was already the one assumed.
 
 ### 59.2 Controllers run on the client's branch, and the branch is the mode
 
