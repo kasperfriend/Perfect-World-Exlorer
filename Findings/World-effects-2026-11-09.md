@@ -4730,3 +4730,62 @@ Two things in the same run *were* wrong:
 The frames show the difference: the waterfall PNG is a soft, see-through sheet
 with the flow pattern readable at its authored scale, where the pre-fix frame was
 a finer, busier version of the same surface.
+
+### 57.10 Every card of six roots, element by element: the sizes are the client's, and the frame is why they *look* oversized
+
+§57.9 checked one card per root. The same run's two channels can be joined
+properly, and this is the whole table. `effect-elements.log.txt` prints each
+element's own `Width x Height` and `grid`; `effect-cards.log.txt` prints each
+card the decal channel actually submitted, with its texture, `a=` and pixel
+extents. Joining them *by texture and by size* — not by the `#n` index, which is
+the quad's index in the frame, not the element's — every non-particle card
+resolves to one element and one keypoint scale:
+
+| root | DefScale | record scale | file `Width x Height` | rendered card | keypoint scale |
+|---|---|---|---|---|---|
+| `树林光束` (`circle019/013/004`) | 0.700 | 9.36 | 0.50 x 10.00 | 6.55 x 130.98 | 1.000 |
+| `圣城之光` `greenring` | 1.000 | 89.79 | 2.25 x 2.25 | 404.04 x 404.04 | 1.000 |
+| `圣城之光` `火环2` | 1.000 | 89.79 | 1.15 x 1.15 | 206.51 x 206.51 | 1.000 |
+| `圣城之光` `yuanhuanhuang` | 1.000 | 89.79 | 0.75 x 0.725 | 156.01 x 150.81 | 1.158 |
+| `圣城之光` `circle0333` (35 tall) | 1.000 | 89.79 | 1.00 x 35.00 | 71.83 x 2514.04 | **0.400** |
+| `圣城之光` `circle0333` (25 tall) | 1.000 | 89.79 | 1.00 x 25.00 | 71.83 x 1795.75 | **0.400** |
+| `天煞光束` `circle032` | 1.000 | 6.54 | 2.00 x 50.00 | 26.17 x 654.33 | 1.000 |
+| `天煞光束` `circle032` (narrow) | 1.000 | 6.54 | 1.00 x 50.00 | 13.09 x 654.33 | 1.000 |
+| `水门_瀑布` `气连续03` | 1.000 | 2.74 | 0.90 x 1.25 | 4.92 x 6.84 | 1.000 |
+| `水门_瀑布` `流动(通道)` | 1.000 | 2.74 | 0.85 x 1.25 | 4.65 x 6.84 | 1.000 |
+| `水门_瀑布` `humianbowen` | 1.000 | 2.74 | 1.00 x 1.25 | 5.47 x 6.84 | 1.000 |
+| `绿鬼火3` `星星6` | 2.000 | 8.95 | 0.125 x 0.125 | 4.48 x 4.48 | **6.400** |
+| `骷髅光柱` `circle038` | 3.000 | 1.00 | 0.00 x 0.00 | 2.09 x 90.02 | emitter |
+
+Every entry is `2 x Width x DefScale x recordScale x keypointScale`, and the
+keypoint column is the file's own `Keys[...].Scale` at the sampled time, not a
+fitted fudge: `圣城之光` authors its four shafts at `Scale 0.4`, and
+`2 x 1 x 35 x 89.79 x 0.4 = 2514.04` exactly. The `size=0` rows are particles:
+their `Width/Height` are zero in the file and the card takes its size from the
+emitter (`ScaleMin/ScaleMax` plus `ScaleChage`), which is the `extra` term in
+`quad_corners` — so they cannot be checked this way, and none of them is
+oversized by a factor: `绿鬼火3`'s flames are 28.65 units across at record scale
+8.95, i.e. 3.2 units of authored flame.
+
+**So why does the picture read as oversized, and does it still?** Two answers,
+and neither is a scale line:
+
+1. *The lab cannot show relative size.* `framing_shot_at` puts the camera at
+   `radius / tan(22.5°) x 1.15`, so the effect's own bounding box always covers
+   about 87 % of the frame: a 0.11-unit smoke puff and a 2514-unit shaft produce
+   the same picture. The size is in the log line (`card=` and `m/px`), never in
+   the image. Reading "too big" off a fitted frame is a property of the harness,
+   which is exactly the preview/client misunderstanding the report suspected —
+   but it is in the *framing*, not in the geometry.
+2. *What was actually wrong in the pipeline* is the pair in §57.9: the tiled UV
+   window and the discarded `PlaySpeed`. Both are shared-parameter bugs — one
+   line of UV arithmetic, one line of speed composition — and both are fixed and
+   tested. Nothing about them is per-effect.
+
+In the world the same cards land at the same world size, because the placement
+matrix carries `DefScale x fScale` once (`EC_ManOrnament.cpp:953`
+`pGFX->SetScale(pNode->fScale)` into `A3DGFXEx::m_fDefScale`) and the census rows
+in §57.5 reproduce the same numbers outside the lab. A 654-unit pillar of light
+and a 2514-unit sky shaft are large because the maps author them that way, and
+the remaining reason they dominate a lit scene — `blend=2/4` (`ONE +
+INVSRCCOLOR`) over bright ground — is §57.6's open item, not a size.
