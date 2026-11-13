@@ -4592,13 +4592,35 @@ is what the file draws; if it should lie down, the file is where to look.
 
 `player clock 634 ms play 0.800 (file 1.000)` for a shot that asked for 792 ms:
 the record's `fSpeed` is 0.8 and the file's `PlaySpeed` is 1.0. `CECOrnamentMan`
-does not multiply the two — it *sets* the play speed from the record
-(`pGFX->SetPlaySpeed(pNode->fSpeed)`, `EC_ManOrnament.cpp:950`), so the file's
-value is replaced. The viewer used to scale its delta by `fSpeed` and then let
-`A3DGFXEx` multiply by `PlaySpeed` as well; `Player::set_play_speed` now carries
-the placement's value and the pass hands the player the raw frame delta. A root
-whose file authors `PlaySpeed: 0` used to play at `0 x fSpeed` however fast the
-frame ran, which is one way to get a frozen sheet with live geometry.
+loads the root and then applies the placement in three lines
+(`EC_ManOrnament.cpp:952-954`):
+
+```cpp
+pGFX->SetScale(pNode->fScale);
+pGFX->SetPlaySpeed(pNode->fSpeed);
+pGFX->SetParentTM(mat);
+```
+
+Each of those setters stores the *placement* value and recomputes a product
+(`A3DGFXEx.h:186-232`):
+
+```cpp
+void CalcActualSpeed() { m_fActualSpeed = m_fDefPlaySpeed * m_fPlaySpeed; }
+void CalcActualScale() { m_fActualScale = m_fDefScale * m_fScale; ... }
+void CalcActualAlpha() { m_fActualAlpha = m_fDefAlpha * m_fAlpha; }
+```
+
+so the file's `PlaySpeed` is **not** replaced — it is multiplied (this section
+first said otherwise; §57.9's `天煞光束` case and §57.11's fresh log settled it).
+`SetPlaySpeed` only ever writes `m_fPlaySpeed`, the placement half. The root's
+tick is then scaled by the product: `A3DGFXEx.cpp:1550`
+`dwTickTime = static_cast<DWORD>(dwTickTime * m_fActualSpeed)`.
+
+What the viewer got wrong was narrower than "replaces": `Player::play_speed` let
+the placement's value *substitute* for the file's, so a root with
+`PlaySpeed: 0.4` ran at 1.0 whenever a map placed it at `fSpeed: 1` — 2.5x fast,
+which is a busy sheet that is not the authored one. `Player::play_speed` now
+returns `root.play_speed * override` (`e9f8b7d`).
 
 ### 57.5 The forest sunbeams are the authored size, in two different planes
 
@@ -4823,3 +4845,76 @@ scroll. Neither line is the bug the reports described.
 The published frames agree with the log: at 0 and 3000 ms the waterfall sheet is
 the same authored pattern in two positions (the base foam mounding up and the
 mottling shifted), not a finer or double-tiled version of it.
+
+### 57.12 All six roots, three shots: the clock is `asked x (file PlaySpeed x record fSpeed)`, and what each root moves with
+
+The same run's summary lines, complete for the six roots the reports name. Every
+clock is the shot time multiplied by the product, and the product is what the
+player now returns (`player clock 634 = 792 x 0.8`, `317 = 792 x 0.4`):
+
+| root | file `PlaySpeed` | record `fSpeed` | play | 792 ms shot | 1320 ms shot | 3795 ms shot |
+|---|---|---|---|---|---|---|
+| `树林光束` | 1.0 | 1.0 | 1.000 | 792 | 1320 | 3795 |
+| `圣城之光` | 1.0 | **0.8** | 0.800 | 634 | 1056 | 3036 |
+| `天煞光束` | **0.4** | 1.0 | 0.400 | 317 | 528 | 1518 |
+| `骷髅光柱` | 1.0 | 1.0 | 1.000 | 792 | 1320 | 3795 |
+| `绿鬼火3` | 1.0 | 1.0 | 1.000 | 792 | 1320 | 3795 |
+| `水门_瀑布` | 1.0 | 1.0 | 1.000 | 792 | 1320 | 3795 |
+
+The clock channel's first tick says the same thing before any shot is asked for:
+`t=26.4ms dt=33.0ms play_speed=0.800` for `圣城之光`, `t=13.2` for
+`天煞光束`, `t=33.0` for the rest.
+
+**What each root actually animates with** decides whether a still frame is a
+bug. The element tables give the keypoint counts:
+
+| root | elements | keypoints | therefore |
+|---|---|---|---|
+| `水门_瀑布` | 49 | **all `keys=1`** | the *only* motion is the `TexSpeed` UV scroll |
+| `天煞光束` | 4 | all `keys=1` | static by authoring; it is four fixed cards |
+| `骷髅光柱` | 63 | all `keys=1` | geometry fixed, particles carry the motion |
+| `树林光束` | 56 | `keys=2` | a two-key flicker on every beam |
+| `圣城之光` | 91 | 63 x `keys=1`, 28 x `keys=2` | the shafts pulse, the rings are fixed |
+| `绿鬼火3` | 28 | 21 x `keys=1`, 7 x `keys=7` | a seven-key flame plus particles |
+
+So the waterfall has no keypoints at all: if its UV scroll is wrong the sheet is
+frozen while every clock runs — which is exactly the report, and it is why the
+UV window mattered more than any clock. Measured with
+`tools/effect-frame-diff.py` (same camera, 0 ms against 3000 ms, share of pixels
+that differ at all / that differ visibly):
+
+| root | az 0 / el 80 | az 35 / el 20 |
+|---|---|---|
+| `水门_瀑布` | 15.8 % / 12.9 % | **20.1 % / 12.2 %** |
+| `绿鬼火3` | 18.2 % / 15.5 % | 13.8 % / 9.6 % |
+| `树林光束` | 12.3 % / 11.4 % | 7.8 % / 7.0 % |
+| `骷髅光柱` | 5.9 % / 5.2 % | 8.3 % / 5.6 % |
+| `圣城之光` | 1.8 % / 1.6 % | 1.7 % / 1.6 % |
+| `天煞光束` | 0.5 % / 0.0 % | 2.3 % / 0.0 % |
+
+`天煞光束`'s 0.0 % is right, not frozen: its four elements carry one keypoint
+each, so there is nothing to move, and its motion (a slow width/alpha shimmer)
+was never authored. `圣城之光`'s 1.7 % is its 28 two-key shafts pulsing against
+404-unit rings that do not. The two roots the reports call static — the waterfall
+and the wraithgate flames — change a fifth and a seventh of the frame.
+
+### 57.13 The ledger: every shared parameter, its line in the client, and its verdict
+
+| parameter | viewer | 1.5.2 client | verdict |
+|---|---|---|---|
+| card size | `2 x W x D x S x kp` (`quad_corners`) | `SetScale` -> `m_fActualScale = m_fDefScale * m_fScale` (`A3DGFXEx.h:202-207`) | equal |
+| play rate | `root.play_speed * override` | `m_fActualSpeed = m_fDefPlaySpeed * m_fPlaySpeed` (`A3DGFXEx.h:187`) | equal (`e9f8b7d`) |
+| alpha | `default_alpha * alpha * fade` | `m_fActualAlpha = m_fDefAlpha * m_fAlpha` (`A3DGFXEx.h:222`) | equal |
+| tick scale | `time += dt_ms * play_speed()` | `dwTickTime * m_fActualSpeed` (`A3DGFXEx.cpp:1550`) | equal |
+| tiled UV | one sheet, `(u + tex)/grid` | `u0 = 1/TexWid, u1 = -TexU/TexWid` (`A3DGFXElement.cpp:1385`) | equal (fixed) |
+| sampler | `Repeat` (`gfx_effect_gpu.rs:252`) | `addrs[i] = A3DTADDR_WRAP` (`A3DHLPixelShader.h:110-118`) | equal |
+| blend | D3D8 codes 1-10 -> wgpu factors | `D3DBLEND` codes, default `SRCALPHA/ONE` (`A3DGFXElement.cpp:605-606`) | equal |
+| record layout | 60 bytes: id, scale, pos, dir, up, speed, valid, alpha, atten | copy block `0x5b3436..0x5b34a6` | equal (`corpus_effect_records_agree_on_one_layout`) |
+| model `DefSpeed` | `unwrap_or(1.)` | `m_fDefSpeed` default 1.0 | equal |
+
+One nuance is deliberately not ported: `A3DGFXEx::Render` returns before drawing
+when `m_fActualAlpha <= 0.05` (`A3DGFXEx.cpp:1658`), so a root faded almost out
+is skipped entirely. The viewer draws it at that alpha. It can only trigger on an
+authored `fAlpha <= 0.05` or through the distance fade, and the visible
+difference is the same near-zero contribution the client drops — recorded here so
+the omission is a decision, not an oversight.
