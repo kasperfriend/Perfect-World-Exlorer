@@ -1,5 +1,3 @@
-    Updating crates.io index
-   Compiling perfect-world-explorer v0.1.0 (/home/runner/work/Perfect-World-Explorer/Perfect-World-Explorer)
 warning: unused import: `std::collections::HashMap`
   --> src/gfx_catalog.rs:36:5
    |
@@ -22,9 +20,9 @@ help: remove these parentheses
      |
 
 warning: duplicated attribute
-     --> src/gfx_player.rs:12290:5
+     --> src/gfx_player.rs:12295:5
       |
-12290 |     #[test]
+12295 |     #[test]
       |     ^^^^^^^
       |
       = note: `#[warn(duplicate_macro_attributes)]` on by default
@@ -73,9 +71,9 @@ warning: unused variable: `trailer`
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src/gfx_player.rs:8115:13
+    --> src/gfx_player.rs:8120:13
      |
-8115 |         let mut name = |text: &str, out: &mut Vec<u8>| {
+8120 |         let mut name = |text: &str, out: &mut Vec<u8>| {
      |             ----^^^^
      |             |
      |             help: remove this `mut`
@@ -83,9 +81,9 @@ warning: variable does not need to be mutable
      = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src/gfx_player.rs:9255:13
+    --> src/gfx_player.rs:9260:13
      |
-9255 |         let mut count = |half: Vec3| {
+9260 |         let mut count = |half: Vec3| {
      |             ----^^^^^
      |             |
      |             help: remove this `mut`
@@ -1392,11 +1390,11 @@ help: convert the identifier to upper case
       |
 
 warning: `perfect-world-explorer` (bin "perfect-world-explorer" test) generated 124 warnings (run `cargo fix --bin "perfect-world-explorer" -p perfect-world-explorer --tests` to apply 24 suggestions)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.30s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
      Running unittests src/main.rs (target/debug/build/perfect-world-explorer/555eb3097d2a0398/out/perfect_world_explorer-555eb3097d2a0398)
 
 running 1 test
-preview: 22528 blocks, roots ["天煞光束", "树林光束", "绿鬼火3", "骷髅光柱", "水族箱", "蓝蘑菇2", "暗语者营地", "水门_瀑布"], out target/effect-preview
+preview: 22528 blocks, roots ["天煞光束", "树林光束", "绿鬼火3", "骷髅光柱", "水族箱", "蓝蘑菇2", "暗语者营地", "水门_瀑布", "瀑布1", "瀑布大"], out target/effect-preview
 census: 2275 effect records, scale min 0.164 p10 0.812 median 1.799 p90 6.816 max 380.953
 - census:    2 x 场景/天煞光束.gfx scale 6.543..6.977
 - census:    2 x 场景/新种族地图/暗语者营地.gfx scale 0.998..0.998
@@ -1783,13 +1781,13 @@ preview: - `14-42447-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水�
 preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 2.21 x 0.99 x 2.12 at (2608.4, 241.9, -4207.2) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2672,271,-4141); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2616,243,-4196); 0 load failures, 0 graph failures, 0 warnings
-test effect_preview::tests::effect_previews has been running for over 60 seconds
 preview: - `15-42448-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星玫.gfx at (2612.1, 241.0, -4200.9) dir (0.70, -0.06, -0.71) up (0.02, 1.00, -0.07) night 2 scale 4.95 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 0.50 u, 0.015 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=9721 size=2.90x1.15x2.55 card=0.00x0.00 box=(2610.51,240.74,-4202.47)..(2613.41,241.88,-4199.93)
 preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 2.90 x 1.15 x 2.55 at (2612.0, 241.3, -4201.2) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2616,243,-4196); 0 load failures, 0 graph failures, 0 warnings
 preview: - `15-42448-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星玫.gfx at (2612.1, 241.0, -4200.9) dir (0.70, -0.06, -0.71) up (0.02, 1.00, -0.07) night 2 scale 4.95 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 0.50 u, 0.015 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=1 pixels=10213 size=3.13x0.62x3.20 card=0.00x0.00 box=(2610.30,240.75,-4202.47)..(2613.43,241.36,-4199.27)
 preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 3.13 x 0.62 x 3.20 at (2611.9, 241.1, -4200.9) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2662,272,-4136); 0 load failures, 0 graph failures, 0 warnings
+test effect_preview::tests::effect_previews has been running for over 60 seconds
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2608,246,-4186); 0 load failures, 0 graph failures, 0 warnings
 preview: - `16-42450-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星红.gfx at (2602.2, 241.9, -4195.7) dir (0.97, 0.25, -0.04) up (-0.24, 0.96, 0.12) night 2 scale 8.34 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.025 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=10846 size=5.46x1.43x5.30 card=0.00x0.00 box=(2599.47,241.06,-4197.88)..(2604.93,242.49,-4192.58)
 preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 5.46 x 1.43 x 5.30 at (2602.2, 241.8, -4195.2) blend 5/6 depth true
@@ -1841,5 +1839,5 @@ preview: - card 9.94 x 9.94 at (2607.2, 248.0, -4201.1) axis (0.82, 0.04, 0.57) 
 preview: 36 shots from 18 placements, report target/effect-preview/metrics.md
 test effect_preview::tests::effect_previews ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1108 filtered out; finished in 74.34s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1109 filtered out; finished in 69.71s
 
