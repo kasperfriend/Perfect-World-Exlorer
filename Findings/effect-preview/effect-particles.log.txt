@@ -1,0 +1,874 @@
+# effect-particles -- 
+# Particles: spawns, volume, direction
+[  28.632] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=30.00/s ttl=2.00s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.00 acc=1.00 angle=0.52 ground=false surface=false bind=true area=Some(Vec3(10.0, 50.0, 10.0)) radius=None \
+         scales=0.200..1.000 kp=1.000 root=3.000 world=4.80x0.96
+[  28.633] gfx/场景/骷髅光柱.gfx id=124 live=1 quota=1024 rate=40.00/s ttl=0.50s size=0.700x0.200 origin=[0.5, 0.5] 3d=true billboard=false dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=true bind=true area=Some(Vec3(2.0, 2.0, 0.0)) radius=None \
+         scales=1.000..1.000 kp=1.000 root=3.000 world=4.20x4.20
+[  28.633] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.681] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.686] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.687] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.689] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.691] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.694] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.696] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.698] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.700] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.703] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.705] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.707] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.711] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.712] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.714] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.716] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.720] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.722] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.724] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.726] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.730] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.732] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.734] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.736] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.740] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.742] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.744] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.746] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.750] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.752] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.754] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.756] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.760] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.763] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.765] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.769] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.771] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.774] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.776] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.780] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.782] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.785] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.787] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.792] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.794] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.796] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.798] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.803] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.805] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.808] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.810] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.814] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.817] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.819] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.824] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.826] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.829] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  28.831] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.352] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=30.00/s ttl=2.00s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.00 acc=1.00 angle=0.52 ground=false surface=false bind=true area=Some(Vec3(10.0, 50.0, 10.0)) radius=None \
+         scales=0.200..1.000 kp=1.000 root=3.000 world=4.80x0.96
+[  30.352] gfx/场景/骷髅光柱.gfx id=124 live=1 quota=1024 rate=40.00/s ttl=0.50s size=0.700x0.200 origin=[0.5, 0.5] 3d=true billboard=false dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=true bind=true area=Some(Vec3(2.0, 2.0, 0.0)) radius=None \
+         scales=1.000..1.000 kp=1.000 root=3.000 world=4.20x4.20
+[  30.352] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.400] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.405] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.406] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.408] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.409] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.413] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.414] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.416] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.418] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.422] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.423] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.425] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.429] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.430] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.432] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.434] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.438] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  30.440] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.807] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=30.00/s ttl=2.00s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.00 acc=1.00 angle=0.52 ground=false surface=false bind=true area=Some(Vec3(10.0, 50.0, 10.0)) radius=None \
+         scales=0.200..1.000 kp=1.000 root=3.000 world=4.80x0.96
+[  31.808] gfx/场景/骷髅光柱.gfx id=124 live=1 quota=1024 rate=40.00/s ttl=0.50s size=0.700x0.200 origin=[0.5, 0.5] 3d=true billboard=false dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=true bind=true area=Some(Vec3(2.0, 2.0, 0.0)) radius=None \
+         scales=1.000..1.000 kp=1.000 root=3.000 world=4.20x4.20
+[  31.808] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.856] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.861] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.862] gfx/场景/骷髅光柱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.864] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.866] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.869] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.871] gfx/场景/骷髅光柱.gfx id=123 live=1 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.872] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.874] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.878] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.879] gfx/场景/骷髅光柱.gfx id=123 live=2 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.881] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.885] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.886] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.888] gfx/场景/骷髅光柱.gfx id=123 live=3 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.890] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.894] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.896] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.898] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.899] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.903] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.905] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.907] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.909] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.913] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.915] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.917] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.919] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.924] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.926] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.928] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.930] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.934] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.937] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.939] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.943] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.945] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.947] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.950] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.954] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.956] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.958] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.961] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.965] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.967] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.970] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.972] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.977] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.979] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.981] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.984] gfx/场景/骷髅光柱.gfx id=123 live=4 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.988] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.991] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.993] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  31.997] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  32.000] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  32.002] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  32.004] gfx/场景/骷髅光柱.gfx id=123 live=5 quota=1024 rate=6.00/s ttl=0.80s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.3, 0.3, 0.3)) radius=None \
+         scales=3.000..6.000 kp=1.000 root=3.000 world=7.20x3.60
+[  33.466] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.466] gfx/场景/绿鬼火3.gfx id=121 live=0 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.466] gfx/场景/绿鬼火3.gfx id=121 live=0 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.495] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.495] gfx/场景/绿鬼火3.gfx id=121 live=2 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.495] gfx/场景/绿鬼火3.gfx id=121 live=2 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.495] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.495] gfx/场景/绿鬼火3.gfx id=121 live=3 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.495] gfx/场景/绿鬼火3.gfx id=121 live=3 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.496] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.496] gfx/场景/绿鬼火3.gfx id=121 live=5 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.496] gfx/场景/绿鬼火3.gfx id=121 live=5 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.497] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.497] gfx/场景/绿鬼火3.gfx id=121 live=7 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.497] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.497] gfx/场景/绿鬼火3.gfx id=121 live=8 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.498] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.498] gfx/场景/绿鬼火3.gfx id=121 live=10 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.499] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.499] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.499] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.499] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.499] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.499] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.500] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.500] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.502] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.502] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.503] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.503] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.505] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.505] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.505] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.506] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.506] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.506] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.509] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.509] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.511] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.511] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.511] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.512] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.512] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.513] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.514] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.514] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.515] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.515] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.516] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.516] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.517] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.518] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.518] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.518] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.519] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.519] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.519] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.520] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.520] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.521] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.521] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.522] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.522] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.523] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.523] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.523] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.524] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.524] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.525] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.525] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.525] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.526] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.526] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.527] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.527] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.528] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.528] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.529] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.529] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.530] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.530] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.530] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.530] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.531] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.531] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.532] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.532] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.533] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.533] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.534] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.534] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.534] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.535] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.535] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.536] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.536] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.537] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  33.537] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.547] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  33.547] gfx/场景/绿鬼火3.gfx id=121 live=11 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.548] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  33.548] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.867] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.867] gfx/场景/绿鬼火3.gfx id=121 live=0 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.868] gfx/场景/绿鬼火3.gfx id=121 live=0 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  34.896] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.896] gfx/场景/绿鬼火3.gfx id=121 live=2 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.896] gfx/场景/绿鬼火3.gfx id=121 live=2 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  34.897] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.897] gfx/场景/绿鬼火3.gfx id=121 live=3 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.897] gfx/场景/绿鬼火3.gfx id=121 live=3 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  34.897] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.897] gfx/场景/绿鬼火3.gfx id=121 live=5 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.897] gfx/场景/绿鬼火3.gfx id=121 live=5 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  34.898] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.898] gfx/场景/绿鬼火3.gfx id=121 live=7 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.898] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.898] gfx/场景/绿鬼火3.gfx id=121 live=8 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.899] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.899] gfx/场景/绿鬼火3.gfx id=121 live=10 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.900] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.900] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.900] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  34.901] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.901] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.901] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  34.901] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.902] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.903] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.903] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  34.905] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  34.905] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.264] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.264] gfx/场景/绿鬼火3.gfx id=121 live=0 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.264] gfx/场景/绿鬼火3.gfx id=121 live=0 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.292] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.292] gfx/场景/绿鬼火3.gfx id=121 live=2 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.292] gfx/场景/绿鬼火3.gfx id=121 live=2 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.293] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.293] gfx/场景/绿鬼火3.gfx id=121 live=3 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.293] gfx/场景/绿鬼火3.gfx id=121 live=3 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.293] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.293] gfx/场景/绿鬼火3.gfx id=121 live=5 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.293] gfx/场景/绿鬼火3.gfx id=121 live=5 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.294] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.294] gfx/场景/绿鬼火3.gfx id=121 live=7 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.294] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.294] gfx/场景/绿鬼火3.gfx id=121 live=8 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.295] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.295] gfx/场景/绿鬼火3.gfx id=121 live=10 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.296] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.296] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.296] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.297] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.297] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.297] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.297] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.298] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.299] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.299] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.300] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.301] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.302] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.302] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.303] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.303] gfx/场景/绿鬼火3.gfx id=123 live=0 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.303] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.303] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.306] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.306] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.308] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.308] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.308] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.309] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.309] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.310] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.311] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.311] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.312] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.313] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.313] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.313] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.314] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.315] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.315] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.315] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.316] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.316] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.317] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.317] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.317] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.318] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.318] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.319] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.319] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.320] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.320] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.320] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.321] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.321] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.322] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.322] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.322] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.323] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.323] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.324] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.324] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.325] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.325] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.326] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.326] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.327] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.327] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.327] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.327] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.328] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.328] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.329] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.329] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.329] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.330] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.330] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.331] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.331] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.331] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.332] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.332] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.333] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.333] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.400x0.400 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+[  36.333] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.343] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  36.343] gfx/场景/绿鬼火3.gfx id=121 live=11 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.344] gfx/场景/绿鬼火3.gfx id=121 live=12 quota=1024 rate=30.00/s ttl=0.40s size=0.800x0.800 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.10 acc=0.00 angle=6.28 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.1, 0.2)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=17.909 world=28.65x2.87
+[  36.345] gfx/场景/绿鬼火3.gfx id=123 live=1 quota=1024 rate=1.00/s ttl=1.00s size=0.300x0.300 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(0.2, 0.2, 0.2)) radius=None \
+         scales=0.500..1.000 kp=1.000 root=17.909 world=10.75x5.37
+[  37.713] gfx/场景/新种族地图/蓝蘑菇2.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=6.00s size=0.220x0.220 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(5.0, 7.0, 5.5)) radius=None \
+         scales=0.140..0.200 kp=1.000 root=0.238 world=0.02x0.01
+[  39.192] gfx/场景/新种族地图/蓝蘑菇2.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=6.00s size=0.220x0.220 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(5.0, 7.0, 5.5)) radius=None \
+         scales=0.140..0.200 kp=1.000 root=0.238 world=0.02x0.01
+[  40.638] gfx/场景/新种族地图/蓝蘑菇2.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=6.00s size=0.220x0.220 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(5.0, 7.0, 5.5)) radius=None \
+         scales=0.140..0.200 kp=1.000 root=0.238 world=0.02x0.01
+[  50.566] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=3.00/s ttl=5.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.25 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.8, 0.8, 0.01)) radius=None \
+         scales=0.100..0.300 kp=1.000 root=2.971 world=0.27x0.09
+[  50.566] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=15 rate=15.00/s ttl=0.70s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.50 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(2.5, 1.0, 0.01)) radius=None \
+         scales=0.050..0.400 kp=1.000 root=2.971 world=0.36x0.04
+[  50.566] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=4.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.30 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.4, 0.4, 0.01)) radius=None \
+         scales=0.050..0.300 kp=1.000 root=2.971 world=0.27x0.04
+[  50.566] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=3.00/s ttl=3.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.25 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(1.2, 1.2, 0.01)) radius=None \
+         scales=0.050..0.400 kp=1.000 root=2.971 world=0.36x0.04
+[  50.566] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=5.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.20 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.4, 0.4, 0.01)) radius=None \
+         scales=0.050..0.300 kp=1.000 root=2.971 world=0.27x0.04
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=10 rate=10.00/s ttl=0.70s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.70 acc=-0.70 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.01)) radius=None \
+         scales=0.020..0.200 kp=1.000 root=2.971 world=0.18x0.02
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=121 live=0 quota=1024 rate=5.00/s ttl=4.00s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(5.8, 1.0, 5.8)) radius=None \
+         scales=0.050..0.400 kp=1.000 root=2.971 world=0.48x0.06
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=10 rate=10.00/s ttl=0.40s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.50 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.6, 0.2)) radius=None \
+         scales=0.030..0.100 kp=1.000 root=2.971 world=0.09x0.03
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=10 rate=10.00/s ttl=0.50s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.50 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(1.0, 0.5, 0.2)) radius=None \
+         scales=0.030..0.300 kp=1.000 root=2.971 world=0.27x0.03
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.40s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.30 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.200 kp=1.000 root=2.971 world=0.24x0.04
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.00s size=0.060x0.060 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.3, 0.6)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=2.971 world=0.36x0.04
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=0.70s size=0.070x0.070 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(5.0, 1.0, 5.0)) radius=None \
+         scales=0.100..0.700 kp=1.000 root=2.971 world=0.29x0.04
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.00s size=0.060x0.060 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.3, 0.6)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=2.971 world=0.36x0.04
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.00s size=0.060x0.060 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.3, 0.6)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=2.971 world=0.36x0.04
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.40s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.30 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.200 kp=1.000 root=2.971 world=0.24x0.04
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=7.00/s ttl=1.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.40 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.200 kp=1.000 root=2.971 world=0.18x0.03
+[  50.567] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=80 rate=40.00/s ttl=0.30s size=0.150x0.150 origin=[0.5, 0.0] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(1.5, 1.5, 1.5)) radius=None \
+         scales=0.100..0.200 kp=1.000 root=2.971 world=0.18x0.09
+[  50.716] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=15 rate=15.00/s ttl=0.50s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.70 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.100 kp=1.000 root=2.971 world=0.09x0.03
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=3.00/s ttl=5.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.25 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.8, 0.8, 0.01)) radius=None \
+         scales=0.100..0.300 kp=1.000 root=2.971 world=0.27x0.09
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=15 rate=15.00/s ttl=0.70s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.50 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(2.5, 1.0, 0.01)) radius=None \
+         scales=0.050..0.400 kp=1.000 root=2.971 world=0.36x0.04
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=4.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.30 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.4, 0.4, 0.01)) radius=None \
+         scales=0.050..0.300 kp=1.000 root=2.971 world=0.27x0.04
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=3.00/s ttl=3.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.25 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(1.2, 1.2, 0.01)) radius=None \
+         scales=0.050..0.400 kp=1.000 root=2.971 world=0.36x0.04
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=5.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.20 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.4, 0.4, 0.01)) radius=None \
+         scales=0.050..0.300 kp=1.000 root=2.971 world=0.27x0.04
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=10 rate=10.00/s ttl=0.70s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.70 acc=-0.70 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.01)) radius=None \
+         scales=0.020..0.200 kp=1.000 root=2.971 world=0.18x0.02
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=121 live=0 quota=1024 rate=5.00/s ttl=4.00s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(5.8, 1.0, 5.8)) radius=None \
+         scales=0.050..0.400 kp=1.000 root=2.971 world=0.48x0.06
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=10 rate=10.00/s ttl=0.40s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.50 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.6, 0.2)) radius=None \
+         scales=0.030..0.100 kp=1.000 root=2.971 world=0.09x0.03
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=10 rate=10.00/s ttl=0.50s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.50 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(1.0, 0.5, 0.2)) radius=None \
+         scales=0.030..0.300 kp=1.000 root=2.971 world=0.27x0.03
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.40s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.30 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.200 kp=1.000 root=2.971 world=0.24x0.04
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.00s size=0.060x0.060 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.3, 0.6)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=2.971 world=0.36x0.04
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=0.70s size=0.070x0.070 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(5.0, 1.0, 5.0)) radius=None \
+         scales=0.100..0.700 kp=1.000 root=2.971 world=0.29x0.04
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.00s size=0.060x0.060 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.3, 0.6)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=2.971 world=0.36x0.04
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.00s size=0.060x0.060 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.3, 0.6)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=2.971 world=0.36x0.04
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.40s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.30 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.200 kp=1.000 root=2.971 world=0.24x0.04
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=7.00/s ttl=1.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.40 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.200 kp=1.000 root=2.971 world=0.18x0.03
+[  52.042] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=80 rate=40.00/s ttl=0.30s size=0.150x0.150 origin=[0.5, 0.0] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(1.5, 1.5, 1.5)) radius=None \
+         scales=0.100..0.200 kp=1.000 root=2.971 world=0.18x0.09
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=3.00/s ttl=5.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.25 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.8, 0.8, 0.01)) radius=None \
+         scales=0.100..0.300 kp=1.000 root=2.971 world=0.27x0.09
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=15 rate=15.00/s ttl=0.70s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.50 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(2.5, 1.0, 0.01)) radius=None \
+         scales=0.050..0.400 kp=1.000 root=2.971 world=0.36x0.04
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=4.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.30 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.4, 0.4, 0.01)) radius=None \
+         scales=0.050..0.300 kp=1.000 root=2.971 world=0.27x0.04
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=3.00/s ttl=3.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.25 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(1.2, 1.2, 0.01)) radius=None \
+         scales=0.050..0.400 kp=1.000 root=2.971 world=0.36x0.04
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=5.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.20 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.4, 0.4, 0.01)) radius=None \
+         scales=0.050..0.300 kp=1.000 root=2.971 world=0.27x0.04
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=10 rate=10.00/s ttl=0.70s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.70 acc=-0.70 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.01)) radius=None \
+         scales=0.020..0.200 kp=1.000 root=2.971 world=0.18x0.02
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=121 live=0 quota=1024 rate=5.00/s ttl=4.00s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(5.8, 1.0, 5.8)) radius=None \
+         scales=0.050..0.400 kp=1.000 root=2.971 world=0.48x0.06
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=10 rate=10.00/s ttl=0.40s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.50 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.6, 0.2)) radius=None \
+         scales=0.030..0.100 kp=1.000 root=2.971 world=0.09x0.03
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=10 rate=10.00/s ttl=0.50s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.50 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(1.0, 0.5, 0.2)) radius=None \
+         scales=0.030..0.300 kp=1.000 root=2.971 world=0.27x0.03
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.40s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.30 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.200 kp=1.000 root=2.971 world=0.24x0.04
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.00s size=0.060x0.060 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.3, 0.6)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=2.971 world=0.36x0.04
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=2.00/s ttl=0.70s size=0.070x0.070 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(5.0, 1.0, 5.0)) radius=None \
+         scales=0.100..0.700 kp=1.000 root=2.971 world=0.29x0.04
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.00s size=0.060x0.060 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.3, 0.6)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=2.971 world=0.36x0.04
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.00s size=0.060x0.060 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.6, 0.3, 0.6)) radius=None \
+         scales=0.100..1.000 kp=1.000 root=2.971 world=0.36x0.04
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=6.00/s ttl=1.40s size=0.200x0.200 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.30 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.200 kp=1.000 root=2.971 world=0.24x0.04
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=1024 rate=7.00/s ttl=1.00s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.40 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.200 kp=1.000 root=2.971 world=0.18x0.03
+[  53.444] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=80 rate=40.00/s ttl=0.30s size=0.150x0.150 origin=[0.5, 0.0] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=false area=Some(Vec3(1.5, 1.5, 1.5)) radius=None \
+         scales=0.100..0.200 kp=1.000 root=2.971 world=0.18x0.09
+[  53.593] gfx/场景/新种族地图/水族箱.gfx id=123 live=0 quota=15 rate=15.00/s ttl=0.50s size=0.150x0.150 origin=[0.5, 0.5] 3d=false billboard=true dir=(0.00,0.00,0.00) speed=1.70 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(0.1, 0.1, 0.1)) radius=None \
+         scales=0.030..0.100 kp=1.000 root=2.971 world=0.09x0.03
+[  85.906] gfx/场景/新种族地图/水族箱_顶.gfx id=123 live=0 quota=1024 rate=5.00/s ttl=2.00s size=1.000x1.000 origin=[0.5, 0.5] 3d=true billboard=false dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(4.0, 4.0, 0.0)) radius=None \
+         scales=2.000..2.500 kp=1.000 root=2.265 world=11.32x9.06
+[  87.302] gfx/场景/新种族地图/水族箱_顶.gfx id=123 live=0 quota=1024 rate=5.00/s ttl=2.00s size=1.000x1.000 origin=[0.5, 0.5] 3d=true billboard=false dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(4.0, 4.0, 0.0)) radius=None \
+         scales=2.000..2.500 kp=1.000 root=2.265 world=11.32x9.06
+[  88.699] gfx/场景/新种族地图/水族箱_顶.gfx id=123 live=0 quota=1024 rate=5.00/s ttl=2.00s size=1.000x1.000 origin=[0.5, 0.5] 3d=true billboard=false dir=(0.00,0.00,0.00) speed=0.00 acc=0.00 angle=0.00 ground=false surface=false bind=true area=Some(Vec3(4.0, 4.0, 0.0)) radius=None \
+         scales=2.000..2.500 kp=1.000 root=2.265 world=11.32x9.06
