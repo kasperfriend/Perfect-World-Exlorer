@@ -673,6 +673,9 @@ struct Emitter {
     /// every third frame instead of twenty per frame.
     carry: f32,
     rng: Rng,
+    /// `IsAvgGen` walk registers for this emitter, advanced once per emission
+    /// and reset only by `Resume()` on the client — see `AverageWalk`.
+    average: AverageWalk,
     /// One entry per affector: the client's 128-entry colour table, built once
     /// at load instead of once per particle per frame.
     ramps: Vec<Option<ColorTrack>>,
@@ -1573,6 +1576,7 @@ impl Player {
                     particles: Vec::new(),
                     carry: 0.,
                     rng: Rng::new(rng.next_u32()),
+                    average: AverageWalk::default(),
                     ramps: element
                         .affectors
                         .iter()
@@ -5208,6 +5212,7 @@ fn emit_particles(
         particles,
         carry,
         rng,
+        average,
         ramps,
     } = emitter;
     let quota = if particle.quota > 0 {
@@ -5230,7 +5235,7 @@ fn emit_particles(
             })
         });
         for _ in 0..count {
-            particles.push(spawn(particle, path, rng, context));
+            particles.push(spawn(particle, path, rng, average, context));
         }
     }
     if dt > 0. {
@@ -5423,6 +5428,190 @@ fn travel_uv(state: &ParticleState, particle: &Particle) -> [[f32; 2]; 4] {
     [[0., travel], [1., travel], [0., 1.], [1., 1.]]
 }
 
+/// `IsAvgGen` walk state, one per emitter.
+///
+/// The average-generation walk visits the emitter's shell or its curve in a
+/// fixed sequence instead of at random, so a slow emitter still covers the
+/// whole shape. Each emitter class carries its own step registers and resets
+/// them only in `Resume()` — `A3DCylinderEmitter::Resume` zeroes `m_fAngleAlpha`
+/// and `m_nCurrentBeta` (A3DCylinderEmitter.cpp), `A3DEllipsoidEmitter::Resume`
+/// zeroes `m_fAngleAlpha`/`m_fAngleBeta` (A3DEllipsoidEmitter.cpp), and
+/// `A3DCurveEmitter::Resume` zeroes `m_fEmitterStep` (A3DCurveEmitter.cpp). No
+/// `TickAnimation` or keypoint loop touches them: the walk persists across an
+/// element's `RepeatCount` plays and only a Stop/Start of the whole GFX (a fresh
+/// player here) begins it again, which is what makes the coverage *average*
+/// rather than one arc per loop.
+#[derive(Clone, Copy, Debug, Default)]
+struct AverageWalk {
+    /// `m_fAngleAlpha` in both shell walks.
+    alpha: f32,
+    /// `A3DCylinderEmitter::m_nCurrentBeta`, the ring index of its z walk.
+    ring: u32,
+    /// `A3DEllipsoidEmitter::m_fAngleBeta`.
+    beta: f32,
+    /// `A3DCurveEmitter::m_fEmitterStep`.
+    step: f32,
+}
+
+/// `A3DCylinderEmitter::GenAverage`, reproduced line for line.
+///
+/// The client builds `vInitPos(0, 1, 1)` with `vInitPos.z = 1 - 2 *
+/// (m_nCurrentBeta / m_nBetaSegNum)` and rotates it about Z by `m_fAngleAlpha`,
+/// then scales by the ranges times a fresh `_UnitRandom()` — drawn even when
+/// `m_bSurface` discards it for 1 — and only then advances the walk:
+/// `alpha += 2pi / AlphaSeg`, and `alpha > 2pi` zeroes alpha and steps the ring.
+/// `m_nCurrentBeta > m_nBetaSegNum` restarts the whole walk. The client divides
+/// by the authored segment counts whatever they are; a zero is guarded to one
+/// here so a damaged record emits somewhere instead of dividing by zero.
+fn cylinder_average(
+    walk: &mut AverageWalk,
+    alpha_segments: u32,
+    beta_segments: u32,
+    ranges: Vec3,
+    surface: bool,
+    rng: &mut Rng,
+) -> Vec3 {
+    let alpha_segments = alpha_segments.max(1) as f32;
+    let beta_segments = beta_segments.max(1);
+    let z = 1. - 2. * (walk.ring as f32 / beta_segments as f32);
+    let sample = Quat::from_rotation_z(walk.alpha) * Vec3::new(0., 1., z);
+    let ratio = rng.unit();
+    let offset = sample * ranges * if surface { 1. } else { ratio };
+    walk.alpha += std::f32::consts::TAU / alpha_segments;
+    if walk.alpha > std::f32::consts::TAU {
+        walk.alpha = 0.;
+        walk.ring += 1;
+    }
+    if walk.ring > beta_segments {
+        walk.alpha = 0.;
+        walk.ring = 0;
+    }
+    offset
+}
+
+/// `A3DEllipsoidEmitter::GenAverage`, reproduced line for line.
+///
+/// `vInitPos(0, 1, 0)` turns about X by `m_fAngleBeta` and then about Y by
+/// `m_fAngleAlpha`; the walk advances alpha by `2pi / AlphaSeg` and beta by
+/// `pi / BetaSeg` with the client's own wrap: at `beta == 0` it steps beta
+/// instead of alpha, `alpha > 2pi` finishes a ring, and `beta + betaDelta / 2 >
+/// pi` restarts mid-ring exactly as the source does.
+fn ellipsoid_average(
+    walk: &mut AverageWalk,
+    alpha_segments: u32,
+    beta_segments: u32,
+    ranges: Vec3,
+    surface: bool,
+    rng: &mut Rng,
+) -> Vec3 {
+    let alpha_segments = alpha_segments.max(1) as f32;
+    let beta_segments = beta_segments.max(1) as f32;
+    let sample = Quat::from_rotation_y(walk.alpha) * (Quat::from_rotation_x(walk.beta) * Vec3::Y);
+    let ratio = rng.unit();
+    let offset = sample * ranges * if surface { 1. } else { ratio };
+    let alpha_delta = std::f32::consts::TAU / alpha_segments;
+    let beta_delta = std::f32::consts::PI / beta_segments;
+    if walk.beta.abs() < f32::EPSILON {
+        walk.alpha = 0.;
+        walk.beta += beta_delta;
+    } else {
+        walk.alpha += alpha_delta;
+        if walk.alpha > std::f32::consts::TAU {
+            walk.alpha = 0.;
+            walk.beta += beta_delta;
+        } else if walk.beta + beta_delta * 0.5 > std::f32::consts::PI {
+            walk.alpha = 0.;
+            walk.beta = 0.;
+        }
+    }
+    offset
+}
+
+/// `A3DCurveEmitter`'s `genNextStep`: the step the average walk advances to
+/// after placing a particle. `InitParticle` places at `m_fEmitterStep` and only
+/// then assigns `m_fEmitterStep = genNextStep(m_bIsAvgGensequentially,
+/// m_fEmitterStep, m_nSegmentNum > 1 ? m_nSegmentNum : 1)`. Sequential walks
+/// add `1 / AvgGenSeg` and wrap past one; the random variant draws a fresh
+/// segment index — kept as the client's integer truncation.
+fn curve_average_next(current: f32, sequential: bool, segments: u32, rng: &mut Rng) -> f32 {
+    let segments = segments.max(1) as f32;
+    let step_size = 1. / segments;
+    let next = if sequential {
+        current + step_size
+    } else {
+        ((rng.unit() * segments) as u32 as f32) * step_size
+    };
+    if next > 1. { 0. } else { next }
+}
+
+/// The `IsAvgGen` walk's spawn position, or `None` when this class has no
+/// average walk and the ordinary samplers should decide.
+///
+/// Ids 123 and 124 walk their shells through `cylinder_average` /
+/// `ellipsoid_average`. The curve emitter — the one class whose walk leaves the
+/// origin — identifies itself with `AvgGenSeg`, the field only its parser
+/// writes; it walks the generation keypoint's `Path` control at
+/// `A3DCurveEmitter::genNextStep`'s parameter and offsets a disc of `Radius`
+/// about the curve tangent, `m_bSurface` taking the full radius and a volume
+/// walk scaling it by a fresh random ratio (`A3DCurveEmitter::InitParticle`,
+/// which likewise calls `GenDirection` afterwards).
+fn average_sample(
+    particle: &Particle,
+    path: Option<&[Vec3]>,
+    walk: &mut AverageWalk,
+    rng: &mut Rng,
+    ranges: Vec3,
+    id: u32,
+) -> Option<Vec3> {
+    let surface = particle.is_surface;
+    match id {
+        123 => Some(cylinder_average(
+            walk,
+            particle.alpha_segments.unwrap_or(0),
+            particle.beta_segments.unwrap_or(0),
+            ranges,
+            surface,
+            rng,
+        )),
+        124 => Some(ellipsoid_average(
+            walk,
+            particle.alpha_segments.unwrap_or(0),
+            particle.beta_segments.unwrap_or(0),
+            ranges,
+            surface,
+            rng,
+        )),
+        _ => {
+            let segments = particle.average_generation_segments?;
+            let points = path?;
+            if points.len() < 2 {
+                return None;
+            }
+            // Place at the current step, then advance — `InitParticle` reads
+            // `m_fEmitterStep` into the interp point before `genNextStep`.
+            let step = walk.step;
+            walk.step = curve_average_next(
+                step,
+                particle.is_average_generation_sequence.unwrap_or(false),
+                segments,
+                rng,
+            );
+            // The client interpolates the curve at the step parameter; the
+            // parsed control is a point polyline here, so the parameter maps to
+            // the same even arc-length fraction the random branch draws.
+            let (point, tangent) = sample_path(points, step * path_length(points));
+            let radius = particle.radius.unwrap_or(0.);
+            if radius <= 1e-3 {
+                return Some(point);
+            }
+            let disc_radius = if surface { radius } else { radius * rng.unit() };
+            let angle = rng.unit() * std::f32::consts::TAU;
+            let disc = Quat::from_axis_angle(tangent, angle) * tangent.any_orthonormal_vector();
+            Some(point + disc * disc_radius)
+        }
+    }
+}
+
 /// Create one particle. Every randomized value is the container's own range
 /// (`ScaleMin..ScaleMax`, `RotMin..RotMax`, `ColorMin..ColorMax`), drawn through
 /// the same emitter vtable slots the client calls from its emit routine
@@ -5432,6 +5621,7 @@ fn spawn(
     particle: &Particle,
     path: Option<&[Vec3]>,
     rng: &mut Rng,
+    walk: &mut AverageWalk,
     context: &ElementContext,
 ) -> ParticleState {
     // `IsSurface` selects a per-class sampler, and the classes do not agree on
@@ -5490,7 +5680,19 @@ fn spawn(
         1.
     };
     let half = particle.area_size.unwrap_or(Vec3::ZERO) * (0.5 * basis_scale);
-    let (offset, inward) = if particle.is_surface {
+    // `IsAvgGen` — records that authorize the average-generation walk get the
+    // class's fixed shell or curve sequence instead of the random samplers
+    // (`AverageWalk`). `Inward: 0` records on the walk still get the ordinary
+    // cone: both client `InitParticle` implementations call `GenDirection`
+    // after `GenAverage`, so the walk fixes the position only.
+    let average = if particle.is_average_generation.unwrap_or(false) {
+        average_sample(particle, path, walk, rng, half, context.id)
+    } else {
+        None
+    };
+    let (offset, inward) = if average.is_some() {
+        (Vec3::ZERO, None)
+    } else if particle.is_surface {
         match context.id {
             123 => {
                 // `A3DCylinderEmitter::GenSurface`: a point of the unit circle in
@@ -5530,9 +5732,14 @@ fn spawn(
     } else {
         (volume_offset(particle, rng, basis_scale), None)
     };
-    let position = match path {
-        Some(points) => sample_path(points, rng.unit() * path_length(points)).0 + offset,
-        None => offset,
+    let position = match average {
+        // The walk writes the position outright: the curve walk replaces the
+        // random path sample as well as the emitter offset.
+        Some(position) => position,
+        None => match path {
+            Some(points) => sample_path(points, rng.unit() * path_length(points)).0 + offset,
+            None => offset,
+        },
     };
     let direction = match inward {
         Some(direction) => direction,
@@ -8785,6 +8992,16 @@ mod tests {
 
     /// A spawn context with an identity placement, so a particle offset can be
     /// read straight off the returned state.
+    /// A spawn with no curve and a fresh `AverageWalk` — the case every
+    /// sampler test here exercises.
+    fn spawn_simple(
+        particle: &Particle,
+        rng: &mut Rng,
+        context: &ElementContext,
+    ) -> ParticleState {
+        spawn(particle, None, rng, &mut AverageWalk::default(), context)
+    }
+
     fn spawn_context<'a>(view: &'a View, common: &'a Common) -> ElementContext<'a> {
         ElementContext {
             id: 123,
@@ -8853,7 +9070,7 @@ mod tests {
         let mut rng = Rng::new(31);
         let mut reach = Vec3::ZERO;
         for _ in 0..4_000 {
-            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let offset = spawn_simple(&particle, &mut rng, &context).position;
             let normalized = offset / Vec3::new(1., 0.5, 0.25);
             assert!(
                 normalized.length_squared() <= 1. + 1e-4,
@@ -8885,7 +9102,7 @@ mod tests {
         let mut rng = Rng::new(11);
         let mut reach = Vec3::ZERO;
         for _ in 0..4_000 {
-            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let offset = spawn_simple(&particle, &mut rng, &context).position;
             let normalized = offset / Vec3::new(6., 3., 1.5);
             assert!(
                 normalized.length_squared() <= 1. + 1e-4,
@@ -8912,7 +9129,7 @@ mod tests {
         let mut rng = Rng::new(11);
         let mut reach = Vec3::ZERO;
         for _ in 0..2_000 {
-            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let offset = spawn_simple(&particle, &mut rng, &context).position;
             let normalized = offset / Vec3::new(1., 0.5, 0.25);
             assert!(
                 normalized.length_squared() <= 1. + 1e-4,
@@ -8937,7 +9154,7 @@ mod tests {
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
         let mut rng = Rng::new(11);
         for _ in 0..1_000 {
-            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let offset = spawn_simple(&particle, &mut rng, &context).position;
             let normalized = offset / Vec3::new(1., 0.5, 0.25);
             assert!(
                 normalized.length_squared() <= 1. + 1e-4,
@@ -8960,7 +9177,7 @@ mod tests {
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
         let mut rng = Rng::new(11);
         for _ in 0..1_000 {
-            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let offset = spawn_simple(&particle, &mut rng, &context).position;
             assert!(offset.length() <= 2. + 1e-4, "{offset} escaped the radius");
         }
     }
@@ -8980,7 +9197,7 @@ mod tests {
         particle.area_size = Some(Vec3::new(2., 1., 0.5));
         let mut rng = Rng::new(11);
         for _ in 0..1_000 {
-            let offset = spawn(&particle, None, &mut rng, &context).position;
+            let offset = spawn_simple(&particle, &mut rng, &context).position;
             let cross = (offset.x / 4.).powi(2) + (offset.y / 2.).powi(2);
             assert!((cross - 1.).abs() < 1e-3, "{offset} is off the ellipse");
             assert!(
@@ -9044,8 +9261,9 @@ mod tests {
                     scaled += 1;
                 }
                 let mut rng = Rng::new(elements as u32 * 7919 + 13);
+                let mut walk = AverageWalk::default();
                 for _ in 0..8 {
-                    let offset = spawn(particle, None, &mut rng, &context).position;
+                    let offset = spawn(particle, None, &mut rng, &mut walk, &context).position;
                     assert!(offset.is_finite(), "{} spawned {offset}", file.display());
                     if element.id == 123 {
                         // `A3DCylinderEmitter` is a disc in XY plus a symmetric Z,
@@ -9113,7 +9331,7 @@ mod tests {
         let mut rng = Rng::new(41);
         let mut reach = Vec3::ZERO;
         for _ in 0..2_000 {
-            let position = spawn(&particle, None, &mut rng, &context).position;
+            let position = spawn_simple(&particle, &mut rng, &context).position;
             let normalized = position / Vec3::new(1., 0.5, 0.25);
             assert!(
                 (normalized.length_squared() - 1.).abs() < 1e-4,
@@ -9149,9 +9367,9 @@ mod tests {
         let mut cylinder = spawn_context(&view, &common);
         cylinder.id = 123;
         let mut rng = Rng::new(43);
-        let first = spawn(&particle, None, &mut rng, &cylinder).direction;
+        let first = spawn_simple(&particle, &mut rng, &cylinder).direction;
         for _ in 0..500 {
-            let state = spawn(&particle, None, &mut rng, &cylinder);
+            let state = spawn_simple(&particle, &mut rng, &cylinder);
             assert!(
                 (state.direction - first).length() < 1e-5,
                 "id 123 follows GenDirection, not its sample: {}",
@@ -9171,7 +9389,7 @@ mod tests {
         particle.angle = std::f32::consts::FRAC_PI_2;
         let mut rng = Rng::new(43);
         for _ in 0..500 {
-            let state = spawn(&particle, None, &mut rng, &ellipsoid);
+            let state = spawn_simple(&particle, &mut rng, &ellipsoid);
             let radial = state.position / semi;
             assert!(
                 (state.direction + radial).length() < 1e-4,
@@ -9198,16 +9416,16 @@ mod tests {
         ellipsoid.id = 124;
         let mut rng = Rng::new(59);
         for _ in 0..200 {
-            let state = spawn(&particle, None, &mut rng, &ellipsoid);
+            let state = spawn_simple(&particle, &mut rng, &ellipsoid);
             assert_eq!(state.direction, Vec3::ZERO, "124 volume has no direction");
         }
 
         let mut cylinder = spawn_context(&view, &common);
         cylinder.id = 123;
         let mut rng = Rng::new(59);
-        let first = spawn(&particle, None, &mut rng, &cylinder).direction;
+        let first = spawn_simple(&particle, &mut rng, &cylinder).direction;
         for _ in 0..200 {
-            let state = spawn(&particle, None, &mut rng, &cylinder);
+            let state = spawn_simple(&particle, &mut rng, &cylinder);
             assert!((state.direction - first).length() < 1e-5);
             let radial = state.position / semi;
             assert!(
@@ -9289,7 +9507,7 @@ mod tests {
         particle.angle = 0.7;
         let mut rng = Rng::new(83);
         for _ in 0..400 {
-            let state = spawn(&particle, None, &mut rng, &context);
+            let state = spawn_simple(&particle, &mut rng, &context);
             assert!(
                 (state.position.z - 0.7f32.cos()).abs() < 1e-5,
                 "polar angle drifted: {}",
@@ -9319,7 +9537,7 @@ mod tests {
         let mut rng = Rng::new(59);
         let mut closest = f32::MAX;
         for _ in 0..500 {
-            let position = spawn(&particle, None, &mut rng, &context).position;
+            let position = spawn_simple(&particle, &mut rng, &context).position;
             let normalized = position / Vec3::new(1., 0.5, 0.25);
             closest = closest.min(normalized.length_squared());
         }
@@ -9440,7 +9658,7 @@ mod tests {
         let mut rng = Rng::new(61);
         let mut height = 0f32;
         for _ in 0..2_000 {
-            let position = spawn(&particle, None, &mut rng, &context).position;
+            let position = spawn_simple(&particle, &mut rng, &context).position;
             let cross = (position.x / 1.).powi(2) + (position.y / 0.5).powi(2);
             assert!(
                 (cross - 1.).abs() < 1e-4,
@@ -9509,8 +9727,9 @@ mod tests {
                     zeroed += 1;
                 }
                 let mut rng = Rng::new(elements as u32 * 7919 + 13);
+                let mut walk = AverageWalk::default();
                 for _ in 0..8 {
-                    let position = spawn(particle, None, &mut rng, &context).position;
+                    let position = spawn(particle, None, &mut rng, &mut walk, &context).position;
                     assert!(
                         position.is_finite(),
                         "{} spawned {position}",
@@ -10000,6 +10219,14 @@ mod tests {
                 if !particle.is_surface {
                     continue;
                 }
+                // When `IsAvgGen` is set the client's `GenAverage` runs with the
+                // surface flag as its own parameter (A3DCylinderEmitter.cpp),
+                // subsuming `GenSurface` and its inward direction write. Those
+                // records walk the shell instead and are held to the walk's own
+                // tests above.
+                if particle.is_average_generation == Some(true) {
+                    continue;
+                }
                 elements += 1;
                 let half = match particle.area_size {
                     Some(area) => {
@@ -10017,8 +10244,9 @@ mod tests {
                     }
                 };
                 let mut rng = Rng::new(elements as u32 * 7919 + 11);
+                let mut walk = AverageWalk::default();
                 for _ in 0..8 {
-                    let state = spawn(particle, None, &mut rng, &context);
+                    let state = spawn(particle, None, &mut rng, &mut walk, &context);
                     let tolerance = 1e-4 * half.length().max(1.);
                     assert!(
                         state.position.is_finite() && state.direction.is_finite(),
@@ -10142,6 +10370,148 @@ mod tests {
             played > 5_000,
             "the census played 5,457 files, got {played}"
         );
+    }
+
+    /// The `IsAvgGen` cylinder walk visits its rings exactly as
+    /// `A3DCylinderEmitter::GenAverage` advances them: alpha steps `2pi / 4`,
+    /// and the client's `> 2pi` test lets exactly `2pi` emit one extra point
+    /// before the ring index steps. With `BetaSeg: 2` the rings sit at
+    /// `z = 1 - 2 * ring / 2`, and `m_nCurrentBeta > m_nBetaSegNum` restarts.
+    #[test]
+    fn the_cylinder_average_walk_steps_rings_the_way_the_client_does() {
+        let mut walk = AverageWalk::default();
+        let mut rng = Rng::new(7);
+        let expected = [
+            Vec3::new(0., 1., 1.),
+            Vec3::new(-1., 0., 1.),
+            Vec3::new(0., -1., 1.),
+            Vec3::new(1., 0., 1.),
+            Vec3::new(0., 1., 1.),
+            Vec3::new(0., 1., 0.),
+        ];
+        for (i, want) in expected.iter().enumerate() {
+            let got = cylinder_average(&mut walk, 4, 2, Vec3::ONE, true, &mut rng);
+            assert!(
+                (got - *want).length() < 1e-4,
+                "emission {i}: got {got}, want {want}"
+            );
+        }
+        // Emissions 7-15 finish rings 1 and 2; the 16th is the restart.
+        for _ in 0..9 {
+            cylinder_average(&mut walk, 4, 2, Vec3::ONE, true, &mut rng);
+        }
+        let got = cylinder_average(&mut walk, 4, 2, Vec3::ONE, true, &mut rng);
+        assert!(
+            (got - Vec3::new(0., 1., 1.)).length() < 1e-4,
+            "restart emission: got {got}"
+        );
+    }
+
+    /// The ellipsoid walk of `A3DEllipsoidEmitter::GenAverage`: the pole rings
+    /// step beta by `pi / BetaSeg` while every other emission steps alpha by
+    /// `2pi / AlphaSeg`. The client's `> 2pi` test emits exactly `2pi` twice on
+    /// the mid ring, and `beta + betaDelta / 2 > pi` restarts the whole walk
+    /// from the pole one emission early — both quirks are load-bearing.
+    #[test]
+    fn the_ellipsoid_average_walk_keeps_the_clients_wrap_order() {
+        let mut walk = AverageWalk::default();
+        let mut rng = Rng::new(11);
+        let expected = [
+            Vec3::new(0., 1., 0.),
+            Vec3::new(0., 0., 1.),
+            Vec3::new(1., 0., 0.),
+            Vec3::new(0., 0., -1.),
+            Vec3::new(-1., 0., 0.),
+            Vec3::new(0., 0., 1.),
+            Vec3::new(0., -1., 0.),
+            Vec3::new(0., 1., 0.),
+        ];
+        for (i, want) in expected.iter().enumerate() {
+            let got = ellipsoid_average(&mut walk, 4, 2, Vec3::ONE, true, &mut rng);
+            assert!(
+                (got - *want).length() < 1e-4,
+                "emission {i}: got {got}, want {want}"
+            );
+        }
+    }
+
+    /// `A3DCylinderEmitter::GenAverage` draws `_UnitRandom()` before the
+    /// `m_bSurface` test and discards it on the surface path — the walk must
+    /// consume exactly one rng draw per emission either way.
+    #[test]
+    fn the_average_walk_draws_its_ratio_even_on_the_surface() {
+        let mut walk = AverageWalk::default();
+        let mut rng = Rng::new(3);
+        cylinder_average(&mut walk, 4, 2, Vec3::ONE, true, &mut rng);
+        let after_walk = rng.unit();
+        let mut probe = Rng::new(3);
+        probe.unit();
+        assert_eq!(after_walk, probe.unit(), "the surface walk skipped the draw");
+        // A volume walk scales all three components by the same ratio, which is
+        // what `m_vXRange * fRatio` etc. amounts to.
+        let mut walk = AverageWalk::default();
+        let mut rng = Rng::new(3);
+        let ratio = {
+            let mut probe = Rng::new(3);
+            probe.unit()
+        };
+        let got = cylinder_average(&mut walk, 4, 2, Vec3::ONE, false, &mut rng);
+        assert!(
+            (got - Vec3::new(0., 1., 1.) * ratio).length() < 1e-5,
+            "volume walk: got {got}, want the shell sample times {ratio}"
+        );
+    }
+
+    /// `A3DCurveEmitter::InitParticle` places at `m_fEmitterStep` and only then
+    /// runs `genNextStep`, so a sequential `AvgGenSeg: 4` walk places at
+    /// 0, 1/4, 1/2, 3/4 and — because the wrap test is `> 1`, not `>= 1` — at
+    /// exactly 1 before restarting at 0.
+    #[test]
+    fn the_curve_average_walk_places_first_and_wraps_at_one() {
+        let mut rng = Rng::new(5);
+        let mut step = 0.;
+        let mut placed = Vec::new();
+        for _ in 0..6 {
+            placed.push(step);
+            step = curve_average_next(step, true, 4, &mut rng);
+        }
+        let expected = [0., 0.25, 0.5, 0.75, 1., 0.];
+        for (i, (got, want)) in placed.iter().zip(expected).enumerate() {
+            assert!((got - want).abs() < 1e-6, "step {i}: got {got}, want {want}");
+        }
+    }
+
+    /// The curve walk's spawn: the first particle lands on the curve's start
+    /// and a `Radius` disc offsets it exactly `Radius` from the curve point on
+    /// the surface, at most `Radius` in the volume (`A3DCurveEmitter::
+    /// InitParticle`).
+    #[test]
+    fn the_curve_average_walk_rides_the_path_with_its_radius_disc() {
+        let points = vec![Vec3::ZERO, Vec3::new(4., 0., 0.)];
+        let path = points.as_slice();
+        let mut particle = Particle::default();
+        particle.is_surface = true;
+        particle.is_average_generation = Some(true);
+        particle.is_average_generation_sequence = Some(true);
+        particle.average_generation_segments = Some(4);
+        particle.radius = Some(0.5);
+        let mut walk = AverageWalk::default();
+        let mut rng = Rng::new(23);
+        let point = average_sample(&particle, Some(path), &mut walk, &mut rng, Vec3::ONE, 125)
+            .expect("the walk has a position");
+        assert!((point.x - 0.).abs() < 1e-5, "the first step is the curve start");
+        assert!((point.length() - 0.5).abs() < 1e-5, "a surface disc sits on Radius");
+        particle.is_surface = false;
+        particle.radius = Some(3.);
+        for _ in 0..32 {
+            let point = average_sample(&particle, Some(path), &mut walk, &mut rng, Vec3::ONE, 125)
+                .expect("the walk has a position");
+            let on_curve = Vec3::new(point.x.clamp(0., 4.), 0., 0.);
+            assert!(
+                (point - on_curve).length() <= 3. + 1e-4,
+                "volume disc stays inside Radius"
+            );
+        }
     }
 
     /// The ball sample is uniform in volume, which is what the client's

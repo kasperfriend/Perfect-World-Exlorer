@@ -5974,3 +5974,145 @@ rings" on the oversized beams were the pre-fix render: the sheared UV window
 under the always-wrap sampler across four stacked `RotFromView` cards. The
 sampler clamp (60.1) with the width and UV laws (60.2-60.3) render the
 authored straight stripe; the after-quad rides the pack-test log.
+
+## 61. The two agent lists: reconciliation and verdicts (2026-11-09)
+
+Two agent-written fix lists were checked claim by claim against the retail
+client source and this repository. Every claim below names the client line it
+settles on; "wrong" means the client source contradicts the claim, "already"
+means the branch carried the fix with its client citation before this task,
+"now" means this section's commit implements it.
+
+### 61.1 Play speed must combine with placement speed
+
+**Claim** (list A): the root `PlaySpeed` never combines with a record's
+placement speed. **List B** claimed the placement `fSpeed` *replaces* the file's
+`PlaySpeed`.
+
+**Client truth**: `A3DGFXEx.h`, `CalcActualSpeed` — `m_fActualSpeed =
+m_fDefPlaySpeed * m_fPlaySpeed`. `CalcActualScale` and `CalcActualAlpha`
+follow the same law (`Def` times the runtime factor). The two lists describe
+opposite behaviours and both are wrong: the client **multiplies**.
+
+**Verdict**: the viewer's `play_speed() = root.play_speed *
+play_speed_override.unwrap_or(1.)` (`gfx_player.rs:1376-1377`, plumbing from
+`gfx_owner.rs:1078/:1154`) is the client law exactly. **Already correct — no
+change.** The scaling tests `corpus_unbound_emission_carries_the_basis_scalar`
+assert the product through the emission basis.
+
+### 61.2 Model keypoint `Scale` must scale the model's size
+
+**Client truth**: `A3DGFXModel.cpp:233` — `matScale(kp.m_fScale) *
+GetTranMatrix(kp) * GetParentTM()`, and the child path applies the same
+factor (`A3DGFXModel.cpp:622-624`).
+
+**Verdict**: **already** implemented in `emit_model` with these citations
+(`gfx_player.rs`, keypoint scale through `placement_scale`). The sizes of
+records 6024/19583/17422/17382 measured in §58 exercise it.
+
+### 61.3 `ModelActName` / `ModelLoops` must drive the model action
+
+**Client truth**: `A3DGFXModel::PlayActionByNameDC(m_strActName, m_nLoops, 0)`
+(`A3DGFXModel.cpp:718`), only on a changed name (`:735-740`), with
+`m_nLoops < 0` meaning loop forever (`:925-928`).
+
+**Verdict**: **already** implemented (`gfx_player.rs:229/:4842`) with these
+citations.
+
+### 61.4 Record placement: `fSpeed`, alpha, and the placement scale
+
+**Client truth**: the ECWLD record layout (`id@0 scale@4 pos@8 dir@20 up@32
+speed@44 vt@48 alpha@52 atten@56 path@60`) carries an alpha and a speed that
+belong to the placement; `A3DGFXEx::SetPlaySpeed`/`SetScale`/`SetAlpha`
+(`A3DGFXEx.cpp:790-844`) apply the `Def × placement` product.
+
+**Verdict**: **already** implemented — `gfx_owner.rs` `Request::outer` +
+`placement_scale()`, binary anchors 0x788960/0x5b33f3.
+
+### 61.5 Facing keypoint scale rule
+
+**Verdict**: **already** implemented (`gfx_player.rs:5256-5267`) — the facing
+rule from the client's `A3DGFXParallelogram`-side basis law; tested by
+`a_particles_size_takes_the_keypoint_only_when_it_faces_the_camera` and the
+9 GPU test literals in `gfx_effect_gpu.rs:1486-1619`.
+
+### 61.6 Item-190 side vector, noise 107/109/112
+
+The native noise routines (binary-only, no retail source) and the element-190
+side vector cannot be recovered from the client source available. **Blocked —
+not approximated**, per the standing rule. The census (`tools/gfx-keypoint-
+census.py --records`) and Findings §59 hold the evidence.
+
+### 61.7 Child-load resilience
+
+**Verdict**: **already** implemented (`gfx_owner.rs:846-848`) with the
+regression test `a_child_the_archive_does_not_ship_leaves_the_parent_playing`
+(`gfx_player.rs:2043`). The remaining 82 unresolved child references / 31
+paths and the 22+ missing models need retail assets that are not shipped —
+**blocked**, tracked by the existing test and the §54 census.
+
+### 61.8 `IsAvgGen`: the average-generation walk (list 3) — **now implemented**
+
+**Claim**: the parser read `IsAvgGen`, `AlphaSeg`, `BetaSeg`, `AvgGenSeg` and
+`IsAvgGenSeq` but nothing consumed them, so the corpus's `IsAvgGen` records
+(the list counted element-123 records) lost their authored emission pattern.
+
+**Client truth** (fetched sources):
+
+* `A3DCylinderEmitter::GenAverage` — position `rotZ(m_fAngleAlpha) * (0, 1, z)`
+  with `z = 1 - 2 * (m_nCurrentBeta / m_nBetaSegNum)`, scaled by the ranges
+  times a fresh `_UnitRandom()` that is **drawn even when `m_bSurface`
+  discards it** for 1. Walk after the draw: `alpha += 2pi / AlphaSeg`;
+  `alpha > 2pi` zeroes alpha and steps the ring; `m_nCurrentBeta >
+  m_nBetaSegNum` restarts the walk. `Resume()` zeroes both registers.
+* `A3DEllipsoidEmitter::GenAverage` — `rotY(m_fAngleAlpha) * rotX(m_fAngleBeta)
+  * (0, 1, 0)`; the walk steps beta by `pi / BetaSeg` at the pole and alpha by
+  `2pi / AlphaSeg` elsewhere, with the client's own wraps (`alpha > 2pi`
+  finishes a ring; `beta + betaDelta / 2 > pi` restarts the whole walk). Its
+  `InitParticle` calls `GenDirection` afterwards, and so does the cylinder's —
+  the emission cone applies to walk records, which is why `Inward: 0` records
+  are not inverted (the surface sampler is the only path that writes its own
+  direction).
+* `A3DCurveEmitter` — `InitParticle` places at `m_fEmitterStep` and only then
+  assigns `m_fEmitterStep = genNextStep(m_bIsAvgGensequentially,
+  m_fEmitterStep, m_nSegmentNum > 1 ? m_nSegmentNum : 1)`; sequential adds
+  `1 / AvgGenSeg` and wraps `> 1 → 0` (so a 4-segment walk visits 0, 1/4, 1/2,
+  3/4, 1 and restarts); the non-sequential variant draws a quantized random
+  segment. `Radius > 1e-3` offsets a disc about the segment direction,
+  full radius on the surface and `Radius * _UnitRandom()` in the volume.
+
+**Implementation**: `AverageWalk` and `cylinder_average` /
+`ellipsoid_average` / `curve_average_next` in `src/gfx_player.rs`, wired into
+`spawn` through `average_sample`. The walk state lives on the `Emitter`, so it
+persists across an element's `RepeatCount` loops and resets with the player —
+the client resets only in `Resume()`. Zero segment counts guard to one (the
+client divides by whatever the file authorizes). Unit tests pin the walk
+order, the client's extra `2pi` emission, the mid-ring restart, the
+unconditional ratio draw and the curve's place-then-advance wrap; the corpus
+tests skip walk records where they assert the surface samplers' laws, since
+the client's `GenAverage` subsumes `GenSurface`.
+
+### 61.9 Waterfall curtain UV animation — research record (in progress)
+
+The curtain at the water gate is scenery, not a GFX element (§54.3: the `.bmd`
+ornament sheet `瀑布.smd`, 151 quads; no ECWLD record places the `.smd`; the
+28 splash emitters and 4 `水门_瀑布.gfx` tiles around it are ordinary effects).
+Research this session located the client's UV-animation mechanism:
+
+* `A3DTexCoordCtrl.h` — `A3DFXTCCtrl` with `LINEARFUNC { fBase, fSpeed,
+  fValue }` per axis (`Tick: fValue += fTime * fSpeed`), `SetScrollSpeed(u,
+  v)`, `SetRotateSpeed`, `SetScale`, `SetStretch`, and `GetTMCol0/GetTMCol1`:
+  a 2×3 texture transform matrix computed per tick. This is the scroll law.
+* `A3DLitModelRender.cpp` and `A3DMesh.cpp` carry `SetTextureTransform` —
+  the BMD/lit-model render path applies the matrix to the texture stage.
+* `EC_ManOrnament.cpp` — scene ornaments wrap `A3DLitModel` through
+  `BrushBuilding`; `TickAnimation` drives per-frame updates; the distance fade
+  uses `CECSceneBlock::GetResLoadDists(SCNRES_EFFECT)`; the fade-out release
+  rule is `ST_STOP || (!InAlphaTransition() && GetAlpha() == 0)`.
+* The game layer (EC_* sources) is on the source dump alongside the engine.
+
+What remains before an implementation is allowed: find where the curtain's
+material authors its `A3DFXTCCtrl` parameters (the `.ski`/shader side of the
+BMD material) and confirm the tick path from `EC_Ornament`/`A3DLitModelRender`.
+Until that data path is identified in source, no `gfx_player` change is made
+for the scenery curtain — per the standing rule.
