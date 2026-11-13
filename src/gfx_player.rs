@@ -5551,7 +5551,11 @@ fn curve_average_next(current: f32, sequential: bool, segments: u32, rng: &mut R
     } else {
         ((rng.unit() * segments) as u32 as f32) * step_size
     };
-    if next > 1. { 0. } else { next }
+    if next > 1. {
+        0.
+    } else {
+        next
+    }
 }
 
 /// The `IsAvgGen` walk's spawn position, or `None` when this class has no
