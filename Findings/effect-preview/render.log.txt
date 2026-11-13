@@ -9,22 +9,22 @@ warning: unused import: `std::collections::HashMap`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: unnecessary parentheses around closure body
-    --> src/gfx_player.rs:2712:30
+    --> src/gfx_player.rs:2725:30
      |
-2712 |         .map(|(last, first)| (*last - *first))
+2725 |         .map(|(last, first)| (*last - *first))
      |                              ^              ^
      |
      = note: `#[warn(unused_parens)]` (part of `#[warn(unused)]`) on by default
 help: remove these parentheses
      |
-2712 -         .map(|(last, first)| (*last - *first))
-2712 +         .map(|(last, first)| *last - *first)
+2725 -         .map(|(last, first)| (*last - *first))
+2725 +         .map(|(last, first)| *last - *first)
      |
 
 warning: duplicated attribute
-     --> src/gfx_player.rs:11376:5
+     --> src/gfx_player.rs:11389:5
       |
-11376 |     #[test]
+11389 |     #[test]
       |     ^^^^^^^
       |
       = note: `#[warn(duplicate_macro_attributes)]` on by default
@@ -73,9 +73,9 @@ warning: unused variable: `trailer`
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src/gfx_player.rs:7558:13
+    --> src/gfx_player.rs:7571:13
      |
-7558 |         let mut name = |text: &str, out: &mut Vec<u8>| {
+7571 |         let mut name = |text: &str, out: &mut Vec<u8>| {
      |             ----^^^^
      |             |
      |             help: remove this `mut`
@@ -83,9 +83,9 @@ warning: variable does not need to be mutable
      = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src/gfx_player.rs:8552:13
+    --> src/gfx_player.rs:8565:13
      |
-8552 |         let mut count = |half: Vec3| {
+8565 |         let mut count = |half: Vec3| {
      |             ----^^^^^
      |             |
      |             help: remove this `mut`
@@ -225,9 +225,9 @@ warning: method `flags` is never used
    |            ^^^^^
 
 warning: function `slug` is never used
-    --> src/effect_preview.rs:1003:4
+    --> src/effect_preview.rs:1041:4
      |
-1003 | fn slug(text: &str) -> String {
+1041 | fn slug(text: &str) -> String {
      |    ^^^^
 
 warning: method `raw_view` is never used
@@ -1392,7 +1392,7 @@ help: convert the identifier to upper case
       |
 
 warning: `perfect-world-explorer` (bin "perfect-world-explorer" test) generated 124 warnings (run `cargo fix --bin "perfect-world-explorer" -p perfect-world-explorer --tests` to apply 24 suggestions)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.28s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.48s
      Running unittests src/main.rs (target/debug/build/perfect-world-explorer/555eb3097d2a0398/out/perfect_world_explorer-555eb3097d2a0398)
 
 running 1 test
@@ -1419,8 +1419,10 @@ preview: - card 14.35 x 21.35 at (2672.6, 246.1, -4158.3) axis (0.00, -1.00, 0.0
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2738,272,-4099); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2680,244,-4156); 0 load failures, 0 graph failures, 0 warnings
 preview: - `02-42458-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星黄.gfx at (2677.8, 242.4, -4159.0) dir (0.66, 0.03, -0.75) up (0.02, 1.00, 0.06) night 2 scale 8.34 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 0.20 u, 0.009 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=13599 size=1.89x0.27x1.83 card=0.00x0.00 box=(2676.95,242.34,-4159.90)..(2678.83,242.61,-4158.06)
+preview: - mesh gfx/models/海星/海星黄/textures/海星黄.dds verts=282 extent 1.89 x 0.27 x 1.83 at (2677.9, 242.5, -4159.0) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2680,244,-4156); 0 load failures, 0 graph failures, 0 warnings
 preview: - `02-42458-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星黄.gfx at (2677.8, 242.4, -4159.0) dir (0.66, 0.03, -0.75) up (0.02, 1.00, 0.06) night 2 scale 8.34 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 0.20 u, 0.009 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=1 pixels=13096 size=1.82x0.27x1.80 card=0.00x0.00 box=(2676.94,242.35,-4159.92)..(2678.76,242.62,-4158.13)
+preview: - mesh gfx/models/海星/海星黄/textures/海星黄.dds verts=282 extent 1.82 x 0.27 x 1.80 at (2677.9, 242.5, -4159.0) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 0 quads this frame, eye (2665,272,-4141); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 0 quads this frame, eye (2623,253,-4179); 0 load failures, 0 graph failures, 0 warnings
 preview: - `03-42402-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱.gfx at (2605.1, 241.5, -4200.7) dir (0.70, 0.00, -0.72) up (0.00, 1.00, 0.00) night 2 scale 2.97 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 2.00 u, 0.065 m/px: player clock 317 ms play 0.400 (file 1.000), quads=43 pixels=8052 size=13.88x2.67x15.68 card=0.42x0.43 box=(2598.62,241.04,-4208.49)..(2612.49,243.71,-4192.81)
@@ -1477,38 +1479,60 @@ preview: - card 0.21 x 0.21 at (2601.5, 242.9, -4200.1) axis (0.83, -0.42, -0.38
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2667,272,-4135); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2624,256,-4171); 0 load failures, 0 graph failures, 0 warnings
 preview: - `04-42444-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_水草墨绿.gfx at (2607.0, 241.7, -4195.1) dir (0.81, -0.04, -0.59) up (0.03, 1.00, -0.03) night 2 scale 3.82 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 2.00 u, 0.056 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=24698 size=9.97x11.90x9.56 card=0.00x0.00 box=(2605.36,241.45,-4195.80)..(2615.33,253.35,-4186.24)
+preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物03.dds verts=72 extent 9.97 x 11.90 x 9.56 at (2610.3, 247.4, -4191.0) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2624,256,-4171); 0 load failures, 0 graph failures, 0 warnings
 preview: - `04-42444-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_水草墨绿.gfx at (2607.0, 241.7, -4195.1) dir (0.81, -0.04, -0.59) up (0.03, 1.00, -0.03) night 2 scale 3.82 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 2.00 u, 0.056 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=1 pixels=24106 size=9.46x12.08x9.88 card=0.00x0.00 box=(2605.36,241.45,-4196.11)..(2614.83,253.53,-4186.24)
+preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物03.dds verts=72 extent 9.46 x 12.08 x 9.88 at (2610.1, 247.5, -4191.2) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2670,271,-4140); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2623,257,-4178); 0 load failures, 0 graph failures, 0 warnings
 preview: - `05-42445-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_水草红.gfx at (2610.3, 240.7, -4200.3) dir (0.81, -0.04, -0.59) up (0.03, 1.00, -0.03) night 2 scale 3.82 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 2.00 u, 0.054 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=12739 size=4.71x15.31x5.67 card=0.00x0.00 box=(2607.89,240.77,-4199.91)..(2612.60,256.08,-4194.24)
+preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物02.dds verts=48 extent 4.71 x 15.31 x 5.67 at (2610.2, 248.4, -4197.1) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2623,257,-4178); 0 load failures, 0 graph failures, 0 warnings
 preview: - `05-42445-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_水草红.gfx at (2610.3, 240.7, -4200.3) dir (0.81, -0.04, -0.59) up (0.03, 1.00, -0.03) night 2 scale 3.82 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 2.00 u, 0.054 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=1 pixels=13484 size=5.58x15.37x6.31 card=0.00x0.00 box=(2607.14,240.77,-4200.55)..(2612.72,256.14,-4194.24)
+preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物02.dds verts=48 extent 5.58 x 15.37 x 6.31 at (2609.9, 248.5, -4197.4) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 2 quads this frame, eye (2659,271,-4144); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 2 quads this frame, eye (2674,316,-4100); 0 load failures, 0 graph failures, 0 warnings
 preview: - `06-42446-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_水草翠绿.gfx at (2599.2, 240.5, -4203.5) dir (0.81, -0.04, -0.59) up (0.03, 1.00, -0.03) night 2 scale 3.82 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 10.00 u, 0.275 m/px: player clock 792 ms play 1.000 (file 1.000), quads=2 pixels=16011 size=42.77x67.47x47.28 card=0.00x0.00 box=(2583.43,239.44,-4223.14)..(2626.19,306.91,-4175.86)
+preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物01.dds verts=48 extent 4.30 x 15.21 x 5.56 at (2601.2, 247.9, -4208.7) blend 5/6 depth true
+preview: - mesh gfx/models/海底植物/textures/李西游海底植物04.dds verts=216 extent 42.77 x 67.47 x 47.28 at (2604.8, 273.2, -4199.5) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 2 quads this frame, eye (2674,316,-4100); 0 load failures, 0 graph failures, 0 warnings
 preview: - `06-42446-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_水草翠绿.gfx at (2599.2, 240.5, -4203.5) dir (0.81, -0.04, -0.59) up (0.03, 1.00, -0.03) night 2 scale 3.82 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 10.00 u, 0.275 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=2 pixels=15625 size=45.65x66.50x42.98 card=0.00x0.00 box=(2582.08,239.44,-4219.49)..(2627.73,305.94,-4176.50)
+preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物01.dds verts=48 extent 3.58 x 15.66 x 4.22 at (2600.6, 248.1, -4208.1) blend 5/6 depth true
+preview: - mesh gfx/models/海底植物/textures/李西游海底植物04.dds verts=216 extent 45.65 x 66.50 x 42.98 at (2604.9, 272.7, -4198.0) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2668,272,-4147); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2609,243,-4206); 0 load failures, 0 graph failures, 0 warnings
 preview: - `07-42447-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星橙.gfx at (2608.2, 242.0, -4207.2) dir (0.00, -0.04, -1.00) up (0.39, 0.92, -0.04) night 2 scale 3.82 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 0.10 u, 0.004 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=13573 size=0.73x0.33x0.81 card=0.00x0.00 box=(2607.93,241.77,-4207.63)..(2608.66,242.10,-4206.82)
+preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 0.73 x 0.33 x 0.81 at (2608.3, 241.9, -4207.2) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2609,243,-4206); 0 load failures, 0 graph failures, 0 warnings
 preview: - `07-42447-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星橙.gfx at (2608.2, 242.0, -4207.2) dir (0.00, -0.04, -1.00) up (0.39, 0.92, -0.04) night 2 scale 3.82 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 0.10 u, 0.004 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=1 pixels=12205 size=0.74x0.33x0.71 card=0.00x0.00 box=(2607.91,241.78,-4207.60)..(2608.65,242.11,-4206.89)
+preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 0.74 x 0.33 x 0.71 at (2608.3, 241.9, -4207.2) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2672,271,-4141); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2613,242,-4199); 0 load failures, 0 graph failures, 0 warnings
 preview: - `08-42448-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星玫.gfx at (2612.1, 241.0, -4200.9) dir (0.70, -0.06, -0.71) up (0.02, 1.00, -0.07) night 2 scale 4.95 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 0.10 u, 0.006 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=8783 size=0.97x0.38x0.85 card=0.00x0.00 box=(2611.54,240.94,-4201.45)..(2612.51,241.32,-4200.60)
+preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 0.97 x 0.38 x 0.85 at (2612.0, 241.1, -4201.0) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2613,242,-4199); 0 load failures, 0 graph failures, 0 warnings
 preview: - `08-42448-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星玫.gfx at (2612.1, 241.0, -4200.9) dir (0.70, -0.06, -0.71) up (0.02, 1.00, -0.07) night 2 scale 4.95 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 0.20 u, 0.006 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=1 pixels=8889 size=1.04x0.21x1.07 card=0.00x0.00 box=(2611.47,240.94,-4201.44)..(2612.51,241.15,-4200.38)
+preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 1.04 x 0.21 x 1.07 at (2612.0, 241.0, -4200.9) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2662,272,-4136); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2604,243,-4192); 0 load failures, 0 graph failures, 0 warnings
 preview: - `09-42450-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星红.gfx at (2602.2, 241.9, -4195.7) dir (0.97, 0.25, -0.04) up (-0.24, 0.96, 0.12) night 2 scale 8.34 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 0.20 u, 0.009 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=11552 size=1.82x0.48x1.77 card=0.00x0.00 box=(2601.32,241.62,-4196.40)..(2603.14,242.10,-4194.64)
+preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 1.82 x 0.48 x 1.77 at (2602.2, 241.9, -4195.5) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2604,243,-4192); 0 load failures, 0 graph failures, 0 warnings
 preview: - `09-42450-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星红.gfx at (2602.2, 241.9, -4195.7) dir (0.97, 0.25, -0.04) up (-0.24, 0.96, 0.12) night 2 scale 8.34 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 0.20 u, 0.009 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=1 pixels=11722 size=1.85x0.48x1.80 card=0.00x0.00 box=(2601.30,241.62,-4196.42)..(2603.15,242.10,-4194.62)
+preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 1.85 x 0.48 x 1.80 at (2602.2, 241.9, -4195.5) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 4 quads this frame, eye (2664,273,-4141); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 4 quads this frame, eye (2625,267,-4156); 0 load failures, 0 graph failures, 0 warnings
 preview: - `10-42451-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_鱼群.gfx at (2604.2, 243.4, -4200.7) dir (0.70, -0.06, -0.71) up (0.02, 1.00, -0.07) night 2 scale 2.78 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 5.00 u, 0.126 m/px: player clock 792 ms play 1.000 (file 1.000), quads=4 pixels=10787 size=18.35x11.09x21.85 card=0.00x0.00 box=(2594.84,241.00,-4216.33)..(2613.19,252.09,-4194.48) textures-failed=1 first=<untextured>: no model archive attached: <untextured>
+preview: - mesh <untextured> verts=96 extent 2.48 x 0.99 x 2.59 at (2597.8, 246.7, -4195.9) blend 5/6 depth true
+preview: - mesh gfx/models/鲨鱼/textures/1.tga verts=1752 extent 16.92 x 10.92 x 6.87 at (2604.7, 246.6, -4197.9) blend 5/6 depth true
+preview: - mesh gfx/models/鱼群/鱼群紫/textures/鱼紫色.dds verts=2856 extent 5.62 x 4.55 x 5.85 at (2597.7, 243.3, -4213.4) blend 5/6 depth true
+preview: - mesh gfx/models/鱼群/鱼群黄/textures/鱼黄色.dds verts=3366 extent 5.56 x 4.30 x 5.93 at (2606.6, 245.8, -4205.1) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 4 quads this frame, eye (2625,267,-4156); 0 load failures, 0 graph failures, 0 warnings
 preview: - `10-42451-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_鱼群.gfx at (2604.2, 243.4, -4200.7) dir (0.70, -0.06, -0.71) up (0.02, 1.00, -0.07) night 2 scale 2.78 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 5.00 u, 0.126 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=4 pixels=10719 size=28.85x12.58x27.54 card=0.00x0.00 box=(2579.17,240.31,-4215.22)..(2608.02,252.89,-4187.68) textures-failed=1 first=<untextured>: no model archive attached: <untextured>
+preview: - mesh <untextured> verts=96 extent 1.98 x 0.95 x 2.66 at (2580.8, 246.4, -4189.5) blend 5/6 depth true
+preview: - mesh gfx/models/鲨鱼/textures/1.tga verts=1752 extent 15.25 x 10.86 x 7.23 at (2586.8, 247.5, -4191.3) blend 5/6 depth true
+preview: - mesh gfx/models/鱼群/鱼群紫/textures/鱼紫色.dds verts=2856 extent 5.48 x 4.41 x 5.95 at (2605.3, 242.5, -4211.2) blend 5/6 depth true
+preview: - mesh gfx/models/鱼群/鱼群黄/textures/鱼黄色.dds verts=3366 extent 5.66 x 4.30 x 5.79 at (2604.2, 245.5, -4212.3) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 0 quads this frame, eye (2664,278,-4141); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 0 quads this frame, eye (2630,264,-4165); 0 load failures, 0 graph failures, 0 warnings
 preview: - `11-42452-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_顶.gfx at (2604.2, 248.2, -4200.7) dir (-0.32, 0.02, -0.95) up (0.06, 1.00, 0.00) night 2 scale 2.26 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 5.00 u, 0.103 m/px: player clock 792 ms play 1.000 (file 1.000), quads=6 pixels=7045 size=17.44x13.58x20.96 card=11.74x11.74 box=(2596.10,241.45,-4212.70)..(2613.54,255.03,-4191.74)
@@ -1541,5 +1565,5 @@ preview: - card 9.94 x 9.94 at (2607.2, 248.0, -4201.1) axis (0.15, 0.57, 0.80) 
 preview: 22 shots from 11 placements, report target/effect-preview/metrics.md
 test effect_preview::tests::effect_previews ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1098 filtered out; finished in 38.57s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1098 filtered out; finished in 41.11s
 
