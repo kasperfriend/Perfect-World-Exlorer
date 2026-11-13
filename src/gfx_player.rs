@@ -1071,6 +1071,43 @@ impl ElementContext<'_> {
     fn rgba(&self) -> [f32; 4] {
         rgba(self.color, self.color_scale)
     }
+
+    /// The client's element matrix: `GetTranMatrix(kp)` read literally
+    /// (A3DGFXKeyPoint.h:286-293).
+    ///
+    /// ```cpp
+    /// inline A3DMATRIX4 GetTranMatrix(const KEY_POINT& kp, const A3DVECTOR3& vAxis = _unit_z)
+    /// {
+    ///     A3DMATRIX4 matTran;
+    ///     if (kp.m_fRad2D) (kp.m_vDir * A3DQUATERNION(vAxis, kp.m_fRad2D)).ConvertToMatrix(matTran);
+    ///     else kp.m_vDir.ConvertToMatrix(matTran);
+    ///     matTran.SetRow(3, kp.m_vPos);
+    ///     return matTran;
+    /// }
+    /// ```
+    ///
+    /// The keypoint's 2D spin sits **inside** the element matrix, on the right of
+    /// the direction quaternion, so it turns about a *local* axis: `_unit_z` for
+    /// every class that takes the default — `A3DGFXModel.cpp:233` (element 160),
+    /// `A3DGFXECModel.cpp:352`, `A3DGFXLightning.cpp:857`/`:1157`,
+    /// `A3DParaboloid.cpp:201`/`:251`, `A3DGridDecalEx.cpp:445`/`:477`,
+    /// `A3DTrail.cpp:560`, `A3DLtnTrail.cpp:172`, `A3DGFXContainer.cpp:300` — and
+    /// `_unit_y` for the ring (`A3DGFXRing.cpp:265` and `:315`), whose band lies
+    /// in the local XZ plane, so its 2D turn is a yaw about its own axis.
+    ///
+    /// [`Self::placement`] is the same matrix **without** it, which is what the
+    /// card arms want: `Fill_Verts_3D`'s `RotFromView` branch rebuilds the shaft
+    /// from `RotateVec(GetParentDir() * kp.m_vDir, _unit_z)` and never reads
+    /// `Rad_2D` (A3DDecalEx.cpp:365-402), while its element-plane branch spins
+    /// its corners itself. Every other class inherits the spin through
+    /// `GetTranMatrix`, so it must be applied here rather than per class.
+    fn element_matrix(&self, axis: Vec3) -> Mat4 {
+        if self.rotation.is_finite() && self.rotation != 0. {
+            self.placement * Mat4::from_axis_angle(axis, self.rotation)
+        } else {
+            self.placement
+        }
+    }
 }
 
 /// Unpack a client ARGB dword and fold the root/placement alpha into it.
@@ -2268,7 +2305,18 @@ fn advance_element(
     // bound to this one follows the matrix it actually used. `0x6fe120` reads
     // the target's stored transform at +0x58 rather than recomputing it, which
     // is what keeps a mutual bind from recursing.
-    runtime.placement = Some(placement);
+    //
+    // `A3DGFXContainer.cpp:300` hands a bound child
+    // `SetParentTM(GetTranMatrix(kp) * GetParentTM())`, so the matrix a child
+    // substitutes carries the target's 2D spin even though the card arms want
+    // the unspun one: the published matrix is `GetTranMatrix`, the drawn cards
+    // keep [`ElementContext::placement`].
+    let rotation = sampled.rad_2d + runtime.state.rotation;
+    runtime.placement = Some(if rotation.is_finite() && rotation != 0. {
+        placement * Mat4::from_axis_angle(Vec3::Z, rotation)
+    } else {
+        placement
+    });
     let context = ElementContext {
         id: element.id,
         placement,
@@ -2289,8 +2337,9 @@ fn advance_element(
         emission_scale: sampled.scale * play_speed,
         // `Rad_2D` is the authored 2D spin of this keypoint; ctrl 101
         // integrates its `Vel`/`Acc` into the same angle (node+0x08 is a
-        // rotation, not a speed).
-        rotation: sampled.rad_2d + runtime.state.rotation,
+        // rotation, not a speed). [`ElementContext::element_matrix`] is where a
+        // class that takes `GetTranMatrix` picks it up.
+        rotation,
         clock: phase,
         root,
     };
@@ -4180,12 +4229,11 @@ fn quad_corners(
         // keypoint transforms, so the corners only need the 2D spin. This is the
         // verified `parent * rotation_translation(direction, position) * local`.
         QuadBasis::Element => {
-            let spin = if rotation == 0. {
-                Mat4::IDENTITY
-            } else {
-                Mat4::from_rotation_z(rotation)
-            };
-            let transform = context.placement * spin;
+            // The spun element matrix of `GetTranMatrix(kp)`: the client's 2D
+            // spin turns the card in its own plane (default axis `_unit_z`), so
+            // this is the same `placement * R_z(rotation)` it always was, now
+            // spelled through the one helper every class shares.
+            let transform = context.element_matrix(Vec3::Z);
             local.map(|corner| transform.transform_point3(corner + center).to_array())
         }
         // A billboard's axes are unit length, so the uniform parent scale they
@@ -4358,6 +4406,17 @@ fn emit_model(
     if color[3] < ALPHA_CUTOFF {
         return;
     }
+    // `A3DGFXModel::UpdateModel` draws through
+    // `matScale * GetTranMatrix(kp) * GetParentTM()` (A3DGFXModel.cpp:233), and
+    // `A3DGFXECModel.cpp:352` is the same line for element 230, so a model
+    // element inherits the keypoint's 2D spin like every other class. Until
+    // §58 this path read `context.placement`, which is the one matrix the
+    // client gives *without* `Rad_2D` (the `RotFromView` card wants that), so
+    // every spinning model stood still: the `水族箱_鱼群` shark authors a
+    // `CtrlType: 101` that walks its keypoint spin to 2.960 rad inside the three
+    // seconds the preview samples, and the frames channel printed the value on
+    // 66 of its 105 sampled frames while the mesh never turned.
+    let matrix = context.element_matrix(Vec3::Z);
     for mesh in meshes {
         if mesh.texture.is_empty() || mesh.vertices.len() < 3 {
             continue;
@@ -4386,16 +4445,15 @@ fn emit_model(
                 // and its offsets are local decoration - and it is the price of
                 // leaving `placement` alone for the children, ground queries and
                 // spans that read it.
-                let position = context
-                    .placement
-                    .transform_point3(Vec3::from_array(vertex.position) * context.scale);
+                let position = matrix.transform_point3(
+                    Vec3::from_array(vertex.position) * context.scale,
+                );
                 // The placement carries the keypoint scale, which is uniform, so
                 // transforming the normal as a vector and renormalising is the
                 // client's `matScale * tran * parent` applied to it. A zero
                 // normal (`model_asset` writes one for a rigid vertex with no
                 // authored normal) stays zero and keeps the flat element colour.
-                let normal = context
-                    .placement
+                let normal = matrix
                     .transform_vector3(Vec3::from_array(vertex.normal))
                     .normalize_or_zero();
                 EffectVertex {
@@ -4700,7 +4758,13 @@ fn emit_cylinder(cylinder: &Cylinder, context: &ElementContext, out: &mut Vec<Ef
     } else {
         0.
     };
-    let matrix = context.placement;
+    // `matScale * GetTranMatrix(kp, _unit_y) * GetParentTM()`
+    // (A3DGFXRing.cpp:265, and the editor's `:315`): the ring is the one class
+    // that hands `GetTranMatrix` a non-default axis, and `_unit_y` is its own
+    // axis — the band is built in the local XZ plane — so `Rad_2D` is a yaw of
+    // the whole band. It shows on any ring that authors a `Pitch`, because the
+    // tilt lives in the radii, and therefore turns with it.
+    let matrix = context.element_matrix(Vec3::Y);
     let uv = flipbook_uv(context.common, context.clock);
     let mut positions = [[0f32; 3]; 4];
     for index in 0..sections {
@@ -4819,7 +4883,11 @@ fn emit_paraboloid(curve: &Curve, context: &ElementContext, out: &mut Vec<Effect
     let (v_base, v_span) = (uv[0][1], uv[2][1] - uv[0][1]);
     let tex_x_step = u_span * 0.5 / circles as f32;
     let tex_y_step = v_span * 0.5 / circles as f32;
-    let matrix = context.placement;
+    // `A3DParaboloid::FillVertexBuffer` builds `mat * GetTranMatrix(kp) *
+    // GetParentTM()` (A3DParaboloid.cpp:201), and the default spin axis is
+    // `_unit_z` — the bowl's own axis, since its surface of revolution runs
+    // along local Z.
+    let matrix = context.element_matrix(Vec3::Z);
     let vertex = |ring: usize, seg: usize| -> (Vec3, [f32; 2]) {
         let angle = std::f32::consts::TAU / PARABOLOID_SEGMENTS as f32 * seg as f32;
         let radius = (coefficient * ring as f32 * grid).max(0.).sqrt();
@@ -4846,7 +4914,10 @@ fn emit_grid(grid: &Grid, context: &ElementContext, out: &mut Vec<EffectQuad>) {
     let Ok(texture) = texture_path(&context.common.texture) else {
         return;
     };
-    let matrix = context.placement;
+    // `A3DGridDecalEx.cpp:445`/`:477` build `GetTranMatrix(kp) * GetParentTM()`,
+    // default axis `_unit_z`, so a grid sheet takes the keypoint spin like any
+    // other class.
+    let matrix = context.element_matrix(Vec3::Z);
     // A grid decal is a class of its own (`A3DGridDecalEx`, ids 210/211) and it
     // scrolls its sheet from `TexSpeed` whatever `TexRow`/`TexCol` say: the
     // curtain fixtures author `TexRow: 1`, `TexCol: 1`, `TexSpeed: -0.4`, and a
@@ -5993,12 +6064,17 @@ fn emit_ribbon(
     while ribbon.carry >= interval && emitted < MAX_SEGMENTS {
         ribbon.carry -= interval;
         emitted += 1;
+        // `A3DTrail.cpp:560-565` builds `matTran = GetTranMatrix(kpSelf) *
+        // GetTranMatrix(kp)` and `A3DLtnTrail.cpp:172` `GetTranMatrix(kp) *
+        // GetParentTM()`, so the pair of rails a frame emits is spun with the
+        // keypoint's 2D rotation (default `_unit_z`) before it is world space.
+        let matrix = context.element_matrix(Vec3::Z);
         ribbon.vertices.push(RibbonVertex {
-            position: context.placement.transform_point3(rails.0),
+            position: matrix.transform_point3(rails.0),
             age: 0.,
         });
         ribbon.vertices.push(RibbonVertex {
-            position: context.placement.transform_point3(rails.1),
+            position: matrix.transform_point3(rails.1),
             age: 0.,
         });
         if ribbon.vertices.len() > MAX_SEGMENTS * 2 {
@@ -6158,7 +6234,9 @@ fn emit_ltn_trail(
 /// one shared offset. Everything else — the head drop, the midpoint, the
 /// amplitude draw and the wrapped `U` — is the client's order of operations.
 fn ltn_trail_add_point(state: &mut LtnTrailState, spec: &Wave, context: &ElementContext) {
-    let placement = context.placement;
+    // `A3DLtnTrail.cpp:172` adds each point through `GetTranMatrix(kp)`, which
+    // carries the keypoint's 2D spin on the default `_unit_z`.
+    let placement = context.element_matrix(Vec3::Z);
     let rail1 = placement.transform_point3(spec.positions.first().copied().unwrap_or(Vec3::ZERO));
     let rail2 = placement.transform_point3(spec.positions.get(1).copied().unwrap_or(Vec3::ZERO));
     let center = placement.transform_point3(Vec3::ZERO);
@@ -6399,6 +6477,11 @@ fn emit_fractal(
     let segments = spec.segments.max(2) as usize;
     let quad_count = segments - 1;
     let interval = spec.interval.max(1) as f32;
+    // `A3DGFXLightning::FillVertexBuffer` places the strip with
+    // `matTran = GetTranMatrix(kp) * GetParentTM()` (A3DGFXLightning.cpp:857) and
+    // `BuildPath` takes the same matrix (`:1157`), so the path's jitter and its
+    // two authored ends live in one spun frame — the default `_unit_z`.
+    let matrix = context.element_matrix(Vec3::Z);
     fractal.timer += dt * 1000.;
     if fractal.timer >= interval || fractal.offsets.len() != segments + 1 {
         fractal.timer = 0.;
@@ -6470,15 +6553,12 @@ fn emit_fractal(
                 lightning_filter(spec.filter, t, shape) * spec.noise_amplitude * spec.amplitude;
             let offset =
                 rotate_about(up, axis, twist * std::f32::consts::TAU) * (amount * context.scale);
-            fractal
-                .offsets
-                .push(context.placement.transform_vector3(offset));
+            fractal.offsets.push(matrix.transform_vector3(offset));
         }
     }
     if let Some(trail) = trail {
         update_trail(fractal, trail, element, dt * 1000., segments);
     }
-    let matrix = context.placement;
     let start = matrix.transform_point3(spec.start_position);
     let end = matrix.transform_point3(spec.end_position);
     let mut axis = end - start;
@@ -6595,11 +6675,11 @@ fn emit_bolts(
     if bolts.timer >= interval {
         bolts.timer = 0.;
         bolts.segments.clear();
-        let direction = context
-            .placement
-            .transform_vector3(Vec3::Y)
-            .normalize_or_zero();
-        let origin = context.placement.transform_point3(Vec3::ZERO);
+        // The bolt grows along the element's local Y through `GetTranMatrix(kp)`
+        // (A3DGFXLightning.cpp:857), spin included.
+        let matrix = context.element_matrix(Vec3::Z);
+        let direction = matrix.transform_vector3(Vec3::Y).normalize_or_zero();
+        let origin = matrix.transform_point3(Vec3::ZERO);
         for _ in 0..bolt.bolts_per_interval.max(1) {
             grow_bolt(
                 bolts,
@@ -6946,6 +7026,139 @@ mod tests {
         let mut player = build(&(header37(1) + ring.as_str()));
         step(&mut player, 0.);
         player.quads().to_vec()
+    }
+
+    /// Element 140's own `GetTranMatrix` axis is `_unit_y`, so a keypoint's 2D
+    /// spin yaws the band about its axis instead of turning it in the plane a
+    /// card would use. `A3DGFXRing.cpp:265` is
+    ///
+    ///     A3DMATRIX4 matWorld = matScale * GetTranMatrix(kp, _unit_y) * GetParentTM();
+    ///
+    /// and `GetTranMatrix` multiplies the spin **into** the keypoint quaternion
+    /// on the right (A3DGFXKeyPoint.h:286-293), so the axis is the band's own.
+    /// The band loves it: `Pitch` lives in the two radii, so a spun ring leans
+    /// the other way round.
+    #[test]
+    fn a_ring_keypoint_spin_yaws_the_band_about_its_own_axis() {
+        // A ring at radius 1, height 1, pitched so the rows differ; `Sects: 0`
+        // keeps the client's own 36 so the first corner is at angle zero.
+        let ring = |rad_2d: f32| {
+            format!(
+                "GFXELEMENTID: 140\r\nName: ring\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+                 TexFile: 圆环光\\circle032.dds\r\nRepeatCount: 1\r\nRepeatDelay: 0\r\n\
+                 Radius: 1.000000\r\nHeight: 1.000000\r\nPitch: 0.463648\r\nSects: 0\r\n\
+                 NoRadScale: 0\r\nNoHeiScale: 0\r\nOrgAtCenter: 0\r\n\
+                 StartTime: 0\r\nKEYPOINTCOUNT: 1\r\nInterpolateMode: 0\r\nTimeSpan: -1\r\n\
+                 Position: 0, 0, 0\r\nColor: -1\r\nScale: 1\r\nDirection: 0, 0, 0, 1\r\n\
+                 Rad_2D: {rad_2d:.6}\r\nCtrlMethodCount: 0\r\n"
+            )
+        };
+        let first = |rad_2d: f32| {
+            let mut player = build(&(header37(1) + ring(rad_2d).as_str()));
+            step(&mut player, 0.);
+            player.quads()[0].positions[0]
+        };
+        let level = first(0.);
+        // `OrgAtCenter: 0` puts the foot row at y = 0, the first section starts
+        // at angle zero, and `Pitch: 0.463648` widens the foot by
+        // `halfHeight * tan` = 0.25, so the corner is at (1.25, 0, 0).
+        assert!(
+            (level[0] - 1.25).abs() < 1e-3 && level[2].abs() < 1e-6,
+            "the unspun band starts on +X of the foot row: {level:?}"
+        );
+        // The angle in the band's own XZ plane, measured from +X towards -Z,
+        // which is the direction a right turn about +Y sends it.
+        let angle = |point: [f32; 3]| point[0].atan2(-point[2]);
+        let quarter = first(std::f32::consts::FRAC_PI_2);
+        // A right turn about +Y takes +X onto -Z, so the same corner comes round
+        // a quarter turn, at the same height and the same radius.
+        assert!(
+            (angle(level) - angle(quarter) - std::f32::consts::FRAC_PI_2).abs() < 1e-3,
+            "a quarter turn about the band's own Y must yaw the corner to -Z: \
+             {quarter:?} against {level:?}"
+        );
+        assert!(
+            quarter[0].abs() < 1e-3 && (quarter[2] + 1.25).abs() < 1e-3,
+            "and it lands on -Z of the foot row: {quarter:?}"
+        );
+        assert!(
+            (quarter[1] - level[1]).abs() < 1e-6
+                && (quarter[0].hypot(quarter[2]) - level[0].hypot(level[2])).abs() < 1e-3,
+            "a yaw keeps the corner's height and radius: {quarter:?} against {level:?}"
+        );
+        // Half a turn is the other side of the same band, not a mirror of it.
+        // A card would come back to where it started here; a band cannot,
+        // because its sections are not symmetric about their own centre.
+        let half = first(std::f32::consts::PI);
+        assert!(
+            (half[0] + level[0]).abs() < 1e-3 && (half[2] - level[2]).abs() < 1e-3,
+            "a half turn puts the corner opposite, at the same height and radius: \
+             {half:?} against {level:?}"
+        );
+    }
+
+    /// The model path takes `matScale * GetTranMatrix(kp) * GetParentTM()`
+    /// (A3DGFXModel.cpp:233, A3DGFXECModel.cpp:352), so its keypoint spin is a
+    /// rotation of the mesh about the element's local Z. It used to read
+    /// `context.placement`, the one matrix the client builds *without* `Rad_2D`,
+    /// which is the matrix `Fill_Verts_3D`'s `RotFromView` branch wants — so
+    /// every spinning model in the game stood still.
+    #[test]
+    fn a_model_keypoint_spin_turns_the_mesh_about_its_own_z() {
+        let view = view();
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        context.rotation = std::f32::consts::FRAC_PI_2;
+        let mesh = EffectMesh {
+            texture: "gfx/textures/模型/test.dds".into(),
+            vertices: vec![
+                EffectVertex {
+                    position: [1., 0., 0.],
+                    uv: [0., 0.],
+                    normal: [1., 0., 0.],
+                },
+                EffectVertex {
+                    position: [0., 1., 0.],
+                    uv: [0., 0.],
+                    normal: [0., 1., 0.],
+                },
+                EffectVertex {
+                    position: [0., 0., 1.],
+                    uv: [0., 0.],
+                    normal: [0., 0., 1.],
+                },
+            ],
+            write_depth: false,
+            material: None,
+        };
+        let mut out = Vec::new();
+        emit_model(std::slice::from_ref(&mesh), false, &context, &mut out);
+        let placed = &out[0].mesh.as_ref().expect("a model emits a mesh").vertices;
+        assert!(
+            (Vec3::from_array(placed[0].position) - Vec3::Y).length() < 1e-5,
+            "a quarter turn about Z sends the mesh's +X to +Y: {:?}",
+            placed[0].position
+        );
+        assert!(
+            (Vec3::from_array(placed[1].position) + Vec3::X).length() < 1e-5,
+            "and its +Y to -X: {:?}",
+            placed[1].position
+        );
+        assert!(
+            (Vec3::from_array(placed[2].position) - Vec3::Z).length() < 1e-5,
+            "the axis itself is untouched: {:?}",
+            placed[2].position
+        );
+        // Without a spin the mesh is the placement's own image.
+        context.rotation = 0.;
+        out.clear();
+        emit_model(std::slice::from_ref(&mesh), false, &context, &mut out);
+        let placed = &out[0].mesh.as_ref().expect("a model emits a mesh").vertices;
+        assert!(
+            (Vec3::from_array(placed[0].position) - Vec3::X).length() < 1e-5,
+            "an unspun model is unchanged: {:?}",
+            placed[0].position
+        );
     }
 
     /// A ring is world geometry built in the parent frame, so the owner's scale

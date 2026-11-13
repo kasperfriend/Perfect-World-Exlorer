@@ -15,3 +15,5 @@
 2026-11-13T12:03:22Z — sweep: archosaur beam, wraithgate, forest shafts after the axial rewrite
 
 2026-11-13T12:15:37Z — sweep: wraithgate particle sizes and the archosaur beam after the axial and particle fixes
+
+2026-11-13T13:05:00Z — sweep: the yaw pass, keypoint 2D spin applied through GetTranMatrix for ring, model, paraboloid, grid, lightning and trails (§58)

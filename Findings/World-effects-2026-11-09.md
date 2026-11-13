@@ -5194,3 +5194,156 @@ sample, none. The three shared multipliers this document has now found are the
 ones that were wrong, and each one was invisible to a size audit of its own
 class — `kp` on models (§57.14), `kp` on 3D particles (§57.17), and the tile/UV
 window (§57.1-57.2).
+
+## 58. The yaw sweep: the keypoint's 2D spin is inside the element matrix, and one draw path had it
+
+The ask was "I think it may have yaw issues, sweep and find". Yaw is the one
+degree of freedom the size work in §57 could not see: a card can be exactly the
+authored size and still lie in the wrong plane, and a placement can be exactly
+right while everything hanging off it points the wrong way. So this pass
+re-derives the whole orientation chain from the client and then measures it, in
+order, from the record to the drawn vertex.
+
+### 58.1 The chain, with citations, from the record to the corner
+
+| step | client | what it fixes |
+|---|---|---|
+| 1 | `a3d_TransformMatrix(pNode->vDir, pNode->vUp, pNode->vPos)` (`EC_ManOrnament.cpp:952`) | the placement frame |
+| 2 | `A3DGFXEx::SetParentTM` (`A3DGFXEx.cpp:1881-1896`) | the per-row normalize and `m_qDir` |
+| 3 | `m_matParent = m_matScale * m_matNoScale` (`A3DGFXEx.cpp:1900`) | the element's parent frame |
+| 4 | `GetTranMatrix(kp)` (`A3DGFXKeyPoint.h:286-293`) | the keypoint's rotation, translation **and 2D spin** |
+| 5 | `GetTranMatrix(kp) * GetParentTM()` (per class, below) | the element matrix |
+| 6 | `Fill_Verts_3D` / `Fill_Vert_3D` / the class's own vertex loop | the corners |
+
+Steps 1-3 are the placement, and they are exactly what `gfx_owner`'s
+`placement_transform` already builds. The client's own basis builder is
+`A3DFuncs.cpp:323-351`:
+
+```cpp
+vecZAxis = Normalize(vecDir);
+vecYAxis = Normalize(vecUp);
+vecXAxis = Normalize(CrossProduct(vecYAxis, vecZAxis));
+mat.m[0][0..2] = vecXAxis;  mat.m[1][0..2] = vecYAxis;
+mat.m[2][0..2] = vecZAxis;  mat.m[3][0..2] = vecPos;  mat.m[3][3] = 1.0f;
+```
+
+and the engine's storage is row-vector: both `v * mat` and `mat * v` in
+`A3DMatrix.cpp:156-181` land in `D3DXVec3TransformCoord`, i.e. `v . M`, which is
+why the basis sits in the **rows** and why the viewer's column-major
+`right, up, forward` is the same matrix transposed — same transform, and the two
+transposes cancel in `base * rotation_translation(direction, position)`. There is
+no yaw error in the placement: `right` is `normalize(cross(up, dir))`, `up` and
+`dir` are normalized **separately** (a non-orthogonal record up stays sheared,
+exactly as the client leaves it), and the determinant is `+1` for every pair of
+inputs, so no root is mirrored about the vertical either.
+
+Step 4 is where this pass found the defect.
+
+### 58.2 The spin: `GetTranMatrix` folds `Rad_2D` into the matrix, and every class takes it
+
+```cpp
+inline A3DMATRIX4 GetTranMatrix(const KEY_POINT& kp, const A3DVECTOR3& vAxis = _unit_z)
+{
+    A3DMATRIX4 matTran;
+    if (kp.m_fRad2D) (kp.m_vDir * A3DQUATERNION(vAxis, kp.m_fRad2D)).ConvertToMatrix(matTran);
+    else kp.m_vDir.ConvertToMatrix(matTran);
+    matTran.SetRow(3, kp.m_vPos);
+    return matTran;
+}
+```
+
+(`A3DGFXKeyPoint.h:286-293`.) The product is on the **right**, so the spin is
+about a *local* axis — `_unit_z` by default, `_unit_y` for the ring, whose band
+lies in the local XZ plane (`A3DGFXRing.cpp:265`, `:315`). And every class builds
+its element matrix through this one function:
+
+| element | line | axis |
+|---|---|---|
+| 160 `MODEL` | `A3DGFXModel.cpp:233` | Z |
+| 230 `ECMODEL` | `A3DGFXECModel.cpp:352` | Z |
+| 190 `PARABOLOID` | `A3DParaboloid.cpp:201`, `:251` | Z |
+| 210 `GRID_DECAL` | `A3DGridDecalEx.cpp:445`, `:477`, `:523`, `:943` | Z |
+| 150 `LIGHTNING` | `A3DGFXLightning.cpp:857`, `:1157` | Z |
+| 110 `TRAIL` | `A3DTrail.cpp:560-565` | Z |
+| 180 `LTNTRAIL` | `A3DLtnTrail.cpp:172` | Z |
+| 200 `CONTAINER` | `A3DGFXContainer.cpp:300` | Z |
+| 140 `RING` | `A3DGFXRing.cpp:265`, `:315` | **Y** |
+
+The viewer applied `Rad_2D` in exactly one place: `quad_corners`'s element-plane
+arm, which turns a card in its own plane. Every other class read
+`ElementContext::placement`, which is the one matrix the client builds *without*
+the spin (the `RotFromView` card wants that: `Fill_Verts_3D`'s axial branch
+rebuilds its shaft from `RotateVec(GetParentDir() * kp.m_vDir, _unit_z)` and
+never reads `Rad_2D`, `A3DDecalEx.cpp:365-402`). So rings, models, paraboloids,
+grid sheets, lightning, trails and bound children all drew at `Rad_2D` **zero**.
+
+### 58.3 The measurement: the frame channel already printed the value nobody used
+
+`effect-frames` prints `rot=`, which is `sampled.rad_2d + ctrl 101`. Over the
+six preview roots and their sixteen placements (`effect-frames.log.txt`, 729
+sampled frames, 7 element ids):
+
+| id | class | frames | spun | max \|rot\| | drawn spun before this pass? |
+|---|---|---:|---:|---:|---|
+| 100 | `DECAL_3D` | 46 | 3 | 1.571 | yes — `quad_corners` |
+| 101 | `DECAL_2D` | 118 | 0 | 0.000 | yes (view forward) |
+| 121 | `PARTICLE_BOX` | 131 | 0 | 0.000 | n/a — particles build their own basis |
+| 123 | `PARTICLE_CYLINDER` | 304 | 0 | 0.000 | n/a |
+| 124 | `PARTICLE_ELLIPSOID` | 5 | 0 | 0.000 | n/a |
+| 140 | `RING` | 20 | 0 | 0.000 | yes, once fixed |
+| 160 | `MODEL` | 105 | **66** | **2.960** | **no** |
+
+`水族箱_鱼群.gfx` is the model case, and it is the whole of the model case in
+this sample: every fish in that school is element 160, and the nine fish the
+channel caught carry nine different spins between 0.026 and 2.960 rad, one per
+fish, each constant over the sampled second. The viewer drew every one of them
+at zero, so a scattered school stood still at one heading — which is what "yaw
+issues" looks like at a glance. Two things are worth saying plainly about those
+numbers: `rot` is `sampled.rad_2d` plus ctrl 101's integral (§1279: `Rad_2D +=
+dist`), and the preview asks for its first second in one coarse step, so the
+integral lands as a single jump rather than a smooth turn. The separate values
+per fish are that step landing on different element clocks, not per-fish
+authored headings. `蓝蘑菇2`'s 1.571 card is the control: the sprite path was
+always right.
+
+### 58.4 The fix, and why it is one rule rather than ten patches
+
+`ElementContext::element_matrix(axis)` returns `placement * R(axis, rotation)` —
+the client's `GetTranMatrix`. The card arms keep `placement` (the axial branch
+wants the unspun shaft; the element-plane arm now calls the helper with Z, which
+is the same `placement * R_z` it always built), and every class that takes
+`GetTranMatrix` calls it with its own axis: Z for models, paraboloids, grid
+sheets, lightning, both trail classes and the element-plane card, **Y for the
+ring** (`A3DGFXRing.cpp:265`), and the matrix a bound child substitutes now
+carries the target's spin, because `A3DGFXContainer.cpp:300` hands the child
+`GetTranMatrix(kp) * GetParentTM()`.
+
+Two tests pin it:
+
+* `a_ring_keypoint_spin_yaws_the_band_about_its_own_axis` — a quarter turn moves
+  the band's first section from +X to −Z at the same height and radius, and a
+  half turn returns it (a section-symmetric band), which is only true of a yaw
+  about the band's own axis.
+* `a_model_keypoint_spin_turns_the_mesh_about_its_own_z` — a quarter turn sends a
+  mesh's +X to +Y and its +Y to −X while the axis itself is untouched, and a
+  zero spin leaves the mesh exactly where it was.
+
+`tools/effect-spin-audit.py` is the sweep, kept: it reads the frame channel,
+prints per-id `frames / spun / max |rot|` next to the axis the client would turn,
+and **fails** if an id appears that has no `GetTranMatrix` line on record — the
+one thing that would mean a class nobody has checked.
+
+### 58.5 What this does not close
+
+* **Particles are not in this family.** `A3DParticleSystemEx::Fill_Vert_3D`
+  (:933-1035) never calls `GetTranMatrix`: a 2D particle is written in screen
+  space (`Fill_Vert_2D`), a 3D one takes `p->m_vDir` — a per-particle
+  *quaternion*, seeded by the emitter class (`A3DPointEmitter.cpp:18-23`,
+  `A3DMultiPlaneEmitter.cpp:36-53`, `A3DSkeletonEmitter.cpp:110`) — and a
+  `Facing` one takes its width from `normalize(m_vOldPos - m_vPos)` and its
+  height from `cross(vView, vMoveDir)`. The viewer mixes the camera into a
+  basis built from the particle's travel direction instead, so a 3D particle
+  still faces the wrong way; that is a separate shared parameter and it is the
+  next thing to do, not something this fix touches.
+* **The `YawEffect` flag** (`m_bYawEffectOnGrndNorm`, §5.2) is still unread: 19
+  of the 906 ground-matched sprite records.
