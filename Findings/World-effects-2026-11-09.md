@@ -5333,22 +5333,7 @@ prints per-id `frames / spun / max |rot|` next to the axis the client would turn
 and **fails** if an id appears that has no `GetTranMatrix` line on record — the
 one thing that would mean a class nobody has checked.
 
-### 58.5 What this does not close
-
-* **Particles are not in this family.** `A3DParticleSystemEx::Fill_Vert_3D`
-  (:933-1035) never calls `GetTranMatrix`: a 2D particle is written in screen
-  space (`Fill_Vert_2D`), a 3D one takes `p->m_vDir` — a per-particle
-  *quaternion*, seeded by the emitter class (`A3DPointEmitter.cpp:18-23`,
-  `A3DMultiPlaneEmitter.cpp:36-53`, `A3DSkeletonEmitter.cpp:110`) — and a
-  `Facing` one takes its width from `normalize(m_vOldPos - m_vPos)` and its
-  height from `cross(vView, vMoveDir)`. The viewer mixes the camera into a
-  basis built from the particle's travel direction instead, so a 3D particle
-  still faces the wrong way; that is a separate shared parameter and it is the
-  next thing to do, not something this fix touches.
-* **The `YawEffect` flag** (`m_bYawEffectOnGrndNorm`, §5.2) is still unread: 19
-  of the 906 ground-matched sprite records.
-
-### 58.6 The published run, before and after, on the same placement
+### 58.5 The published run, before and after, on the same placement
 
 The preview run this pass triggered published both sides of the fix for the same
 root and the same placement (`水族箱_鱼群.gfx` at `(2604.2, 243.4, -4200.7)`,
@@ -5367,3 +5352,18 @@ nothing changed but their orientation:
 A three-unit mesh keeps its size and changes its axis-aligned box: that is a
 turned mesh, not a resized one, and `15-42451-3000ms-az35el20-z1.00.png` shows
 the school on different headings from the previous frame of the same run.
+
+### 58.6 What this does not close
+
+* **Particles are not in this family.** `A3DParticleSystemEx::Fill_Vert_3D`
+  (:933-1035) never calls `GetTranMatrix`: a 2D particle is written in screen
+  space (`Fill_Vert_2D`), a 3D one takes `p->m_vDir` — a per-particle
+  *quaternion*, seeded by the emitter class (`A3DPointEmitter.cpp:18-23`,
+  `A3DMultiPlaneEmitter.cpp:36-53`, `A3DSkeletonEmitter.cpp:110`) — and a
+  `Facing` one takes its width from `normalize(m_vOldPos - m_vPos)` and its
+  height from `cross(vView, vMoveDir)`. The viewer mixes the camera into a
+  basis built from the particle's travel direction instead, so a 3D particle
+  still faces the wrong way; that is a separate shared parameter and it is the
+  next thing to do, not something this fix touches.
+* **The `YawEffect` flag** (`m_bYawEffectOnGrndNorm`, §5.2) is still unread: 19
+  of the 906 ground-matched sprite records.
