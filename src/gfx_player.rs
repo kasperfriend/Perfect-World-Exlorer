@@ -13507,8 +13507,8 @@ mod tests {
             );
         }
         let first = quads[0];
-        let pair = (Vec3::from_array(first.positions[0]) - Vec3::from_array(first.positions[1]))
-            .length();
+        let pair =
+            (Vec3::from_array(first.positions[0]) - Vec3::from_array(first.positions[1])).length();
         println!(
             "blood-bream strip quad after the UV law: uv=[({:.3},{:.3}),({:.3},{:.3}),({:.3},{:.3}),({:.3},{:.3})] pair_width={:.3} (the live log's before: uv=[(0,0),(1,0),(0.033,1),(1.033,1)] at half the width)",
             first.uv[0][0], first.uv[0][1], first.uv[1][0], first.uv[1][1],
