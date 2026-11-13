@@ -19,3 +19,9 @@
 # and it is placed in this map at (2733.7, 223.8, -2708.3) and (2889.1, 223.7,
 # -3048.3), so the cards' drawn extents can be measured either side of the fix.
 暗语者营地
+# The tile-mode control: four `TileMode: 1` sheets (`TexCol x TexRow` 3x2, 2x2,
+# 1x1) scrolling V at -1.5/-1.8/-2.0, plus the `Warp` veil that must not draw.
+# No other previewed root authors a tile, so without this line the tiled-UV law
+# has no frame evidence at all — which is how the one-sheet window slipped
+# through (§59.2).
+水门_瀑布

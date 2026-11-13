@@ -5681,3 +5681,83 @@ assassin-skill halos, a swamp bird's skill and two elk antlers, which is why
   construction is exact wherever the card is in front of the eye, and refuses
   the push otherwise. Anything else would need the view scale, which the
   player is not given.
+
+### 59.6 The preview and the window were not measuring the same thing
+
+The standing complaint — the preview says an effect works and the viewer shows
+it does not — was checked by reading both paths against each other and against
+the client, not by re-running old measures. One real code mistake and one
+evidence gap came out, plus three items that are measurements rather than bugs.
+
+**1. The tiled-UV branch had inverted the client's law, and no preview covered
+it.** `flipbook_uv`'s `TileMode` arm drew a **one-sheet window** sliding at
+`TexSpeed / TexCol` per second, on the claim that "the vertices are filled once
+and not refilled as `m_fTexU` advances" so the shader's `-m_fTexU / TexCol`
+term is the only route for the scroll. The client sources say otherwise, in
+three places:
+
+* `A3DDecalEx::Fill_Verts_3D` writes `fU = {m_fTexU, m_fTexU + m_fTexWid, ...}`
+  and `fV = {m_fTexV, m_fTexV + m_fTexHei, ...}` (`A3DDecalEx.cpp:561-573`),
+  with `m_fTexWid = TexCol` / `m_fTexHei = TexRow` in tile mode
+  (`A3DGFXElement.h:521-530`) and `m_fTexU += m_fUOffsetSpeed * dt`
+  (`h:539-540`) — raw speed, no division.
+* The fill runs **every frame**: `A3DGFXRenderSlotMan`'s render loops call
+  `pEle->FillVertexBuffer(...)` per registered element
+  (`A3DGFXRenderSlot.cpp:746/940/1121`) and the flush ends with
+  `pSlot->m_EleArr.clear()` (`:541`), while `RegisterEleForRender` re-adds each
+  element from its per-frame `Update` — which is also the only way a
+  fixed-function flipbook can step at all.
+* `PreRender` sets `A3DTADDR_WRAP` for a tile slot and `CLAMP` for every other
+  (`A3DGFXRenderSlot.cpp:547-549`), so the window is the sheet repeated
+  `TexCol` times across and `TexRow` down, sliding at `TexSpeed` sheet-heights
+  per second.
+
+The `GetTexTrans` normalisation the branch quoted
+(`A3DGFXElement.cpp:1296-1332`) is the **pixel-shader** path — `ApplyPixelShader`
+runs under `if (m_pPixelShader)`, and a scan of all 5,459 roots in `gfx.pck`
+finds **zero** that author a pixel shader, so it governs nothing the viewer
+draws. `the_shipped_waterfall_scrolls_and_hides_its_warp_veil` already asserted
+the client law ("a tiled window is TexCol x TexRow texture widths", raw-speed
+scroll) — but it opens `gfx.pck` and returns early where there is none, so CI
+never ran it, and `a_tiled_sheet_repeats_and_scrolls_where_a_flipbook_steps_cells`
+pinned the inverted law where CI does run. The two tests contradicted each other
+and only the wrong one could fire. The branch is now the client law
+(`u,v = TexSpeed * t`, window `TexCol x TexRow`) and both tests assert it.
+`水门_瀑布` is added to `.github/effect-preview-roots.txt` — no previewed root
+authors `TileMode: 1`, which is why a run could look green while every one of
+the pack's 197 tiled roots drew a stretched sheet at half flow: the smeared
+"still image" the waterfalls were reported as.
+
+**2. The preview harness deliberately differs from the window in three inputs,
+and that is where "preview green, viewer wrong" comes from.** Both paths build
+quads through the same `World::update_effects`, but the preview forces
+`valid_time = 2` (`effect_preview.rs:122`), sets the activation radius to
+`1.0e6` (`:344/:346/:1178`) and passes no terrain sampler, while the window
+gates each root on `near && resident && visible` with `detail.radius ×
+block_size` (`gpu.rs:2608-2615`, `world_models_gpu.rs:657-692`) and the record's
+own `iValidTime`. A root that renders in the lab can therefore be absent in the
+world for reasons the lab cannot show. The window's own status line (the
+`activation_census` counts) is the measure for that, and the one-line stderr
+trace (`world_models_gpu.rs:866-889`) is the comparison to ask a real run for.
+
+**3. The waterfall is not a model.** `world.ecwld` carries no static-model
+records at all (653 `.gfx` paths, 5 tree `.dds`, zero model placements; no
+float triple within 25 units of the 水门_瀑布 records 42346–42349). What looks
+like a painted waterfall is the effect root's own stretched sheet — item 1.
+
+**4. The "oversized" Wraithgate stripe is authored, to the digit.** The client's
+scale law is `GetActualScale() = m_fDefScale * m_fScale` (`A3DGFXEx.h:196-202`)
+— the file's `DedaultScale` multiplies in — and `骷髅光柱` authors
+`DedaultScale: 3.000000`, so its `Height: 30` ring band draws 90 units and its
+5 x 5 card draws 30 x 30 exactly as the viewer renders them (2 x W x DefScale x
+recordScale x keypointScale, §57.10). `绿鬼火3` authors `DedaultScale: 2.000000`
+the same way. The geometry matches the client arithmetic; what remains
+unverified is how the assembled picture reads against retail footage.
+
+**5. The wandering fires remain an evidence item.** The controller clock reseeds
+are implemented (§53.5) and the fractal noise displaces by `amplitude x 0.01`
+units, so nothing in the reviewed code moves a fire by visible distance. The
+two candidate mechanisms §53.5 named — a controller the viewer does not run, or
+the emitter's own seven-keypoint path — are separated by one `EffectFrames`
+capture at the Wraithgate fires: if the frame line moves while `key=` stays it
+is a controller; if both move it is the authored keypoint path.

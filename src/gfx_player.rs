@@ -3252,44 +3252,50 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
     //     if (m_bTileMode) { m_fTexU += m_fUOffsetSpeed * dt; m_fTexV += m_fVOffsetSpeed * dt; }
     //     else { ... m_nCurTexCol/m_nCurTexRow step every TexInterval ... }
     //
-    // so the two flags differ in what `TexRow`/`TexCol` mean. A flipbook cuts
-    // one cell out of a `TexCol x TexRow` grid and steps it every `TexInterval`.
-    // A tiled sheet keeps its one-sheet window and slides it at `TexSpeed`, with
-    // `TexCol`/`TexRow` dividing that speed rather than tiling the card, so it
-    // flows continuously. Stepping cells as well is what made every waterfall
-    // sheet in `场景/新种族地图` jump between the frames of its atlas instead of
-    // running, and tiling the card with them is what made it look static.
+    // so the two flags differ in what `TexRow`/`TexCol` mean: a flipbook cuts
+    // one cell out of a `TexCol x TexRow` grid and steps it every `TexInterval`,
+    // a tile keeps the whole `TexCol x TexRow` window and slides it at
+    // `TexSpeed`. The branch below is where that window is built; stepping
+    // cells as well is what made every waterfall sheet in `场景/新种族地图` jump
+    // between the frames of its atlas instead of running.
     let seconds = clock_ms / 1000.;
     if common.tile_mode != 0 {
-        // The scroll does not land in the vertices. `A3DGFXElement::GetTexTrans`
-        // gives the pixel shader two numbers per axis:
+        // `TileMode` keeps the full `TexCol x TexRow` window and slides it at
+        // the authored `TexSpeed`. `CalcTexAnimation` sets `m_fTexWid =
+        // (float)m_nTexCol` and `m_fTexHei = (float)m_nTexRow` for a tile
+        // (A3DGFXElement.h:521-530), `TexAnimation` accumulates
+        // `m_fTexU += m_fUOffsetSpeed * dt` (h:539-540), and the card fills its
+        // vertices from those two floats (A3DDecalEx.cpp:561-573):
         //
-        //     float rw = 1.0f / m_fTexWid;      // `TexCol` for a tile
-        //     u0 = rw;  u1 = -m_fTexU * rw;
+        //     fU = { m_fTexU, m_fTexU + m_fTexWid, m_fTexU, m_fTexU + m_fTexWid };
+        //     fV = { m_fTexV, m_fTexV, m_fTexV + m_fTexHei, m_fTexV + m_fTexHei };
         //
-        // and the shader samples `u0 * uv + u1` (`mad r1.xy, c8, t0, c8.wzyx` in
-        // the native constant block). The vertex UV it is handed spans
-        // `m_fTexWid` = `TexCol` texture *widths*, so after that scaling the
-        // window is exactly **one sheet** whatever `TexCol` is — `(u - m_fTexU)
-        // / TexCol` runs 0..1 across the card — and the animation reaches the
-        // picture through the `-m_fTexU / TexCol` term alone. The vertices are
-        // filled once and not refilled as `m_fTexU` advances, so what the sampler
-        // sees is a one-sheet window sliding by `TexSpeed / TexCol` per second.
+        // The fill runs **every frame**, not once: `A3DGFXRenderSlotMan`'s
+        // render loops call `FillVertexBuffer` on each registered element
+        // (A3DGFXRenderSlot.cpp:746/940/1121) and clear the element list after
+        // the flush (`m_EleArr.clear()`, :541), and `RegisterEleForRender`
+        // re-registers from the per-frame update — which is also why a
+        // fixed-function flipbook can step at all. `PreRender` gives a tile slot
+        // `A3DTADDR_WRAP` and every other slot `A3DTADDR_CLAMP` (:547-549), so
+        // the window lays `TexCol` copies of the sheet across the card and
+        // `TexRow` down it and slides them at `TexSpeed` sheet-heights per
+        // second — the continuous tiling sheets like `气连续03` are authored for
+        // (a seamless cutout whose copies meet at zero alpha).
         //
-        // Writing the raw `TexCol x TexRow` window into the vertices and letting
-        // `Repeat` multiply it — what this branch used to do — lays `TexCol`
-        // copies of the sheet across the card and `TexRow` down it. A waterfall
-        // sheet is a soft water cutout: six copies stacked over a 4.92 x 6.84
-        // card fill the see-through gaps the single sheet leaves, so the alpha
-        // becomes uniform, the sheet loses its wavy silhouette and the water
-        // texture sits three times too fine to read as moving. That is the
-        // "static bright image" a waterfall was reported as, while its clock
-        // (122 874 ms) and its UV (V = -184.311) were both scrolling correctly.
+        // The `GetTexTrans` constants (`A3DGFXElement.cpp:1296-1332`, sampling
+        // `(u - m_fTexU) / m_fTexWid`) are the **pixel-shader** path only —
+        // `ApplyPixelShader` runs under `if (m_pPixelShader)` and no root in
+        // `gfx.pck` authors a pixel shader (0 of 5,459) — and they cancel
+        // `m_fTexU` precisely because the per-frame fill has already put it in
+        // the vertices. A one-sheet window at `TexSpeed / TexCol` — what this
+        // branch briefly drew — stretched one copy of the sheet over the card
+        // and ran it at half the authored flow, which is the smeared "still
+        // image" a waterfall was reported as.
+        let u = common.tex_speed[0] * seconds;
+        let v = common.tex_speed[1] * seconds;
         let across = cols as f32;
         let down = rows as f32;
-        let u = common.tex_speed[0] * seconds / across;
-        let v = common.tex_speed[1] * seconds / down;
-        uv = [[u, v], [u + 1.0, v], [u, v + 1.0], [u + 1.0, v + 1.0]];
+        uv = [[u, v], [u + across, v], [u, v + down], [u + across, v + down]];
         apply_uv_flips(&mut uv, common);
         return uv;
     }
@@ -7391,11 +7397,14 @@ mod tests {
     ///     if (m_bTileMode) { m_fTexU += m_fUOffsetSpeed * dt; m_fTexV += m_fVOffsetSpeed * dt; }
     ///     else { ...step m_nCurTexCol/m_nCurTexRow every TexInterval... }
     ///
-    /// with `ApplyPixelShader` sampling `u0 * uv + u1`, `u0 = 1 / TexCol`. A
-    /// tiled sheet therefore shows a window one cell wide and slides it; it
-    /// never cuts between the atlas cells the way a flipbook does. Stepping the
-    /// grid as well is what made the waterfall sheets of `场景/新种族地图` a
-    /// jumble of every frame of their atlas at once.
+    /// and the card writes those two floats into its vertices every frame
+    /// (`A3DDecalEx.cpp:561-573`), under a `WRAP` sampler (render slot
+    /// `PreRender`, A3DGFXRenderSlot.cpp:547-549). A tiled sheet therefore
+    /// shows its whole `TexCol x TexRow` window — the sheet repeated `TexCol`
+    /// times across and `TexRow` down — and slides it at `TexSpeed`; it never
+    /// cuts between atlas cells the way a flipbook does. Stepping the grid as
+    /// well is what made the waterfall sheets of `场景/新种族地图` a jumble of
+    /// every frame of their atlas at once.
     #[test]
     fn a_tiled_sheet_repeats_and_scrolls_where_a_flipbook_steps_cells() {
         let common = |tile: bool| Common {
@@ -7409,19 +7418,22 @@ mod tests {
         let tiled = flipbook_uv(&common(true), 0.);
         assert_eq!(tiled[0], [0., 0.], "the window starts in the corner");
         assert!(
-            (tiled[3][0] - 1.).abs() < 1e-6 && (tiled[3][1] - 1.).abs() < 1e-6,
-            "a tiled window is one sheet wide: the client scales the vertex UV \
-             by 1 / TexCol and cancels the grid out of it, so `Repeat` never \
-             multiplies the card: {tiled:?}"
+            (tiled[3][0] - 3.).abs() < 1e-6 && (tiled[3][1] - 2.).abs() < 1e-6,
+            "a tiled window is TexCol x TexRow texture widths: the vertices are \
+             refilled every frame with `m_fTexU .. m_fTexU + m_fTexWid` and the \
+             tile sampler is `WRAP`, so the sheet tiles 3 x 2 over the card \
+             exactly as the client draws it: {tiled:?}"
         );
         let slid = flipbook_uv(&common(true), 1000.);
         assert!(
-            (slid[0][1] + 0.75).abs() < 1e-6,
-            "-1.5 texture widths a second over a two-row sheet slides 0.75: {slid:?}"
+            (slid[0][1] + 1.5).abs() < 1e-6,
+            "the scroll is `m_fTexV += m_fVOffsetSpeed * dt` raw, so one second \
+             of -1.5 is V = -1.5, not -1.5 / TexRow: {slid:?}"
         );
         assert!(
-            (slid[3][1] - slid[0][1] - 1.).abs() < 1e-6,
-            "the window keeps its height and only its origin moves"
+            (slid[3][1] - slid[0][1] - 2.).abs() < 1e-6
+                && (slid[3][0] - slid[0][0] - 3.).abs() < 1e-6,
+            "the window keeps its TexCol x TexRow size and only its origin moves"
         );
         assert_eq!(
             flipbook_uv(&common(true), 1000.)[0][0],
