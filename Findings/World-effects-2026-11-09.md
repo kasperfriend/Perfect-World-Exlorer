@@ -5049,3 +5049,12 @@ clean: `A3DParticleSystemEx::GetBindTranMat` is `m_matSelfScale * GetTranMatrix
 (`src/gfx_player.rs:2267`) is that same product — the `PlaySpeed` factor is the
 client's own, recovered at `0x729670` and written up at `:5115-5122`, not a
 viewer invention.
+
+One term is deliberately left out and measured: the client scales the keypoint's
+whole matrix, so a keypoint's own `Position` is multiplied by `kp` as well; the
+viewer applies `kp` to the mesh vertices only, because `context.placement` is
+what children, ground queries and span endpoints read and must keep the
+unsplit origin. The residual is `(1 - kp) x |Position|` — for the kelp that is
+`0.92 x 0.586 = 0.54` world units of horizontal offset inside a 21-unit tank, and
+it changes no size. Every root in this sweep authors one keypoint per model
+element, so nothing accumulates.

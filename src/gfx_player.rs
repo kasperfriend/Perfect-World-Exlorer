@@ -4314,6 +4314,15 @@ fn emit_model(
                 // visible case: `海底植物.SMD` inside `水族箱_水草翠绿` is the
                 // same record as the 15-unit kelp beside it yet framed
                 // 42.77 x 67.47 x 47.28.
+                //
+                // The client scales the whole keypoint matrix, so a keypoint's
+                // own `Position` is scaled too; here the offset stays in
+                // `context.placement` and only the vertices take the scale. The
+                // difference is `(1 - kp) x |Position|` - under a unit for every
+                // root in the corpus, since a model element authors one keypoint
+                // and its offsets are local decoration - and it is the price of
+                // leaving `placement` alone for the children, ground queries and
+                // spans that read it.
                 let position = context
                     .placement
                     .transform_point3(Vec3::from_array(vertex.position) * context.scale);
