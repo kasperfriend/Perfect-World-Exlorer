@@ -9015,11 +9015,7 @@ mod tests {
     /// read straight off the returned state.
     /// A spawn with no curve and a fresh `AverageWalk` — the case every
     /// sampler test here exercises.
-    fn spawn_simple(
-        particle: &Particle,
-        rng: &mut Rng,
-        context: &ElementContext,
-    ) -> ParticleState {
+    fn spawn_simple(particle: &Particle, rng: &mut Rng, context: &ElementContext) -> ParticleState {
         spawn(particle, None, rng, &mut AverageWalk::default(), context)
     }
 
