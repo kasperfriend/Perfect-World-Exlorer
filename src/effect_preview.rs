@@ -294,15 +294,33 @@ fn quad_bounds(quads: &[crate::gfx_player::EffectQuad]) -> Option<([f32; 3], [f3
     let mut min = [f32::INFINITY; 3];
     let mut max = [f32::NEG_INFINITY; 3];
     let mut any = false;
+    let mut add = |corner: &[f32; 3]| {
+        if !corner.iter().all(|value| value.is_finite()) {
+            return;
+        }
+        any = true;
+        for axis in 0..3 {
+            min[axis] = min[axis].min(corner[axis]);
+            max[axis] = max[axis].max(corner[axis]);
+        }
+    };
     for quad in quads {
-        for corner in &quad.positions {
-            if !corner.iter().all(|value| value.is_finite()) {
-                continue;
+        // An element-160 mesh carries its triangle soup in `mesh.vertices` and
+        // leaves the four card corners at the origin as filler. Reading those
+        // corners framed the camera on a box running from the world origin to
+        // the placement: `蓝蘑菇2`, a two-unit mushroom, reported
+        // `size=2594.18x216.54x3399.64` and was shot at 12.8 m per pixel, so the
+        // published frame showed a speck.
+        match &quad.mesh {
+            Some(mesh) => {
+                for vertex in &mesh.vertices {
+                    add(&vertex.position);
+                }
             }
-            any = true;
-            for axis in 0..3 {
-                min[axis] = min[axis].min(corner[axis]);
-                max[axis] = max[axis].max(corner[axis]);
+            None => {
+                for corner in &quad.positions {
+                    add(corner);
+                }
             }
         }
     }
@@ -1041,6 +1059,50 @@ fn fake_record() -> Effect {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The framing box has to come from a mesh element's triangle soup, not from
+    /// the four card corners it leaves at the origin.
+    ///
+    /// `蓝蘑菇2` is two element-160 meshes and six cards. Reading the filler
+    /// corners framed it on a box running from the world origin to its
+    /// placement — `size=2594.18x216.54x3399.64` for a mushroom two units tall,
+    /// shot at 12.8 m per pixel — so the published frame showed a speck and the
+    /// size line described the map, not the effect.
+    #[test]
+    fn a_mesh_elements_soup_is_what_the_framing_box_is_made_of() {
+        let vertex = |position: [f32; 3], uv: [f32; 2]| crate::gfx_player::EffectVertex {
+            position,
+            uv,
+            normal: [0., 1., 0.],
+        };
+        let quad = crate::gfx_player::EffectQuad {
+            texture: "a.png".into(),
+            source_blend: 5,
+            destination_blend: 2,
+            depth_test: false,
+            layer: 0,
+            priority: 0,
+            positions: [[0.; 3]; 4],
+            uv: [[0.; 2]; 4],
+            color: [1.; 4],
+            mesh: Some(crate::gfx_player::EffectMesh {
+                texture: "a.png".into(),
+                vertices: vec![
+                    vertex([100., 0., -50.], [0., 0.]),
+                    vertex([102., 4., -50.], [1., 0.]),
+                    vertex([100., 4., -48.], [0., 1.]),
+                ],
+                write_depth: false,
+                material: None,
+            }),
+        };
+        let (min, max) = quad_bounds(&[quad]).expect("a mesh has bounds");
+        assert_eq!(
+            (min, max),
+            ([100., 0., -50.], [102., 4., -48.]),
+            "the box must be the mesh's own extent, not the origin"
+        );
+    }
 
     /// The harness itself, with no client files: one synthetic card through the
     /// real world and effect pass has to cover pixels. If this fails, the

@@ -2,26 +2,11 @@
 # allowed. `PWE_PREVIEW_ROOTS` on the command line or a `workflow_dispatch`
 # input overrides this file; nothing here changes how a root is drawn.
 #
-# The first block is the Raging Tides vegetation the report calls oversized --
-# the aquarium's kelp, starfish and fish, then the tank itself, so the plants and
-# the glass they sit in are measured by one run.
-水族箱_水草
-水族箱_海星
-水族箱_鱼群
-水族箱玻璃
-水族箱_顶
-# The rest of the sweep: the six disputed roots, then the placements earlier
-# reports named (the seal dome that drew at 3.3x, the crystal at 2.7x, the
-# floating city's misplacement, the blue mushrooms and the sea dust).
-水门_瀑布
-血鲷封印台罩子
-盆景水晶
-浮空城
-蓝蘑菇2
-海底飘尘
-瀑布水花
-绿鬼火3
-天煞光束
-圣城之光
-树林光束
-骷髅光柱
+# One line on purpose: `水族箱` matches the whole Raging Tides aquarium — the
+# tank glass, the kelp in three colours, the starfish, the lid and the fish — so
+# the plants and the box they sit in are measured by the same run at the same
+# camera, which is the only way to tell an oversized plant from a small tank.
+#
+# A wider sweep costs a shot per root and the run stops at PWE_PREVIEW_MAX, so a
+# list of every disputed root skips whichever ones the map places last.
+水族箱
