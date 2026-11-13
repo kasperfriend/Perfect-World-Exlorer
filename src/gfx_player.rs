@@ -8397,13 +8397,18 @@ mod tests {
         // root scale of 2 doubles, so any controller activity shows up as a
         // centre that is no longer at the authored x.
         let forever = |mode: &str| {
-            header37(1)
-                + &SPRITE.replace("InterpolateMode: 0\r\n", &format!("InterpolateMode: {mode}\r\n")).replace(
+            let element = SPRITE
+                .replace(
+                    "InterpolateMode: 0\r\n",
+                    &format!("InterpolateMode: {mode}\r\n"),
+                )
+                .replace(
                     "CtrlMethodCount: 0\r\n",
                     "CtrlMethodCount: 1\r\nCtrlType: 100\r\nStartTime: 0.000000\r\n\
                      EndTime: -1.000000\r\nDir: 1.000000, 0.000000, 0.000000\r\n\
                      Vel: 1.000000\r\nAcc: 0.000000\r\n",
-                )
+                );
+            header37(1) + &element
         };
         let mut step_clock = build(&forever("0"));
         step(&mut step_clock, 100.);
