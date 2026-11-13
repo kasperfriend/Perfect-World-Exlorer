@@ -2246,8 +2246,14 @@ fn advance_element(
     // The controller state belongs to one *play* of the element's clock, not to
     // its lifetime. Every controller integrates against the node age
     // (`A3DGFXCtrlMotion::Process` reads it at `0x6eaf60`), and the client
-    // restarts that age — and the controllers with it — on each `RepeatCount`
-    // loop, so a motion sweep begins at zero every time round. Reseeding only on
+    // restarts that age on each `RepeatCount` loop, so a motion sweep begins at
+    // zero every time round. What restarts is the keypoint set's process state
+    // — `Resume(true)` reassigns `m_KPProcess = m_KeyPointArray[0]->m_KPOrg`,
+    // clears `m_vAxisOff` and zeroes `m_fTimeSpan` and `m_fScaleNoise`
+    // (A3DGFXKeyPoint.h:2067-2096) — not each controller's own `Resume`, which
+    // is an empty body on most classes (`:738, :819, :898, :990, :1081,
+    // :1274, :1458, :1582`). Reseeding the state is how that process state is
+    // reset here, so the integrators follow it. Reseeding only on
     // a keypoint change kept the state alive across loops, and an integrator
     // like `CtrlType: 100` then walked away from its authored position for as
     // long as the root played: `主城光球大` element 200 sweeps `Vel: 0.7` along
@@ -2265,20 +2271,25 @@ fn advance_element(
         runtime.state = CtrlState::new();
         runtime.state.bind(key);
     }
-    // A keypoint's controllers run only on the *step* path: the client's
-    // `A3DGFXKeyPointSet::TickAnimation` calls `m_KeyPointArray[i]->Process`,
-    // which is what walks `m_CtrlLst`, and it does so inside the
-    // `m_enumMode == enumInterpNone` branch alone — an interpolating keypoint
-    // goes through `Interpolate`, which touches no controller
-    // (A3DGFXKeyPoint.cpp:1424-1462). 141 corpus elements author mode 1 and 39
-    // of them also carry controllers, so running those against a keypoint the
-    // client leaves alone was a small, one-sided difference.
-    let key_span = if key.time_span < 0. {
-        f32::INFINITY
-    } else {
-        key.time_span
-    };
-    if key.interpolate_mode == 0 || key_span.is_infinite() {
+    // A keypoint's controllers run only on the *step* path, and the branch is
+    // taken on the mode alone — `TickAnimation` reads `m_enumMode` once and
+    // never looks at the span:
+    //
+    //     if (m_KeyPointArray[i]->m_enumMode != A3DGFXKeyPoint::enumInterpNone)
+    //         ... Interpolate(dwSpan / m_KeyPointArray[i]->m_dwTimeSpan);
+    //     else
+    //         m_KeyPointArray[i]->Process(m_ProcData, dwTickTime);   // walks m_CtrlLst
+    //
+    // (A3DGFXKeyPoint.cpp:1416-1462). An interpolating keypoint goes through
+    // `Interpolate`, which touches colour, `m_fRad2D`, scale and position and no
+    // controller at all. So `TimeSpan: -1` does not widen the gate: an
+    // interpolate-mode keypoint that holds forever still runs nothing. 141
+    // corpus elements author mode 1 and 39 of them also carry controllers, so
+    // running those against a keypoint the client leaves alone was a small,
+    // one-sided difference. The corpus authors no `InterpolateMode: 1` keypoint
+    // with `TimeSpan: -1` (see §59), so this line changes nothing a shipped file
+    // can reach today; it is the client's condition either way.
+    if key.interpolate_mode == 0 {
         apply_controls(&mut runtime.state, key, &sampled, dt_s, rng);
     }
 
@@ -2448,6 +2459,10 @@ fn advance_element(
 }
 
 /// Total length of one play of the element clock, including the repeat delay.
+///
+/// This is the period of the *phase* clock, not the moment the element is done:
+/// the client runs `RepeatDelay` between two plays and not after the last one,
+/// so `N` plays end at `N*span + (N-1)*delay`. See [`element_phase`].
 fn element_cycle(element: &Element) -> f32 {
     match element.duration_ms() {
         Some(span) => span + element.common.repeat_delay.max(0.),
@@ -2457,6 +2472,31 @@ fn element_cycle(element: &Element) -> f32 {
 
 /// Map an element's local clock onto its keypoint clock, honouring
 /// `RepeatCount`: 1 plays once, -1 loops forever, N plays N times.
+///
+/// The client's `A3DGFXKeyPointSet::TickAnimation` (A3DGFXKeyPoint.cpp:1366-1432)
+/// decides both the phase and the end, and it does so *before* the delay is
+/// charged to anything:
+///
+/// ```cpp
+/// if (IsFinished()) return;                       // IsFinished: m_nCurRepeat == m_nRepeatCount
+/// if (m_bInDelay) { m_dwCurDelay += dwTickTime; ... return; }   // the gap after a play
+/// m_dwTimeSpan += dwTickTime;
+/// ...
+/// if (i == m_KeyPointArray.size()) {              // every finite keypoint consumed
+///     Resume(true);                               // m_bInDelay = true, m_nCurRepeat++
+///     m_pEle->ResumeLoop();
+///     if (dwTotal) TickAnimation(dwSpan % dwTotal);
+///     return;
+/// }
+/// ```
+///
+/// so a play's keypoint clock is `span`, the gap `delay` follows the play and is
+/// *not* part of it, and the last play's end starts the delay that the next call
+/// sees `IsFinished` before — which is to say the element is done at
+/// `N*span + (N-1)*delay`, with the final delay never charged. Charging it, as
+/// `cycle * repeats` did, ended `RepeatCount: 1` one delay late and every later
+/// count `(N-1)` delays late; only the element's done time moved, since nothing
+/// is drawn during a delay.
 fn element_phase(element: &Element, local: f32, cycle: f32) -> (f32, bool) {
     if !cycle.is_finite() {
         return (local, false);
@@ -2465,19 +2505,21 @@ fn element_phase(element: &Element, local: f32, cycle: f32) -> (f32, bool) {
         return (0., element.common.repeat_count == 1);
     }
     let repeats = element.common.repeat_count;
-    if repeats == 1 {
-        return (local.min(cycle), local >= cycle);
-    }
     // The corpus only ever writes 1, -1 or a positive count (up to INT_MAX for
     // "effectively forever"), so a zero or negative count is read as an
     // open-ended loop rather than as "play zero times".
+    let span = element.duration_ms().unwrap_or(0.);
+    let delay = cycle - span;
     let total = if repeats <= 0 {
         f32::INFINITY
     } else {
-        cycle * repeats as f32
+        // `Resume(true)` after the last play leaves `m_bInDelay` set, but the
+        // next tick's `IsFinished` returns before it is read, so the delay that
+        // would follow the final play is never spent.
+        span * repeats as f32 + delay * (repeats.max(1) - 1) as f32
     };
     if local >= total {
-        return (cycle, true);
+        return (span.min(cycle), true);
     }
     (local % cycle, false)
 }
@@ -3878,14 +3920,36 @@ fn emit_sprite(
         context.rotation,
         1.,
     );
-    // `Fill_Verts_2D` pushes the centre *toward the camera* along
-    // `camera->GetDir()` before projecting, scaled by the actual scale. Neither
-    // the 3D builder nor `Update_Billboard` reads the key, so the 42 element-100
-    // records that author a `ZOffset` keep it ignored, exactly as in the client.
+    // `Fill_Verts_2D` does **not** move the card. It pushes a copy of the centre
+    // along `camera->GetDir()` by `m_fZOffset * GetActualScale()` only to project
+    // it and take that projection's `z`:
+    //
+    //     A3DVECTOR3 vZCenter = vCenterWorld
+    //         - pView->GetCamera()->GetDir() * (m_fZOffset * m_pGfx->GetActualScale());
+    //     vZCenter = matVPS * vZCenter;
+    //     vCenter.z = vZCenter.z;
+    //     a_Clamp(vCenter.z, 0.0f, 1.0f);
+    //
+    // The `x`/`y` written into the vertices are `vCenter.x/y`, which the push
+    // never touched, and the extents come from `fScale = (matVPS *
+    // (vCenterWorld + GetRight())).x - vCenter.x`, so neither the screen position
+    // nor the size changes; only the depth does. Shifting the world corners the
+    // way this branch used to shifted the whole card towards the eye, and a
+    // billboard moved closer grows by `depth / (depth - offset)` on screen — an
+    // oversized card where the client draws the same size at a nearer depth.
+    //
+    // `push_toward_eye` reproduces the depth change without the projection the
+    // player does not have: each corner slides along its own eye ray to the
+    // pushed centre's depth, which leaves every projected `x`/`y` exactly where
+    // it was and puts all four corners at the one `vCenter.z` the client writes.
+    //
+    // Neither `Fill_Verts_3D` nor `Update_Billboard` reads the key, so the 42
+    // element-100 records that author a `ZOffset` keep it ignored, exactly as in
+    // the client.
     let scale = context.placement.x_axis.truncate().length();
     if context.id == 101 && sprite.z_offset != 0. {
-        let offset = -context.view.forward * (sprite.z_offset * scale);
-        positions = positions.map(|corner| (Vec3::from_array(corner) + offset).to_array());
+        let distance = sprite.z_offset * scale;
+        positions = push_toward_eye(positions, context.view, distance);
     }
     // `Fill_Verts_3D`'s `m_bRotFromView` branch writes its UV rect in a
     // different order from the local one: its `fV` array is `{v + hei, v, v +
@@ -3901,6 +3965,74 @@ fn emit_sprite(
         flipbook_uv(context.common, context.clock)
     };
     push_quad(out, context, &texture, positions, uv, color);
+}
+
+/// Where an element-101 card's corners go when it authors a `ZOffset`.
+///
+/// The client's `Fill_Verts_2D` (A3DDecalEx.cpp:640-760) measures the depth of
+/// the centre pushed `m_fZOffset * GetActualScale()` along `camera->GetDir()` and
+/// hands that one number to all four vertices in place of `vCenter.z`, clamped to
+/// 0..1:
+///
+/// ```cpp
+/// A3DVECTOR3 vZCenter = vCenterWorld
+///     - pView->GetCamera()->GetDir() * (m_fZOffset * m_pGfx->GetActualScale());
+/// vZCenter = matVPS * vZCenter;
+/// vCenter.z = vZCenter.z;
+/// a_Clamp(vCenter.z, 0.0f, 1.0f);
+/// ```
+///
+/// The `x`/`y` written into the vertices are `vCenter.x/y`, which the push never
+/// touched, and the extents come from `fScale = (matVPS * (vCenterWorld +
+/// GetRight())).x - vCenter.x`, so neither the screen position nor the size
+/// changes — only the depth. Shifting the world corners the way this branch used
+/// to shifted the whole card towards the eye instead, and a billboard moved
+/// closer grows by `depth / (depth - offset)` on screen: an oversized card where
+/// the client draws the same size at a nearer depth.
+///
+/// The client can write that depth straight into the pre-transformed vertex.
+/// Here the corners are world space and the player has no projection matrix, so
+/// the same thing is expressed as a geometry that projects identically: every
+/// corner is moved along **its own ray from the eye** until it reaches the
+/// pushed centre's depth. A pure scale about the eye leaves the projected
+/// `x`/`y` — and therefore the card's screen position and size — exactly where
+/// they were, and puts all four corners at the one depth the client's shared
+/// `vCenter.z` would have given them.
+///
+/// `distance` is `m_fZOffset * GetActualScale()`, in the client's sign: positive
+/// values move the card *towards* the eye, negative ones away from it. A negative
+/// push is honoured — `vCenter.z` simply lands further away, and the eye-ray
+/// construction is unchanged — as long as the card stays in front of the eye.
+fn push_toward_eye(
+    positions: [[f32; 3]; 4],
+    view: &View,
+    distance: f32,
+) -> [[f32; 3]; 4] {
+    if !distance.is_finite() || distance == 0. {
+        return positions;
+    }
+    // The push is measured along the camera direction from the card's centre,
+    // and that one depth is what all four vertices take.
+    let centre = positions
+        .iter()
+        .fold(Vec3::ZERO, |sum, corner| sum + Vec3::from_array(*corner))
+        / 4.;
+    let target = (centre - view.position).dot(view.forward) - distance;
+    // `a_Clamp(vCenter.z, 0, 1)` pins a card pushed past the near plane to the
+    // near plane rather than dropping it; the clip test above it already ran on
+    // the *unpushed* centre. Without the projection there is no near plane to
+    // pin to, so a push that would reach or pass the eye is left alone: the
+    // effect is then drawn where it was, not behind the viewer.
+    let mut moved = positions;
+    for (slot, corner) in moved.iter_mut().enumerate() {
+        let ray = Vec3::from_array(positions[slot]) - view.position;
+        let depth = ray.dot(view.forward);
+        if !(depth > 1e-4) || !(target > 1e-4) {
+            return positions;
+        }
+        *corner = (view.position + ray * (target / depth)).to_array();
+    }
+    moved
 }
 
 /// `A3DDecalEx::Fill_Verts_3D`'s ground branch (`A3DDecalEx.cpp:449-542`),
@@ -8251,6 +8383,104 @@ mod tests {
         );
     }
 
+    /// An interpolate-mode keypoint runs **no** controller, whatever its
+    /// `TimeSpan`. `A3DGFXKeyPointSet::TickAnimation` (A3DGFXKeyPoint.cpp:1416-1462)
+    /// branches only on `m_enumMode`: `enumInterpNone` calls `Process`, which is
+    /// what walks `m_CtrlLst`; every other mode calls `Interpolate`, which reads
+    /// the two `m_KPOrg` blocks and nothing else. A negative span ("hold this
+    /// keypoint forever") is not a second reason to run them.
+    #[test]
+    fn an_interpolating_keypoint_runs_no_controllers() {
+        // One keypoint that holds forever and carries a motion controller. On the
+        // step path the card drifts 0.1 units per 100 ms of `Vel: 1`, which the
+        // root scale of 2 doubles, so any controller activity shows up as a
+        // centre that is no longer at the authored x.
+        let forever = |mode: &str| {
+            header37(1)
+                + &SPRITE.replace("InterpolateMode: 0\r\n", &format!("InterpolateMode: {mode}\r\n")).replace(
+                    "CtrlMethodCount: 0\r\n",
+                    "CtrlMethodCount: 1\r\nCtrlType: 100\r\nStartTime: 0.000000\r\n\
+                     EndTime: -1.000000\r\nDir: 1.000000, 0.000000, 0.000000\r\n\
+                     Vel: 1.000000\r\nAcc: 0.000000\r\n",
+                )
+        };
+        let mut step_clock = build(&forever("0"));
+        step(&mut step_clock, 100.);
+        let moved_step = (quad_centre(&step_clock.quads()[0]).x - 2.).abs();
+        assert!(
+            moved_step > 1e-3,
+            "the step keypoint runs its controller: {moved_step}"
+        );
+        // Mode 1 interpolates from this keypoint towards the next; with one
+        // keypoint the client's `i == last` branch copies `m_KPOrg` whole, so the
+        // card sits exactly where the file puts it — at x = 2 after the root
+        // scale of 2 — and never moves.
+        let mut interpolating = build(&forever("1"));
+        step(&mut interpolating, 100.);
+        let settled = quad_centre(&interpolating.quads()[0]);
+        assert!(
+            (settled.x - 2.).abs() < 1e-3,
+            "an interpolate-mode keypoint never applies its controller: {settled:?}"
+        );
+        step(&mut interpolating, 400.);
+        let later = quad_centre(&interpolating.quads()[0]);
+        assert!(
+            (later - settled).length() < 1e-3,
+            "and it stays at the authored position: {later:?} vs {settled:?}"
+        );
+    }
+
+    /// `RepeatDelay` is spent *between* plays and not after the last one: the
+    /// client's `Resume(true)` arms `m_bInDelay` when the keypoint list runs out,
+    /// and the next `TickAnimation` returns at `IsFinished()` before reading it.
+    /// So `N` plays end at `N*span + (N-1)*delay`, and `RepeatCount: 1` ends at
+    /// `span` — not one delay later.
+    #[test]
+    fn a_single_play_ends_at_its_span_not_after_the_delay() {
+        let source = header37(1)
+            + &SPRITE
+                .replace("RepeatDelay: 0\r\n", "RepeatDelay: 50\r\n")
+                .replace("TimeSpan: -1\r\n", "TimeSpan: 100\r\n");
+        let mut player = build(&source);
+        step(&mut player, 60.);
+        assert_eq!(player.quads().len(), 1);
+        assert!(!player.finished(), "the play is still running at 60 ms");
+        step(&mut player, 40.);
+        assert!(
+            player.finished(),
+            "100 ms is the end of a single 100 ms play, delay or no delay"
+        );
+    }
+
+    /// The same rule for `RepeatCount: N`: two 100 ms plays with a 50 ms gap end
+    /// at 250 ms, not at the 300 ms that charging the final delay would give.
+    #[test]
+    fn repeated_plays_end_before_the_final_delay() {
+        let source = header37(1)
+            + &SPRITE
+                .replace("RepeatCount: 1\r\n", "RepeatCount: 2\r\n")
+                .replace("RepeatDelay: 0\r\n", "RepeatDelay: 50\r\n")
+                .replace("TimeSpan: -1\r\n", "TimeSpan: 100\r\n");
+        let mut player = build(&source);
+        // Play 1 is 0..100 ms, the gap 100..150, play 2 150..250. `GetCurKeyPoint`
+        // reports nothing while `m_nActKeyPoint` is -1, which `Resume` sets and
+        // the delay returns before restoring, so the gap draws no card.
+        step(&mut player, 110.);
+        assert!(
+            player.quads().is_empty(),
+            "110 ms is inside the gap between the two plays"
+        );
+        assert!(!player.finished(), "the second play has not started");
+        step(&mut player, 40.);
+        assert_eq!(player.quads().len(), 1, "150 ms starts the second play");
+        assert!(!player.finished());
+        step(&mut player, 100.);
+        assert!(
+            player.finished(),
+            "two plays and one gap: done at 250 ms, not 300"
+        );
+    }
+
     /// `EndTime` is compared against 0.0 at `0x8d58a0`, so a controller stops
     /// once the element clock passes a non-negative end and any negative end
     /// means forever.
@@ -10580,9 +10810,10 @@ mod tests {
 
     /// The 2D decal (101) is drawn in screen space: `Fill_Verts_2D`
     /// (A3DDecalEx.cpp:640-760) takes the extents from the camera's right and up
-    /// axes and pushes the centre along the camera direction by `ZOffset`.
+    /// axes, and `ZOffset` changes only the depth it writes — never the card's
+    /// projected position or size.
     #[test]
-    fn a_two_d_decal_faces_the_camera_and_offsets_toward_it() {
+    fn a_two_d_decal_faces_the_camera_and_keeps_the_offset_in_depth() {
         let camera = View {
             position: Vec3::ZERO,
             right: Vec3::X,
@@ -10613,14 +10844,93 @@ mod tests {
             width.length(),
             height.length()
         );
-        // `Fill_Verts_2D` shifts the centre by `-camera->GetDir() * ZOffset *
-        // actualScale`, with the actual scale the root's 2 times the placement's 1.
+        // The authored centre is (2, 4, 6); `ZOffset: 2` at `GetActualScale()`
+        // 4 (the root's `DedaultScale: 2` times the placement's 1) is a push of
+        // 4 along the camera direction, so the pushed centre's depth — the one
+        // `vCenter.z` every corner takes — is `depth(centre) - 4`.
+        let depth = |p: Vec3| (p - camera.position).dot(camera.forward);
+        let authored = Vec3::new(2., 4., 6.);
+        let pushed = depth(authored) - 4.;
+        for (index, point) in [corner(0), corner(1), corner(2), corner(3)].iter().enumerate() {
+            assert!(
+                (depth(*point) - pushed).abs() < 1e-3,
+                "corner {index} takes the pushed depth: {} vs {pushed}",
+                depth(*point)
+            );
+        }
+        // A corner's screen point is its ray from the eye; a scale about the eye
+        // leaves that ray alone, which is what keeps the projected x/y — and so
+        // the position and size — fixed while the depth moves.
+        for index in 0..4 {
+            let before = authored + width * [0.5f32, -0.5, -0.5, 0.5][index]
+                + height * [0.5f32, 0.5, -0.5, -0.5][index];
+            let ray_before = (before - camera.position).normalize();
+            let ray_after = (corner(index) - camera.position).normalize();
+            assert!(
+                (ray_before - ray_after).length() < 1e-4,
+                "corner {index} moved off its eye ray: {ray_before:?} vs {ray_after:?}"
+            );
+        }
+        // The size on screen is unchanged, which is exactly what shifting all
+        // four corners by the world offset used to break: the card would have
+        // been 4 units nearer the eye and so `d / (d - 4)` times larger.
         let centre = (0..4).fold(Vec3::ZERO, |sum, i| sum + corner(i)) / 4.;
-        let expected = Vec3::new(2., 4., 6.) - camera.forward * 4.;
         assert!(
-            (centre - expected).length() < 1e-3,
-            "the card is pushed toward the camera: {centre:?} vs {expected:?}"
+            (depth(centre) - pushed).abs() < 1e-3,
+            "the centre moved in depth, not in x/y: {centre:?}"
         );
+    }
+
+    /// The unit under test, without a player: `push_toward_eye` moves each corner
+    /// along its own eye ray to the depth the pushed *centre* reaches, which is
+    /// the client's `vCenter.z` for all four vertices (`Fill_Verts_2D`,
+    /// A3DDecalEx.cpp:723-735).
+    #[test]
+    fn push_toward_eye_keeps_each_corner_on_its_own_ray() {
+        let view = View {
+            position: Vec3::new(0., 0., 5.),
+            right: Vec3::X,
+            up: Vec3::Y,
+            forward: -Vec3::Z,
+        };
+        // A 2x2 card in the plane z = 0, i.e. five units in front of the eye.
+        let corners = [
+            [-1., 1., 0.],
+            [1., 1., 0.],
+            [-1., -1., 0.],
+            [1., -1., 0.],
+        ];
+        let depth = |p: Vec3| (p - view.position).dot(view.forward);
+        let moved = push_toward_eye(corners, &view, 2.);
+        for (index, corner) in moved.iter().enumerate() {
+            let before = Vec3::from_array(corners[index]);
+            let after = Vec3::from_array(*corner);
+            assert!(
+                (depth(after) - (depth(before) - 2.)).abs() < 1e-5,
+                "corner {index} is two units nearer the eye: {} vs {}",
+                depth(after),
+                depth(before)
+            );
+            // Its projected position is its ray's direction, unchanged.
+            assert!(
+                ((before - view.position).normalize() - (after - view.position).normalize())
+                    .length()
+                    < 1e-5,
+                "corner {index} stayed on its ray"
+            );
+        }
+        // Two units of a five-unit depth: the card is closer but not resized,
+        // so its on-screen width at that distance is `2 * 5/3`, not `2`.
+        let width = (Vec3::from_array(moved[1]) - Vec3::from_array(moved[0])).length();
+        assert!(
+            (width - 2. * 5. / 3.).abs() < 1e-4,
+            "the world width shrinks with the depth, so the screen width does not: {width}"
+        );
+        // A zero push is the identity, and a push that would reach the eye is
+        // refused rather than mirrored behind the viewer (the client's clamp has
+        // no world-space equivalent).
+        assert_eq!(push_toward_eye(corners, &view, 0.), corners);
+        assert_eq!(push_toward_eye(corners, &view, 9.), corners);
     }
 
     /// `FaceToViewer` is the root's frame, not a per-element billboard:
@@ -12503,6 +12813,100 @@ mod tests {
         let root = shipped_root(file, entries, name);
         Player::new(root, 7, &mut |_| Err("this root has no children".into()))
             .unwrap_or_else(|error| panic!("{name}: {error}"))
+    }
+
+    /// The six roots whose controller ramps carry uninitialized editor memory
+    /// (§6.2) are measured through the real player: every card each one draws is
+    /// reported with its world extent and the keypoint scale behind it.
+    ///
+    /// The point is what the report must *not* claim. The values are not
+    /// keypoint scales at all: five are the last stop of a `CtrlType: 111`
+    /// `ScaleChage` ramp and one is the `Scale` of an element-125 generation
+    /// sequence, which no draw path reads. The keypoint scales are 1.0 on every
+    /// one of them. The ramp stops are the client's own `m_DestScales`, written
+    /// verbatim by `A3DGFXCtrlScaleTrans::Process` when the segment index runs past
+    /// the last stop — and the reader already bounds them at 100, which is the
+    /// largest stop the corpus authors honestly (`gfx_file.rs`, `MAX_SCALE_STOP`).
+    /// So a clamp on the *keypoint* would be the wrong fix twice over: there is
+    /// nothing there to clamp, and the clamp that does exist is on the ramp.
+    #[test]
+    fn the_roots_with_editor_garbage_scales_draw_with_their_keypoint_scales() {
+        let Some((mut file, entries)) = open_pack() else {
+            return;
+        };
+        // The four with a ramp stop and the two whose garbage is a generation
+        // sequence. Every one is a character, pet or skill effect: none is
+        // scenery, which is what §6.2's report was about.
+        let roots = [
+            "gfx/怪物/宠物通用/大龙虾_水波.gfx",
+            "gfx/人物/技能/刺客/回光返照_落光环.gfx",
+            "gfx/人物/技能/刺客/回光返照_左手.gfx",
+            "gfx/怪物/技能/变异沼泽鸟_技能.gfx",
+            "gfx/怪物/宠物通用/麋鹿左角.gfx",
+            "gfx/怪物/宠物通用/麋鹿右角.gfx",
+        ];
+        for name in roots {
+            let root = shipped_root(&mut file, &entries, name);
+            // Every keypoint scale, the largest stop of every scale ramp, and the
+            // element-125 generation sequence's own (which is not in `keypoints`).
+            let mut keypoint_scales: Vec<f32> = Vec::new();
+            let mut ramp_stops: Vec<f32> = Vec::new();
+            let mut sequence_scales: Vec<f32> = Vec::new();
+            for element in &root.elements {
+                for key in &element.keypoints {
+                    keypoint_scales.push(key.scale);
+                    for control in &key.controls {
+                        if let ControlData::ScaleRamp { stops, .. } = &control.data {
+                            for (value, _) in stops {
+                                ramp_stops.push(*value);
+                            }
+                        }
+                    }
+                }
+                if let Some(sequence) = element.generation_sequence.as_deref() {
+                    sequence_scales.push(sequence.scale);
+                }
+            }
+            let garbage: Vec<f32> = ramp_stops
+                .iter()
+                .chain(sequence_scales.iter())
+                .copied()
+                .filter(|value| value.abs() > 1e6)
+                .collect();
+            assert!(
+                keypoint_scales.iter().all(|scale| scale.abs() < 1e6),
+                "{name}: a keypoint scale is huge after all: {keypoint_scales:?}"
+            );
+            // The ramp clamp, not a keypoint clamp, is what bounds the garbage.
+            for value in &ramp_stops {
+                assert!(
+                    value.abs() <= 100.,
+                    "{name}: a scale ramp stop escaped the clamp: {value:e}"
+                );
+            }
+            let mut player = Player::new(root, 7, &mut |_| Err("no children".into())).unwrap();
+            let mut drawn = 0usize;
+            let mut widest = 0f32;
+            for _ in 0..40 {
+                step(&mut player, 33.);
+                for quad in player.quads() {
+                    if quad.mesh.is_some() {
+                        continue;
+                    }
+                    drawn += 1;
+                    for (index, corner) in quad.positions.iter().enumerate() {
+                        for other in quad.positions.iter().skip(index + 1) {
+                            let span = Vec3::from_array(*corner).distance(Vec3::from_array(*other));
+                            widest = widest.max(span);
+                        }
+                    }
+                }
+            }
+            eprintln!(
+                "garbage-scale root {name}: keypoint scales {keypoint_scales:?}, \
+                 clamped ramp stops {garbage:?}, {drawn} cards, widest edge {widest:.3}"
+            );
+        }
     }
 
     /// `纹理/气连续03.tga` is the sheet the water gate's first card samples, and

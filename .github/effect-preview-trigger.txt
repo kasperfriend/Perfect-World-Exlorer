@@ -17,3 +17,5 @@
 2026-11-13T12:15:37Z — sweep: wraithgate particle sizes and the archosaur beam after the axial and particle fixes
 
 2026-11-13T13:05:00Z — sweep: the yaw pass, keypoint 2D spin applied through GetTranMatrix for ring, model, paraboloid, grid, lightning and trails (§58)
+
+2026-11-13T13:40:00Z — sweep: element-101 ZOffset as a depth-only push, controller gate on the mode alone, repeat timing before the final delay (§59)

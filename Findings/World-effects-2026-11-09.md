@@ -399,30 +399,40 @@ Windows: `set PWE_EFFECT_CENSUS=1` in `cmd`, or `$env:PWE_EFFECT_CENSUS=1` in
 PowerShell, before starting the viewer; the file lands next to the working
 directory, which is the viewer's own folder for the portable build.
 
-### 6.2 A measured anomaly: six roots author a scale no geometry can use
+### 6.2 A measured anomaly: six roots carry a scale no geometry can use
+
+*(Corrected 9 November — see the note at the end of this entry and §59.4: the
+values are controller ramp stops and a generation-sequence `Scale`, not keypoint
+scales.)*
 
 While ranking corpus quads to find the white sheets, one class of value stood
-out as impossible rather than merely large. Ten `Scale:` keypoints in six roots
+out as impossible rather than merely large. Ten `Scale:` lines in six roots
 hold values between 4e17 and 1e27:
 
-| root | keypoints | value |
-| --- | --- | --- |
-| `怪物/宠物通用/大龙虾_水波.gfx` | 1 | 1.104e27 |
-| `人物/技能/刺客/回光返照_落光环.gfx` | 3 | 8.263e23 |
-| `人物/技能/刺客/回光返照_左手.gfx` | 1 | 8.263e23 |
-| `怪物/技能/变异沼泽鸟_技能.gfx` | 1 | 1.284e22 |
-| `怪物/宠物通用/麋鹿左角.gfx` | 2 | 4.183e17 |
-| `怪物/宠物通用/麋鹿右角.gfx` | 2 | 4.183e17 |
+| root | `Scale:` lines | value | where it actually is |
+| --- | --- | --- | --- |
+| `怪物/宠物通用/大龙虾_水波.gfx` | 1 | 1.104e27 | `CtrlType: 111` ramp stop |
+| `人物/技能/刺客/回光返照_落光环.gfx` | 3 | 8.263e23 | `CtrlType: 111` ramp stop |
+| `人物/技能/刺客/回光返照_左手.gfx` | 1 | 8.263e23 | `CtrlType: 111` ramp stop |
+| `怪物/技能/变异沼泽鸟_技能.gfx` | 1 | 1.284e22 | `CtrlType: 111` ramp stop |
+| `怪物/宠物通用/麋鹿左角.gfx` | 2 | 4.183e17 | element-125 generation sequence |
+| `怪物/宠物通用/麋鹿右角.gfx` | 2 | 4.183e17 | element-125 generation sequence |
 
-They sit in the last keypoint of otherwise sane ramps (`0.1, 1.3, 1.0, 1.2,
-0.95, 8.26e23`), which is the shape of an editor writing an uninitialised float
-into the final key, not of an intended size: a 1.9-unit card at 8.26e23 is
-1.6e24 units across. `gfx_player`'s `ElementContext::scale` guards only against
-non-finite and non-positive values, so these pass through intact and the quad
-covers the screen. Both the `ScaleChage` cap (third field, `9999.0` in the same
-file) and any client-side clamp remain uncited, so this file records the
-measurement and nothing is clamped yet — a clamp without a citation would be the
-same kind of guess this audit keeps having to retract.
+They sit in the last slot of otherwise sane ramps (`0.1, 1.3, 1.0, 1.2, 0.95,
+8.26e23`), which is the shape of an editor writing an uninitialised float into
+the final stop, not of an intended size: a 1.9-unit card at 8.26e23 is 1.6e24
+units across.
+
+**Corrected 9 November (§59.4): they are not keypoint scales.** Five of the six
+are the last stop of a `CtrlType: 111` `ScaleChage` ramp and the sixth is the
+`Scale` of an element-125 generation sequence — both of which *look* like
+keypoints in the text (`Scale:` on its own line) and neither of which is
+`A3DGFXKeyPoint::Load`. Every keypoint scale in these six roots is 1.0, and no
+keypoint anywhere in the corpus is above 1e6. The ramp stops *are* clamped, to
+the largest honest stop of 100, and that clamp is cited — `MAX_SCALE_STOP` in
+`gfx_file.rs` — so the sentence this entry used to end with ("nothing is
+clamped yet") was wrong twice over and is withdrawn. What remains true, and is
+now measured: the roots draw at their authored sizes (§59.4).
 
 It is *not* the reported white-blob cause: all six roots are character and
 monster effects, and the blob report is about static scenery.
@@ -5367,3 +5377,203 @@ the school on different headings from the previous frame of the same run.
   next thing to do, not something this fix touches.
 * **The `YawEffect` flag** (`m_bYawEffectOnGrndNorm`, §5.2) is still unread: 19
   of the 906 ground-matched sprite records.
+
+## 59. Four corrections that were checked rather than assumed
+
+A review list of "confirmed mismatches" arrived with four items and one
+retraction. Three of the four turned out to be real and are fixed here; the
+fourth (a keypoint `Scale` clamp) was the reviewer's own earlier advice, and the
+client source says it was wrong. The pass is written up in the order the items
+were checked, because two of them changed shape once the corpus was counted.
+
+### 59.1 Element 101's `ZOffset` is a depth, not a translation
+
+`A3DDecalEx::Fill_Verts_2D` (A3DDecalEx.cpp:695-760) pushes the card's centre
+towards the camera only to **project** it:
+
+```cpp
+A3DVECTOR3 vCenterWorld = GetParentTM() * kp.m_vPos;
+A3DMATRIX4 matVPS = pView->GetCamera()->GetVPTM() * pView->GetViewScale();
+A3DVECTOR4 vCenter = TransformToScreen(vCenterWorld, matVPS);
+if (vCenter.z <= 0 || vCenter.z >= 1.0f) return false;
+if (m_fZOffset != 0.0f) {
+    A3DVECTOR3 vZCenter = vCenterWorld
+        - pView->GetCamera()->GetDir() * (m_fZOffset * m_pGfx->GetActualScale());
+    vZCenter = matVPS * vZCenter;
+    vCenter.z = vZCenter.z;         // x and y are NOT taken from vZCenter
+    a_Clamp(vCenter.z, 0.0f, 1.0f);
+}
+...
+A3DVECTOR3 vExts = vCenterWorld + pCamera->GetRight();
+vExts = matVPS * vExts;
+fScale = (vExts.x - vCenter.x) * m_pGfx->GetActualScale();
+```
+
+The vertices are `(±fWidth, ±fHeight, vCenter.z)` — screen space, one shared `z`
+— and the extents are measured from the **unpushed** centre, so the size is the
+same with or without the key. The viewer translated all four corners by
+`-forward * ZOffset * scale`, which moves the card towards the eye in world
+space; a billboard moved from `d` to `d - offset` grows on screen by
+`d / (d - offset)`, which is where the oversized 101s came from.
+
+The fix is `push_toward_eye` (`gfx_player.rs`): the authored centre's depth is
+moved by `ZOffset * GetActualScale()`, and each corner then slides along **its
+own ray from the eye** until it reaches that depth. A scale about the eye leaves
+every projected `x`/`y` — and therefore the screen position and the size —
+exactly where it was, and puts all four corners at the single `vCenter.z` the
+client writes into all four vertices. Two unit tests pin it: one drives a real
+101 record through the player and asserts that each corner keeps its eye ray and
+takes the pushed depth, and one exercises the function directly, including that
+a zero push is the identity and a push past the eye is refused rather than
+mirrored behind the viewer (the client's clamp operates on the projected `z`,
+which this player has no matrix for; refusing is the conservative reading and
+the alternatives are a card behind the camera or a division by zero).
+
+**How many cards this touches.** `tools/gfx-keypoint-census.py` walks the
+archive's element blocks and counts them: **5,244 element-101 records, 3,263 of
+which author a `ZOffset` line, and 694 with a non-zero one.** That matches the
+"694 element-101 records" figure the earlier anatomy pass recorded by hand, so
+the tool and the hand count agree. The values run from `-2.0` to `3.0`
+(`暗语者营地` authors 2.6-3.0 on eleven cards, `爆弹_燃烧1` authors -2.0 on
+five), i.e. small next to a typical 5-50 unit card — which is exactly why a
+world-space translation looked plausible and why the screen-space size error it
+caused was easy to miss.
+
+### 59.2 Controllers run on the client's branch, and the branch is the mode
+
+`A3DGFXKeyPointSet::TickAnimation` (A3DGFXKeyPoint.cpp:1366-1432) decides
+between "interpolate" and "step" from `m_enumMode` alone:
+
+```cpp
+if (m_KeyPointArray[i]->m_enumMode != A3DGFXKeyPoint::enumInterpNone) {
+    m_nActKeyPoint = i;
+    m_ProcData.m_fTimeSpan = dwSpan / 1000.f;
+    if (i == m_KeyPointArray.size()-1) m_ProcData.m_KPProcess = m_KeyPointArray[i]->m_KPOrg;
+    else Interpolate(((float)dwSpan) / m_KeyPointArray[i]->m_dwTimeSpan);
+} else {
+    ... m_KeyPointArray[i]->Process(m_ProcData, dwTickTime);   // walks m_CtrlLst
+}
+```
+
+`TimeSpan` is never read here. The viewer's gate was
+`key.interpolate_mode == 0 || key_span.is_infinite()`, which also ran controllers
+on a mode-1 keypoint that held forever. It is now `key.interpolate_mode == 0`.
+
+**What it changes in practice: nothing, and the corpus says so.** The census
+counts **36,215 keypoints: mode 0 on 36,074 and mode 1 on 141, and exactly one
+mode-1 keypoint with `TimeSpan: -1`** —
+`gfx/通用/其它/汐族_打坐变身男模型.gfx` element 160 (the male idle model). Its
+only controller is the *other*, mode-1 keypoint's (element 160's first keypoint
+carries `CtrlType: 105` and `TimeSpan: 425`; the forever one carries
+`CtrlMethodCount: 0`), so the widened gate never reached a controller there
+either. The change is therefore the client's condition with no shipped file
+able to tell the difference, which is the honest way to state it: *corrected,
+not measured as a visual fix*.
+
+`sample_keypoints` deliberately keeps its own `interpolate_mode == 0 ||
+span.is_infinite()`. That is a different question — which values to *draw* — and
+it matches the client's `i == last ⇒ m_KPProcess = m_KPOrg` branch: the last
+keypoint is copied verbatim rather than blended towards a successor that does
+not exist. The reviewer flagged this line as probably right and unverified; it
+is right, and the citation is the two lines above.
+
+### 59.3 `RepeatDelay` separates plays and does not follow the last one
+
+The same function ends a play by running out of keypoints, not by a timer:
+
+```cpp
+if (i == m_KeyPointArray.size()) {
+    Resume(true);                    // m_bInDelay = true; m_nCurRepeat++
+    m_pEle->ResumeLoop();
+    if (dwTotal) TickAnimation(dwSpan % dwTotal);
+    return;
+}
+```
+
+and the next tick returns at `if (IsFinished()) return;` before `m_bInDelay` is
+ever read. So a play lasts `span`, the gap `delay` follows it, and `N` plays end
+at `N*span + (N-1)*delay`. The viewer's `element_phase` charged the delay `N`
+times (`total = cycle * repeats`), so `RepeatCount: 1` ended one delay late and
+every later count `(N-1)` delays late.
+
+`element_phase` now uses the client's total and stops `repeats == 1` at `span`.
+Two tests pin it (`a_single_play_ends_at_its_span_not_after_the_delay`,
+`repeated_plays_end_before_the_final_delay`), and the existing
+`repeat_count_and_repeat_delay_gate_the_element_clock` still passes: under the
+old total its "both passes are over at 300 ms" step passed because 300 ms is
+exactly `2*100 + 2*50`; under the new one it passes because 300 ms is past
+`2*100 + 50`. **Only an element's done time moves.** Nothing draws during a
+delay, so no picture changes — the difference is when `Player::finished()`
+flips.
+
+### 59.4 The impossible scales are authored ramp stops, and the keypoint is not clamped
+
+The retraction is right, and the corpus sharpens it. **No keypoint scale in the
+whole archive is above 1e6** — that is the census's `|Scale| > 1e6` line, and it
+is zero out of 36,215. The ten huge values §6.2 measured are:
+
+| root | value | what the line actually is |
+| --- | --- | --- |
+| `大龙虾_水波.gfx` | 1.104e27 | stop 3 of a `CtrlType: 111` ramp, `AffectorCount: 3` |
+| `回光返照_落光环.gfx` | 8.263e23 | last stop of a keypoint's `CtrlType: 111` ramp |
+| `回光返照_左手.gfx` | 8.263e23 | the same ramp shape, one keypoint |
+| `变异沼泽鸟_技能.gfx` | 1.284e22 | last stop of an affector's `CtrlType: 111` ramp |
+| `麋鹿左角.gfx` (x2) | 4.183e17 | `Scale:` of the element-125 generation sequence |
+| `麋鹿右角.gfx` (x2) | 4.183e17 | the same |
+
+A `CtrlType: 111` block is a sequence of `Scale:` / `TimeSpan:` pairs after a
+`Count:`, not a keypoint — it is what `_kp_scale` is reused for
+(`A3DGFXKeyPoint.cpp:947-963`, `A3DGFXCtrlScaleTrans::Load`) — and an element-125
+generation sequence is the one keypoint-shaped record the client reads before
+the affector list (`gfx_file.rs`, `generation_sequence`), whose `Path` control
+the particle emitter consumes and whose `Scale` nothing reads. So:
+
+* **Keypoint `Scale` is not clamped, and must not be.** `A3DGFXKeyPoint::Load`
+  stores `m_KPOrg.m_fScale` verbatim from `sscanf`, and neither `TickAnimation`
+  nor `Interpolate` touches the value: the interpolating branch lerps
+  `m_KPOrg` and the step branch hands `m_KPProc` on. The earlier advice to
+  mirror a clamp was wrong and no clamp is added.
+* **The ramp stop is clamped, and that clamp is cited.** `MAX_SCALE_STOP = 100.`
+  in `gfx_file.rs` bounds every `CtrlType: 111` stop to the largest the corpus
+  authors honestly (p99.9 is 80), because the client writes the stop straight
+  into `m_KPProcess.m_fScale` when the segment index passes the last one. That
+  is a reader-side guard on *garbage the editor left*, not a divergence from
+  the client: there is no honest value it can change.
+* **The `ScaleChage` clamp is the client's own and already matches.**
+  `A3DGFXCtrlScaleChange::Process` clamps to the authored `[m_fMinScale,
+  m_fMaxScale]`, and `gfx_player.rs` does the same (defaulting the range to
+  0.01-9999 when it is not authored).
+
+**Do those roots draw, and at what size?** A corpus test
+(`the_roots_with_editor_garbage_scales_draw_with_their_keypoint_scales`) runs
+all six through the real player for forty frames, asserts every keypoint scale
+is 1.0, asserts every ramp stop survived the clamp at or below 100, and prints
+the number of cards and the widest edge each root submits. The answer, recorded
+in the run log, is that they draw their authored geometry — the garbage was
+never reaching a keypoint in the first place. None of the six is scenery: they
+are a lobster's water ripple, two assassin-skill halos, a swamp bird's skill
+and two elk antlers, which is why §6.2 already said they were not the
+white-blob report.
+
+### 59.5 What is left open, stated as such
+
+* **Reseed ordering around the delay is invisible.** The client's `Resume(true)`
+  resets controller state when a play ends and the delay runs after it; the
+  viewer's reseed is keyed on the play index and also lands at the play
+  boundary. Nothing is drawn during the delay, so the two orderings cannot
+  differ on screen. Recorded, not "fixed".
+* **"Resume clears every controller" overstated it.** Most controller
+  `Resume()` bodies are empty (`A3DGFXKeyPoint.h:738, 819, 898, 990, 1081,
+  1274, 1458, 1582` are all `{}`); what actually resets is the *keypoint-set*
+  process state — `m_KPProcess = m_KeyPointArray[0]->m_KPOrg`,
+  `m_vAxisOff.Clear()`, `m_fTimeSpan = 0`, `m_fScaleNoise = 0`
+  (`A3DGFXKeyPoint.h:2067-2096`) — and the viewer already matches that. The
+  behavioural claim narrows to "the element's process state restarts each
+  play", and the controller integrators follow it because the viewer reseeds
+  them with it. §49.1's wording is left as written and this note supersedes its
+  sentence about the controllers themselves.
+* **Element 101 still has no projection matrix in the player,** so the
+  client's `a_Clamp(vCenter.z, 0, 1)` has no exact counterpart. The eye-ray
+  construction is exact wherever the card is in front of the eye, and refuses
+  the push otherwise. Anything else would need the view scale, which the
+  player is not given.
