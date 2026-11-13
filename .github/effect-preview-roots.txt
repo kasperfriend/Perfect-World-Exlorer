@@ -2,15 +2,15 @@
 # allowed. `PWE_PREVIEW_ROOTS` on the command line or a `workflow_dispatch`
 # input overrides this file; nothing here changes how a root is drawn.
 #
-# This pass is the Archosaur beam pair (two `RotFromView` placements of
-# `天煞光束`, whose cards the axial builder has just been brought onto the
-# client's own four vertices) and the Wraithgate roots beside it, with the
-# aquarium kept as the model-element control and `树林光束` as the forest's own
-# axial cards.
+# This pass reads the particle sizes at Wraithgate (`绿鬼火3`, `骷髅光柱`), the
+# Archosaur beam pair and the forest's axial cards, with the aquarium as the
+# model-element control. The particle channel now prints the authored scale
+# range, the keypoint the class actually applies and the world size that comes
+# out, so "oversized" can be checked against the client's own product instead
+# of the parsed half width.
 天煞光束
 树林光束
 绿鬼火3
 骷髅光柱
 水族箱
 蓝蘑菇2
-瀑布水花

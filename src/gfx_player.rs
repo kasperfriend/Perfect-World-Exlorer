@@ -4975,47 +4975,6 @@ fn emit_particles(
         });
     }
     stats.particles += particles.len();
-    // Spawns, deaths and the live count together: a particle that never dies is
-    // a leak and one that dies at once is invisible, and the two read the same
-    // in a single number.
-    crate::diag_keyed!(
-        EffectParticles,
-        at(context),
-        500,
-        "{} id={} live={} quota={} rate={:.2}/s ttl={:.2}s size={:.3}x{:.3} \
-         origin={:?} 3d={} billboard={} dir=({:.2},{:.2},{:.2}) speed={:.2} \
-         acc={:.2} angle={:.2} ground={} surface={} bind={} area={:?} radius={:?}",
-        context.root,
-        context.id,
-        particles.len(),
-        quota,
-        particle.emission_rate,
-        particle.ttl,
-        particle.width,
-        particle.height,
-        particle.origin,
-        particle.is_3d,
-        !particle.is_3d,
-        particle.initial_direction.x,
-        particle.initial_direction.y,
-        particle.initial_direction.z,
-        particle.speed,
-        particle.particle_acc,
-        particle.angle,
-        particle.start_on_ground,
-        particle.is_surface,
-        particle.is_bind,
-        particle.area_size,
-        particle.radius
-    );
-
-    let tint = context.rgba();
-    if tint[3] < ALPHA_CUTOFF {
-        return;
-    }
-    let Ok(texture) = texture_path(&context.common.texture) else {
-        return;
-    };
     let billboard = !particle.is_3d;
     // The keypoint scale is *not* part of every particle. `Fill_Vert_3D`
     // (A3DParticleSystemEx.cpp:945-960) sizes a 3D quad as
@@ -5042,6 +5001,67 @@ fn emit_particles(
     let sized = ElementContext {
         scale: sized_scale,
         ..*context
+    };
+
+    // Spawns, deaths and the live count together: a particle that never dies is
+    // a leak and one that dies at once is invisible, and the two read the same
+    // in a single number.
+    crate::diag_keyed!(
+        EffectParticles,
+        at(context),
+        500,
+        "{} id={} live={} quota={} rate={:.2}/s ttl={:.2}s size={:.3}x{:.3} \
+         origin={:?} 3d={} billboard={} dir=({:.2},{:.2},{:.2}) speed={:.2} \
+         acc={:.2} angle={:.2} ground={} surface={} bind={} area={:?} radius={:?} \\
+         scales={:.3}..{:.3} kp={:.3} root={:.3} world={:.2}x{:.2}",
+        context.root,
+        context.id,
+        particles.len(),
+        quota,
+        particle.emission_rate,
+        particle.ttl,
+        particle.width,
+        particle.height,
+        particle.origin,
+        particle.is_3d,
+        !particle.is_3d,
+        particle.initial_direction.x,
+        particle.initial_direction.y,
+        particle.initial_direction.z,
+        particle.speed,
+        particle.particle_acc,
+        particle.angle,
+        particle.start_on_ground,
+        particle.is_surface,
+        particle.is_bind,
+        particle.area_size,
+        particle.radius,
+        // What the quads actually measure. `Fill_Vert_3D`
+        // (A3DParticleSystemEx.cpp:945-960) sizes a plain 3D particle from
+        // `Width * m_fScale * GetActualScale` and reads the keypoint scale only
+        // under `m_bFacing`; `Fill_Vert_2D` (:1241) multiplies all three. The
+        // `size=` pair above is the particle's own half width, so a report about
+        // an oversized emitter has to read this line instead.
+        particle.scale_min.min(particle.scale_max),
+        particle.scale_max.max(particle.scale_min),
+        sized_scale,
+        context.placement.x_axis.truncate().length(),
+        2. * particle.width.max(particle.height)
+            * particle.scale_max.max(particle.scale_min)
+            * sized_scale
+            * context.placement.x_axis.truncate().length(),
+        2. * particle.width.max(particle.height)
+            * particle.scale_min.min(particle.scale_max)
+            * sized_scale
+            * context.placement.x_axis.truncate().length()
+    );
+
+    let tint = context.rgba();
+    if tint[3] < ALPHA_CUTOFF {
+        return;
+    }
+    let Ok(texture) = texture_path(&context.common.texture) else {
+        return;
     };
     let uv = flipbook_uv(context.common, context.clock);
     for state in particles.iter() {
