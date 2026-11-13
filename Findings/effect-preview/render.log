@@ -9,22 +9,22 @@ warning: unused import: `std::collections::HashMap`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: unnecessary parentheses around closure body
-    --> src/gfx_player.rs:2725:30
+    --> src/gfx_player.rs:2796:30
      |
-2725 |         .map(|(last, first)| (*last - *first))
+2796 |         .map(|(last, first)| (*last - *first))
      |                              ^              ^
      |
      = note: `#[warn(unused_parens)]` (part of `#[warn(unused)]`) on by default
 help: remove these parentheses
      |
-2725 -         .map(|(last, first)| (*last - *first))
-2725 +         .map(|(last, first)| *last - *first)
+2796 -         .map(|(last, first)| (*last - *first))
+2796 +         .map(|(last, first)| *last - *first)
      |
 
 warning: duplicated attribute
-     --> src/gfx_player.rs:11664:5
+     --> src/gfx_player.rs:11899:5
       |
-11664 |     #[test]
+11899 |     #[test]
       |     ^^^^^^^
       |
       = note: `#[warn(duplicate_macro_attributes)]` on by default
@@ -73,9 +73,9 @@ warning: unused variable: `trailer`
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src/gfx_player.rs:7743:13
+    --> src/gfx_player.rs:7978:13
      |
-7743 |         let mut name = |text: &str, out: &mut Vec<u8>| {
+7978 |         let mut name = |text: &str, out: &mut Vec<u8>| {
      |             ----^^^^
      |             |
      |             help: remove this `mut`
@@ -83,9 +83,9 @@ warning: variable does not need to be mutable
      = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src/gfx_player.rs:8775:13
+    --> src/gfx_player.rs:9010:13
      |
-8775 |         let mut count = |half: Vec3| {
+9010 |         let mut count = |half: Vec3| {
      |             ----^^^^^
      |             |
      |             help: remove this `mut`
@@ -1392,7 +1392,7 @@ help: convert the identifier to upper case
       |
 
 warning: `perfect-world-explorer` (bin "perfect-world-explorer" test) generated 124 warnings (run `cargo fix --bin "perfect-world-explorer" -p perfect-world-explorer --tests` to apply 24 suggestions)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 19.75s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.73s
      Running unittests src/main.rs (target/debug/build/perfect-world-explorer/555eb3097d2a0398/out/perfect_world_explorer-555eb3097d2a0398)
 
 running 1 test
@@ -1651,7 +1651,6 @@ World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 q
 preview: - `09-42444-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_水草墨绿.gfx at (2607.0, 241.7, -4195.1) dir (0.81, -0.04, -0.59) up (0.03, 1.00, -0.03) night 2 scale 3.82 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 0.50 u, 0.017 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=1 pixels=22814 size=2.84x3.62x2.96 card=0.00x0.00 box=(2605.58,241.62,-4196.68)..(2608.42,245.24,-4193.72)
 preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物03.dds verts=72 extent 2.84 x 3.62 x 2.96 at (2607.0, 243.4, -4195.2) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2670,271,-4140); 0 load failures, 0 graph failures, 0 warnings
-test effect_preview::tests::effect_previews has been running for over 60 seconds
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2614,246,-4194); 0 load failures, 0 graph failures, 0 warnings
 preview: - `10-42445-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_水草红.gfx at (2610.3, 240.7, -4200.3) dir (0.81, -0.04, -0.59) up (0.03, 1.00, -0.03) night 2 scale 3.82 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 0.50 u, 0.017 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=11940 size=1.41x4.59x1.70 card=0.00x0.00 box=(2609.43,240.72,-4201.22)..(2610.85,245.31,-4199.52)
 preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物02.dds verts=48 extent 1.41 x 4.59 x 1.70 at (2610.1, 243.0, -4200.4) blend 5/6 depth true
@@ -1689,18 +1688,18 @@ World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 q
 preview: - `14-42450-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星红.gfx at (2602.2, 241.9, -4195.7) dir (0.97, 0.25, -0.04) up (-0.24, 0.96, 0.12) night 2 scale 8.34 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 1.00 u, 0.025 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=1 pixels=11002 size=5.54x1.45x5.40 card=0.00x0.00 box=(2599.42,241.04,-4197.92)..(2604.96,242.49,-4192.52)
 preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 5.54 x 1.45 x 5.40 at (2602.2, 241.8, -4195.2) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 4 quads this frame, eye (2664,273,-4141); 0 load failures, 0 graph failures, 0 warnings
-World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 4 quads this frame, eye (2617,252,-4187); 0 load failures, 0 graph failures, 0 warnings
-preview: - `15-42451-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_鱼群.gfx at (2604.2, 243.4, -4200.7) dir (0.70, -0.06, -0.71) up (0.02, 1.00, -0.07) night 2 scale 2.78 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 2.00 u, 0.054 m/px: player clock 792 ms play 1.000 (file 1.000), quads=4 pixels=11264 size=13.58x5.48x13.96 card=0.00x0.00 box=(2596.59,241.00,-4215.10)..(2610.17,246.48,-4201.14) textures-failed=1 first=<untextured>: no model archive attached: <untextured>
+World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 4 quads this frame, eye (2618,251,-4186); 0 load failures, 0 graph failures, 0 warnings
+preview: - `15-42451-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_鱼群.gfx at (2604.2, 243.4, -4200.7) dir (0.70, -0.06, -0.71) up (0.02, 1.00, -0.07) night 2 scale 2.78 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 2.00 u, 0.057 m/px: player clock 792 ms play 1.000 (file 1.000), quads=4 pixels=9733 size=13.23x7.27x13.36 card=0.00x0.00 box=(2596.94,239.21,-4214.50)..(2610.17,246.48,-4201.14) textures-failed=1 first=<untextured>: no model archive attached: <untextured>
 preview: - mesh <untextured> verts=96 extent 0.75 x 0.30 x 0.78 at (2605.6, 244.8, -4201.6) blend 5/6 depth true
 preview: - mesh gfx/models/鲨鱼/textures/1.tga verts=1752 extent 5.08 x 3.27 x 2.06 at (2607.6, 244.8, -4202.2) blend 5/6 depth true
-preview: - mesh gfx/models/鱼群/鱼群紫/textures/鱼紫色.dds verts=2856 extent 2.81 x 2.28 x 2.92 at (2598.0, 242.1, -4213.6) blend 5/6 depth true
-preview: - mesh gfx/models/鱼群/鱼群黄/textures/鱼黄色.dds verts=3366 extent 2.78 x 2.15 x 2.97 at (2606.9, 244.7, -4205.3) blend 5/6 depth true
-World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 4 quads this frame, eye (2617,252,-4187); 0 load failures, 0 graph failures, 0 warnings
-preview: - `15-42451-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_鱼群.gfx at (2604.2, 243.4, -4200.7) dir (0.70, -0.06, -0.71) up (0.02, 1.00, -0.07) night 2 scale 2.78 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 2.00 u, 0.054 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=4 pixels=10655 size=7.00x6.43x14.88 card=0.00x0.00 box=(2599.96,240.28,-4213.98)..(2606.96,246.71,-4199.10) textures-failed=1 first=<untextured>: no model archive attached: <untextured>
+preview: - mesh gfx/models/鱼群/鱼群紫/textures/鱼紫色.dds verts=2856 extent 3.11 x 2.44 x 3.01 at (2598.5, 240.4, -4213.0) blend 5/6 depth true
+preview: - mesh gfx/models/鱼群/鱼群黄/textures/鱼黄色.dds verts=3366 extent 2.97 x 2.37 x 2.94 at (2607.3, 243.9, -4204.6) blend 5/6 depth true
+World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 4 quads this frame, eye (2618,251,-4186); 0 load failures, 0 graph failures, 0 warnings
+preview: - `15-42451-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_鱼群.gfx at (2604.2, 243.4, -4200.7) dir (0.70, -0.06, -0.71) up (0.02, 1.00, -0.07) night 2 scale 2.78 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 2.00 u, 0.057 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=4 pixels=10625 size=7.22x8.53x14.86 card=0.00x0.00 box=(2599.96,238.18,-4213.96)..(2607.18,246.71,-4199.10) textures-failed=1 first=<untextured>: no model archive attached: <untextured>
 preview: - mesh <untextured> verts=96 extent 0.59 x 0.29 x 0.80 at (2600.4, 244.8, -4199.6) blend 5/6 depth true
 preview: - mesh gfx/models/鲨鱼/textures/1.tga verts=1752 extent 4.57 x 3.26 x 2.17 at (2602.2, 245.1, -4200.2) blend 5/6 depth true
-preview: - mesh gfx/models/鱼群/鱼群紫/textures/鱼紫色.dds verts=2856 extent 2.74 x 2.21 x 2.97 at (2605.6, 241.4, -4211.5) blend 5/6 depth true
-preview: - mesh gfx/models/鱼群/鱼群黄/textures/鱼黄色.dds verts=3366 extent 2.83 x 2.15 x 2.90 at (2604.5, 244.4, -4212.5) blend 5/6 depth true
+preview: - mesh gfx/models/鱼群/鱼群紫/textures/鱼紫色.dds verts=2856 extent 2.97 x 2.21 x 2.80 at (2605.7, 239.3, -4211.2) blend 5/6 depth true
+preview: - mesh gfx/models/鱼群/鱼群黄/textures/鱼黄色.dds verts=3366 extent 2.83 x 2.14 x 2.88 at (2604.5, 244.4, -4212.5) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 0 quads this frame, eye (2664,278,-4141); 0 load failures, 0 graph failures, 0 warnings
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 0 quads this frame, eye (2630,264,-4165); 0 load failures, 0 graph failures, 0 warnings
 preview: - `16-42452-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_顶.gfx at (2604.2, 248.2, -4200.7) dir (-0.32, 0.02, -0.95) up (0.06, 1.00, 0.00) night 2 scale 2.26 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 5.00 u, 0.103 m/px: player clock 792 ms play 1.000 (file 1.000), quads=6 pixels=7045 size=17.44x13.58x20.96 card=11.74x11.74 box=(2596.10,241.45,-4212.70)..(2613.54,255.03,-4191.74)
@@ -1733,5 +1732,5 @@ preview: - card 9.94 x 9.94 at (2607.2, 248.0, -4201.1) axis (0.15, 0.57, 0.80) 
 preview: 32 shots from 16 placements, report target/effect-preview/metrics.md
 test effect_preview::tests::effect_previews ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1101 filtered out; finished in 88.91s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1103 filtered out; finished in 57.40s
 
