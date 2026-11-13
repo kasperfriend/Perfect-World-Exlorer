@@ -6971,10 +6971,12 @@ mod tests {
             .unwrap();
         let quad = player.quads().first().expect("the shaft draws");
         let corner = |index: usize| Vec3::from_array(quad.positions[index]);
-        // Corner 0 is the top of the card and corner 2 the bottom, so their
-        // difference is the height; corner 1 is the other side of the width.
-        let along = corner(0) - corner(2);
-        let across = corner(1) - corner(0);
+        // `Fill_Verts_3D`'s world-space branch writes `verts[0]` and `verts[1]`
+        // on the same `vUp` side, one `fHeight1` below the centre and one
+        // `fHeight2` above it, so **their difference is the height** and
+        // `verts[0] - verts[2]` is the full width.
+        let along = corner(1) - corner(0);
+        let across = corner(0) - corner(2);
         // Header `DedaultScale 2`, keypoint `Scale 2`, `OrgPt (0.5, 0)`: the
         // authored 10 becomes 20 and both scales are the client's
         // `GetActualScale * kp.m_fScale`.
@@ -8141,13 +8143,13 @@ mod tests {
     #[test]
     fn a_particles_size_takes_the_keypoint_only_when_it_faces_the_camera() {
         let card = |three_d: bool, facing: u32, keypoint: f32| -> f32 {
-            let source = PARTICLE
+            let element = PARTICLE
                 .replace("3DParticle: 0", &format!("3DParticle: {}", three_d as u32))
                 .replace("Facing: 0", &format!("Facing: {facing}"))
                 .replace("ParticleWidth: 0.200000", "ParticleWidth: 1.000000")
                 .replace("ParticleHeight: 0.200000", "ParticleHeight: 1.000000")
                 .replace("Scale: 1.000000", &format!("Scale: {keypoint}"));
-            let mut player = build(&source);
+            let mut player = build(&(header37(1) + &element));
             step(&mut player, 250.);
             let quad = &player.quads()[0];
             (Vec3::from_array(quad.positions[0]) - Vec3::from_array(quad.positions[1])).length()
@@ -10204,7 +10206,8 @@ mod tests {
             );
             player.advance(0., &camera, transform, 1., 1.).unwrap();
             let quad = player.quads().first().expect("the shaft draws");
-            let along = Vec3::from_array(quad.positions[0]) - Vec3::from_array(quad.positions[2]);
+            // `verts[1] - verts[0]` is `vDir * (fHeight1 + fHeight2)`.
+            let along = Vec3::from_array(quad.positions[1]) - Vec3::from_array(quad.positions[0]);
             assert!(
                 along.normalize().dot(expect).abs() > 0.999,
                 "dir {dir:?} up {up:?} should give {expect:?}, got {along:?}"
