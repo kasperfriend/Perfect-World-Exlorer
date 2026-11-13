@@ -9754,7 +9754,15 @@ mod tests {
             (
                 "preview camera",
                 Vec3::new(2792.99, 276.72, -2623.63),
-                Vec3::new(-0.539, -0.342, -0.7698),
+                // The preview's own `target - eye` for shot 05 of 暗语者营地:
+                // the camera sits 110 units along (sin35 cos20, sin20, cos35 cos20)
+                // from the target, so the look direction is the negation of that
+                // unit vector.
+                Vec3::new(
+                    -(35f32.to_radians().sin() * 20f32.to_radians().cos()),
+                    -20f32.to_radians().sin(),
+                    -(35f32.to_radians().cos() * 20f32.to_radians().cos()),
+                ),
                 1.,
                 false,
                 0.05,
