@@ -158,7 +158,7 @@ jobs:
           # workflow change: the run that answers "are these roots still what
           # the reports say" is the same code path every time.
           PWE_PREVIEW_ROOTS: ${{ inputs.roots || '' }}
-          PWE_PREVIEW_MAX: ${{ inputs.limit || '16' }}
+          PWE_PREVIEW_MAX: ${{ inputs.limit || '24' }}
           PWE_PREVIEW_PER_ROOT: ${{ inputs.per_root || '1' }}
           PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,3000' }}
           PWE_PREVIEW_ZOOMS: ${{ inputs.zooms || '1' }}

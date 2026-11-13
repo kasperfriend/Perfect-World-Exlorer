@@ -2,11 +2,24 @@
 # allowed. `PWE_PREVIEW_ROOTS` on the command line or a `workflow_dispatch`
 # input overrides this file; nothing here changes how a root is drawn.
 #
-# One line on purpose: `水族箱` matches the whole Raging Tides aquarium — the
-# tank glass, the kelp in three colours, the starfish, the lid and the fish — so
-# the plants and the box they sit in are measured by the same run at the same
-# camera, which is the only way to tell an oversized plant from a small tank.
+# The sweep is one entry per mechanism, not every root: the aquarium holds the
+# model elements (160) whose keypoint scale this pass fixed, and the rest are the
+# placements earlier reports named — the seal dome that drew at 3.3x, the crystal
+# at 2.7x, the floating city's misplacement, the two-unit mushrooms, the sea
+# dust, the waterfalls and the six disputed roots of §57.9.
 #
-# A wider sweep costs a shot per root and the run stops at PWE_PREVIEW_MAX, so a
-# list of every disputed root skips whichever ones the map places last.
+# `PWE_PREVIEW_PER_ROOT` is 1 and the run stops at `PWE_PREVIEW_MAX`, so a list
+# long enough to be truncated skips whichever placements the map stores last.
 水族箱
+蓝蘑菇2
+盆景水晶
+浮空城
+血鲷封印台罩子
+水门_瀑布
+海底飘尘
+瀑布水花
+绿鬼火3
+天煞光束
+圣城之光
+树林光束
+骷髅光柱

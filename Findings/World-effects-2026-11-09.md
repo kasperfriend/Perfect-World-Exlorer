@@ -4920,3 +4920,71 @@ is skipped entirely. The viewer draws it at that alpha. It can only trigger on a
 authored `fAlpha <= 0.05` or through the distance fade, and the visible
 difference is the same near-zero contribution the client drops — recorded here so
 the omission is a decision, not an oversight.
+
+### 57.14 The oversized kelp: a model element draws at its root scale and ignores its keypoint, so every `.SMD` was as much as 12.5x too big
+
+The report is right and §57.10 was answering a different question. Size is right
+for every *card* — a sprite's corners take the keypoint scale at `quad_corners`
+— but a **model element (160) is not a card**, and its path skipped the keypoint
+entirely.
+
+The client composes a model element's matrix in `A3DGFXModel::UpdateModel`
+(`A3DGFXModel.cpp:230-233`):
+
+```cpp
+A3DMATRIX4 matScale;
+matScale.Scale(kp.m_fScale, kp.m_fScale, kp.m_fScale);
+UpdateModel(matScale * GetTranMatrix(kp) * GetParentTM(), diffuse, dwTickTime);
+```
+
+`GetParentTM()` is `m_matScale * m_matNoScale` (`A3DGFXEx::CalcParentTM`), i.e.
+`DefScale x fScale` and nothing else — so a model is `root scale x keypoint
+scale`, exactly like a sprite. The viewer passed the raw `.SMD` vertex to
+`context.placement`, which carries the root scale and no keypoint, so **every
+element-160 model in the game drew at `1/kpScale` times its authored size.**
+
+The Raging Tides aquarium shows it to the decimal. `水族箱_水草翠绿` holds two
+model elements, the green kelp at keypoint `scale=0.150` and `海底植物.SMD` at
+`scale=0.080`; the frame channel reads both straight out of the tick.
+
+| root | model | keypoint `scale` | before (world) | after (world) | before / after |
+|---|---|---|---|---|---|
+| `水族箱_水草墨绿` | `李燃西游海底植物.SMD` | 0.300 | 9.97 x **11.90** x 9.56 | 2.99 x **3.57** x 2.87 | 3.33 |
+| `水族箱_水草红` | `李燃西游海底植物2.SMD` | 0.300 | 4.71 x **15.31** x 5.67 | 1.41 x **4.59** x 1.70 | 3.33 |
+| `水族箱_水草翠绿` | `海底植物.SMD` | **0.080** | 42.77 x **67.47** x 47.28 | 3.42 x **5.40** x 3.78 | **12.50** |
+
+`1 / 0.08 = 12.5` exactly, and `67.47 / 5.40 = 12.49`: the kelp was drawing at
+twelve and a half times its authored height, 67 units of plant inside a 21-unit
+tank (`水族箱玻璃` frames 21.19 x 14.35 x 2.59). The starfish and the fish school
+are model elements too and shrank by their own keypoint scales.
+
+This is the one shared parameter behind "the effects are oversized and the world
+looks too small": the world is not undersized — `world.ecwld` effect records,
+`ECWDFILEDATAMODEL` (which has no scale field at all, `EC_WorldFile.h`), terrain
+and `ECWDFILERECORD`-placed scenery are all at their authored sizes. What was
+wrong is that a whole element class multiplied by the root scale and stopped
+there, so every model-bearing root grew by `1/kpScale` while its neighbours in
+the same picture did not. The style is exactly what the report predicted: one
+parameter, not one effect.
+
+The fix is one multiplication in the mesh branch (`a_models_keypoint_scale_-
+multiplies_its_meshes` holds it: the same fixture at `Scale: 1` and `Scale: 0.5`
+must differ by exactly half).
+
+Two preview defects came out of the same sweep and are fixed beside it:
+
+1. **The framing box read a mesh's zero corners.** An element-160 quad leaves
+   `positions` at the origin as filler and carries its soup in `mesh.vertices`,
+   so `quad_bounds` framed `蓝蘑菇2` — a two-unit mushroom — on a box that ran
+   from the world origin to its placement: `size=2594.18x216.54x3399.64`, shot
+   at 12.8 m per pixel. Every published frame of a mesh root was a speck.
+   `a_mesh_elements_soup_is_what_the_framing_box_is_made_of` pins it.
+2. **The element table named no model.** A 160 element has no `Width`/`Height`,
+   so the line said `size=0.000x0.000` and nothing about what decides its size.
+   It now carries `model=<path> act=<action> loops=<n>`, and the quad dump
+   measures every mesh separately (`- mesh <tex> verts=N extent WxHxD at ...`),
+   which is what made the table above possible without a screenshot.
+
+The sweep list also moved out of the workflow into
+`.github/effect-preview-roots.txt`: a push to the trigger file cannot carry
+inputs, so every new sweep used to be a workflow edit.
