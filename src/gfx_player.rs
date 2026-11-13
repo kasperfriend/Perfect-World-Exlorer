@@ -3266,6 +3266,20 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
 /// i.e. the mirrored cell of the atlas rather than a mirrored card. The ground
 /// branch spells the same rule as an index reversal (`nCol - j`), which is also
 /// what a swap produces once the lattice is interpolated.
+/// The UV rect in the order `Fill_Verts_3D`'s `m_bRotFromView` branch writes it
+/// (`A3DDecalEx.cpp:377-390`).
+///
+/// The local branch pairs `(-fWidth1, +fHeight2)` with `(m_fTexU, m_fTexV)`; the
+/// world-space branch writes `fU = {u, u, u + wid, u + wid}` and
+/// `fV = {v + hei, v, v + hei, v}` against its own corner order, so the rect
+/// arrives as `(u, v + hei)`, `(u, v)`, `(u + wid, v + hei)`, `(u + wid, v)`.
+/// `UReverse`, `VReverse` and `UVInterchange` are all index swaps on those two
+/// arrays, and every swap commutes with a permutation of the corners, so the
+/// flips can stay where they are and only the order changes here.
+fn axial_uv(rect: [[f32; 2]; 4]) -> [[f32; 2]; 4] {
+    [rect[2], rect[0], rect[3], rect[1]]
+}
+
 fn apply_uv_flips(uv: &mut [[f32; 2]; 4], common: &Common) {
     if common.reverse_u {
         uv.swap(0, 1);
@@ -3802,7 +3816,19 @@ fn emit_sprite(
         let offset = -context.view.forward * (sprite.z_offset * scale);
         positions = positions.map(|corner| (Vec3::from_array(corner) + offset).to_array());
     }
-    let uv = flipbook_uv(context.common, context.clock);
+    // `Fill_Verts_3D`'s `m_bRotFromView` branch writes its UV rect in a
+    // different order from the local one: its `fV` array is `{v + hei, v, v +
+    // hei, v}`, so the four corners the branch above returns take
+    // `(u, v + hei)`, `(u, v)`, `(u + wid, v + hei)`, `(u + wid, v)` in that
+    // order. The rect itself is the same, so this is the standard corner set
+    // permuted — `[2], [0], [3], [1]` — and the `UReverse`/`VReverse` swaps
+    // commute with a permutation, which is why `flipbook_uv` can still apply
+    // them before the reorder.
+    let uv = if matches!(basis, QuadBasis::Axial) {
+        axial_uv(flipbook_uv(context.common, context.clock))
+    } else {
+        flipbook_uv(context.common, context.clock)
+    };
     push_quad(out, context, &texture, positions, uv, color);
 }
 
@@ -4168,11 +4194,13 @@ fn quad_corners(
             //
             //     A3DVECTOR3 vDir = RotateVec(GetParentDir() * kp.m_vDir, _unit_z);
             //
-            // `GetParentDir()` is the owner's direction quaternion and
-            // `kp.m_vDir` is the keypoint's, so their product is the placement's
-            // own rotation and `* _unit_z` takes its Z axis. The shaft is
-            // therefore the placement's Z axis. Nothing else: no transpose, and
-            // no second application of the keypoint.
+            // `GetParentDir()` is the owner's direction quaternion
+            // (`A3DGFXElement::GetParentDir`, A3DGFXElement.cpp:1663-1676, which
+            // is the owner's `m_qDir`) and `kp.m_vDir` is the keypoint's, so
+            // their product is the placement's own rotation and `* _unit_z`
+            // takes its Z axis. The shaft is therefore the placement's Z axis.
+            // Nothing else: no transpose, and no second application of the
+            // keypoint.
             //
             // That matters. The first version of this branch multiplied the
             // *transpose* of the parent by the keypoint direction, which is the
@@ -4209,33 +4237,46 @@ fn quad_corners(
             // *complement* of the `OrgPt` split, so the wrong sign mirrors the
             // sheet and swaps the two extents on every card whose pivot is off
             // centre.
-            let right = (world - context.view.position)
+            let side = (world - context.view.position)
                 .cross(dir)
                 .normalize_or_zero();
-            if !dir.is_finite() || dir == Vec3::ZERO || right == Vec3::ZERO {
+            if !dir.is_finite() || !side.is_finite() {
                 return local.map(|_| [0.; 3]);
             }
-            let (right, up) = if rotation == 0. {
-                (right, dir)
-            } else {
-                let spin = Quat::from_axis_angle(dir, rotation);
-                (spin * right, dir)
-            };
-            // `A3DDecalEx::Fill_Verts_3D`'s four vertices, mapped onto the
-            // client's (u, v) grid: verts[1] is (0, 0) and verts[3] is (1, 0), so
-            // the `u = 0` edge is the `+vUp` one and it takes `fWidth2`, while the
-            // `u = 1` edge takes `fWidth1`. That is the opposite of the element
-            // space branch at :596, where `-fWidth1` is the left edge, which is
-            // why the extents are swapped here rather than reused from `local`.
-            let plus = width * 2. * (1. - origin[0]) * scale_x * basis_scale;
-            let minus = width * 2. * origin[0] * scale_x * basis_scale;
-            let top = height * 2. * (1. - origin[1]) * scale_y * basis_scale;
-            let bottom = height * 2. * origin[1] * scale_y * basis_scale;
+            // The client's `Rad_2D` is *not* read here. `Update_3D`
+            // (A3DDecalEx.cpp:653) sets
+            //
+            //     A3DMATRIX4 matWorld = bLocal ? GetTranMatrix(kp) * GetParentTM()
+            //                                   : _identity_mat4;
+            //
+            // and `GetTranMatrix` (A3DGFXKeyPoint.h:253-259) is the only place a
+            // keypoint's 2D spin is ever applied, so the world-space branch
+            // draws an unspun card. Spinning it about the shaft here -- what
+            // this arm used to do -- is an invented rotation that no client
+            // build applies.
+            //
+            // The four vertices are `Fill_Verts_3D`'s own (A3DDecalEx.cpp:399-402):
+            //
+            //     verts[0] = vPos - vDir * fHeight1 + vUp * fWidth2
+            //     verts[1] = vPos + vDir * fHeight2 + vUp * fWidth2
+            //     verts[2] = vPos - vDir * fHeight1 - vUp * fWidth1
+            //     verts[3] = vPos + vDir * fHeight2 - vUp * fWidth1
+            //
+            // in that order, because `emit_sprite` hands the matching UVs over
+            // in the same order: `(u, v + hei)`, `(u, v)`, `(u + wid, v + hei)`,
+            // `(u + wid, v)`. The corners are the same rectangle as
+            // `QuadBasis::Element`'s, but a report that names a corner has to
+            // find the same corner, and a `UReverse` has to flip the edge the
+            // client flips.
+            let w2 = width * 2. * (1. - origin[0]) * scale_x * basis_scale;
+            let w1 = width * 2. * origin[0] * scale_x * basis_scale;
+            let h2 = height * 2. * (1. - origin[1]) * scale_y * basis_scale;
+            let h1 = height * 2. * origin[1] * scale_y * basis_scale;
             [
-                (world + right * plus + up * top).to_array(),
-                (world - right * minus + up * top).to_array(),
-                (world + right * plus - up * bottom).to_array(),
-                (world - right * minus - up * bottom).to_array(),
+                (world + side * w2 - dir * h1).to_array(),
+                (world + side * w2 + dir * h2).to_array(),
+                (world - side * w1 - dir * h1).to_array(),
+                (world - side * w1 + dir * h2).to_array(),
             ]
         }
         QuadBasis::Billboard { right, up, forward } => {
@@ -4976,6 +5017,32 @@ fn emit_particles(
         return;
     };
     let billboard = !particle.is_3d;
+    // The keypoint scale is *not* part of every particle. `Fill_Vert_3D`
+    // (A3DParticleSystemEx.cpp:945-960) sizes a 3D quad as
+    //
+    //     float fScale = p->m_fScale + p->m_fScaleNoise;
+    //     fWidth = m_fWidth * fScale;            // no keypoint
+    //     ...
+    //     if (m_bFacing) { fScale = kp.m_fScale * fParentScale;
+    //                      fWidth *= fScale; }   // keypoint only here
+    //
+    // while `Fill_Vert_2D` (:1241) reads all three at once,
+    //
+    //     float fScale = (p->m_fScale + p->m_fScaleNoise) * fParentScale * kp.m_fScale;
+    //
+    // so a camera-facing (2D) particle and a `Facing` 3D one take the keypoint
+    // and a plain 3D one does not. Multiplying every particle by it - what this
+    // path did - inflated a 3D emitter's quads by `kp` wherever the file authored
+    // a keypoint below one.
+    let sized_scale = if billboard || particle.facing != 0 {
+        context.scale
+    } else {
+        1.
+    };
+    let sized = ElementContext {
+        scale: sized_scale,
+        ..*context
+    };
     let uv = flipbook_uv(context.common, context.clock);
     for state in particles.iter() {
         let color = [
@@ -4998,7 +5065,7 @@ fn emit_particles(
             oriented_basis(context, state.direction)
         };
         let positions = quad_corners(
-            context,
+            &sized,
             QuadBasis::Billboard {
                 right,
                 up,
@@ -8064,6 +8131,44 @@ mod tests {
         Scale: 1.000000\r\nDirection: 0.000000, 0.000000, 0.000000, 1.000000\r\nRad_2D: 0.000000\r\n\
         CtrlMethodCount: 0\r\n";
 
+    /// A particle's size takes the keypoint scale only when it faces the camera.
+    ///
+    /// `A3DParticleSystemEx::Fill_Vert_3D` (:945-960) sizes a 3D quad from
+    /// `p->m_fWidth * (p->m_fScale + noise)` and the root's actual scale, and
+    /// reads `kp.m_fScale` inside the `m_bFacing` branch alone; `Fill_Vert_2D`
+    /// (:1241) multiplies all three. One number per case here, because the
+    /// difference is a whole factor of `kp` on every 3D emitter in the game.
+    #[test]
+    fn a_particles_size_takes_the_keypoint_only_when_it_faces_the_camera() {
+        let card = |three_d: bool, facing: u32, keypoint: f32| -> f32 {
+            let source = PARTICLE
+                .replace("3DParticle: 0", &format!("3DParticle: {}", three_d as u32))
+                .replace("Facing: 0", &format!("Facing: {facing}"))
+                .replace("ParticleWidth: 0.200000", "ParticleWidth: 1.000000")
+                .replace("ParticleHeight: 0.200000", "ParticleHeight: 1.000000")
+                .replace("Scale: 1.000000", &format!("Scale: {keypoint}"));
+            let mut player = build(&source);
+            step(&mut player, 250.);
+            let quad = &player.quads()[0];
+            (Vec3::from_array(quad.positions[0]) - Vec3::from_array(quad.positions[1])).length()
+        };
+        // `header37` authors `DedaultScale: 2`, `steps` passes an identity
+        // placement, and `PARTICLE` emits one particle in its first 250 ms.
+        let root = 2.;
+        assert!(
+            (card(true, 0, 0.5) - 2. * root).abs() < 1e-3,
+            "a plain 3D particle ignores the keypoint"
+        );
+        assert!(
+            (card(true, 1, 0.5) - 2. * 0.5 * root).abs() < 1e-3,
+            "a facing 3D particle takes it"
+        );
+        assert!(
+            (card(false, 0, 0.5) - 2. * 0.5 * root).abs() < 1e-3,
+            "a 2D particle always takes it"
+        );
+    }
+
     /// A spawn context with an identity placement, so a particle offset can be
     /// read straight off the returned state.
     fn spawn_context<'a>(view: &'a View, common: &'a Common) -> ElementContext<'a> {
@@ -9978,6 +10083,67 @@ mod tests {
         );
     }
 
+    /// `Fill_Verts_3D`'s `m_bRotFromView` branch, corner for corner and UV for
+    /// UV.
+    ///
+    /// The client builds this card in world space (`A3DDecalEx.cpp:399-402`):
+    ///
+    ///     verts[0] = vPos - vDir * fHeight1 + vUp * fWidth2   // (u,   v + hei)
+    ///     verts[1] = vPos + vDir * fHeight2 + vUp * fWidth2   // (u,   v)
+    ///     verts[2] = vPos - vDir * fHeight1 - vUp * fWidth1   // (u+wid, v + hei)
+    ///     verts[3] = vPos + vDir * fHeight2 - vUp * fWidth1   // (u+wid, v)
+    ///
+    /// with `vUp = normalize(cross(vPos - eye, vDir))`. An off-centre pivot and a
+    /// keypoint that turns the shaft off the eye axis make all four corners
+    /// distinct, so the order, the extents and the pivot can each be read.
+    #[test]
+    fn a_rot_from_view_card_is_the_clients_four_vertices() {
+        let view = View {
+            position: Vec3::new(5., 5., 10.),
+            ..view()
+        };
+        let common = Common::default();
+        let mut context = spawn_context(&view, &common);
+        // +90 degrees about X turns the placement's Z onto world -Y: a shaft that
+        // is neither degenerate against the eye ray nor parallel to the card.
+        let keypoint = Quat::from_axis_angle(Vec3::X, std::f32::consts::FRAC_PI_2);
+        context.keypoint_direction = keypoint;
+        context.placement = Mat4::from_quat(keypoint);
+        let corners = quad_corners(
+            &context,
+            QuadBasis::Axial,
+            Vec3::ZERO,
+            2.,
+            10.,
+            [0.25, 0.75],
+            [false; 2],
+            0.,
+            1.,
+        );
+        let shaft = context.placement.z_axis.truncate().normalize();
+        let side = (Vec3::ZERO - view.position).cross(shaft).normalize();
+        // `Width 2` and `Height 10` are half sizes, `OrgPt (0.25, 0.75)` splits
+        // them into 1 / 3 across and 15 / 5 along, and the keypoint scale is 1.
+        let negative = -side;
+        let expect = [
+            side * 3. - shaft * 15.,
+            side * 3. + shaft * 5.,
+            negative - shaft * 15.,
+            negative + shaft * 5.,
+        ];
+        for (index, want) in expect.into_iter().enumerate() {
+            let got = Vec3::from_array(corners[index]);
+            assert!(
+                (got - want).length() < 1e-4,
+                "verts[{index}] is {got:?}, the client writes {want:?}"
+            );
+        }
+        // The rect this branch is paired with, from a common that asks for no
+        // flips: `(u, v + hei)`, `(u, v)`, `(u + wid, v + hei)`, `(u + wid, v)`.
+        let uv = axial_uv(flipbook_uv(&common, 0.));
+        assert_eq!(uv, [[0., 1.], [0., 0.], [1., 1.], [1., 0.]]);
+    }
+
     /// The axis a zero-width axial card is drawn along, for one shaft rule: its
     /// two far corners differ only along the shaft, so the axis falls out of the
     /// corners the builder returns.
@@ -9994,7 +10160,10 @@ mod tests {
             0.,
             1.,
         );
-        let along = Vec3::from_array(corners[0]) - Vec3::from_array(corners[2]);
+        // In the client's order `verts[1] - verts[0]` is the shaft
+        // (`+vDir * (fHeight1 + fHeight2)`); `verts[0] - verts[2]` is the width,
+        // which is zero for this card.
+        let along = Vec3::from_array(corners[1]) - Vec3::from_array(corners[0]);
         along.normalize()
     }
 

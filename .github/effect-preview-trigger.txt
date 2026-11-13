@@ -11,3 +11,5 @@
 2026-11-13T11:13:51Z — sweep: aquarium with the model keypoint scale fix and the frame channel
 
 2026-11-13T11:20:37Z — sweep: the whole list, after the model-element scale fix
+
+2026-11-13T12:03:22Z — sweep: archosaur beam, wraithgate, forest shafts after the axial rewrite

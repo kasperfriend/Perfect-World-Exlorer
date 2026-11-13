@@ -2,24 +2,15 @@
 # allowed. `PWE_PREVIEW_ROOTS` on the command line or a `workflow_dispatch`
 # input overrides this file; nothing here changes how a root is drawn.
 #
-# The sweep is one entry per mechanism, not every root: the aquarium holds the
-# model elements (160) whose keypoint scale this pass fixed, and the rest are the
-# placements earlier reports named — the seal dome that drew at 3.3x, the crystal
-# at 2.7x, the floating city's misplacement, the two-unit mushrooms, the sea
-# dust, the waterfalls and the six disputed roots of §57.9.
-#
-# `PWE_PREVIEW_PER_ROOT` is 1 and the run stops at `PWE_PREVIEW_MAX`, so a list
-# long enough to be truncated skips whichever placements the map stores last.
+# This pass is the Archosaur beam pair (two `RotFromView` placements of
+# `天煞光束`, whose cards the axial builder has just been brought onto the
+# client's own four vertices) and the Wraithgate roots beside it, with the
+# aquarium kept as the model-element control and `树林光束` as the forest's own
+# axial cards.
+天煞光束
+树林光束
+绿鬼火3
+骷髅光柱
 水族箱
 蓝蘑菇2
-盆景水晶
-浮空城
-血鲷封印台罩子
-水门_瀑布
-海底飘尘
 瀑布水花
-绿鬼火3
-天煞光束
-圣城之光
-树林光束
-骷髅光柱
