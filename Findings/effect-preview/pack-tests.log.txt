@@ -1398,13 +1398,13 @@ help: convert the identifier to upper case
       |
 
 warning: `perfect-world-explorer` (bin "perfect-world-explorer" test) generated 125 warnings (run `cargo fix --bin "perfect-world-explorer" -p perfect-world-explorer --tests` to apply 24 suggestions)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 20.71s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.84s
      Running unittests src/main.rs (target/debug/build/perfect-world-explorer/555eb3097d2a0398/out/perfect_world_explorer-555eb3097d2a0398)
 
 running 9 tests
+test gfx_player::tests::the_shipped_portal_gate_is_a_warp_element ... ok
 blood-bream strip quad after the UV law: uv=[(0.000,1.000),(0.000,0.000),(0.033,0.000),(0.033,1.000)] pair_width=0.140 (the live log's before: uv=[(0,0),(1,0),(0.033,1),(1.033,1)] at half the width)
 test gfx_player::tests::the_shipped_lightning_strips_run_u_along_their_length ... ok
-test gfx_player::tests::the_shipped_portal_gate_is_a_warp_element ... ok
 blood-bream strip quad after the UV law: uv=[(0.000,1.000),(0.000,0.000),(0.033,0.000),(0.033,1.000)] pair_width=0.140 (the live log's before: uv=[(0,0),(1,0),(0.033,1),(1.033,1)] at half the width)
 test gfx_player::tests::the_shipped_lightning_strips_run_u_along_their_length ... ok
 garbage-scale root gfx/怪物/宠物通用/大龙虾_水波.gfx: 7 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 0e0, 1753 cards, widest edge 2.143
@@ -1416,9 +1416,9 @@ garbage-scale root gfx/怪物/宠物通用/麋鹿右角.gfx: 2 keypoints, widest
 test gfx_player::tests::the_roots_with_editor_garbage_scales_draw_with_their_keypoint_scales ... ok
 test modules::populator::nameplate::tests::the_shipped_client_archive_names_the_same_overhead_font ... ok
 test modules::populator::nameplate::tests::the_shipped_table_names_the_overhead_font_first ... ok
-test gfx_player::tests::the_shipped_waterfall_veil_fractals_scroll_their_sheets ... ok
 test gfx_player::tests::the_shipped_waterfall_scrolls_and_hides_its_warp_veil ... ok
+test gfx_player::tests::the_shipped_waterfall_veil_fractals_scroll_their_sheets ... ok
 test gfx_player::tests::the_shipped_waterfall_sheet_keeps_its_alpha ... ok
 
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 1103 filtered out; finished in 3.34s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 1103 filtered out; finished in 2.66s
 
