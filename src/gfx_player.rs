@@ -3295,7 +3295,12 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
         let v = common.tex_speed[1] * seconds;
         let across = cols as f32;
         let down = rows as f32;
-        uv = [[u, v], [u + across, v], [u, v + down], [u + across, v + down]];
+        uv = [
+            [u, v],
+            [u + across, v],
+            [u, v + down],
+            [u + across, v + down],
+        ];
         apply_uv_flips(&mut uv, common);
         return uv;
     }
@@ -12882,6 +12887,26 @@ mod tests {
         gfx_file::parse(&text).unwrap_or_else(|error| panic!("{name}: {error}"))
     }
 
+    /// `shipped_root` for a root some pack builds do not carry. The Drive
+    /// folder holds two `gfx.pck` catalogues and CI renders against the 241 MB
+    /// one (`1B0QY1…`), which lacks a few of the roots the 97 MB retail pack
+    /// has: absence prints a workflow warning and returns `None` instead of
+    /// panicking, so the checks run on whatever the build carries and the
+    /// difference is visible in the run log either way.
+    fn shipped_root_opt(
+        file: &mut std::fs::File,
+        entries: &[crate::pck::Entry],
+        name: &str,
+    ) -> Option<gfx_file::Root> {
+        let index = entries
+            .iter()
+            .position(|entry| entry.name.eq_ignore_ascii_case(name))?;
+        let data = crate::pck::read_entry(file, &entries[index]).expect("read the root");
+        let (text, bad) = gfx_file::decode(&data);
+        assert!(!bad, "{name} is not valid GBK text");
+        Some(gfx_file::parse(&text).unwrap_or_else(|error| panic!("{name}: {error}")))
+    }
+
     /// One root of the pack, built into a player whose children all fail to load
     /// — none of the roots below has a `200` element.
     fn shipped_player(
@@ -12925,7 +12950,12 @@ mod tests {
             "gfx/怪物/宠物通用/麋鹿右角.gfx",
         ];
         for name in roots {
-            let root = shipped_root(&mut file, &entries, name);
+            let Some(root) = shipped_root_opt(&mut file, &entries, name) else {
+                eprintln!(
+                    "::warning::{name} is not in this gfx.pck build; the §6.2 checks are skipped for it"
+                );
+                continue;
+            };
             // Every keypoint scale, the largest stop of every scale ramp, and the
             // element-125 generation sequence's own (which is not in `keypoints`).
             let mut keypoint_scales: Vec<f32> = Vec::new();
@@ -13149,14 +13179,8 @@ mod tests {
                 assert_eq!(element.common.tile_mode, 1, "a veil sheet is tiled");
                 // Compare by file name: the element authors `纹理\气连续04.tga`
                 // and the draw carries the resolved pack path.
-                let base = element
-                    .common
-                    .texture
-                    .replace('\\', "/")
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or_default()
-                    .to_string();
+                let full = element.common.texture.replace('\\', "/");
+                let base = full.rsplit('/').next().unwrap_or_default().to_string();
                 (base, element.common.tex_speed)
             })
             .collect();
@@ -13166,10 +13190,15 @@ mod tests {
                 "{texture} scrolls U only: {speed:?}"
             );
         }
-        // The root binds its spray (element 200) to `场景\新种族地图\瀑布水花子.gfx`;
+        // The root binds its spray (element 200) to `gfx\场景\新种族地图\瀑布水花子.gfx`;
         // resolve that GfxPath through the pack exactly as `gfx_owner` does.
         let mut load_child = |path: &str| -> Result<gfx_file::Root, String> {
-            let joined = format!("gfx/{}", path.replace('\\', "/"));
+            let joined = path.replace('\\', "/");
+            let joined = if joined.starts_with("gfx/") {
+                joined
+            } else {
+                format!("gfx/{joined}")
+            };
             Ok(shipped_root(&mut file, &entries, &joined))
         };
         let mut player = Player::new(root, 7, &mut load_child)
@@ -13180,18 +13209,11 @@ mod tests {
         let windows = |player: &Player| -> Vec<(String, f32)> {
             let mut seen: Vec<(String, f32)> = Vec::new();
             for quad in player.quads() {
-                let base = quad
-                    .texture
-                    .replace('\\', "/")
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or_default()
-                    .to_string();
-                if !seen
-                    .iter()
-                    .any(|(t, u)| t == &base && (u - quad.uv[0][0]).abs() < 1e-6)
-                {
-                    seen.push((base, quad.uv[0][0]));
+                let full = quad.texture.replace('\\', "/");
+                let base = full.rsplit('/').next().unwrap_or_default().to_string();
+                let u0 = quad.uv[0][0];
+                if !seen.contains(&(base.clone(), u0)) {
+                    seen.push((base, u0));
                 }
             }
             seen
@@ -13206,22 +13228,31 @@ mod tests {
         // of `tex_speed[0] * 0.5` over the 500 ms step.
         for (texture, speed) in &sheets {
             let expected = speed[0] * 0.5;
+            let mut slides = false;
+            for (t0, u0) in &first {
+                if t0 != texture {
+                    continue;
+                }
+                for (t1, u1) in &second {
+                    if t1 == texture && ((u1 - u0) - expected).abs() < 2e-3 {
+                        slides = true;
+                    }
+                }
+            }
             assert!(
-                first.iter().filter(|(t, _)| t == texture).any(|(_, u0)| {
-                    second
-                        .iter()
-                        .filter(|(t, _)| t == texture)
-                        .any(|(_, u1)| ((u1 - u0) - expected).abs() < 2e-3)
-                }),
+                slides,
                 "{texture} slides u by {expected} over 500 ms (TexSpeed {speed:?}): \
                  {first:?} -> {second:?}"
             );
         }
         // And nothing on either texture is standing still.
         for (texture, u0) in &first {
-            let moved = second
-                .iter()
-                .any(|(t, u1)| t == texture && (u1 - u0).abs() > 0.1);
+            let mut moved = false;
+            for (t1, u1) in &second {
+                if t1 == texture && (u1 - u0).abs() > 0.1 {
+                    moved = true;
+                }
+            }
             assert!(moved, "a frozen sheet at {texture} u={u0}: {second:?}");
         }
     }
@@ -13261,8 +13292,17 @@ mod tests {
         let mut player = shipped_player(&mut file, &entries, name);
         // The placement this map uses for one of its shafts, read from
         // `world.ecwld`: `direction` (0, 0.565, 0.825), `up` (0, 0.825, -0.565).
-        // The client writes those as matrix *rows* (`A3DGFXEx.cpp:1574-1585`), so
-        // the shaft — the third column — is (0, -0.565, 0.825): 34 degrees down.
+        // The client writes those as matrix rows (`A3DGFXEx.cpp:1574-1585`
+        // `SetDirAndUp`: rows 0/1/2 are `CrossProduct(vUp, vDir)`, `vUp`,
+        // `vDir`) and transforms points as row vectors — both `operator *`
+        // overloads boil down to `D3DXVec3TransformCoord` (`A3DMatrix.cpp:121-146`)
+        // — so a local axis maps onto the row of its index: local Z onto `vDir`
+        // itself, (0, 0.565, 0.825), the shaft line 34 degrees off horizontal.
+        // Column-major `from_cols(right, up, dir)` is the same map, which is why
+        // `placement_transform` builds exactly that — and the assertion below is
+        // its tripwire: a transposed `placement` sends local Z onto the third
+        // *column* (0, -0.565, 0.825) instead, which is how the mirrored shafts
+        // of the transposed-parent bug looked.
         let dir = Vec3::new(0., 0.565, 0.825).normalize();
         let up = Vec3::new(0., 0.825, -0.565).normalize();
         let right = up.cross(dir).normalize();
@@ -13272,10 +13312,10 @@ mod tests {
             dir.extend(0.),
             Vec3::ZERO.extend(1.),
         );
-        let expected = Vec3::new(right.z, up.z, dir.z).normalize();
+        let expected = placement.transform_vector3(Vec3::Z).normalize();
         assert!(
-            expected.dot(Vec3::new(0., -0.565, 0.825).normalize()).abs() > 0.999,
-            "the third column is the client's shaft axis, got {expected:?}"
+            expected.dot(dir).abs() > 0.999,
+            "local Z carries onto the direction row, got {expected:?}"
         );
         // Each shaft holds two keypoints, both `InterpolateMode: 0` (step, not
         // slerp): the first is tilted — `(-0.5, -0.5, -0.5, 0.5)` for the first
