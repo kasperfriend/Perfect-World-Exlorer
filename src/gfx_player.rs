@@ -13245,8 +13245,13 @@ mod tests {
                  {first:?} -> {second:?}"
             );
         }
-        // And nothing on either texture is standing still.
+        // And none of the veil's own sheets is standing still. The smoke cards
+        // and the spray particles author `TexSpeed: 0` and hold still by
+        // design, so the check runs on the nine sheets' textures only.
         for (texture, u0) in &first {
+            if !sheets.iter().any(|(t, _)| t == texture) {
+                continue;
+            }
             let mut moved = false;
             for (t1, u1) in &second {
                 if t1 == texture && (u1 - u0).abs() > 0.1 {
@@ -13378,16 +13383,18 @@ mod tests {
             if !quads.is_empty() {
                 frames += 1;
             }
-            for quad in quads {
+                for quad in quads {
                 cards += 1;
-                // Corner order is `quad_corners`': 0 is top-left, 1 top-right, 2
-                // bottom-left, 3 bottom-right, so 2-0 is the height and 1-0 the
-                // width.
-                let along =
-                    Vec3::from_array(quad.positions[2]) - Vec3::from_array(quad.positions[0]);
-                let across =
+                // The client's `RotFromView` fill writes the corners as
+                // bottom-left, top-left, bottom-right, top-right: `verts[1] -
+                // verts[0]` is the height along `vDir` and `verts[2] -
+                // verts[0]` the camera-facing width along `vUp`
+                // (`A3DDecalEx.cpp:403-406`, u/v arrays at :372-383).
+                let height =
                     Vec3::from_array(quad.positions[1]) - Vec3::from_array(quad.positions[0]);
-                let direction = along.normalize_or_zero();
+                let across =
+                    Vec3::from_array(quad.positions[2]) - Vec3::from_array(quad.positions[0]);
+                let direction = height.normalize_or_zero();
                 let axis = axes
                     .iter()
                     .copied()
@@ -13402,7 +13409,7 @@ mod tests {
                 assert!(
                     direction.dot(axis).abs() > 0.999,
                     "the card's height runs along the placement axis through its keypoint, \
-                     got {along:?} against {axis:?}"
+                     got {height:?} against {axis:?}"
                 );
                 assert!(
                     across.normalize_or_zero().dot(axis).abs() < 0.01,
