@@ -152,12 +152,17 @@ jobs:
           XDG_RUNTIME_DIR: /tmp
           PWE_PREVIEW_ELEMENT: client
           PWE_PREVIEW_WORLD: client/world.ecwld
-          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '水门_瀑布;树林光束;天煞光束;圣城之光;骷髅光柱;绿鬼火3' }}
-          PWE_PREVIEW_MAX: ${{ inputs.limit || '6' }}
+          # A `push` to the trigger file cannot carry inputs, so the list of
+          # roots to sweep lives in a file next to this workflow and is read
+          # below. That is what makes a sweep a one-line edit instead of a
+          # workflow change: the run that answers "are these roots still what
+          # the reports say" is the same code path every time.
+          PWE_PREVIEW_ROOTS: ${{ inputs.roots || '' }}
+          PWE_PREVIEW_MAX: ${{ inputs.limit || '16' }}
           PWE_PREVIEW_PER_ROOT: ${{ inputs.per_root || '1' }}
-          PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,500,3000' }}
+          PWE_PREVIEW_FRAMES: ${{ inputs.frames || '0,3000' }}
           PWE_PREVIEW_ZOOMS: ${{ inputs.zooms || '1' }}
-          PWE_PREVIEW_ANGLES: ${{ inputs.angles || '35:20,0:80' }}
+          PWE_PREVIEW_ANGLES: ${{ inputs.angles || '35:20' }}
           PWE_PREVIEW_CENSUS: ${{ inputs.census || '1' }}
           PWE_PREVIEW_QUADS: ${{ inputs.quads || '1' }}
           PWE_PREVIEW_SIZE: ${{ inputs.size || '384' }}
@@ -166,6 +171,17 @@ jobs:
           # written and the file ride along with the frames.
           PWE_LOG: ${{ inputs.log || 'effect-elements,effect-cards,effect-uv,effect-clock' }}
         run: |
+          # The sweep list: one root substring per line, `#` comments allowed.
+          if [ -z "${PWE_PREVIEW_ROOTS}" ]; then
+            if [ -s .github/effect-preview-roots.txt ]; then
+              PWE_PREVIEW_ROOTS="$(grep -v '^[[:space:]]*#' .github/effect-preview-roots.txt \
+                | sed '/^[[:space:]]*$/d' | paste -sd';')"
+            else
+              PWE_PREVIEW_ROOTS='水门_瀑布;树林光束;天煞光束;圣城之光;骷髅光柱;绿鬼火3'
+            fi
+            export PWE_PREVIEW_ROOTS
+          fi
+          echo "sweep roots: ${PWE_PREVIEW_ROOTS}"
           export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name 'lvp_icd*.json' -print -quit)"
           if [ -z "$VK_ICD_FILENAMES" ]; then
             echo "::error::no lavapipe ICD; nothing rendered"
