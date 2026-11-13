@@ -13501,9 +13501,7 @@ mod tests {
             let pair = (Vec3::from_array(quad.positions[0]) - Vec3::from_array(quad.positions[1]))
                 .length();
             assert!(
-                widths
-                    .iter()
-                    .any(|width| (pair - 2. * width).abs() < 1e-3),
+                widths.iter().any(|width| (pair - 2. * width).abs() < 1e-3),
                 "pair separation {pair} is one of the authored 2 * Width {:?}",
                 widths.iter().map(|w| 2. * w).collect::<Vec<_>>()
             );
