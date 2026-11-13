@@ -3153,12 +3153,7 @@ fn flipbook_uv(common: &Common, clock_ms: f32) -> [[f32; 2]; 4] {
         let down = rows as f32;
         let u = common.tex_speed[0] * seconds / across;
         let v = common.tex_speed[1] * seconds / down;
-        uv = [
-            [u, v],
-            [u + 1.0, v],
-            [u, v + 1.0],
-            [u + 1.0, v + 1.0],
-        ];
+        uv = [[u, v], [u + 1.0, v], [u, v + 1.0], [u + 1.0, v + 1.0]];
         apply_uv_flips(&mut uv, common);
         return uv;
     }
