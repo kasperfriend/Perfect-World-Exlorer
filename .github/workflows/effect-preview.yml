@@ -177,7 +177,7 @@ jobs:
               PWE_PREVIEW_ROOTS="$(grep -v '^[[:space:]]*#' .github/effect-preview-roots.txt \
                 | sed '/^[[:space:]]*$/d' | paste -sd';')"
             else
-              PWE_PREVIEW_ROOTS='水门_瀑布;树林光束;天煞光束;圣城之光;骷髅光柱;绿鬼火3'
+              PWE_PREVIEW_ROOTS='水门_瀑布;树林光束;天煞光束;圣城之光;骷髅光柱;绿鬼火3;暗语者营地'
             fi
             export PWE_PREVIEW_ROOTS
           fi

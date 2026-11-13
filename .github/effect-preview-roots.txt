@@ -14,3 +14,8 @@
 骷髅光柱
 水族箱
 蓝蘑菇2
+# Element 101's `ZOffset` is a depth, not a translation (§59.1). This is the
+# root with the largest offset in the pack — eleven cards at 2.6, 2.85 and 3.0 —
+# and it is placed in this map at (2733.7, 223.8, -2708.3) and (2889.1, 223.7,
+# -3048.3), so the cards' drawn extents can be measured either side of the fix.
+暗语者营地
