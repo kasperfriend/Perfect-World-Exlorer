@@ -22,9 +22,9 @@ help: remove these parentheses
      |
 
 warning: duplicated attribute
-     --> src/gfx_player.rs:12290:5
+     --> src/gfx_player.rs:12295:5
       |
-12290 |     #[test]
+12295 |     #[test]
       |     ^^^^^^^
       |
       = note: `#[warn(duplicate_macro_attributes)]` on by default
@@ -73,9 +73,9 @@ warning: unused variable: `trailer`
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src/gfx_player.rs:8115:13
+    --> src/gfx_player.rs:8120:13
      |
-8115 |         let mut name = |text: &str, out: &mut Vec<u8>| {
+8120 |         let mut name = |text: &str, out: &mut Vec<u8>| {
      |             ----^^^^
      |             |
      |             help: remove this `mut`
@@ -83,9 +83,9 @@ warning: variable does not need to be mutable
      = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src/gfx_player.rs:9255:13
+    --> src/gfx_player.rs:9260:13
      |
-9255 |         let mut count = |half: Vec3| {
+9260 |         let mut count = |half: Vec3| {
      |             ----^^^^^
      |             |
      |             help: remove this `mut`
@@ -1392,37 +1392,38 @@ help: convert the identifier to upper case
       |
 
 warning: `perfect-world-explorer` (bin "perfect-world-explorer" test) generated 124 warnings (run `cargo fix --bin "perfect-world-explorer" -p perfect-world-explorer --tests` to apply 24 suggestions)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.05s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.85s
      Running unittests src/main.rs (target/debug/build/perfect-world-explorer/555eb3097d2a0398/out/perfect_world_explorer-555eb3097d2a0398)
 
 running 8 tests
-test gfx_player::tests::the_shipped_waterfall_scrolls_and_hides_its_warp_veil ... ok
 
-thread 'gfx_player::tests::the_shipped_forest_beams_are_axial_cards' (3784) panicked at src/gfx_player.rs:13300:9:
-one of the two is the plain placement axis
+thread 'gfx_player::tests::the_shipped_forest_beams_are_axial_cards' (3591) panicked at src/gfx_player.rs:13402:17:
+the card's height runs along the placement axis through its keypoint, got Vec3(-0.7, 0.0, 0.0) against Vec3(0.0, 0.56504244, 0.8250619)
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 test gfx_player::tests::the_shipped_forest_beams_are_axial_cards ... FAILED
-garbage-scale root gfx/怪物/宠物通用/大龙虾_水波.gfx: 7 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 0e0, 1987 cards, widest edge 2.143
+test gfx_player::tests::the_shipped_waterfall_scrolls_and_hides_its_warp_veil ... ok
 test gfx_player::tests::the_shipped_portal_gate_is_a_warp_element ... ok
-
-thread 'gfx_player::tests::the_roots_with_editor_garbage_scales_draw_with_their_keypoint_scales' (3783) panicked at src/gfx_player.rs:12878:32:
-gfx/人物/技能/刺客/回光返照_落光环.gfx is not in gfx.pck
 test modules::populator::nameplate::tests::the_shipped_client_archive_names_the_same_overhead_font ... ok
 test modules::populator::nameplate::tests::the_shipped_table_names_the_overhead_font_first ... ok
-test gfx_player::tests::the_roots_with_editor_garbage_scales_draw_with_their_keypoint_scales ... FAILED
+garbage-scale root gfx/怪物/宠物通用/大龙虾_水波.gfx: 7 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 0e0, 1987 cards, widest edge 2.143
+::warning::gfx/人物/技能/刺客/回光返照_落光环.gfx is not in this gfx.pck build; the §6.2 checks are skipped for it
+::warning::gfx/人物/技能/刺客/回光返照_左手.gfx is not in this gfx.pck build; the §6.2 checks are skipped for it
+garbage-scale root gfx/怪物/技能/变异沼泽鸟_技能.gfx: 7 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 0e0, 2163 cards, widest edge 282.843
+garbage-scale root gfx/怪物/宠物通用/麋鹿左角.gfx: 2 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 4.1829734e17, 492 cards, widest edge 0.151
+garbage-scale root gfx/怪物/宠物通用/麋鹿右角.gfx: 2 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 4.1829734e17, 492 cards, widest edge 0.151
+test gfx_player::tests::the_roots_with_editor_garbage_scales_draw_with_their_keypoint_scales ... ok
 
-thread 'gfx_player::tests::the_shipped_waterfall_veil_fractals_scroll_their_sheets' (3789) panicked at src/gfx_player.rs:12878:32:
-gfx/gfx/场景/新种族地图/瀑布水花子.gfx is not in gfx.pck
+thread 'gfx_player::tests::the_shipped_waterfall_veil_fractals_scroll_their_sheets' (3596) panicked at src/gfx_player.rs:13256:13:
+a frozen sheet at 水色烟雾03.dds u=0: [("水色烟雾03.dds", 0.0), ("烟雾03.tga", 0.0), ("沙.tga", 0.0), ("气连续04.tga", 0.28), ("气连续04.tga", 0.38), ("气连续04.tga", 0.48000002), ("气连续04.tga", 0.58000004), ("气连续04.tga", 0.68), ("气连续04.tga", 0.78), ("气连续04.tga", 0.88), ("气连续04.tga", 0.98), ("气连续04.tga", 1.08), ("气连续04.tga", 0.35999998), ("气连续04.tga", 0.45999998), ("气连续04.tga", 0.56), ("气连续04.tga", 0.65999997), ("气连续04.tga", 0.76), ("气连续04.tga", 0.86), ("气连续04.tga", 0.96000004), ("气连续04.tga", 1.06), ("气连续04.tga", 1.16), ("气连续04.tga", 0.24000001), ("气连续04.tga", 0.34), ("气连续04.tga", 0.44), ("气连续04.tga", 0.54), ("气连续04.tga", 0.64), ("气连续04.tga", 0.74), ("气连续04.tga", 0.84000003), ("气连续04.tga", 0.94), ("气连续04.tga", 1.04), ("流动01_通道.dds", 0.28), ("流动01_通道.dds", 0.38), ("流动01_通道.dds", 0.48000002), ("流动01_通道.dds", 0.58000004), ("流动01_通道.dds", 0.68), ("流动01_通道.dds", 0.78), ("流动01_通道.dds", 0.88), ("流动01_通道.dds", 0.98), ("流动01_通道.dds", 1.08), ("流动01_通道.dds", 0.35999998), ("流动01_通道.dds", 0.45999998), ("流动01_通道.dds", 0.56), ("流动01_通道.dds", 0.65999997), ("流动01_通道.dds", 0.76), ("流动01_通道.dds", 0.86), ("流动01_通道.dds", 0.96000004), ("流动01_通道.dds", 1.06), ("流动01_通道.dds", 1.16), ("流动01_通道.dds", 0.24000001), ("流动01_通道.dds", 0.34), ("流动01_通道.dds", 0.44), ("流动01_通道.dds", 0.54), ("流动01_通道.dds", 0.64), ("流动01_通道.dds", 0.74), ("流动01_通道.dds", 0.84000003), ("流动01_通道.dds", 0.94), ("流动01_通道.dds", 1.04), ("waterfalldrops.tga", 0.0), ("shuizhu.dds", 0.0), ("水花1.dds", 0.0)]
 test gfx_player::tests::the_shipped_waterfall_veil_fractals_scroll_their_sheets ... FAILED
 test gfx_player::tests::the_shipped_waterfall_sheet_keeps_its_alpha ... ok
 
 failures:
 
 failures:
-    gfx_player::tests::the_roots_with_editor_garbage_scales_draw_with_their_keypoint_scales
     gfx_player::tests::the_shipped_forest_beams_are_axial_cards
     gfx_player::tests::the_shipped_waterfall_veil_fractals_scroll_their_sheets
 
-test result: FAILED. 5 passed; 3 failed; 0 ignored; 0 measured; 1102 filtered out; finished in 2.98s
+test result: FAILED. 6 passed; 2 failed; 0 ignored; 0 measured; 1102 filtered out; finished in 2.29s
 
 error: test failed, to rerun pass `--bin perfect-world-explorer`
