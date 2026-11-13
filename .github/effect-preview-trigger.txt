@@ -1,1 +1,1 @@
-sweep 2026-11-13T17:05:23Z pack tests round 2: corner order + sheet-only freeze check
+sweep 2026-11-13T17:11:16Z pack tests round 3: E0425 + rustfmt break form

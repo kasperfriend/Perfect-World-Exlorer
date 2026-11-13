@@ -13201,8 +13201,8 @@ mod tests {
             };
             Ok(shipped_root(&mut file, &entries, &joined))
         };
-        let mut player = Player::new(root, 7, &mut load_child)
-            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        let mut player =
+            Player::new(root, 7, &mut load_child).unwrap_or_else(|error| panic!("{name}: {error}"));
         for _ in 0..3 {
             step(&mut player, 100.);
         }
@@ -13416,9 +13416,9 @@ mod tests {
                     "and its width is square to it, got {across:?}"
                 );
                 assert!(
-                    (along.length() - 20. * 0.7).abs() < 0.05,
+                    (height.length() - 20. * 0.7).abs() < 0.05,
                     "a 0.5 x 10 shaft is 20 units tall at the root's 0.7 scale, got {}",
-                    along.length()
+                    height.length()
                 );
                 let centre = quad
                     .positions
