@@ -1396,7 +1396,7 @@ help: convert the identifier to upper case
       |
 
 warning: `perfect-world-explorer` (bin "perfect-world-explorer" test) generated 125 warnings (run `cargo fix --bin "perfect-world-explorer" -p perfect-world-explorer --tests` to apply 24 suggestions)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
      Running unittests src/main.rs (target/debug/build/perfect-world-explorer/555eb3097d2a0398/out/perfect_world_explorer-555eb3097d2a0398)
 
 running 1 test
@@ -1738,7 +1738,6 @@ World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 q
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2611,246,-4189); 0 load failures, 0 graph failures, 0 warnings
 preview: - `11-42444-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_水草墨绿.gfx at (2607.0, 241.7, -4195.1) dir (0.81, -0.04, -0.59) up (0.03, 1.00, -0.03) night 2 scale 3.82 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 0.50 u, 0.017 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=23428 size=2.99x3.57x2.87 card=0.00x0.00 box=(2605.58,241.62,-4196.58)..(2608.57,245.19,-4193.72)
 preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物03.dds verts=72 extent 2.99 x 3.57 x 2.87 at (2607.1, 243.4, -4195.2) blend 5/6 depth true
-test effect_preview::tests::effect_previews has been running for over 60 seconds
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2611,246,-4189); 0 load failures, 0 graph failures, 0 warnings
 preview: - `11-42444-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_水草墨绿.gfx at (2607.0, 241.7, -4195.1) dir (0.81, -0.04, -0.59) up (0.03, 1.00, -0.03) night 2 scale 3.82 alpha 1.00, asked 3795 ms (shot 3000), view az 35/el 20 zoom 1.00, grid 0.50 u, 0.017 m/px: player clock 3795 ms play 1.000 (file 1.000), quads=1 pixels=22814 size=2.84x3.62x2.96 card=0.00x0.00 box=(2605.58,241.62,-4196.68)..(2608.42,245.24,-4193.72)
 preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物03.dds verts=72 extent 2.84 x 3.62 x 2.96 at (2607.0, 243.4, -4195.2) blend 5/6 depth true
@@ -1759,6 +1758,7 @@ preview: - `13-42446-3000ms-az35el20-z1.00.png` — 场景/新种族地图/水�
 preview: - mesh gfx/models/李燃西游海底植物/textures/李西游海底植物01.dds verts=48 extent 0.54 x 2.35 x 0.63 at (2596.7, 241.7, -4204.8) blend 5/6 depth true
 preview: - mesh gfx/models/海底植物/textures/李西游海底植物04.dds verts=216 extent 3.65 x 5.32 x 3.44 at (2600.8, 243.1, -4203.5) blend 5/6 depth true
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2668,272,-4147); 0 load failures, 0 graph failures, 0 warnings
+test effect_preview::tests::effect_previews has been running for over 60 seconds
 World effects: 1 installed, 1 loaded, 0 pending, 1 playing, 1 frames ticked, 1 quads this frame, eye (2611,244,-4203); 0 load failures, 0 graph failures, 0 warnings
 preview: - `14-42447-0000ms-az35el20-z1.00.png` — 场景/新种族地图/水族箱_海星橙.gfx at (2608.2, 242.0, -4207.2) dir (0.00, -0.04, -1.00) up (0.39, 0.92, -0.04) night 2 scale 3.82 alpha 1.00, asked 792 ms (shot 0), view az 35/el 20 zoom 1.00, grid 0.50 u, 0.011 m/px: player clock 792 ms play 1.000 (file 1.000), quads=1 pixels=14838 size=2.19x0.99x2.44 card=0.00x0.00 box=(2607.34,241.37,-4208.41)..(2609.53,242.36,-4205.97)
 preview: - mesh gfx/models/海星/海星红/textures/海星红.dds verts=282 extent 2.19 x 0.99 x 2.44 at (2608.4, 241.9, -4207.2) blend 5/6 depth true
@@ -1824,5 +1824,5 @@ preview: - card 9.94 x 9.94 at (2607.2, 248.0, -4201.1) axis (0.82, 0.04, 0.57) 
 preview: 36 shots from 18 placements, report target/effect-preview/metrics.md
 test effect_preview::tests::effect_previews ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1111 filtered out; finished in 93.22s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1111 filtered out; finished in 80.06s
 
