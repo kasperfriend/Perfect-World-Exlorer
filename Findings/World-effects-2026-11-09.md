@@ -5761,3 +5761,101 @@ two candidate mechanisms §53.5 named — a controller the viewer does not run, 
 the emitter's own seven-keypoint path — are separated by one `EffectFrames`
 capture at the Wraithgate fires: if the frame line moves while `key=` stays it
 is a controller; if both move it is the authored keypoint path.
+
+### 59.7 The "code green, render bad" sweep: 2026-11-13
+
+The report after the §59.2 tile fix: the previews are good but the window
+shows only static waterfalls — sweep deep, especially waterfalls, their
+textures and models. This section is what the sweep cleared, what it found,
+and what one open item remains.
+
+**Cleared with measurements (the "green" that was actually green):**
+
+1. *The window's effect clock is real.* `delta = if advance {
+   camera.logic_delta_ms } else { 0 }` (`gpu.rs:2635`) and
+   `logic_delta_ms = environment::frame_ms(region_tick - region_tick_ms)`
+   capped at 250 ms (`gpu.rs:4362-4365`); effects tick only inside `if
+   advance` on the main pass (`world_models_gpu.rs:734-778`). There is no
+   frozen-clock path; effects stop only when frames stop, by design.
+2. *The blend table is the client's enum.* `A3DBLEND_ZERO = 1` …
+   `A3DBLEND_INVDESTCOLOR = 10` (`A3DTypes.h:181-198`) matches
+   `model_queue::blend_factor` 1:1, and the corpus authors only
+   `SrcBlend` 2/5 × `DestBlend` 2/4/6 (450/30,584 × 26,341/251/4,442
+   elements) — no element reaches the unsupported 11+ codes, so no sheet can
+   be dropped at pipeline build. The water cards' `2/4` really is ONE +
+   INVSRCCOLOR in the client too.
+3. *Every waterfall texture decodes on a covered path.* The 22 waterfall
+   roots reference DXT1/DXT3/DXT5, uncompressed 32-bit BGRA (alpha mask
+   explicit, `model_dds.rs:81-99`), TGA 32-bit and one BMP;
+   `model_texture_gpu.rs:13-104` handles each and a failure falls back to a
+   *transparent* stand-in, not a white slab.
+4. *The flipbook freeze branch is unreachable.* 928 corpus elements author
+   flipbook cells (`TexRow*TexCol > 1`) and none writes `TexInterval: 0`, so
+   `flipbook_uv`'s hold-first-cell-on-zero rule can never fire on a shipped
+   file.
+5. *Element 150 is the fractal veil class, and it shares the corrected tile
+   law.* `emit_fractal` takes `flipbook_uv`'s window and adds the per-segment
+   u along the strip; the three-point width/alpha profile is
+   `A3DGFXLightning::Load`'s `[start, end, midpoint]` order
+   (`A3DGFXLightning.cpp:467-500`, ramp `:888-903`). `emit_grid` (210) and
+   `emit_bolts` (151) share the same function.
+
+**The class that hid all of it: pack tests that could not run.**
+`open_pack()` reads `google_drive/gfx.pck` and silently returns when it is
+absent, so `the_shipped_*` tests never executed in any workflow — the class
+that let two tests assert opposite tiled-UV laws and both stay green
+(§59.2). The effect-preview workflow already downloads the pack; a new
+"Shipped pack tests (cannot skip)" step links it to `google_drive/gfx.pck`
+and runs the pack corpus under `PWE_CORPUS=require`. First contact failed
+three ways, each a class of its own:
+
+1. a doubled `gfx/` prefix on the element-200 `GfxPath` in the new veil test;
+2. `the_shipped_forest_beams_are_axial_cards` had never run and contradicted
+   itself (below);
+3. `the_roots_with_editor_garbage_scales…` names roots the 241 MB Drive pack
+   build (`1B0QY1…`, the one CI renders against) does not carry — the 97 MB
+   retail pack has them. `shipped_root_opt` now emits a `::warning::` per
+   absent root and continues; the two-build catalogue drift is visible in
+   every run log.
+
+**The forest-shaft law, corrected twice.** The test expected the shaft at
+"(0, -0.565, 0.825), the third column" — wrong on both counts. The client
+writes the placement basis as matrix rows (`A3DGFXEx.cpp:1574-1585`,
+`SetDirAndUp`: rows 0/1/2 = `CrossProduct(vUp, vDir)`, `vUp`, `vDir`) and
+transforms points as row vectors — both `operator *` overloads call
+`D3DXVec3TransformCoord` (`A3DMatrix.cpp:121-146`) — so local Z maps onto
+the `vDir` row, (0, 0.565, 0.825), and `placement_transform`'s columns
+(right, up, forward) are exactly that map; the assertion now trips on a
+transposed placement, which is the mirrored-shaft bug it hunts. And the
+drawn-card check read corner `2-0` as the height: the client's RotFromView
+fill writes bottom-left, top-left, bottom-right, top-right
+(`A3DDecalEx.cpp:403-406`), so `1-0` is the height along `vDir` and `2-0`
+the camera-facing width along `vUp` — which is what the runtime draws (the
+width edge measured exactly 2×0.5×0.7 = 0.7 on screen).
+
+**The veil flows, end to end.** `the_shipped_waterfall_veil_fractals_scroll_their_sheets`
+runs `瀑布局.gfx` (nine element-150 sheets, U speeds 0.30/0.35/0.45 on
+气连续04.tga and 流动01_通道.dds, plus its bound spray root resolved from the
+pack) through the real player: at 0.8 s the sheet windows sit at exactly
+TexSpeed × 0.8 s (0.24/0.28/0.36) with the per-segment u offsets along each
+strip. Final state of the step: 8 pack tests pass on the 241 MB build.
+
+**Why there are no veil frames.** `瀑布1` (grid) and `瀑布大` (veil) have no
+placements in `world.ecwld`: this map installs only `水门_瀑布` ×4 and 27
+`瀑布局水花*` spray placements (the 31 waterfall placements name no other
+root). Their runtime evidence is the shipped tests; the sweep-list lines draw
+frames only when a map that places them is swept, and a line matching no
+placement is skipped silently (no warning — recorded).
+
+**The remaining static waterfall is scenery, and the mechanism is narrowed.**
+§49.5 established the curtain the user sees is not a gfx root
+(`Waterfall-2.log`: 39 subjects, none draws it) and that this viewer has no
+animated material UVs. This pass cleared the two candidate client
+mechanisms: `A3DMaterial` is lighting only (ambient/diffuse/specular/
+emissive, no UV state in `A3DMaterial.cpp`) and `A3DTexture::TickAnimation`
+is a stub (`A3DTexture.cpp:352-355`, `return true`). The retail motion
+therefore lives in per-frame game-layer UV or texture-stage transform work
+(or terrain-layer code) that this repo has not located; `model_material.rs`
+and `skin.rs:14-22` carry no scroll term to implement against. Finding the
+game-side mechanism is the next pass, and it is the one thing between the
+user and flowing falls.

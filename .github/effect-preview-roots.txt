@@ -29,7 +29,11 @@
 # element-210 grid curtain (`A3DGridDecalEx`, authored lattice, `TexSpeed` V
 # -0.5 on 连续水流纹理.tga), and 瀑布大 is the element-150 fractal veil: nine
 # noise strips (Segs 10, three U speeds 0.30/0.35/0.45 on 气连续04.tga and
-# 流动01_通道.dds, blend 5/6) plus its bound spray root. Both scroll through
-# `flipbook_uv`'s tile arm, and until this line no frame proved it.
+# 流动01_通道.dds, blend 5/6) plus its bound spray root. This map's world.ecwld
+# places neither (its 31 waterfall placements are 水门_瀑布 x4 and the
+# 瀑布水花* spray family only), so these two lines draw frames only when a map
+# that installs them is swept; until then their runtime law is pinned by
+# `the_shipped_waterfall_veil_fractals_scroll_their_sheets` in the pack-tests
+# step. A line that matches no placement is skipped without a warning.
 瀑布1
 瀑布大
