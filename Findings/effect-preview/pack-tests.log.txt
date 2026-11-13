@@ -9,30 +9,30 @@ warning: unused import: `std::collections::HashMap`
    = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
 
 warning: unnecessary parentheses around closure body
-    --> src/gfx_player.rs:2842:30
+    --> src/gfx_player.rs:2846:30
      |
-2842 |         .map(|(last, first)| (*last - *first))
+2846 |         .map(|(last, first)| (*last - *first))
      |                              ^              ^
      |
      = note: `#[warn(unused_parens)]` (part of `#[warn(unused)]`) on by default
 help: remove these parentheses
      |
-2842 -         .map(|(last, first)| (*last - *first))
-2842 +         .map(|(last, first)| *last - *first)
+2846 -         .map(|(last, first)| (*last - *first))
+2846 +         .map(|(last, first)| *last - *first)
      |
 
 warning: duplicated attribute
-     --> src/gfx_player.rs:12402:5
+     --> src/gfx_player.rs:12772:5
       |
-12402 |     #[test]
+12772 |     #[test]
       |     ^^^^^^^
       |
       = note: `#[warn(duplicate_macro_attributes)]` on by default
 
 warning: duplicated attribute
-     --> src/gfx_player.rs:13430:5
+     --> src/gfx_player.rs:13800:5
       |
-13430 |     #[test]
+13800 |     #[test]
       |     ^^^^^^^
 
 warning: unnecessary parentheses around type
@@ -79,9 +79,9 @@ warning: unused variable: `trailer`
     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src/gfx_player.rs:8227:13
+    --> src/gfx_player.rs:8434:13
      |
-8227 |         let mut name = |text: &str, out: &mut Vec<u8>| {
+8434 |         let mut name = |text: &str, out: &mut Vec<u8>| {
      |             ----^^^^
      |             |
      |             help: remove this `mut`
@@ -89,9 +89,9 @@ warning: variable does not need to be mutable
      = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
 
 warning: variable does not need to be mutable
-    --> src/gfx_player.rs:9367:13
+    --> src/gfx_player.rs:9585:13
      |
-9367 |         let mut count = |half: Vec3| {
+9585 |         let mut count = |half: Vec3| {
      |             ----^^^^^
      |             |
      |             help: remove this `mut`
@@ -1398,19 +1398,19 @@ help: convert the identifier to upper case
       |
 
 warning: `perfect-world-explorer` (bin "perfect-world-explorer" test) generated 125 warnings (run `cargo fix --bin "perfect-world-explorer" -p perfect-world-explorer --tests` to apply 24 suggestions)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.84s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 17.87s
      Running unittests src/main.rs (target/debug/build/perfect-world-explorer/555eb3097d2a0398/out/perfect_world_explorer-555eb3097d2a0398)
 
 running 9 tests
-test gfx_player::tests::the_shipped_portal_gate_is_a_warp_element ... ok
-blood-bream strip quad after the UV law: uv=[(0.000,1.000),(0.000,0.000),(0.033,0.000),(0.033,1.000)] pair_width=0.140 (the live log's before: uv=[(0,0),(1,0),(0.033,1),(1.033,1)] at half the width)
-test gfx_player::tests::the_shipped_lightning_strips_run_u_along_their_length ... ok
 blood-bream strip quad after the UV law: uv=[(0.000,1.000),(0.000,0.000),(0.033,0.000),(0.033,1.000)] pair_width=0.140 (the live log's before: uv=[(0,0),(1,0),(0.033,1),(1.033,1)] at half the width)
 test gfx_player::tests::the_shipped_lightning_strips_run_u_along_their_length ... ok
 garbage-scale root gfx/怪物/宠物通用/大龙虾_水波.gfx: 7 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 0e0, 1753 cards, widest edge 2.143
 ::warning::gfx/人物/技能/刺客/回光返照_落光环.gfx is not in this gfx.pck build; the §6.2 checks are skipped for it
 ::warning::gfx/人物/技能/刺客/回光返照_左手.gfx is not in this gfx.pck build; the §6.2 checks are skipped for it
-garbage-scale root gfx/怪物/技能/变异沼泽鸟_技能.gfx: 7 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 0e0, 1768 cards, widest edge 282.843
+test gfx_player::tests::the_shipped_portal_gate_is_a_warp_element ... ok
+garbage-scale root blood-bream strip quad after the UV law: uv=[(0.000,1.000),(0.000,0.000),(0.033,0.000),(0.033,1.000)] pair_width=0.140 (the live log's before: uv=[(0,0),(1,0),(0.033,1),(1.033,1)] at half the width)
+gfx/怪物/技能/变异沼泽鸟_技能.gfx: 7 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 0e0, 1768 cards, widest edge 282.843
+test gfx_player::tests::the_shipped_lightning_strips_run_u_along_their_length ... ok
 garbage-scale root gfx/怪物/宠物通用/麋鹿左角.gfx: 2 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 4.1829734e17, 492 cards, widest edge 0.151
 garbage-scale root gfx/怪物/宠物通用/麋鹿右角.gfx: 2 keypoints, widest keypoint scale 1.000, largest clamped ramp stop 0.000, largest generation-sequence scale 4.1829734e17, 492 cards, widest edge 0.151
 test gfx_player::tests::the_roots_with_editor_garbage_scales_draw_with_their_keypoint_scales ... ok
@@ -1420,5 +1420,5 @@ test gfx_player::tests::the_shipped_waterfall_scrolls_and_hides_its_warp_veil ..
 test gfx_player::tests::the_shipped_waterfall_veil_fractals_scroll_their_sheets ... ok
 test gfx_player::tests::the_shipped_waterfall_sheet_keeps_its_alpha ... ok
 
-test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 1103 filtered out; finished in 2.66s
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 1108 filtered out; finished in 2.76s
 
