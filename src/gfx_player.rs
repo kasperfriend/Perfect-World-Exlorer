@@ -12888,12 +12888,18 @@ mod tests {
                     sequence_scales.push(sequence.scale);
                 }
             }
-            let garbage: Vec<f32> = ramp_stops
+            // The two numbers that used to be confused with each other, kept
+            // apart: the largest stop a scale ramp survived with, and the largest
+            // generation-sequence scale (which no draw path reads, so nothing
+            // bounds it). A single `> 1e6` filter would always come back empty on
+            // the ramp side, because the clamp runs at parse time — which reads as
+            // "there was no garbage", the opposite of what it means.
+            let largest_stop = ramp_stops
                 .iter()
-                .chain(sequence_scales.iter())
-                .copied()
-                .filter(|value| value.abs() > 1e6)
-                .collect();
+                .fold(0f32, |most, value| most.max(value.abs()));
+            let largest_sequence = sequence_scales
+                .iter()
+                .fold(0f32, |most, value| most.max(value.abs()));
             assert!(
                 keypoint_scales.iter().all(|scale| scale.abs() < 1e6),
                 "{name}: a keypoint scale is huge after all: {keypoint_scales:?}"
@@ -12923,9 +12929,14 @@ mod tests {
                     }
                 }
             }
+            let widest_keypoint = keypoint_scales
+                .iter()
+                .fold(0f32, |most, value| most.max(value.abs()));
             eprintln!(
-                "garbage-scale root {name}: keypoint scales {keypoint_scales:?}, \
-                 clamped ramp stops {garbage:?}, {drawn} cards, widest edge {widest:.3}"
+                "garbage-scale root {name}: {} keypoints, widest keypoint scale {widest_keypoint:.3}, \
+                 largest clamped ramp stop {largest_stop:.3}, largest generation-sequence scale \
+                 {largest_sequence:e}, {drawn} cards, widest edge {widest:.3}",
+                keypoint_scales.len()
             );
         }
     }

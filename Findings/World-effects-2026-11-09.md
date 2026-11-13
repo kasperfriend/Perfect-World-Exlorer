@@ -5433,11 +5433,28 @@ the alternatives are a card behind the camera or a division by zero).
 archive's element blocks and counts them: **5,244 element-101 records, 3,263 of
 which author a `ZOffset` line, and 694 with a non-zero one.** That matches the
 "694 element-101 records" figure the earlier anatomy pass recorded by hand, so
-the tool and the hand count agree. The values run from `-2.0` to `3.0`
-(`暗语者营地` authors 2.6-3.0 on eleven cards, `爆弹_燃烧1` authors -2.0 on
-five), i.e. small next to a typical 5-50 unit card — which is exactly why a
-world-space translation looked plausible and why the screen-space size error it
-caused was easy to miss.
+the tool and the hand count agree. The 694 live in **281 roots**; the values run
+from `-2.0` to `3.0`, i.e. small next to a typical 5-50 unit card — which is
+exactly why a world-space translation looked plausible and why the screen-space
+size error it caused was easy to miss.
+
+The distribution is all tail: 40 roots carry a single card, and the four
+heaviest are all weapon effects with offsets of a few hundredths
+(`17品法器` 0.01 x40, `17品法宝_基本效果_光点` 0.002 x28, `10品匕首` 0.01-0.02
+x25, `18品匕首_l01` 0.01 x16) — sub-millimetre in world space, so the size they
+gain is unmeasurable. The one root where the key matters is
+`gfx/models/暗语者营地/暗语者营地.gfx`: **eleven 101 records at 2.6, 2.85 and
+3.0**, with cards of `6 x 6`, `6 x 10`, `6.5 x 11.5` and `7 x 12`. At the
+sixteen-unit depth those cards are typically framed at, the old translation drew
+each one `16 / 13` — about **23 %** — too large, and the number is the same for
+all four sizes because it is a ratio. `gfx/场景/新种族地图/暗语者营地.gfx`, the
+scenery twin that is actually placed in this map, carries six of the same
+eleven records, so the effect-preview sweep now includes it
+(`.github/effect-preview-roots.txt`) and the fix has a before-and-after
+placement rather than only a unit test.
+
+`爆弹_燃烧1` is the only root that pushes the other way (`-2.0` on five cards,
+`0.5` on four) and draws those five about 13 % *small*, at sixteen units.
 
 ### 59.2 Controllers run on the client's branch, and the branch is the mode
 
@@ -5546,14 +5563,43 @@ the particle emitter consumes and whose `Scale` nothing reads. So:
 
 **Do those roots draw, and at what size?** A corpus test
 (`the_roots_with_editor_garbage_scales_draw_with_their_keypoint_scales`) runs
-all six through the real player for forty frames, asserts every keypoint scale
-is 1.0, asserts every ramp stop survived the clamp at or below 100, and prints
-the number of cards and the widest edge each root submits. The answer, recorded
-in the run log, is that they draw their authored geometry — the garbage was
-never reaching a keypoint in the first place. None of the six is scenery: they
-are a lobster's water ripple, two assassin-skill halos, a swamp bird's skill
-and two elk antlers, which is why §6.2 already said they were not the
-white-blob report.
+all six through the real player for forty 33 ms frames, asserts no keypoint
+scale is at or above 1e6, asserts every ramp stop survived the clamp at or below
+100, and prints the three distributions beside the number of cards and the
+widest edge each root submits.
+
+Two of those three are checkable without running the binary, and were, by
+mirroring the test's own loops over `gfx.pck`:
+
+| root | keypoints | widest \|scale\| | ramp stops | largest stop | generation sequence |
+|---|---|---|---|---|---|---|
+| `大龙虾_水波` | 7 | 1.000 | 13 | 100.000 | — |
+| `回光返照_落光环` | 29 | 1.000 | 18 | 100.000 | 1.0, 1.0 |
+| `回光返照_左手` | 11 | 1.000 | 6 | 100.000 | — |
+| `变异沼泽鸟_技能` | 7 | 1.000 | 2 | 100.000 | — |
+| `麋鹿左角` (x2 records) | 2 | 1.000 | 0 | — | 4.183e17 each |
+| `麋鹿右角` (x2 records) | 2 | 1.000 | 0 | — | 4.183e17 each |
+
+So on every one of the six the keypoint scales are exactly 1.0 — the huge
+numbers live entirely in a clamped ramp stop or in the generation record's
+unread `Scale` — and every stop that came out of a ramp is at the clamp. The
+ramp stop's own `> 1e6` value is gone by the time the test can see it, which is
+what `MAX_SCALE_STOP` is for.
+
+**What is not yet measured, stated plainly.** The per-root card counts and
+widest drawn edges are printed by that test and have not been read: the test
+needs `google_drive/gfx.pck`, and CI stages no archives, so it skips there
+(`pck::corpus_absent`) exactly as the other corpus tests do. The geometry claim
+is therefore still an inference from the file — every keypoint scale is 1.0 and
+no ramp or sequence value reaches a draw — rather than a measurement of drawn
+pixels. Run `PWE_CORPUS=require cargo test --release --bin perfect-world-explorer
+the_roots_with_editor_garbage_scales -- --nocapture` on a machine with the pack
+to fill it in; an earlier draft of this section said "recorded in the run log",
+which was not true.
+
+None of the six is scenery: they are a lobster's water ripple, two
+assassin-skill halos, a swamp bird's skill and two elk antlers, which is why
+§6.2 already said they were not the white-blob report.
 
 ### 59.5 What is left open, stated as such
 
