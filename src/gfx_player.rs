@@ -4303,9 +4303,20 @@ fn emit_model(
             .vertices
             .iter()
             .map(|vertex| {
+                // `A3DGFXModel::UpdateModel` builds
+                // `matScale(kp.m_fScale) * GetTranMatrix(kp) * GetParentTM()`, so
+                // a keypoint's own `Scale` multiplies a model exactly as it
+                // multiplies a card. The card path folds it in at
+                // `quad_corners`; this path used to hand the raw vertex to the
+                // placement, which carries the root scale and nothing of the
+                // keypoint — every model element drew at `DefScale x fScale`
+                // whatever its keypoint said. The aquarium's green kelp is the
+                // visible case: `海底植物.SMD` inside `水族箱_水草翠绿` is the
+                // same record as the 15-unit kelp beside it yet framed
+                // 42.77 x 67.47 x 47.28.
                 let position = context
                     .placement
-                    .transform_point3(Vec3::from_array(vertex.position));
+                    .transform_point3(Vec3::from_array(vertex.position) * context.scale);
                 // The placement carries the keypoint scale, which is uniform, so
                 // transforming the normal as a vector and renormalising is the
                 // client's `matScale * tran * parent` applied to it. A zero
@@ -7405,6 +7416,69 @@ mod tests {
         assert!(
             player.quads().iter().any(|quad| quad.mesh.is_some()),
             "and the quad array carries it"
+        );
+    }
+
+    /// A keypoint's `Scale` multiplies a model element's meshes.
+    ///
+    /// `A3DGFXModel::UpdateModel` composes `matScale(kp.m_fScale) *
+    /// GetTranMatrix(kp) * GetParentTM()`, so the same model at `Scale: 0.5` is
+    /// half the size of the one at `Scale: 1`. The card path always applied it
+    /// (`quad_corners`); the mesh path handed the raw vertex to the placement,
+    /// which carries the root scale and nothing of the keypoint. The aquarium's
+    /// green kelp is the visible case — `海底植物.SMD` in `水族箱_水草翠绿` is
+    /// the same record as the fifteen-unit kelp beside it, yet framed
+    /// 42.77 x 67.47 x 47.28.
+    #[test]
+    fn a_models_keypoint_scale_multiplies_its_meshes() {
+        let archive = one_triangle_model();
+        let extent = |keypoint: &str| -> f32 {
+            let source = format!(
+                "{}GFXELEMENTID: 160\r\nName: crystal\r\nSrcBlend: 5\r\nDestBlend: 2\r\n\
+                 RepeatCount: 1\r\nRepeatDelay: 0\r\nTexFile: \r\nBindEle: \r\nZEnable: 0\r\n\
+                 MatchGrnd: 0\r\nTexRow: 1\r\nTexCol: 1\r\nTexInterval: 50\r\nPriority: 0\r\n\
+                 IsDummy: 0\r\nDummyEle: \r\nWarp: 0\r\nTileMode: 0\r\nTexSpeed: 0\r\n\
+                 TexSpeed: 0\r\nUReverse: 0\r\nVReverse: 0\r\nUVExchg: 0\r\nRenderLayer: 0\r\n\
+                 NoDownSample: 0\r\nResetLoopEnd: 0\r\nTexAnimMaxTime: 0\r\n\
+                 ModelPath: 测试\\\\三角形.SMD\r\nModelActName: \r\nLoops: 1\r\nAlphaCmp: 0\r\n\
+                 WriteZ: 1\r\nUse3DCam: 0\r\nStartTime: 0\r\nKEYPOINTCOUNT: 1\r\n\
+                 InterpolateMode: 0\r\nTimeSpan: -1\r\nPosition: 0, 0, 0\r\nColor: -1\r\n\
+                 Scale: {keypoint}\r\nDirection: 0, 0, 0, 1\r\nRad_2D: 0\r\nCtrlMethodCount: 0\r\n",
+                header79(1),
+            );
+            let mut player = build(&source);
+            let mut read = |path: &str| -> Result<Vec<u8>, String> {
+                let name = crate::ecmodel::normalize(path);
+                archive
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, bytes)| bytes.clone())
+                    .ok_or_else(|| format!("{name} is not in the test archive"))
+            };
+            player.load_models("gfx/测试.gfx", &mut read).unwrap();
+            step(&mut player, 16.);
+            let meshes: Vec<&EffectMesh> = player
+                .quads()
+                .iter()
+                .filter_map(|quad| quad.mesh.as_ref())
+                .collect();
+            assert_eq!(meshes.len(), 1, "one mesh for one model element");
+            let mut min = [f32::INFINITY; 3];
+            let mut max = [f32::NEG_INFINITY; 3];
+            for vertex in &meshes[0].vertices {
+                for axis in 0..3 {
+                    min[axis] = min[axis].min(vertex.position[axis]);
+                    max[axis] = max[axis].max(vertex.position[axis]);
+                }
+            }
+            (max[0] - min[0]).max(max[1] - min[1]).max(max[2] - min[2])
+        };
+        let full = extent("1.000000");
+        let half = extent("0.500000");
+        assert!(full > 0., "the fixture has an extent");
+        assert!(
+            (half - full * 0.5).abs() < 1e-4,
+            "a keypoint at half scale draws half the mesh: {half} against {full}"
         );
     }
 

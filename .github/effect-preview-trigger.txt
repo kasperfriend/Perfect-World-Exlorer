@@ -7,3 +7,5 @@
 2026-11-13T10:58:10Z — sweep: the Raging Tides aquarium only, with the mesh framing fix (§57.14)
 
 2026-11-13T11:01:40Z — sweep: aquarium again, with the model path and per-mesh extent in the log
+
+2026-11-13T11:13:51Z — sweep: aquarium with the model keypoint scale fix and the frame channel

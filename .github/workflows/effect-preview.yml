@@ -169,7 +169,7 @@ jobs:
           # The element table and the decal channel are the two that answer "which
           # element, built by which basis"; they cost nothing until a line is
           # written and the file ride along with the frames.
-          PWE_LOG: ${{ inputs.log || 'effect-elements,effect-cards,effect-uv,effect-clock' }}
+          PWE_LOG: ${{ inputs.log || 'effect-elements,effect-cards,effect-uv,effect-clock,effect-frames' }}
         run: |
           # The sweep list: one root substring per line, `#` comments allowed.
           if [ -z "${PWE_PREVIEW_ROOTS}" ]; then
