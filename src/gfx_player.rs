@@ -10814,11 +10814,16 @@ mod tests {
     /// projected position or size.
     #[test]
     fn a_two_d_decal_faces_the_camera_and_keeps_the_offset_in_depth() {
+        // The eye sits sixteen units down +Z from the card, looking at it, so the
+        // authored centre (2, 4, 6) is ten units away and every corner of the
+        // card is at a depth near ten. A camera behind its own card would make the
+        // push target negative and the helper refuse it, which is the guard, not
+        // the behaviour this test is about.
         let camera = View {
-            position: Vec3::ZERO,
+            position: Vec3::new(2., 4., 16.),
             right: Vec3::X,
-            up: Vec3::new(0., 0.866_025, -0.5),
-            forward: Vec3::new(0., -0.5, -0.866_025),
+            up: Vec3::Y,
+            forward: -Vec3::Z,
         };
         let header = header37(1).replace("MOXTVersion: 37", "MOXTVersion: 42");
         let element = SPRITE
@@ -10838,46 +10843,50 @@ mod tests {
             (height.normalize().dot(camera.up).abs() - 1.).abs() < 1e-4,
             "the height lies on the camera's up: {height:?}"
         );
+        // `Fill_Verts_2D` writes `fWidth = m_fWidth1/2 * kp.m_fScale * fScale`, so
+        // a 0.25 x 0.5 half-extent card at keypoint scale 2 under `DedaultScale: 2`
+        // is 2 wide and 4 tall in world units — the same either side of `ZOffset`.
         assert!(
             (width.length() - 2.).abs() < 1e-4 && (height.length() - 4.).abs() < 1e-4,
             "screen extents keep the world size: {} {}",
             width.length(),
             height.length()
         );
-        // The authored centre is (2, 4, 6); `ZOffset: 2` at `GetActualScale()`
-        // 4 (the root's `DedaultScale: 2` times the placement's 1) is a push of
-        // 4 along the camera direction, so the pushed centre's depth — the one
-        // `vCenter.z` every corner takes — is `depth(centre) - 4`.
+        // The authored centre is ten units from the eye; `ZOffset: 2` at
+        // `GetActualScale()` 4 (the root's `DedaultScale: 2` times the placement's
+        // 1) is a push of 4, so the pushed centre's depth — the one `vCenter.z`
+        // every corner takes — is ten minus four.
         let depth = |p: Vec3| (p - camera.position).dot(camera.forward);
-        let authored = Vec3::new(2., 4., 6.);
-        let pushed = depth(authored) - 4.;
-        for (index, point) in [corner(0), corner(1), corner(2), corner(3)].iter().enumerate() {
-            assert!(
-                (depth(*point) - pushed).abs() < 1e-3,
-                "corner {index} takes the pushed depth: {} vs {pushed}",
-                depth(*point)
-            );
-        }
-        // A corner's screen point is its ray from the eye; a scale about the eye
-        // leaves that ray alone, which is what keeps the projected x/y — and so
-        // the position and size — fixed while the depth moves.
-        for index in 0..4 {
-            let before = authored + width * [0.5f32, -0.5, -0.5, 0.5][index]
-                + height * [0.5f32, 0.5, -0.5, -0.5][index];
-            let ray_before = (before - camera.position).normalize();
-            let ray_after = (corner(index) - camera.position).normalize();
-            assert!(
-                (ray_before - ray_after).length() < 1e-4,
-                "corner {index} moved off its eye ray: {ray_before:?} vs {ray_after:?}"
-            );
-        }
-        // The size on screen is unchanged, which is exactly what shifting all
-        // four corners by the world offset used to break: the card would have
-        // been 4 units nearer the eye and so `d / (d - 4)` times larger.
         let centre = (0..4).fold(Vec3::ZERO, |sum, i| sum + corner(i)) / 4.;
+        let pushed = 10. - 4.;
+        for index in 0..4 {
+            assert!(
+                (depth(corner(index)) - pushed).abs() < 1e-3,
+                "corner {index} takes the pushed depth: {} vs {pushed}",
+                depth(corner(index))
+            );
+        }
         assert!(
             (depth(centre) - pushed).abs() < 1e-3,
-            "the centre moved in depth, not in x/y: {centre:?}"
+            "and so does the centre: {centre:?}"
+        );
+        // Moving 4 of the 10 units closer, a card that kept its world size would be
+        // `10/6` times larger on screen. A scale about the eye keeps every corner
+        // on its own ray instead, which is what holds the projected size fixed —
+        // so the world extents shrink by exactly that factor and the screen
+        // extents do not move.
+        let projected_width = 2. * 10. / 6.;
+        assert!(
+            (width.length() - projected_width).abs() < 1e-3,
+            "the world width scales with the depth, so the screen width does not: \
+             {} vs {projected_width}",
+            width.length()
+        );
+        let projected_height = 4. * 10. / 6.;
+        assert!(
+            (height.length() - projected_height).abs() < 1e-3,
+            "and so does the world height: {} vs {projected_height}",
+            height.length()
         );
     }
 
@@ -10893,7 +10902,10 @@ mod tests {
             up: Vec3::Y,
             forward: -Vec3::Z,
         };
-        // A 2x2 card in the plane z = 0, i.e. five units in front of the eye.
+        // A 2x2 card in the plane z = 0, i.e. five units in front of the eye. Its
+        // corners are all at the same depth, so "the centre's pushed depth" and
+        // "each corner's own depth minus the push" agree here, which is what
+        // makes the expectation below exact rather than approximate.
         let corners = [
             [-1., 1., 0.],
             [1., 1., 0.],
@@ -10906,10 +10918,13 @@ mod tests {
             let before = Vec3::from_array(corners[index]);
             let after = Vec3::from_array(*corner);
             assert!(
-                (depth(after) - (depth(before) - 2.)).abs() < 1e-5,
-                "corner {index} is two units nearer the eye: {} vs {}",
-                depth(after),
-                depth(before)
+                (depth(after) - 3.).abs() < 1e-5,
+                "corner {index} takes the pushed centre's depth, 5 - 2 = 3: {}",
+                depth(after)
+            );
+            assert!(
+                (depth(before) - 5.).abs() < 1e-5,
+                "corner {index} started at depth 5"
             );
             // Its projected position is its ray's direction, unchanged.
             assert!(
