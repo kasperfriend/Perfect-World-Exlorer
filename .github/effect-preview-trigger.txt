@@ -21,3 +21,5 @@
 2026-11-13T13:40:00Z — sweep: element-101 ZOffset as a depth-only push, controller gate on the mode alone, repeat timing before the final delay (§59)
 
 2026-11-13T14:20:00Z — sweep: 暗语者营地, the six element-101 cards that offset 2.6..3.0, so the depth-only ZOffset is measured on a placement (§59.1)
+
+2026-11-13T15:05:00Z — sweep: 暗语者营地 again, with the preview camera basis fixed (forward was reversed), to measure the 101 depth push (§59.1)
