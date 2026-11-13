@@ -4653,3 +4653,45 @@ Those two files are what every claim in §57.3 and §57.5 rests on: the element 
 is the asset as authored, and the decal channel is the branch each card was built
 by, printed next to the card's texture, its `rot_from_view`, its origin and the
 clock at which it was drawn.
+
+### 57.8 The 1.5.2 client, read: what a tiled card really samples
+
+The engine, not a decompilation this time — `PWClient152/Common/GfxCommon2` from
+`coussiraty/PWClient-152` (`A3DGFXEx.cpp`, `A3DGFXElement.{h,cpp}`,
+`A3DDecalEx.{h,cpp}`, `A3DGFXKeyPoint.h`). Three of the questions above stop being
+questions:
+
+**The placement chain is ours exactly.** `CECOrnamentMan::LoadEffect`
+(`ElementCore/ElementClient/EC_ManOrnament.cpp:847`) reads `ECWDFILEEFFECT12` —
+id, `fScale`, pos, dir, up, `fSpeed`, `iValidTime`, `fAlpha`, `bAttenuation` — then
+`LoadGFXFromFile` does `pGFX->SetScale(fScale); pGFX->SetPlaySpeed(fSpeed);
+pGFX->SetParentTM(a3d_TransformMatrix(vDir, vUp, vPos));`. So the record layout of
+`scene.rs` is the shipped one, field for field, and the two numbers our
+`effect-clock` channel prints are the two the client applies.
+
+**The card size is `2 x (file Width) x (DefScale x record scale)`.** `A3DDecalEx`
+keeps `m_fWidth` as a *half* extent (`A3DDecalEx.h:33`), `Load` reads the file's
+`Width:` straight into it, and `Save` writes it back unchanged — the `x2` lives
+only in the editor property (`GetProperty` returns `m_fWidth*2`). `Update_3D`
+builds the quad from `m_fWidth1/2 * kp.m_fScale` and transforms it by
+`GetTranMatrix(kp) * GetParentTM()`, and `CalcParentTM` is
+`m_matParent = m_matScale * m_matNoScale` with `m_fActualScale = m_fDefScale *
+m_fScale` (`A3DGFXEx.h:199`). `GetTranMatrix` carries rotation and translation
+only. The `RotFromView` and ground branches multiply by `GetActualScale()`
+themselves and return local=false, so the scale is applied once in every path.
+Our 4.92 x 6.84 waterfall card is 2 x (0.9, 1.25) x (1.000 x 2.733) and is what
+the client draws. **The sizes were never the bug.**
+
+**A tiled card shows one sheet, not `TexCol x TexRow` of them.** This is the
+stumbling block. `A3DGFXElement::GetTexTrans` hands the pixel shader
+`rw = 1/m_fTexWid`, `u0 = rw`, `u1 = -m_fTexU * rw` and the shader samples
+`u0*uv + u1`, while `m_fTexWid` is `TexCol` in tile mode (`CalcTexAnimation`) and
+the vertex UV spans `m_fTexWid` texture widths. The two cancel the grid out of the
+picture: what reaches the sampler is a window exactly one sheet wide, sliding by
+`TexSpeed / TexCol` per second. Writing the raw `TexCol x TexRow` window into the
+vertices (what `flipbook_uv` did) laid 3 x 2 copies of the sheet over every
+waterfall card. Six copies of a soft water cutout fill the gaps the single sheet
+leaves, so the alpha goes uniform, the silhouette flattens into a hard band, and
+the texture is fine enough to read as still — a static bright image over a clock
+and a UV that were both advancing (`clock=122874ms`, `V=-184.311` in
+`CityOfRagingTides.log`).
