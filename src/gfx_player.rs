@@ -9708,7 +9708,14 @@ mod tests {
     /// is not the same axis for a diagonal look, which is what the preview uses.
     #[test]
     fn effect_camera_comes_back_out_of_the_frame_matrix() {
-        for (name, position, direction, aspect, mirrored, near, far) in [
+        // The last entry is the tolerance on the recovered direction. It is
+        // 1e-3 everywhere but the preview, whose depth range is 0.05 to 20,000
+        // — a 400,000:1 ratio — so unprojecting its far plane in `f32` costs
+        // about 1 % of the direction. A reversed forward is a dot product of
+        // -1 and a *distance* of 2.0, which is what this test exists to catch;
+        // 0.02 is four orders of magnitude tighter than that and still five
+        // times looser than the error it has to tolerate.
+        for (name, position, direction, aspect, mirrored, near, far, tolerance) in [
             (
                 "across the world",
                 Vec3::new(2291., 250., -3160.),
@@ -9717,6 +9724,7 @@ mod tests {
                 true,
                 16000.,
                 1.,
+                1e-3,
             ),
             (
                 "at the far edge",
@@ -9726,6 +9734,7 @@ mod tests {
                 true,
                 16000.,
                 1.,
+                1e-3,
             ),
             (
                 "looking down",
@@ -9735,6 +9744,7 @@ mod tests {
                 true,
                 16000.,
                 1.,
+                1e-3,
             ),
             (
                 "plain projection",
@@ -9744,6 +9754,7 @@ mod tests {
                 false,
                 16000.,
                 1.,
+                1e-3,
             ),
             // The preview's own matrix, verbatim (`effect_preview.rs::Shot`):
             // `perspective_rh(45, 1, 0.05, 20_000)` times `look_at_rh`, with no
@@ -9767,6 +9778,7 @@ mod tests {
                 false,
                 0.05,
                 20_000.,
+                0.02,
             ),
         ] {
             let projection = Mat4::perspective_rh(70f32.to_radians(), aspect, near, far);
@@ -9783,8 +9795,8 @@ mod tests {
                 recovered.position
             );
             assert!(
-                (recovered.forward - direction).length() < 0.001,
-                "{name}: forward {:?} is not {direction:?}",
+                (recovered.forward - direction).length() < tolerance,
+                "{name}: forward {:?} is not {direction:?} (tolerance {tolerance})",
                 recovered.forward
             );
             for axis in [recovered.right, recovered.up] {
