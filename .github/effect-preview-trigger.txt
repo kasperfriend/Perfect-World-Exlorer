@@ -1,1 +1,1 @@
-2026-11-13 live-log fix list: sampler wrap/clamp, fractal width+UV, element-generic warp gates, census records mode, lightning strip UV law test (v2: bucket-key tile tie-break)
+2026-11-13 live-log fix list: sampler wrap/clamp, fractal width+UV, element-generic warp gates, census records mode, lightning strip UV law test (v3: rustfmt assert reflow)

@@ -13475,7 +13475,11 @@ mod tests {
                 base.starts_with("lightning")
             })
             .collect();
-        assert!(!quads.is_empty(), "{name} draws its strips: {:?}", player.quads());
+        assert!(
+            !quads.is_empty(),
+            "{name} draws its strips: {:?}",
+            player.quads()
+        );
         for quad in &quads {
             let uv = quad.uv;
             // Pair corners share u; the width sides share v. `UVExchg` swaps
