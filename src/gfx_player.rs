@@ -10917,12 +10917,7 @@ mod tests {
         // corners are all at the same depth, so "the centre's pushed depth" and
         // "each corner's own depth minus the push" agree here, which is what
         // makes the expectation below exact rather than approximate.
-        let corners = [
-            [-1., 1., 0.],
-            [1., 1., 0.],
-            [-1., -1., 0.],
-            [1., -1., 0.],
-        ];
+        let corners = [[-1., 1., 0.], [1., 1., 0.], [-1., -1., 0.], [1., -1., 0.]];
         let depth = |p: Vec3| (p - view.position).dot(view.forward);
         let moved = push_toward_eye(corners, &view, 2.);
         for (index, corner) in moved.iter().enumerate() {
