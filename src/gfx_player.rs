@@ -10479,7 +10479,11 @@ mod tests {
         let after_walk = rng.unit();
         let mut probe = Rng::new(3);
         probe.unit();
-        assert_eq!(after_walk, probe.unit(), "the surface walk skipped the draw");
+        assert_eq!(
+            after_walk,
+            probe.unit(),
+            "the surface walk skipped the draw"
+        );
         // A volume walk scales all three components by the same ratio, which is
         // what `m_vXRange * fRatio` etc. amounts to.
         let mut walk = AverageWalk::default();
@@ -10510,7 +10514,10 @@ mod tests {
         }
         let expected = [0., 0.25, 0.5, 0.75, 1., 0.];
         for (i, (got, want)) in placed.iter().zip(expected).enumerate() {
-            assert!((got - want).abs() < 1e-6, "step {i}: got {got}, want {want}");
+            assert!(
+                (got - want).abs() < 1e-6,
+                "step {i}: got {got}, want {want}"
+            );
         }
     }
 
@@ -10532,8 +10539,14 @@ mod tests {
         let mut rng = Rng::new(23);
         let point = average_sample(&particle, Some(path), &mut walk, &mut rng, Vec3::ONE, 125)
             .expect("the walk has a position");
-        assert!((point.x - 0.).abs() < 1e-5, "the first step is the curve start");
-        assert!((point.length() - 0.5).abs() < 1e-5, "a surface disc sits on Radius");
+        assert!(
+            (point.x - 0.).abs() < 1e-5,
+            "the first step is the curve start"
+        );
+        assert!(
+            (point.length() - 0.5).abs() < 1e-5,
+            "a surface disc sits on Radius"
+        );
         particle.is_surface = false;
         particle.radius = Some(3.);
         for _ in 0..32 {
