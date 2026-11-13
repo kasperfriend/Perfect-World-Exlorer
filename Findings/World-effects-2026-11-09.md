@@ -4789,3 +4789,37 @@ in §57.5 reproduce the same numbers outside the lab. A 654-unit pillar of light
 and a 2514-unit sky shaft are large because the maps author them that way, and
 the remaining reason they dominate a lit scene — `blend=2/4` (`ONE +
 INVSRCCOLOR`) over bright ground — is §57.6's open item, not a size.
+
+### 57.11 The fix, seen on a real placement: `play 0.400 (file 0.400)`, and the sampler the client actually sets
+
+The preview run on `e2fd50c` (frames committed as `dcb06d4`) renders the same
+placements as §57.9 with the fixed player, and the summary lines now read:
+
+```
+场景/天煞光束.gfx at (1528.0, 602.5, 1032.3) night 2 scale 6.54 alpha 0.60,
+  asked 792 ms (shot 0) … player clock 317 ms play 0.400 (file 0.400)
+  asked 3795 ms (shot 3000) … player clock 1518 ms play 0.400 (file 0.400)
+场景/新种族地图/水门_瀑布.gfx at (2618.9, 239.3, -4119.7) … scale 2.74 …
+  asked 3795 ms (shot 3000) … player clock 3795 ms play 1.000
+```
+
+317 = 792 x 0.4 and 1518 = 3795 x 0.4, so the root now runs at the file's rate
+where the same lines read `player clock 792 ms` and `play 1.000 (file 0.400)`
+before. The waterfall, whose file is `PlaySpeed 1.0`, is unchanged at 1.0 —
+the fix moves only the roots that disagreed.
+
+**The sampler question is settled by the client's default.** `A3DDecalEx` writes
+unbounded `m_fTexU/m_fTexV` and the pixel shader turns them into
+`u0 = 1/TexWid, u1 = -TexU * 1/TexWid` (`A3DGFXElement.cpp:1385`,
+`GetTexTrans`), i.e. a window `1/TexWid` wide that slides forever. That can only
+be right with wrapping, and `A3DHLPixelShader.h:110-118` constructs every
+sampler as `addrs[i] = A3DTADDR_WRAP` unless the effect's own `.psh` says
+otherwise. So `gfx_effect_gpu.rs:252` (`AddressMode::Repeat`, with the comment
+about a clamped scroll freezing the sheet) is the client's behaviour, not a
+choice — and the `ClampToEdge` in `gfx_decal_gpu.rs:92` is a different renderer
+for single-sheet static decals, with no `TexSpeed` and no `tile=1` element to
+scroll. Neither line is the bug the reports described.
+
+The published frames agree with the log: at 0 and 3000 ms the waterfall sheet is
+the same authored pattern in two positions (the base foam mounding up and the
+mottling shifted), not a finer or double-tiled version of it.
