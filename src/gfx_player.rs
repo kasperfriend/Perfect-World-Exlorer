@@ -1418,6 +1418,28 @@ impl Player {
                         grid.rows, grid.columns, grid.cell_size, grid.z_offset
                     ),
                 ),
+                // A particle element's `size=` pair is its *sprite* width and
+                // height, which it does not have: the quad is
+                // `ParticleWidth x ParticleHeight` times the particle's own
+                // scale times the root's. Printing the two the file actually
+                // authored is what makes an "oversized emitter" answerable from
+                // this table instead of from a guess.
+                Spec::Particle(particle) => (
+                    particle.width,
+                    particle.height,
+                    format!(
+                        "particle={:.3}x{:.3} scales={:.3}..{:.3} 3d={} facing={} \
+                         rate={:.2}/s ttl={:.2}s",
+                        particle.width,
+                        particle.height,
+                        particle.scale_min.min(particle.scale_max),
+                        particle.scale_max.max(particle.scale_min),
+                        particle.is_3d,
+                        particle.facing,
+                        particle.emission_rate,
+                        particle.ttl
+                    ),
+                ),
                 // A model element has no width or height of its own — its size
                 // is the `.SMD`'s — so the file it loads is the one number a
                 // size report cannot be answered without. Two roots that share
@@ -5012,7 +5034,7 @@ fn emit_particles(
         500,
         "{} id={} live={} quota={} rate={:.2}/s ttl={:.2}s size={:.3}x{:.3} \
          origin={:?} 3d={} billboard={} dir=({:.2},{:.2},{:.2}) speed={:.2} \
-         acc={:.2} angle={:.2} ground={} surface={} bind={} area={:?} radius={:?} \\
+         acc={:.2} angle={:.2} ground={} surface={} bind={} area={:?} radius={:?} \
          scales={:.3}..{:.3} kp={:.3} root={:.3} world={:.2}x{:.2}",
         context.root,
         context.id,

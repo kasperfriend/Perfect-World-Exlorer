@@ -5058,3 +5058,139 @@ unsplit origin. The residual is `(1 - kp) x |Position|` — for the kelp that is
 `0.92 x 0.586 = 0.54` world units of horizontal offset inside a 21-unit tank, and
 it changes no size. Every root in this sweep authors one keypoint per model
 element, so nothing accumulates.
+
+### 57.16 The Archosaur beam, rebuilt from `Fill_Verts_3D` line by line
+
+`天煞光束` is four element-100 cards, all `圆环光\circle032.dds`, two at
+`2 x 50` and two at `1 x 50`, `RotFromView: 1`, one keypoint each, `Scale 1.000`.
+Both records are `direction (0, 0, 1)`, `up (0, ±1, 0)`, `fScale 6.543` and
+`6.977`, so the placement is `diag(-S, -S, S)` and the keypoint's own
+`Direction (0, 1, 0)` turns the card's Z onto world **-Y**: the shaft stands
+vertical, and `vUp = cross(vPos - eye, vDir)` is horizontal, which is why the
+25.6-unit column in the frame is four ribbons crossing, not a wall.
+
+The builder is now `A3DDecalEx::Fill_Verts_3D`'s world-space branch, vertex for
+vertex (`A3DDecalEx.cpp:355-413`):
+
+| client | viewer |
+|---|---|
+| `fWidth1 = m_fWidth1 * kp.m_fScale` (unless `NoScale`) | `w1 = Width*2*OrgPt*kp*scale` |
+| `fWidth1 *= GetActualScale()` | `* basis_scale` (= placement basis length) |
+| `vDir = RotateVec(GetParentDir() * kp.m_vDir, _unit_z)` | `placement.z_axis` |
+| `vUp = normalize(cross(vPos - eye, vDir))` | `(world - view.position) * dir` |
+| `verts[0] = vPos - vDir*H1 + vUp*W2` | corner 0, same signs |
+| `verts[1] = vPos + vDir*H2 + vUp*W2` | corner 1 |
+| `verts[2] = vPos - vDir*H1 - vUp*W1` | corner 2 |
+| `verts[3] = vPos + vDir*H2 - vUp*W1` | corner 3 |
+| `fU = {u, u, u+wid, u+wid}`, `fV = {v+hei, v, v+hei, v}` | `axial_uv(rect)` |
+
+Three things were not one to one before:
+
+1. **Corner order.** The branch returned the same rectangle as
+   `QuadBasis::Element` — `(+w, +h), (-w, +h), (+w, -h), (-w, -h)` — so corner
+   *k* meant a different corner than the client's, and a report that named a
+   corner landed on the opposite one.
+2. **The branch's own flip pairs.** The client swaps `fU[0]↔fU[2]` and
+   `fV[0]↔fV[1]` here, where the local branch swaps `fU[0]↔fU[1]` and
+   `fV[0]↔fV[2]` (`A3DDecalEx.cpp:392-405` against `:398-412` of the local
+   path). Applying the local pairs to this corner order flipped U along the
+   shaft and V across it — the opposite axes. `axial_uv` now hands back the
+   rect in the client's arrangement, and the flips commute with the permutation
+   so `flipbook_uv` still does them in one place.
+3. **`Rad_2D`.** The branch spun the card about its shaft. It must not:
+   `Update_3D` sets `matWorld = bLocal ? GetTranMatrix(kp) * GetParentTM() :
+   _identity_mat4` (`A3DDecalEx.cpp:653`) and `GetTranMatrix` is the **only**
+   place a keypoint spin is applied (`A3DGFXKeyPoint.h:253-259`), so the client
+   draws an unspun world-space card. The forest's 49 `树林光束` records author
+   `Rad_2D 0` and never showed it; any root that does would have been spun twice.
+
+`a_rot_from_view_card_is_the_clients_four_vertices` pins all of it on an
+off-centre pivot (`OrgPt 0.25, 0.75`) and a keypoint that turns the shaft off the
+eye axis, so each of the four corners is distinguishable.
+
+### 57.17 The Wraithgate roots, measured the same way: authored, and one shared multiplier was still wrong
+
+`绿鬼火3` and `骷髅光柱` at `(1908, 231, -1063)` and `(1916, 220, -1020)` are the
+two Wraithgate roots the report names. Every number below is the product the
+client composes, and every one of them matches what the preview drew:
+
+| root | element | authored | `GetActualScale` | drawn |
+|---|---|---|---|---|
+| `绿鬼火3` | 121 `fire.dds` | `ParticleWidth 0.4`, scales `0.100..1.000` | `2.0 x 8.95 = 17.909` | `14.33` at the top of the range |
+| `绿鬼火3` | 121 `gas.dds` | `0.8`, scales `0.100..1.000` | 17.909 | **`28.65`** |
+| `绿鬼火3` | 123 `smoke001.dds` | `0.4`, scales `0.200..1.000` | 17.909 | `14.33` |
+| `骷髅光柱` | 123 `particle014.dds` | `0.8`, scales `0.200..1.000` | `3.0 x 1.00 = 3.000` | `4.80` |
+| `骷髅光柱` | 124 `pattern0192.dds` | `0.7 x 0.2`, scales `1.000` | 3.000 | `4.20` |
+| `骷髅光柱` | 140 `circle038.dds` | `Radius 4`, `Height 30`, `Sects 0` | 3.000 | `12` radius, `90` tall, 36 sections -> `2.09 x 90.02` strip |
+
+`28.65` is the number the frame shows as a green cloud, and it is
+`0.8 x 1.0 x 17.909 x 2`: the map's own record scale (`8.95`, with the file's
+`DedaultScale 2`) on a 0.8-unit particle. The record's neighbours are just as
+plain — `alpha 1.00`, `speed` in range, `night 2` — so this is an authored
+outlier, not a stride error, and the same arithmetic reproduces the ring, the
+skull model and the four sparks.
+
+The one multiplier that *was* wrong in this path is the keypoint scale on a 3D
+particle, and it is the third of the family this document has been chasing:
+
+```cpp
+// A3DParticleSystemEx::Fill_Vert_3D, :945-960
+float fScale = p->m_fScale + p->m_fScaleNoise;
+float fWidth = m_bNoWidthScale ? p->m_fWidth : p->m_fWidth * fScale;
+...
+if (m_bFacing) { fScale = kp.m_fScale * fParentScale; fWidth *= fScale; ... }
+```
+
+versus `Fill_Vert_2D` (`:1241`), which reads all three:
+
+```cpp
+float fScale = (p->m_fScale + p->m_fScaleNoise) * fParentScale * kp.m_fScale;
+```
+
+So a **plain 3D particle ignores its keypoint scale**; a `Facing: 1` 3D one and
+every 2D one take it. The viewer multiplied every particle by `kp`, which
+inflated any 3D emitter whose keypoint is not 1.0 by exactly `kp` — the same
+class of defect as §57.14's model branch, one element class over.
+`a_particles_size_takes_the_keypoint_only_when_it_faces_the_camera` pins the
+three cases; the Wraithgate roots author `Scale 1.000`, so their numbers above
+did not move, which is why the report reads as "this one is oversized" rather
+than "this one changed".
+
+The particle channel was also printing the wrong number for this question — the
+particle's own half width, not the quad. It now prints the authored scale range,
+the keypoint the class applies and the world size:
+
+```
+绿鬼火3.gfx id=121 ... scales=0.100..1.000 kp=1.000 root=17.909 world=14.33x1.43
+```
+
+and the element table prints `particle=WxH scales=.. 3d=.. facing=..` for ids
+120-126 instead of a `size=0.000x0.000` that said nothing.
+
+### 57.18 The size sweep, as a tool: 207 cards, 16 roots, zero unexplained
+
+`tools/effect-size-audit.py` joins the three channels the preview writes —
+`effect-elements` (what the file authored), `effect-frames` (the keypoint that
+ticked) and the card dump (what was submitted) — and recomputes
+
+```
+2 * Width * (DedaultScale * record fScale) * kp.m_fScale
+```
+
+for every 100/101/102 card of every root in the sweep. The root's own scale is
+the render header's `fScale` times the element table's `default_scale`, which is
+`A3DGFXEx::CalcActualScale` (`A3DGFXEx.h:202-206`) — reading the header alone
+flatters every root whose `DedaultScale` is not 1, which is how `树林光束` first
+looked 30 % small to the tool.
+
+First run over the 16 roots of this pass: **207 cards, 0 that match no authored
+size.** The classes the tool does not speak for are the ones with no
+`Width x Height` pair — particles (their own channel, above), the ring (a
+`circumference / sects` strip as wide as its `Height` is tall), and 150/190/210/240,
+which build from authored vertices.
+
+That is the sweep answer for "are any other decals the wrong size": in this
+sample, none. The three shared multipliers this document has now found are the
+ones that were wrong, and each one was invisible to a size audit of its own
+class — `kp` on models (§57.14), `kp` on 3D particles (§57.17), and the tile/UV
+window (§57.1-57.2).
