@@ -438,60 +438,23 @@ impl View {
     /// matrix), which is the one point the inverse's own w cannot represent.
     /// Every value is checked for a finite, non-degenerate result and the
     /// default basis is returned rather than a NaN camera.
+    ///
+    /// **Which end of the ray is the scene** comes from the projection, not from
+    /// an assumption: a matrix whose third row is `w_clip = -z_view`
+    /// (`Mat4::perspective_rh`) puts the front of the scene on the near plane,
+    /// and one with `w_clip = +z_view` puts it on the far plane. This was
+    /// assumed to be the second and is the first, so until it was measured every
+    /// billboard in the *preview* rendered with its basis exactly reversed — an
+    /// error the eye position does not show, because the two conventions cancel
+    /// there.
     pub fn from_inverse_view_projection(inverse: Mat4) -> Self {
-        if !inverse.is_finite() {
-            return Self::default();
-        }
-        let Some(near) = Self::unproject(inverse, 0., 0., 0.) else {
-            return Self::default();
-        };
-        let Some(far) = Self::unproject(inverse, 0., 0., 1.) else {
-            return Self::default();
-        };
-        // The centre ray, from the near plane towards the far plane. In this
-        // right-handed projection that direction points back at the eye, so the
-        // view direction is the other way round.
-        let ray = near - far;
-        if ray.length_squared() < 1e-12 {
-            return Self::default();
-        }
-        let forward = ray.normalize();
-        let Some(right) = Self::unproject(inverse, 1., 0., 1.) else {
-            return Self::default();
-        };
-        let Some(up) = Self::unproject(inverse, 0., 1., 1.) else {
-            return Self::default();
-        };
-        let right = (right - far).normalize_or_zero();
-        let up = (up - far).normalize_or_zero();
-        if right == Vec3::ZERO || up == Vec3::ZERO || right.dot(up).abs() > 0.01 {
-            return Self::default();
-        }
-        // The eye is on the centre ray where the homogeneous w runs out:
-        // `inverse` maps the plane w_clip = 0 to infinity, and that plane is row
-        // 3 of the matrix this one inverted.
-        let a = inverse.inverse().row(3);
-        let plane = a.truncate();
-        let denominator = plane.dot(forward);
-        if !denominator.is_finite() || denominator.abs() < 1e-9 {
-            return Self::default();
-        }
-        let position = near + forward * (-(plane.dot(near) + a.w) / denominator);
-        if !position.is_finite() {
-            return Self::default();
-        }
-        Self {
-            position,
-            right,
-            up,
-            forward,
-        }
+        Self::try_from_inverse_view_projection(inverse).unwrap_or_else(|_| Self::default())
     }
 
     /// [`Self::from_inverse_view_projection`], but saying why it gave up.
     ///
-    /// The fallible version returns `Self::default()`, which puts the eye at the
-    /// world origin. That is safe for a caller that only needs a basis, and
+    /// The infallible version returns `Self::default()`, which puts the eye at
+    /// the world origin. That is safe for a caller that only needs a basis, and
     /// dangerous for a caller that reports how many effects are playing: a
     /// degenerate frame made every billboard face (0,0,0) and the caller had no
     /// way to tell that from "the map has no effects near you". The world pass
@@ -508,25 +471,58 @@ impl View {
         if ray.length_squared() < 1e-12 {
             return Err("effect camera: near and far rays coincide".into());
         }
-        let forward = ray.normalize();
-        let right = Self::unproject(inverse, 1., 0., 1.)
-            .ok_or("effect camera: right ray has no finite w")?;
-        let up =
-            Self::unproject(inverse, 0., 1., 1.).ok_or("effect camera: up ray has no finite w")?;
-        let right = (right - far).normalize_or_zero();
-        let up = (up - far).normalize_or_zero();
-        if right == Vec3::ZERO || up == Vec3::ZERO || right.dot(up).abs() > 0.01 {
-            return Err("effect camera: axes are degenerate or not perpendicular".into());
-        }
+        // Row 3 of the matrix is `w_clip`, and its gradient along the centre ray
+        // is the sign that says which end of that ray is the scene: a matrix
+        // whose third row is `w_clip = -z_view` (`Mat4::perspective_rh`, and
+        // every projection this viewer builds) makes `w` grow towards the eye, so
+        // the *near* plane is the front and the ray already runs into the scene.
+        // One with `w_clip = +z_view` puts the front on the far plane and the ray
+        // points back at the eye.
+        //
+        // This used to be assumed rather than read, and the assumption was the
+        // second one. The eye position does not show the mistake — the two
+        // conventions cancel there — so the preview, whose matrix is
+        // `perspective_rh`, rendered every billboard with its basis exactly
+        // reversed while its sizes and clock read correctly.
         let a = inverse.inverse().row(3);
         let plane = a.truncate();
-        let denominator = plane.dot(forward);
+        if !plane.is_finite() {
+            return Err("effect camera: the projection's w row is not finite".into());
+        }
+        let denominator = plane.dot(ray);
         if !denominator.is_finite() || denominator.abs() < 1e-9 {
             return Err("effect camera: eye ray runs parallel to the w=0 plane".into());
         }
-        let position = near + forward * (-(plane.dot(near) + a.w) / denominator);
+        let position = near + ray * (-(plane.dot(near) + a.w) / denominator);
         if !position.is_finite() {
             return Err("effect camera: eye position is not finite".into());
+        }
+        let forward = if denominator > 0. {
+            ray.normalize()
+        } else {
+            -ray.normalize()
+        };
+        let (Some(right), Some(up)) = (
+            Self::unproject(inverse, 1., 0., 1.),
+            Self::unproject(inverse, 0., 1., 1.),
+        ) else {
+            return Err("effect camera: screen axes have no finite w".into());
+        };
+        // The screen axes are read off the far plane's corners relative to its
+        // own centre, so the pair is a pure direction and the eye's distance does
+        // not scale it.
+        let mut right = (right - far).normalize_or_zero();
+        let mut up = (up - far).normalize_or_zero();
+        if right == Vec3::ZERO || up == Vec3::ZERO || right.dot(up).abs() > 0.01 {
+            return Err("effect camera: axes are degenerate or not perpendicular".into());
+        }
+        // Orient them the way the viewer's own basis is built — `right × up`
+        // points back at the eye, matching `View::default` and the row convention
+        // `A3DFuncs.cpp` writes — which also undoes the mirror a clip-space
+        // handedness flip puts into one screen axis.
+        if right.cross(up).dot(forward) > 0. {
+            right = -right;
+            up = -up;
         }
         Ok(Self {
             position,
@@ -536,7 +532,6 @@ impl View {
         })
     }
 
-    /// Inverse-project one NDC point and divide through by w, which is the step
     /// `Mat4::transform_point3` leaves out.
     fn unproject(inverse: Mat4, x: f32, y: f32, z: f32) -> Option<Vec3> {
         let homogeneous = inverse * Vec4::new(x, y, z, 1.);
@@ -9703,15 +9698,25 @@ mod tests {
     /// viewer applies. Both are checked here on the viewer's own projection
     /// (mirrored scale, 70-degree perspective) and on a plain one, so the method
     /// has to work with and without the handedness flip.
+    ///
+    /// The third convention is the **preview's**: `Mat4::perspective_rh` with no
+    /// mirror at all (`effect_preview.rs`), whose centre ray points into the
+    /// scene from the near plane. The forward direction of that one used to come
+    /// back reversed, and this test only passed because every case it had was
+    /// either mirrored or an identity-direction camera — where `-Z` and `+Z` are
+    /// the same axis and the reversed answer was folded into the comparison. It
+    /// is not the same axis for a diagonal look, which is what the preview uses.
     #[test]
     fn effect_camera_comes_back_out_of_the_frame_matrix() {
-        for (name, position, direction, aspect, mirrored) in [
+        for (name, position, direction, aspect, mirrored, near, far) in [
             (
                 "across the world",
                 Vec3::new(2291., 250., -3160.),
                 Vec3::new(0.3, -0.2, 0.9).normalize(),
                 16. / 9.,
                 true,
+                16000.,
+                1.,
             ),
             (
                 "at the far edge",
@@ -9719,6 +9724,8 @@ mod tests {
                 Vec3::new(-0.5, 0.1, 0.8).normalize(),
                 1.,
                 true,
+                16000.,
+                1.,
             ),
             (
                 "looking down",
@@ -9726,6 +9733,8 @@ mod tests {
                 Vec3::new(0.01, -1.0, 0.02).normalize(),
                 1.6,
                 true,
+                16000.,
+                1.,
             ),
             (
                 "plain projection",
@@ -9733,9 +9742,26 @@ mod tests {
                 Vec3::new(0., 0., -1.),
                 1.,
                 false,
+                16000.,
+                1.,
+            ),
+            // The preview's own matrix, verbatim (`effect_preview.rs::Shot`):
+            // `perspective_rh(45, 1, 0.05, 20_000)` times `look_at_rh`, with no
+            // clip-space mirror, looking diagonally so a reversed forward cannot
+            // hide inside a symmetric axis. This is the case that was wrong: the
+            // near/far arguments are reversed relative to the world pass's, and
+            // the forward direction came back exactly negated.
+            (
+                "preview camera",
+                Vec3::new(2792.99, 276.72, -2623.63),
+                Vec3::new(-0.539, -0.342, -0.7698),
+                1.,
+                false,
+                0.05,
+                20_000.,
             ),
         ] {
-            let projection = Mat4::perspective_rh(70f32.to_radians(), aspect, 16000., 1.);
+            let projection = Mat4::perspective_rh(70f32.to_radians(), aspect, near, far);
             let view = Mat4::look_to_rh(position, direction, Vec3::Y);
             let matrix = if mirrored {
                 Mat4::from_scale(Vec3::new(-1., 1., 1.)) * projection * view
